@@ -1088,6 +1088,7 @@ async def test_the_package_import_holds_the_familys_locks_from_its_snapshot_unti
             FamilyImportDatasetSummary(dataset_type="snv", status="valid")
         ],
         "_import_dataset": failing_dataset,
+        "copy_variants_to_linked_projects": step("copy to linked projects", False),
         "snapshot_family_postgres_state": step("snapshot", {"rows": []}),
         "snapshot_family_clickhouse_state": step("snapshot ClickHouse", object()),
         "restore_family_clickhouse_state": restore,
@@ -1112,6 +1113,9 @@ async def test_the_package_import_holds_the_familys_locks_from_its_snapshot_unti
     assert trace[: trace.index("rewrite SVs") + 1] == [
         f"lock {_key(SMALL_VARIANTS)}",
         f"lock {_key(STRUCTURAL_VARIANTS)}",
+        # Each project of the family gets the callsets it lacks under the locks, before the
+        # snapshot, so the restore keeps them.
+        "copy to linked projects",
         "snapshot",
         "snapshot ClickHouse",
         "dataset",

@@ -29,6 +29,7 @@ from .family_metadata_context import (
     build_family_metadata_context,
     family_sample_contexts,
 )
+from .family_project_variants import copy_variants_to_linked_projects
 from .family_variant_write_lock import (
     VariantWriteHoldLost,
     hold_family_variant_writes,
@@ -709,6 +710,19 @@ async def _execute_family_package_import_local(
             await _mark_family_import_unfinished(
                 session, family_uuid=family_context.family_uuid, mark=import_mark
             )
+            # Each project an existing family is linked to gets the callsets it holds none
+            # of, before the snapshot (in the dataset loop), so a restore keeps them: the
+            # import writes only its own datasets, under each of the family's projects, and
+            # an update leaves out those stored. A project the import linked the family to
+            # would otherwise show only what the import wrote (the owner's decisions of
+            # 2026-11-10: before the snapshot, at every import).
+            if not family_created and await copy_variants_to_linked_projects(
+                session, family_context.family_uuid, family_context.assembly_name
+            ):
+                logs.append(
+                    "Copied the family's stored variants to the projects it is linked to "
+                    "that held none of them."
+                )
         except Exception:
             await _end_import_failed_before_datasets(
                 session, family_id=family_context.family_id, mark=import_mark

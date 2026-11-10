@@ -6,6 +6,7 @@ import secrets
 from typing import Any, Collection, Iterable, Sequence
 
 from ..core.clickhouse import execute_clickhouse
+from ..core.coga_logging import describe_error
 from ..core.config import settings
 from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
@@ -1637,46 +1638,72 @@ async def copy_family_variants_to_projects(
       import that adds a project to a family writes only the callsets it imports.
 
     A linked project's rows are never deleted here, so a step that fails part-way leaves every
-    project the family is linked to as it was. The rows of the projects the family leaves go
-    once it has left them (:func:`prune_family_variant_projects`). The caller holds the
-    family's variant-write locks, both types (``family_variant_write_lock``).
+    project the family is linked to as it was: a copy whose insert fails removes what it may
+    have written of the callset (:func:`_copy_callset`). The rows of the projects the family
+    leaves go once it has left them (:func:`prune_family_variant_projects`). The caller holds
+    the family's variant-write locks, both types (``family_variant_write_lock``).
     """
     await ensure_clickhouse_variant_tables(assembly_name)
     targets = _normalized_project_ids(project_ids)
     linked = set(_normalized_project_ids(linked_project_ids))
     written: set[str] = set()
-    for kind, table, columns in _project_scoped_entry_tables(assembly_name):
-        by_source = await _family_rows_by_source_and_project(table, family_uuid)
-        for source, stored in sorted(by_source.items()):
-            origin = _copy_origin(stored, linked)
-            for project in targets:
-                if project == origin or (project in linked and project in stored):
-                    continue
-                params = {"family_guid": family_uuid, "source": source, "origin": origin, "project": project}
-                if project in stored:
-                    await _execute(
-                        f"ALTER TABLE {table} DELETE WHERE family_guid = %(family_guid)s "
-                        "AND project_guid = %(project)s AND source = %(source)s "
-                        "SETTINGS mutations_sync = 1",
-                        params,
-                    )
-                selected = ", ".join(
-                    "%(project)s" if column == "project_guid" else f"`{column}`" for column in columns
-                )
-                await _execute(
-                    f"INSERT INTO {table} ({', '.join(f'`{column}`' for column in columns)}) "
-                    f"SELECT {selected} FROM {table} "
-                    "WHERE family_guid = %(family_guid)s AND project_guid = %(origin)s "
-                    "AND source = %(source)s AND sign = 1",
-                    params,
-                )
-                written.add(kind)
-    if _SMALL in written:
-        # Counted per project from the entries; it moves the data version too.
-        await refresh_family_small_variant_summaries(assembly_name, family_uuid)
-    if _STRUCTURAL in written:
-        await bump_family_structural_variant_data_version(assembly_name, family_uuid)
+    try:
+        for kind, table, columns in _project_scoped_entry_tables(assembly_name):
+            by_source = await _family_rows_by_source_and_project(table, family_uuid)
+            for source, stored in sorted(by_source.items()):
+                origin = _copy_origin(stored, linked)
+                for project in targets:
+                    if project == origin or (project in linked and project in stored):
+                        continue
+                    params = {"family_guid": family_uuid, "source": source, "origin": origin, "project": project}
+                    await _copy_callset(table, columns, params, replace=project in stored)
+                    written.add(kind)
+    finally:
+        # What was copied is counted, and its cached reads dropped, also when the copy of a
+        # later callset failed.
+        if _SMALL in written:
+            # Counted per project from the entries; it moves the data version too.
+            await refresh_family_small_variant_summaries(assembly_name, family_uuid)
+        if _STRUCTURAL in written:
+            await bump_family_structural_variant_data_version(assembly_name, family_uuid)
     return bool(written)
+
+
+async def _copy_callset(table: str, columns: Sequence[str], params: dict[str, Any], *, replace: bool) -> None:
+    """Copy the family's rows of one callset (``params["source"]``) from the project
+    ``params["origin"]`` to ``params["project"]``, deleting first what the project holds of it
+    when ``replace``.
+
+    ClickHouse writes an ``INSERT … SELECT`` in blocks, so one that fails may have written part
+    of the callset, and the project held none of it before: a part no reader can tell from
+    the whole, which a later copy would leave as it is in a project the family is linked to.
+    So what the project holds of the callset goes again, and the insert's error is raised. A
+    delete that fails as well is logged by its kind."""
+    delete = (
+        f"ALTER TABLE {table} DELETE WHERE family_guid = %(family_guid)s "
+        "AND project_guid = %(project)s AND source = %(source)s "
+        "SETTINGS mutations_sync = 1"
+    )
+    if replace:
+        await _execute(delete, params)
+    selected = ", ".join("%(project)s" if column == "project_guid" else f"`{column}`" for column in columns)
+    try:
+        await _execute(
+            f"INSERT INTO {table} ({', '.join(f'`{column}`' for column in columns)}) "
+            f"SELECT {selected} FROM {table} "
+            "WHERE family_guid = %(family_guid)s AND project_guid = %(origin)s "
+            "AND source = %(source)s AND sign = 1",
+            params,
+        )
+    except Exception:
+        try:
+            await _execute(delete, params)
+        except Exception as cleanup_error:  # noqa: BLE001 - the insert's error is raised; no values logged
+            logger.warning(
+                "Could not remove what a failed copy of a family's callset to a project wrote: %s",
+                describe_error(cleanup_error),
+            )
+        raise
 
 
 async def prune_family_variant_projects(

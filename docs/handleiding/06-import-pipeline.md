@@ -219,6 +219,8 @@ Elke bevinding heeft een vaste `code`, zodat de UI en een auditor een fout eendu
 
 Eerst registreert de import de familie en de herkomst, daarna volgen de datasets één voor één. Grote aantallen variantrijen gaan naar **ClickHouse**; metadata, herkomst en brongegevens per sample naar **Postgres**.
 
+**Een bestaande familie in een ander project.** Het registreren koppelt een bestaande familie ook aan het project van de import. Een import schrijft alleen zijn eigen datasets, onder elk project van de familie, en een `update` slaat de opgeslagen over. Daarom krijgt elk project van de familie, zodra de import haar schrijfsloten houdt en vóór de snapshot, per callset een kopie van de small en structurele varianten die het nog niet heeft (`copy_variants_to_linked_projects`, bij elke import van een bestaande familie). Wie alleen het nieuwe project ziet, ziet zo alle varianten van de familie, en een mislukte import die de familie terugzet, houdt de kopie, zoals hij de koppeling houdt. Een callset die de import daarna herschrijft, is voor niets gekopieerd; dat gebeurt alleen bij de eerste import in een nieuw project. Een project op een andere assembly dan de opgeslagen varianten van de familie wordt geweigerd vóór de familie gemarkeerd of gekoppeld wordt (beslissingen van de eigenaar, 2026-11-10). Een PED-upload koppelt nooit een bestaande familie aan een project: hij weigert de familie (`409`) of vervangt haar, met haar varianten, door een nieuwe (hoofdstuk 3).
+
 | Bron in het pakket | Doel | Databank |
 | --- | --- | --- |
 | `snv`, `mito`, `haplotypes` (VCF) | Small variants (bij `haplotypes` ook haplotypeblokken als interval-track) | ClickHouse |

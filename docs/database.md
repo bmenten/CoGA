@@ -848,6 +848,23 @@ family's projects touched Postgres only, and a family moved to another project s
 or structural variants. Such a family's rows reach its projects at the next change of
 them, or when the same projects are saved again through the API.
 
+A package import into an existing family links it to the import's project too, when
+registering the family, and then writes only the datasets it imports, under each of the
+family's projects; an update leaves out those stored. So once the import holds the family's
+variant-write locks, before its snapshot, each project the family is linked to gets, per
+callset, a copy of the rows it holds none of (`copy_variants_to_linked_projects`, at every
+import of an existing family). The snapshot then holds the copies, and a failed import's
+restore keeps them, as it keeps the link. A callset the import then rewrites is copied for
+nothing; only the first import into a new project pays that. An import into a project on
+another assembly than the family's stored variants is refused before the family is marked
+or linked (owner's decisions, 2026-11-10). A family an import linked to a project before this
+gets its rows there at its next import. A PED upload never links an existing family to
+a project: it refuses the family (409) or replaces it, with its variants, by a new one.
+
+A copy whose `INSERT … SELECT` fails deletes what the project then holds of that callset,
+which it held none of before, and raises: ClickHouse writes the insert in blocks, and a part
+left in a linked project would read as the whole callset, which no later copy replaces.
+
 #### Tables with a different row identity
 
 A table's sort key is fixed when ClickHouse creates it. At startup, and before it creates an

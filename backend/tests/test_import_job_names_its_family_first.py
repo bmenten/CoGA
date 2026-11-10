@@ -36,7 +36,7 @@ from backend.app.services import family_package_import as package_import
 from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-from backend.tests._family_import_fakes import admin_user, two_sample_context
+from backend.tests._family_import_fakes import admin_user, no_variant_copy, two_sample_context
 
 FAMILY = "FAM001"
 JOB = "00000000-0000-0000-0000-0000000000a1"
@@ -255,6 +255,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
         "_existing_package_entity_warnings": no_warnings,
         "_ensure_family_from_ped": register,
         "hold_family_variant_writes": hold,
+        "copy_variants_to_linked_projects": no_variant_copy,
         "_enabled_dataset_summaries": lambda _validation: [
             FamilyImportDatasetSummary(dataset_type="snv", status="valid")
         ],

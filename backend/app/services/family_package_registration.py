@@ -55,6 +55,7 @@ from .family_metadata_context import (
     _resolve_family_assembly,
     build_family_metadata_context,
 )
+from .family_project_variants import refuse_project_on_other_assembly
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .hpo_service import PHENOTYPES_ROLLED_BACK, PhenotypeImport, record_phenotypes_deleted_with_family
 from .access_control import CurrentUser
@@ -1905,6 +1906,16 @@ async def _ensure_family_from_ped(
                 "Existing family has different sample IDs; refusing to attach package import "
                 f"to {family_id}"
             )
+        if resolved_project_id is not None:
+            # The family is linked to the import's project below: one on another assembly
+            # than its stored variants is refused, as for a change of its projects, before
+            # the family is marked or linked (the owner's decision of 2026-11-10).
+            try:
+                await refuse_project_on_other_assembly(
+                    session, str(existing["family_uuid"]), resolved_project_id
+                )
+            except HTTPException as refused:
+                raise ImportRefused(str(refused.detail)) from None
         if import_mark is not None:
             # Before the first write of the family.
             await _mark_family_import_unfinished(

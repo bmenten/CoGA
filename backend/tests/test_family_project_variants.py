@@ -28,11 +28,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from contextlib import asynccontextmanager
+from pathlib import Path
+
 import pytest
 from fastapi import HTTPException
 
+from backend.app.core.config import settings
 from backend.app.services import clickhouse_variant_storage as storage
+from backend.app.services import family_package_import as package_import
+from backend.app.services import family_package_registration as registration
 from backend.app.services import family_project_variants, metadata_service
+from backend.app.services.family_package_common import ImportRefused, PackageExecutionResult
+from backend.tests._family_import_fakes import admin_user, two_sample_context
 
 ASSEMBLY = "GRCh38"
 FAMILY = "00000000-0000-4000-8000-0000000000f1"
@@ -502,3 +510,357 @@ async def test_a_failed_prune_is_logged_not_raised(monkeypatch, caplog) -> None:
     assert "Could not remove a family's variant rows under the projects it left" in caplog.text
     # The error is named, never quoted: its text can carry query values.
     assert "synthetic ClickHouse failure" not in caplog.text
+
+
+# --- a copy that fails part-way -------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_failed_copy_removes_what_it_may_have_written_and_raises(clickhouse, monkeypatch) -> None:
+    # B is linked and holds none of needlr; the insert fails, possibly after writing part of
+    # it. What B holds of needlr goes again, so the next copy writes it whole, and B holds
+    # none of it rather than a part no reader can tell from the whole.
+    fake = clickhouse({"clair3": {A: 10}}, {"needlr": {A: 3}})
+    execute = fake.execute
+
+    async def insert_fails_for_svs(query: str, params: dict[str, Any] | None = None, data: Any = None) -> Any:
+        result = await execute(query, params, data)
+        if query.startswith("INSERT INTO") and "/SV/" in query:
+            raise RuntimeError("synthetic ClickHouse failure")
+        return result
+
+    monkeypatch.setattr(storage, "_execute", insert_fails_for_svs)
+
+    with pytest.raises(RuntimeError, match="synthetic ClickHouse failure"):
+        await _copy([A, B], [A, B])
+
+    assert [(kind, verb, params["project"], params["source"]) for kind, verb, params in fake.writes()] == [
+        ("SNV_INDEL", "INSERT", B, "clair3"),
+        ("SV", "INSERT", B, "needlr"),
+        ("SV", "DELETE", B, "needlr"),
+    ]
+    # The small variants copied before the failure are counted, the SVs left as they were.
+    assert (fake.refreshed, fake.bumped) == (1, 0)
+
+
+@pytest.mark.asyncio
+async def test_a_removal_that_fails_after_a_failed_copy_is_logged_by_its_kind(clickhouse, monkeypatch, caplog) -> None:
+    fake = clickhouse({"clair3": {A: 10}})
+    execute = fake.execute
+
+    async def every_write_fails(query: str, params: dict[str, Any] | None = None, data: Any = None) -> Any:
+        result = await execute(query, params, data)
+        if query.startswith("INSERT INTO"):
+            raise RuntimeError("synthetic insert failure")
+        if query.startswith("ALTER TABLE"):
+            raise RuntimeError("synthetic delete failure quoting PROBAND")
+        return result
+
+    monkeypatch.setattr(storage, "_execute", every_write_fails)
+
+    with caplog.at_level("WARNING"), pytest.raises(RuntimeError, match="synthetic insert failure"):
+        await _copy([B], [A, B])
+
+    assert "Could not remove what a failed copy of a family's callset to a project wrote" in caplog.text
+    # Named by its kind, never quoted: its text can carry query values.
+    assert "PROBAND" not in caplog.text
+    assert (fake.refreshed, fake.bumped) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_a_copy_that_replaces_rows_removes_them_again_when_its_insert_fails(clickhouse, monkeypatch) -> None:
+    # C is not linked yet and holds rows left from an earlier change: deleted, the insert
+    # fails, and C holds none of the callset.
+    fake = clickhouse({"clair3": {A: 10, C: 4}})
+    execute = fake.execute
+
+    async def insert_fails(query: str, params: dict[str, Any] | None = None, data: Any = None) -> Any:
+        result = await execute(query, params, data)
+        if query.startswith("INSERT INTO"):
+            raise RuntimeError("synthetic ClickHouse failure")
+        return result
+
+    monkeypatch.setattr(storage, "_execute", insert_fails)
+
+    with pytest.raises(RuntimeError):
+        await _copy([A, C], [A])
+
+    assert [(verb, params["project"]) for _kind, verb, params in fake.writes()] == [
+        ("DELETE", C),
+        ("INSERT", C),
+        ("DELETE", C),
+    ]
+
+
+# --- a package import that links an existing family to a project ---------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_import_fills_every_linked_project_with_the_callsets_it_lacks(monkeypatch) -> None:
+    seen: list[tuple[str, str, list[str], list[str]]] = []
+
+    async def projects(_session, _family):
+        return [A, B]
+
+    async def copy(assembly, family, *, project_ids, linked_project_ids):
+        seen.append((assembly, family, project_ids, linked_project_ids))
+        return True
+
+    monkeypatch.setattr(family_project_variants, "linked_project_ids", projects)
+    monkeypatch.setattr(family_project_variants, "copy_family_variants_to_projects", copy)
+
+    assert await family_project_variants.copy_variants_to_linked_projects(None, FAMILY, ASSEMBLY) is True
+    # Every linked project is a target and counts as linked: one holding none of a callset
+    # gets it, and no linked project's rows are replaced.
+    assert seen == [(ASSEMBLY, FAMILY, [A, B], [A, B])]
+
+
+@pytest.mark.asyncio
+async def test_an_import_without_an_assembly_or_a_family_copies_nothing(monkeypatch) -> None:
+    async def projects(_session, _family):
+        return None
+
+    async def copy(*_args, **_kwargs):  # pragma: no cover - must not run
+        raise AssertionError("copied")
+
+    monkeypatch.setattr(family_project_variants, "linked_project_ids", projects)
+    monkeypatch.setattr(family_project_variants, "copy_family_variants_to_projects", copy)
+
+    assert await family_project_variants.copy_variants_to_linked_projects(None, FAMILY, None) is False
+    assert await family_project_variants.copy_variants_to_linked_projects(None, FAMILY, ASSEMBLY) is False
+
+
+@pytest.mark.asyncio
+async def test_an_import_into_a_project_on_another_assembly_is_refused(monkeypatch) -> None:
+    checked: list[tuple[list[str], list[str]]] = []
+
+    async def projects(_session, _family):
+        return [A]
+
+    async def assemblies(_session, _family, *, linked, project_ids):
+        checked.append((linked, project_ids))
+        if project_ids == [C]:
+            raise HTTPException(status_code=409, detail="The family's variants are stored on GRCh38.")
+        return [ASSEMBLY]
+
+    monkeypatch.setattr(family_project_variants, "linked_project_ids", projects)
+    monkeypatch.setattr(family_project_variants, "family_variant_assemblies", assemblies)
+
+    with pytest.raises(HTTPException) as refused:
+        await family_project_variants.refuse_project_on_other_assembly(None, FAMILY, C)
+    assert refused.value.status_code == 409
+    await family_project_variants.refuse_project_on_other_assembly(None, FAMILY, B)
+    # A project the family is linked to already is not checked.
+    await family_project_variants.refuse_project_on_other_assembly(None, FAMILY, A)
+
+    assert checked == [([A], [C]), ([A], [B])]
+
+
+# --- where the package import runs the copy ------------------------------------------------
+
+
+def _import_steps(monkeypatch, tmp_path: Path, *, created: bool, copy_fails: bool = False) -> list[str]:
+    """Run the import's own steps over stand-ins of registration, the variant-write hold,
+    the mark, the copy and the dataset loop (whose first step is the snapshot), recording
+    their order."""
+    steps: list[str] = []
+    root = tmp_path / "FAM001"
+    root.mkdir()
+    (root / "family.ped").write_text("FAM001 S1 0 0 1 2\nFAM001 S2 0 0 2 1\n", encoding="utf-8")
+    (root / "manifest.yaml").write_text("schema_version: 1\nfamily_id: FAM001\nped: family.ped\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+
+    async def register(_session, **_kwargs):
+        steps.append("register (links the project)")
+        return two_sample_context(), created
+
+    @asynccontextmanager
+    async def hold(_family_uuid, **_kwargs):
+        steps.append("hold the locks")
+        yield
+        steps.append("release the locks")
+
+    async def mark(_session, **_kwargs):
+        steps.append("mark")
+
+    async def copy(_session, family_uuid, assembly_name):
+        steps.append(f"copy {family_uuid} on {assembly_name}")
+        if copy_fails:
+            raise RuntimeError("synthetic ClickHouse failure")
+        return True
+
+    async def datasets(_session, *, validation, datasets, logs, family_context, **_kwargs):
+        steps.append("snapshot, then the datasets")
+        return PackageExecutionResult(
+            validation=validation, datasets=datasets, logs=logs, family_id=family_context.family_id, completed=True
+        )
+
+    async def failed_before_datasets(_session, **_kwargs):
+        steps.append("flag the failure")
+
+    async def nothing(*_args, **_kwargs):
+        return []
+
+    for name, value in {
+        "_ensure_family_from_ped": register,
+        "hold_family_variant_writes": hold,
+        "_mark_family_import_unfinished": mark,
+        "copy_variants_to_linked_projects": copy,
+        "_import_family_datasets": datasets,
+        "_end_import_failed_before_datasets": failed_before_datasets,
+        "_existing_package_entity_warnings": nothing,
+        "register_declared_files": nothing,
+    }.items():
+        monkeypatch.setattr(package_import, name, value)
+    return steps
+
+
+async def _run_import(tmp_path: Path) -> PackageExecutionResult:
+    return await package_import.execute_family_package_import(
+        object(),  # type: ignore[arg-type]
+        folder_path=tmp_path / "FAM001",
+        project_id=B,
+        dry_run=False,
+        user=admin_user(),
+        conflict_mode="update",
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_import_into_an_existing_family_copies_under_the_locks_before_its_snapshot(monkeypatch, tmp_path) -> None:
+    steps = _import_steps(monkeypatch, tmp_path, created=False)
+
+    result = await _run_import(tmp_path)
+
+    assert result.completed is True
+    assert steps == [
+        "register (links the project)",
+        "hold the locks",
+        "mark",
+        f"copy family-uuid on {ASSEMBLY}",
+        "snapshot, then the datasets",
+        "release the locks",
+    ]
+    assert "Copied the family's stored variants to the projects it is linked to that held none of them." in result.logs
+
+
+@pytest.mark.asyncio
+async def test_an_import_that_creates_the_family_copies_nothing(monkeypatch, tmp_path) -> None:
+    steps = _import_steps(monkeypatch, tmp_path, created=True)
+
+    await _run_import(tmp_path)
+
+    assert not any(step.startswith("copy") for step in steps)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_copy_fails_the_import_before_its_snapshot(monkeypatch, tmp_path) -> None:
+    steps = _import_steps(monkeypatch, tmp_path, created=False, copy_fails=True)
+
+    with pytest.raises(RuntimeError, match="synthetic ClickHouse failure"):
+        await _run_import(tmp_path)
+
+    # The import's mark becomes the failure flag naming its datasets, while it holds the
+    # locks; no dataset ran.
+    assert steps == [
+        "register (links the project)",
+        "hold the locks",
+        "mark",
+        f"copy family-uuid on {ASSEMBLY}",
+        "flag the failure",
+    ]
+
+
+# --- the import's registration --------------------------------------------------------------
+
+
+def _registration(monkeypatch, *, refuse: bool) -> list[str]:
+    """Registration of an existing family, recording the import's mark and its link."""
+    steps: list[str] = []
+
+    async def resolve(_session, _user, project_id):
+        return project_id
+
+    async def existing(_session, *, family_id):
+        return {"family_uuid": FAMILY, "metadata": {}, "sample_ids": ["S1", "S2"]}
+
+    async def refuse_other_assembly(_session, family_uuid, project_id):
+        steps.append(f"check {project_id}")
+        if refuse:
+            raise HTTPException(status_code=409, detail="The family's variants are stored on GRCh38.")
+
+    async def mark(_session, **_kwargs):
+        steps.append("mark")
+
+    monkeypatch.setattr(registration.ped_service, "_resolve_accessible_project_id", resolve)
+    monkeypatch.setattr(registration, "_fetch_existing_family", existing)
+    monkeypatch.setattr(registration, "_package_family_id", lambda _validation, _bundle: "FAM001")
+    monkeypatch.setattr(registration, "refuse_project_on_other_assembly", refuse_other_assembly)
+    monkeypatch.setattr(registration, "_mark_family_import_unfinished", mark)
+    return steps
+
+
+class _LinkSession:
+    def __init__(self, steps: list[str]) -> None:
+        self.steps = steps
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        self.steps.append(" ".join(sql.split(" ")[:3]))
+
+    async def commit(self) -> None:
+        self.steps.append("commit")
+
+
+@pytest.mark.asyncio
+async def test_an_import_into_a_project_on_another_assembly_is_refused_before_the_family_is_marked(monkeypatch) -> None:
+    steps = _registration(monkeypatch, refuse=True)
+    bundle = type("Bundle", (), {"ped": type("Ped", (), {"sample_ids": ["S1", "S2"]})()})()
+
+    with pytest.raises(ImportRefused, match="stored on GRCh38"):
+        await registration._ensure_family_from_ped(
+            _LinkSession(steps),  # type: ignore[arg-type]
+            bundle=bundle,  # type: ignore[arg-type]
+            project_id=C,
+            user=admin_user(),
+            validation=None,  # type: ignore[arg-type]
+            conflict_mode="update",
+            import_mark=object(),  # type: ignore[arg-type]
+        )
+
+    # Nothing of the family was written: not its mark, not the link.
+    assert steps == [f"check {C}"]
+
+
+class _Registered(Exception):
+    """Stops registration once the family's links have committed."""
+
+
+@pytest.mark.asyncio
+async def test_an_import_into_a_project_on_the_familys_assembly_is_checked_then_marked_then_linked(monkeypatch) -> None:
+    steps = _registration(monkeypatch, refuse=False)
+    bundle = type("Bundle", (), {"ped": type("Ped", (), {"sample_ids": ["S1", "S2"]})()})()
+
+    async def context(*_args, **_kwargs):
+        raise _Registered
+
+    monkeypatch.setattr(registration, "build_family_metadata_context", context)
+
+    with pytest.raises(_Registered):
+        await registration._ensure_family_from_ped(
+            _LinkSession(steps),  # type: ignore[arg-type]
+            bundle=bundle,  # type: ignore[arg-type]
+            project_id=B,
+            user=admin_user(),
+            validation=None,  # type: ignore[arg-type]
+            conflict_mode="update",
+            import_mark=object(),  # type: ignore[arg-type]
+        )
+
+    assert steps == [
+        f"check {B}",
+        "mark",
+        "INSERT INTO family_projects",
+        "INSERT INTO sample_projects",
+        "commit",
+    ]
