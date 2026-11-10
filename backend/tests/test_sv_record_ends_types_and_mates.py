@@ -1,29 +1,21 @@
 """Every SV reader positions, types and pairs a record as VCF 4.4 defines it: its END, its
 SVTYPE, a breakend's mate and whether it has a length (CLIN-33, CLIN-37, CLIN-39).
 
-Merged from ``test_sv_records_without_end_or_svtype.py`` (CLIN-33, CLIN-37, and CLIN-39's
-records whose extent is not stated) and ``test_sv_ends_and_mates.py`` (CLIN-39's one rule for
-every reader); each fix's account follows.
-
 **A record that leaves END or SVTYPE out (CLIN-33, CLIN-37).** VCF 4.4 lets a
 structural-variant record leave both out: SVTYPE is deprecated as redundant with ALT, and a
-symbolic allele without END has it "computed from the SVLEN field". The Sniffles and Spectre
-uploads read a record without END as ending at its POS, so a deletion written with SVLEN alone
-lay on one base: the upload lists an SV with the genes its POS-END span overlaps, so the
-deletion was listed with the genes at its POS only, and a search for a gene it deletes
-downstream of its POS missed it (CLIN-33). And every SV reader took a record without SVTYPE to
-be of the type its ALT spells, so a breakend was stored as ``N]5:3000000]``, which neither the
-type filter nor the translocation rule of the length filters knows (CLIN-37).
-
-Now (``structural_variant_ingest``):
+symbolic allele without END has it "computed from the SVLEN field". The upload lists an SV with
+the genes its POS-END span overlaps, so a deletion written with SVLEN alone, read as ending at
+its POS, would be listed with the genes at its POS only, and a search for a gene it deletes
+downstream of its POS would miss it (CLIN-33). A breakend typed by the ALT it spells,
+``N]5:3000000]``, would be of a type neither the type filter nor the translocation rule of the
+length filters knows (CLIN-37). So (``structural_variant_ingest``):
 
 * a record without END, or with END ``.``, ends at POS + SVLEN (its sign dropped) for a
   ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes included, and at
   POS + len(REF) - 1 for any other allele: an ``<INS>``, a breakend, a sequence allele. One
   of the four without an SVLEN does not say how far it reaches: it is left out and counted
-  (CLIN-39, the owner's decision; it stayed on its POS, 0 bp).
-  A written END is kept as written, and a Spectre POS written as a range keeps its end. (An
-  END written ``.`` made both readers skip the record.)
+  (CLIN-39, the owner's decision).
+  A written END is kept as written, and a Spectre POS written as a range keeps its end.
 * a record without SVTYPE, or with SVTYPE ``.``, takes the type its ALT states: a symbolic
   allele's name, BND for breakend notation (a mate in brackets, or a single breakend such as
   ``G.``), INS or DEL for a sequence longer or shorter than REF, and ``SV`` when the ALT
@@ -32,23 +24,21 @@ Now (``structural_variant_ingest``):
 
 **One rule for every reader (CLIN-39).**
 
-* **Ends.** The package's NeedlR, HiFiCNV and chrM Sniffles2 readers ended a record without
-  END at POS + SVLEN, its sign dropped, whatever its type (without SVLEN at POS + 1, chrM at
-  POS), so an insertion or a breakend spanned bases after its POS there, while the uploads put
-  it where VCF 4.4 does (``structural_variant_end``): the same call had two ids. Every reader
-  now ends it where VCF 4.4 does (``record_end``).
-* **Mates.** The uploads read a mate only for an SVTYPE written ``BND``, so a ``bnd``, and a
-  TRA written in breakend notation, had none; the chrM and HiFiCNV readers read none at all;
-  and a TRA naming its mate in INFO/CHR2 and END (as Sniffles 1 writes one) was stored with
-  that END on its own chromosome, so the tracks and Circos drew its end there. Every reader
-  now reads the mate by ``breakend_mate``, and such a record ends on its own breakpoint.
-* **Lengths.** A translocation showed as 0 or 1 bp in the list (its END − POS); it now has no
-  length. The length filters read a negative length without its sign, as the list writes a
-  deletion's: an exact length of -5000 matched nothing.
+* **Ends.** Every reader, the uploads and the package's NeedlR, HiFiCNV and chrM Sniffles2
+  readers alike, ends a record without END where VCF 4.4 does (``record_end``): an insertion
+  or a breakend spans no bases after its POS, and the same call has one id whichever reader
+  stored it.
+* **Mates.** Every reader reads the mate by ``breakend_mate``: of a ``bnd``, of a TRA written
+  in breakend notation, and of a TRA naming its mate in INFO/CHR2 and END (as Sniffles 1
+  writes one), which ends on its own breakpoint, not at that END on its own chromosome, where
+  the tracks and Circos would draw its end.
+* **Lengths.** A translocation has no length in the list (its END − POS would make it 0 or
+  1 bp). The length filters read a negative length without its sign, as the list writes a
+  deletion's, so an exact length of -5000 copied from the list finds it.
 * **A record whose extent is not stated.** A ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` that
-  states neither END nor SVLEN does not say how far it reaches. It was stored on its POS, as
-  0 bp, and a gene or panel search missed the genes it spans; every reader now leaves it out
-  and counts it (the owner's decision, 2026-10-27).
+  states neither END nor SVLEN does not say how far it reaches. Every reader leaves it out and
+  counts it (the owner's decision, 2026-10-27): stored on its POS, as 0 bp, it would make a
+  gene or panel search miss the genes it spans.
 
 The readers are driven directly; ``_structural_variant_out`` is the list's row. The upload is
 read through ``upload_structural_variant_file`` with the SV storage and the gene table faked
@@ -195,7 +185,7 @@ def _mate(record) -> tuple[str | None, int | None]:
 def test_a_spanning_symbolic_allele_without_end_ends_svlen_bases_after_its_pos(
     record_format: str, alt: str, svlen: int, end: int
 ) -> None:
-    # Before: END = POS, a 0 bp span whatever the SVLEN.
+    # SVLEN bases after its POS, the sign dropped.
     record = _one(_vcf(_record("N", alt, f"SVLEN={svlen}")), record_format)
     assert (record.start, record.end, record.svlen) == (POS, end, svlen)
 
@@ -229,7 +219,7 @@ def test_a_written_end_is_kept_as_written(record_format: str) -> None:
 
 @pytest.mark.parametrize("record_format", _UPLOAD_FORMATS)
 def test_an_end_written_missing_is_computed_and_the_record_kept(record_format: str) -> None:
-    # Before: END=. could not be read as a number, and the record was skipped without a word.
+    # END=. is computed from SVLEN, and the record kept.
     record = _one(_vcf(_record("N", "<DEL>", "SVTYPE=DEL;SVLEN=-1000;END=.")), record_format)
     assert record.end == POS + 1000
 
@@ -260,7 +250,7 @@ def test_structural_variant_end_follows_vcf_4_4() -> None:
         pytest.param("N", "<INS>", "SVTYPE=INS;SVLEN=300;", 20000, id="symbolic-insertion"),
         pytest.param("A", "A" + "C" * 50, "SVTYPE=INS;SVLEN=50;", 20000, id="sequence-insertion"),
         pytest.param("N", "N]chr5:3000000]", "SVTYPE=BND;", 20000, id="breakend"),
-        # A deletion over its SVLEN, as before. (One whose extent is not stated is left out:
+        # A deletion over its SVLEN. (One whose extent is not stated is left out:
         # test_every_package_reader_leaves_out_a_record_whose_extent_is_not_stated.)
         pytest.param("N", "<DEL>", "SVTYPE=DEL;SVLEN=-5000;", 25000, id="symbolic-deletion"),
     ],
@@ -269,7 +259,7 @@ def test_needlr_ends_a_record_without_end_where_an_upload_does(ref: str, alt: st
     record = _needlr(alt, info, ref=ref)
     uploaded = _uploaded(alt, info.rstrip(";") or ".", ref=ref)
 
-    # Before: POS + SVLEN for any type, else POS + 1, and another id than the upload's.
+    # Where the upload ends it, under the upload's id.
     assert (record.end, uploaded.end) == (end, end)
     assert record.variant_id == _uploaded_id(uploaded)
 
@@ -282,12 +272,12 @@ def test_needlr_ends_a_record_without_end_where_an_upload_does(ref: str, alt: st
     ],
 )
 def test_hificnv_ends_a_record_without_end_where_vcf_4_4_does(alt: str, info: str, end: int) -> None:
-    # Before: POS + SVLEN for any type, else POS + 1.
+    # An insertion on its POS, a duplication SVLEN bases after it.
     assert _hificnv(alt, info).end == end
 
 
 def test_the_chrm_reader_ends_a_sequence_deletion_on_its_refs_last_base() -> None:
-    # Before: on its POS, as if it deleted nothing.
+    # On its REF's last base: it deletes the bases after its POS.
     assert _chrm("A", "", ref="A" + "C" * 500).end == 8970
 
 
@@ -312,7 +302,7 @@ def test_an_uploaded_record_whose_extent_is_not_stated_is_left_out_and_counted(
 
     records = list(iter_structural_variant_records(text, record_format, skipped=skipped))  # type: ignore[arg-type]
 
-    # Before: stored on its POS, 0 bp. An insertion without SVLEN stays: it spans no base.
+    # Left out and counted. An insertion without SVLEN stays: it spans no base.
     assert [(record.svtype, record.start) for record in records] == [("INS", 40000)]
     assert skipped.without_extent == 1
 
@@ -339,7 +329,7 @@ def test_every_package_reader_leaves_out_a_record_whose_extent_is_not_stated(rea
         reader = _iter_cnv_structural_records if read == "hificnv" else _iter_mito_sv_records
         records = reader(_PACKAGE_HEADER + line, sample_id="PROBAND", skipped=skipped)
 
-    # Before: NeedlR and HiFiCNV stored it at POS..POS+1, the chrM reader on its POS.
+    # Left out and counted by every package reader.
     assert (records, skipped.without_extent) == ([], 1)
 
 
@@ -367,8 +357,7 @@ _TYPE_FROM_ALT = [
 def test_a_record_without_svtype_takes_the_type_its_alt_states(
     record_format: str, svtype_field: str, ref: str, alt: str, svtype: str, extent: str
 ) -> None:
-    # Before: the ALT without <> -- a breakend's type was "N]5:3000000]", a sequence's its
-    # bases.
+    # The type the ALT states, never the ALT itself.
     record = _one(_vcf(_record(ref, alt, f"{svtype_field}{extent}SUPPORT=8")), record_format)
     assert record.svtype == svtype
 
@@ -457,7 +446,7 @@ def test_chrm_sv_records_without_svtype_take_the_type_their_alt_states() -> None
 def test_an_upload_reads_a_breakends_mate_whatever_its_svtype_is_written(alt: str, info: str) -> None:
     record = _uploaded(alt, info)
 
-    # Before: only SVTYPE=BND read the mate, and a TRA's END was taken as its own.
+    # The mate read whatever the SVTYPE is written as, and a TRA's END taken as its mate's.
     assert _mate(record) == _MATE
     assert record.remote_end == 3_000_000
     assert (record.start, record.end) == (20000, 20000)
@@ -466,7 +455,7 @@ def test_an_upload_reads_a_breakends_mate_whatever_its_svtype_is_written(alt: st
 def test_a_tra_naming_its_mate_in_chr2_ends_on_its_own_breakpoint() -> None:
     record = _uploaded("<TRA>", "SVTYPE=TRA;CHR2=chr5;END=3000000")
 
-    # Before: chr1 from 20,000 to 3,000,000, and no mate.
+    # On chr1 at 20,000, its mate on chr5 at 3,000,000.
     assert _uploaded_id(record) == "1-20000-20000-TRA-5-3000000-3000000"
     # CHR2 naming its own chromosome leaves END its own: an intrachromosomal event.
     same = _uploaded("<INV>", "SVTYPE=INV;CHR2=chr1;END=30000")
@@ -477,7 +466,7 @@ def test_a_manual_tsv_row_reads_its_breakends_mate_in_any_capitals() -> None:
     text = "SV1\tchr1\t20000\t20000\tN\tN]chr5:3000000]\tbnd\t0/1\n"
     (record,) = iter_structural_variant_records(text, "manual")
 
-    # Before: only a type written BND read the mate.
+    # A type written bnd reads the mate too.
     assert (_mate(record), record.remote_end) == (_MATE, 3_000_000)
 
 
@@ -492,7 +481,7 @@ def test_a_manual_tsv_row_reads_its_breakends_mate_in_any_capitals() -> None:
 def test_every_package_reader_reads_a_breakends_mate(read, alt: str, info: str) -> None:
     record = read(alt, info)
 
-    # Before: the chrM and HiFiCNV readers read no mate, and NeedlR none from CHR2.
+    # The chrM and HiFiCNV readers read the mate too, and NeedlR reads it from CHR2.
     assert _mate(record) == _MATE
     assert record.remote_end == 3_000_000
     assert record.end == record.start
@@ -525,7 +514,7 @@ def _row(sv_type: str, start: int, end: int, sv_len: int | None) -> StructuralVa
 @pytest.mark.parametrize(
     ("row", "length"),
     [
-        # Before: 0 or 1 bp, its END − POS.
+        # A translocation has no length, whatever its END − POS.
         pytest.param(_row("BND", 20000, 20000, None), None, id="breakend"),
         pytest.param(_row("TRA", 20000, 20001, None), None, id="tra"),
         pytest.param(_row("bnd", 20000, 20000, 1), None, id="breakend-with-svlen"),
@@ -541,7 +530,6 @@ def test_a_translocation_has_no_length_in_the_list(row: StructuralVariantRecord,
     ("length", "min_length", "passes"),
     [
         # The list writes the deletion -5,000 bp: copied from it, the length finds it.
-        # Before: a negative exact length matched nothing.
         pytest.param(-5000, None, True, id="exact-negative"),
         pytest.param(5000, None, True, id="exact"),
         pytest.param(-4999, None, False, id="exact-other"),
@@ -603,9 +591,9 @@ async def test_an_uploaded_deletion_without_end_is_listed_with_the_genes_it_span
         for row in store.written()
     }
     assert stored == {
-        # Before: 1:30000-30000, listed with AT_POS alone.
+        # Over its SVLEN, listed with both genes it spans.
         "DEL": (30000, 31000, ["AT_POS", "SPANNED"], None),
-        # Before: of type "N]5:3000000]", without its mate.
+        # A BND, with its mate.
         "BND": (60000, 60000, [], "5"),
         # An insertion spans no reference base: the gene it lands in, not the bases after it.
         "INS": (80000, 80000, ["INS_HOST"], None),
@@ -620,7 +608,7 @@ async def test_an_upload_says_how_many_records_it_left_out(monkeypatch: pytest.M
         _record("N", "<DEL>", "SVTYPE=DEL;SVLEN=-1000;SUPPORT=12", pos=50000),
     )
 
-    # Before: two SVs, one of them 0 bp at 1:30000, listed with the gene at its POS alone.
+    # The deletion that states no extent is left out and counted.
     assert (result["processed"], result["skipped_without_extent"]) == (1, 1)
     assert [(row.record.start, row.record.end) for row in store.written()] == [(50000, 51000)]
 

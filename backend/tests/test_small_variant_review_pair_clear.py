@@ -1,19 +1,13 @@
 """A review save that breaks up a compound-het pair stores what it audits.
 
 Breaking up a pair clears it from each review of the pair and deletes a review that held
-nothing else. The save that broke it up then wrote the variant's own review (and, re-pairing,
-the partner's) over the copy it had read before the clear. A review the clear had just
-deleted was gone: the save's update matched no row, its tags and note were lost, yet its
-clinical audit events were committed with the deletion, and only then did the read-back fail
-with 500. Confirmed on the real stack: pair ``1-4000-T-C`` with ``1-5000-A-T``, then save
-``1-4000-T-C`` with a tag, a note and ``compound_het: null``; neither review is left, while
-the trail holds the pair removed, the note added and the tag added.
+nothing else, but leaves the reviews the save that broke it up writes itself (the variant's
+own and, re-pairing, the partner's), so the tags and note the save audits are stored.
 
-The pair clear now leaves the reviews the save writes itself; an update that matches no row
-raises; and the save reads its review back before it commits, so a save that did not store
-it commits nothing. The store is a fake kept by the session: the real repository code (the
-pair clear, the row update with its guard, insert and delete) runs over it, as does the real
-clinical audit diff. The values are synthetic.
+An update that matches no row raises, and the save reads its review back before it commits, so
+a save that did not store it commits nothing. The store is a fake kept by the session: the
+real repository code (the pair clear, the row update with its guard, insert and delete) runs
+over it, as does the real clinical audit diff. The values are synthetic.
 """
 
 from __future__ import annotations

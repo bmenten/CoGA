@@ -345,7 +345,7 @@ def test_the_api_starts_as_many_import_workers_as_it_is_given(monkeypatch, caplo
     assert recorder.calls.count("stop_family_package_import_worker") == count
     # The ancestry PCA's worker runs where the imports run: in the API only with its own.
     assert recorder.calls.count("ancestry_worker") == recorder.calls.count("stop_ancestry_worker") == min(count, 1)
-    # The rest of the start runs as before: the API still migrates and serves.
+    # The rest of the start runs whatever the count: the API migrates and serves.
     assert "init_postgres_schema" in recorder.calls
     assert "gene_reference_refresh_worker" in recorder.calls
     said = "No package-import workers in the API (FAMILY_IMPORT_WORKER_COUNT=0)" in caplog.text

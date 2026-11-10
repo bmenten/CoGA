@@ -3,8 +3,8 @@
 CLIN-27: only while that ranking's panel holds what it held when the ranking was computed.
 On an exact miss, a broader cached ranking is restricted to the requested panel's
 variants. That can only drop variants from the cached ranking, never add any, so a
-ranking computed before its panel gained a gene served the panel afterwards without that
-gene's variants. Each cached ranking now records the genes and regions its panel filter
+ranking computed before its panel gained a gene would serve the panel afterwards without that
+gene's variants. Each cached ranking records the genes and regions its panel filter
 applied (``panel_members_digest``): a broader ranking is used only while its panel holds
 exactly those, and one that recorded none is not used.
 
@@ -17,13 +17,11 @@ no loci: it keeps the variants annotated with the gene, wherever the reference p
 
 CLIN-34 and CLIN-35: a served panel is what a fresh computation of that panel gives. The
 broader ranking must hold every variant the panel reaches. Every panel is matched by its
-genes and its regions, the Mendeliome too (owner decision 2026-10-14: a panel of more than
-1,000 regions was matched on gene symbols alone, so its ranking lacked a variant a smaller
-panel reaches by position only), so the Mendeliome's ranking now holds the variants a
-sub-panel reaches through a gene's locus; it still lacks one a sub-panel reaches by a region
-of its own only (coordinates PanelApp gave for a gene). The ranks are numbered within the
-panel, and a compound-het pair whose partner the panel leaves out is no pair: such a ranking
-is not used, and the panel is computed afresh. These tests compare a served panel with a
+genes and its regions, the Mendeliome too (owner decision 2026-10-14), so the Mendeliome's ranking
+holds the variants a sub-panel reaches through a gene's locus; it still lacks one a sub-panel
+reaches by a region of its own only (coordinates PanelApp gave for a gene). The ranks are numbered
+within the panel, and a compound-het pair whose partner the panel leaves out is no pair: such a
+ranking is not used, and the panel is computed afresh. These tests compare a served panel with a
 fresh computation of the same panel.
 
 Drives ``_prioritized_small_variants_page`` with the real cache keys, the real superset
@@ -63,7 +61,7 @@ MENDELIOME = "0b5e1c1e-0000-4000-8000-000000000004"
 
 # Genes of the Mendeliome stand-in besides GENE1-3, one locus each on chromosome 2, where the
 # family has no variant: with them it has more than 1,000 regions, as the real Mendeliome
-# has, above which a panel used to be matched on gene symbols alone.
+# has.
 FILLER_GENES = tuple(f"FILLER{index:04d}" for index in range(1_000))
 
 
@@ -357,9 +355,9 @@ def test_a_ranking_of_another_panel_that_gained_the_gene_since_is_not_used(world
 
 
 def test_a_broader_ranking_is_read_only_once_its_panel_passes(world) -> None:
-    # ENG-13 (#858). Before: every candidate's whole ranking was read with the candidate
-    # list, before its panel was checked. The broader panel changed since its ranking, so
-    # that ranking is never read; the narrower panel is computed live.
+    # ENG-13: a candidate's ranking is read only once its panel passes. The broader panel
+    # changed since its ranking, so that ranking is never read; the narrower panel is computed
+    # live.
     world.set_panel(BROAD, "GENE1", "GENE3")
     _open(BROAD)
     broad = world.row_for(BROAD)["inputs_hash"]
@@ -420,8 +418,8 @@ def test_a_narrower_panel_is_served_from_a_ranking_without_a_panel(world) -> Non
 
 
 def test_a_ranking_cached_without_a_record_of_its_panel_is_not_used(world) -> None:
-    # Rows cached before rankings recorded their panel's genes and regions cannot show
-    # that the panel is unchanged since.
+    # A row without a record of its panel's genes and regions cannot show that the panel is
+    # unchanged since.
     world.set_panel(BROAD, "GENE1", "GENE2")
     world.set_panel(NARROW, "GENE2")
     _open(BROAD)
@@ -433,8 +431,8 @@ def test_a_ranking_cached_without_a_record_of_its_panel_is_not_used(world) -> No
 
 
 def test_a_ranking_whose_panel_was_deleted_is_passed_over(world) -> None:
-    # The deleted panel's id stays in its cached rows. Looking its genes up answered 404,
-    # which failed the request for another panel.
+    # The deleted panel's id stays in its cached rows. Looking its genes up answers 404,
+    # which must not fail the request for another panel.
     world.set_panel(BROAD, "GENE1", "GENE2")
     world.set_panel(NARROW, "GENE2")
     _open(BROAD)
@@ -470,9 +468,8 @@ def test_the_gene_filter_keeps_the_genes_variants_wherever_the_reference_places_
     world,
 ) -> None:
     # The gene filter keeps the variants annotated with the gene, as the unranked search
-    # keeps them: one just upstream, outside the gene's loci, too. The ranked search kept
-    # those inside the loci alone (ENG-1), and a reload that extended the gene over the
-    # variant changed what it kept. Now the loci change nothing, nor the cache key.
+    # keeps them: one just upstream, outside the gene's loci, too (ENG-1). A reload that
+    # extends the gene over the variant changes nothing of what it keeps, nor the cache key.
     upstream = _variant("1-2500-A-G", "GENE1", start=2500)
     world.records.append(upstream)
     first = _open(None, gene="GENE1")
@@ -513,10 +510,10 @@ def _mendeliome(world: _World) -> None:
 def test_the_mendeliome_reaches_a_variant_by_position_and_serves_the_panel_that_does(world) -> None:
     # The annotation names the gene by another symbol than the gene reference does (here a
     # previous symbol of GENE2), so a panel with GENE2 reaches the variant only by its
-    # position in GENE2's locus. The Mendeliome was matched on gene symbols alone: its
-    # ranking lacked the variant, and the panel had to be computed for itself (CLIN-34).
-    # Matched by position too, the Mendeliome keeps the variant, and its ranking serves the
-    # panel as the panel's own computation ranks it (owner decision 2026-10-14).
+    # position in GENE2's locus. Matched on gene symbols alone, the Mendeliome's ranking
+    # would lack the variant (CLIN-34). Matched by position too, the Mendeliome keeps the
+    # variant, and its ranking serves the panel as the panel's own computation ranks it
+    # (owner decision 2026-10-14).
     previous_symbol = _variant("1-3600-A-G", "GENE2_PREVIOUS", start=3600)
     world.records.append(previous_symbol)
     _mendeliome(world)

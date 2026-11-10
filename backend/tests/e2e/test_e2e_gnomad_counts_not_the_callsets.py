@@ -1,12 +1,12 @@
 """A gnomAD count filter reads gnomAD's counts, never the callset's own (E2E, CLIN-59).
 
 A VCF's INFO/AC is the allele count over its own samples, a reserved key that joint callers
-write. The VEP parser read it as gnomAD's allele count wherever the CSQ had none, and the
-unprefixed INFO keys ``nhomalt`` and ``HEMI`` as gnomAD's homozygote and hemizygote counts,
-so a maximum gnomAD AC filter filtered on the family's own count. Now a population count is
-read only from a field that names its source (``gnomAD_AC``, ``gnomAD_nhomalt``,
-``gnomAD_Hemi``, …): a variant without one has none, and a maximum keeps it, as absent from
-gnomAD (``ifNull(count, 0) <= maximum`` in the SQL, a missing count passing in Python).
+write, and the unprefixed INFO keys ``nhomalt`` and ``HEMI`` are not gnomAD's counts either:
+read as gnomAD's, a maximum gnomAD AC filter would filter on the family's own count. A
+population count is read only from a field that names its source (``gnomAD_AC``,
+``gnomAD_nhomalt``, ``gnomAD_Hemi``, …): a variant without one has none, and a maximum keeps
+it, as absent from gnomAD (``ifNull(count, 0) <= maximum`` in the SQL, a missing count passing
+in Python).
 
 A family is created through the PED upload under a new id each run: one affected proband,
 homozygous for each variant, so the callset's own AC is 2 at each and the recessive modes
@@ -83,8 +83,8 @@ _ALL = set(_VARIANTS)
 _WITHIN = {_COUNTS_IN_INFO_ONLY, _GNOMAD_COUNTS_WITHIN, _WITHOUT_CSQ}
 
 # The filter sets, as query parameters (both endpoints read the same names), and the variants
-# every view keeps. Before the fix, _COUNTS_IN_INFO_ONLY failed each maximum on the callset's
-# own keys, and _WITHOUT_CSQ the AC one.
+# every view keeps. _COUNTS_IN_INFO_ONLY and _WITHOUT_CSQ have counts in the callset's own
+# keys alone, so they pass each maximum, as absent from gnomAD.
 _CASES: dict[str, tuple[dict[str, Any], set[str]]] = {
     "no filter": ({}, _ALL),
     "gnomAD AC at most 1": ({"max_gnomad_ac": 1}, _WITHIN),
@@ -216,8 +216,8 @@ def test_family_and_its_variants_are_stored(run: dict[str, Any]) -> None:
 
 
 def test_the_page_serves_gnomads_counts_and_none_where_the_csq_has_none(run: dict[str, Any]) -> None:
-    # Before the fix, _COUNTS_IN_INFO_ONLY was served (2, 3, 1) and _WITHOUT_CSQ (2, None, None):
-    # the callset's own keys, shown as gnomAD's.
+    # _COUNTS_IN_INFO_ONLY and _WITHOUT_CSQ have no gnomAD counts: the callset's own keys are
+    # not shown as gnomAD's.
     assert run["served"] == {
         _COUNTS_IN_INFO_ONLY: (None, None, None),
         _GNOMAD_COUNTS_WITHIN: (1, 0, 0),

@@ -4,14 +4,14 @@ The golden trio's structural variants come from the NeedlR package import (sourc
 ``needlr``; every trio member has a call on both SVs). A Sniffles VCF uploaded for one
 sample through ``POST /structural-variants/upload/{sample_id}`` is a different callset:
 
-* its "already exists" check must look at that sample's Sniffles calls only. It used to
-  count any call of the sample, so the first Sniffles upload for PROBAND was refused (409)
-  because of PROBAND's NeedlR calls;
-* an overwrite must rewrite the Sniffles rows only. It used to merge every source's
-  records, strip the sample's calls from them and re-insert them all under a delete that
-  only covered the Sniffles rows, so each NeedlR SV was stored twice (same key, both live)
-  and, once ClickHouse merged the parts, the copy without the sample's calls was the one
-  kept: PROBAND's NeedlR deletion in BRCA2 was gone.
+* its "already exists" check must look at that sample's Sniffles calls only: one counting
+  any call of the sample would refuse (409) the first Sniffles upload for PROBAND because of
+  PROBAND's NeedlR calls;
+* an overwrite must rewrite the Sniffles rows only. One that merged every source's records,
+  stripped the sample's calls from them and re-inserted them all under a delete that only
+  covered the Sniffles rows would store each NeedlR SV twice (same key, both live), and once
+  ClickHouse merged the parts, the copy without the sample's calls could be the one kept:
+  PROBAND's NeedlR deletion in BRCA2 would be gone.
 
 The admin per-sample SV delete rewrites the whole family (every source) and must stay
 that way; it is exercised here across both sources too. Afterwards the Sniffles rows are
@@ -199,8 +199,7 @@ def test_golden_trio_starts_with_needlr_calls_for_every_member(run) -> None:
 
 def test_first_sniffles_upload_is_not_blocked_by_the_samples_needlr_calls(run) -> None:
     first = run["first"]
-    # Before the fix: 409 "already exist for this sample and source" — PROBAND's NeedlR
-    # calls counted as Sniffles ones.
+    # PROBAND's NeedlR calls do not count as Sniffles ones: no 409.
     assert first["status"] == 200, first["text"]
     assert first["json"]["source_format"] == "sniffles"
     assert first["json"]["created"] == 2
@@ -213,7 +212,7 @@ def test_repeat_upload_conflicts_on_the_samples_own_sniffles_calls(run) -> None:
 def test_overwrite_rewrites_the_sniffles_rows_and_leaves_needlr_untouched(run) -> None:
     assert run["overwrite"]["status"] == 200, run["overwrite"]["text"]
     rows = run["rows_after_overwrite"]
-    # Before the fix every NeedlR SV was inserted a second time, without PROBAND's call.
+    # No NeedlR SV is inserted a second time.
     assert _duplicate_keys(rows) == []
     assert _rows(rows, "needlr") == _rows(run["rows_before"], "needlr")
     assert _rows(rows, "sniffles") == {
@@ -226,13 +225,12 @@ def test_overwrite_rewrites_the_sniffles_rows_and_leaves_needlr_untouched(run) -
 def test_needlr_calls_survive_part_merges(run) -> None:
     rows = run["rows_after_merge"]
     assert _duplicate_keys(rows) == []
-    # A merge keeps one live row per key. Before the fix it kept the copy the overwrite
-    # had inserted without PROBAND's call, so PROBAND lost its NeedlR deletion.
+    # A merge keeps one live row per key: PROBAND keeps its NeedlR deletion.
     assert _rows(rows, "needlr") == _rows(run["rows_before"], "needlr")
 
 
 def test_second_sample_merges_into_the_same_source(run) -> None:
-    # Before the fix MOTHER's first Sniffles upload was refused too (her NeedlR calls).
+    # MOTHER's first Sniffles upload is not refused for her NeedlR calls either.
     assert run["mother"]["status"] == 200, run["mother"]["text"]
     assert run["mother"]["json"]["merged"] == 1
     assert _rows(run["rows_after_merge"], "sniffles") == {

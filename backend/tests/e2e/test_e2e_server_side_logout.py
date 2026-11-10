@@ -1,7 +1,7 @@
 """A logout ends every session of its account on the server (E2E).
 
-Before, a logout only made the browser forget its token: a copy of it, or the token of the
-account's session on another device, stayed valid until it expired (two hours). Now
+A logout does more than make the browser forget its token, which would leave a copy of it, or
+the token of the account's session on another device, valid until it expired (two hours).
 ``POST /api/auth/logout`` records when the account signed out (``users.sessions_ended_at``) and
 ``get_current_user`` refuses every token issued to the account before then.
 

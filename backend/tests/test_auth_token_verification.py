@@ -302,8 +302,8 @@ def test_the_token_issued_at_sign_in_is_hs256_with_an_expiry_and_signs_its_user_
 
 
 def test_the_local_token_algorithm_is_fixed_not_a_setting(monkeypatch: pytest.MonkeyPatch) -> None:
-    # SEC-12: an ALGORITHM in the environment changed the algorithm CoGA signed and checked its
-    # own tokens with. It is a constant now, and the settings read no such variable.
+    # SEC-12: the algorithm CoGA signs and checks its own tokens with is a constant: an
+    # ALGORITHM in the environment changes nothing, and the settings read no such variable.
     monkeypatch.setenv("ALGORITHM", "HS512")
     monkeypatch.setattr(settings, "secret_key", _LOCAL_SIGNER)
 
@@ -553,7 +553,7 @@ def test_the_override_leaves_microsoft_tokens_alone(
     caplog: pytest.LogCaptureFixture,
     audit_rows: list[Any],
 ) -> None:
-    # The emergency rule is the local token's: a Microsoft token signs in a viewer as before,
+    # The emergency rule is the local token's: a Microsoft token signs in a viewer as without it,
     # is not logged as a use of the override, and its request is not flagged.
     directory, accounts = azure
     monkeypatch.setattr(settings, "azure_admin_override", True)

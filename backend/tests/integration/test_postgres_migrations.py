@@ -10,90 +10,82 @@ the CI ``smoke`` job sets it.
   constraints; indexes; triggers; functions; sequences; views; table, column, function,
   schema and default privileges; extensions; owners) equals that of a database where only
   the baseline files ran, and the ledger is at the newest revision.
-- A database the baselines created before the ledger existed, with the checks from before
-  #747, #749 and #826, is brought under the ledger at the next start, keeps every row, ends at
-  the same fingerprint, and then stores a TRGT call at a locus without thresholds.
+- A database the baselines created without a ledger, with three checks narrower than the
+  baselines', is brought under the ledger at the next start, keeps every row, ends at the same
+  fingerprint, and then stores a TRGT call at a locus without thresholds.
 - Both hold until the release candidate, when every run re-applies the baselines first, and
   after its freeze, when only the revisions run and revision 0001 applies the baselines.
 - A database at an older revision gets only the revisions it lacks.
-- A database at revision 0003 from before SEC-7 gets the structure versions' chain columns and
-  index, the family link a deletion nulls, and both tables' append-only guards and REVOKE
-  (revision 0004), keeps its structure version (outside the chain), and ends at the same
-  fingerprint.
-- A database at revision 0004 from before SEC-1 gets the project memberships' access level
-  (revision 0005), each stored membership an analyst's, with the baseline's check, and ends at
-  the same fingerprint.
-- A database at revision 0006 from before TRACE-13 gets a family ID's sign-out versions unique
-  (revision 0007: a unique index, which replaces the chain's plain one), keeps every sign-out,
-  a deleted family's too, and ends at the same fingerprint; one where a family ID already holds
-  a version twice is refused with a message that names no family, and nothing changes.
-- A database at revision 0007 from before SEC-32 gets an import job's requester and a filter
-  preset's owner kept by the account's id (revision 0008): each job and preset linked to the
-  account its e-mail address or user name finds, a job of an address no account has linked to
-  none, a preset of a user name no account has removed; a deleted account's presets go with
-  it, its job stays linked to none, and a later start does not link it to the account that
-  took the address since. It ends at the same fingerprint.
-- A database at revision 0008 from before SEC-17 gets the event id on the request audit and the
-  UI-event log (revision 0009: a unique column, empty in the rows stored before), keeps every
-  row, and ends at the same fingerprint; the writers' INSERT stores an event's id once, and a
-  plain second INSERT of it is refused.
-- A database at revision 0009 from before SEC-35 gets a gene-reference refresh's and a
-  knowledgebase rebuild's requester kept by the account's id (revision 0010): each job linked
-  to the account its e-mail address finds, one of an address no account has, and the refresh
-  a start queues, linked to none; a deleted account's jobs stay, linked to none, and a later
-  start does not link them to the account that took the address since. It keeps every row and
-  ends at the same fingerprint.
-- A database at revision 0010 from before ENG-6 loses the three columns no code read
+- A database at revision 0003 gets the structure versions' chain columns and index, the family
+  link a deletion nulls, and both tables' append-only guards and REVOKE (revision 0004), keeps
+  its structure version (outside the chain), and ends at the same fingerprint.
+- A database at revision 0004 gets the project memberships' access level (revision 0005), each
+  stored membership an analyst's, with the baseline's check, and ends at the same fingerprint.
+- A database at revision 0006 gets a family ID's sign-out versions unique (revision 0007: a
+  unique index, which replaces the chain's plain one), keeps every sign-out, a deleted family's
+  too, and ends at the same fingerprint; one where a family ID already holds a version twice is
+  refused with a message that names no family, and nothing changes.
+- A database at revision 0007 gets an import job's requester and a filter preset's owner kept by
+  the account's id (revision 0008): each job and preset linked to the account its e-mail address
+  or user name finds, a job of an address no account has linked to none, a preset of a user name
+  no account has removed; a deleted account's presets go with it, its job stays linked to none,
+  and a later start does not link it to the account that took the address since. It ends at the
+  same fingerprint.
+- A database at revision 0008 gets the event id on the request audit and the UI-event log
+  (revision 0009: a unique column, empty in the rows stored before), keeps every row, and ends
+  at the same fingerprint; the writers' INSERT stores an event's id once, and a plain second
+  INSERT of it is refused.
+- A database at revision 0009 gets a gene-reference refresh's and a knowledgebase rebuild's
+  requester kept by the account's id (revision 0010): each job linked to the account its e-mail
+  address finds, one of an address no account has, and the refresh a start queues, linked to
+  none; a deleted account's jobs stay, linked to none, and a later start does not link them to
+  the account that took the address since. It keeps every row and ends at the same fingerprint.
+- A database at revision 0010 loses the three columns no code reads
   (``auth_login_attempts.last_success_at``,
   ``small_variant_reviews.compound_het_partner_variant_keys`` and
   ``structural_variant_reviews.variant_key`` with its unique index) and the families' metadata
   key ``unresolved_roi`` (revision 0011), keeps every row with its other values and a family's
   other metadata, and ends at the same fingerprint; a later start changes nothing.
-- A database at revision 0012 from before the class labels were put in sentence case (ENG-6)
-  gets each class label its reviews, their ACMG and CNV scorings and its filter presets hold in
-  another case written as the code writes it now (revision 0013), every other value and each
-  review's and preset's ``updated_at`` kept; the clinical audit trail, the signed records, the
-  request audit and the UI-event log keep the label as it was, and every other table is as it
-  was. It ends at the same fingerprint; a later start changes nothing.
-- A database at revision 0013 from before CLIN-57 gets QA's count correction per repeat locus
+- A database at revision 0012 gets each class label its reviews, their ACMG and CNV scorings and
+  its filter presets hold in another case written in sentence case, as the code writes it
+  (revision 0013), every other value and each review's and preset's ``updated_at`` kept; the
+  clinical audit trail, the signed records, the request audit and the UI-event log keep the
+  label as it was, and every other table is as it was. It ends at the same fingerprint; a later
+  start changes nothing.
+- A database at revision 0013 gets QA's count correction per repeat locus
   (``repeat_locus_count_units.count_offset``, revision 0014) with the baseline's default and
   check: a stored record is kept with no correction, a correction beyond 20 either way is
   refused, it ends at the same fingerprint, and a later start changes nothing.
-- A database at revision 0014 from before the analyst and supervisor roles gets the accounts'
-  check with the five roles (revision 0015): each viewer becomes an analyst, a superuser and an
-  admin keep their role, a role CoGA does not know is refused, it ends at the same fingerprint,
-  and a viewer made since stays one at a later start.
-- A database at revision 0016 from before accounts were archived gets when each account was
-  first active and when it was archived (revision 0017): an active account, and an inactive one
-  with a request of its own in the audit, were active since their creation; an inactive one
-  without waits for approval; none is archived. An archived account that is active is refused,
-  it ends at the same fingerprint, and an account waiting for approval made since still waits at
-  a later start.
-- A database at revision 0017 from before an import job could keep its manifest gets the job's
-  ``manifest_text`` and ``manifest_sha256`` with the baseline's check (revision 0018): each job
-  stored before keeps its row and neither, a job that keeps one but not the other is refused, it
-  ends at the same fingerprint, and a later start changes nothing.
-- A database at revision 0018 from before an import job kept its package's fingerprint gets the
-  job's ``package_fingerprint`` with the baseline's check (revision 0019): each job stored before
-  keeps its row and none, a fingerprint that is no SHA-256 is refused, it ends at the same
-  fingerprint, and a later start changes nothing.
-- A database at revision 0019 from before a PanelApp panel could be imported once per choice of
-  confidence levels gets ``gene_panels.external_selection`` and the unique index on source,
-  external id and selection (revision 0020): each PanelApp panel gets the levels its metadata
-  records, lowest first, one without them none, every other panel none; the index it replaces
-  is gone, so the same PanelApp panel with other levels is stored, while the same selection
-  twice, or a second Mendeliome, is refused; it ends at the same fingerprint, and a later start
+- A database at revision 0014 gets the accounts' check with the five roles (revision 0015): each
+  viewer becomes an analyst, a superuser and an admin keep their role, a role CoGA does not know
+  is refused, it ends at the same fingerprint, and a viewer made since stays one at a later
+  start.
+- A database at revision 0016 gets when each account was first active and when it was archived
+  (revision 0017): an active account, and an inactive one with a request of its own in the
+  audit, were active since their creation; an inactive one without waits for approval; none is
+  archived. An archived account that is active is refused, it ends at the same fingerprint, and
+  an account waiting for approval made since still waits at a later start.
+- A database at revision 0017 gets the job's ``manifest_text`` and ``manifest_sha256`` with the
+  baseline's check (revision 0018): each job stored before keeps its row and neither, a job that
+  keeps one but not the other is refused, it ends at the same fingerprint, and a later start
   changes nothing.
-- A database at revision 0020 from before a logout ended an account's sessions on the server
-  gets ``users.sessions_ended_at`` (revision 0021): each account keeps its row and none, it ends
-  at the same fingerprint, and a later start changes nothing.
-- A database at revision 0021 from before a project's deletion kept its review tags (SAFE-37)
-  gets the tag definitions' one check, which lets an inactive project tag be without a project,
-  and their foreign key to the project that sets it to NULL instead of deleting the tag
-  (revision 0022): every tag and link keeps its row; a project deleted after its tag was
-  deactivated leaves the tag, inactive, without a project, its link to another project kept; a
-  global tag with a project and an active project tag without one are refused; it ends at the
-  same fingerprint, and a later start changes nothing.
+- A database at revision 0018 gets the job's ``package_fingerprint`` with the baseline's check
+  (revision 0019): each job stored before keeps its row and none, a fingerprint that is no
+  SHA-256 is refused, it ends at the same fingerprint, and a later start changes nothing.
+- A database at revision 0019 gets ``gene_panels.external_selection`` and the unique index on
+  source, external id and selection (revision 0020): each PanelApp panel gets the levels its
+  metadata records, lowest first, one without them none, every other panel none; the index it
+  replaces is gone, so the same PanelApp panel with other levels is stored, while the same
+  selection twice, or a second Mendeliome, is refused; it ends at the same fingerprint, and a
+  later start changes nothing.
+- A database at revision 0020 gets ``users.sessions_ended_at`` (revision 0021): each account
+  keeps its row and none, it ends at the same fingerprint, and a later start changes nothing.
+- A database at revision 0021 gets the tag definitions' one check, which lets an inactive
+  project tag be without a project, and their foreign key to the project that sets it to NULL
+  instead of deleting the tag (revision 0022): every tag and link keeps its row; a project
+  deleted after its tag was deactivated leaves the tag, inactive, without a project, its link to
+  another project kept; a global tag with a project and an active project tag without one are
+  refused; it ends at the same fingerprint, and a later start changes nothing.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -245,7 +237,7 @@ _FINGERPRINT_QUERIES = {
     """,
 }
 
-# The checks as a database created before #747, #749 and #826 has them.
+# Three checks narrower than the baselines': each allows fewer values.
 _OLD_CHECKS = {
     ("repeat_expansions", "repeat_expansions_status_check"): (
         "CHECK (status = ANY (ARRAY['normal'::text, 'review'::text, 'intermediate'::text, "
@@ -462,8 +454,8 @@ def test_a_database_from_before_the_ledger_is_brought_under_it_keeps_its_rows_an
         monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
 
     async def _body(database: str):
-        # The database as the baselines left it before the ledger existed: no alembic_version,
-        # and the three checks from before #747, #749 and #826, with rows in its tables.
+        # A database the baselines created without a ledger: no alembic_version, and the three
+        # narrower checks, with rows in its tables.
         await _apply_baseline_files(database)
         engine = _engine(database)
         try:
@@ -519,7 +511,7 @@ def test_a_database_from_before_the_ledger_is_brought_under_it_keeps_its_rows_an
             await postgres.init_postgres_schema()
             migrated = await _table_contents(database)
             # A TRGT call at a locus without thresholds: refused with the whole dataset by the
-            # old check (#826), stored as not assessed now.
+            # narrower check, stored as not assessed now.
             sessionmaker = postgres.get_postgres_sessionmaker()
             async with sessionmaker() as session:
                 await ingest_trgt_text(
@@ -611,8 +603,8 @@ def test_a_database_at_an_older_revision_gets_only_the_revisions_it_lacks(caplog
     assert "'not_assessed'::text" in checks["repeat_expansions_status_check"]
 
 
-# The structure versions and the UI-event log as a database had them before SEC-7 (revision
-# 0004): no chain columns or index, family_id NOT NULL and deleted with its family, neither
+# The structure versions and the UI-event log as a database had them before revision 0004: no
+# chain columns or index, family_id NOT NULL and deleted with its family, neither
 # table guarded by a trigger, and coga_app still holding UPDATE and DELETE on both.
 _BEFORE_0004 = (
     "DROP TRIGGER IF EXISTS family_structure_versions_immutable ON family_structure_versions",
@@ -646,7 +638,7 @@ def test_a_database_from_before_sec7_gets_the_structure_versions_chain_and_the_a
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0003 from before SEC-7, holding a structure version.
+            # A database at revision 0003, holding a structure version.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0003'"))
                 for statement in _BEFORE_0004:
@@ -721,7 +713,7 @@ def test_a_database_from_before_sec7_gets_the_structure_versions_chain_and_the_a
     assert actual == expected, _differences(expected, actual)
 
 
-# The project memberships as a database had them before SEC-1 (revision 0005): no access level.
+# The project memberships as a database had them before revision 0005: no access level.
 _BEFORE_0005 = ("ALTER TABLE project_users DROP COLUMN access_level",)
 
 
@@ -741,7 +733,7 @@ def test_a_database_from_before_sec1_gets_the_access_level_with_every_member_an_
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0004 from before SEC-1, with a member in a project.
+            # A database at revision 0004, with a member in a project.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0004'"))
                 for statement in _BEFORE_0005:
@@ -816,8 +808,8 @@ def test_a_database_from_before_sec1_gets_the_access_level_with_every_member_an_
     revision, levels, refused, changed, (expected, actual) = _run(_body)
 
     assert (revision.before, revision.after) == ("0004", head_revision())
-    # The member from before the level is an analyst, as every member could change the project's
-    # records until then; another level than analyst or reader is refused, reader is not.
+    # The member stored without a level becomes an analyst, who may change the project's
+    # records; another level than analyst or reader is refused, reader is not.
     assert levels == ["analyst"]
     assert "project_users_access_level_check" in refused
     assert changed == ["reader"]
@@ -976,7 +968,7 @@ def test_a_start_that_does_not_migrate_serves_only_on_its_own_revision() -> None
     ]
 
 
-# The accounts as a database had them before SEC-4 (revision 0006): no Microsoft object ID.
+# The accounts as a database had them before revision 0006: no Microsoft object ID.
 _BEFORE_0006 = ("ALTER TABLE users DROP COLUMN azure_object_id",)
 
 
@@ -999,7 +991,7 @@ def test_a_database_from_before_sec4_gets_the_microsoft_object_id_with_its_accou
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0005 from before SEC-4, with two password accounts.
+            # A database at revision 0005, with two password accounts.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0005'"))
                 for statement in _BEFORE_0006:
@@ -1050,7 +1042,7 @@ def test_a_database_from_before_sec4_gets_the_microsoft_object_id_with_its_accou
     revision, kept, refused, (expected, actual) = _run(_body)
 
     assert (revision.before, revision.after) == ("0005", head_revision())
-    # The accounts from before Microsoft sign-in are kept, without an object ID.
+    # The accounts stored before the migration are kept, without an object ID.
     assert kept == [("first-sec4@example.org", None), ("second-sec4@example.org", None)]
     # One object ID belongs to one account.
     assert "users_azure_object_id_key" in refused
@@ -1058,7 +1050,7 @@ def test_a_database_from_before_sec4_gets_the_microsoft_object_id_with_its_accou
     assert actual == expected, _differences(expected, actual)
 
 
-# The sign-outs as a database had them before TRACE-13 (revision 0007): a family ID's versions
+# The sign-outs as a database had them before revision 0007: a family ID's versions
 # not unique, its chain read through a plain index.
 _BEFORE_0007 = (
     "DROP INDEX IF EXISTS uq_report_signouts_family_identifier_version",
@@ -1113,7 +1105,7 @@ def test_a_database_from_before_trace13_gets_a_family_ids_sign_out_versions_uniq
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0006 from before TRACE-13: a family signed out twice and
+            # A database at revision 0006: a family signed out twice and
             # deleted, and the family made again under its ID, signed out as version 3.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0006'"))
@@ -1184,7 +1176,7 @@ def test_a_database_where_a_family_id_holds_a_sign_out_version_twice_is_refused_
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
             # A database at revision 0006 where a family made again under its ID signed
-            # version 1 again, as the sign-out numbered per family row before TRACE-13.
+            # version 1 again (versions numbered per family row).
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0006'"))
                 for statement in _BEFORE_0007:
@@ -1214,7 +1206,7 @@ def test_a_database_where_a_family_id_holds_a_sign_out_version_twice_is_refused_
     assert ledger == ["0006"]
 
 
-# The import jobs and the filter presets as a database had them before SEC-32 (revision 0008):
+# The import jobs and the filter presets as a database had them before revision 0008:
 # a job's requester and a preset's owner kept only by an e-mail address and a user name.
 _BEFORE_0008 = (
     "ALTER TABLE family_import_jobs DROP COLUMN requested_by_id",
@@ -1269,7 +1261,7 @@ def test_a_database_from_before_sec32_keeps_each_job_and_preset_by_its_account(
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0007 from before SEC-32: a job and presets of an account,
+            # A database at revision 0007: a job and presets of an account,
             # and a job and presets of an address and a user name no account has.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0007'"))
@@ -1368,7 +1360,7 @@ def test_a_database_from_before_sec32_keeps_each_job_and_preset_by_its_account(
     assert actual == expected, _differences(expected, actual)
 
 
-# The two event logs as a database had them before SEC-17 (revision 0009): no event id.
+# The two event logs as a database had them before revision 0009: no event id.
 _BEFORE_0009 = (
     "ALTER TABLE audit_log_events DROP COLUMN event_id",
     "ALTER TABLE ui_events DROP COLUMN event_id",
@@ -1423,7 +1415,7 @@ def test_a_database_from_before_sec17_gets_the_event_ids_with_its_rows_kept(
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0008 from before SEC-17, with a request row and a UI event.
+            # A database at revision 0008, with a request row and a UI event.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0008'"))
                 for statement in _BEFORE_0009:
@@ -1488,8 +1480,8 @@ def test_a_database_from_before_sec17_gets_the_event_ids_with_its_rows_kept(
     assert actual == expected, _differences(expected, actual)
 
 
-# The gene-reference refresh and knowledgebase rebuild jobs as a database had them before SEC-35
-# (revision 0010): a requester kept only by an e-mail address.
+# The gene-reference refresh and knowledgebase rebuild jobs as a database had them before
+# revision 0010: a requester kept only by an e-mail address.
 _BEFORE_0010 = (
     "ALTER TABLE gene_info_refresh_jobs DROP COLUMN requested_by_id",
     "ALTER TABLE clinical_cnv_kb_jobs DROP COLUMN requested_by_id",
@@ -1531,7 +1523,7 @@ def test_a_database_from_before_sec35_keeps_each_refresh_and_rebuild_by_its_acco
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0009 from before SEC-35: a refresh and a rebuild of an
+            # A database at revision 0009: a refresh and a rebuild of an
             # account, of an address no account has, and the refresh a start queues.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0009'"))
@@ -1641,8 +1633,8 @@ def test_a_database_from_before_sec35_keeps_each_refresh_and_rebuild_by_its_acco
     assert actual == expected, _differences(expected, actual)
 
 
-# The columns as a database had them before ENG-6 (revision 0011): three that no code read, and
-# the structural-variant reviews' unique index on the key nothing wrote.
+# The columns as a database had them before revision 0011: three that no code reads, and
+# the structural-variant reviews' unique index on the key nothing writes.
 _BEFORE_0011 = (
     "ALTER TABLE auth_login_attempts ADD COLUMN last_success_at TIMESTAMPTZ",
     "ALTER TABLE small_variant_reviews ADD COLUMN compound_het_partner_variant_keys jsonb "
@@ -1690,7 +1682,7 @@ def test_a_database_from_before_eng6_loses_the_unused_columns_and_the_unresolved
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0010 from before ENG-6, with a row in each table it changes:
+            # A database at revision 0010, with a row in each table it changes:
             # a family whose import could not resolve its manifest's ROI, and one without the key.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0010'"))
@@ -1863,8 +1855,8 @@ def test_a_database_from_before_eng6_gets_its_class_labels_in_sentence_case_and_
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0012 from before the labels were put in sentence case: the
-            # reviews and presets the code wrote then, and the records and logs it signed and wrote.
+            # A database at revision 0012, its class labels in another case than sentence case:
+            # reviews and presets, and the records and logs signed and written with those labels.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0012'"))
                 account = (
@@ -1979,7 +1971,7 @@ def test_a_database_from_before_eng6_gets_its_class_labels_in_sentence_case_and_
 
     assert (revision.before, revision.after) == ("0012", head_revision())
     assert (again.before, again.after) == (head_revision(), head_revision())
-    # The reviews: each class label as the code writes it now, its scoring's too; text that is
+    # The reviews: each class label as the code writes it, its scoring's too; text that is
     # no class label, a label already right, a scoring that is JSON null, and when each review
     # was saved, as they were.
     lp_scoring = {"criteria": [], "point_total": 7, "classification": _NEW_LP}
@@ -2032,7 +2024,7 @@ def test_a_database_from_before_eng6_gets_its_class_labels_in_sentence_case_and_
     assert actual == expected, _differences(expected, actual)
 
 
-# QA's repeat record as a database had it before CLIN-57 (revision 0014): no count correction.
+# QA's repeat record as a database had it before revision 0014: no count correction.
 _BEFORE_0014 = (
     "ALTER TABLE repeat_locus_count_units DROP CONSTRAINT repeat_locus_count_units_count_offset_check",
     "ALTER TABLE repeat_locus_count_units DROP COLUMN count_offset",
@@ -2055,7 +2047,7 @@ def test_a_database_from_before_clin57_gets_the_count_correction_with_every_reco
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0013 from before CLIN-57, with QA's record of one locus.
+            # A database at revision 0013, with QA's record of one locus.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0013'"))
                 for statement in _BEFORE_0014:
@@ -2139,8 +2131,8 @@ def test_a_database_from_before_clin57_gets_the_count_correction_with_every_reco
     assert actual == expected, _differences(expected, actual)
 
 
-# The accounts' roles as a database had them before the analyst and supervisor roles (revision
-# 0015): viewer, superuser and admin only.
+# The accounts' roles as a database had them before revision 0015: viewer, superuser and admin
+# only.
 _BEFORE_0015 = (
     "ALTER TABLE users DROP CONSTRAINT users_role_check",
     "ALTER TABLE users ADD CONSTRAINT users_role_check "
@@ -2733,8 +2725,8 @@ def test_a_database_from_before_server_side_logout_gives_each_account_no_logout_
     assert actual == expected, _differences(expected, actual)
 
 
-# The tag definitions as a database had them before SAFE-37: two identical checks, and a foreign
-# key that deleted a project's tags with it.
+# The tag definitions as a database had them before revision 0022: two identical checks, and a
+# foreign key that deletes a project's tags with it.
 _OLD_TAG_SCOPE_CHECK = (
     "CHECK ((((scope = 'global'::text) AND (project_id IS NULL)) OR ((scope = 'project'::text) "
     "AND (project_id IS NOT NULL))))"
@@ -2775,7 +2767,7 @@ def test_a_database_from_before_safe37_keeps_each_review_tag_when_its_project_is
         try:
             async with engine.begin() as conn:
                 await apply_postgres_schema(conn)
-            # A database at revision 0021, from before the change, with two projects, a global
+            # A database at revision 0021, with two projects, a global
             # tag, a tag of each project (the first shared with the second) and a deleted one.
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE alembic_version SET version_num = '0021'"))

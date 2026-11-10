@@ -1,30 +1,29 @@
 """A repeat call at a locus without thresholds reads *not assessed*, not *normal* (CLIN-26).
 
-A TRGT call whose TRID matches no catalogue row got no thresholds, so every allele read
-``normal`` ("No reference cutoff" on the repeat page) and the aberrant-only view hid it: an
-expansion at a locus the catalogue lacks, or under a TRID spelled differently, could not be
-seen. The owner decided on 2026-10-13 that such a call gets a status of its own,
-``not_assessed``, distinct from ``normal``, from ``unknown`` (no call) and from ``review`` (a
-count the catalogue cannot classify); it ranks above ``normal``, so the aberrant-only view
-keeps it, and the page counts such calls.
+A TRGT call whose TRID matches no catalogue row gets no thresholds. The owner decided on
+2026-10-13 that such a call gets a status of its own, ``not_assessed``, distinct from
+``normal``, from ``unknown`` (no call) and from ``review`` (a count the catalogue cannot
+classify); it ranks above ``normal``, so the aberrant-only view keeps it, and the page counts
+such calls: an expansion at a locus the catalogue lacks, or under a TRID spelled differently,
+is seen.
 
 A locus without thresholds has no intermediate, premutation or pathogenic threshold: no
 catalogue row matches the TRID, or the row it matches states none (STRchive's ADTKD_MUC1 and
-CPEO_POLG). A row with one threshold keeps today's reading: normal below it.
+CPEO_POLG). A row with one threshold reads normal below it.
 
-Where such a row states a benign range, a count inside it reads ``normal`` (the owner's
-decision of 2026-10-14, CLIN-36): STRchive's CPEO_POLG states exactly 10 repeats and no
-threshold, so a POLG allele of 10 read not assessed from CLIN-26 on, and every family whose
-TRGT catalogue holds POLG showed it under *Aberrant only*. A count outside the range, above it
-or below it, stays not assessed (a benign range is not a threshold), as does every count at
-ADTKD_MUC1, which states nothing. The count is the one TRGT reports for the catalogue motif.
+Where such a row states a benign range, a count inside it reads ``normal`` (the owner's decision
+of 2026-10-14, CLIN-36): STRchive's CPEO_POLG states exactly 10 repeats and no threshold, so a
+POLG allele of 10 reads normal and stays out of *Aberrant only*. A count outside the range,
+above it or below it, stays not assessed (a benign range is not a threshold), as does every
+count at ADTKD_MUC1, which states nothing. The count is the one TRGT reports for the catalogue
+motif.
 
-- The classification, the ranking, and the known loci unchanged.
+- The classification, the ranking, and the known loci as their thresholds read them.
 - The import: the status stored with a call under an unknown TRID, a TRID spelled differently,
   and a catalogue row without thresholds, through the catalogue a start seeds; at POLG, normal
   inside its benign range only.
-- The family table: a call stored as ``normal`` before reads not assessed at once, and a POLG
-  call stored as ``not_assessed`` inside its benign range (CLIN-26 to CLIN-36) reads normal.
+- The family table: a call stored as ``normal`` at a locus without thresholds reads not assessed
+  at once, and a POLG call stored as ``not_assessed`` inside its benign range reads normal.
 - The genome tracks serve the stored status, ``not_assessed`` included.
 - The API models, the stored status's check constraint and the ranking list the same statuses.
 (integration/test_repeat_status_storage.py stores the status on Postgres.)
@@ -91,7 +90,7 @@ def classify(count: int | None, locus: dict) -> str:
 
 @pytest.mark.parametrize("count", [0, 5, 10, 12, 300, 5000])
 def test_a_called_allele_at_a_locus_without_thresholds_is_not_assessed(count: int) -> None:
-    # "normal" before: a 5000-repeat expansion read as healthy as a 5-repeat allele.
+    # Never "normal": a 5000-repeat expansion does not read as healthy as a 5-repeat allele.
     assert classify(count, NO_RANGES) == NOT_ASSESSED
 
 
@@ -105,8 +104,8 @@ def test_a_no_call_is_unknown_whether_or_not_the_locus_has_thresholds() -> None:
 
 
 def test_a_count_inside_the_benign_range_of_a_locus_without_thresholds_is_normal() -> None:
-    # STRchive's CPEO_POLG: benign exactly 10, no threshold. Not assessed from CLIN-26 on, so
-    # every family whose TRGT catalogue holds POLG showed it under Aberrant only.
+    # STRchive's CPEO_POLG: benign exactly 10, no threshold. Normal, so no family whose TRGT
+    # catalogue holds POLG shows it under Aberrant only.
     assert classify(10, POLG) == "normal"
 
 
@@ -144,7 +143,7 @@ def test_a_benign_range_with_an_end_missing_is_not_stated(ends: dict, count: int
         (ABCD3, 2, "normal"),
         (ABCD3, 44, "normal"),
         # Between the benign range and the threshold, where the row states no grey zone: the
-        # grey zone (the owner's decision of 2026-10-27, CLIN-14; normal before).
+        # grey zone (the owner's decision of 2026-10-27, CLIN-14).
         (ABCD3, 45, "intermediate"),
         (ABCD3, 117, "intermediate"),
         (ABCD3, 118, "pathogenic"),
@@ -162,7 +161,7 @@ def test_at_a_locus_with_a_threshold_the_benign_range_only_bounds_the_gap(locus:
 
 @pytest.mark.parametrize(("count", "status"), [(39, "normal"), (40, "pathogenic"), (4000, "pathogenic")])
 def test_a_row_with_only_a_pathogenic_threshold_keeps_it(count: int, status: str) -> None:
-    # Most STRchive rows (ABCD3, CSTB, DMD, ...): normal below the threshold, as before.
+    # Most STRchive rows (ABCD3, CSTB, DMD, ...): normal below the threshold.
     assert classify_repeat_count(count, None, 40) == status
 
 
@@ -264,7 +263,7 @@ async def test_a_call_whose_trid_no_catalogue_row_names_is_stored_not_assessed(m
 
     params = _call(lookup, trid=trid, counts=(12, 300))
 
-    # Both alleles, the 300-repeat expansion included, read "normal" before.
+    # Both alleles, the 300-repeat expansion included, read not assessed.
     assert allele_statuses(params) == [NOT_ASSESSED, NOT_ASSESSED]
     assert params["status"] == NOT_ASSESSED
     assert (params["locus_id"], params["warning_min"], params["pathogenic_min"]) == (trid, None, None)
@@ -577,9 +576,8 @@ def _table_row(sample_uuid: str, *, locus_id: str, chrom: str, start: int, allel
 
 @pytest.mark.asyncio
 async def test_the_family_table_reads_a_call_stored_as_normal_at_an_uncatalogued_locus_as_not_assessed() -> None:
-    """Imported before CLIN-26: stored as normal, with no thresholds. The table classifies it
-    again at once; a member without a call there stays unknown, and a catalogued locus is as
-    before."""
+    """Stored as normal, with no thresholds. The table classifies it again at once; a member
+    without a call there stays unknown, and a catalogued locus reads as stored."""
     uncatalogued = "chr2_1000000_1000030_CAG"
     rows = [
         _table_row(
@@ -661,7 +659,7 @@ async def test_the_family_table_reads_a_catalogue_row_without_thresholds_as_not_
 
 @pytest.mark.asyncio
 async def test_the_family_table_reads_a_polg_call_stored_not_assessed_inside_its_benign_range_as_normal() -> None:
-    """Imported from CLIN-26 to CLIN-36: POLG 10/10 stored as not assessed. The table classifies
+    """POLG 10/10 stored as not assessed. The table classifies
     it again at once, so the call is normal, and so is the locus when every call there is.
     (The genome track shows the stored status until the call is imported again: CLIN-14.)"""
     stored = [{"repeat_count": 10, "status": NOT_ASSESSED}, {"repeat_count": 10, "status": NOT_ASSESSED}]

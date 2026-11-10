@@ -3,13 +3,12 @@
 The chromosome view first asks which tracks each member has (``GET /families/{family_id}/
 track-availability``), with the filters it came with, the small-variant page's gene panel among
 them, and draws a member's small-variant track only when the answer says so. The small-variant
-presence (``_small_variant_present_sample_names``) applied a panel's regions alone, each row
-tested against every region (``arrayExists``), while the list and the member's track keep a
-variant annotated with one of the panel's genes or in one of its regions, whatever the panel's
-size (#897), its regions joined to the family's own rows on 64-kb windows and bound once as
-parameters (ENG-15). A member whose only variants under the panel are named by one of its genes
-outside its regions (VEP's upstream and downstream genes) was offered no track although the list
-showed them, and the Mendeliome's regions were tested row by row.
+presence (``_small_variant_present_sample_names``) applies a panel as the list and the member's
+track do: it keeps a variant annotated with one of the panel's genes or in one of its regions,
+whatever the panel's size, its regions joined to the family's own rows on 64-kb windows and
+bound once as parameters (ENG-15). So a member whose only variants under the panel are named by
+one of its genes outside its regions (VEP's upstream and downstream genes) is offered a track,
+as the list shows them.
 
 Here, with ClickHouse faked at its edge and its queries recorded: the presence applies the panel
 with the very clause the member's track and the list send, the same text and the same bound
@@ -235,8 +234,7 @@ def _panel_part(clauses: list[str], params: dict[str, Any]) -> tuple[list[str], 
 async def test_the_presence_applies_the_panel_with_the_clause_of_the_members_track_and_the_list(
     monkeypatch: pytest.MonkeyPatch, panel: str, view: str
 ) -> None:
-    # Before: the presence read the panel's regions alone, each row tested against every
-    # region (include_region_*), and none of its genes; the track and the list read both.
+    # The presence reads the panel's genes and its regions, as the track and the list do.
     clickhouse, built = _serve(monkeypatch, _PANELS[panel], present=("sample-father",))
 
     offered = await _availability(view)
@@ -299,8 +297,7 @@ async def test_a_panel_without_genes_or_regions_offers_no_member_a_small_variant
     monkeypatch: pytest.MonkeyPatch, view: str
 ) -> None:
     # A panel whose genes and regions the family's assembly does not resolve keeps no
-    # variant: the list answers an empty page without asking ClickHouse. Before, the presence
-    # read such a panel as no panel at all, and offered every member with a variant a track.
+    # variant: the list answers an empty page without asking ClickHouse.
     clickhouse, _built = _serve(
         monkeypatch, PanelFilterConstraints(), present=("sample-proband", "sample-mother", "sample-father")
     )
@@ -337,14 +334,13 @@ async def test_without_a_panel_the_presence_reads_no_panel(monkeypatch: pytest.M
 @pytest.mark.asyncio
 @pytest.mark.parametrize("view", list(_VIEWS))
 async def test_the_presence_is_one_select_over_the_familys_rows(monkeypatch: pytest.MonkeyPatch, view: str) -> None:
-    # The presence wrapped the family's matching rows in a subquery, ARRAY JOINed and grouped
-    # outside it. Under a Mendeliome-sized panel ClickHouse's analyzer took some 36 ms to
-    # analyse that query, where a member's track count, one SELECT with the same panel
-    # clause, takes 11 ms, whatever the window: in a small window most of the query's time.
-    # It now picks each matching row's samples with an ALT allele from its call arrays
-    # (arrayFilter) and keeps the distinct samples, in one SELECT over the entries table.
-    # That it offers the members it offered is pinned on real ClickHouse
-    # (integration/test_track_availability_presence_integration.py and
+    # The presence picks each matching row's samples with an ALT allele from its call arrays
+    # (arrayFilter) and keeps the distinct samples, in one SELECT over the entries table. Under
+    # a Mendeliome-sized panel, the family's matching rows in a subquery, ARRAY JOINed and
+    # grouped outside it, would take ClickHouse's analyzer some 36 ms to analyse, where a
+    # member's track count, one SELECT with the same panel clause, takes 11 ms, whatever the
+    # window: in a small window most of the query's time. Which members it offers is pinned on
+    # real ClickHouse (integration/test_track_availability_presence_integration.py and
     # e2e/test_e2e_track_availability_panel.py).
     clickhouse, _built = _serve(monkeypatch, _mendeliome_sized(), present=("sample-father",))
 

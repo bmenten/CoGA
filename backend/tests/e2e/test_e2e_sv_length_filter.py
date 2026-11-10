@@ -1,12 +1,11 @@
 """The SV length filters measure each call's SVLEN, read back from ClickHouse (E2E, CLIN-25).
 
-The length filters measured END minus POS. Sniffles2 and pbsv write an insertion with its
-END at its POS and its length in SVLEN, so the list showed a 5 kb insertion as 5.0 kb while
-a minimum length dropped it and an exact length never found it; a breakend, whose END is
-its POS, was dropped by any minimum. The filters now measure a call's SVLEN, as a positive
-number, and END minus POS only for a call without one. A translocation (BND, TRA) has no
-length: it passes any minimum and matches no exact length (the owner's decision,
-2026-10-13).
+Sniffles2 and pbsv write an insertion with its END at its POS and its length in SVLEN, so a
+filter measuring END minus POS would drop a 5 kb insertion at any minimum length and never
+find it at an exact one, and drop a breakend, whose END is its POS, at any minimum. The
+filters measure a call's SVLEN, as a positive number, and END minus POS only for a call
+without one. A translocation (BND, TRA) has no length: it passes any minimum and matches no
+exact length (the owner's decision of 2026-10-13).
 
 The golden trio has two NeedlR SVs: a 5 kb deletion (SVLEN -5000) and a breakend with
 neither SVLEN nor END. PROBAND's Sniffles2 calls are uploaded through
@@ -158,7 +157,7 @@ def test_the_list_shows_each_calls_svlen(run) -> None:
 
 @pytest.mark.parametrize("name", ["min_50", "min_50_ranked", "track_min_50"])
 def test_a_minimum_keeps_the_insertion_by_its_svlen_and_every_breakend(run, name) -> None:
-    # Before the fix: the deletions alone. The 5 kb insertion was 0 bp, the breakends 0 or 1.
+    # The deletions, the 5 kb insertion by its SVLEN, and both breakends.
     assert _found(run, name) == {_NEEDLR_DEL, _NEEDLR_BND, _INS_5KB, _DEL_5KB, _BND}
     assert _page(run, name)["total"] == 5
 
@@ -187,7 +186,7 @@ def test_the_export_holds_the_svs_the_list_holds(run) -> None:
 
 
 def test_the_export_names_each_breakends_mate_beside_its_locus(run) -> None:
-    # DATA-5. Before: no mate column, so an exported translocation named no partner.
+    # DATA-5: an exported translocation names its partner.
     export = run["export"]
     assert export["status"] == 200, export["text"]
     header = next(csv.reader(io.StringIO(export["text"])))

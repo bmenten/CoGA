@@ -274,8 +274,7 @@ async def test_a_type_search_lists_counts_and_summarises_the_matching_svs_alone(
     ("filters", "expected"),
     [
         ({"length": 5_000}, ["dup-tandem"]),
-        # The breakend passes any minimum (CLIN-25). Before, a minimum dropped it: its END
-        # minus POS is 0.
+        # The breakend passes any minimum (CLIN-25), though its END minus POS is 0.
         ({"min_length": 15_000_000}, ["del-15mb", "bnd"]),
         ({"variant_type": "inv"}, ["inv"]),
     ],
@@ -338,8 +337,8 @@ _EXACTLY_5000 = ["ins-5kb", "del-5kb", "del-5kb-without-end", "tsv-del"]
 def test_a_minimum_length_measures_the_svlen_and_passes_every_translocation(
     min_length: int, expected: list[str]
 ) -> None:
-    # Before: END minus POS, so the 5 kb insertion and the deletion stored without END were
-    # 0 bp and every breakend 0 or 1 bp; any minimum above 1 dropped them all.
+    # The SVLEN, not END minus POS: the 5 kb insertion and the deletion stored without END
+    # are measured by their SVLEN, and every breakend passes.
     assert _kept(_CALLER_SHAPED, min_length=min_length) == expected
 
 

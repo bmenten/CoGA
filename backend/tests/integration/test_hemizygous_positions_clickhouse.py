@@ -1,4 +1,4 @@
-"""The ClickHouse hemizygous-position condition agrees with Python (#545) — real ClickHouse.
+"""The ClickHouse hemizygous-position condition agrees with Python — real ClickHouse.
 
 The de novo pre-filter admits a male's haploid ``1`` or ``1/1`` call only on chrX and chrY
 outside the pseudo-autosomal regions. This runs sites on both sides of every PAR

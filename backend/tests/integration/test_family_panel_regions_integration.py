@@ -1,16 +1,16 @@
 """The family page's panel-region join keeps what testing each row against every region keeps (ENG-15).
 
-The family page kept a variant in one of a panel's regions by testing each of its rows against
-every region (``_small_region_filter_condition``, ``arrayExists`` over the regions): 2.1 s for
-a panel of 1,000 regions on a family of about 190,000 rows. It now joins the family's own rows
+The family page keeps a variant in one of a panel's regions by joining the family's own rows
 to the regions on 64-kb windows (``_small_family_region_condition``), as the Variant Explorer
 joins its annotation index (CLIN-48), and keeps a row whose chromosome, position and REF length
-are those of a row the join keeps.
+are those of a row the join keeps. Testing each row against every region
+(``_small_region_filter_condition``, ``arrayExists`` over the regions) takes 2.1 s for a panel
+of 1,000 regions on a family of about 190,000 rows.
 
 Both conditions run here, in ClickHouse, on the same synthetic entry rows, in the search's own
 WHERE (``_small_variant_where_clauses``): every chromosome spelling a store may hold ("1",
 "chr1", "X", "M", "MT", "chrM", an unplaced contig), positions on each side of window
-boundaries, and REFs of one base to more than two windows; and #857's regions (spelled with and
+boundaries, and REFs of one base to more than two windows; and regions (spelled with and
 without "chr", reversed, repeated, of one base, ending or starting on a window boundary,
 spanning several windows, or without a chromosome), with regions that share bases, nested or
 in a chain across a window boundary, as a gene's transcript loci do. Those are merged into one

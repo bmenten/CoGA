@@ -1,12 +1,12 @@
 """A project's deletion keeps its review tags, inactive and detached; a family lists the tags its
 reviews hold (SAFE-37, real Postgres).
 
-The deletion of a project deleted the review tags defined for it (``ON DELETE CASCADE``), while
-the families, their reviews, the signed records and the clinical audit trail, which hold a
-tag's key, all stayed: the reviews showed the bare key, and a new tag with the old label got
-the same key back, so every record that held it read it as the new tag.
+The families, their reviews, the signed records and the clinical audit trail hold a tag's key
+and outlive the project it was defined for. Deleting the tags with the project would leave the
+reviews showing the bare key, and a new tag with the old label would get the same key back, so
+every record that held it would read it as the new tag.
 
-Now ``delete_project_record`` deactivates the project's tags, under the definitions lock, and
+``delete_project_record`` deactivates the project's tags, under the definitions lock, and
 deletes the project in the same transaction; the foreign key sets ``project_id`` to NULL. The
 test makes, with synthetic names, project A (deleted), project B and project C, and the tags:
 

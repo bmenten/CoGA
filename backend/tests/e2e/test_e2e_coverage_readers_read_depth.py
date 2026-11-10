@@ -18,11 +18,10 @@ real Postgres and ClickHouse:
   as read, 60x and 80x) and QDNAseq's bins. With an ``mtdna.mean_depth`` limit configured for the
   family (warn below 60x, fail below 40x), ``GET /families/{id}/mitochondrial-dna`` reads the
   proband's BED, the father's HiFiCNV depths and the mother's calls' depth, and every sample
-  passes (before: a blend of depths and log2 ratios for each, and each failed);
+  passes;
 * a monogenic NIPT pair whose plasma has a coverage BED of 80x over 8 kb of the 10 kb region of
   interest, and WisecondorX's bins across it. ``GET /families/{id}/nipt/coverage`` reads the
-  BED: an 80x median and 80% of the region covered, flagged as partial coverage (before: the
-  bins' 0.1 as the median, flagged as low depth, and the region covered whole).
+  BED: an 80x median and 80% of the region covered, flagged as partial coverage.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -397,9 +396,8 @@ def test_both_packages_are_imported_with_every_callers_coverage(run) -> None:
 
 
 def test_a_coverage_read_names_its_caller_where_the_sample_holds_several(run) -> None:
-    # The proband's chrM coverage comes from four callers. Without a caller named, the window
-    # averaged her BED's 120x with three callers' log2 ratios; the read is refused now, naming
-    # them (TRACE-10). Named, it reads the BED's depth alone.
+    # The proband's chrM coverage comes from four callers. Without a caller named, the read is
+    # refused, naming them (TRACE-10). Named, it reads the BED's depth alone.
     status, body = run["bed_reads"]["unnamed"]
     assert (status, body["detail"]) == (
         400,
@@ -419,15 +417,13 @@ def test_the_mtdna_coverage_reads_each_members_track_of_read_depth(run) -> None:
         name: (item["mean_depth"], item["min_depth"], item["max_depth"], item["source"])
         for name, item in coverage.items()
     }
-    # Before: the proband's 120x BED blended with her bins and HiFiCNV's log2 ratio (about 32x,
-    # minimum -0.1), the mother's bins as her depth (0.1x), the father's depths with his QDNAseq
-    # bins (about 7x, minimum -0.2).
+    # The proband's depth is her coverage BED's alone.
     assert summary[f"PROBAND_{mito}"] == (120.0, 120.0, 120.0, "coverage BED")
     assert coverage[f"PROBAND_{mito}"]["breadth"] == 1.0
     # The mother has no track of read depth: her calls' depth, as without a coverage track.
     assert summary[f"MOTHER_{mito}"] == (500.0, 500.0, 500.0, "variant calls")
     # The father's HiFiCNV depths stored as read: 60x over chrM's first 1,000 bases and 80x over
-    # the next 1,000, each bin counted over its 1,000 bases (CLIN-56; before: 1,000 and 1,001).
+    # the next 1,000, each bin counted over its 1,000 bases (CLIN-56).
     assert summary[f"FATHER_{mito}"] == (70.0, 60.0, 80.0, "HiFiCNV coverage")
     assert coverage[f"FATHER_{mito}"]["breadth"] == pytest.approx(2_000 / MT_LENGTH)
     # Each chrM track left out is named, with the reason (TRACE-9).
@@ -447,7 +443,7 @@ def test_the_mtdna_depth_verdict_judges_each_members_depth(run) -> None:
         sample["sample_id"]: (sample["qc"]["status"], sample["qc"]["notes"])
         for sample in run["mtdna"]["json"]["samples"]
     }
-    # Before: each failed, "Mean mtDNA depth is below the configured limit of 40.0x."
+    # Every member passes the configured limit.
     assert verdicts == {
         f"PROBAND_{mito}": ("pass", []),
         f"MOTHER_{mito}": ("pass", []),
@@ -461,7 +457,7 @@ def test_the_nipt_coverage_check_reads_the_plasmas_coverage_bed(run) -> None:
     assert run["nipt_coverage"]["status"] == 200, run["nipt_coverage"]
     summary = run["nipt_coverage"]["json"]
     assert summary["targets"] is None  # no per-target table: the coverage track over the ROI
-    # Before: the bin's 0.1 was the median, and its rows covered the BED's uncovered 2 kb.
+    # The median and the covered bases are the BED's alone.
     assert summary["overall_median_on_target"] == 80.0
     [region] = summary["per_region"]
     assert (region["chr"], region["start"], region["end"]) == ("1", 10000, 20000)

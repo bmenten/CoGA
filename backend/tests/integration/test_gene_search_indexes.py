@@ -1,10 +1,10 @@
-"""The gene-search expression indexes (#264) serve their real queries (real Postgres).
+"""The gene-search expression indexes serve their real queries (real Postgres).
 
 Seeds a representative gene/gene_info set (one assembly, ~600 spread symbols + a unique
 marker), ANALYZEs, then EXPLAINs the ACTUAL service query shapes. A wrong index expression
 or operator class would force the planner onto a full ``Seq Scan`` of the 120k-class
 genes/gene_info table — which the assertions reject — and the latency-critical autocomplete
-is pinned to its prefix index specifically (since the pre-existing assembly-region index can
+is pinned to its prefix index specifically (since the assembly-region index can
 also satisfy the assembly_id half and must not win).
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.

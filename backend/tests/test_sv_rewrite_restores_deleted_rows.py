@@ -6,11 +6,11 @@ rows -- one source's, or every source's -- and writes them again, changed: the p
 upload (its caller's rows, the sample's calls swapped), the admin deletes of a sample's SVs
 and of a sample with its data (every source's rows, without the sample's calls) and a
 package's chrM SVs (the ``mito_sv`` rows, the calls of the samples it brings files for
-swapped). An insert that failed after the delete left the family without those rows -- every
-sample's, not only those the write changed -- and nothing marked it; in an update, the
-import had no snapshot to put them back.
+swapped). An insert that fails after the delete would leave the family without those rows --
+every sample's, not only those the write changed -- and in an update the import has no
+snapshot to put them back.
 
-Now the rewrite writes back the rows it read and deleted, and raises the write's error. When
+So the rewrite writes back the rows it read and deleted, and raises the write's error. When
 that fails too it raises ``StructuralVariantsNotRestored``, and the caller marks the family for
 what may be missing: the SV upload's mark, written before its rewrite on a connection of its
 own, stays, naming each sample whose calls of that caller the rewrite deleted; the admin
@@ -352,7 +352,7 @@ async def test_a_rewrite_that_fails_after_its_delete_puts_the_stored_rows_back(s
         )
 
     # The write's error, with the source's rows as they were: deleted again (with what the
-    # failed write stored) and written back. Before: deleted, and nothing put them back.
+    # failed write stored) and written back.
     assert clickhouse.events[1:] == [("delete", "sniffles"), ("insert failed",), ("delete", "sniffles"), ("insert", 2)]
     assert clickhouse.calls() == _SNIFFLES_CALLS
 
@@ -428,8 +428,8 @@ async def test_an_sv_upload_whose_rewrite_fails_leaves_every_samples_calls_as_th
     with pytest.raises(RuntimeError, match="ClickHouse insert failed"):
         await _upload(database, "S1")
 
-    # Before: the rewrite had deleted every sample's Sniffles calls -- S2's and S3's too, which
-    # the upload did not change -- and nothing marked the family.
+    # Every sample's Sniffles calls are back -- S2's and S3's too, which the upload did not
+    # change.
     assert clickhouse.calls() == _SNIFFLES_CALLS
     # Nothing is missing, so nothing marks the family: its mark went again.
     assert database.committed["unfinished"] is None
@@ -448,7 +448,7 @@ async def test_an_sv_upload_whose_rows_cannot_be_put_back_leaves_the_family_mark
     assert type(raised.value).__name__ == "StructuralVariantsNotRestored"
     assert clickhouse.calls() == {}
     # Marked for the Sniffles calls of every sample the rewrite deleted and was writing, one
-    # sample at a time, as an upload of each records them (before: nothing marked it).
+    # sample at a time, as an upload of each records them.
     [(key, mark)] = _marks(database).items()
     assert key.startswith("upload-")
     assert (mark["job_id"], mark["datasets"], mark["finished_datasets"]) == (None, ["sv_sniffles"], [])
@@ -555,7 +555,7 @@ async def test_an_admin_delete_of_a_samples_svs_whose_rewrite_fails_puts_the_fam
             database, "S2", "structural_variants", True  # type: ignore[arg-type]
         )
 
-    # Before: every source's SVs gone, S1's with S2's.
+    # Every source's SVs are back, S1's with S2's.
     assert clickhouse.calls("needlr") == {_NEEDLR_DEL: {"S1": "0/1", "S2": "0/1"}}
     assert clickhouse.calls("sniffles") == {_DEL_30000: {"S2": "0/1", "S1": "1/1"}}
     assert database.committed["unfinished"] is None
@@ -577,8 +577,7 @@ async def test_an_admin_delete_whose_svs_cannot_be_put_back_marks_the_family_for
 
     assert type(raised.value).__name__ == "StructuralVariantsNotRestored"
     # Marked, in a commit of its own, for each SV dataset the family holds, one sample at a
-    # time: not its small variants, and not the deleted sample's calls, which were to go
-    # (before: nothing marked the family).
+    # time: not its small variants, and not the deleted sample's calls, which were to go.
     [(key, mark)] = _marks(database).items()
     assert key.startswith("deletion-")
     assert mark["datasets"] == ["sv_needlr", "sv_sniffles"]
@@ -701,9 +700,9 @@ async def test_an_update_whose_chrm_sv_rewrite_fails_puts_the_other_samples_call
     result = await mito_update(database)
 
     assert result.error and "mito" in result.error
-    # The update took no snapshot: before, S2's chrM deletion was gone with the failed write.
+    # The update took no snapshot: S2's chrM deletion is written back after the failed write.
     assert clickhouse.calls("mito_sv") == {_MITO_DEL: {"S2": "0/1"}}
-    # The dataset failed for the samples it names, as before.
+    # The dataset failed for the samples it names.
     flag = database.committed["flag"]
     assert flag["failed_datasets"] == ["mito"]
     assert [item["scope"] for item in flag["failed_scopes"]["mito"]] == [{"source": None, "samples": ["S1"]}]
@@ -722,7 +721,7 @@ async def test_an_update_whose_chrm_svs_cannot_be_put_back_flags_mito_for_every_
     assert result.error and "mito" in result.error
     assert clickhouse.calls("mito_sv") == {}
     # Flagged for S2 too, whose chrM SVs the rewrite deleted: an import of S1's file alone
-    # does not bring them again (before: flagged for S1 alone).
+    # does not bring them again.
     flag = database.committed["flag"]
     assert flag["failed_datasets"] == ["mito"]
     assert [item["scope"] for item in flag["failed_scopes"]["mito"]] == [{"source": None, "samples": ["S1", "S2"]}]

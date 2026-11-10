@@ -1,4 +1,4 @@
-"""The admin-triggered clinical CNV knowledgebase rebuild: queueing and the job run (#526).
+"""The admin-triggered clinical CNV knowledgebase rebuild: queueing and the job run.
 
 The build script, the database and the subprocess are stood in for; what is pinned is the
 job's lifecycle: one active job at a time, a failed build leaves the loaded knowledgebase
@@ -9,13 +9,12 @@ writes only while the job is its own; the status and a rebuild request first clo
 whose worker is gone. The one-active rule and the closing itself are SQL, checked against
 real Postgres in ``integration/test_clinical_cnv_kb_one_active_job.py``.
 
-A rebuild is an administrator's (the route requires one), and it ran whoever had asked for
-it by then (SEC-35). The job now keeps its requester by the account's id, and runs only for
-an active administrator, as the owner decided on 2026-10-28: a job whose requester no longer
-exists, has been deactivated or is no longer an administrator when it starts ends failed,
-saying why, with nothing built or loaded; and since the build, which writes nothing, runs
-for up to two hours before the load, a requester who lost those rights meanwhile has nothing
-loaded either. Neither refusal names the account in the log.
+A rebuild is an administrator's (the route requires one), and the job keeps its requester by
+the account's id and runs only for an active administrator (SEC-35), as the owner decided on
+2026-10-28: a job whose requester no longer exists, has been deactivated or is no longer an
+administrator when it starts ends failed, saying why, with nothing built or loaded; and since
+the build, which writes nothing, runs for up to two hours before the load, a requester who lost
+those rights meanwhile has nothing loaded either. Neither refusal names the account in the log.
 """
 
 from __future__ import annotations
@@ -531,10 +530,10 @@ def test_a_job_whose_build_script_is_gone_is_marked_failed(monkeypatch: pytest.M
     ids=["refused-by-the-index", "database-unreachable"],
 )
 def test_a_job_that_cannot_be_taken_is_marked_failed(script: Path, monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
-    # The switch to running used to sit outside the job's error handling. When it failed (the
-    # old index let a job be queued beside a running one, then refused its switch), the run
-    # died and the job stayed queued for good, refusing every later rebuild. Not taken, the
-    # job has no owner: the write is guarded by its being still queued.
+    # The switch to running is within the job's error handling: when it fails (refused by the
+    # index, or the database unreachable), the job is marked failed rather than left queued
+    # for good, refusing every later rebuild. Not taken, the job has no owner: the write is
+    # guarded by its being still queued.
     run = _run(monkeypatch, claim_error=error)
 
     assert run.commands == [] and run.applied == []
@@ -663,7 +662,7 @@ def test_a_rebuild_whose_requester_lost_their_rights_before_it_started_is_not_ru
     caplog.set_level(logging.DEBUG)
     run = _run(monkeypatch, row=row, accounts=accounts)
 
-    # Before, the build ran and its knowledgebase was loaded, whoever had asked for it.
+    # Nothing is built or loaded for the account.
     assert run.commands == [], "the build ran for an account that may no longer ask for it"
     assert run.applied == []
     expected = getattr(kb, error)
@@ -696,7 +695,7 @@ def test_a_rebuild_whose_requester_lost_their_rights_while_it_built_loads_nothin
     run = _run(monkeypatch, row=row, during_build=lose_rights)
 
     assert run.commands, "the build ran: its requester was an active administrator when it started"
-    # Before, the knowledgebase was replaced.
+    # The knowledgebase is not replaced.
     assert run.applied == [], "the knowledgebase was loaded for an account that may no longer ask for it"
     assignments, params, worker = run.updates[-1]
     assert assignments.startswith("status = 'failed'") and worker == run.claims[0]

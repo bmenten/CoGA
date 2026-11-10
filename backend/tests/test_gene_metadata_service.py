@@ -41,8 +41,8 @@ def test_is_primary_chromosome_accepts_main_assembly_only() -> None:
 
 
 def test_pick_primary_gene_doc_prefers_effective_chromosome_over_larger_alt_contig() -> None:
-    # The ALT-contig copy is intentionally "larger"/exon-richer so the old
-    # size-only heuristic would have chosen it.
+    # The ALT-contig copy is intentionally "larger"/exon-richer so a size-only
+    # heuristic would choose it.
     alt_contig = {"chr": "1_KI270766v1_alt", "start": 0, "end": 100_000, "exons": [1, 2, 3, 4], "gene_id": "ALT"}
     primary = {"chr": "1", "start": 1_000, "end": 50_000, "exons": [1, 2], "gene_id": "PRIMARY"}
 

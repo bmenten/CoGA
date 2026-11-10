@@ -1,12 +1,11 @@
 """A value that is no UUID, or a UUID spelled otherwise, is answered and never fails (E2E).
 
-asyncpg's uuid codec takes nothing but hex digits and hyphens. ``GET /api/admin/data/files/
-<not a UUID>/download`` bound the value into ``CAST(:file_id AS uuid)`` and failed with a
-500, and so did the import job, the HPO annotation and the NIPT artifact routes. The panel,
-preset, user, project and clinical CNV routes, and the panel filter of the variant pages,
-checked the value with ``uuid.UUID`` and then bound it as received, so a UUID in
-braces or after ``urn:uuid:`` failed the same way. Each route now reads the value once
-(``core/sql.py``: ``canonical_uuid``, ``require_uuid``).
+asyncpg's uuid codec takes nothing but hex digits and hyphens. Each route that binds an id
+into ``CAST(... AS uuid)`` (``GET /api/admin/data/files/<id>/download``, the import job, the HPO
+annotation, the NIPT artifact, panel, preset, user, project and clinical CNV routes, and the
+panel filter of the variant pages) reads the value once (``core/sql.py``: ``canonical_uuid``,
+``require_uuid``), so neither a value that is no UUID nor a UUID in braces or after
+``urn:uuid:`` reaches the codec as received.
 
 Over the real API (an in-process ``httpx.ASGITransport`` client, see test_e2e_api_contract.py)
 and Postgres and ClickHouse, with synthetic records made for the test (a family in each of two
@@ -530,7 +529,7 @@ def test_a_value_that_is_no_uuid_is_answered_as_an_unknown_record(snap: dict[str
     # The unknown UUID, as it is, in braces and after urn:uuid:, names no record.
     for name in ("unknown", "unknown_braces", "unknown_urn"):
         assert _status(answers[name]) == unknown, (name, answers[name])
-    # It used to fail asyncpg's uuid codec: a 500.
+    # A value that is no UUID is answered so too, or with the route's own 400.
     assert _status(answers["not_a_uuid"]) == (invalid or unknown), answers["not_a_uuid"]
 
 

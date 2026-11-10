@@ -251,10 +251,10 @@ def test_orients_homologs_by_the_parent_stored_block_shade():
 
 
 def test_child_marker_matches_parent_block_shade_regardless_of_affected_status():
-    # Regression for FIX H1: orientation comes ONLY from the parents' stored-block
+    # H1: orientation comes ONLY from the parents' stored-block
     # shade maps, never from which/whether children are 'affected'. The same rows
     # and shade maps must yield the same shade-mapped markers no matter what an
-    # affected-status set would have been — there is no longer an `affected` knob.
+    # affected-status set would be — there is no `affected` knob.
     rows = _rows(
         (100, {"F": "0|1", "M": "0|1", "C": "0|0"}),  # paternal raw 0, maternal raw 0
         (200, {"F": "0|1", "M": "0|1", "C": "1|1"}),  # paternal raw 1, maternal raw 1
@@ -391,7 +391,7 @@ def _full_context():
 
 def test_truncated_fetch_flags_truncated_and_suppresses_markers(monkeypatch):
     # When the per-site fetch returns the full cap (PHASED_FETCH_LIMIT rows) the tail
-    # beyond the highest fetched pos was silently dropped, so the overlay would be
+    # beyond the highest fetched pos may be missing, so the overlay would be
     # partial/misleading. The response must flag truncated=True, carry no markers or
     # sites, and report the [min_pos, max_pos] span that was actually covered.
     capped_rows = [
@@ -561,7 +561,7 @@ def test_x_a_call_of_two_alleles_from_a_father_is_not_read():
 
 
 def test_x_a_child_whose_sex_is_not_recorded_has_two_copies_as_before():
-    # Read as receiving one X from each parent, as before; her father is read by his own sex.
+    # Read as receiving one X from each parent; her father is read by his own sex.
     rows = _rows(
         (X_SITE, {"F": "0|0", "M": "0|1", "UND": "1|1"}),
         (X_SITE + 1, {"F": "0", "M": "0|1", "UND": "0|1"}),
@@ -580,7 +580,7 @@ def test_x_a_child_whose_sex_is_not_recorded_has_two_copies_as_before():
 )
 def test_x_a_man_has_two_copies_inside_the_pars(assembly, chrom):
     # A son written as two copies of an allele his father does not carry: inside a PAR he has
-    # two copies (his father passes him the PAR on his Y), so it is an error there, as before;
+    # two copies (his father passes him the PAR on his Y), so it is an error there;
     # one position outside the PAR it is his mother's allele, and no error.
     (par1_first, par1_last), (par2_first, par2_last) = pseudoautosomal_regions(assembly)["X"]
     expected = {
@@ -604,7 +604,7 @@ def test_x_a_man_has_two_copies_inside_the_pars(assembly, chrom):
 )
 def test_x_two_copies_where_a_man_is_not_known_to_have_one(chrom, assembly):
     # On an autosome, on an assembly whose PAR bounds CoGA does not list (CHM13 v1.0), and
-    # without the chromosome or assembly, every member has two copies, as before.
+    # without the chromosome or assembly, every member has two copies.
     rows = _rows((X_SITE, {"F": "0|0", "M": "0|1", "SON": "1|1"}), (X_SITE + 1, {"F": "0", "M": "0|1", "SON": "1"}))
     assert _x_counts(rows, children=["SON"], chrom=chrom, assembly_name=assembly)[1] == {"SON": (1, 1)}
 

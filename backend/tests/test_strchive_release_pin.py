@@ -4,9 +4,9 @@ Every start seeds the repeat catalogue from the built-in loci and a STRchive fil
 ``TRGT_STRCHIVE_LOCI_PATH`` names (on Cloud Run the reference-data bucket), else the
 repository's ``data/ref-data/STRchive-loci.json``. The built-in loci carry the shipped
 release's thresholds (CLIN-22), and test_repeat_thresholds_follow_strchive.py checks them
-against the shipped file only, so another release in the bucket made the built-in rows and the
-STRchive rows disagree again: a call read differently depending on its TRID. The owner decided
-on 2026-10-14 that the shipped, validated release is the source. The file states no release of
+against the shipped file only, so another release in the bucket would make the built-in rows and
+the STRchive rows disagree: a call read differently depending on its TRID. The shipped, validated
+release is the source (the owner's decision of 2026-10-14). The file states no release of
 its own, so its SHA-256 is its identity, pinned in ``core/config.py``
 (``STRCHIVE_PINNED_LOCI_SHA256``), which no setting overrides.
 
@@ -334,9 +334,9 @@ async def test_the_application_starts_on_an_identical_copy(monkeypatch: pytest.M
 
 @pytest.mark.asyncio
 async def test_a_start_removes_strchive_rows_the_shipped_release_does_not_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A database seeded with another release (before the pin, or before a reviewed change moved
-    it) keeps loci the shipped release lacks, with that release's thresholds: a TRID naming one
-    would read against them. The start's own transaction removes them, after its upserts."""
+    """A database seeded with another release keeps loci the shipped release lacks, with that
+    release's thresholds: a TRID naming one would read against them. The start's own
+    transaction removes them, after its upserts."""
     _configure(monkeypatch, setting=None, repository=_SHIPPED)
     session = RecordingSession()
 

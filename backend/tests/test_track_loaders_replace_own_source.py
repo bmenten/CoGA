@@ -7,14 +7,14 @@ callers; on the ``apcad`` track a package's APCAD (``apcad``), HiFiCNV's minor a
 fraction (``hificnv``) and a BED upload's (``web``); on ``apcad_pcf`` a package's PCF
 tables (``pcf``) and a BED upload's.
 
-``upload_bed_data`` (the BED upload, and through it a package's coverage BED) deleted, with
-overwrite, every source's track of its type, rows and records, and so did the APCAD import.
-A package with WisecondorX or QDNAseq bins and a coverage BED for one sample lost the bins,
-which are imported first, and an APCAD import removed HiFiCNV's minor allele fraction. A
-BED upload with overwrite deleted the tracks before it read the file: an invalid file
-answered 400 with the rows gone. Its 409 counted every source's records, so an upload was
-refused for another caller's track, and an update of the coverage or APCAD dataset skipped
-a sample for another caller's rows.
+``upload_bed_data`` (the BED upload, and through it a package's coverage BED) and the APCAD
+import delete, with overwrite, only their own source's track of its type, rows and records: a
+package with WisecondorX or QDNAseq bins and a coverage BED for one sample keeps the bins,
+which are imported first, and an APCAD import keeps HiFiCNV's minor allele fraction. A BED
+upload with overwrite reads the file before it deletes anything: an invalid file answers 400
+with the rows kept. Its 409 counts its own source's records alone, so an upload is not
+refused for another caller's track, and an update of the coverage or APCAD dataset does not
+skip a sample for another caller's rows.
 
 The stores are faked at their edge, as in test_import_update_skips_by_stored_rows.py: the
 interval table answers the statements ``clickhouse_interval_tracks`` sends ClickHouse, and
@@ -228,7 +228,7 @@ async def test_a_bed_upload_with_overwrite_replaces_only_the_track_a_bed_brought
     rows, records = stores.of("S1")
     expected_rows = 2 if bed_type in {"apcad", "apcad_pcf"} else 3
     assert result == {"inserted": expected_rows}
-    # Before: every source's track of the type went, rows and records (the coverage of
+    # Every other source's track of the type stays, rows and records (the coverage of
     # WisecondorX, QDNAseq and HiFiCNV; HiFiCNV's minor allele fraction beside the APCAD).
     assert rows == {**others, (bed_type, WEB): expected_rows}
     assert records == {**others, (bed_type, WEB): expected_rows}
@@ -254,9 +254,7 @@ async def test_an_invalid_bed_upload_with_overwrite_leaves_the_stored_tracks_and
         await _upload_bed(stores, "coverage", text, overwrite=True)
 
     assert refused.value.status_code == 400
-    # Read and checked before anything is replaced. Before: the rows of every source's
-    # coverage were deleted first, and the 400 rolled back only Postgres's delete of their
-    # records, which then named rows that were gone.
+    # Read and checked before anything is replaced: no row and no record is deleted.
     assert stores.deletes == []
     assert stores.of("S1") == before
 
@@ -268,7 +266,7 @@ async def test_a_bed_upload_is_not_refused_for_another_callers_track(stores: _St
     before = stores.of("S1")[0]
     text = _APCAD if bed_type in {"apcad", "apcad_pcf"} else _BED
 
-    # Before: 409 "BED data already exists for this sample", for the other callers' records.
+    # Not refused (409) for the other callers' records.
     result = await _upload_bed(stores, bed_type, text, overwrite=False)
 
     rows, _records = stores.of("S1")
@@ -282,8 +280,8 @@ async def test_a_bed_upload_without_overwrite_is_refused_while_the_rows_a_bed_br
     stores: _Stores,
 ) -> None:
     # Rows a BED brought, without their record (an upload stopped between its rows and its
-    # commit). Before: Postgres's records were read, none named this track, and the file's
-    # rows were added to the stored ones, one track of two files.
+    # commit). The stored rows are read, not Postgres's records, so the file's rows are not
+    # added to the stored ones, one track of two files.
     stores.track("S1", "coverage", WEB, rows=3, recorded=False)
 
     with pytest.raises(HTTPException) as refused:
@@ -340,7 +338,7 @@ async def test_a_coverage_bed_keeps_the_other_callers_coverage(
 
     assert result.status == "imported"
     rows, records = stores.of("S1")
-    # Before: only the BED's coverage was left, its 3 rows.
+    # The other callers' coverage stays beside the BED's 3 rows.
     assert rows == {**others, ("coverage", WEB): 3}
     assert records == {**others, ("coverage", WEB): 3}
 
@@ -358,8 +356,7 @@ async def test_an_update_imports_a_coverage_bed_beside_another_callers_coverage(
 
     result = await _run(job)
 
-    # Before: S1 skipped as well, "coverage already exists", for the WisecondorX bins, and the
-    # dataset ended skipped with the BED's coverage never imported.
+    # S1 is not skipped for the WisecondorX bins: the BED's coverage is imported.
     assert (result.status, result.message) == (
         "imported",
         "Imported coverage; skipped existing samples in update mode: S2",
@@ -386,7 +383,7 @@ async def test_an_apcad_import_keeps_hificnvs_minor_allele_fraction(
 
     assert result.status == "imported"
     rows, records = stores.of("S1")
-    # Before: HiFiCNV's minor allele fraction and the uploaded APCAD went with the old APCAD.
+    # HiFiCNV's minor allele fraction and the uploaded APCAD stay; the old APCAD is replaced.
     assert rows == {**others, ("apcad", APCAD_SOURCE): 2}
     assert records == {**others, ("apcad", APCAD_SOURCE): 2}
 
@@ -419,7 +416,7 @@ async def test_an_update_imports_apcad_beside_hificnvs_minor_allele_fraction(
 
     result = await _run(job)
 
-    # Before: skipped, "APCAD tracks already exist", for HiFiCNV's minor allele fraction.
+    # Not skipped for HiFiCNV's minor allele fraction.
     assert (result.status, result.message) == ("imported", "Imported APCAD data into interval tracks")
     assert stores.of("S1")[0] == {("apcad", CNV_SOURCE): 8, ("apcad", APCAD_SOURCE): 2}
     assert job.skipped_samples == set()
@@ -437,7 +434,7 @@ async def test_an_apcad_file_read_as_a_bed_is_stored_as_the_datasets_own_track(
 ) -> None:
     # A per-sample file named as a VCF whose lines are BED records: the importer's VCF reader
     # finds no record, and the file is read as a BED, into the dataset's track, a BED
-    # upload's APCAD left alone. Before: stored as a BED upload's (web), replacing it.
+    # upload's APCAD left alone, not stored as a BED upload's (web).
     stores.track("S1", "apcad", WEB, rows=4)
     stores.track("S1", "apcad", CNV_SOURCE, rows=8)
     dataset = ManifestDataset(per_sample={"S1": {"vcf": _file(tmp_path, "apcad/S1.vcf", _APCAD)}})
@@ -454,7 +451,7 @@ async def test_an_apcad_file_read_as_a_bed_is_stored_as_the_datasets_own_track(
 @pytest.mark.asyncio
 async def test_the_imputed_upload_deletes_only_its_own_haplotype_blocks(stores: _Stores) -> None:
     # Only the imputed small-variant loader writes haplotype blocks (source glimpse2), and a
-    # BED upload cannot: its deletes now name its source, as every track loader's do.
+    # BED upload cannot: its deletes name its source, as every track loader's do.
     stores.track("S1", "haplotype", "glimpse2", rows=6)
     stores.track("S1", "haplotype", "another_phaser", rows=2)
 

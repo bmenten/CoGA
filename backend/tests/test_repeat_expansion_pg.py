@@ -344,8 +344,8 @@ def _stored_counts(session: _RecordingSession) -> list[tuple[list[int], str]]:
 
 @pytest.mark.asyncio
 async def test_per_sample_upload_reads_the_targets_column_of_a_family_vcf() -> None:
-    """A family TRGT VCF uploaded for the child: the first column (the mother's) used to be
-    stored as the child's repeat sizes."""
+    """A family TRGT VCF uploaded for the child: the child's own column is stored as the
+    child's repeat sizes, not the first column (the mother's)."""
     session = _UploadSession(["MOTHER", "CHILD", "FATHER"])
 
     await repeat_expansion_pg.ingest_trgt_text(
@@ -487,8 +487,8 @@ def _fmr1_insert_params(*, sex: str, sample_field: str, chrom: str = "chrX", pos
 
 def test_male_chrx_two_different_alleles_keep_the_expansion() -> None:
     """TRGT orders alleles shortest first. A male's chrX call with two sizes (TRGT run
-    without --karyotype XY on a mosaic full mutation) used to keep only the first, so
-    the full mutation was dropped and FMR1 read normal."""
+    without --karyotype XY on a mosaic full mutation) keeps both, so the full mutation
+    stays and FMR1 reads pathogenic."""
     params = _fmr1_insert_params(sex="male", sample_field="1/2:90,900:30,300")
 
     alleles = json.loads(params["alleles_json"])

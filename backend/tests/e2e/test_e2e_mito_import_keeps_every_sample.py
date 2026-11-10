@@ -4,9 +4,9 @@ A package's ``mito`` dataset holds one chrM VCF per sample. The calls are stored
 variants under the ``mito`` source, one row per variant holding every sample's call:
 the mtDNA workspace reads the mother's and the siblings' calls from those rows for the
 maternal transmission, and the mitochondrial ACMG evaluator reads that transmission
-(PP1, BS4). Each sample's file used to be imported as an overwrite of the family's whole
-``mito`` source, so every sample deleted the calls of the samples imported before it and
-only the last one's remained.
+(PP1, BS4). Imported as an overwrite of the family's whole ``mito`` source, each sample's
+file would delete the calls of the samples imported before it, and only the last one's would
+remain.
 
 The family here is its own (a new id each run), so the golden trio is never touched:
 
@@ -14,13 +14,11 @@ The family here is its own (a new id each run), so the golden trio is never touc
   sample's calls must remain, one live row per variant, also after ClickHouse has merged
   the parts, and the mtDNA workspace must show the variant the mother and the proband
   share as maternally shared, and each sample's haplogroup from its mutserve annotation
-  (the maternal-lineage check of the Sample QC review compares them; the import used to
-  close the annotation before it read the haplogroup, so none was ever shown);
+  (the maternal-lineage check of the Sample QC review compares them);
 * a second import in ``overwrite`` mode brings a new proband file and an empty father
   file (its header alone). A chrM VCF without a variant record is a failed analysis (the
   owner's decision, SAFE-29): the dataset fails before any call is replaced, and every
-  sample's calls and chrM SVs stay as stored (before: the father's calls were removed, the
-  dataset imported);
+  sample's calls and chrM SVs stay as stored;
 * a third import in ``overwrite`` mode brings the new proband file alone: the proband's calls
   are replaced and the mother's and the father's stay exactly as stored;
 * a new family's package with the mother's chrM VCF, the father's empty one and the mother's
@@ -396,7 +394,7 @@ def test_first_import_completes(run) -> None:
 
 def test_every_samples_calls_remain_after_the_first_import(run) -> None:
     rows = run["rows_after_first"]
-    # Before the fix only the father's calls (the last file imported) were left.
+    # Every sample's calls, not only those of the last file imported (the father's).
     assert _duplicate_keys(rows) == []
     assert _calls(rows) == _after_first(run["samples"])
 
@@ -436,8 +434,6 @@ def test_an_empty_chrm_vcf_fails_the_dataset_and_keeps_every_samples_calls(run) 
     second = run["second"]
     father = run["samples"]["father"]
     # The owner's decision (SAFE-29): a chrM VCF without a variant record is a failed analysis.
-    # Before: the import completed, the father's two stored calls were removed ("No chrM
-    # variants called") and the proband's replaced.
     assert second["completed"] is False, second
     assert second["mito_status"] == "failed", second
     assert f"the chrM VCF of {father} ({father}.vcf) holds no variant record" in second["mito_message"]
@@ -476,8 +472,8 @@ def test_an_empty_chrm_vcf_flags_the_family_import_incomplete_for_mito(run) -> N
     assert run["new_family_rows"] == []
 
 
-# The chrM SV files were found and validated but never read: a large heteroplasmic mtDNA
-# deletion was dropped without a word.
+# The chrM SV files are read, not only found and validated: a large heteroplasmic mtDNA
+# deletion is stored, not dropped without a word.
 def test_the_chrm_deletion_is_stored_once_with_both_carriers(run) -> None:
     mother, proband = run["samples"]["mother"], run["samples"]["proband"]
     assert run["sv_after_first"] == {(8470, 13447): {mother, proband}}

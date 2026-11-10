@@ -1,7 +1,7 @@
-"""Backend hardening (#522): unsigned anchors, the HPO download, the CNV knowledgebase
+"""Backend hardening: unsigned anchors, the HPO download, the CNV knowledgebase
 subprocess environment, and link tokens in the access log.
 
-The species list's sign-in (#522) is held with every other route's in
+The species list's sign-in is held with every other route's in
 ``test_routes_require_sign_in.py``."""
 
 from __future__ import annotations

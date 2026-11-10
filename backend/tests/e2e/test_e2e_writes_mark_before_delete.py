@@ -18,7 +18,7 @@ and a family-structure change into real Postgres and ClickHouse:
 * a BED upload with overwrite completes: its mark, written while the upload's transaction
   holds the family's write locks, does not wait on them, and goes with its commit;
 * a structure change that clears the family's data and then fails leaves the family's
-  variants in ClickHouse (before: deleted first, with the family rolled back).
+  variants in ClickHouse.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why); app exceptions come back as a 500 response.
@@ -288,7 +288,7 @@ def test_the_family_and_its_sv_calls_are_uploaded(run) -> None:
 def test_an_sv_upload_whose_rewrite_fails_puts_every_samples_calls_back(run) -> None:
     restored = run["steps"]["sv_restored"]
     assert restored["status"] == 500
-    # Before: the child's and the father's Sniffles calls were gone with the failed write.
+    # The child's and the father's Sniffles calls are back.
     assert restored["sniffles"] == run["steps"]["sv_father"]["sniffles"]
     assert restored["unfinished"] is None and restored["flag"] is None
 
@@ -340,7 +340,7 @@ def test_each_samples_upload_again_strikes_its_calls_off_the_mark(run) -> None:
 def test_an_admin_delete_whose_rewrite_fails_puts_the_familys_svs_back(run) -> None:
     deleted = run["steps"]["admin_delete_restored"]
     assert deleted["status"] == 500
-    # Before: every SV of the family was gone with the failed write.
+    # Every SV of the family is back.
     assert deleted["sniffles"] == run["steps"]["sv_mother_again"]["sniffles"]
     assert deleted["unfinished"] is None
 
@@ -371,7 +371,6 @@ def test_a_bed_upload_marks_and_unmarks_the_family_under_its_own_locks(run) -> N
 def test_a_structure_change_that_fails_after_its_clear_leaves_the_familys_variants(run) -> None:
     failed = run["steps"]["structure_clear_fails"]
     assert failed["status"] == 500
-    # Before: the variants were deleted before the structure change's own writes, and the
-    # rollback brought the family back without them.
+    # The rollback brings the family back with its variants.
     assert failed["clair3"] == run["steps"]["bed"]["clair3"] == 5
     assert failed["sniffles"] == run["steps"]["bed"]["sniffles"]

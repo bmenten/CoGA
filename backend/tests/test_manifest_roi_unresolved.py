@@ -1,9 +1,8 @@
 """A manifest's region of interest that does not resolve is reported, and clears the family's.
 
 The PGT calls (``pgt_analysis.family_pgt_analysis``) and the NIPT coverage check read the family's
-region of interest. A family that kept its earlier region, without a word, when the import could
-not find the one its manifest names would have its embryos called at a region the package does
-not name. So:
+region of interest. Kept when the import cannot find the one its manifest names, the family's
+earlier region would have the embryos called at a region the package does not name. So:
 
 - the import leaves the family with the manifest's region or with none, and its result warns
   ``manifest_roi_unresolved``, naming the region it cleared;
@@ -203,8 +202,7 @@ def test_a_gene_is_looked_up_on_its_chromosome_before_an_alt_contig() -> None:
 
 
 def test_the_import_and_the_family_page_look_a_gene_up_with_one_query() -> None:
-    # ENG-23: each kept a copy of the gene look-up; now both run roi_gene_lookup's, and resolve
-    # a gene to the same region.
+    # ENG-23: both run roi_gene_lookup's, and resolve a gene to the same region.
     from backend.app.services import family_service
 
     gene = {"hgnc_symbol": "CFTR", "gene_id": "ENSG00000001626", "chr": "chr7", "start": 117480025, "end": 117668665}

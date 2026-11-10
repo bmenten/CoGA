@@ -166,7 +166,7 @@ def test_monarch_refresh_reports_the_regenerated_mendeliome(monarch_admin_client
 
 
 def test_a_failed_mendeliome_regeneration_is_reported_not_hidden(monarch_admin_client) -> None:
-    # #514: the refresh itself succeeded, so it must not fail — but the generated
+    # The refresh itself succeeded, so it must not fail — but the generated
     # Mendeliome panel still reflects the previous release, and the admin is told.
     client, monkeypatch = monarch_admin_client
 

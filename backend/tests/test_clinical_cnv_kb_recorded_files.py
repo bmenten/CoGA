@@ -1,13 +1,14 @@
 """The clinical CNV knowledgebase names every file it was built from (TRACE-18).
 
-Only ClinGen's recurrent-CNV file was pinned and recorded (TRACE-14): the knowledgebase's other
+ClinGen's recurrent-CNV file is pinned and recorded (TRACE-14). The knowledgebase's other
 inputs, the ClinGen dosage curation, the UCSC cytobands, ClinVar's variant summary, Orphanet's
-nomenclature and a DECIPHER map, were identified by the rebuild's date alone. The build now
-records each file it reads, by its SHA-256 and size (a local file by its name, not where it lies),
+nomenclature and a DECIPHER map, are recorded too: the build records each file it reads, by its
+SHA-256 and size (a local file by its name, not where it lies),
 writes them to ``--sources-out`` beside the pinned file, and the admin rebuild records them in the
 knowledgebase's release, which the signed analysis record freezes. A file the build could not
 read into the knowledgebase is not recorded. ClinGen's GRCh37 recurrent-CNV file is pinned too,
-so a GRCh37 rebuild no longer stops before downloading it. Nothing here goes to the network.
+so a GRCh37 rebuild downloads it and checks it against the pin. Nothing here goes to the
+network.
 """
 
 from __future__ import annotations
@@ -59,7 +60,6 @@ def test_the_grch37_recurrent_file_is_pinned_to_clingens_v2_1_file() -> None:
 
 
 def test_a_grch37_build_downloads_the_file_and_checks_it_against_the_pin(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Before, a GRCh37 rebuild stopped before downloading: nothing was pinned for it.
     served = b'track db="hg19" name="ClinGen Recurrent CNV"\nchr1\t1\t2\tBP1\t0\t.\t1\t2\t0,0,0\n'
     fetched: list[str] = []
 
@@ -130,7 +130,7 @@ def test_the_build_writes_each_file_it_read_by_sha256_and_size(
     assert written["checked_files"] == [
         {"source": "ClinGen recurrent CNV", "release": "V2.1", "url": HG38_URL, "sha256": _digest(hg38)}
     ]
-    # Before: no record of these at all. The DECIPHER map by its name, not by where it lies.
+    # The DECIPHER map by its name, not by where it lies.
     assert written["recorded_files"] == [
         {"source": "ClinGen dosage curation", "url": CURATION_URL, "sha256": _digest(CURATION), "size": len(CURATION)},
         {

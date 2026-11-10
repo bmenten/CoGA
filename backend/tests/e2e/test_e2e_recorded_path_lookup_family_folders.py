@@ -3,10 +3,10 @@
 With local storage the CNV caller's signal files and the sequencing-QC report are served from
 the path the import recorded on the sample (``samples.metadata``: ``signal_tracks``,
 ``sequencing_qc.report``), relative to the family's package folder ``<data>/families/<family>``.
-The signal-track lookup checked only that the path stayed inside the data directory, so an
-edited row holding ``..`` or an absolute path served another family's track, and the manifest
-listed it; the QC-report lookup followed a package folder linked to another family's package
-and served that family's report (SEC-25).
+A check only that the path stays inside the data directory would let an edited row holding
+``..`` or an absolute path serve another family's track, listed in the manifest; a lookup that
+follows a package folder linked to another family's package would serve that family's report
+(SEC-25).
 
 Over the real API (an in-process ``httpx.ASGITransport`` client, one event loop, see
 test_e2e_api_contract.py), with the families in Postgres made through the Family Builder and
@@ -17,11 +17,11 @@ its package; F1's S1 records its own; S3 records ``../<F2>/...``, S4 the absolut
 track and S5 a path through a folder of F1's package that is a link into F2's; F3's package
 folder is a link to F2's, and its S6 records the name of F2's report.
 
-* F1's signal-track manifest lists S1 alone (before: also S3, S4 and S5 with F2's track), its
-  URL fetches S1's track, and S3, S4 and S5's tracks answer 404 to GET and HEAD (before: 200
-  with F2's track); F2's manifest still lists S2, and its URL fetches F2's track;
-* F1's S1 gets a QC-report link that opens its report; S3's report and F3's S6's answer 404
-  (before: 400 for S3, and 200 with F2's report for S6); F2's S2 still opens its report.
+* F1's signal-track manifest lists S1 alone (not S3, S4 or S5 with F2's track), its URL
+  fetches S1's track, and S3, S4 and S5's tracks answer 404 to GET and HEAD; F2's manifest
+  still lists S2, and its URL fetches F2's track;
+* F1's S1 gets a QC-report link that opens its report; S3's report and F3's S6's answer 404;
+  F2's S2 still opens its report.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it. The IDs
 and files are synthetic, and the families are dropped at the end.

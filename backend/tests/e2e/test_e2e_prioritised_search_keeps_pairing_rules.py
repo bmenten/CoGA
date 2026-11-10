@@ -5,10 +5,10 @@ search with each inheritance mode and with expanded carrier screening (the trio'
 are the couple), unranked and with *Phenotype prioritization*, through the API:
 
 * the ranked search keeps the same single variants, the same compound-het pairs (with
-  their phase and its evidence) and the same total as the unranked one. Before, a ranked
-  compound-het or recessive search listed every variant the proband is heterozygous for
-  (all eight), not the GENE_CH pair, and a ranked carrier screen every variant either
-  parent carries, not GENE_CH's two;
+  their phase and its evidence) and the same total as the unranked one: a ranked
+  compound-het or recessive search lists the GENE_CH pair, not every variant the proband is
+  heterozygous for (all eight), and a ranked carrier screen GENE_CH's two, not every variant
+  either parent carries;
 * its ranks number the variants it keeps, a pair listed at its better-ranked variant;
 * opened again it is served from the cache, unchanged;
 * its CSV export holds the same variants as the unranked export, with their ranks.

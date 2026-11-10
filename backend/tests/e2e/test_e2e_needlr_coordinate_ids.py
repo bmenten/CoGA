@@ -1,11 +1,9 @@
 """A trio's per-sample NeedlR files, imported: each SV named by its coordinates (E2E, CLIN-43).
 
 The long-read pipeline writes one NeedlR VCF per sample, and each file's records are numbered by
-its own Sniffles2 run, so the files give one ID to different calls. The package's NeedlR reader
-took a record's ID as its SV id and merged the records by it: a call was attached to another
-sample's SV of the same ID, wherever that lay, and its own deletion was lost. Now an SV's id is
-its coordinates and type (and a breakend's mate), as an uploaded SV's is, and the record ID stays
-in its annotation.
+its own Sniffles2 run, so the files give one ID to different calls. An SV's id is its
+coordinates and type (and a breakend's mate), as an uploaded SV's is, and the record ID stays in
+its annotation, so no call is attached to another sample's SV of the same ID.
 
 Here a trio package with one NeedlR VCF per sample is imported through the front door
 (``execute_family_package_import``) into Postgres and ClickHouse, the mother's file first, and the
@@ -157,7 +155,7 @@ def test_the_per_sample_files_are_imported(run) -> None:
     assert imported["completed"] is True, imported
     needlr = imported["datasets"]["sv_needlr"]
     assert needlr["status"] == "imported", needlr
-    # Before: two SVs, under the files' IDs.
+    # Three SVs: one per position, whatever the files' IDs.
     assert needlr["summary"]["processed"] == 3, needlr
 
 
@@ -174,9 +172,8 @@ def test_each_call_is_an_sv_of_its_own_position_or_merged_with_the_same_event(ru
         )
         for variant in svs["json"]["variants"]
     }
-    # Before: the father's deletion at 90000 was listed at 7000 on the mother's
-    # Sniffles2.DEL.0S0, and the proband's at 7000 on the mother's Sniffles2.DEL.1S0 at
-    # 50000, where the no-call the proband's line gives her replaced the mother's own call.
+    # The father's deletion at 90000 and the mother's at 50000 stand on their own; at 7000
+    # the mother keeps her own call, not the no-call the proband's line gives her.
     assert listed == {
         "1-7000-12000-DEL---": ("needlr", 7000, 12000, {father: "./.", mother: "0/1", proband: "0/1"}),
         "1-50000-56000-DEL---": ("needlr", 50000, 56000, {mother: "0/1"}),
@@ -185,7 +182,7 @@ def test_each_call_is_an_sv_of_its_own_position_or_merged_with_the_same_event(ru
 
 
 def test_each_svs_annotations_keep_its_lines_record_ids(run) -> None:
-    # Before: the SVs were named by the record IDs, which no annotation kept.
+    # The record IDs are kept in the annotations.
     assert {variant_id: sorted(ids, key=str) for variant_id, ids in run["record_ids"].items()} == {
         "1-7000-12000-DEL---": ["Sniffles2.DEL.0S0", "Sniffles2.DEL.1S0"],
         "1-50000-56000-DEL---": ["Sniffles2.DEL.1S0"],

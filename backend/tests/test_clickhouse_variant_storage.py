@@ -1,7 +1,7 @@
 """The family-scoped variant storage (``clickhouse_variant_storage``): the statements it sends
 ClickHouse (unit, a fake of ClickHouse at the storage's ``_execute``).
 
-- Setting an assembly's tables up only creates them, from their final definition (#679);
+- Setting an assembly's tables up only creates them, from their final definition;
   ``SNV_INDEL/entries`` holds each call's FILTER values and caller metrics, and a stored table
   without them is refused.
 - The storage status (missing tables, running mutations), the assembly listing, ``OPTIMIZE``
@@ -12,7 +12,7 @@ ClickHouse (unit, a fake of ClickHouse at the storage's ``_execute``).
   when large, and VEP's MANE Select and MANE Plus Clinical flags per transcript and per variant
   on every assembly (CLIN-5); the family and sample summaries are rebuilt; a delete is scoped
   to its source, or clears every table without one, and is synchronous.
-- Every small-variant mutation stamps a new family data version after it (#509), so the
+- Every small-variant mutation stamps a new family data version after it, so the
   prioritised-ranking cache never serves a ranking over changed variants; every SV insert and
   delete, a per-sample SV replace and a snapshot restore stamp a new SV data version (the SV to
   gene index of the "second hit" badge is keyed on it). A version is read as the token count
@@ -447,7 +447,7 @@ async def test_count_family_small_variants_by_sample_counts_non_reference_calls(
         "family_guid": "family-1",
         "sample_ids": ("embryo-1",),
         "project_ids": ("project-1",),
-        # Non-reference means "carries an ALT allele" (#511): a haploid "0" is not counted.
+        # Non-reference means "carries an ALT allele": a haploid "0" is not counted.
         "gt_alt": genotype_vocabulary("het", "hom_alt"),
     }
     _only_grch38(clickhouse)
@@ -660,7 +660,7 @@ async def test_refresh_family_small_variant_summaries_rebuilds_family_and_sample
 ) -> None:
     await cvs.refresh_family_small_variant_summaries("GRCh38", "family-1")
 
-    # The last statement stamps the family's new data version (#509), the refresh standing
+    # The last statement stamps the family's new data version, the refresh standing
     # for every re-insert and for the snapshot restore.
     *executed, bump = [(sent.query, sent.params) for sent in clickhouse.sent]
     assert "SNV_INDEL/family_data_version" in bump[0]
@@ -702,7 +702,7 @@ async def test_delete_family_small_variants_scopes_entries_to_source(clickhouse:
     # Source-scoped: exactly one DELETE, against entries only, filtered by source, so
     # re-importing glimpse2 cannot touch the clair3 rows. The summary tables are left
     # for the caller's refresh to rebuild from the surviving entries. The delete is
-    # followed by the data-version stamp (#509), the family's one.
+    # followed by the data-version stamp, the family's one.
     *executed, bump = clickhouse.sent
     assert bump.query.startswith("INSERT INTO") and "SNV_INDEL/family_data_version" in bump.query
     assert bump.data[0][0] == "family-1"
@@ -721,7 +721,7 @@ async def test_delete_family_small_variants_without_source_clears_all_tables(cli
     await cvs.delete_family_small_variants("GRCh38", "family-1")
 
     # Unscoped: clears entries and both summary tables, with no source filter, then
-    # stamps the data version (#509), the family's one.
+    # stamps the data version, the family's one.
     *executed, bump = clickhouse.sent
     assert bump.query.startswith("INSERT INTO") and "SNV_INDEL/family_data_version" in bump.query
     assert bump.data[0][0] == "family-1"
@@ -734,7 +734,7 @@ async def test_delete_family_small_variants_without_source_clears_all_tables(cli
     assert all(sent.params == {"family_guid": "family-1"} for sent in executed)
 
 
-# --- the family data versions (#509) ----------------------------------------------------
+# --- the family data versions ----------------------------------------------------------
 
 
 @pytest.mark.asyncio

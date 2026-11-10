@@ -2,10 +2,10 @@
 
 A whole-genome CRAM is tens of GB and nothing in the import reads it: the alignments
 importer records where the file lies, and the genome browser streams it from the store
-through a signed URL. Staging used to download every object of a gs:// or s3:// package
-into /tmp, which on Cloud Run is memory, and the CRAM endpoint then only looked at
-``<family>/[bams/|alignments/]<sample>.cram`` at the bucket root, not where the package
-keeps its reads (``imports/<family>/bams/<sample>.cram``). These tests pin the contract:
+through a signed URL. Staging does not download it into /tmp, which on Cloud Run is memory,
+and the CRAM endpoint finds it where the package keeps its reads
+(``imports/<family>/bams/<sample>.cram``), not only at the bucket root. These tests pin the
+contract:
 
 * staging leaves alignments and their indexes in the store and says which files it left;
 * only the alignments dataset may point at such a file, since only its importer never
@@ -577,8 +577,8 @@ async def test_an_untrusted_recorded_location_is_never_signed(
 async def test_the_log_line_about_an_ignored_location_names_no_sample(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # The warning named the sample whose recorded location it ignored: logs carry no values
-    # (SEC-37). It still says that a location was ignored, and why.
+    # The warning does not name the sample whose recorded location it ignored: logs carry no
+    # values (SEC-37). It says that a location was ignored, and why.
     use_store(monkeypatch, "gs", {"imports/F1/bams/PROBAND7.cram": "cram"})
     _family_members(monkeypatch, "PROBAND7")
     _sign_urls(monkeypatch)

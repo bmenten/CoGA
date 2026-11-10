@@ -9,19 +9,16 @@ client, one event loop, see test_e2e_api_contract.py), with the seeded admin sig
   the family and of one of the second member's (``raw_import_files`` rows, ``managed``, as an
   upload writes them, the files in the upload folder). A deferred trigger refuses the commit of
   the member's deletion, then of the family's: each answers 500, and its rollback keeps every
-  record. The files they name are still there; before, they were unlinked before the commit,
-  and the records named files that were gone. Without the trigger each deletion completes, and
+  record. The files they name are still there. Without the trigger each deletion completes, and
   unlinks its files once it has committed, counting them;
 * a trio uploaded through the PED route, with the child's coverage BED, then replaced by the
-  same PED uploaded with overwrite: the replaced family's interval rows go from ClickHouse
-  (before: they stayed, under a family that was gone), and Postgres's record of the track goes
-  with the family;
+  same PED uploaded with overwrite: the replaced family's interval rows go from ClickHouse,
+  and Postgres's record of the track goes with the family;
 * a trio whose ``import_incomplete`` flag names the child's TRGT calls, and the child's and the
   father's, as a failed import leaves it, and whose ``import_unfinished`` holds the entry of an
   import that stopped while writing the child's coverage: deleting the child strikes it off both,
   the entry going. The father's TRGT calls uploaded again then clear the flag, and the report
-  signs out past the import gate. Before, the child stayed named, so no upload or import could
-  clear either, and sign-out stayed refused.
+  signs out past the import gate.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it. The IDs and
 files are synthetic, and the families are dropped at the end.
@@ -271,8 +268,7 @@ def test_the_family_is_made_with_its_members(files_after_commit) -> None:
 def test_a_sample_deletion_whose_commit_fails_keeps_the_files_its_records_name(files_after_commit) -> None:
     step = files_after_commit["steps"]["sample_refused"]
     assert step["status"] == 500
-    # Rolled back: the member and both records are there, and so are both files (before: the
-    # member's copy was unlinked, its record naming a file that was gone).
+    # Rolled back: the member and both records are there, and so are both files.
     assert step["records"] == ["family.vcf", "s2.vcf"] and len(step["members"]) == 2
     assert step["files"] == {"family": True, "s2": True}
 
@@ -287,7 +283,7 @@ def test_a_sample_deletion_unlinks_its_file_once_it_has_committed(files_after_co
 def test_a_family_deletion_whose_commit_fails_keeps_the_files_its_records_name(files_after_commit) -> None:
     step = files_after_commit["steps"]["family_refused"]
     assert step["status"] == 500
-    # Before: the family's copy was unlinked.
+    # Rolled back: the family's record is there, and so is its copy.
     assert step["records"] == ["family.vcf"] and step["files"]["family"] is True
 
 
@@ -395,8 +391,8 @@ def test_the_trio_and_the_childs_coverage_are_uploaded(replaced_tracks) -> None:
 def test_a_ped_upload_that_replaces_the_family_erases_its_interval_tracks(replaced_tracks) -> None:
     step = replaced_tracks["steps"]["replaced_family"]
     assert step["status"] == 200, step["text"]
-    # The replaced family's coverage rows are gone from ClickHouse (before: 2 stayed, under a
-    # family that was gone), and its record from Postgres, with the family.
+    # The replaced family's coverage rows are gone from ClickHouse, and its record from
+    # Postgres, with the family.
     assert (step["rows"], step["sources"]) == (0, 0)
     new = replaced_tracks["steps"]["new_family"]
     assert new["family_uuid"] != replaced_tracks["steps"]["bed"]["family_uuid"]
@@ -526,8 +522,8 @@ def test_a_sample_deletion_strikes_the_sample_off_the_flag_and_the_stopped_impor
     assert step["status"] == 200, step["text"]
     father = flags_cleared["names"]["father"]
     # The father's TRGT calls may still be missing; nothing of the child can be. The import
-    # that stopped while writing the child's coverage alone is gone. Before: both named the
-    # child, whose data no upload or import can bring again.
+    # that stopped while writing the child's coverage alone is gone: no upload or import can
+    # bring the child's data again.
     assert step["flag"]["failed_datasets"] == ["repeats_trgt"]
     assert step["flag"]["failed_scopes"] == {
         "repeats_trgt": [{"scope": {"source": None, "samples": [father]}, "job_id": None}]
@@ -538,7 +534,7 @@ def test_a_sample_deletion_strikes_the_sample_off_the_flag_and_the_stopped_impor
 def test_the_fathers_upload_then_clears_the_flag_and_the_report_signs_out(flags_cleared) -> None:
     upload = flags_cleared["steps"]["father_trgt"]
     assert upload["status"] == 200, upload["text"]
-    # Before: the flag stayed, naming the child, and sign-out was refused.
+    # The flag and the stopped import's entry are gone, and sign-out passes the import gate.
     assert upload["flag"] is None and upload["unfinished"] is None
     signed = flags_cleared["steps"]["signout"]
     assert signed["status"] == 200, signed["text"]

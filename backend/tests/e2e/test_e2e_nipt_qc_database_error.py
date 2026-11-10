@@ -2,10 +2,10 @@
 
 The Sample QC runs a monogenic NIPT family's cfDNA checks (paternity, fetal sex, the category
 distribution) from its NIPT analysis, which reads the family and the assay's artifact list
-from Postgres. A database error there was caught and noted ("NIPT cfDNA analysis could not
-run."), but it had aborted the request's transaction: the sign-out's next statement failed,
-and the sign-out with it (a 500, nothing signed). The step now runs in a savepoint, so the
-error is rolled back to it and reads like the step's other failures.
+from Postgres. A database error there is caught and noted ("NIPT cfDNA analysis could not
+run."). Outside a savepoint it would abort the request's transaction: the sign-out's next
+statement would fail, and the sign-out with it (a 500, nothing signed). The step runs in a
+savepoint, so the error is rolled back to it and reads like the step's other failures.
 
 Over the synthetic demo NIPT package (``demo/nipt_family``, imported by ``_nipt_demo.py`` as
 ``test_e2e_nipt_signed_record.py`` imports it, with the maternal plasma on an assay panel of
@@ -120,7 +120,7 @@ def test_the_sample_qc_page_notes_that_the_nipt_analysis_could_not_run(signed) -
 
 
 def test_the_gate_lists_the_nipt_checks_among_those_that_could_not_run(signed) -> None:
-    # Before: the sign-out's next statement failed in the aborted transaction (a 500).
+    # The sign-out reaches its gate (409), not a 500 from an aborted transaction.
     refused = signed["responses"]["refused"]
     assert refused["status"] == 409, refused["text"][:2000]
     detail = refused["json"]["detail"]

@@ -1,18 +1,15 @@
 """Discover reads the package's own files, whatever an ID names.
 
 Discover names files after the family and sample IDs: ``<family ID>.ped``,
-``cram/<sample ID>.cram``, a NIPT parent's ``<sample ID>.vcf.gz``. An ID is a name, but the ID
-rule let it hold a path: an absolute one, or ``..`` that climbs out of the package folder, so
-the file named after it lay outside the package. Discover looked such files up and read them:
-another folder's PED (its sample IDs and its path came back in the draft), a VCF's header (its
-column count decided whether a NIPT pair was proposed), any ``.ped`` on the host through an
-absolute family ID; a NIPT parent's absolute ID failed with a 500, a sample ID beginning with
-``~`` named the home folder. A ``*``, ``?`` or ``[`` in an ID widened a pattern, so a sample took
-another's file. Then no path an ID leads out of the package was looked up, and the ID was named
-in a warning; since SEC-15 such an ID is no ID (it holds a ``/``, or is ``..``): Discover
-refuses it (``family_id_invalid``, ``sample_id_invalid``) and drafts nothing, before it looks
-anything up under it. A symlink cannot lead a PED or a NIPT VCF out either, and an ID's
-wildcard characters match only themselves.
+``cram/<sample ID>.cram``, a NIPT parent's ``<sample ID>.vcf.gz``. An ID is a name; one that
+held a path, an absolute one or ``..`` that climbs out of the package folder, would name a file
+outside the package: another folder's PED (its sample IDs and its path in the draft), a VCF's
+header (its column count deciding whether a NIPT pair is proposed), any ``.ped`` on the host
+through an absolute family ID, or, for a sample ID beginning with ``~``, the home folder. Such
+an ID is no ID (it holds a ``/``, or is ``..``, SEC-15): Discover refuses it
+(``family_id_invalid``, ``sample_id_invalid``) and drafts nothing, before it looks anything up
+under it. A symlink cannot lead a PED or a NIPT VCF out either, and an ID's wildcard characters
+(``*``, ``?``, ``[``) match only themselves, so a sample never takes another's file.
 
 Each package sits next to decoys, files named as an ID would lead to, that Discover must
 never open, look up or name (a symlink in the package is looked up to tell where it leads, but
@@ -224,8 +221,7 @@ def test_a_family_id_that_leads_out_of_the_package_is_refused_and_reads_no_ped_t
     # Neither the decoy's content nor its path is in the answer.
     assert _holds(answer, *DECOY_MARKERS) == []
     assert _paths_naming(answer, package, decoy) == []
-    # The ID holds a '/': no ID (SEC-15). Before, Discover warned (family_id_leaves_package)
-    # and drafted a manifest for it from the package's own PED.
+    # The ID holds a '/': no ID (SEC-15), so no manifest is drafted for it.
     assert [(issue.code, issue.message) for issue in answer.errors] == [
         ("family_id_invalid", f"Family ID '{family_id}' (the family_id of the request) contains a slash (/). {IDENTIFIER_RULE}")
     ]
@@ -241,8 +237,7 @@ def test_without_a_ped_such_a_family_id_gets_no_draft(monkeypatch: pytest.Monkey
         answer = _discover(package, family_id="../decoy")
 
     assert access.touching(decoy) == []
-    # Before SEC-15 Discover found no PED and proposed none outside the package; now it
-    # refuses the ID before it looks for one.
+    # Discover refuses the ID (SEC-15) before it looks for a PED.
     assert [issue.code for issue in answer.errors] == ["family_id_invalid"]
     assert (answer.ped_path, answer.manifest_yaml) == (None, "")
     assert _holds(answer, *DECOY_MARKERS) == []
@@ -336,8 +331,7 @@ def test_a_sample_id_that_leads_out_of_the_package_is_looked_up_nowhere_outside(
     assert access.touching(decoy, tmp_path / "outside") == []
     assert _paths_naming(answer, package, decoy) == []
     if refused:
-        # A '/' makes it no ID (SEC-15): no draft, and nothing looked up under it. Before,
-        # Discover warned about it (sample_id_leaves_package) and drafted.
+        # A '/' makes it no ID (SEC-15): no draft, and nothing looked up under it.
         assert [(issue.code, issue.message) for issue in answer.errors] == [
             ("sample_id_invalid", f"Sample ID '{sample_id}' (in the PED) contains a slash (/). {IDENTIFIER_RULE}")
         ]
@@ -372,7 +366,7 @@ def test_a_nipt_parent_id_that_leads_out_reads_no_vcf_there(
     assert "nipt_pair_detected" not in [issue.code for issue in answer.warnings]
     assert _holds(answer, *DECOY_MARKERS, "decoyf.vcf.gz", "decoym.vcf.gz") == []
     assert _paths_naming(answer, package, *decoys) == []
-    # The parents are not in the PED, which Discover reports as before, and their IDs hold a
+    # The parents are not in the PED, which Discover reports, and their IDs hold a
     # '/': no IDs (SEC-15), so it drafts nothing.
     assert {issue.code for issue in answer.errors} == {"ped_missing_father", "ped_missing_mother", "sample_id_invalid"}
     assert answer.manifest_yaml == ""

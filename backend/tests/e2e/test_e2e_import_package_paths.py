@@ -13,7 +13,7 @@ with 500, see test_e2e_api_contract.py) and Postgres, with synthetic packages:
 * the package list, with a package folder that is a symlink to a package outside the import
   root, one that loops and one that leads to a folder in the root: it leaves out the first
   two and lists the third by the folder it leads to, and adding the first by hand, typed, is
-  refused; nothing of the outside package is shown.
+  refused.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """

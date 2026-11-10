@@ -150,9 +150,8 @@ async def test_reimport_clears_the_whole_source_not_just_the_filename(
     recorder = _Recorder(existing=500)
     await _run_guard(monkeypatch, recorder, "overwrite")
 
-    # A filename-scoped replace accumulates rows when the file feeding a track
-    # changes -- which is what moving HiFiCNV's coverage track from the bedGraph to
-    # the depth bigWig would have done.
+    # A filename-scoped replace would accumulate rows whenever the file feeding a
+    # track changes, so the whole source is cleared.
     assert recorder.cleared == [("coverage", "qdnaseq")]
     assert recorder.imported
 
@@ -175,7 +174,7 @@ async def test_update_mode_imports_a_track_whose_rows_are_gone_though_postgres_r
 ) -> None:
     # A failed overwrite's restore that stopped part-way deleted the rows and left their
     # record (SAFE-20). An update reads the store: it imports the track again, clearing the
-    # stale record first. Before: skipped as there.
+    # stale record first.
     recorder = _Recorder(existing=500, stored=0)
     result = await _run_guard(monkeypatch, recorder, "update")
 

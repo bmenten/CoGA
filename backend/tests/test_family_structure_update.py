@@ -1,13 +1,13 @@
 """A family-structure update (``update_family_structure_for_admin``, ``PUT /families/{id}/structure``).
 
 What it rewrites: only the members an update actually changes are written again, not every
-member (Batch-3 dirty-tracking cleanup).
+member.
 
 What it records: the update marks what it made stale in
-``families.metadata.derived_data_status.family_metadata``. That record said
-``raw_datasets_preserved: true`` on every update, also when ``clear_existing_genomic_data``
-had just deleted the family's variants, tracks and reviews. It now says whether the data was
-kept, and a clear is recorded, with a warning, even when nothing else changed. The record's
+``families.metadata.derived_data_status.family_metadata``. That record says whether the data
+was kept (``raw_datasets_preserved``), false when ``clear_existing_genomic_data`` has just
+deleted the family's variants, tracks and reviews, and a clear is recorded, with a warning, even
+when nothing else changed. The record's
 reason is bound as text (``CAST(:reason AS text)``), which asyncpg needs to type a parameter
 inside ``jsonb_build_object`` (SAFE-31).
 

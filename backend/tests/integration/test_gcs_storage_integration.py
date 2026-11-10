@@ -105,7 +105,7 @@ def gcs_endpoint():
         [
             "docker", "run", "-d", "--name", name,
             "-p", f"127.0.0.1:{port}:{port}",
-            # The image CI starts, as ci/pinned-images.Dockerfile pins it (#520, OPS-12).
+            # The image CI starts, as ci/pinned-images.Dockerfile pins it (OPS-12).
             pinned_image("fake-gcs-server"),
             "-scheme", "http",
             "-port", str(port),

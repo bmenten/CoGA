@@ -14,8 +14,8 @@ drives the real statements against the real schema:
   the rest; the map goes once it is empty; the sign-out reader reads what they leave;
 - after a failed overwrite whose restore failed part-way, the import's entry stays, naming
   every dataset the family's imports recorded (``imported_scopes``) besides its own, and
-  goes only once each has been imported again with overwrite; a refused restore still
-  swaps the entry for the flag (SAFE-16);
+  goes only once each has been imported again with overwrite; a refused restore swaps the
+  entry for the flag (SAFE-16);
 - a single-file upload's record is written in the upload's transaction and takes turns
   with an import's bookkeeping on the family row, so neither loses the other's; the entry
   of a restore that failed part-way names what uploads brought, and only an upload with
@@ -23,14 +23,14 @@ drives the real statements against the real schema:
 - the pipeline parameters an import records are set without writing back a stale copy of
   the metadata;
 - of three stale jobs, the one that was running is ended (its log kept, a line added), the
-  validating one is claimed again (its log kept, a line added), the queued one is claimed
-  as before; a running job whose heartbeat is fresh is left alone, and only the job's
+  validating one is claimed again (its log kept, a line added), the queued one is claimed;
+  a running job whose heartbeat is fresh is left alone, and only the job's
   worker can beat its heartbeat;
 - the heartbeat is stamped, and its age judged, by the database's clock: with this host's
   clock an hour ahead, a job whose heartbeat is nine minutes old is left alone and one
   eleven minutes old is ended, at the database's time; a beat and a progress update stamp
   the database's time, and an update the job's worker no longer holds changes nothing and
-  says so (#746).
+  says so.
 
 The e2e tests (test_e2e_import_crash_leaves_family_marked.py,
 test_e2e_import_stale_heartbeat.py) run the whole path. Skipped unless
@@ -416,8 +416,8 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
             "sv_needlr": [scopes["sv_needlr"]],
         }
 
-        # A restore refused before its first delete removes the entry with its flag, as
-        # before: it deleted nothing.
+        # A restore refused before its first delete removes the entry with its flag: it
+        # deleted nothing.
         refused = mark("snv")
         async with sm() as s:
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=refused)
@@ -745,8 +745,8 @@ def test_the_heartbeat_is_stamped_and_judged_by_the_databases_clock(monkeypatch:
         def now(cls, tz=None):  # type: ignore[override]
             return host_clock.now(tz) + timedelta(hours=1)
 
-    # Before: the claim judged the heartbeat by this host's clock, so it took a live import
-    # whose heartbeat is nine minutes old for stopped, and stamped the host's times.
+    # The claim judges the heartbeat by the database's clock: by this host's, it would take a
+    # live import whose heartbeat is nine minutes old for stopped, and stamp the host's times.
     monkeypatch.setattr(family_package_jobs, "datetime", _HostClockAhead)
     long_ago = datetime(1990, 1, 1, tzinfo=timezone.utc)
     worker = f"w-{uuid4().hex[:8]}"

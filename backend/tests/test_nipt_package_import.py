@@ -315,7 +315,7 @@ def test_a_nipt_files_column_named_as_the_member_or_in_its_entry_is_not_warned_o
 
 def test_discover_warns_of_the_column_of_a_nipt_file_it_finds(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     # The father's file is named after him and its one column after another tube: Discover
-    # drafts the pair all the same, and says so before the manifest is written.
+    # drafts the pair, and says so before the manifest is written.
     import yaml
 
     monkeypatch.setattr(settings, "family_import_roots", [])

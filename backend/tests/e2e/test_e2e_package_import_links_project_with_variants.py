@@ -3,9 +3,9 @@
 ClickHouse stores a family's small and structural variant rows once per project it is linked
 to, and a reader of the family reads the rows of the projects it may see. A package import into
 an existing family links the family to the import's project, and writes only the datasets it
-imports, under each of the family's projects (an update leaves out those stored): the family's
-other callsets stayed under its first project, and a reader whose only project was the new one
-found them missing.
+imports, under each of the family's projects (an update leaves out those stored). It copies the
+family's other callsets to the new project too: left under its first project alone, they would
+be missing for a reader whose only project is the new one.
 
 Over the golden trio (clair3 SNVs and needlr SVs, in the e2e project A), with a project B on the
 same assembly and a project C on another one, through the real import, Postgres and ClickHouse:
@@ -13,7 +13,7 @@ same assembly and a project C on another one, through the real import, Postgres 
 * an update import into B of the needlr SVs alone (the family's SVs removed first, so it writes
   that one dataset) leaves A and B each holding every row, column for column as imported; a
   reader of B alone finds both small and structural variants;
-* a family linked to B before the fix (its rows under A alone) gets them under B at its next
+* a family linked to B whose rows stayed under A alone gets them under B at its next
   import, one that writes nothing;
 * an overwrite into B that fails after its dataset is put back from its snapshot, which holds
   B's copy: the family stays linked to B with every row under A and B;
@@ -191,7 +191,8 @@ async def _exercise(root: Path, sv_only: Path) -> dict[str, Any]:
             out["projects_after_into_b"] = await _family_projects(family_uuid)
             out["presence_b"] = await presence()
 
-            # A family linked to B before the fix: B linked in Postgres, its rows under A.
+            # A family linked to B whose rows stayed under A: B linked in Postgres, its rows
+            # under A.
             await _in_project_a_alone(family_uuid, project_a)
             await _sql(
                 "INSERT INTO family_projects (family_id, project_id) VALUES (CAST(:f AS uuid), CAST(:p AS uuid))",
@@ -284,8 +285,7 @@ def test_an_update_into_b_of_one_dataset_leaves_every_callset_under_a_and_b(run)
 
 
 def test_a_reader_of_b_alone_finds_the_familys_small_and_structural_variants(run) -> None:
-    # Before the fix, the reader of the new project found the SVs the import wrote, and no
-    # small variant.
+    # The small variants too, not only the SVs the import wrote.
     for kind in ("small-variants", "structural-variants"):
         assert run["presence_b"][kind]["status"] == 200, run["presence_b"][kind]["text"]
         assert run["presence_b"][kind]["json"]["total"] == 1, kind

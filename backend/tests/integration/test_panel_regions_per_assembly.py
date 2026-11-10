@@ -1,8 +1,7 @@
-"""Gene-panel regions are scoped per assembly (#515, TF-06 H12) — real Postgres.
+"""Gene-panel regions are scoped per assembly (TF-06 H12) — real Postgres.
 
-Before, a panel stored one region per gene across all assemblies (GRCh38 first, else T2T)
-in a table with no assembly column, and every family's panel filter unioned them: a GRCh38
-family could be filtered on T2T coordinates and vice versa. This checks, against the real
+A panel's regions stored across all assemblies and unioned by every family's panel filter
+would filter a GRCh38 family on T2T coordinates and vice versa. This checks, against the real
 schema, that
 
 * a gene is resolved in every assembly that has it, each region tagged with its assembly;
@@ -102,8 +101,8 @@ def test_panel_regions_are_resolved_stored_and_read_per_assembly() -> None:
                 )
                 await s.commit()
             async with sm() as s:
-                # A family on assembly A never sees B's coordinates — before #515 the
-                # stored B-only region (chr2) leaked into A's filter.
+                # A family on assembly A never sees B's coordinates: the stored B-only region
+                # (chr2) stays out of A's filter.
                 for_a = await _fetch_panel_constraints(s, ids["panel"], assembly_id=ids["a"])
                 assert {(r.chr, r.start, r.end) for r in for_a.regions} == {("1", 1_000, 2_000)}
                 for_b = await _fetch_panel_constraints(s, ids["panel"], assembly_id=ids["b"])

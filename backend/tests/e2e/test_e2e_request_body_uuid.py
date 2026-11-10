@@ -1,11 +1,11 @@
 """A UUID a request body names a record by is read as one in a path is (E2E).
 
 The three writes to the NIPT artifact list (``POST /api/admin/nipt/artifacts``, its
-``auto-seed`` and its table ``import``, a form) and the import request bound the
-``assembly_id`` or ``project_id`` of their body as they received it. A value that is no UUID failed asyncpg's uuid codec or the insert's uuid cast,
-and a UUID of no assembly or project failed the insert's foreign key: each a 500. Each now
-reads the value once (``core/sql.py``: ``require_uuid``) and looks the record up before it
-writes anything.
+``auto-seed`` and its table ``import``, a form) and the import request name a record by the
+``assembly_id`` or ``project_id`` of their body. Bound as received, a value that is no UUID
+would fail asyncpg's uuid codec or the insert's uuid cast, and a UUID of no assembly or project
+the insert's foreign key: each a 500. Each reads the value once (``core/sql.py``:
+``require_uuid``) and looks the record up before it writes anything.
 
 Over the real API (an in-process ``httpx.ASGITransport`` client, see test_e2e_api_contract.py)
 and Postgres and ClickHouse, with synthetic records made for the test (a project, a family in

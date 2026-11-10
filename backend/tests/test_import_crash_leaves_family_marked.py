@@ -3,13 +3,9 @@
 An import writes a family over minutes, committing as it goes. Its fail-clean logic --
 remove a new family nothing imported into, put back a failed overwrite, flag the rest
 ``import_incomplete`` -- runs in the import's own process, so when that process ends
-part-way (a restart, a crash, running out of memory) none of it runs. The family was left
-partly imported and unflagged; the worker that later claimed the stale job ran it again
-from the start, where a cancel refused the family it had created ("Package validation
-failed") and an update skipped the dataset it had left half-written, and the re-run
-replaced the job's record of what the first attempt did.
+part-way (a restart, a crash, running out of memory) none of it runs.
 
-Now an import records its entry in the family's ``import_unfinished`` before its first
+So an import records its entry in the family's ``import_unfinished`` before its first
 write (a new family is created with it), records each dataset there once it has finished,
 and removes the entry when it ends, whichever way. These tests model that map as each
 statement documents it (the SQL runs against Postgres in
@@ -230,7 +226,7 @@ async def test_an_import_stopped_inside_a_dataset_leaves_its_entry_naming_what_i
     await _stopped_in(family, held)
 
     assert started == ["snv", "coverage"]
-    # Before: nothing marked the family, and nothing of the import's fail-clean ran.
+    # The entry marks the family: every dataset, and the one that finished.
     entry = family.unfinished["job-1"]
     assert entry["datasets"] == ["coverage", "repeats_trgt", "snv"]
     assert entry["finished_datasets"] == ["snv"]
@@ -273,8 +269,7 @@ async def test_an_entry_another_import_removed_while_this_one_waited_is_written_
 
     await _stopped_in(family, held)
 
-    # Before: written again only once a dataset had finished, so a stop in the first one
-    # left the family with neither an entry nor a flag.
+    # Written again as the first dataset starts, so a stop in it leaves the family marked.
     assert registration.pending_datasets(family.unfinished["job-1"]) == {"snv"}
 
 
@@ -304,9 +299,8 @@ async def test_a_stop_while_a_failed_overwrite_is_put_back_leaves_every_dataset_
 
     await _stopped_in(family, in_restore, conflict_mode="overwrite")
 
-    # Before: the entry still said snv had finished, though the restore had deleted it,
-    # so an overwrite of coverage alone would have cleared it; and it named neither the SV
-    # calls (SAFE-16), so an overwrite of snv and coverage would have.
+    # Nothing counts as finished, snv included, though it had finished before the restore;
+    # and the entry names the SV calls too (SAFE-16).
     entry = family.unfinished["job-1"]
     assert entry["finished_datasets"] == []
     assert registration.pending_datasets(entry) == {"coverage", "snv", "sv_needlr"}
@@ -447,7 +441,8 @@ async def test_an_update_after_a_stop_completes_but_leaves_the_family_marked(fam
     result = await _import(family, job_id="job-2")
 
     assert result.completed is True
-    # Before: the update ended "completed" over the half-written coverage, and nothing said so.
+    # The update completes, but the family stays marked for the half-written coverage, and
+    # the log says so.
     assert set(family.unfinished) == {"job-1"}
     assert registration.pending_datasets(family.unfinished["job-1"]) == {"coverage"}
     note = next(line for line in result.logs if "stays marked import-incomplete" in line)
@@ -488,7 +483,6 @@ async def test_a_failed_dataset_stays_flagged_until_an_import_imports_it_again(f
     _datasets(monkeypatch, {"snv": "imported"})
     result = await _import(family, job_id="job-2")
     assert result.completed is True
-    # Before: any import that completed cleared it.
     assert family.incomplete["failed_datasets"] == ["coverage"]
     assert family.incomplete["failed_jobs"] == {"coverage": "job-1"}
     note = next(line for line in result.logs if "stays flagged import-incomplete" in line)
@@ -508,7 +502,7 @@ async def test_a_later_failure_keeps_the_earlier_failed_dataset(family, monkeypa
     _datasets(monkeypatch, {"sv_needlr": RuntimeError("bad VCF")})
     await _import(family, job_id="job-2")
 
-    # Before: the second failure's flag replaced the first; coverage was forgotten.
+    # The second failure's flag keeps the first: coverage beside sv_needlr.
     assert family.incomplete["failed_datasets"] == ["coverage", "sv_needlr"]
     assert family.incomplete["failed_jobs"] == {"coverage": "job-1", "sv_needlr": "job-2"}
 
@@ -626,7 +620,7 @@ async def test_a_job_run_again_keeps_what_its_earlier_attempt_logged(monkeypatch
     await package_import.run_family_import_job(job_id="job-1", worker_id="worker-1")
 
     progress_update, final = updates
-    # Before: each update replaced the job's logs with this run's alone.
+    # Each update keeps the earlier run's logs before this run's.
     assert progress_update["logs"] == [*earlier, "Validated package path /data/families/FAM001."]
     assert final["status"] == "completed"
     assert final["logs"][: len(earlier)] == earlier
@@ -680,8 +674,8 @@ async def test_the_heartbeat_stops_with_the_import_once_the_job_is_no_longer_thi
     await package_import.run_family_import_job(job_id="job-1", worker_id="worker-1")
 
     assert beats == ["job-1"]
-    # Before: the heartbeat alone stopped, and the import went on to its end
-    # (test_import_stale_heartbeat.py follows such an import through the family).
+    # The import stops with its heartbeat, before its end (test_import_stale_heartbeat.py
+    # follows such an import through the family).
     assert ended == [] and updates == []
 
 

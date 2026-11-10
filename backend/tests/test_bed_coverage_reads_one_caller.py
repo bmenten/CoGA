@@ -2,14 +2,14 @@
 
 ``GET /bed/{sample}/coverage`` and its ``/batch`` read a sample's coverage track. A sample can
 hold several callers' coverage at once, each under its own source (a coverage BED, WisecondorX's
-and QDNAseq's bins, HiFiCNV's depth). A read that named no ``source`` came back with every
-caller's rows merged, and a windowed read averaged them: a depth and log2 ratios made one value
-that is none of them. The views always name the caller (#852). Now:
+and QDNAseq's bins, HiFiCNV's depth). Read without a ``source``, every caller's rows would come
+back merged, and a windowed read would average them: a depth and log2 ratios made one value
+that is none of them. The views always name the caller. So:
 
 * a coverage read without ``source`` where the sample holds several callers' coverage, in the
   region read, is refused (400), naming the callers; with ``source`` it reads that caller's rows;
-* where the sample holds one caller's coverage there, a read without ``source`` is answered as
-  before; the other track types are not refused (segments and APCAD are not averaged).
+* where the sample holds one caller's coverage there, a read without ``source`` is answered with
+  its rows; the other track types are not refused (segments and APCAD are not averaged).
 
 The interval store is a fake: each (source, chromosome) with its rows, answering as ClickHouse
 answers (``source=None``: every source's rows).
@@ -104,7 +104,7 @@ def test_a_coverage_read_without_a_caller_is_refused_where_the_sample_holds_seve
         assert refused.value.detail == (
             "The sample holds coverage of several callers here (web, wisecondorx): name one with source"
         )
-    # Before: both callers' rows, averaged in each window to 200.05.
+    # Refused before the store is asked: no two callers' rows are averaged.
     assert store.asked == []
 
     # Naming the caller reads its rows alone.
@@ -142,7 +142,7 @@ def test_a_coverage_read_of_one_callers_track_and_the_other_track_types_are_answ
     )
     assert [item["value"] for item in one["items"]] == [400.0]
 
-    # Segments are not averaged: read as before, every caller's.
+    # Segments are not averaged: every caller's are read.
     _Store(TWO_CALLERS).install(monkeypatch)
     segments = _json(
         asyncio.run(

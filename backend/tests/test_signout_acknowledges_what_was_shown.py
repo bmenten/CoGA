@@ -1,12 +1,11 @@
 """A sign-out's acknowledgement covers exactly the concerns its dialog showed (TRACE-19).
 
-"Sign out anyway" sent the acknowledgement of a gate (evidence drift, Sample QC, an
-incomplete import) and its reason, and the sign-out read the gate again: a concern that arose
-after the dialog listed them (another check failing, another classification drifting,
-another dataset failing to import) was signed out over, as acknowledged, unseen. Each refusal
-now carries the fingerprint of the concerns it lists, the dialog sends it back with the
-acknowledgement, and a sign-out whose concerns are no longer those is refused with them as
-they are now, writing nothing.
+"Sign out anyway" sends the acknowledgement of a gate (evidence drift, Sample QC, an
+incomplete import) and its reason, and the sign-out reads the gate again. Each refusal carries
+the fingerprint of the concerns it lists, the dialog sends it back with the acknowledgement,
+and a sign-out whose concerns are no longer those is refused with them as they are now, writing
+nothing: a concern that arose after the dialog listed them (another check failing, another
+classification drifting, another dataset failing to import) is never signed out over unseen.
 """
 
 from __future__ import annotations
@@ -198,9 +197,7 @@ def _refusal(session=None, **kwargs) -> tuple[int, Any]:
 
 
 def _shown(detail: object) -> str | None:
-    """The fingerprint a refusal gave its dialog. (Before TRACE-19 a refusal gave none, and
-    the drift gate's was a plain sentence: the acknowledgement then signed out over whatever
-    the gate read when it was confirmed.)"""
+    """The fingerprint a refusal gave its dialog."""
     return detail.get("concerns_fingerprint") if isinstance(detail, dict) else None
 
 

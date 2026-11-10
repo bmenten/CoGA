@@ -1,18 +1,18 @@
-"""A queued import does not run as an account deactivated since it was queued (found while fixing SEC-32), nor as one no longer an administrator (SEC-35).
+"""A queued import does not run as an account deactivated since it was queued (SEC-32), nor as
+one no longer an administrator (SEC-35).
 
 The worker runs a queued import job as the account that requested it, found by the job's
-``requested_by_id`` (SEC-32), and took that account whatever its state: an account an
-administrator deactivated between the request and the run had its import run as it, though
-deactivating an account ends its access at once (docs/security-posture.md). Such a job is now
-ended failed, saying why, before anything of the family is written, as a job whose requester
-no longer exists already was; the log names neither the account nor its address. An import
-already running when its requester is deactivated runs to its end: the account is checked
-once, when the import starts.
+``requested_by_id`` (SEC-32), and checks that account's state: deactivating an account ends
+its access at once (docs/security-posture.md), so a job whose requester an administrator
+deactivated between the request and the run ends failed, saying why, before anything of the
+family is written, as a job whose requester no longer exists does; the log names neither the
+account nor its address. An import already running when its requester is deactivated runs
+to its end: the account is checked once, when the import starts.
 
-Only a superuser or an administrator queues an import (the import routes require one), and the import
-checked the requester's access to the job's project only: an administrator demoted to viewer
-since, an analyst of that project, still had the import run (SEC-35). Such a job now ends
-failed the same way, as the owner decided on 2026-10-28, and so does a job claimed again
+Only a superuser or an administrator queues an import (the import routes require one), and the
+import checks the requester's role, not only their access to the job's project: a job whose
+requester was demoted since (an administrator now a viewer, an analyst of that project) ends
+failed the same way (SEC-35), as the owner decided on 2026-10-28, and so does a job claimed again
 after its worker stopped while it was still ``validating``; a superuser or an administrator
 has the import run, and one demoted while the import runs has it run to its end. Overwriting an
 existing family is an admin's (REQ-SEC-002): an overwrite whose requester is no longer an admin
@@ -137,7 +137,7 @@ async def test_the_job_of_a_deactivated_account_ends_failed_and_its_import_does_
 
     raised = await job.run()
 
-    # Before, the import ran as the deactivated account, and the job ended completed.
+    # The import does not run as the deactivated account, and the job ends failed.
     assert job.ran_as == [], "the import ran as a deactivated account"
     assert job.looked_up == [REQUESTER_ID]
     assert job.ends == [
@@ -161,7 +161,7 @@ async def test_the_job_of_a_deactivated_account_ends_failed_and_its_import_does_
 async def test_the_job_of_an_account_that_no_longer_exists_still_ends_failed(
     monkeypatch: pytest.MonkeyPatch, requester_id: str | None
 ) -> None:
-    # As before (SEC-32): a deleted account's jobs keep no link to it (ON DELETE SET NULL).
+    # SEC-32: a deleted account's jobs keep no link to it (ON DELETE SET NULL).
     job = _Job(monkeypatch, requester_id=requester_id, accounts={})
 
     raised = await job.run()
@@ -183,7 +183,7 @@ async def test_the_job_of_an_account_no_longer_an_administrator_ends_failed_and_
 
     raised = await job.run()
 
-    # Before, the import ran as the demoted account, and the job ended completed.
+    # The import does not run as the demoted account, and the job ends failed.
     assert job.ran_as == [], "the import ran as an account that is no longer an administrator"
     assert job.looked_up == [REQUESTER_ID]
     assert job.ends == [
@@ -270,9 +270,9 @@ async def test_an_import_already_running_when_its_requester_is_deactivated_or_de
 async def test_a_job_that_fails_on_an_unexpected_error_ends_naming_the_error_by_its_kind(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # SEC-39. A job's error, which the import pages show, was the error's text: for a failed
-    # statement, its SQL and the values it was given. It is now a fixed sentence naming the
-    # error's kind, and the log names the job; a refusal in CoGA's own words, as those above,
+    # SEC-39. A job's error, which the import pages show, is a fixed sentence naming the
+    # error's kind, never the error's text (for a failed statement, its SQL and the values it
+    # was given), and the log names the job; a refusal in CoGA's own words, as those above,
     # is stored as it is written.
     from sqlalchemy.exc import OperationalError
 

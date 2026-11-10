@@ -2,10 +2,9 @@
 
 A package import that fails for some datasets keeps those that imported and flags the
 family ``import_incomplete`` with what failed; sign-out refuses it unless acknowledged with
-a reason (REQ-TRACE-013, TF-06 H16). Any later import that completed used to clear the flag,
-whatever it imported, so the family read as complete while the failed dataset was still
-missing; and a later failure's flag replaced an earlier one, forgetting what that one said
-had failed.
+a reason (REQ-TRACE-013, TF-06 H16). A later import that completes leaves the flag while a
+failed dataset is still missing, whatever it imported; and a later failure's flag keeps what
+an earlier one said had failed.
 
 Over one new family this runs real import jobs (``POST /api/family-imports``, the worker's
 ``run_family_import_job``) and signs out through ``POST /api/families/<id>/report/sign-out``:
@@ -13,9 +12,9 @@ Over one new family this runs real import jobs (``POST /api/family-imports``, th
 * package 1 (cancel): its SNV callset fails (no readable record), its coverage imports: the
   family is flagged with the SNV callset failed, and the sign-out is refused;
 * package 2 (update, coverage only) completes, but the SNV callset is still missing: the
-  flag stays (before: cleared), the job says why, and the sign-out is still refused;
+  flag stays, the job says why, and the sign-out is still refused;
 * package 3 (update, a Paraphase file that is not an object) fails: the flag names both the
-  SNV callset and Paraphase, each with the job that holds its error (before: Paraphase only);
+  SNV callset and Paraphase, each with the job that holds its error;
 * package 4 (update, a readable SNV callset and Paraphase file) imports both: the flag goes,
   and the report signs out with no import acknowledgement.
 
@@ -199,7 +198,7 @@ def test_a_partly_failed_import_flags_what_failed(snap) -> None:
 def test_an_import_that_completes_without_the_failed_dataset_leaves_it_flagged(snap) -> None:
     first, step = snap["steps"]["1_partial"], snap["steps"]["2_without_snv"]
     assert step["job"]["status"] == "completed", step["job"]["error"]
-    # Before: the flag was cleared here, the SNV callset still missing, and this signed out.
+    # The SNV callset is still missing: the flag stays, and the sign-out is refused.
     assert step["flag"]["failed_datasets"] == ["snv"]
     assert step["flag"]["failed_jobs"] == {"snv": first["job_id"]}
     note = next(line for line in step["job"]["logs"] if "stays flagged import-incomplete" in line)
@@ -210,7 +209,7 @@ def test_an_import_that_completes_without_the_failed_dataset_leaves_it_flagged(s
 def test_a_later_failure_keeps_the_earlier_one_with_its_job(snap) -> None:
     first, step = snap["steps"]["1_partial"], snap["steps"]["3_another_failure"]
     assert step["job"]["status"] == "failed"
-    # Before: this failure's flag replaced the earlier one, and named Paraphase only.
+    # The flag keeps the earlier failure beside this one.
     assert step["flag"]["failed_datasets"] == ["paraphase", "snv"]
     assert step["flag"]["failed_jobs"] == {"paraphase": step["job_id"], "snv": first["job_id"]}
     message = gate_refusal(step["signout"], "import_incomplete")["message"]

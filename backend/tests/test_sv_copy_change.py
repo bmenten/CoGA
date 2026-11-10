@@ -1,11 +1,10 @@
 """One rule for whether an SV removes a copy of what it spans, adds one, or neither (CLIN-47).
 
-The SV ranking matched exact type names (``DEL``, ``LOSS``, ``CNV_LOSS``), so a ``DEL:ME`` or
-a CNV whose copy number shows a loss did not score as a deletion, nor take the
-haploinsufficiency floor in a LoF-intolerant gene, and a ``DUP:TANDEM`` or a CNV gain did not
-score as a duplication, while the SNV + SV second-hit badge counted a ``DEL:ME`` and a CNV loss
-as copy losses (#840). Both now read ``sv_copy_change.copy_change``: these tests pin the rule,
-and run the SV ranking and the badge on the same SVs. The SV list serves each SV's change by
+The SV ranking and the SNV + SV second-hit badge both read ``sv_copy_change.copy_change``, so a
+``DEL:ME`` or a CNV whose copy number shows a loss scores as a deletion, and takes the
+haploinsufficiency floor in a LoF-intolerant gene, as the badge counts it a copy loss, and a
+``DUP:TANDEM`` or a CNV gain scores as a duplication: these tests pin the rule, and run the SV
+ranking and the badge on the same SVs. The SV list serves each SV's change by
 the same rule, which the genome, chromosome and Circos views draw an SV by (CLIN-54).
 """
 
@@ -43,7 +42,7 @@ A_SON = FamilyPedigree(males=frozenset({"son"}), assembly_name="GRCh38")
     [("DEL:ME", "DEL"), ("dup:tandem", "DUP"), (" INS:ME:ALU ", "INS"), ("CNV", "CNV"), (None, "")],
 )
 def test_an_sv_is_read_by_its_type_without_subtypes(sv_type: str | None, kind: str) -> None:
-    # Imported here, so the ranking test below still runs on code without the module.
+    # Imported here, so an import error fails this test alone, not the ranking test below.
     from backend.app.services.sv_copy_change import sv_kind
 
     assert sv_kind(sv_type) == kind
@@ -275,8 +274,8 @@ def test_the_sv_list_serves_each_svs_copy_change_by_the_same_rule(
     locus: tuple[str, int, int],
     change: str | None,
 ) -> None:
-    # The genome, chromosome and Circos views drew only five exact type names; they now draw a
-    # DEL:ME as a deletion and a CNV by this change, which the list serves with each SV.
+    # The genome, chromosome and Circos views draw a DEL:ME as a deletion and a CNV by this
+    # change, which the list serves with each SV.
     served = _structural_variant_out(
         _record(variant_id, sv_type, calls, locus), [], pedigree=_family_pedigree(_context())
     )

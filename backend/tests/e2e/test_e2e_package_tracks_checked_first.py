@@ -1,11 +1,10 @@
 """Every embryo's APCAD file and every sample's coverage file are checked before any sample's
 track is replaced (E2E, SAFE-3).
 
-A dataset of one track file per sample checked each file as it wrote it: the `apcad` dataset's
-file per embryo, and the `coverage` dataset's BED (or per-target table) per sample. A later
-sample's file without a record failed the dataset after the earlier samples' tracks had been
-replaced. An overwrite's backup then put them back; one without a backup (it could not be
-taken) left them replaced, and the family flagged.
+A dataset of one track file per sample (the `apcad` dataset's file per embryo, and the
+`coverage` dataset's BED or per-target table per sample) reads every sample's file before it
+replaces any sample's track. A later sample's file without a record fails the dataset with the
+earlier samples' tracks as they were, even in an overwrite without a backup to put them back.
 
 Here a family of two embryos (a new id each run) goes through real import jobs
 (queued as an approved delivery queues them, then the worker's ``run_family_import_job``) into
@@ -13,14 +12,12 @@ Postgres and ClickHouse:
 
 * package 1 (cancel): each embryo's APCAD VCF (2 sites) and coverage BED (2 bins) are stored;
 * a dry run of package 2 warns of the second embryo's APCAD VCF and coverage BED, which hold
-  nothing after their header (before: no warning);
+  nothing after their header;
 * package 2 (overwrite; the family's backup fails, so nothing puts the family back): the
   first embryo's new APCAD VCF (3 sites) and coverage BED (3 bins), the second embryo's
   holding nothing after their header. Both datasets fail, each naming the second embryo and
-  its file (before: "400: No valid BED records found", naming neither), and the job ends
-  failed; every embryo's tracks are as package 1 left them, rows and records (before: the
-  first embryo's replaced by its new files), and the family is flagged import-incomplete for
-  both datasets, naming the job.
+  its file, and the job ends failed; every embryo's tracks are as package 1 left them, rows
+  and records, and the family is flagged import-incomplete for both datasets, naming the job.
 
 The backup's failure is injected by failing the import's Postgres snapshot, taken first, so
 no ClickHouse backup is made either (as test_e2e_import_auto_snv_callsets.py does).
@@ -282,7 +279,7 @@ def test_the_first_package_stores_each_embryos_tracks(snap) -> None:
 def test_a_dry_run_warns_of_the_second_embryos_files_without_a_record(snap) -> None:
     step = snap["steps"]["2_dry_run"]
     second = snap["embryos"][1]
-    # Before: no warning; the import then failed both datasets.
+    # Each dataset's file that holds nothing after its header is warned of.
     assert step["valid"] is True
     assert ("dataset_file_without_record", "apcad", second) in step["warnings"]
     assert ("dataset_file_without_record", "coverage", second) in step["warnings"]
@@ -294,15 +291,13 @@ def test_a_later_embryos_empty_files_fail_the_datasets_with_every_track_as_it_wa
     assert step["job"]["error"] == "Family package import failed for dataset(s): apcad, coverage"
     # The second embryo's VCF holds no record, and is read as a BED, which holds none either;
     # its coverage BED holds nothing. Each failure names the embryo and its file, by its path
-    # in the package. Before: "400: No valid BED records found" for both, naming neither.
+    # in the package.
     second = snap["embryos"][1]
     assert step["job"]["datasets"] == {
         "apcad": ("failed", f"The APCAD file of {second} (apcad/{second}.vcf), read as a BED: No valid BED records found"),
         "coverage": ("failed", f"The coverage BED of {second} (coverage/{second}.bed): No valid BED records found"),
     }
     # No backup put the family back: every track is as package 1 left it, rows and records.
-    # Before: the first embryo's APCAD and coverage were replaced by its new files (3 each),
-    # then the second embryo's files failed the datasets.
     stored = _tracks(snap, apcad=(2, 2), coverage=(2, 2))
     assert (step["rows"], step["records"]) == (stored, stored)
 

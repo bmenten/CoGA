@@ -1,13 +1,9 @@
 """A live import whose heartbeat goes stale is stopped, and a restore without its backup
-deletes nothing (E2E, #746, TF-06 H16).
+deletes nothing (E2E, TF-06 H16).
 
 A running import writes its job's heartbeat every minute, and a worker that finds it ten
-minutes old ends the job as interrupted and drops the job's overwrite backups. When the
-import's process was alive and only its heartbeat could not be written, the import went on:
-under a job that said it had been interrupted, it finished its datasets and removed the
-family's mark; and an overwrite that failed then ran its restore without the dropped
-backups, deleting the family's small variants before it failed, while its flag still named
-them as imported.
+minutes old ends the job as interrupted and drops the job's overwrite backups. Here the
+import's process is alive and only its heartbeat cannot be written.
 
 Over two new one-sample families this runs real import jobs (``POST /api/family-imports``,
 then the worker's ``run_family_import_job``) against Postgres and ClickHouse. While each
@@ -296,8 +292,7 @@ def test_its_heartbeat_stops_it_where_it_is(snap) -> None:
     run = snap["live"]
     assert run["run"] == "returned"
     after = run["family_after"]
-    # Before: it went on under a job that said it was interrupted, imported all 6 variants
-    # and the coverage, and removed its entry.
+    # It stops after the loader's first flush: no coverage, and its entry stays.
     assert run["flushed"] == [_BATCH]
     assert after["snvs"] == _BATCH
     assert after["coverage_rows"] == 0
@@ -320,7 +315,6 @@ def test_the_job_keeps_the_record_the_claim_gave_it(snap) -> None:
 
 def test_the_family_it_left_part_way_is_refused_for_sign_out(snap) -> None:
     run = snap["live"]
-    # Before: the import completed the family, which then signed out (200).
     detail = gate_refusal(run["signout"], "import_incomplete")
     assert set(detail["import_unfinished"]) == {run["job_id"]}
 
@@ -343,8 +337,7 @@ def test_a_restore_without_its_backup_deletes_nothing(snap) -> None:
     run = snap["overwrite"]
     assert run["run"] == "returned"
     after = run["family_after"]
-    # Before: the restore deleted the family's small variants, then failed for want of
-    # their backup: 0 left.
+    # The restore finds no backup and deletes nothing: the overwrite's variants stay.
     assert after["snvs"] == _OVERWRITE_VARIANTS
     assert after["coverage_rows"] == run["family_before"]["coverage_rows"]
     assert run["backups_after"] == []

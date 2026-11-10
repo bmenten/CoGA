@@ -551,7 +551,7 @@ def test_a_typed_path_into_the_staging_root_is_refused(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path
 ) -> None:
     # Under the staging root the guard admits only the package the running import staged from
-    # a bucket: a typed path there is another import's staged copy.
+    # a bucket: a typed path there would read another import's staged copy (SEC-27).
     import tempfile
 
     from backend.app.services import family_package_source

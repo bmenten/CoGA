@@ -1,11 +1,10 @@
 """A family's clinical audit trail, read a page at a time, is the whole trail (real Postgres).
 
-The report listed the 200 newest events of a family's trail as the whole trail (AUDIT-1): no
-paging, no total, while a review save writes up to three events. ``list_clinical_audit`` serves
-the trail a page at a time, newest first in the hash chain's order reversed, with the number of
-events the trail holds and whether older ones remain; ``before``, the id of the last event
-shown, reads the next page. Against real Postgres, with events written by the real writer
-(``record_clinical_event``):
+A review save writes up to three events, so the report reads a family's trail in pages
+(AUDIT-1). ``list_clinical_audit`` serves the trail a page at a time, newest first in the hash
+chain's order reversed, with the number of events the trail holds and whether older ones remain;
+``before``, the id of the last event shown, reads the next page. Against real Postgres, with
+events written by the real writer (``record_clinical_event``):
 
 * a trail of 205 events: the default page holds the newest 200, counts 205 and says older ones
   remain; the page after it holds the other five and says none remain;

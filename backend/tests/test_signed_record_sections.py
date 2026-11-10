@@ -769,7 +769,8 @@ def _haplotype_source(sample: str) -> dict[str, Any]:
 
 
 def test_a_nipt_familys_fetus_read_as_an_embryo_brings_no_pgt_section(monkeypatch) -> None:
-    # The record held the PGT analysis of the fetus, a section of another application (#922).
+    # The PGT analysis of the fetus would be a section of another application: the record
+    # holds none.
     async def _nipt(session, context, *, reported_ids, shared_nipt=None):
         return {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
 
@@ -823,7 +824,7 @@ def test_a_nipt_family_whose_embryo_has_haplotype_blocks_keeps_the_pgt_section(m
 
 
 def test_a_pgt_familys_section_does_not_wait_on_its_embryos_blocks(monkeypatch) -> None:
-    # A family that is no NIPT family holds the section for any embryo, as before: its blocks
+    # A family that is no NIPT family holds the section for any embryo: its blocks
     # are not looked up for it (the section says what the calls rest on).
     async def _analysis_of(session, context):
         return _analysis()
@@ -942,7 +943,7 @@ def test_the_record_names_the_delivered_package_and_every_correction_made_at_int
 def test_a_family_not_imported_from_a_delivery_holds_none(rows: list[dict[str, Any]]) -> None:
     intake = asyncio.run(srs.package_intake(_Session({"package_import": rows}), _context()))  # type: ignore[arg-type]
     if rows and rows[0]["delivery"] not in (None, "null"):
-        # A delivery recorded before corrections were: its record, with none.
+        # A delivery record without a list of corrections: its record, with none.
         assert intake["delivery"]["id"] == "d0" and intake["delivery"]["corrections"] == []
         assert intake["delivery"]["revision"] is None
     else:

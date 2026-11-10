@@ -1,4 +1,4 @@
-"""Slow CPU work runs in a worker thread, not on the event loop (#527).
+"""Slow CPU work runs in a worker thread, not on the event loop.
 
 The backend runs one uvicorn worker, so anything slow on the event loop stalls every
 request. These pin that the bcrypt check at login and the per-gene phenotype scoring run

@@ -42,7 +42,7 @@ def test_module_list_merges_pipeline_over_platform_in_canonical_order() -> None:
 
 
 def test_module_list_includes_unknown_keys_verbatim() -> None:
-    # Unknown keys used to be title-cased, which renamed the tools it was recording
+    # Title-casing an unknown key would rename the tool it records
     # ("nf-core/lrsvar" -> "Nf-Core/Lrsvar", "xz" -> "Xz"). A provenance record must say
     # exactly what produced a result, so an unrecognised key is shown as-is.
     out = ams._module_list({"custom_tool": "9"}, {})
@@ -51,7 +51,7 @@ def test_module_list_includes_unknown_keys_verbatim() -> None:
 
 
 def test_refresh_modules_records_and_accumulates_per_modality() -> None:
-    # Issue #294: each import records its version under by_modality[modality], and a
+    # Each import records its version under by_modality[modality], and a
     # later modality citing a *different* release of the same database accumulates
     # rather than clobbering — the divergence is preserved.
     snv = ams._refresh_modules({}, {"gencode": {"version": "49"}}, modality="snv")
@@ -284,7 +284,7 @@ def test_platform_modules_read_the_reference_versions() -> None:
     assert modules == {
         "assembly": {"version": "GRCh38", "detail": "p14"},
         # The source of the gene loci CoGA loaded, e.g. the UCSC table used when GENCODE
-        # could not be fetched (#536).
+        # could not be fetched.
         "gene_loci": {"version": "ucsc ncbiRefSeq", "detail": "imported 2026-09-01"},
         "monarch": {"version": "2026-03-01"},
         # The HPO release phenotype matching and HPO-driven ranking ran on, with its date and
@@ -313,7 +313,7 @@ def test_an_hpo_release_without_a_date_names_its_files_digest_alone() -> None:
 def test_an_hpo_ontology_loaded_without_a_release_is_recorded_as_such() -> None:
     # An ontology file without a data-version header imports with no release. Phenotype
     # matching still runs on it, so a signed record must say its release is unknown, not
-    # leave HPO out as if none were loaded (#514).
+    # leave HPO out as if none were loaded.
     for missing in (None, "", "   "):
         session = _ProvenanceSession(fail=False, hpo_row={"release_version": missing, "release_date": None})
         modules = asyncio.run(ams._platform_modules(session, None))
@@ -339,9 +339,8 @@ def test_the_reference_module_list_names_every_platform_module() -> None:
 
 
 def test_a_failed_platform_lookup_is_recorded_not_dropped(caplog) -> None:
-    # #514: these lookups run inside sign-out. A bare `except: pass` left the module
-    # out of the frozen record without a trace — the pattern that once hid a total
-    # failure to write the manifest.
+    # These lookups run inside sign-out. A bare `except: pass` would leave the module
+    # out of the frozen record without a trace.
     session = _ProvenanceSession(fail=True)
     with caplog.at_level(logging.WARNING, logger=ams.logger.name):
         modules = asyncio.run(ams._platform_modules(session, _ASSEMBLY_ID))

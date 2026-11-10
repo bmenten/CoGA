@@ -59,7 +59,7 @@ async def _collect_api_responses(root: Path) -> dict:
         r["small_full"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 100}))
         r["small_paged"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 2}))
         r["comp_het"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"inheritance": "compound_het"}))
-        # #534: a frequency ceiling below the ClinVar-pathogenic GENE_PATH variant
+        # A frequency ceiling below the ClinVar-pathogenic GENE_PATH variant
         # (gnomAD AF 1e-5). With the override the variant must survive the ClickHouse
         # filter, not only the Python matcher; without it, it must not.
         freq_ceiling = {"page": 1, "page_size": 100, "max_gnomad_af": 0.000001}
@@ -219,8 +219,7 @@ def test_structural_variants_page_contract(api, expected):
     assert by_type["DEL"]["length"] == -5000, by_type["DEL"]  # svLen, not end-start
     assert by_type["DEL"]["gene_count"] >= 1
     # Both a DEL and a BND ingest via the Needlr path. The BND has the mate its ALT names
-    # (N]chr5:3000000]), read as an upload reads it; the Needlr importer stored none before
-    # (CLIN-40). The DEL has none.
+    # (N]chr5:3000000]), read as an upload reads it (CLIN-40). The DEL has none.
     assert "BND" in by_type, by_type
     assert (by_type["BND"]["remote_chr"], by_type["BND"]["remote_start"]) == ("5", 3_000_000), by_type["BND"]
     assert (by_type["DEL"]["remote_chr"], by_type["DEL"]["remote_start"]) == (None, None), by_type["DEL"]
@@ -410,8 +409,8 @@ def _page_ids(resp: dict) -> set[str]:
 
 
 def test_clinvar_pathogenic_survives_the_frequency_ceiling_in_clickhouse(api):
-    # #534: "ClinVar P/LP overrides frequency" used to exist only in the Python matcher;
-    # the ClickHouse fetch dropped the variant first.
+    # "ClinVar P/LP overrides frequency" holds in the ClickHouse fetch too: it keeps the
+    # variant rather than dropping it first.
     rescued = _page_ids(_resp(api, "freq_rescue_on"))
     strict = _page_ids(_resp(api, "freq_rescue_off"))
     assert "1-2000-C-T" in rescued, rescued

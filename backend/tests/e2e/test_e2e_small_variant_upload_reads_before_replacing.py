@@ -1,14 +1,12 @@
 """A small-variant upload with overwrite reads the whole file before it replaces the callset
 (SAFE-25), E2E.
 
-``POST /families/{family_id}/small-variants/upload`` with ``overwrite`` deleted the family's
-rows of its callset, and for imputed genotypes the family's haplotype blocks, before it read
-the file: a file it refused answered 400 with them gone (a gzip file cut short even answered
-500), while Postgres, whose deletes the error rolled back, still recorded the blocks. Now the
-upload reads and checks the whole file first, then deletes and writes. A write that fails
-after the delete leaves the callset without its rows, and the family flagged
-import-incomplete for it until it is uploaded again. A PED upload with overwrite deleted the
-family's variants before checks that could still refuse it; it now deletes them last.
+``POST /families/{family_id}/small-variants/upload`` with ``overwrite`` reads and checks the
+whole file first, then deletes the family's rows of its callset, and for imputed genotypes the
+family's haplotype blocks, and writes: a file it refuses answers 400 with them as they were. A
+write that fails after the delete leaves the callset without its rows, and the family flagged
+import-incomplete for it until it is uploaded again. A PED upload with overwrite deletes the
+family's variants last, after the checks that could still refuse it.
 
 Here a trio (a new family id each run) goes through the PED and small-variant upload routes
 into real Postgres and ClickHouse:
@@ -17,9 +15,8 @@ into real Postgres and ClickHouse:
   haplotype blocks, are uploaded;
 * refused with overwrite, each leaving both callsets, the blocks and their records as they
   were: a VCF naming a sample the family does not have, a gzip file cut short after its first
-  records (400, before: 500), a BGZF file cut exactly where one of its blocks ends (400,
-  before: 200 with its first block's records stored as the callset; DATA-4), one with no
-  record it can store, and imputed genotypes cut short;
+  records (400), a BGZF file cut exactly where one of its blocks ends (400, DATA-4), one with
+  no record it can store, and imputed genotypes cut short;
 * a valid VCF with overwrite replaces the callset, and imputed genotypes replace theirs and
   the blocks;
 * a write that fails after the delete (ClickHouse failing after the first batch, simulated)
@@ -300,8 +297,6 @@ def test_the_family_and_both_callsets_are_uploaded(run) -> None:
 )
 def test_a_refused_upload_with_overwrite_leaves_the_callsets_and_the_blocks(run, step, detail) -> None:
     refused = run["steps"][step]
-    # Before: 400 with the callset deleted (500 for a gzip file cut short), and the blocks'
-    # rows gone while Postgres still recorded them.
     assert refused["status"] == 400, refused["text"]
     assert detail in refused["text"]
     assert _held(refused) == _held(run["steps"]["glimpse2"])
@@ -326,7 +321,7 @@ def test_a_write_that_fails_after_the_delete_flags_the_family_until_it_is_upload
     # The callset is gone, its own first batch removed again; the imputed callset stays.
     assert (failed["clair3"], failed["glimpse2"]) == (0, 6)
     # Flagged import-incomplete for the callset, under no import job: every family page
-    # warns, and sign-out needs it acknowledged (before: nothing marked the family).
+    # warns, and sign-out needs it acknowledged.
     flag = failed["flag"]
     assert (flag["failed_datasets"], flag["imported_datasets"], flag["job_id"]) == (["snv"], [], None)
     assert flag["failed_scopes"] == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
@@ -342,7 +337,7 @@ def test_a_write_that_fails_after_the_delete_flags_the_family_until_it_is_upload
 def test_a_refused_ped_upload_with_overwrite_leaves_the_familys_variants(run) -> None:
     refused = run["steps"]["ped_with_header"]
     # The header line is read as a family whose phenotype is refused, after the replacement
-    # began. Before: the family came back without its variants.
+    # began; the family keeps its variants.
     assert refused["status"] == 400, refused["text"]
     assert _held(run["after_refused_ped"]) == _held(run["before_ped"])
     assert run["after_refused_ped"]["family_uuid"] == run["before_ped"]["family_uuid"]

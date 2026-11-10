@@ -3,11 +3,10 @@ last, just before its commit (SAFE-28).
 
 ``PUT /families/{id}/structure`` with ``clear_existing_genomic_data`` deletes the family's
 variants and tracks with its reviews and Postgres-held data. ClickHouse has no transactions:
-its small variants, structural variants and interval tracks went first, before the change's
-own writes (the members, the relationships, the pedigree, the structure version), any of
-which can still fail. The failure rolled the family back -- its members, its reviews, its
-repeat calls -- without its variants and tracks, and nothing marked it, as the PED upload's
-replacement did before #859. Now they go once everything else is written, under the locks
+deleted before the change's own writes (the members, the relationships, the pedigree, the
+structure version), any of which can fail, its small variants, structural variants and
+interval tracks would stay deleted when the failure rolled the family back -- its members,
+its reviews, its repeat calls. So they go once everything else is written, under the locks
 the clear took.
 
 ``family_structure_service`` runs against a fake of the request's transaction and of the
@@ -106,7 +105,7 @@ async def test_a_structure_change_that_fails_after_the_clear_leaves_the_familys_
     with pytest.raises(RuntimeError, match="constraint violated"):
         await _clear(events)
 
-    # Before: the family's variants and tracks were deleted first, and stayed deleted.
+    # Nothing was deleted in ClickHouse: the deletes come after the writes that failed.
     assert not [event for event in events if event.startswith("ClickHouse")]
     assert "commit" not in events
 

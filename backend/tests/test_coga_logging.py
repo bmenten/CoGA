@@ -316,7 +316,7 @@ def _json_log(name: str) -> Iterator[tuple[logging.Logger, _JsonLog]]:
 
 
 def test_a_logged_exception_is_named_with_its_frames_and_without_its_message() -> None:
-    # logger.exception() used to write the message alone: the formatter dropped exc_info.
+    # The formatter renders logger.exception()'s exc_info: the error's name and its frames.
     with _json_log("app.services.report_signout_service") as (logger, log):
         try:
             _query(_VALUE)

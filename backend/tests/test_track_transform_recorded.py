@@ -5,15 +5,15 @@ depth. The package import stores both as log2 ratios, the scale of the Wisecondo
 QDNAseq tracks stacked beside them: log2(copy number / 2) on the ``segments`` track and
 log2(depth / the sample's autosomal median) on the ``coverage`` track. A stored value then
 means something its file does not say, so the track's source record (the ``metadata``
-column of ``sample_interval_track_sources``) names the transform. The depth track always
-did. The copy-number track was handed its own, ``log2_ratio_to_diploid``, and dropped it,
-so nothing recorded told its stored log2 ratios from the copy numbers in the file.
+column of ``sample_interval_track_sources``) names the transform: the copy-number track's
+is ``log2_ratio_to_diploid``, which tells its stored log2 ratios from the copy numbers in the
+file.
 
 A depth bigWig without autosomal depth gives no median to normalise by, and its depths are
-stored as read. Its record said ``log2_ratio_to_autosomal_median`` all the same, with a null
-median, and the viewers drew the raw depths on their log2-ratio axis (TRACE-7). The record
-now names the transform the stored values went through, ``none`` here, and the track
-availability the viewers read serves it with the track.
+stored as read. The record names the transform the stored values went through, ``none``
+here, not ``log2_ratio_to_autosomal_median``, so the viewers do not draw the raw depths on
+their log2-ratio axis (TRACE-7); the track availability the viewers read serves it with the
+track.
 
 The datastores are faked at their edge: the session keeps what each track-source INSERT
 binds, and the interval rows bound for ClickHouse are kept as they are inserted.
@@ -406,7 +406,7 @@ async def test_a_copy_number_track_stored_as_read_records_no_transform(
     )
 
     # QDNAseq's values are stored as its files hold them, and their records name no
-    # transform: the record is what it was before copy-number tracks recorded one.
+    # transform.
     assert _values(rows, "coverage") == [0.12]
     assert _values(rows, "segments") == [0.08]
     for track_type, filename in (("coverage", f"{SAMPLE}_bins.csv"), ("segments", f"{SAMPLE}_segments.csv")):

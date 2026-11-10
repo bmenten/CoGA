@@ -1,16 +1,16 @@
 """The reference files a start loads are the shipped ones, byte for byte (TRACE-14).
 
-The HPO download and the STRchive file were pinned by SHA-256 (OPS-6, CLIN-31), but two files a
-start loads were not checked:
+Beside the HPO download and the STRchive file (OPS-6, CLIN-31), two files a start loads are
+pinned by SHA-256:
 
 - the segmental-duplication file (``REFERENCE_SEGMENTAL_DUPLICATIONS_PATH``, on Cloud Run the
   reference-data bucket's copy), ClinGen's V2.1 recurrent CNV file for GRCh38 as shipped in
   ``data/ref-data/clinical_cnv_syndromes_hg38_bundle/``;
-- an HPO ontology file already in place: only the download was checked. (A start now imports
-  HPO's newest release first, ``test_hpo_startup_latest_release.py``; the file in place is its
-  backup, used here with HPO out of reach.)
+- an HPO ontology file already in place. (A start imports HPO's newest release first,
+  ``test_hpo_startup_latest_release.py``; the file in place is its backup, used here with HPO
+  out of reach.)
 
-Both are held to their pin now, by the STRchive rule: the shipped, validated file is the
+Both are held to their pin by the STRchive rule: the shipped, validated file is the
 source, an identical copy passes wherever it lies, and any other file is refused before
 anything is written, with one logged error that names the file, both SHA-256 digests and the
 fix. Unlike STRchive, a refusal skips only that import and the start goes on: the
@@ -199,11 +199,10 @@ def test_another_file_is_refused_logged_and_not_loaded_and_the_start_goes_on(
 
 
 def test_the_startup_loads_no_clinical_cnvs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # The startup loaded any file at REFERENCE_CLINICAL_CNVS_PATH as the clinical CNVs, unpinned,
-    # and its default was never shipped, so it never ran (OPS-17). The knowledgebase rebuild
-    # loads them from its pinned sources, and an administrator can upload a file. The settings
-    # define no such path under any name, and a deployment that still sets it starts and keeps
-    # nothing of it.
+    # The startup loads no clinical CNVs (OPS-17): the knowledgebase rebuild loads them from
+    # its pinned sources, and an administrator can upload a file. The settings define no
+    # REFERENCE_CLINICAL_CNVS_PATH under any name, and a deployment that sets it starts and
+    # keeps nothing of it.
     names = {name.upper() for key, field in config.Settings.model_fields.items() for name in (key, field.alias) if name}
     assert "REFERENCE_CLINICAL_CNVS_PATH" not in names
     clinical_cnvs = tmp_path / "clinical_cnvs.tsv"

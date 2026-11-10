@@ -81,7 +81,7 @@ def _record(
         ("0", "hom_ref"),
         (".", "missing"),
         # A half call carries an alt but is not homozygous; a half reference call is no
-        # call at all, not a confident hom-ref (#511).
+        # call at all, not a confident hom-ref.
         ("./1", "het"),
         ("./0", "missing"),
         ("0/.", "missing"),
@@ -96,7 +96,7 @@ def test_derive_father_state(gt: str, expected: str) -> None:
 
 
 def test_derive_father_state_follows_the_shared_genotype_classes() -> None:
-    # One classification of a VCF genotype everywhere (#511): the father's state is the
+    # One classification of a VCF genotype everywhere: the father's state is the
     # genotype class, with no-call read as missing.
     for gt in genotype_vocabulary(*GENOTYPE_CLASSES):
         expected = classify_genotype(gt)
@@ -125,7 +125,7 @@ def _x_records(*, father_gt: str, cf_alt: int, n: int = 10) -> list[SmallVariant
 @pytest.mark.parametrize("father_gt", ["1", "1/1"])
 def test_a_haploid_paternal_x_call_sexes_the_fetus(cf_alt: int, expected: str, father_gt: str) -> None:
     # The paternal-X alleles show at FF/2 for a daughter and are absent for a son. A haploid
-    # "1" used to read as het and was skipped, leaving the fetal sex indeterminate.
+    # "1" is read as hom-alt, so the fetal sex is determined.
     records = _cohort_cat7_records() + _x_records(father_gt=father_gt, cf_alt=cf_alt)
     sites = build_nipt_observations(records, father_sample_id="father-1", cfdna_sample_id="cfdna-1")
 
@@ -527,9 +527,9 @@ _SMALL_VARIANT_SEARCH_TS = (
 
 def test_the_nipt_page_sends_exactly_the_inheritance_views_the_list_takes() -> None:
     # The NIPT page sends an inheritance only when it is one of these views, and names any other
-    # a saved search or a link carries as a filter the list does not apply (found while fixing
-    # ENG-19, #1009). A view added here and not there would never be sent; one added there and
-    # not here would fail the whole search, as an unsupported preset.
+    # a saved search or a link carries as a filter the list does not apply (ENG-19). A view
+    # added here and not there would never be sent; one added there and not here would fail
+    # the whole search, as an unsupported preset.
     source = _SMALL_VARIANT_SEARCH_TS.read_text(encoding="utf-8")
     declaration = re.search(r"export const NIPT_INHERITANCE_VIEWS\b[^=]*=\s*\[([^\]]*)\]", source)
     assert declaration, "NIPT_INHERITANCE_VIEWS not found in smallVariantSearch.ts"
@@ -680,8 +680,8 @@ async def test_the_variant_list_reports_the_summary_fetal_fraction(
 async def test_get_family_nipt_variants_applies_the_interval_and_exclusion_lists(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # #604: the NIPT page sends the interval list, the excluded intervals and the excluded
-    # genes, and chips them; the variant load used to receive none of them.
+    # The NIPT page sends the interval list, the excluded intervals and the excluded genes,
+    # and chips them; the variant load receives each of them.
     _wire_variants_mocks(
         monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records()
     )
@@ -803,7 +803,7 @@ async def test_a_variant_list_past_the_classification_limit_says_so(
     # One row past the limit tells a cut list from a complete one.
     assert limits == [3]
     assert (result.total_is_estimated, result.count_limit) == (True, 2)
-    # Only the first two are classified, as before: the extra row only says there are more.
+    # Only the first two are classified: the extra row only says there are more.
     assert [item.record.variant_id for item in result.variants] == ["1-9000-A-G", "1-9100-A-G"]
     assert result.total == 2
 

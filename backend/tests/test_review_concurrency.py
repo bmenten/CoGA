@@ -1,7 +1,7 @@
-"""Concurrent review saves no longer overwrite each other silently (#513).
+"""Concurrent review saves do not overwrite each other silently.
 
-The review PUT was an unconditional upsert: when two reviewers saved the same variant, the
-last write won and the first reviewer was never told. The client now sends the review's
+With an unconditional upsert, when two reviewers saved the same variant, the last write would
+win and the first reviewer would never be told. The client sends the review's
 ``updated_at`` as it loaded it; a save against a review that has changed since is refused
 with 409 and the current review, and saves of one variant are serialized by a
 transaction-scoped advisory lock so the check sees every earlier save.
@@ -198,11 +198,11 @@ def test_a_stale_structural_variant_save_writes_nothing(monkeypatch) -> None:
 # ------------------------------------------------- the compound-het pair save and its partner
 #
 # A pair save (``compound_het`` with a partner) writes the partner's review as well as the
-# variant's. It read the partner's review without its lock and wrote it back whole, stamped
-# with a time taken before the save began: a partner review saved in between (class 5 with a
-# new note) went back to the copy read earlier (class 2, no note), and its ``updated_at``
-# went backwards. The partner's review is now locked like the variant's, read under the
-# lock, and checked against ``compound_het.partner_expected_updated_at``.
+# variant's. The partner's review is locked like the variant's, read under the lock, and
+# checked against ``compound_het.partner_expected_updated_at``: read without its lock and
+# written back whole, stamped with a time taken before the save began, a partner review saved
+# in between (class 5 with a new note) would go back to the copy read earlier (class 2, no
+# note), and its ``updated_at`` backwards.
 
 PAIR_A, PAIR_B, PAIR_C, PAIR_D, PAIR_E = "1-100-A-G", "1-200-C-T", "1-300-G-A", "1-400-T-C", "1-500-C-G"
 

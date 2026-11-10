@@ -262,7 +262,7 @@ def test_the_snapshot_freezes_the_primary_transcripts_frequencies_and_in_silico_
     # Every field is frozen, in the order the drift check names them, also without a value.
     assert tuple(snap["frequencies"]) == EVIDENCE_FREQUENCY_FIELDS
     assert tuple(snap["in_silico"]) == EVIDENCE_IN_SILICO_FIELDS
-    # The identity and the ClinVar significance are kept as before.
+    # The identity and the ClinVar significance are frozen too.
     assert (snap["annotation_set_hash"], snap["annotation_version"], snap["clinvar"]) == ("123", "v1", None)
 
 
@@ -335,7 +335,7 @@ def test_a_changed_revel_reads_as_drift_naming_it() -> None:
     assert diff["status"] == "drifted"
     assert diff["changed"] == ["revel", "annotations"]
     assert (diff["evidence_from"]["revel"], diff["evidence_to"]["revel"]) == (0.412, 0.951)
-    # The ClinVar significance did not move, and is reported as before.
+    # The ClinVar significance did not move, and is reported unchanged.
     assert diff["clinvar_from"] is None and diff["clinvar_to"] is None
 
 
@@ -620,9 +620,8 @@ def test_the_frozen_missense_z_is_the_one_the_variant_list_serves() -> None:
 
 def test_the_missense_z_is_read_in_the_familys_assembly_with_its_symbol_in_any_case() -> None:
     # The lookup reads the gene profiles of the family's assembly, and matches a symbol in any
-    # case, as its read does (TRACE-15). Before, it read the newest profile of any assembly,
-    # and matched a symbol only as written after the read had matched it in any case: a gene
-    # written otherwise than its profile had no constraint.
+    # case, as its read does (TRACE-15): a gene written otherwise than its profile still has its
+    # constraint.
     from backend.app.services.gene_constraint_metrics import fetch_gene_constraint_metrics
 
     session = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)])
@@ -855,8 +854,8 @@ def test_a_snapshot_that_is_not_a_json_object_reads_as_unknown_not_skipped(monke
     # The writer always stores an object. One that is not froze nothing that can be read: it is
     # compared as a snapshot that froze nothing, so it reads as unknown, or as variant_missing
     # once its variant is gone, as an unreadable SV/CNV snapshot does, and the sign-out gate
-    # asks for it to be acknowledged. Before, it was skipped: neither checked nor, at sign-out,
-    # without a snapshot, so it cleared the drift gate unexamined (TRACE-15).
+    # asks for it to be acknowledged. Skipped, it would clear the drift gate unexamined
+    # (TRACE-15).
     async def _context(session, *, family_identifier, user, project_id=None):
         return types.SimpleNamespace(
             family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
@@ -1030,7 +1029,7 @@ def test_a_multi_allelic_records_snapshot_names_the_alt_its_values_are_of() -> N
     snap = _freeze(multi)
     assert snap["consequence"]["alt_allele"] == "G"
     assert tuple(_freeze(_annotated("h1", _OTHER, _MANE))["consequence"]) == EVIDENCE_CONSEQUENCE_FIELDS
-    # Another allele's annotation now reads as drift naming it, before the consequence.
+    # Another allele's annotation reads as drift naming it, before the consequence.
     moved = _annotated("h2", _OTHER, _MANE)
     moved.annotations = [{**annotation, "alt_allele": "T"} for annotation in moved.annotations]
     moved.alt = "G,T"

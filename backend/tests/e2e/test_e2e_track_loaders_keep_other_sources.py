@@ -1,38 +1,30 @@
 """A track loader replaces only its own source's track of a sample (SAFE-22), E2E.
 
 A sample can carry several callers' tracks of one type, each under its own source, and the
-track viewers draw one track per caller. The coverage dataset's BED and the BED upload
-(source ``web``) deleted, with overwrite, every source's track of their type, and the APCAD
-import every source's APCAD: a package with WisecondorX and QDNAseq bins and a coverage BED
-for one sample lost the bins, which import first, and a later import of coverage or APCAD
-removed HiFiCNV's depth track and minor allele fraction. A BED upload with overwrite deleted
-the tracks before it read the file, so an invalid file answered 400 with the rows gone while
-Postgres still recorded them; and its 409 counted every source's records, so an upload was
-refused for another caller's track.
+track viewers draw one track per caller. The coverage dataset's BED, the BED upload (source
+``web``) and the APCAD import each replace only their own source's track of a type: the other
+callers' tracks stay, whatever order they import in, and a BED upload neither deletes anything
+before it has read its file nor is refused for another caller's track.
 
 Here one sample's family (a new id each run) goes through the package import and the BED
 upload route into real Postgres and ClickHouse:
 
 * package 1 (cancel): WisecondorX bins and segments, QDNAseq bins, a coverage BED, an APCAD
   file, and HiFiCNV's calls with its depth, copy-number and minor-allele-fraction files. Each
-  caller's tracks are stored, rows and records (before: the WisecondorX and QDNAseq bins
-  were gone);
+  caller's tracks are stored, rows and records;
 * package 2 (overwrite): a new coverage BED and a new APCAD file replace the BED's coverage
-  and the APCAD; HiFiCNV's depth and minor allele fraction and the other bins stay (before:
-  gone);
+  and the APCAD; HiFiCNV's depth and minor allele fraction and the other bins stay;
 * an invalid coverage BED uploaded with overwrite is refused (400) and every track stays as
-  it was, rows and records (before: the coverage rows were gone and Postgres still recorded
-  them);
+  it was, rows and records;
 * a segments BED uploaded without overwrite is stored beside the WisecondorX and HiFiCNV
-  segments (before: refused, 409);
+  segments;
 * a coverage BED uploaded with overwrite replaces the BED's coverage alone;
 * the track availability lists every caller's track;
 * the admin's data inventory counts each caller's track of the sample, and its delete of one
   caller's track (``DELETE /admin/data/samples/{sample}/{type}?source=…``) deletes that track
   alone, rows and record: WisecondorX's coverage goes and HiFiCNV's, QDNAseq's and the BED's
-  stay; HiFiCNV's segments go and WisecondorX's and the BED's stay (before: only every
-  caller's track of a type went at once). A source on a type that is not an interval track
-  is refused (400), and nothing goes.
+  stay; HiFiCNV's segments go and WisecondorX's and the BED's stay. A source on a type that
+  is not an interval track is refused (400), and nothing goes.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -339,15 +331,14 @@ def test_each_dataset_of_both_packages_is_imported(run) -> None:
 
 def test_a_coverage_bed_keeps_the_bins_wisecondorx_and_qdnaseq_imported_before_it(run) -> None:
     step = run["steps"]["package_1"]
-    # Before: the coverage BED deleted the WisecondorX and QDNAseq bins, rows and records.
+    # The WisecondorX and QDNAseq bins stay, rows and records.
     assert step["rows"] == _PACKAGE_1
     assert step["records"] == _PACKAGE_1
 
 
 def test_coverage_and_apcad_imported_again_keep_hificnvs_tracks(run) -> None:
     step = run["steps"]["package_2"]
-    # Before: HiFiCNV's depth went with the coverage, its minor allele fraction with the
-    # APCAD, and every other caller's bins with them.
+    # HiFiCNV's depth and minor allele fraction stay, and every other caller's bins with them.
     assert step["rows"] == _PACKAGE_2
     assert step["records"] == _PACKAGE_2
 
@@ -356,15 +347,14 @@ def test_an_invalid_bed_upload_with_overwrite_leaves_every_track_and_its_record(
     step = run["steps"]["invalid_bed"]
     assert step["status"] == 400, step["json"]
     assert step["json"]["detail"] == "No valid BED records found"
-    # Before: every coverage track's rows were deleted before the file was read, and Postgres
-    # still recorded them.
+    # The file is read before anything is deleted: every track's rows and records stay.
     assert step["rows"] == _PACKAGE_2
     assert step["records"] == _PACKAGE_2
 
 
 def test_a_bed_upload_is_not_refused_for_another_callers_track(run) -> None:
     step = run["steps"]["segments_bed"]
-    # Before: 409, for the WisecondorX and HiFiCNV segments.
+    # Stored beside the WisecondorX and HiFiCNV segments.
     assert (step["status"], step["json"]) == (200, {"inserted": 2})
     expected = {**_PACKAGE_2, ("segments", "web"): 2}
     assert step["rows"] == expected

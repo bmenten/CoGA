@@ -1,13 +1,12 @@
 """The SV search's classification filter keeps an SV by the class its review shows (CLIN-77).
 
-The owner decided on 2026-11-10 that, as for small variants (CLIN-75), the structural-variant
+As for small variants (CLIN-75), the structural-variant
 search's classification filter keeps an SV when the class its review shows on the SV page equals
 a requested class: never drops one shown with that class, never keeps one shown with another. The
 SV table and cards show a review's class from its text and its tags (``normalizeReviewClassification``;
 the server's ``review_class_label``): a bare class word in the text, else the most severe class tag,
 else the text. A CNV (ClinGen) scoring counts through the class label the CNV dialog writes as the
-text; its stored class (``cnv_class``) alone is not shown, so it is not read. Until then the filter
-read the text alone.
+text; its stored class (``cnv_class``) alone is not shown, so it is not read.
 
 Here the reviews are real Postgres rows (``structural_variant_reviews``) of one family, one per SV,
 and the SVs real ClickHouse rows: the SV list (``get_family_structural_variants_page``), unranked
@@ -163,10 +162,8 @@ async def kept_by_sv_search(session_factory: Any, context: Any, wanted: str) -> 
 
 
 def test_the_sv_classification_filter_keeps_an_sv_by_the_class_its_review_shows() -> None:
-    # Before: by the text alone, "Likely pathogenic - class 4" dropped the SVs shown with that
-    # class by their class tag (sv-tag, sv-text-tag), "Pathogenic - class 5" the SV scored VUS and
-    # tagged class 5, "VUS - class 3" the SV whose text is the bare word VUS; "VUS - class 3" kept
-    # the SVs shown as class 4 and 5 for their text, and the free text the SV shown as class 1.
+    # Kept by the class shown, not by the text alone: a class tag (sv-tag, sv-text-tag) or a
+    # bare class word in the text counts, as the SV page reads them.
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services.clickhouse_variant_storage import delete_family_structural_variants
 

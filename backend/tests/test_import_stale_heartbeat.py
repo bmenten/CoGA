@@ -1,14 +1,14 @@
-"""A live import whose heartbeat goes stale (#746, TF-06 H16).
+"""A live import whose heartbeat goes stale (TF-06 H16).
 
 A running import writes its job's heartbeat every minute, and a worker that finds it ten
 minutes old takes the import's process for stopped: it ends the job as interrupted and
 drops the job's overwrite backups. But the process can be alive and only unable to write
-the heartbeat (no database connection for it, an event loop held by synchronous work). Its
-import went on: its later progress and its end matched no job row, unnoticed; a failed
-overwrite's restore deleted the family's rows from its first table, then failed for want of
-the dropped backup; and the import-incomplete flag still named what the overwrite had
-imported, so the banner and the sign-out read "snv did import" of small variants the
-restore had just deleted. Now:
+the heartbeat (no database connection for it, an event loop held by synchronous work). Were
+its import to go on, its later progress and its end would match no job row, unnoticed; a
+failed overwrite's restore would delete the family's rows from its first table, then fail for
+want of the dropped backup; and the import-incomplete flag would still name what the overwrite
+had imported, so the banner and the sign-out would read "snv did import" of small variants
+the restore had just deleted. So:
 
 * the heartbeat that finds its job no longer its worker's stops the import where it is, as
   a stopped process is stopped: none of its fail-clean runs, its family keeps the import's
@@ -20,11 +20,9 @@ restore had just deleted. Now:
   alone: all of it when the restore deleted nothing, none when it failed in any other way
   (part-way, say); such a restore may have removed rows of any dataset, so its flag names
   every dataset of the import as failed, and the family stays flagged until an import has
-  imported each again (SAFE-13; before, it named only the one that had failed, whose import
-  alone cleared the flag); and the import's ``import_unfinished`` entry stays, naming every
-  dataset the family holds, those another import brought too, until each has been imported
-  again with overwrite (SAFE-16; before, it made way for the flag, and an import of the
-  datasets that failed opened the gate with another import's rows gone);
+  imported each again (SAFE-13); and the import's ``import_unfinished`` entry stays, naming
+  every dataset the family holds, those another import brought too, until each has been
+  imported again with overwrite (SAFE-16);
 * the heartbeat and the stale check use the database's clock, and an update of the job that
   matches no row is said in the log, by the job and the outcome alone.
 
@@ -399,8 +397,7 @@ async def test_an_import_whose_job_another_worker_ended_is_stopped_by_its_heartb
     snv.go_on.set()
     await asyncio.wait_for(run, timeout=5)
 
-    # Before: its heartbeat stopped and the import went on, under a job that said it was
-    # interrupted: it finished snv, imported coverage and removed its entry.
+    # The import stops where it is: snv unfinished, coverage never started, its entry kept.
     assert job.started == ["snv"]
     entry = job.unfinished[JOB]
     assert entry["finished_datasets"] == []
@@ -516,8 +513,8 @@ async def test_an_end_the_job_cannot_record_is_said_in_the_log(job, monkeypatch,
     # Nothing of how the import ended reached the job.
     assert job.job == claimed
     assert job.lost[-1] == outcome and job.lost.count("progress") > 1
-    # Before: each update matched no row, and nothing said so. Now the end is said, and the
-    # lost progress once, by the job and the outcome alone: nothing of the import.
+    # The end is said, and the lost progress once, by the job and the outcome alone: nothing
+    # of the import.
     assert [record.args for record in _warnings(caplog, "could not record it")] == [(JOB, outcome)]
     assert [record.args for record in _warnings(caplog, "a progress update matched no row")] == [(JOB,)]
 
@@ -545,8 +542,8 @@ class _Recorder:
 
 @pytest.mark.asyncio
 async def test_a_job_update_says_whether_it_was_recorded() -> None:
-    # Before: it said nothing, so an update another worker's claim had made lost was lost
-    # without a trace.
+    # It says whether a row matched, so an update another worker's claim made lost leaves a
+    # trace.
     assert await jobs._update_job_progress(_Recorder(1), job_id=JOB, worker_id=WORKER, logs=["x"]) is True
     assert await jobs._update_job_progress(_Recorder(0), job_id=JOB, worker_id=WORKER, logs=["x"]) is False
 
@@ -561,8 +558,8 @@ async def test_the_heartbeat_is_stamped_and_judged_by_the_databases_clock(monkey
         def now(cls, tz: Any = None) -> datetime:
             raise AssertionError("a job statement read this host's clock")
 
-    # Before: each statement bound its host's time, so a worker whose clock ran ahead took a
-    # live import for stopped.
+    # No statement binds its host's time: a worker whose clock ran ahead would take a live
+    # import for stopped.
     monkeypatch.setattr(jobs, "datetime", _NoHostClock)
     session = _Recorder()
 
@@ -710,8 +707,7 @@ async def test_a_restore_deletes_nothing_unless_its_whole_backup_is_there(clickh
 
     with pytest.raises(Exception) as refused:
         await snapshots.restore_family_clickhouse_state(snapshot)
-    # Before: it deleted the family's rows table by table and failed at the first table
-    # whose backup was gone, having removed them.
+    # It deletes no table's rows before it finds a backup gone.
     assert clickhouse.restore_statements() == []
     assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv after")]
     assert clickhouse.family_rows("INTERVAL/entries") == [(FAMILY_UUID, "coverage before")]
@@ -771,7 +767,7 @@ def _reinserts_from_a_backup(sql: str) -> bool:
 async def test_an_overwrite_whose_backup_is_gone_deletes_nothing_and_its_flag_claims_nothing_deleted(
     job, clickhouse, monkeypatch
 ) -> None:
-    # The issue's second case. The overwrite imports snv, and is held at the start of
+    # The overwrite imports snv, and is held at the start of
     # coverage, which then fails. Meanwhile its heartbeat went stale and the worker that
     # ended its job dropped its backups; the import reaches its restore before its
     # heartbeat stops it.
@@ -788,8 +784,7 @@ async def test_an_overwrite_whose_backup_is_gone_deletes_nothing_and_its_flag_cl
     result = await asyncio.wait_for(run, timeout=5)
 
     assert result.completed is False
-    # Before: the restore deleted the family's small variants, then failed for want of
-    # their backup, and the flag still read "snv did import".
+    # The restore deletes none of the family's small variants.
     assert clickhouse.restore_statements() == []
     assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv overwrite")]
     assert clickhouse.family_rows("INTERVAL/entries") == [(FAMILY_UUID, "coverage before")]
@@ -888,9 +883,8 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
     result = await _overwrite_import(job)
 
     assert result.completed is False
-    # The job's record says what the flag says (SAFE-18; before, it named coverage alone,
-    # and its dataset table showed snv and paraphase imported, sv_needlr registered): each
-    # dataset failed, with how its loader had ended.
+    # The job's record says what the flag says (SAFE-18): each dataset failed, with how its
+    # loader had ended.
     assert result.error == "Family package import failed for dataset(s): coverage, paraphase, snv, sv_needlr"
     statuses = {dataset.dataset_type: dataset.status for dataset in result.datasets}
     assert {name: statuses[name] for name in outcomes} == dict.fromkeys(outcomes, "failed")
@@ -903,11 +897,9 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
         assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv before")] * 2
     else:
         assert clickhouse.family_rows("SNV_INDEL/entries") == []
-    # Before: the flag named coverage alone as failed, so an import of coverage alone
-    # cleared it. Now every dataset the import set out to import is named as failed, the
-    # ones it imported (before the failure and after it) and the one it only registered
-    # too, each with this import's job and the scope an import of it again must cover;
-    # none is named as imported.
+    # Every dataset the import set out to import is named as failed, the ones it imported
+    # (before the failure and after it) and the one it only registered too, each with this
+    # import's job and the scope an import of it again must cover; none is named as imported.
     every = sorted(outcomes)
     flag = job.incomplete
     assert flag is not None
@@ -918,7 +910,7 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
         [item["job_id"] for item in failures] == [JOB] for failures in flag["failed_scopes"].values()
     )
     # The sign-out reads every dataset failed. And the import's entry stays, every dataset
-    # of the family pending (SAFE-16; before, it made way for the flag): the family holds
+    # of the family pending (SAFE-16): the family holds
     # nothing an earlier import recorded, so that is this import's.
     state = await _sign_out_reads(job)
     assert state is not None and state["failed_datasets"] == every
@@ -935,7 +927,7 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
 async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_each_dataset_is_imported_again(
     job, clickhouse, monkeypatch
 ) -> None:
-    # SAFE-13, the issue's case: the restore removed the family's small variants and
+    # SAFE-13: the restore removed the family's small variants and
     # failed, and only coverage, the dataset that had failed, is imported again.
     _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse), "coverage": RuntimeError("bad BED")})
     _snapshot_postgres(monkeypatch)
@@ -949,9 +941,8 @@ async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_each_da
     coverage_again = await _overwrite_import(job, REIMPORT_COVERAGE)
 
     assert coverage_again.completed is True
-    # Before: that import cleared the flag, and the family signed out without the gate,
-    # its small variants gone. Now snv stays flagged, with the job that flagged it, and
-    # still to import in the entry the restore left (SAFE-16).
+    # snv stays flagged, with the job that flagged it, and still to import in the entry the
+    # restore left (SAFE-16).
     assert job.incomplete is not None
     assert job.incomplete["failed_datasets"] == ["snv"]
     assert job.incomplete["failed_jobs"] == {"snv": JOB}
@@ -978,7 +969,7 @@ async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_each_da
 async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_the_whole_family_is_imported_again(
     job, clickhouse, monkeypatch
 ) -> None:
-    # SAFE-16, the issue's case. The family's SV calls came with another import (another
+    # SAFE-16. The family's SV calls came with another import (another
     # package); the overwrite that fails carries snv and coverage, not them. Its restore
     # puts the small variants back, then fails in the SV calls, after their delete.
     _snapshot_postgres(monkeypatch)
@@ -995,7 +986,7 @@ async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_the_who
     assert clickhouse.family_rows("SV/entries") == []
     # The flag names this import's datasets (SAFE-13), not the SV calls it never carried.
     assert job.incomplete is not None and job.incomplete["failed_datasets"] == ["coverage", "snv"]
-    # Before: the entry made way for the flag. Now it stays, and names them too.
+    # The entry stays beside the flag, and names them too.
     entry = job.unfinished[JOB]
     assert (entry["datasets"], entry["finished_datasets"]) == (["coverage", "snv", "sv_needlr"], [])
     unfinished = await _unfinished_reads(job)
@@ -1004,8 +995,8 @@ async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_the_who
     assert "the flag names every dataset of this import as failed, those that imported too (coverage, snv)" in line
     assert "imported again with overwrite (coverage, snv, sv_needlr)" in line
 
-    # The datasets that failed, imported again in one overwrite. Before: the flag went, and
-    # with it the gate, the SV calls gone. Now the gate holds for them.
+    # The datasets that failed, imported again in one overwrite: the flag goes, and the entry
+    # keeps the gate for the SV calls, which are gone.
     clickhouse.fail = lambda _sql: False
     _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse), "coverage": "imported"})
     again = await _import(job, REIMPORT_FAILED)

@@ -2,10 +2,10 @@
 
 Most loaders replace what they load: they delete the stored data of their source, then read
 the file and write its records. A file without a record (a header alone, a file cut short
-before its first record) was read as a result with nothing in it: a TRGT upload with
-overwrite answered 200 with the sample's calls gone, and a package dataset deleted the
-sample's track, stored none and ended ``imported``, so the import completed and nothing
-marked the family; an ``update`` imported nothing and counted the dataset as imported.
+before its first record) is refused: read as a result with nothing in it, a TRGT upload with
+overwrite would answer 200 with the sample's calls gone, and a package dataset would delete
+the sample's track, store none and end ``imported``, so the import would complete and nothing
+would mark the family; an ``update`` would import nothing and count the dataset as imported.
 
 Here one sample's family (a new id each run) goes through the package import and the TRGT
 upload route into real Postgres and ClickHouse:
@@ -13,13 +13,11 @@ upload route into real Postgres and ClickHouse:
 * package 1 (cancel): WisecondorX bins (3) and segments (1) and the sample's TRGT VCF (1 call)
   are stored;
 * package 2 (overwrite): a WisecondorX bins file with its header alone fails the dataset and
-  the import, and the bins stay, rows and record (before: the import completed with the bins
-  gone);
+  the import, and the bins stay, rows and record;
 * a TRGT VCF with its header alone, uploaded with overwrite, is refused (400) and the call
-  stays (before: 200 and the call gone);
+  stays;
 * package 3 (update): a QDNAseq bins file with its header alone, for a sample without QDNAseq
-  bins, fails the dataset, and the family is flagged import-incomplete for it (before: the
-  dataset imported nothing and read as imported, the family unflagged).
+  bins, fails the dataset, and the family is flagged import-incomplete for it.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -246,7 +244,7 @@ def test_the_first_package_stores_the_bins_and_the_trgt_call(run) -> None:
 def test_an_overwrite_with_an_empty_bins_file_fails_and_keeps_the_bins(run) -> None:
     step = run["steps"]["package_2"]
     imported = step["import"]
-    # Before: the import completed, the dataset imported, and the bins were gone.
+    # The import fails with the dataset, and the bins stay, rows and record.
     assert imported["completed"] is False, imported
     status, message = imported["datasets"]["wisecondorx"]
     assert status == "failed"
@@ -256,7 +254,7 @@ def test_an_overwrite_with_an_empty_bins_file_fails_and_keeps_the_bins(run) -> N
 
 def test_a_trgt_upload_without_a_record_is_refused_and_keeps_the_call(run) -> None:
     step = run["steps"]["trgt_upload"]
-    # Before: 200, and the sample's call gone.
+    # Refused, and the sample's call stays.
     assert step["status"] == 400, step["json"]
     assert step["json"]["detail"] == "No valid TRGT records found"
     assert step["trgt_calls"] == 1
@@ -265,7 +263,7 @@ def test_a_trgt_upload_without_a_record_is_refused_and_keeps_the_call(run) -> No
 def test_an_update_with_an_empty_bins_file_fails_and_flags_the_family(run) -> None:
     step = run["steps"]["package_3"]
     imported = step["import"]
-    # Before: the dataset imported nothing and read as imported, and nothing flagged the family.
+    # The dataset fails, and the family is flagged for it.
     assert imported["completed"] is False, imported
     assert imported["datasets"]["qdnaseq"][0] == "failed"
     assert step["rows"] == {"wisecondorx": 3, "qdnaseq": 0}

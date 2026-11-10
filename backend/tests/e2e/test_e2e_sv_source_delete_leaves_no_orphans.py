@@ -1,11 +1,11 @@
 """A source-scoped SV delete leaves none of that source's rows behind (E2E).
 
-Since #658 an SV's storage key hashes its source, so each caller's call of an SV has its own
+An SV's storage key hashes its source, so each caller's call of an SV has its own
 ``SV/variants/details`` row (span, length, filters, annotation) and its own ``SV/key_lookup``
 row beside its ``SV/entries`` rows. The source-scoped delete, the delete half of a per-sample
-upload's rewrite and of a package dataset's re-import, deleted the entries only. The details
-and lookup rows of every SV it removed stayed behind, and no entry reached them; a rewritten
-SV's replaced rows stayed beside its new ones until ClickHouse merged the parts.
+upload's rewrite and of a package dataset's re-import, deletes all three: no details or lookup
+row of an SV it removed stays behind, and a rewritten SV's replaced rows do not stay beside its
+new ones.
 
 Over the golden trio (NeedlR SVs) this uploads, through ``POST
 /structural-variants/upload/{sample_id}``, a Sniffles VCF for PROBAND with a deletion and a
@@ -285,8 +285,8 @@ def test_an_overwrite_that_drops_an_sv_leaves_no_row_for_it(run) -> None:
     stored_key = dict(_identities(run["stored"], "sniffles")["entries"])[_DEL]
     after = _identities(run["after_overwrite"], "sniffles")
     for suffix in _TABLES:
-        # Before: the duplication kept its details and lookup row, and until ClickHouse
-        # merged the parts the deletion's replaced rows stayed beside the new ones.
+        # The duplication keeps no details or lookup row, and the deletion's replaced rows
+        # do not stay beside the new ones.
         assert after[suffix] == [(_DEL, stored_key)], suffix
     assert _unreached(run["after_overwrite"]) == {"variants/details": [], "key_lookup": []}
     for source in ("spectre", "needlr"):
@@ -294,7 +294,7 @@ def test_an_overwrite_that_drops_an_sv_leaves_no_row_for_it(run) -> None:
 
 
 def test_a_source_delete_leaves_no_row_of_that_source(run) -> None:
-    # Before: the entries went, and the deletion's details and lookup rows stayed.
+    # The entries go, and the deletion's details and lookup rows with them.
     assert _of(run["after_delete"], "sniffles") == {suffix: [] for suffix in _TABLES}
     assert _unreached(run["after_delete"]) == {"variants/details": [], "key_lookup": []}
 

@@ -1,12 +1,12 @@
 """The background warm of the ranking cache ranks a view as a live request does (ENG-13).
 
 After an HPO or pedigree edit, ``precompute_family_ranking_safe`` replays the family's most
-recent prioritised query, so that the next open of that view is a cache hit. It replayed
-the filters stored with that ranking as they were: without the intervals, excluded intervals
-and excluded gene they name (a live request resolves those into the regions it ranks within
-and the key it stores under), and with the SV hit genes the stored ranking had resolved,
-not the family's genes now (#845). So it computed a ranking no live request asked for, and
-stored it under a key none would read, in one of the family's few cache rows.
+recent prioritised query, so that the next open of that view is a cache hit. It resolves the
+filters stored with that ranking as a live request does: the intervals, excluded intervals and
+excluded gene they name into the regions it ranks within and the key it stores under, and the
+SV hit genes from the family's genes now, not the ones the stored ranking had resolved. Replayed
+as they were stored, they would compute a ranking no live request asks for, stored under a key
+none would read, in one of the family's few cache rows.
 
 The live request's own steps are faked at their edge: the stored query, the family's SV
 index and the gene reference. What the warm hands the ranking is what is checked.
@@ -118,12 +118,12 @@ async def test_the_warm_ranks_within_the_query_s_intervals_and_without_its_exclu
 
     ranked = await warm(stored)
 
-    # Before: none of them, the ranking stored under a key no live request reads.
+    # Each resolved as a live request resolves it.
     assert ranked["include_regions"] == cfv._parse_interval_regions("chr1:1000-2000")
     assert ranked["exclude_regions"] == cfv._parse_interval_regions("chr2:3000-4000", label="Excluded interval")
     assert ranked["exclude_gene_regions"] == [_EXCLUDED_GENE_LOCUS]
     assert ranked["exclude_gene_terms"] == ["GENEX"]
-    # The no-review default view, as before.
+    # The no-review default view.
     assert (ranked["review_variant_ids"], ranked["include_review_filter_active"]) == (None, False)
 
 
@@ -135,7 +135,7 @@ async def test_the_warm_resolves_the_sv_hit_genes_again(warm) -> None:
 
     ranked = await warm(stored)
 
-    # Before: the stored ranking's genes, replayed (#845).
+    # The family's genes now, not the stored ranking's.
     assert ranked["filters"].sv_hit_genes == ["GENENOW"]
 
     # A query that asks for no second hit takes none, whatever was stored.

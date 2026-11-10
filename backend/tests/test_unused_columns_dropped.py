@@ -1,21 +1,18 @@
-"""The columns no code reads are dropped, and an import no longer writes ``unresolved_roi`` (ENG-6).
+"""The columns no code reads are dropped, and an import writes no ``unresolved_roi`` (ENG-6).
 
 The owner's decision of 2026-10-28 (ENG-6): the schema keeps no column that nothing reads.
 
-- Postgres: ``auth_login_attempts.last_success_at`` and
-  ``small_variant_reviews.compound_het_partner_variant_keys`` were never read or written, and
-  ``structural_variant_reviews.variant_key`` never written (#853): the sign-out neither reads
-  it nor freezes it. The baselines create none of them; revision
-  0011 drops them from a database made before (``test_postgres_migrations.py`` and its
-  integration test).
-- ClickHouse: ``liftedOverChrom``, ``liftedOverPos`` (always null) and ``sample_type`` (always
-  ``WGS``) were never read, the annotation index's ``transcript_ids``, ``sift_terms`` and
-  ``polyphen_terms`` written and never read, and the SV calls' ``calls.gq`` never written
-  (#868). The tables are created without them, and no writer names one.
-- ``families.metadata.unresolved_roi`` was written when a manifest's ROI could not be resolved,
-  never read, and never cleared by a later import that resolved it: the import writes nothing
-  to the family's metadata then, and revision 0011 removes the key from the families that hold
-  it.
+- Postgres: ``auth_login_attempts.last_success_at``,
+  ``small_variant_reviews.compound_het_partner_variant_keys`` and
+  ``structural_variant_reviews.variant_key`` (the sign-out neither reads it nor freezes it).
+  The baselines create none of them; revision 0011 drops them from a database that holds them
+  (``test_postgres_migrations.py`` and its integration test).
+- ClickHouse: ``liftedOverChrom``, ``liftedOverPos`` and ``sample_type``, the annotation
+  index's ``transcript_ids``, ``sift_terms`` and ``polyphen_terms``, and the SV calls'
+  ``calls.gq``. The tables are created without them, and no writer names one.
+- ``families.metadata.unresolved_roi``, which nothing reads: an import that cannot resolve a
+  manifest's ROI writes nothing to the family's metadata, and revision 0011 removes the key
+  from the families that hold it.
 
 All values are synthetic.
 """

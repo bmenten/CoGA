@@ -5,10 +5,9 @@ form on the Upload page sends. The rows are written and committed before the res
 built, so a response that fails is worse than no answer: the page reports an error for an
 upload that worked, and the user uploads again. The result holds a list
 (``excluded_filters``), a map (``annotation_provenance``) and a null
-(``annotation_source``), and the endpoint used to declare it as ``Dict[str, int | str]``:
-FastAPI refused every successful upload's response with a 500. ``source_format`` was
-also passed through unchecked, so an unknown value stored the rows under a made-up
-callset before the same 500.
+(``annotation_source``), and the response answers 200 with each as it is. An unknown
+``source_format`` is refused (422) before anything is stored, so no rows land under a
+made-up callset.
 
 The family is created here through the PED upload under a new id each run, so the golden
 trio is never touched. The upload runs over HTTP through an in-process
@@ -148,8 +147,6 @@ def test_family_is_created_by_the_ped_upload(run) -> None:
 
 def test_successful_upload_answers_200_with_its_result(run) -> None:
     first = run["first"]
-    # Before the fix: 500, raised while FastAPI validated the result against
-    # Dict[str, int | str], after the rows had been committed.
     assert first["status"] == 200, first["text"]
     assert first["json"] == _EXPECTED_BODY
 

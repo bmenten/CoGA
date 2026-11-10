@@ -11,11 +11,10 @@ family's own calls never count.
 The rows are synthetic, written by the importer's own writer as a monogenic NIPT import
 stores them: one row per variant and family in the ``nipt`` callset, each with the key,
 position and project an import gives it. ``SNV_INDEL/entries`` is a CollapsingMergeTree,
-and when ClickHouse merges its parts in the background it keeps one row per sort key. The
-rows used to leave the sort-key columns at their defaults, so a family's two rows shared
-one key, and a merge that ran before the count lost one of them. The counts are read as
-stored and again after a forced part merge (``OPTIMIZE … FINAL``), and must be the same.
-The tables are those of an assembly no other test uses, dropped at the end.
+and when ClickHouse merges its parts in the background it keeps one row per sort key. Of
+two rows that shared one key, a merge that ran before the count would lose one. The counts
+are read as stored and again after a forced part merge (``OPTIMIZE … FINAL``), and must be
+the same. The tables are those of an assembly no other test uses, dropped at the end.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -114,8 +113,8 @@ def counts() -> dict[str, dict[str, int]]:
 
 def test_only_real_calls_of_other_families_count(counts) -> None:
     # CFDNA2's call and CFDNA5's genotype; not the crossed-over reads, the 0.5% call, or
-    # the index family's own call. Before the rows had their own sort keys, the merge kept
-    # only one of family other-1's rows, and CFDNA2's call here was lost.
+    # the index family's own call. The forced merge keeps both of family other-1's rows, and
+    # CFDNA2's call with them.
     assert counts["stored"].get("7-1000-A-G") == 2
     assert counts["merged"].get("7-1000-A-G") == 2
 

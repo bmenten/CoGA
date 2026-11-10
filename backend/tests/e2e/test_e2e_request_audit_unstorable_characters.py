@@ -3,10 +3,10 @@
 Postgres refuses some values a request can carry: a NUL in a TEXT column (a ``%00`` in the
 path or the query string arrives decoded), ``\\u0000`` or half of a UTF-16 surrogate pair in a
 JSONB document, and the JSON numbers ``NaN`` and ``Infinity``, which Python's JSON parser
-accepts. The request audit used to fail its INSERT on them and log only a warning, so a
-signed-in user could put such a value in a JSON field the endpoint ignores and have the
-action carried out with no row in ``audit_log_events``. In the default async mode the failed
-INSERT also took every other row of its batch with it.
+accepts. An audit INSERT that failed on them would leave the action carried out with no row
+in ``audit_log_events``: a signed-in user could put such a value in a JSON field the endpoint
+ignores, and in the default async mode the failed INSERT would take every other row of its
+batch with it.
 
 Each request runs over HTTP through an in-process ``httpx.ASGITransport`` client, as the seeded
 admin, on one event loop (see test_e2e_api_contract.py for why). Without the lifespan no

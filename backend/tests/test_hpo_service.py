@@ -665,7 +665,7 @@ def test_parse_manifest_inline_hpo_present_and_absent_terms() -> None:
 def test_family_package_validation_accepts_hpo_phenotype_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Clear the configured import roots (now defaulting to /data/families) so the
+    # Clear the configured import roots (by default /data/families) so the
     # path guard does not reject this temp package.
     from backend.app.core.config import settings
 
@@ -748,7 +748,7 @@ def test_ensure_authorized_hpo_ontology_path_rejects_traversal_escape() -> None:
 
 
 def test_the_bootstrap_download_falls_back_to_a_writable_directory(monkeypatch, tmp_path) -> None:
-    # Cloud Run mounts /data/ref-data read-only (#520); the ontology is only needed until
+    # Cloud Run mounts /data/ref-data read-only; the ontology is only needed until
     # it is imported, so the download lands in a temporary directory instead.
     import hashlib
     import io

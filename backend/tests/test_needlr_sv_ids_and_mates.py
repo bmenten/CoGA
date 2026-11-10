@@ -1,20 +1,16 @@
 """A NeedlR SV is named by its coordinates, never by the record's ID (CLIN-43), and a NeedlR
 breakend is stored with its mate, read from its ALT as the uploads read it (CLIN-40).
 
-Merged from ``test_needlr_coordinate_ids.py`` and ``test_needlr_breakend_mate.py``: both are the
-package's NeedlR reader (``family_package_variants._needlr_records``, through the family VCF
-reader and the per-sample reader), and what makes one NeedlR SV: its id and, for a breakend, its
-mate, which the id holds. Each fix's account follows.
+Both are the package's NeedlR reader (``family_package_variants._needlr_records``, through the
+family VCF reader and the per-sample reader), and what makes one NeedlR SV: its id and, for a
+breakend, its mate, which the id holds.
 
-**The id (CLIN-43).** The reader took a record's ID as its SV id when it had one, and merged the
-records by that id; its clash check compared only the alleles. A caller numbers its calls per
-run (Sniffles2 writes ``Sniffles2.DEL.1S0``), so two samples' per-sample files, or two runs in
-one family VCF, give one ID to different calls: two different deletions that shared an ID became
-one SV at the first one's position, the second call attached to it and its own deletion lost.
-
-Now a NeedlR SV's id is the one an uploaded SV's call of the same event gets: its chromosome,
-start, end and type, and a breakend's mate (``build_structural_variant_id``), whatever the
-record's ID, which stays in the SV's annotation. The lines merge by that id:
+**The id (CLIN-43).** A caller numbers its calls per run (Sniffles2 writes
+``Sniffles2.DEL.1S0``), so two samples' per-sample files, or two runs in one family VCF, give
+one ID to different calls. A NeedlR SV's id is the one an uploaded SV's call of the same event
+gets: its chromosome, start, end and type, and a breakend's mate
+(``build_structural_variant_id``), whatever the record's ID, which stays in the SV's annotation.
+The lines merge by that id:
 
 * two different calls are two SVs, at their own positions and with their own calls, whatever
   their IDs, through the per-sample reader and the family VCF reader;
@@ -28,23 +24,21 @@ record's ID, which stays in the SV's annotation. The lines merge by that id:
 ``e2e/test_e2e_needlr_coordinate_ids.py`` imports such per-sample files through the package
 import into Postgres and ClickHouse and reads the SVs back through the API.
 
-**The mate (CLIN-40).** The reader stored every breakend without a mate: ``remote_chr`` and
-``remote_start`` were always None. A NeedlR translocation then named no partner in the SV list
-(its *Remote chr* and *Remote start*, the report's remote breakpoint, the circos link), and a
-search by the mate's position (``remote_chr``, ``remote_start``) never found it, while its ALT,
-which holds the mate in brackets, was kept in the annotation. The Sniffles and manual uploads
-read the mate from the ALT (``parse_bnd_alt``).
+**The mate (CLIN-40).** A breakend's ALT holds its mate in brackets, and the NeedlR reader reads
+it as the Sniffles and manual uploads do (``parse_bnd_alt``), so a NeedlR translocation names its
+partner in the SV list (its *Remote chr* and *Remote start*, the report's remote breakpoint, the
+circos link), and a search by the mate's position (``remote_chr``, ``remote_start``) finds it.
 
-Now a NeedlR record is a breakend when its type is BND, in any capitals, or its ALT is written in
+A NeedlR record is a breakend when its type is BND, in any capitals, or its ALT is written in
 breakend notation (``is_breakend_alt``), and a breakend's mate is read from its ALT as an upload
 reads it, with ``remote_end`` equal to ``remote_start``: through the family VCF reader and the
 per-sample reader, in the four bracket forms, with SVTYPE BND, ``bnd`` or TRA, and without one
-(#831 types such a record BND). A single breakend (``G.``) names no mate, and a record that is no
-breakend keeps none. Records that merge by id keep their mate. Since CLIN-43 a breakend's id
-holds its mate, as an uploaded breakend's does, so two breakends on one position with other
-mates have their own ids. Since CLIN-39 a record without END ends where VCF 4.4 puts it, as an
-upload's does: a breakend, an insertion and a record whose extent is not stated on its POS (they
-ended at POS + SVLEN, or POS + 1), so a breakend's id is an uploaded breakend's.
+(such a record is typed BND). A single breakend (``G.``) names no mate, and a record that is no
+breakend keeps none. Records that merge by id keep their mate. A breakend's id holds its mate
+(CLIN-43), as an uploaded breakend's does, so two breakends on one position with other mates
+have their own ids. A record without END ends where VCF 4.4 puts it (CLIN-39), as an upload's
+does: a breakend, an insertion and a record whose extent is not stated on its POS, so a
+breakend's id is an uploaded breakend's.
 
 ``e2e/test_e2e_api_contract.py`` imports the golden trio's NeedlR breakend into Postgres and
 ClickHouse, reads its mate back and finds it by a search on the mate's position.
@@ -183,8 +177,7 @@ def test_two_deletions_sharing_an_id_in_two_samples_files_stay_two_svs(mother_fi
 
     records = _per_sample(*((mother, father) if mother_first else (father, mother)))
 
-    # Before: one SV, Sniffles2.DEL.1S0, at the first file's deletion with both samples'
-    # calls; the other sample's deletion was lost.
+    # Two SVs, each at its own deletion with its own sample's call, whichever file comes first.
     assert _svs(records) == {
         "1-7000-12000-DEL---": (7000, 12000, {"MOTHER": "0/1"}),
         "1-90000-96000-DEL---": (90000, 96000, {"FATHER": "1/1"}),
@@ -211,8 +204,8 @@ def test_two_deletions_sharing_an_id_in_the_family_vcf_stay_two_svs() -> None:
         _deletion(90000, 96000, query="MOTHER", calls="Genotype=0/1;Alt_Reads=11"),
     )
 
-    # Before: one SV at 7000, where the mother's deletion at 90000 replaced the 0/0 the
-    # proband's line gave her; her own deletion was lost.
+    # The mother's deletion at 90000 is an SV of its own, and the 0/0 the proband's line gives
+    # her at 7000 stays.
     assert _svs(records) == {
         "1-7000-12000-DEL---": (7000, 12000, {"FATHER": "0/1", "MOTHER": "0/0", "PROBAND": "0/1"}),
         "1-90000-96000-DEL---": (90000, 96000, {"MOTHER": "0/1"}),
@@ -242,8 +235,8 @@ def test_one_event_in_two_samples_files_is_one_sv_with_both_calls(
     (record,) = _per_sample(*((mother, proband) if mother_first else (proband, mother)))
 
     assert record.variant_id == "1-7000-12000-DEL---"
-    # Before: two SVs when the IDs differed; under one ID (or none) with the mother's file
-    # first, the no-call the proband's line gives her replaced her own call.
+    # One SV whatever the IDs, the mother keeping her own call over the no-call the proband's
+    # line gives her, whichever file comes first.
     assert _calls(record) == {"FATHER": ("./.", None), "MOTHER": ("0/1", 12), "PROBAND": ("0/1", 18)}
     # Each file's record ID stays in its annotation.
     assert sorted(_record_ids(record), key=str) == sorted(
@@ -324,9 +317,8 @@ def test_insertions_of_other_sequences_on_one_position_keep_the_discriminator() 
     )
 
     # Same position, type and length, other alleles: the first keeps the id, the others get
-    # their length, then a count, as a clash always did. The first's alleles again merge with it.
-    # An insertion without END ends on its POS, as VCF 4.4 and the uploads put it (CLIN-39;
-    # before: POS + SVLEN).
+    # their length, then a count, as a clash does. The first's alleles again merge with it.
+    # An insertion without END ends on its POS, as VCF 4.4 and the uploads put it (CLIN-39).
     assert [(record.variant_id, record.annotations[0]["alt"]) for record in records] == [
         ("1-20000-20000-INS---", "ACGTACGT"),
         ("1-20000-20000-INS----7", "AGGTACCT"),
@@ -349,7 +341,7 @@ def test_symbolic_insertions_of_other_lengths_on_one_position_are_two_svs() -> N
         ),
     )
 
-    # Before: one SV of 300 bp holding the mother's call of her 500 bp insertion.
+    # Two SVs: the proband's 300 bp insertion and the mother's 500 bp one.
     assert (first.variant_id, first.sv_len, _calls(first)["PROBAND"]) == ("1-20000-20000-INS---", 300, ("0/1", 9))
     assert (second.variant_id, second.sv_len, _calls(second)) == (
         "1-20000-20000-INS----500",
@@ -364,7 +356,7 @@ def test_breakends_to_one_mate_in_other_orientations_keep_the_discriminator() ->
         _line(20000, record_id=".", alt="[chr5:3000000[N", info="SVTYPE=BND;"),
     )
 
-    # A breakend without END ends on its POS (CLIN-39; before: POS + 1).
+    # A breakend without END ends on its POS (CLIN-39).
     assert first.variant_id == "1-20000-20000-BND-5-3000000-3000000"
     assert second.variant_id == "1-20000-20000-BND-5-3000000-3000000-15"
 
@@ -377,7 +369,7 @@ def test_breakends_to_one_mate_in_other_orientations_keep_the_discriminator() ->
 def test_the_id_is_the_calls_coordinates_and_type_whatever_its_record_id(reader: str, record_id: str) -> None:
     (record,) = _READERS[reader](_deletion(7000, 12000, record_id=record_id))
 
-    # Before: the record's ID, when it had one -- even one that names another SV's position.
+    # Never the record's ID -- not even one that names another SV's position.
     assert record.variant_id == "1-7000-12000-DEL---"
     assert record.variant_id == build_structural_variant_id("chr1", 7000, 12000, "DEL")
     assert (record.chr, record.start, record.end) == ("1", 7000, 12000)
@@ -389,8 +381,8 @@ def test_the_id_is_the_calls_coordinates_and_type_whatever_its_record_id(reader:
 
 
 def test_a_record_without_an_id_keeps_its_id_and_its_annotation() -> None:
-    # Named by its coordinates before too: its id and annotation are what earlier imports
-    # stored, so a review stays attached and a classification's frozen evidence does not drift.
+    # Named by its coordinates, its id and annotation exactly these, so a review stays attached
+    # and a classification's frozen evidence does not drift.
     info = "SVTYPE=DEL;SVLEN=-5000;END=12000;Genes=BRCA2;"
     (record,) = _family_vcf(_line(7000, record_id=".", info=info))
 
@@ -490,7 +482,7 @@ def _uploaded_mate(alt: str) -> tuple[str | None, int | None, int | None]:
 @pytest.mark.parametrize("reader", sorted(_READERS))
 @pytest.mark.parametrize("alt", _BRACKET_FORMS)
 def test_a_breakend_has_the_mate_its_alt_names_as_an_upload_reads_it(reader: str, alt: str) -> None:
-    # Before: no mate, whatever the ALT.
+    # The mate the ALT names, in each bracket form.
     (record,) = _READERS[reader](_breakend_line(alt))
     assert (record.sv_type, *_mate(record)) == ("BND", *_MATE)
     assert _mate(record) == _uploaded_mate(alt)
@@ -512,14 +504,14 @@ def test_the_mate_s_chromosome_is_stored_without_its_chr(alt: str, mate: tuple[s
 @pytest.mark.parametrize(
     ("info", "sv_type"),
     [
-        ("", "BND"),  # no SVTYPE: #831 types it by its ALT
+        ("", "BND"),  # no SVTYPE: typed by its ALT
         ("SVTYPE=.;", "BND"),
         ("SVTYPE=bnd;", "bnd"),
         ("SVTYPE=TRA;", "TRA"),  # a translocation written with its mate in brackets
     ],
 )
 def test_a_breakend_has_its_mate_whatever_its_svtype_says(info: str, sv_type: str) -> None:
-    # Before: no mate; a record without SVTYPE was a BND (#831) without one.
+    # The mate, whatever SVTYPE says; a record without SVTYPE is a BND with one.
     (record,) = _family_vcf(_breakend_line("N]chr5:3000000]", info))
     assert (record.sv_type, *_mate(record)) == (sv_type, *_MATE)
 
@@ -533,7 +525,7 @@ def test_a_breakend_has_its_mate_whatever_its_svtype_says(info: str, sv_type: st
         # No breakend: unchanged.
         pytest.param("N", "<DEL>", "SVTYPE=DEL;SVLEN=-5000;END=25000;", "DEL", 25000, -5000, id="DEL"),
         pytest.param("N", "<DUP:TANDEM>", "SVTYPE=DUP;SVLEN=500;End_Pos=20500;", "DUP", 20500, 500, id="DUP:TANDEM"),
-        # An insertion spans no reference base (before CLIN-39: POS + SVLEN).
+        # An insertion spans no reference base (CLIN-39).
         pytest.param("N", "<INS>", "SVTYPE=INS;SVLEN=300;", "INS", 20000, 300, id="INS"),
         # An inversion states how far it reaches (one that does not is left out, CLIN-39).
         pytest.param("N", "<INV>", "End_Pos=20500;", "INV", 20500, None, id="INV-without-SVTYPE"),
@@ -559,7 +551,7 @@ def test_a_record_that_names_no_mate_keeps_none(
 
 @pytest.mark.parametrize("reader", sorted(_READERS))
 def test_a_breakend_s_id_holds_its_mate_as_an_uploaded_breakend_s_does(reader: str) -> None:
-    # Before CLIN-43: the record's ID (SVBND1), else its coordinates and type without the mate.
+    # Its coordinates, type and mate (CLIN-43), never the record's ID (SVBND1).
     with_id, without_id = _READERS[reader](
         _breakend_line("N]chr5:3000000]", record_id="SVBND1"),
         _breakend_line("N[chr7:4000000[", record_id=".", pos=30000),
@@ -569,7 +561,7 @@ def test_a_breakend_s_id_holds_its_mate_as_an_uploaded_breakend_s_does(reader: s
     assert without_id.variant_id == build_structural_variant_id(
         "chr1", 30000, 30000, "BND", remote_chr="chr7", remote_start=4_000_000, remote_end=4_000_000
     )
-    # The id an upload gives the same breakend (before CLIN-39: its END was POS + 1 here).
+    # The id an upload gives the same breakend (CLIN-39: its END is its POS here).
     header = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
     (uploaded,) = iter_structural_variant_records(
         header + "chr1\t30000\tSV9\tN\tN[chr7:4000000[\t.\tPASS\tSVTYPE=BND\tGT\t0/1\n", "sniffles"
@@ -590,7 +582,7 @@ def test_two_breakends_on_one_position_keep_their_own_mates() -> None:
         _breakend_line("N]chr5:3000000]", record_id="."),
         _breakend_line("N]chr7:4000000]", record_id="."),
     )
-    # Their mates tell them apart: no discriminator (the length of its ALT, before CLIN-43).
+    # Their mates tell them apart: no discriminator.
     assert (first.variant_id, *_mate(first)) == ("1-20000-20000-BND-5-3000000-3000000", *_MATE)
     assert (second.variant_id, *_mate(second)) == (
         "1-20000-20000-BND-7-4000000-4000000",
@@ -628,7 +620,7 @@ def test_the_list_shows_the_mate_and_a_search_by_it_finds_the_breakend() -> None
         )
         return _structural_record_matches(record, filters, [], [])
 
-    # Before: a search by the mate never found it.
+    # A search by the mate finds it.
     assert found(remote_chr="5") is True
     assert found(remote_chr="chr5", remote_start=3_000_000) is True
     assert found(remote_chr="7") is False

@@ -5,9 +5,8 @@ or running, and finds that job by the family the job records (``family_id``) or 
 request named (``report_signout_service._ACTIVE_IMPORT_JOB``). An import writes the family's
 pedigree, samples and provenance before it takes the family's variant-write locks, so until
 it holds them its job is all that keeps a sign-out out. The update that records the job as
-``running`` on its family is therefore no best-effort progress update: when it fails, or
-matches no row because another worker claimed the job, the import writes nothing of the
-family, which would otherwise be written under a job no sign-out finds.
+``running`` on its family comes first: when it fails, or matches no row because another
+worker has claimed the job, the import writes nothing of the family.
 
 The job row is modelled as Postgres keeps it: an UPDATE applies only when its WHERE clause
 matches the row (the job's id, the worker that runs it, its status) and others see it once
@@ -310,8 +309,7 @@ async def test_an_import_whose_job_cannot_name_its_family_writes_nothing(jobs) -
 
     await _run(jobs)
 
-    # The job names no family, so a sign-out then would freeze the family part-way: nothing of
-    # it is written.
+    # The job cannot name its family: nothing of the family is written, and the job ends failed.
     assert jobs.writes == []
     assert ("variant-write locks held",) not in jobs.events
     assert jobs.committed["status"] == "failed"
@@ -342,8 +340,7 @@ async def test_an_import_whose_job_another_worker_claimed_writes_nothing(jobs, m
 
     await _run(jobs)
 
-    # worker-1's progress update matches no row: it registers nothing beside worker-2's run of
-    # the same job.
+    # Worker-1's update matches no row: it writes nothing beside worker-2's run of the job.
     assert jobs.writes == []
     # The job is worker-2's: worker-1 neither ran it nor ended it.
     assert jobs.committed["worker_id"] == "worker-2"

@@ -1,21 +1,20 @@
 """The knowledgebase build's backbone sources: ClinGen's dosage curation and recurrent CNVs.
 
-Until #721 the GRCh37 build fetched ClinGen's recurrent-CNV regions from ``…-hg19.bed``, a
-404 (ClinGen publishes ``…-hg37.bed``). The build logged the failure and went on without
-them, so every GRCh37 knowledgebase lacked the named recurrent syndromes. The admin rebuild
-then replaced whatever knowledgebase there was with that one. Now each backbone source that
-cannot be loaded stops the build, and the rebuild keeps the previous knowledgebase.
+Each backbone source that cannot be loaded stops the build, and the rebuild keeps the previous
+knowledgebase. A build that went on without the recurrent-CNV regions would lack the named
+recurrent syndromes, and the admin rebuild would replace whatever knowledgebase there was with
+that one.
 
-The GRCh38 recurrent-CNV file writes ``chrx``, which the chromosome cleaning kept as ``x``.
-Every clinical-CNV query for X asks for ``X``/``chrX``, so four X-linked recurrent regions
-never showed. Chromosome names are now read case-insensitively.
+The GRCh38 recurrent-CNV file writes ``chrx``. Every clinical-CNV query for X asks for
+``X``/``chrX``, so chromosome names are read case-insensitively: kept as ``x``, four X-linked
+recurrent regions would never show.
 
-The recurrent-CNV file was read unchecked, and only its URL was recorded (TRACE-14). It is
-pinned per assembly by its SHA-256 now: the build reads it only if its SHA-256 is the pinned
-one (GRCh38: the bundled copy of ClinGen's V2.1 file; GRCh37 since TRACE-18), stops on any other
-file, does not download it for an assembly with no pin, and writes the file it checked to
-``--sources-out``, which the admin rebuild records with the load. Nothing here goes to the
-network: ``safe_get`` is replaced, and serves the bundled file where ClinGen's is asked for.
+The recurrent-CNV file is pinned per assembly by its SHA-256 (TRACE-14, TRACE-18): the build
+reads it only if its SHA-256 is the pinned one (GRCh38: the bundled copy of ClinGen's V2.1
+file), stops on any other file, does not download it for an assembly with no pin, and writes
+the file it checked to ``--sources-out``, which the admin rebuild records with the load.
+Nothing here goes to the network: ``safe_get`` is replaced, and serves the bundled file where
+ClinGen's is asked for.
 """
 
 from __future__ import annotations
@@ -176,7 +175,7 @@ def test_a_recurrent_file_that_is_not_the_pinned_one_stops_the_build(monkeypatch
 
 
 def test_an_assembly_without_a_pinned_file_is_not_downloaded(monkeypatch: pytest.MonkeyPatch) -> None:
-    # GRCh37 had no pin until TRACE-18: an assembly without one is still not downloaded.
+    # GRCh37's pin removed: an assembly without one is not downloaded.
     monkeypatch.delitem(kb_script.CLINGEN_RECURRENT_CNV_SHA256, "GRCh37")
     fetched = _serve(monkeypatch, HG37_BED.encode())
 

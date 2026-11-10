@@ -1,7 +1,6 @@
-"""Sample-filter values (#686): a GQ, DP, AF, AD-alt or QUAL minimum that cannot be read
-is refused with a 422 that names it. An unreadable AF or AD-alt minimum used to be
-dropped, which widened the search without saying so; an unreadable GQ or DP minimum
-surfaced as a 500."""
+"""Sample-filter values: a GQ, DP, AF, AD-alt or QUAL minimum that cannot be read
+is refused with a 422 that names it, never dropped (which would widen the search
+without saying so) or answered with a 500."""
 
 from __future__ import annotations
 

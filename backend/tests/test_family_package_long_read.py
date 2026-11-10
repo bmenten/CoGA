@@ -372,7 +372,7 @@ def test_malformed_pipeline_params_do_not_raise() -> None:
 
 
 def test_every_supported_dataset_reaches_a_validator(tmp_path: Path) -> None:
-    # A dataset added to SUPPORTED_DATASETS without a validator branch used to be
+    # A dataset added to SUPPORTED_DATASETS without a validator branch would be
     # reported as status="error" with no error recorded, leaving the package "valid".
     for dataset_type in SUPPORTED_DATASETS:
         errors: list = []
@@ -712,8 +712,8 @@ async def test_the_mothers_chrm_sv_file_under_the_childs_entry_fails_before_any_
     assert writes == []
 
 # ---- per-sample files: which column holds the entry's sample ----------------------------
-# A per-sample file used to be bound to its entry's sample whatever its one column named,
-# so another member's -- or another patient's -- file was stored as this sample's.
+# A per-sample file bound to its entry's sample whatever its one column named would store
+# another member's -- or another patient's -- file as this sample's.
 
 _FAMILY = {"MOTHER", "CHILD", "FATHER"}
 
@@ -798,10 +798,10 @@ _UNSEEN = "TUBE\x1b[2J\u202e"
 def test_a_refusal_quotes_the_packages_column_names_with_their_unseen_characters_escaped(
     columns: list[str], declared: str | None, message: str
 ) -> None:
-    # SEC-39: the refusal, which the import page shows and the job's record keeps, quoted the
-    # manifest's vcf_sample as it was given; it shows each character a reader cannot see as
-    # its escape now, as the ID rule's own refusals do (family_identifiers.visible), and so
-    # does the list of the file's columns.
+    # SEC-39: the refusal, which the import page shows and the job's record keeps, shows each
+    # character a reader cannot see in the manifest's vcf_sample as its escape, as the ID
+    # rule's own refusals do (family_identifiers.visible), and so does the list of the file's
+    # columns.
     from app.services.family_package_common import VcfSampleColumnError, per_sample_vcf_column
 
     with pytest.raises(VcfSampleColumnError) as refused:

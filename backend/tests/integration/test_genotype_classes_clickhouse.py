@@ -1,4 +1,4 @@
-"""The ClickHouse genotype conditions classify exactly like Python (#511) — real ClickHouse.
+"""The ClickHouse genotype conditions classify exactly like Python — real ClickHouse.
 
 Filters, counts and presence checks classify genotypes in SQL with a set lookup plus an
 allele-by-allele fallback for strings longer than three characters. This runs every short

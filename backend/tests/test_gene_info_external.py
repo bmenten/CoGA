@@ -1,12 +1,10 @@
-"""Outbound gene-lookup request safety (#336).
+"""Outbound gene-lookup request safety.
 
-The original defect: `urllib`'s `quote()` defaults to `safe='/'`, so a `/` or `../` in a
-gene symbol passed through unescaped and forged the request PATH on the fixed external
-hosts (genenames / ensembl / clinicalgenome). Those four per-gene lookups have since
-been removed entirely — the bulk HGNC, GENCODE and ClinGen files supply the same fields
-without a request — which retires that whole class of bug rather than guarding it.
+`urllib`'s `quote()` defaults to `safe='/'`, so a `/` or `../` in a gene symbol put into a
+URL path would pass through unescaped and forge the request PATH on a fixed external host.
+The bulk HGNC, GENCODE and ClinGen files supply the gene fields without a per-gene request.
 
-NCBI is the one per-gene lookup left, and it is structurally immune: the symbol goes in
+NCBI is the one per-gene lookup, and it is structurally immune: the symbol goes in
 a query parameter that the HTTP client encodes, never into the URL path. These tests
 hold that line, so a future rewrite that interpolates a symbol into the path fails here.
 """

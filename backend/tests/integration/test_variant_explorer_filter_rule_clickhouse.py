@@ -9,10 +9,6 @@ as on the family page, so a variant that two families carry under two annotation
 runs) is counted, under an annotation filter, only in the family whose own annotation meets
 it. The chromosome is read with or without ``chr``, and chrM by any of its names (M, MT).
 
-Before, the Explorer read the chromosome as written and tested the gene, rsID, excluded
-ClinVar and per-transcript filters against any annotation of the variant: one family's
-annotation let every family's carriers through.
-
 A row's own annotation is the annotation set it was imported with (its key and
 ``annotationSetHash``), whatever its version: family B is written as a VEP TSV import
 (``vep_tsv``), so a variant both families carry under the same annotations has it under two

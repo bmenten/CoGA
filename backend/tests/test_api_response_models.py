@@ -1,10 +1,7 @@
 """Every route that answers JSON names its response model (ENG-4).
 
-The BED reads' JSON was declared ``text/plain`` (their text format, removed in ENG-5, was the
-default), the shared SV counts were a plain mapping, and a dozen routes answered a bare
-``dict``: no model described them, so the frontend read them through hand-written types or
-untyped (#1020, #1027). Each now names a model (``backend/app/schemas``), which the frontend
-reads through its generated type:
+Each names a model (``backend/app/schemas``), which the frontend reads through its generated
+type:
 
 * the BED reads, ``BedTrackOut`` (coverage, segments), ``BedApcadTrackOut`` (APCAD, PCF:
   each row with its ``origin``) or ``BedSegregationTrackOut`` (an embryo's segregation sites:
@@ -14,12 +11,12 @@ reads through its generated type:
 * the administrator's QC-profile, QC-cut-off, family-projects, NIPT-artifact and deletion
   answers, and the health probes.
 
-None stays a bare ``dict``: the health probes, the only operations routes among them, answer
-fixed keys too. The models describe what each route answered before: a BED read still answers
-the JSON its service builds, which this file compares with the model for each track type
-through the app (a fake interval store); ``e2e/test_e2e_response_models.py`` compares every
-route's real answer. What still has no model is listed below, with why: an answer that is not
-JSON (a file, a stream, a page), and a list of strings.
+None is a bare ``dict``: the health probes, the only operations routes among them, answer
+fixed keys too. A BED read answers the JSON its service builds, which this file compares with
+the model for each track type through the app (a fake interval store);
+``e2e/test_e2e_response_models.py`` compares every route's real answer. What has no model is
+listed below, with why: an answer that is not JSON (a file, a stream, a page), and a list of
+strings.
 """
 
 from __future__ import annotations
@@ -119,7 +116,7 @@ def test_every_json_answer_names_a_model_but_those_that_are_not_json() -> None:
     }
     # A route that answers JSON names its model, so the frontend reads it through the type
     # generated from it (scripts/generate-api-types.py). The exceptions are listed, and stay
-    # true: each is still there, still without one.
+    # true: each is there, without one.
     assert without == NOT_JSON | PLAIN
 
 
@@ -165,8 +162,7 @@ def _item(chrom: str, start: int, end: int, value: float | None, **origin: str) 
     return {"chr": chrom, "start": start, "end": end, "value": value, **origin}
 
 
-# Each read and what it answers, as it answered before the models: no `origin` on a coverage
-# or segments row.
+# Each read and what it answers: no `origin` on a coverage or segments row.
 READS = {
     "coverage": (
         "/api/bed/PROBAND/coverage",

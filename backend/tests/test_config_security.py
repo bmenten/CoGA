@@ -112,7 +112,7 @@ def test_clickhouse_tls_defaults_off() -> None:
     assert secure.clickhouse_secure is True
 
 
-# --- #522: the startup check refuses weak or missing secrets, not just literal defaults ---
+# --- The startup check refuses weak or missing secrets, not just literal defaults ---
 
 _VALID_PRODUCTION = {
     "APP_ENV": "production",
@@ -260,7 +260,7 @@ def test_production_refuses_a_cors_pattern_matching_them(pattern) -> None:
 
 
 def test_production_refuses_the_default_cors_pattern_when_none_is_set(monkeypatch) -> None:
-    # Terraform used to set CORS_ORIGINS only, which left the localhost default pattern live.
+    # A deployment that sets CORS_ORIGINS only would leave the localhost default pattern live.
     monkeypatch.delenv("CORS_ORIGIN_REGEX", raising=False)
     without_pattern = {key: value for key, value in _VALID_PRODUCTION.items() if key != "CORS_ORIGIN_REGEX"}
     with pytest.raises(ValidationError) as excinfo:

@@ -185,7 +185,7 @@ async def _collect(base: Path) -> dict:
         "count2": count2,
     }
 
-    # --- failed OVERWRITE of a PRE-EXISTING family: atomic ClickHouse restore (#365) ---
+    # --- failed OVERWRITE of a PRE-EXISTING family: atomic ClickHouse restore ---
     # Import 1 variant cleanly, then overwrite with a 2-variant package whose dataset
     # import raises *after* it has already replaced the family's small variants. Without
     # the snapshot/restore the family would be left with the overwrite's 2 variants + an
@@ -243,7 +243,7 @@ async def _collect(base: Path) -> dict:
         "flag": await import_incomplete_flag(fid),
     }
 
-    # --- Postgres snapshot/restore of the loop-modified tables (#365 postgres) ---
+    # --- Postgres snapshot/restore of the loop-modified tables ---
     # Create a real family, seed a loop-modified table + a samples.metadata marker, snapshot,
     # then mutate both (delete/insert a different row; change the marker) and restore — the
     # mutation must be gone and the original state (row + marker) back, proving the
@@ -441,7 +441,7 @@ def test_a_manifest_naming_a_ped_fails_validation(results):
 
 def test_malformed_vcf_fails_clean(results):
     r = results["malformed_vcf"]
-    # Fail-clean hardening: a dataset that fails on import now fails the whole job...
+    # Fail-clean: a dataset that fails on import fails the whole job...
     assert r["completed"] is False, r
     assert r["error"] and "snv" in r["error"], r
     assert r["statuses"].get("snv") == "failed", r
@@ -459,7 +459,7 @@ def test_reimport_overwrite_does_not_duplicate(results):
     assert r["count2"] == r["count1"], r
 
 
-# ----------------------------------------------------------- import atomicity (#365)
+# ------------------------------------------------------------------ import atomicity
 
 
 def test_failed_overwrite_restores_pre_import_state(results):

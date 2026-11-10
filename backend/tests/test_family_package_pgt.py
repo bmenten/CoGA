@@ -554,7 +554,7 @@ def test_a_family_id_with_a_line_break_cannot_forge_a_log_line(
 ) -> None:
     # The PGT reader logs a package file it cannot read, such as the KING table named after
     # the family ID. A line break in that path must not start a new log line; the line names
-    # the file by its kind now, never by its path, which holds the family ID (SEC-39).
+    # the file by its kind, never by its path, which holds the family ID (SEC-39).
     forged = f"{FAMILY}\nERROR forged entry"
     root = _write_copgtm_package(tmp_path / FAMILY)
     (root / f"king/{forged}.kin0").write_bytes(b"\xff not UTF-8")
@@ -569,7 +569,7 @@ def test_a_family_id_with_a_line_break_cannot_forge_a_log_line(
 
     assert [issue.code for issue in out.errors] == ["family_id_invalid"]
     messages = [record.getMessage() for record in caplog.records if record.name == family_package_pgt.__name__]
-    # Before: "Could not read king/<the family ID> ERROR forged entry.kin0 from the package".
+    # One line, naming the file by its kind and not the family ID.
     assert messages == ["Could not read the package's KING kinship file"]
 
 

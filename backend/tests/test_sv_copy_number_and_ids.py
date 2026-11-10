@@ -1,20 +1,18 @@
 """An uploaded CNV keeps its copy number, and two events on one position stay two SVs, each read
 in any order (CLIN-39).
 
-* **Copy number.** The Sniffles and Spectre uploads ignored FORMAT/CN, so a CNV loaded that way
-  named no direction: it counted as a possible deletion in the second-hit badge and ranked as a
-  loss, whatever it called. The call now keeps its copy number, which gives a CNV its change
-  (``sv_copy_change``).
-* **HiFiCNV ids.** The HiFiCNV reader took a record's ID as its SV id, where every other reader
-  names a call by its coordinates. It is now named by its coordinates, type and source, the ID
-  kept in its annotation, and one event in two samples' VCFs is one SV with both calls: two
-  records under one id kept only one of them.
-* **The discriminator.** NeedlR gave the first of two events on one position, type and mate
-  the id and the other its length as a suffix, by line order: a file read in another order, or
-  the samples' files in another order, swapped the ids, and a review moved to the other event.
-  The order is now the events' (``event_discriminators``). An upload had no discriminator: two
-  insertions on one position were one SV with the first one's length and two calls of the
-  sample. They are now two SVs, the one this source already stores under the id keeping it.
+* **Copy number.** The Sniffles and Spectre uploads read FORMAT/CN: the call keeps its copy
+  number, which gives a CNV its change (``sv_copy_change``). Without it a CNV names no
+  direction, and would count as a possible deletion in the second-hit badge and rank as a
+  loss, whatever it called.
+* **HiFiCNV ids.** The HiFiCNV reader names a call by its coordinates, type and source, as every
+  other reader names a call by its coordinates, the record's ID kept in its annotation, and one
+  event in two samples' VCFs is one SV with both calls.
+* **The discriminator.** Of two events on one position, type and mate, NeedlR gives one the id
+  and the other its length as a suffix, in the events' order (``event_discriminators``), not
+  the lines': a file read in another order, or the samples' files in another order, keeps the
+  ids, and each review stays on its event. Two insertions on one position in an upload are two
+  SVs, the one this source already stores under the id keeping it.
 """
 
 from __future__ import annotations
@@ -83,7 +81,7 @@ def test_an_uploaded_cnv_keeps_its_copy_number_and_names_its_direction(
     )
     call = variant_upload_service._structural_record_call("S1", parsed)
 
-    # Before: no copy number, so every CNV read as a possible loss.
+    # The copy number is kept, and gives the CNV its change.
     assert (parsed.copy_number, call.copy_number) == (copies, copies)
     assert copy_change("CNV", [(call.sample, call.gt, call.copy_number)]) == change
 
@@ -99,7 +97,7 @@ _HIFICNV = (
 def test_a_hificnv_call_is_named_by_its_coordinates_its_record_id_kept() -> None:
     (record,) = _iter_cnv_structural_records(_HIFICNV.format(cn=3), sample_id="S1")
 
-    # Before: HiFiCNV.DUP.1, which the caller numbers per run.
+    # Not HiFiCNV.DUP.1, which the caller numbers per run: that ID is kept in the annotation.
     assert record.variant_id == "1-1000-9000-DUP----hificnv"
     assert record.annotations[0]["id"] == "HiFiCNV.DUP.1"
 
@@ -170,7 +168,7 @@ async def test_one_event_in_two_samples_hificnv_vcfs_is_one_sv_with_both_calls(
 
     await family_package_datasets.DATASET_IMPORTERS["cnv"](_hificnv_job(tmp_path))
 
-    # Before: two records under the caller's ID, of which the store kept one.
+    # One SV with both samples' calls.
     [[record]] = replaced
     assert record.variant_id == "1-1000-9000-DUP----hificnv"
     assert [(call.sample, call.copy_number) for call in record.calls] == [("S1", 3), ("S2", 4)]
@@ -231,8 +229,7 @@ def test_a_needlr_files_order_does_not_move_an_id_to_another_event() -> None:
         _NEEDLR_HEADER + "".join(reversed(lines)), ped=_ped(), sample_contexts=_contexts()
     )
 
-    # The shortest keeps the id, then each other its length. Before: the first line's kept it,
-    # so reading the file the other way round gave the long insertion the plain id.
+    # The shortest keeps the id, then each other its length, whatever the line order.
     assert _ids_by_alt(in_order) == _ids_by_alt(reversed_) == _EXPECTED_IDS
 
 
@@ -243,7 +240,7 @@ def test_the_samples_files_order_does_not_move_an_id_to_another_event() -> None:
     one = _iter_needlr_per_sample_records([("S1", s1), ("S2", s2)], ped=_ped(), sample_contexts=_contexts())
     other = _iter_needlr_per_sample_records([("S2", s2), ("S1", s1)], ped=_ped(), sample_contexts=_contexts())
 
-    # Before: S1's long insertion kept the id when S1's file came first, S2's short one when it did.
+    # S2's short insertion keeps the id, whichever file comes first.
     assert _ids_by_alt(one) == _ids_by_alt(other) == {
         "A" + _SHORT: "1-20000-20000-INS---",
         "A" + _LONG: "1-20000-20000-INS----7",
@@ -289,7 +286,7 @@ async def test_two_insertions_on_one_position_in_one_upload_are_two_svs(monkeypa
 
     result = await _upload(monkeypatch, store, "S1", _uploaded_insertion(_LONG), _uploaded_insertion(_SHORT, "1/1"))
 
-    # Before: one SV with the first one's length (7) and both calls of S1.
+    # Two SVs, each with its own length and one call of S1.
     assert result["created"] == 2
     assert sorted((record.variant_id, record.sv_len, [call.gt for call in record.calls]) for record in _written(store)) == [
         ("1-20000-20000-INS---", 3, ["1/1"]),
@@ -336,6 +333,6 @@ async def test_the_same_event_twice_in_one_file_is_one_call_of_the_sample(monkey
 
     await _upload(monkeypatch, store, "S1", _uploaded_insertion(_LONG, "0/1"), _uploaded_insertion(_LONG, "1/1"))
 
-    # Before: two calls of S1 on one SV.
+    # One call of S1.
     [record] = _written(store)
     assert [(call.sample, call.gt) for call in record.calls] == [("S1", "1/1")]

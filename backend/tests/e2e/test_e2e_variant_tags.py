@@ -3,10 +3,9 @@
 
 **An edit is saved, through the admin route and the family route.**
 ``PUT /api/admin/variant-tags/{tag_key}`` and ``PUT /api/families/{family_id}/small-variant-tags/{tag_key}``
-answered 500 whatever the request held. The lookup of the tag to edit selected ``project_id`` from the
-tag definitions joined to their project links without naming the table, the links have a
-``project_id`` too, and Postgres refused the statement as ambiguous. The unit tests answer every
-statement from a fake session, so none ran it.
+look up the tag to edit in the tag definitions joined to their project links, and the links have a
+``project_id`` too: Postgres refuses a statement that selects ``project_id`` without naming the
+table as ambiguous. The unit tests answer every statement from a fake session, so none runs it.
 
 Each request runs over HTTP through an in-process ``httpx.ASGITransport`` client, as the seeded admin,
 on one event loop (see test_e2e_api_contract.py for why). The test creates a project-scoped tag shared
@@ -17,13 +16,12 @@ both routes. The projects, the family and the tag are the test's own, with synth
 dropped at the end.
 
 **A renamed or deleted tag stays on the reviews that hold it.**
-A label edit derived a new key from the new label, so the reviews kept the old one, and a
-deleted tag left its key on them too. A review save refused every key outside the family's
-tag definitions with 400, and the quick tag toggle and the review dialog send the stored
-tags back: every later save of such a variant failed, the one removing the tag included,
-and the review-tag filters lost the variants tagged before a rename.
+The quick tag toggle and the review dialog send the stored tags back, so a review save that
+refused every key outside the family's tag definitions would fail for each variant holding a
+deleted tag, the one removing the tag included; and a key derived from the label would hide
+the variants tagged before a rename from the review-tag filters.
 
-A tag's key is now its identity: a label edit changes the label only, and a review save
+A tag's key is its identity: a label edit changes the label only, and a review save
 checks only the tags it adds. Over the golden trio (FAM_TRIO) the test creates two custom
 tags and puts both on a small variant's review, on a compound-het pair and on an SV's
 review (the family's SV review summary, the SV page's counts, counts that SV, its note and
@@ -655,7 +653,7 @@ def test_a_deleted_tag_is_listed_only_on_request_and_marked_inactive(tagged) -> 
 
 
 def test_every_review_holding_a_deleted_tag_still_saves(tagged) -> None:
-    # The bug: each of these answered 400 "Unknown … tag(s)" naming the deleted key.
+    # None of these answers 400 "Unknown … tag(s)" naming the deleted key.
     _ok(tagged, "toggle_after_delete", "pair_after_delete", "sv_after_delete")
     deleted = tagged["keys"]["deleted"]
     stored = tagged["stored_after_delete"]

@@ -7,7 +7,7 @@ the real scope (``_sv_fakes.SvStore``): the read returns exactly the requested s
 it deletes. The "already exists" check and the merge must see the uploaded source's rows only,
 so that the source-scoped rewrite is handed exactly the rows it deletes.
 ``test_e2e_sv_upload_source_scope`` shows the same against real ClickHouse, including the part
-merge that dropped the sample's calls when the two scopes differed. The admin per-sample SV
+merge that would drop the sample's calls were the two scopes to differ. The admin per-sample SV
 delete reads every source and rewrites family-wide:
 ``test_sv_rewrite_keeps_every_call.py::test_admin_delete_writes_back_every_other_call_and_field``
 pins both halves.
@@ -116,7 +116,7 @@ async def test_first_upload_is_judged_and_merged_against_its_own_source_only(sto
         ]
     )
 
-    # Before the fix: 409, because PROBAND's NeedlR call counted as a Sniffles one.
+    # No 409: PROBAND's NeedlR call does not count as a Sniffles one.
     result = await _upload("PROBAND", _sniffles(_DEL_30000_HET), overwrite=False)
 
     counts = {key: result[key] for key in ("processed", "created", "merged", "source_format")}
@@ -187,9 +187,8 @@ async def test_manual_uploads_are_scoped_to_the_manual_upload_label(store) -> No
 async def test_unknown_source_format_is_refused_before_any_rows_are_read(
     store, format_hint: str
 ) -> None:
-    # Only the upload's own labels may scope its read and delete. Before the fix the value
-    # went through unchecked: the existing rows were read under it (a NeedlR 409 here) and
-    # the parser failed afterwards with a 500.
+    # Only the upload's own labels may scope its read and delete: an unchecked value would read
+    # the existing rows under it (a NeedlR 409 here) and fail in the parser afterwards with a 500.
     fake = store([_record(_NEEDLR_DEL, "needlr", {"PROBAND": "0/1"})])
 
     with pytest.raises(HTTPException) as exc:

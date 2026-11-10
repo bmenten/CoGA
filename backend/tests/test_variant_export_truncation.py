@@ -1,4 +1,4 @@
-"""#512 — a CSV export must never be silently cut at the page clamp, nor silently miss
+"""A CSV export must never be silently cut at the page clamp, nor silently miss
 the matches beyond a capped candidate read; nor may the Variant Explorer's export at its
 row cap or its tag / classification cap (DATA-2)."""
 
@@ -49,7 +49,7 @@ def _capture(monkeypatch, name: str, page) -> dict:
 def test_export_lifts_the_page_clamp_and_asks_for_one_row_more(monkeypatch, export, page_fn) -> None:
     seen = _capture(monkeypatch, page_fn, _page(3))
     out = asyncio.run(export(None, context=None, limit=25_000))
-    # Before #512 the page function clamped this to 10,000 rows without a trace.
+    # Not clamped to the page function's 10,000 rows.
     assert seen["page_size"] == 25_001
     assert seen["max_page_size"] == 25_001
     assert seen["track_mode"] is False
@@ -180,9 +180,9 @@ def test_the_truncation_reason_header_is_exposed_to_a_split_origin_ui() -> None:
 
 
 # --- the Variant Explorer export (DATA-2) ---------------------------------------------------
-# It stopped at 50,000 rows, and searched at most 200,000 ids of its tag / classification
-# filter, without a word: no TRUNCATED file name, no X-CoGA-Export-* headers. It now says
-# so, as the family exports do.
+# It stops at 50,000 rows, and searches at most 200,000 ids of its tag / classification
+# filter, and says so, as the family exports do: a TRUNCATED file name and the
+# X-CoGA-Export-* headers.
 
 
 def _explorer_row(index: int):

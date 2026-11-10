@@ -38,8 +38,7 @@ BRCA1,HGNC:1100,Breast-ovarian cancer,MONDO:0012934,AD,SOP v1,Definitive,https:/
 # The shape ClinGen actually serves: a title line, FILE CREATED, the webpage URL and a
 # "+++" rule ahead of the real header, plus one more rule directly under it. Parsing this
 # as a plain CSV takes the title line as the field names and silently yields nothing,
-# which is how both ClinGen sources contributed no data at all while still reporting a
-# successful download.
+# while the download still reports success.
 CLINGEN_VALIDITY_WITH_BANNER = """\
 "CLINGEN GENE DISEASE VALIDITY CURATIONS","","","","","","","","",""
 "FILE CREATED: 2026-08-10","","","","","","","","",""
@@ -217,7 +216,7 @@ def test_parse_dbnsfp_gene_rows_extracts_constraint_metrics_and_omim(tmp_path: P
 
 def test_leading_float_preserves_scientific_notation() -> None:
     # dbNSFP stores constraint metrics in scientific notation; dropping the exponent
-    # silently corrupts them (regression: gnomAD_pLI 9.2157e-29 became 9.2157).
+    # silently corrupts them (gnomAD_pLI 9.2157e-29 would become 9.2157).
     leading_float = gene_info_bulk_sources._leading_float
     assert leading_float("9.2157e-29") == 9.2157e-29
     assert leading_float("8.8500e-01") == 0.885
@@ -250,7 +249,7 @@ async def test_fetch_external_gene_bundle_uses_dbnsfp_without_online_fallback(
     async def forbidden_fetch(*args, **kwargs):
         raise AssertionError("Online source should not be called when dbNSFP has the gene")
 
-    # NCBI is the only per-gene lookup that still exists; dbNSFP covering the gene must
+    # NCBI is the only per-gene lookup; dbNSFP covering the gene must
     # short-circuit before it is reached.
     monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", forbidden_fetch)
 
@@ -401,8 +400,8 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
     assert result["omim_gene_id"] is None
     assert result["source_status"]["dbnsfp_gene"]["status"] == "missing"
     assert isinstance(result["source_status"]["dbnsfp_gene"]["fetched_at"], str)
-    # ClinGen's curations still reach the gene, but from the bulk gene-validity file
-    # rather than the page scrape — so only the bulk count is present now.
+    # ClinGen's curations reach the gene from the bulk gene-validity file, so only the
+    # bulk count is present.
     assert result["extra"]["clingen_curation_counts"] == {"gene_disease_validity": 3}
     assert result["extra"]["clingen_gene_facts"]["gencc_classifications"] == {"Definitive": 5}
     assert result["extra"]["omim_diseases"] == [
@@ -420,8 +419,8 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
 
 
 # The real HGNC complete set is a 45k-row TSV; these two rows carry the columns the
-# parser reads, including the rename that broke gene lookups when dbNSFP 5.4 shipped
-# LMTK1 for the gene the assembly still calls AATK.
+# parser reads, including the rename dbNSFP 5.4 shipped: LMTK1 for the gene the assembly
+# still calls AATK.
 HGNC_COMPLETE_SET = (
     "hgnc_id\tsymbol\tname\tlocus_group\tlocus_type\tstatus\tlocation\talias_symbol\t"
     "prev_symbol\tgene_group\tdate_approved_reserved\tdate_symbol_changed\tdate_modified\t"
@@ -623,11 +622,10 @@ def test_source_status_without_a_release_states_none_rather_than_guessing() -> N
 async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No per-gene HGNC request, yet identity still resolves.
+    """No per-gene HGNC request, yet identity resolves.
 
-    Everything the removed HGNC REST call supplied — name, aliases, previous symbols,
-    Ensembl/Entrez/OMIM ids, locus group, location, VEGA id, RefSeq accessions — is in
-    the complete set that is already downloaded once per job.
+    Name, aliases, previous symbols, Ensembl/Entrez/OMIM ids, locus group, location, VEGA id
+    and RefSeq accessions are all in the complete set that is already downloaded once per job.
     """
 
     async def fake_fetch_ncbi_gene(symbol: str, species_name: str, **_kwargs):
@@ -696,7 +694,7 @@ async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
     assert result["extra"]["hgnc_identifiers"]["vega_id"] == "OTTHUMG00000157426"
     assert result["extra"]["refseq_accessions"] == ["NM_007294"]
     assert result["extra"]["hgnc_gene_group"] == ["Ring finger proteins"]
-    # NCBI is the one per-gene source still worth its request.
+    # NCBI is the one per-gene source worth its request.
     assert result["summary"] == "Tumor suppressor involved in DNA repair."
 
 
@@ -765,7 +763,7 @@ async def test_a_source_that_cannot_be_downloaded_is_an_error_named_by_its_kind(
     unreachable, refused = await load(), await load()
 
     # The source's status, which each gene's record keeps and the gene and admin pages show,
-    # was the error's text, the address and the value with it. Now its kind; CoGA's own
+    # names the error by its kind, never its text, the address or the value; CoGA's own
     # refusal is shown as it is written.
     assert (unreachable.status, unreachable.message) == (
         "error",
@@ -792,5 +790,5 @@ async def test_an_ncbi_lookup_that_fails_is_an_error_named_by_its_kind(monkeypat
     )
 
     status = result["source_status"]["ncbi"]
-    # Before: the error's text, the address and the value with it.
+    # The error's kind, never its text, the address or the value.
     assert (status["status"], status["message"]) == ("error", "NCBI Gene could not be read (ConnectError).")

@@ -3,8 +3,8 @@ QA's count correction, E2E.
 
 TRGT's count need not be the clinical repeat number (at FMR1 it leaves out the AGG
 interruptions: a 55-repeat premutation can read 53), so until QA validates a catalogue locus the
-repeat page marks a count within 3 repeats of a classification boundary (#889). The signed record
-now freezes that warning beside each allele, and per locus QA's record of TRGT's counting units
+repeat page marks a count within 3 repeats of a classification boundary. The signed record
+freezes that warning beside each allele, and per locus QA's record of TRGT's counting units
 as ``repeat_locus_count_units`` holds it at sign-out.
 
 Here a one-member family (a woman, a new id each run) goes through the package import into real

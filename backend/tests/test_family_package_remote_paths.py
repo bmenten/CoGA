@@ -1,7 +1,7 @@
 """A queued import from a bucket keeps its gs:// or s3:// URI.
 
-``str(Path("gs://bucket/x"))`` is ``gs:/bucket/x``: no longer a remote URI, so the worker
-ran a queued package import on a local path that does not exist.
+``str(Path("gs://bucket/x"))`` is ``gs:/bucket/x``: no longer a remote URI, so a worker that
+read the URI as a path would run a queued package import on a local path that does not exist.
 """
 
 from __future__ import annotations

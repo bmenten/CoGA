@@ -2,16 +2,16 @@
 
 Each coverage BED declares whether it holds read depth or a log2 ratio (TRACE-9), and the depth
 readers (the mtDNA coverage with its ``mtdna.mean_depth`` verdict, the NIPT coverage check without
-a per-target table) read only a track of read depth. The signed record froze none of it, so a
-signed analysis could not say which kind of coverage a depth check rested on. Its
-``coverage_tracks`` section (``signed_record_sections.coverage_tracks``) now holds, for every
-coverage track of the family's members, per sample and caller:
+a per-target table) read only a track of read depth. So that a signed analysis says which kind
+of coverage a depth check rests on, the signed record's ``coverage_tracks`` section
+(``signed_record_sections.coverage_tracks``) holds, for every coverage track of the family's
+members, per sample and caller:
 
 * what it holds, by the depth readers' one rule over the same records
   (``coverage_read_depth.coverage_track_content``): a coverage BED what it declared, another
   caller's what its import's transform made of its file;
 * each file it was loaded from: its name, its rows, when, and from where -- a single-file upload or
-  a package's dataset, which the BED loaders now record (``metadata.uploaded_from``), since the
+  a package's dataset, which the BED loaders record (``metadata.uploaded_from``), since the
   upload and a package's coverage BED share the source ``web``.
 
 The section is bound into the content hash and compared whole by the sign-out check like every
@@ -644,8 +644,8 @@ async def test_a_packages_apcad_bed_records_that_a_package_loaded_it(
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # An APCAD file the VCF reader finds no record in is read as a BED, into the dataset's own
-    # track. Its record now says a package loaded it, as every other package loader's does
-    # (TRACE-17; it said nothing).
+    # track. Its record says a package loaded it, as every other package loader's does
+    # (TRACE-17).
     async def no_vcf_records(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         return {}
 
@@ -666,8 +666,8 @@ async def test_a_packages_apcad_bed_records_that_a_package_loaded_it(
 async def test_a_packages_per_target_coverage_table_records_that_a_package_loaded_it(
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A capture panel's per-target coverage table (monogenic NIPT): its record now says a
-    # package loaded it, as every other package loader's does (TRACE-17; it said nothing).
+    # A capture panel's per-target coverage table (monogenic NIPT): its record says a
+    # package loaded it, as every other package loader's does (TRACE-17).
     from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
 
     async def nothing(*_args: Any, **_kwargs: Any) -> None:

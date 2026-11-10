@@ -173,8 +173,8 @@ def test_an_unaccepted_criterion_must_take_its_strength_too() -> None:
 
 
 def test_a_stored_classification_the_save_rules_refuse_is_still_served() -> None:
-    # Only a save is checked: a record written before CLIN-3, with a repeated criterion and a
-    # strength the criterion does not take, is read back as it was written.
+    # Only a save is checked: a stored record with a repeated criterion and a strength the
+    # criterion does not take is read back as it was written.
     from backend.app.services.small_variant_review_pg import _serialize_review
 
     written_before = {
@@ -217,13 +217,13 @@ def test_acmg_json_or_none_returns_none_for_empty() -> None:
     assert _deserialize_acmg(None) is None
 
 
-# A stored blob that no longer validates: `code` must be a string. The value is free
+# A stored blob that does not validate: `code` must be a string. The value is free
 # text, the kind of thing that must never be copied into a log.
 _UNREADABLE_ACMG = {"criteria": [{"code": {"note": "private curation text"}, "strength": "strong"}]}
 
 
 def test_an_unreadable_stored_classification_is_logged_without_its_values(caplog) -> None:
-    # #514: this used to become None silently — indistinguishable from "never classified".
+    # Logged, so it is not silently read as "never classified".
     with caplog.at_level(logging.ERROR):
         assert _deserialize_acmg(json.dumps(_UNREADABLE_ACMG)) is None
         assert _deserialize_acmg("{not json") is None

@@ -2,11 +2,11 @@
 
 ``DELETE /admin/samples/{sample_id}`` removes the sample's small-variant calls by rewriting
 the family's ``SNV_INDEL/entries`` rows: it deletes them all and writes them back without
-that sample's calls. Everything else must come back as it was stored. The rows used to be
-read back through the family view, which drops what the view does not show:
+that sample's calls. Everything else must come back as it was stored. The rows are not read
+back through the family view, which drops what the view does not show:
 
-* the imputed callset (GLIMPSE2), which the view never reads, so the delete wiped it for
-  every member;
+* the imputed callset (GLIMPSE2), which the view never reads, so a rewrite through it would
+  wipe it for every member;
 * an inactive member's calls (FATHER, marked inactive the way a member deletion leaves
   him, with his data kept; set directly so the golden trio's pedigree stays as it is);
 * rows written under a project the family has since left;
@@ -293,8 +293,7 @@ def _without_sib(rows: dict) -> dict:
 def test_the_delete_succeeds_and_counts_the_one_variant_only_sib_had(run) -> None:
     delete = run["delete"]
     assert delete["status"] == 200, delete["text"]
-    # Counted in the family's current project: SIB's own variant only. Before, the wiped
-    # imputed row was counted as deleted too.
+    # Counted in the family's current project: SIB's own variant only, not the imputed row.
     assert delete["json"]["deleted"]["small_variants"] == 1
 
 
@@ -302,7 +301,7 @@ def test_every_other_row_comes_back_exactly_as_stored(run) -> None:
     # The whole family, row for row, minus SIB's calls: the golden rows with the inactive
     # FATHER's calls, the imputed row with its phase sets, the non-default annotation
     # version, the raw HET token and its AD-derived allele balance with no AF, and the row
-    # under the project the family left. Before, all of those came back changed or not at all.
+    # under the project the family left.
     assert run["rows_after"] == _without_sib(run["rows_before"])
 
 

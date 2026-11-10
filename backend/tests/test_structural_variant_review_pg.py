@@ -1,4 +1,4 @@
-"""Structural-variant reviews and their CNV (ClinGen 2019) classification (#526).
+"""Structural-variant reviews and their CNV (ClinGen 2019) classification.
 
 The client sends the criteria it applied; the server validates them and recomputes the
 points and the class, so a stored classification cannot drift from its criteria.
@@ -209,7 +209,7 @@ def _sv_review(variant_id: str, classification=None, tags=(), cnv_class=None) ->
     }
 
 
-# The reviews of the owner's before/after table (CLIN-77), one per SV, with the class the SV table
+# The reviews of the owner's table of cases (CLIN-77), one per SV, with the class the SV table
 # and cards show for each (normalizeReviewClassification of its text and its tags).
 _SHOWN_CLASS_SV_REVIEWS = [
     _sv_review("sv-tag", tags=["acmg_class_4", "report"]),  # a class tag alone: LP
@@ -247,11 +247,12 @@ _SHOWN_CLASS_SV_REVIEWS = [
     ],
 )
 def test_a_classification_filter_keeps_an_sv_by_the_class_its_review_shows(wanted: str, kept: set[str]) -> None:
-    # CLIN-77 (the owner's decision of 2026-11-10, as CLIN-75 for small variants): the filter read
-    # the classification text alone, so "Likely pathogenic - class 4" dropped an SV the SV page shows
-    # with that class by its class tag, and kept one shown as class 5 for text saying class 3. It now
-    # keeps an SV by the class its review shows (review_class_label), in any case. The CNV scoring's
-    # class counts as the page shows it: through the text the CNV dialog writes, never on its own.
+    # CLIN-77 (the owner's decision of 2026-11-10, as CLIN-75 for small variants): the filter keeps
+    # an SV by the class its review shows (review_class_label), in any case, not by its
+    # classification text alone: "Likely pathogenic - class 4" keeps an SV the SV page shows with
+    # that class by its class tag, and drops one shown as class 5 for text saying class 3. The CNV
+    # scoring's class counts as the page shows it: through the text the CNV dialog writes, never on
+    # its own.
     session = _ReviewRows(_SHOWN_CLASS_SV_REVIEWS)
     assert _matching(session, classifications=[wanted]) == kept
     [(sql, params)] = session.executed
@@ -266,7 +267,7 @@ def test_an_sv_classification_filter_with_several_classes_or_a_tag_filter() -> N
     ) == {"sv-tag", "sv-word", "sv-text-tag", "sv-word-tag", "sv-cnv", "sv-cnv-tag", "sv-old-case"}
     # Every part of the selection must hold.
     assert _matching(session, classifications=["Likely pathogenic - class 4"], tags=["report"]) == {"sv-tag"}
-    # The tag filters read the tags as before: the class tag finds the SVs that hold it.
+    # The tag filters read the tags: the class tag finds the SVs that hold it.
     assert _matching(session, tags=["acmg_class_4"]) == {"sv-tag", "sv-text-tag", "sv-word-tag"}
 
 
@@ -384,7 +385,7 @@ def test_a_new_review_stores_the_recomputed_classification() -> None:
     stored = table.rows["sv1"]
     assert (stored["cnv_point_total"], stored["cnv_class"]) == (1.0, "cnv_class_5")
     assert review.cnv_acmg is not None and review.cnv_acmg.classification == "Pathogenic - class 5"
-    # The save is serialised on an advisory lock taken before the current review is read (#513).
+    # The save is serialised on an advisory lock taken before the current review is read.
     assert table.statements[:2] == ["SELECT LOCK", "SELECT"]
 
 
@@ -399,8 +400,8 @@ def test_a_second_save_updates_the_review_in_place() -> None:
 
 
 def test_a_class_label_saved_in_another_case_is_stored_as_the_label_is_now_and_audits_no_change() -> None:
-    # ENG-6: a page loaded before the labels were put in sentence case sends "Likely Pathogenic -
-    # class 4" back. It is stored as the label is now, so the trail records no class change.
+    # ENG-6: a page that sends "Likely Pathogenic - class 4" back has it stored as the label in
+    # sentence case, so the trail records no class change.
     table = _ReviewTable()
     _save(table, StructuralVariantReviewUpdate(classification="Likely pathogenic - class 4", note="first look"))
     audited = len(table.audit)
@@ -510,7 +511,7 @@ def test_a_sent_scoring_replaces_the_stored_one() -> None:
 def test_an_unreadable_stored_scoring_survives_a_save_that_leaves_it_out() -> None:
     table = _ReviewTable()
     _scored(table)
-    table.rows["sv1"]["cnv_acmg"] = "{not json"  # stored, but no longer readable (#514)
+    table.rows["sv1"]["cnv_acmg"] = "{not json"  # stored, but no longer readable
     review = _save(table, StructuralVariantReviewUpdate(classification="Pathogenic - class 5", note="noted"))
 
     assert table.rows["sv1"]["cnv_acmg"] == "{not json"
@@ -530,8 +531,8 @@ def test_a_scoring_with_a_repeated_criterion_is_refused_and_writes_nothing() -> 
 
 
 def test_a_stored_scoring_with_a_repeated_criterion_is_still_served_and_kept() -> None:
-    # Only a save that sends a scoring is checked: one written before repeated codes were
-    # refused is read back as stored, and a save that leaves the scoring out keeps it.
+    # Only a save that sends a scoring is checked: one stored with a repeated code is read back
+    # as stored, and a save that leaves the scoring out keeps it.
     table = _ReviewTable()
     _scored(table)
     written_before = {

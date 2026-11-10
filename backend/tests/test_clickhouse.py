@@ -136,7 +136,7 @@ async def test_an_insert_into_a_dotted_assemblys_table_reaches_the_driver_quoted
     assert (table, database) == ("`coga`.`T2T_CHM13v2.0/SNV_INDEL/entries`", None)
     # What the driver itself makes of it: the name, intact.
     assert _qualified_table(table, database) == "`coga`.`T2T_CHM13v2.0/SNV_INDEL/entries`"
-    # The split name the driver used to get came out bare.
+    # A split name, table and database apart, comes out bare.
     assert _qualified_table("T2T_CHM13v2.0/SNV_INDEL/entries", "coga") == "T2T_CHM13v2.0/SNV_INDEL/entries"
 
 

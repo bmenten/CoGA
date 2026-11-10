@@ -1,8 +1,8 @@
 """A manifest's region of interest the import does not find clears the family's, and says so (E2E, DATA-10).
 
-The PGT embryo calls read the family's region of interest. An import used to keep the family's
-earlier region, without a word, when it could not find the one its manifest names, so the embryos
-of the package were called at a region the package does not name. Over the synthetic PGT family
+The PGT embryo calls read the family's region of interest. An import that kept the family's
+earlier region, without a word, when it could not find the one its manifest names would call the
+embryos of the package at a region the package does not name. Over the synthetic PGT family
 of ``_pgt_package.py`` (an affected father, the mother, their affected child as the index and two
 embryos, a phased GLIMPSE2 family VCF on chr1, AD, an ROI on chr1), imported from a package and
 read through the API, this:

@@ -1,13 +1,12 @@
 """An assembly's cytobands: UCSC's table as published, recorded by SHA-256; a shipped backup when
 UCSC cannot serve it.
 
-Adding a human assembly from UCSC (GRCh38 at the first start) read UCSC's cytoband table with no
-backup, and recorded only "ucsc". When UCSC could not be reached the whole import failed, so the
-genes, which come in the same import, did not load either, and nothing said which file the bands
-came from (owner decision, 2026-11-05: a new instance starts on the newest reference data, a
-shipped file only as a backup). The import now records UCSC's file by name and SHA-256, and when
-UCSC cannot serve it loads the shipped backup of the genome (data/ref-data/cytobands/), held to
-its pinned SHA-256 (TRACE-14). Nothing here goes to the network: UCSC is an httpx mock transport.
+Adding a human assembly from UCSC (GRCh38 at the first start) reads UCSC's cytoband table and
+records it by name and SHA-256 (owner decision, 2026-11-05: a new instance starts on the newest
+reference data, a shipped file only as a backup). When UCSC cannot serve it, the import loads the
+shipped backup of the genome (data/ref-data/cytobands/), held to its pinned SHA-256 (TRACE-14),
+and the genes, which come in the same import, load too. Nothing here goes to the network: UCSC is
+an httpx mock transport.
 """
 
 from __future__ import annotations
@@ -142,7 +141,7 @@ def test_another_file_in_the_backups_place_is_refused(
         async with _ucsc(_unreachable) as client:
             return await rss._download_cytobands(client, ucsc_genome="hg38")
 
-    # UCSC's failure stands: the import fails as before, with nothing loaded.
+    # UCSC's failure stands: the import fails, with nothing loaded.
     with pytest.raises(HTTPException) as failed:
         asyncio.run(run())
     assert failed.value.status_code == 502
@@ -183,7 +182,7 @@ def test_a_genome_without_a_backup_gets_nothing_in_its_place() -> None:
 def test_with_ucsc_unreachable_the_import_loads_the_backup_and_still_loads_the_genes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The genes come in the same import: a failed cytoband download used to stop them too.
+    # The genes come in the same import, and a failed cytoband download does not stop them.
     real_download = rss._download_cytobands
     _patch_lookups(monkeypatch)
     _patch_ucsc_import(monkeypatch, ucsc_genome="hg38", gtf_url=GENCODE_GTF_URL, gtf_text=GENCODE_GTF)
