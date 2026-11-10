@@ -63,7 +63,8 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         ).scalar_one()
 
     family_id = f"E2E_KEPT_MANIFEST_{run}"
-    package = one_sample_package(base / family_id, family_id, variants=_VARIANTS, datasets=("snv",))
+    # In the folder of its project in the watched folder.
+    package = one_sample_package(base / _harness.PROJECT_NAME / family_id, family_id, variants=_VARIANTS, datasets=("snv",))
     # No manifest in the folder, which CoGA cannot write: as a package on a read-only share.
     (package / "manifest.yaml").unlink()
     write_package(package, project=project, family_id=family_id)

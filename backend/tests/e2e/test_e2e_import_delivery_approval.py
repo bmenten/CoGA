@@ -57,7 +57,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
             await session.execute(text("SELECT name FROM projects WHERE id = CAST(:p AS uuid)"), {"p": project_id})
         ).scalar_one()
     names = {key: f"E2E_APPROVE_{key}_{run}" for key in ("NEW", "DRY", "REFUSE", "CHANGED")}
-    folders = {key: one_sample_package(base / name, name, variants=2, datasets=("snv",)) for key, name in names.items()}
+    folders = {key: one_sample_package(base / _harness.PROJECT_NAME / name, name, variants=2, datasets=("snv",)) for key, name in names.items()}
     for key, folder in folders.items():
         write_package(folder, project=project, family_id=names[key])
     roots = [base.resolve()]

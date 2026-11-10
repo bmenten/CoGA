@@ -199,12 +199,28 @@ def _listed_package_folder(entry: Path) -> Path | None:
     return folder
 
 
+def _addable_package(folder: Path) -> bool | None:
+    """Whether the folder ``folder`` holds a PED (True) or the long-read layout (False), so it can
+    be added by hand; None when it holds neither, or its own package file."""
+    if os.path.lexists(folder / PACKAGE_FILE_NAME):
+        return None
+    # A folder named like a PED (``FAM1.ped/``) is none, as Discover reads it.
+    ped_paths = [path for path in sorted(folder.glob("*.ped")) if path.is_file()] or [
+        path for path in sorted((folder / PED_FOLDER).glob("*.ped")) if path.is_file()
+    ]
+    if ped_paths:
+        return True
+    return False if long_read_sample_ids(folder) else None
+
+
 def scan_family_import_packages() -> list[dict[str, Any]]:
-    """The package folders directly under each local import root that can be added to Deliveries
-    by hand (import_manual_delivery.py): each one holding a ``*.ped`` file, at its top or in its
-    ``ped/`` folder (where the PGT pipeline writes it), or laid out per sample as the long-read
-    pipeline writes its output (which has no PED for a couple screened for carriership). A folder
-    that holds its own package file is left out: a pipeline delivers it through a watched folder.
+    """The package folders under each local import root that can be added to Deliveries by hand
+    (import_manual_delivery.py): each one holding a ``*.ped`` file, at its top or in its ``ped/``
+    folder (where the PGT pipeline writes it), or laid out per sample as the long-read pipeline
+    writes its output (which has no PED for a couple screened for carriership), directly in a root
+    or in a project folder in it (``<root>/<project>/<package>``, named in ``project_folder``). A
+    folder that holds its own package file is left out: a pipeline delivers it through a watched
+    folder.
 
     A folder selection would refuse is not listed, and nothing in it is read: one that is a
     symlink leading out of the import roots, or one that loops (``_listed_package_folder``).
@@ -212,33 +228,41 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
     """
     packages: list[dict[str, Any]] = []
     seen: set[str] = set()
+
+    def listed(entry: Path, project_folder: str | None) -> bool:
+        """List the folder ``entry`` leads to when it can be added; whether it is one."""
+        # Checked before anything in it is looked up, and read through the folder selection reads.
+        folder = _listed_package_folder(entry)
+        if folder is None or not folder.is_dir():
+            return True
+        has_ped = _addable_package(folder)
+        if has_ped is None:
+            return os.path.lexists(folder / PACKAGE_FILE_NAME)
+        if str(folder) not in seen:
+            seen.add(str(folder))
+            packages.append(
+                {
+                    "folder_path": str(folder),
+                    "name": entry.name,
+                    "family_id": entry.name,
+                    "has_ped": has_ped,
+                    "project_folder": project_folder,
+                }
+            )
+        return True
+
     for root in _authorized_local_roots():
         if not root.is_dir():
             continue
         for child in sorted(root.iterdir(), key=lambda path: path.name.lower()):
-            # Checked before anything in it is looked up, and read through the folder
-            # selection reads.
+            if listed(child, None):
+                continue
+            # A folder that is no package: a project folder, whose package folders are listed.
             folder = _listed_package_folder(child)
-            if folder is None or not folder.is_dir() or os.path.lexists(folder / PACKAGE_FILE_NAME):
+            if folder is None or not folder.is_dir():
                 continue
-            # A folder named like a PED (``FAM1.ped/``) is none, as Discover reads it (SEC-27).
-            ped_paths = [path for path in sorted(folder.glob("*.ped")) if path.is_file()] or [
-                path for path in sorted((folder / PED_FOLDER).glob("*.ped")) if path.is_file()
-            ]
-            if not ped_paths and not long_read_sample_ids(folder):
-                continue
-            resolved = str(folder)
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            packages.append(
-                {
-                    "folder_path": resolved,
-                    "name": child.name,
-                    "family_id": child.name,
-                    "has_ped": bool(ped_paths),
-                }
-            )
+            for inner in sorted(folder.iterdir(), key=lambda path: path.name.lower()):
+                listed(inner, child.name)
     return packages
 
 

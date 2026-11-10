@@ -60,7 +60,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     sample = f"{family}_S1"
     folder = package_folder(base, family)
     with_file = package_folder(base, f"E2E_HAND_FILE_{run}")
-    package_folder(base, f"E2E_HAND_NONE_{run}")
+    none_folder = package_folder(base, f"E2E_HAND_NONE_{run}")
     write_package(with_file, project=project, family_id=with_file.name)
 
     out: dict[str, Any] = {"family": family, "sample": sample, "project_id": project_id}
@@ -102,7 +102,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
         out["job"] = await job_outcome(job_id)
         out["re_added"] = await add(folder_path=str(folder), analysis_type="wgs")
-        out["no_analysis"] = await add(folder_path=str(base / f"E2E_HAND_NONE_{run}"))
+        out["no_analysis"] = await add(folder_path=str(none_folder))
         out["verified"] = capture(
             await client.get(
                 "/api/admin/integrity/verify",

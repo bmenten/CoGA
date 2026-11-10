@@ -41,6 +41,10 @@ owner approved the plan on 2026-11-10, in phases:
 
 - **Name and place**: `coga-package.json`, in the package folder itself. JSON in UTF-8: one
   object, no key given twice in an object, no `NaN` or `Infinity`. At most 20 MB.
+- **The package folder goes into the folder of its project** in the watched import folder:
+  `<watched folder>/<project>/<package>`, the project folder named exactly as the `project` the
+  file names. A package directly in the watched folder, or in the folder of another project,
+  needs attention.
 - **Whole, every time.** Write the file under a temporary name in the same folder
   (`.coga-package.json.tmp`) and rename it over `coga-package.json`. A reader then never sees half
   a file.

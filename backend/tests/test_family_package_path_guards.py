@@ -504,10 +504,10 @@ def test_the_package_list_leaves_out_a_package_folder_that_loops(imports: Path, 
 def test_the_package_list_follows_a_package_folder_linked_under_the_import_roots(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path, where: str
 ) -> None:
-    holder = imports / "archive"
+    holder = imports / "archive" / "kept"
     if where == "another import root":
         second = tmp_path / "second-imports"
-        holder = second / "archive"
+        holder = second / "archive" / "kept"
         monkeypatch.setattr(settings, "family_import_roots", [str(imports), str(second)])
     holder.mkdir(parents=True)
     target = _package(holder, manifest={"analysis_type": "trio_check"})
@@ -635,8 +635,8 @@ def test_selection_takes_each_folder_the_package_list_shows_and_refuses_each_it_
     linked_out = imports / "LINKED"
     linked_out.symlink_to(_foreign_package(tmp_path / "outside" / "OUTFAM"))
     looping = _loop(imports / "LOOPFAM")
-    (imports / "archive").mkdir()
-    (imports / "INLINK").symlink_to(_package(imports / "archive", "INSIDE"))
+    (imports / "archive" / "kept").mkdir(parents=True)
+    (imports / "INLINK").symlink_to(_package(imports / "archive" / "kept", "INSIDE"))
     _package(imports)
 
     listed = scan_family_import_packages()
@@ -681,8 +681,8 @@ def test_the_package_list_route_leaves_out_a_folder_linked_out_of_the_import_roo
     outside = _foreign_package(tmp_path / "outside" / "OUTFAM").resolve()
     (imports / "LINKED").symlink_to(outside)
     _loop(imports / "LOOPFAM")
-    (imports / "archive").mkdir()
-    inside = _package(imports / "archive", "INSIDE")
+    (imports / "archive" / "kept").mkdir(parents=True)
+    inside = _package(imports / "archive" / "kept", "INSIDE")
     (imports / "INLINK").symlink_to(inside)
     _package(imports)
 

@@ -90,9 +90,12 @@ def write_package(
     tmp.replace(folder / "coga-package.json")
 
 
-def package_folder(root: Path, name: str) -> Path:
-    """A one-sample package without a manifest of its own: the package file describes it."""
-    folder = one_sample_package(root / name, name, variants=2, datasets=("snv",))
+def package_folder(root: Path, name: str, project: str | None = None) -> Path:
+    """A one-sample package without a manifest of its own, in the folder of its project in the
+    watched folder ``root`` (the e2e project's when None): the package file describes it."""
+    from backend.tests.e2e import _harness
+
+    folder = one_sample_package(root / (project or _harness.PROJECT_NAME) / name, name, variants=2, datasets=("snv",))
     (folder / "manifest.yaml").unlink()
     return folder
 
@@ -115,7 +118,11 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
 
     keys = ("READY", "CORRUPT", "COPYING", "NOPACKAGE", "NOPROJECT", "MINIMAL", "RERUN")
     names = {key: f"E2E_WATCH_{key}_{run}" for key in keys}
-    folders = {key: package_folder(base, name) for key, name in names.items()}
+    later_project = f"E2E_WATCH_LATER_PROJECT_{run}"
+    # Each in the folder of the project its package file names.
+    folders = {
+        key: package_folder(base, name, later_project if key == "NOPROJECT" else None) for key, name in names.items()
+    }
     write_package(folders["READY"], project=project, family_id=names["READY"])
     write_package(folders["CORRUPT"], project=project, family_id=names["CORRUPT"])
     # Its PED changed after the package file was written: affected became unaffected.
@@ -127,7 +134,6 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
         family_id=names["COPYING"],
         extra_files=({"path": "snv/family.vcf.tbi", "size": 10, "sha256": "0" * 64},),
     )
-    later_project = f"E2E_WATCH_LATER_PROJECT_{run}"
     write_package(folders["NOPROJECT"], project=later_project, family_id=names["NOPROJECT"])
     write_package(folders["MINIMAL"], project=project, family_id=names["MINIMAL"], full=False)
     write_package(folders["RERUN"], project=project, family_id=names["RERUN"])
@@ -177,7 +183,7 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
     write_package(lone_folder, project=project, family_id=lone)
     await import_watcher.run_watch_round(sessionmaker, [second.resolve()])
     # Out of both watched folders, so no later round of either finds it.
-    shutil.move(str(lone_folder), str(second.parent / f"moved-away-{run}"))
+    shutil.move(str(lone_folder.parent), str(second.parent / f"moved-away-{run}"))
     out["empty_rounds"] = [await import_watcher.run_watch_round(sessionmaker, [second.resolve()]) for _ in range(3)]
     async def lone_delivery() -> tuple[str, int]:
         async with sessionmaker() as session:

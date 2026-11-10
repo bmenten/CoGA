@@ -907,6 +907,7 @@ export interface FamilyPackageCandidateOut {
   name: string;
   family_id: string;
   has_ped: boolean;
+  project_folder: string | null;
   imported_families: ImportedPackageFamily[];
   changed_during_import: boolean;
 }

@@ -709,8 +709,9 @@ sign-out needs the acknowledgement.
 ### Watched import folders
 
 A pipeline, or the step that copies its output onto the share, can deliver a package without
-anyone typing its path: it writes the package folder into a **watched import folder**, with its
-**package file** `coga-package.json` ([coga-package.md](coga-package.md)). The file describes the
+anyone typing its path: it writes the package folder into the folder of its project in a **watched
+import folder** (`<watched folder>/<project>/<package>`), with its **package file**
+`coga-package.json` ([coga-package.md](coga-package.md)). The file describes the
 package in place of a PED, a manifest and a ready marker, and its `status` says when the package
 is complete. The import watcher ([import_watcher.py](../backend/app/services/import_watcher.py))
 finds it, checks it once and records where it stands. It imports nothing by itself: a person
@@ -718,7 +719,13 @@ approves each delivery, on the Package Import page, and only then is its import 
 
 **Settings.** `FAMILY_IMPORT_WATCH_ROOTS` names the watched folders: local folders under
 `FAMILY_IMPORT_ROOTS`, comma-separated or a JSON list (a bucket, or a folder outside the import
-roots, is not watched, and the log says how many). Empty, the default, means no watcher.
+roots, is not watched, and the log says how many). A watched folder holds a folder per project,
+named exactly as the project in CoGA, and each package folder lies in the folder of its project
+(the owner's decision of 2026-11-10). The watcher looks into each project folder; a package folder
+directly in the watched folder is found too, and its delivery needs attention
+(`package_not_in_project_folder`). A delivery whose package file names another project than the
+folder it lies in needs attention as well (`package_project_folder_differs`): correct the project
+in **Deliveries**, or move the package into the folder of its project. Empty, the default, means no watcher.
 `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS` (default 300, 30 to 86400) is the time between rounds. The
 watcher runs where the import workers run: in each import-worker process, and in the API when it
 runs import workers itself (`FAMILY_IMPORT_WORKER_COUNT` above 0). One watcher looks at a time: it
@@ -2356,6 +2363,8 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `sample_id_invalid` | A sample ID breaks the same rule. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
 | `manifest_names_a_ped` | The manifest names a PED (`ped`). The import reads no PED: the members go under `family.add_members`. |
 | `members_missing` | The manifest names no members under `family.add_members`. |
+| `package_not_in_project_folder` | The delivery's package folder lies directly in the watched folder. Move it into the folder of its project (`<watched folder>/<project>/`), or refuse the delivery. |
+| `package_project_folder_differs` | The delivery lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
 | `package_members_differ_from_family` | The family exists in CoGA, and the package's members differ from it: a member more or less, another sex or other parents. Correct the package (**Correct…**) to the family's members. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
