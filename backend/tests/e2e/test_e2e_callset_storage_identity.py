@@ -178,7 +178,7 @@ async def _load_glimpse2(project_id: str) -> dict:
     from fastapi import UploadFile
 
     from backend.app.core.postgres import get_postgres_sessionmaker
-    from backend.app.routers.families_small_variants import _family_sample_contexts
+    from backend.app.services.family_metadata_context import family_sample_contexts
     from backend.app.services.family_metadata_context import build_family_metadata_context
     from backend.app.services.variant_upload_service import upload_family_small_variant_file
     from backend.tests.e2e import _harness
@@ -191,7 +191,7 @@ async def _load_glimpse2(project_id: str) -> dict:
         return await upload_family_small_variant_file(
             session,
             context=context,
-            sample_contexts=_family_sample_contexts(context),
+            sample_contexts=family_sample_contexts(context),
             file=UploadFile(file=BytesIO(_GLIMPSE2_VCF), filename=f"{FAMILY}.glimpse2.vcf"),
             overwrite=True,
             format_hint="glimpse2",

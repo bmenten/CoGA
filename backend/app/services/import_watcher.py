@@ -74,6 +74,7 @@ from .import_ready_marker import (
     check_marker_files,
     read_ready_marker,
 )
+from .worker_tasks import stop_worker
 
 logger = logging.getLogger(__name__)
 
@@ -923,13 +924,7 @@ async def import_watcher(stop: asyncio.Event) -> None:
         await leadership.release()
 
 
-async def stop_import_watcher(task: asyncio.Task[None], stop: asyncio.Event) -> None:
-    stop.set()
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+stop_import_watcher = stop_worker
 
 
 # The deliveries the list shows at most.

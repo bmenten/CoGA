@@ -444,6 +444,13 @@ def diff_structural_review_changes(
     return events
 
 
+def audit_actor(user: Any) -> str:
+    """The name the clinical audit trail records for a user (an event's ``actor``): the user
+    name, else the e-mail address, else "unknown". Every writer of a clinical audit event
+    names its user so."""
+    return getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
+
+
 async def record_clinical_event(
     session: AsyncSession,
     *,
@@ -632,7 +639,7 @@ async def _record_review_events(
             family_uuid=family_uuid,
             family_identifier=family_identifier,
             variant_id=variant_id,
-            actor=getattr(user, "username", None) or getattr(user, "email", "") or "unknown",
+            actor=audit_actor(user),
             actor_id=getattr(user, "id", None),
             action=event["action"],
             summary=event["summary"],
@@ -836,7 +843,7 @@ async def record_compound_het_pair_changes(
             family_uuid=family_uuid,
             family_identifier=family_identifier,
             variant_id=change.variant_id,
-            actor=getattr(user, "username", None) or getattr(user, "email", "") or "unknown",
+            actor=audit_actor(user),
             actor_id=getattr(user, "id", None),
             action=event["action"],
             summary=event["summary"],

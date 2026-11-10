@@ -202,6 +202,29 @@ def test_a_gene_is_looked_up_on_its_chromosome_before_an_alt_contig() -> None:
     )
 
 
+def test_the_import_and_the_family_page_look_a_gene_up_with_one_query() -> None:
+    # ENG-23: each kept a copy of the gene look-up; now both run roi_gene_lookup's, and resolve
+    # a gene to the same region.
+    from backend.app.services import family_service
+
+    gene = {"hgnc_symbol": "CFTR", "gene_id": "ENSG00000001626", "chr": "chr7", "start": 117480025, "end": 117668665}
+    page, manifest = _Session({"FROM genes": [gene]}), _Session({"FROM genes": [gene]})
+
+    on_the_page = asyncio.run(family_service._build_family_roi_payload(page, assembly_id=ASSEMBLY, query=" cftr "))  # type: ignore[arg-type]
+    in_the_manifest = asyncio.run(registration._resolve_manifest_roi(manifest, assembly_id=ASSEMBLY, query="cftr"))  # type: ignore[arg-type]
+
+    assert page.statements == manifest.statements
+    assert on_the_page == in_the_manifest == {
+        "query": "cftr",
+        "label": "CFTR",
+        "source": "gene",
+        "assembly_id": ASSEMBLY,
+        "chr": "7",
+        "start": 117480025,
+        "end": 117668665,
+    }
+
+
 def test_a_value_the_message_names_shows_its_control_characters() -> None:
     session = _Session({"FROM genes": [], "FROM families": []})
 

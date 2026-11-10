@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -23,6 +22,7 @@ from .clickhouse_variant_records import (
     _annotation_text,
 )
 from .gene_constraint_metrics import fetch_gene_constraint_metrics
+from .hash_chain import jsonb_float
 from .review_pg_utils import _json_payload, _read_stored_classification
 
 # The consequence a small-variant classification rests on, read from its primary transcript:
@@ -156,15 +156,8 @@ def _json_or_none(value: Any) -> str | None:
     return None if value is None else _json_payload(value)
 
 
-def _finite(value: float | None) -> float | None:
-    """A value the snapshot can hold: JSONB has no NaN or infinity, and no -0.0."""
-    if value is None or not math.isfinite(value):
-        return None
-    return value + 0.0
-
-
 def _frozen_float(annotation: dict[str, Any], *keys: str) -> float | None:
-    return _finite(_annotation_float(annotation, *keys))
+    return jsonb_float(_annotation_float(annotation, *keys))
 
 
 def _frozen_int(annotation: dict[str, Any], *keys: str) -> int | None:
@@ -238,7 +231,7 @@ def vcf_gene_missense_z(record: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     try:
-        return _finite(float(value))
+        return jsonb_float(float(value))
     except OverflowError:  # an integer past any float: none the dialog can read either
         return None
 
@@ -254,7 +247,7 @@ def pp2_gene_missense_z(record: Any, *, gene_profile_missense_z: float | None) -
     report's reference-data releases name. The ACMG dialog reads the two in the same order
     (``pp2MissenseZ``), and its PP2 evidence names the source it read.
     """
-    profile = _finite(gene_profile_missense_z)
+    profile = jsonb_float(gene_profile_missense_z)
     if profile is not None:
         return profile, MISSENSE_Z_FROM_GENE_PROFILE
     vcf = vcf_gene_missense_z(record)
@@ -282,7 +275,7 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
     population = _annotation_population_frequencies(annotation)
 
     def _population(key: str) -> float | None:
-        return _finite(population.get(key))
+        return jsonb_float(population.get(key))
 
     constraint: dict[str, Any] = {}
     if reads_gene_missense_z(record):
@@ -327,7 +320,7 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
         "in_silico": {
             "cadd_phred": _frozen_float(annotation, "cadd_phred", "caddPhred"),
             "revel": _frozen_float(annotation, "revel"),
-            "spliceai_max": _finite(_annotation_spliceai_max(annotation)),
+            "spliceai_max": jsonb_float(_annotation_spliceai_max(annotation)),
             "sift": _annotation_sift(annotation),
             "polyphen": _annotation_polyphen(annotation),
             "alpha_missense_class": _normalize_alpha_missense_class(

@@ -43,7 +43,7 @@ from backend.app.services import (
     sv_gene_index_service,
     variant_ranking_cache,
 )
-from backend.app.services.family_metadata_context import SampleMetadataContext
+from backend.app.services.family_metadata_context import SampleMetadataContext, family_sample_contexts
 from backend.app.services.family_package_common import (
     APCAD_PCF_SOURCE,
     APCAD_PCF_TRACK_TYPE,
@@ -196,7 +196,7 @@ def stores(monkeypatch: pytest.MonkeyPatch) -> _Stores:
 
 
 def _samples() -> dict[str, SampleMetadataContext]:
-    return registration._family_sample_contexts(two_sample_context())
+    return family_sample_contexts(two_sample_context())
 
 
 def _file(root: Path, name: str, text: str = _BED) -> str:

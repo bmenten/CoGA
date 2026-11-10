@@ -39,7 +39,7 @@ from uuid import uuid4
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .clinical_audit_service import record_clinical_event
+from .clinical_audit_service import audit_actor, record_clinical_event
 from .hash_chain import ChainVerification, chain_row_hash, verify_chain
 
 PEDIGREE_ACTION = "pedigree"
@@ -706,11 +706,6 @@ def made_again_note(versions: int, families: int) -> str:
 
 
 # ---------------------------------------------------------------------------- the audit event
-
-
-def audit_actor(user: Any) -> str:
-    """The name the audit trail records for a user, as for every clinical audit event."""
-    return getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
 
 
 @dataclass(frozen=True, slots=True)

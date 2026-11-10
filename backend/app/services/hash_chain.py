@@ -60,6 +60,15 @@ def _normalize_numbers(value: Any) -> Any:
     return value
 
 
+def jsonb_float(value: float | None) -> float | None:
+    """A float as a frozen, hashed snapshot (an evidence snapshot) can hold it: None for NaN
+    and infinity, which JSONB has not, and 0.0 for -0.0, which JSONB stores as 0, so the value
+    hashes the same before it is stored and after it is read back."""
+    if value is None or not math.isfinite(value):
+        return None
+    return value + 0.0
+
+
 def canonical_json(payload: Any) -> str:
     """Deterministic JSON encoding — the single source of truth for all hashing."""
     return json.dumps(

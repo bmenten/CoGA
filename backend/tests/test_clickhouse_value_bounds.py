@@ -39,7 +39,6 @@ import pytest
 from backend.app.core.clickhouse import _parse_insert_query
 from backend.app.services import (
     annotation_manifest_service,
-    annotation_table_parser,
     bed_service,
     clickhouse_interval_tracks,
     clickhouse_variant_records,
@@ -48,6 +47,7 @@ from backend.app.services import (
     per_sample_small_variants,
     structural_variant_ingest,
     variant_upload_service,
+    vcf_fields,
 )
 from backend.app.services.clickhouse_variant_ids import _xpos
 from backend.app.services.clickhouse_variant_records import (
@@ -263,9 +263,10 @@ def test_no_number_parser_raises_on_an_infinite_value() -> None:
     # Before the fix each raised OverflowError: a 500, not a value left out.
     for coerce in (
         clickhouse_variant_records._coerce_int,
-        annotation_table_parser._coerce_int,
         family_package_common._coerce_int,
-        structural_variant_ingest._coerce_int,
+        # The VEP table's and the SV uploads' reader (annotation_table_parser and
+        # structural_variant_ingest kept a copy each).
+        vcf_fields.field_int,
     ):
         assert coerce("inf") is None
         assert coerce("-inf") is None

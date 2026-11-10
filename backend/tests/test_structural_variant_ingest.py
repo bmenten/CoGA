@@ -15,18 +15,18 @@ A manual TSV row of type BND reads its remote breakend partner from its brackete
 import pytest
 
 from backend.app.services.structural_variant_ingest import (
-    _coerce_int,
     _coerce_qual,
     iter_structural_variant_records,
     parse_phase_set,
 )
+from backend.app.services.vcf_fields import field_int
 
 
 def test_coerce_int_and_qual_are_tolerant() -> None:
-    assert _coerce_int("100") == 100
-    assert _coerce_int("100.0") == 100
-    assert _coerce_int("junk") is None
-    assert _coerce_int(".") is None
+    assert field_int("100") == 100
+    assert field_int("100.0") == 100
+    assert field_int("junk") is None
+    assert field_int(".") is None
     assert _coerce_qual("60") == 60.0
     assert _coerce_qual(".") is None
     assert _coerce_qual("nan") is None

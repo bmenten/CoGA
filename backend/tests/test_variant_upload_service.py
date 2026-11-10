@@ -14,7 +14,8 @@ from backend.app.services.clickhouse_variant_ids import build_small_variant_id
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services import clickhouse_variant_storage, haplotype_block_builder, variant_upload_service
 from backend.tests._event_loop_probe import LoopProbe
-from backend.app.services.annotation_table_parser import _coerce_int, _vep_location_allele_key
+from backend.app.services.annotation_table_parser import _vep_location_allele_key
+from backend.app.services.vcf_fields import field_int
 from backend.app.services.haplotype_block_builder import (
     _haplotype_state_end,
     _haplotype_state_matches_block,
@@ -44,12 +45,16 @@ def _no_family_write_lock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_coerce_int_tolerates_floats_and_junk() -> None:
-    assert _coerce_int("42") == 42
-    assert _coerce_int("42.0") == 42
-    assert _coerce_int(".") is None
-    assert _coerce_int("") is None
-    assert _coerce_int(None) is None
-    assert _coerce_int("not-a-number") is None
+    # One reader for the VEP table and the SV uploads (ENG-23: each kept a copy).
+    assert field_int("42") == 42
+    assert field_int(" 42.7 ") == 42
+    assert field_int(".") is None
+    assert field_int(" . ") is None
+    assert field_int("") is None
+    assert field_int(None) is None
+    assert field_int("not-a-number") is None
+    assert field_int("nan") is None
+    assert field_int(True) is None
 
 
 def test_parse_float_list_keeps_every_allele_fraction_or_none_without_raising() -> None:

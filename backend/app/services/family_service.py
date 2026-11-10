@@ -48,6 +48,7 @@ from .family_variant_filters import (
 from .genotypes import genotype_has_alt
 from .metadata_service import get_family_record, list_family_records, update_family_roi_record
 from .access_control import CurrentUser
+from .roi_gene_lookup import roi_gene_region
 
 GENOMIC_REGION_PATTERN = re.compile(
     r"^(?P<chrom>(?:chr)?[A-Za-z0-9_]+):(?P<start>[0-9,]+)(?:-(?P<end>[0-9,]+))?$",
@@ -146,56 +147,13 @@ async def _build_family_roi_payload(
             "start": start,
             "end": end,
         }
-    gene_result = await session.execute(
-        text(
-            """
-            SELECT hgnc_symbol, gene_id, chr, start, "end"
-            FROM genes
-            WHERE assembly_id = CAST(:assembly_id AS uuid)
-              AND (
-                lower(hgnc_symbol) = lower(:query)
-                OR lower(gene_id) = lower(:query)
-                -- Under GENCODE, gene_id is an Ensembl transcript accession. Match the
-                -- unversioned form, the Ensembl gene, and the RefSeq accessions the
-                -- refGene-derived table used to be keyed on, so a query naming any of
-                -- them still resolves.
-                OR lower(COALESCE(extra->>'ensembl_transcript_id', '')) = lower(:query)
-                OR lower(COALESCE(extra->>'ensembl_gene_id', '')) = lower(:query)
-                OR EXISTS (
-                    SELECT 1
-                    FROM jsonb_array_elements_text(
-                        COALESCE(extra->'refseq_accessions', '[]'::jsonb)
-                    ) AS accession
-                    WHERE lower(accession) = lower(:query)
-                       OR lower(split_part(accession, '.', 1)) = lower(:query)
-                )
-              )
-            -- Resolve to the effective chromosome (1-22, X, Y, M/MT) before any
-            -- ALT/scaffold contig (e.g. "1_KI270766v1_alt", "Un_GL000195v1").
-            ORDER BY
-              (CASE WHEN chr ~* '^(chr)?([0-9]{1,2}|X|Y|M|MT)$' THEN 0 ELSE 1 END),
-              ("end" - start) DESC,
-              hgnc_symbol
-            LIMIT 1
-            """
-        ),
-        {"assembly_id": assembly_id, "query": cleaned_query},
-    )
-    gene_row = gene_result.mappings().first()
-    if gene_row is None:
+    gene = await roi_gene_region(session, assembly_id=assembly_id, query=cleaned_query)
+    if gene is None:
         raise HTTPException(
             status_code=404,
             detail="ROI gene or genomic location could not be resolved",
         )
-    return {
-        "query": cleaned_query,
-        "label": gene_row.get("hgnc_symbol") or gene_row.get("gene_id") or cleaned_query,
-        "source": "gene",
-        "assembly_id": assembly_id,
-        "chr": normalize_chromosome(str(gene_row["chr"])),
-        "start": int(gene_row["start"]),
-        "end": int(gene_row["end"]),
-    }
+    return gene
 
 
 async def _repeat_expansion_presence_by_sample(

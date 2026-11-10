@@ -26,6 +26,7 @@ from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
     build_family_metadata_context,
+    family_sample_contexts,
 )
 from .family_variant_write_lock import (
     VariantWriteHoldLost,
@@ -82,7 +83,6 @@ from .family_package_registration import (
     _end_import_failed_before_datasets,
     _mark_family_import_unfinished,
     dataset_scopes,
-    _family_sample_contexts,
     _package_family_id,
     _ensure_family_from_ped,
     _delete_family_shell,
@@ -109,6 +109,7 @@ from .family_package_registration import (
 from .family_package_datasets import _import_dataset
 from .family_package_manifest import _manifest_roi_value
 from .import_progress import DatasetTimer
+from .worker_tasks import stop_worker
 
 logger = logging.getLogger(__name__)
 
@@ -658,7 +659,7 @@ async def _execute_family_package_import_local(
             session, family_id=_package_family_id(validation, bundle), mark=import_mark
         )
         raise
-    sample_contexts = _family_sample_contexts(family_context)
+    sample_contexts = family_sample_contexts(family_context)
     logs.append(
         f"Family {family_context.family_id} is registered with {len(sample_contexts)} sample(s)."
     )
@@ -1674,14 +1675,4 @@ async def family_package_import_worker(stop_event: asyncio.Event | None = None) 
             await asyncio.sleep(FAMILY_IMPORT_WORKER_POLL_SECONDS)
 
 
-async def stop_family_package_import_worker(
-    task: asyncio.Task[Any] | None,
-    stop_event: asyncio.Event | None,
-) -> None:
-    if stop_event is not None:
-        stop_event.set()
-    if task is None:
-        return
-    task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
+stop_family_package_import_worker = stop_worker

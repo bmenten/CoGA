@@ -36,7 +36,6 @@ analyst scores those criteria by hand. So the snapshot holds:
 from __future__ import annotations
 
 import json
-import math
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
@@ -59,7 +58,7 @@ from .clickhouse_variant_records import StructuralVariantRecord, _coerce_int
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import StructuralVariantQueryFilters
-from .hash_chain import canonical_hash, canonical_json
+from .hash_chain import canonical_hash, canonical_json, jsonb_float
 
 # The evidence fields grouped under the name a drift reports when they change, in the
 # order a reviewer reads them.
@@ -81,13 +80,6 @@ _REFERENCE_MODULES = ("assembly", "gene_loci")
 _STRUCTURAL_MODALITIES = ("sv", "pipeline")
 
 
-def _finite(value: float | None) -> float | None:
-    """A float the snapshot can hold: JSONB has no NaN or infinity, and no -0.0."""
-    if value is None or not math.isfinite(value):
-        return None
-    return value + 0.0
-
-
 def structural_evidence(record: StructuralVariantRecord) -> dict[str, Any]:
     """The inputs a CNV classification of ``record`` reads, as the SV page serves them.
 
@@ -106,7 +98,7 @@ def structural_evidence(record: StructuralVariantRecord) -> dict[str, Any]:
         "remote_start": record.remote_start,
         "gene_symbols": gene_symbols,
         "gene_count": len(gene_symbols),
-        "pli": _finite(_structural_pli(record)),
+        "pli": jsonb_float(_structural_pli(record)),
         "inheritance": _structural_info_text(record, "Inheritance"),
         "annotation_hash": canonical_hash(record.annotations),
     }

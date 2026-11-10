@@ -57,7 +57,7 @@ from .annotation_manifest_service import (
 )
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
-from .clinical_audit_service import compound_het_pair_state, record_clinical_event
+from .clinical_audit_service import audit_actor, compound_het_pair_state, record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .finding_review_pg import (
     FINDING_DRIFT_SECTION,
@@ -1626,7 +1626,7 @@ async def sign_out_report(
 
     now = datetime.now(timezone.utc)
     version = await _next_version(session, context.family_id, context.family_uuid)
-    actor = getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
+    actor = audit_actor(user)
 
     def _snapshot_at(moment: datetime) -> dict[str, Any]:
         return {

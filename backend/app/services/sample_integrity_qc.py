@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, TypeVar
 
 from .nipt_analysis import MIN_FETAL_SEX_SITES
 
@@ -381,7 +381,13 @@ def _mendelian_consistent(father: Genotype, mother: Genotype, child: Genotype) -
     return False
 
 
-def _shares_allele(a: Genotype, b: Genotype) -> bool:
+# An allele, as an index (these genotypes) or as the allele itself (phased_marker_service).
+Allele = TypeVar("Allele", int, str)
+
+
+def shares_allele(a: tuple[Allele, Allele], b: tuple[Allele, Allele]) -> bool:
+    """Do two genotypes share at least one allele? A true parent and child always do; sharing
+    none is a single-parent Mendelian inconsistency."""
     return bool({a[0], a[1]} & {b[0], b[1]})
 
 
@@ -415,7 +421,7 @@ def mendelian_stats(
             if parent is None:
                 continue
             informative += 1
-            if not _shares_allele(parent, c):
+            if not shares_allele(parent, c):
                 errors += 1
     return informative, errors
 

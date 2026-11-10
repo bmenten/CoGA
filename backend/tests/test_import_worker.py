@@ -352,3 +352,44 @@ def test_the_api_starts_as_many_import_workers_as_it_is_given(monkeypatch, caplo
     assert "gene_reference_refresh_worker" in recorder.calls
     said = "No package-import workers in the API (FAMILY_IMPORT_WORKER_COUNT=0)" in caplog.text
     assert said is (count == 0)
+
+
+def test_every_worker_is_stopped_one_way() -> None:
+    # ENG-23: the gene-reference refresh, the package imports, the ancestry PCA and the import
+    # watcher each kept a copy of this stop; each keeps its name, which the start calls.
+    from backend.app.services import ancestry_service, family_package_import, gene_info_jobs_pg, import_watcher
+    from backend.app.services.worker_tasks import stop_worker
+
+    assert {
+        gene_info_jobs_pg.stop_gene_reference_worker,
+        family_package_import.stop_family_package_import_worker,
+        ancestry_service.stop_ancestry_worker,
+        import_watcher.stop_import_watcher,
+    } == {stop_worker}
+
+    async def stop_a_running_worker() -> tuple[bool, bool, bool]:
+        stop = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def worker() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        task = asyncio.create_task(worker())
+        await asyncio.sleep(0)
+        await stop_worker(task, stop)
+        return stop.is_set(), cancelled.is_set(), task.done()
+
+    # Its stop event set, its task cancelled and awaited, the cancellation not raised.
+    assert asyncio.run(stop_a_running_worker()) == (True, True, True)
+
+    async def stop_a_worker_that_never_started() -> bool:
+        stop = asyncio.Event()
+        await stop_worker(None, stop)
+        await stop_worker(None, None)
+        return stop.is_set()
+
+    assert asyncio.run(stop_a_worker_that_never_started()) is True

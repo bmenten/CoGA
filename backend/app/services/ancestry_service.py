@@ -76,6 +76,7 @@ from .clickhouse_variant_storage import (
 from .family_metadata_context import FamilyMetadataContext, _resolve_family_assembly, build_family_metadata_context
 from .family_variant_write_lock import try_share_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_current_user_by_id
+from .worker_tasks import stop_worker
 
 logger = logging.getLogger(__name__)
 INTERRUPTED = "Ancestry calculation interrupted; no partial results were published. Request a new calculation."
@@ -586,10 +587,4 @@ async def ancestry_worker(stop: asyncio.Event) -> None:
             pass
 
 
-async def stop_ancestry_worker(task: asyncio.Task, stop: asyncio.Event) -> None:
-    stop.set()
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+stop_ancestry_worker = stop_worker
