@@ -126,18 +126,16 @@ without passing them: `backend (pytest)`, `frontend (tsc + eslint + vitest)`,
 `codeql (python)`, `codeql (javascript-typescript)` and `CodeQL`. `CodeQL` is the
 code-scanning result; it fails on an alert the pull request introduces (control S-6,
 [security-posture.md §5](../security-posture.md)). A branch need not be up to date with `main`
-before it merges. Since 2026-10-13 a pull request merges on its own last run, and `main`'s run
-after each merge checks the combined result (strict enforcement had serialised every merge
-behind a fresh run). What each gate verifies: [TF-09 §1](TF-09-verification-validation.md) and
+before it merges. A pull request merges on its own last run, and `main`'s run after each merge
+checks the combined result (strict enforcement would serialise every merge behind a fresh run).
+What each gate verifies: [TF-09 §1](TF-09-verification-validation.md) and
 [docs/testing.md](../testing.md).
 
 Two limits bound what the gates evidence: one open gap, and one arrangement the owner chose.
 
 - **🔲 An administrator can change the ruleset** — it lists no bypass actors, so its checks
   apply to administrators too, but nothing prevents an administrator from editing or disabling
-  it. On 2026-10-13 the required checks were removed for some minutes, and a fix to the
-  audit-log writer merged with its `smoke` check failing (a change the same day corrected
-  the test).
+  it.
 - **🔲 No approving review is required on a pull request, by decision.** The ruleset has no
   pull-request review rule and there is no `CODEOWNERS`. This is the chosen arrangement, not a
   gap: the owner decided on 2026-10-14 (REG-8) that pull requests need no approval, because
@@ -181,9 +179,8 @@ the CMGG QMS and available to FAMHP on request (Art. 5(5)(e),(h)).
 ## 8. Change record log
 
 Before the first release candidate this log holds no per-change records; §3a says where each
-change is recorded instead. The rows kept here until 2026-09-30 (CR-001 to CR-117), and the
-per-change list [TF-10 §8](TF-10-performance-evaluation-plan.md) kept until the same date,
-remain in the files' git history; the behaviour they describe falls under the TF-10 §8 areas.
+change is recorded instead, and [TF-10 §8](TF-10-performance-evaluation-plan.md) lists by area
+the clinical behaviour built during development.
 
 From the first release candidate, each change adds a row, newest first, numbered from CR-118:
 

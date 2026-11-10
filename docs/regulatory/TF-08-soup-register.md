@@ -79,7 +79,7 @@ Versions as locked in `frontend/package-lock.json`.
 | react-router | 8.5.1 | Routing | Browser bundle | M |
 | @tanstack/react-query | 5.105.1 | Server-state fetching/caching | Browser bundle | H |
 | axios | 1.21.0 | HTTP client (JWT) | Browser bundle | H (security) |
-| @azure/msal-browser (+ @azure/msal-common) | **5.27.0** (+ 16.15.0), pinned exactly | Microsoft sign-in (SEC-4): authorization code flow with PKCE against Microsoft Entra ID, access-token renewal; loaded only when Microsoft sign-in is configured (its own chunk). MIT, Microsoft; no install scripts | Browser bundle | **H (security)** |
+| @azure/msal-browser (+ @azure/msal-common) | **5.27.0** (+ 16.15.0), pinned exactly | Microsoft sign-in: authorization code flow with PKCE against Microsoft Entra ID, access-token renewal; loaded only when Microsoft sign-in is configured (its own chunk). MIT, Microsoft; no install scripts | Browser bundle | **H (security)** |
 | d3 | 7.9.0 | Visualizations | Browser bundle | M |
 | igv | 3.8.10 | Embedded genome browser | Browser bundle | M |
 | react-markdown / remark-gfm | 10.1.0 / 4.0.1 | In-app docs rendering | Browser bundle | L |
@@ -122,8 +122,8 @@ The platforms the device runs on are SOUP too. Their support status, as of 2026-
 
 | Platform | Version | Where | Support status | Action |
 | --- | --- | --- | --- | --- |
-| Python | 3.12 | backend image, CI | Supported (security fixes until October 2028) | Moved from 3.10, which reaches end of life in October 2026 |
-| ClickHouse | 26.8 LTS | compose, CI, Terraform VM | Supported (the 26.8 LTS line until 2027-08-27) | Moved from 25.3 LTS, out of support since 2026-03-20 |
+| Python | 3.12 | backend image, CI | Supported (security fixes until October 2028) | — |
+| ClickHouse | 26.8 LTS | compose, CI, Terraform VM | Supported (the 26.8 LTS line until 2027-08-27) | — |
 | PostgreSQL | 16 | compose, CI, Cloud SQL | Supported (until November 2028) | — |
 | Node.js | 22 LTS | frontend image, CI | Supported (maintenance LTS until April 2027) | — |
 
@@ -137,7 +137,7 @@ classification ([clinical-traceability.md](../clinical-traceability.md)).
 | Source | Role | Version capture | Notes |
 | --- | --- | --- | --- |
 | Reference assembly (GRCh38, …) | Coordinate system | `assemblies` table (version, release_date) | Per-family manifest |
-| UCSC cytobands | Band names for CNV and region labels, the ideograms | `reference_dataset_imports.source_version`: the file and its SHA-256 | Read as published when the assembly is imported. When UCSC cannot serve it, the shipped backup for hg38 or hg19, pinned by SHA-256 (`CYTOBAND_BACKUP_FILES`, TRACE-14; [README](../../data/ref-data/cytobands/README.md)) |
+| UCSC cytobands | Band names for CNV and region labels, the ideograms | `reference_dataset_imports.source_version`: the file and its SHA-256 | Read as published when the assembly is imported. When UCSC cannot serve it, the shipped backup for hg38 or hg19, pinned by SHA-256 (`CYTOBAND_BACKUP_FILES`; [README](../../data/ref-data/cytobands/README.md)) |
 | VEP (+ cache) | Functional annotation | per-family pipeline manifest / VCF header | Produced upstream; version recorded |
 | ClinVar | Clinical significance | reference import bookkeeping / manifest | Release date pinned |
 | gnomAD | Population frequency | manifest | Version pinned |
@@ -145,8 +145,8 @@ classification ([clinical-traceability.md](../clinical-traceability.md)).
 | SpliceAI | Splice prediction | manifest | Model version |
 | GenCC | Gene-disease validity | reference import | Release |
 | PanelApp | Gene panels | reference import | Release |
-| HPO | Phenotype ontology | reference import | Release recorded: a start on an empty database imports HPO's newest release, downloaded from its versioned PURL, only if the file states that release, and keeps the release and the file's SHA-256 with the terms (TRACE-18). The backup, pinned, is the vendored `hp.obo`: when HPO cannot be reached or its file is refused, the start imports a file in place, or a download of the vendored release, only if it matches its SHA-256 (TRACE-14); otherwise it logs and imports nothing. The backup's release, URL and SHA-256 are fixed in the code; no setting overrides them ([README](../../data/ref-data/hpo/README.md)). The admin sync, the route for a new release, records the release the file states and the file's SHA-256 with the terms, and refuses a file that states another release than the expected one, or none (TRACE-18). The admin page says when HPO has published a newer release; the sync can download a release from its own versioned PURL, which must state that release, and applies only the bytes its preview showed (by SHA-256). No release is imported without an administrator |
-| DGV (Database of Genomic Variants) | Population structural variation, shown as a track only (no score, filter or signed record reads it) | reference load (`dgv_load_jobs`) | Release pinned per assembly: 2025-12-01, DGV's *variants* files for GRCh38 and GRCh37, by URL, size and SHA-256 (`DGV_PINNED_RELEASES` in `core/config.py`, TRACE-14). A load commits only the whole pinned file, and records the release, the file and its SHA-256 ([data-import.md](../data-import.md#dgv)) |
+| HPO | Phenotype ontology | reference import | Release recorded: a start on an empty database imports HPO's newest release, downloaded from its versioned PURL, only if the file states that release, and keeps the release and the file's SHA-256 with the terms. The backup, pinned, is the vendored `hp.obo`: when HPO cannot be reached or its file is refused, the start imports a file in place, or a download of the vendored release, only if it matches its SHA-256; otherwise it logs and imports nothing. The backup's release, URL and SHA-256 are fixed in the code; no setting overrides them ([README](../../data/ref-data/hpo/README.md)). The admin sync, the route for a new release, records the release the file states and the file's SHA-256 with the terms, and refuses a file that states another release than the expected one, or none. The admin page says when HPO has published a newer release; the sync can download a release from its own versioned PURL, which must state that release, and applies only the bytes its preview showed (by SHA-256). No release is imported without an administrator |
+| DGV (Database of Genomic Variants) | Population structural variation, shown as a track only (no score, filter or signed record reads it) | reference load (`dgv_load_jobs`) | Release pinned per assembly: 2025-12-01, DGV's *variants* files for GRCh38 and GRCh37, by URL, size and SHA-256 (`DGV_PINNED_RELEASES` in `core/config.py`). A load commits only the whole pinned file, and records the release, the file and its SHA-256 ([data-import.md](../data-import.md#dgv)) |
 | Monarch | Gene-disease/phenotype | `monarch_gene_disease.release_version` | Release: a start on a database without Monarch data loads the newest release (`monarch-kg/latest`), and refuses to load one whose release cannot be read; an administrator loads later releases. The release is frozen in each signed record's annotation manifest |
 | ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date; ClinGen's recurrent-CNV file: release V2.1, pinned by SHA-256 for GRCh38 and GRCh37 where the startup and the knowledgebase build read it; every other file a knowledgebase rebuild reads recorded by its SHA-256 (note below) |
 | ACMG SF list (secondary findings) | Whether a gene is on the ACMG secondary-findings list, shown on the gene page only | vendored `data/ref-data/acmg-sf/`; gene reference sync (`acmg_sf` release and SHA-256 per gene) | Version pinned: ACMG SF v3.3 (*Genet Med* 2025), its SHA-256 in the [README](../../data/ref-data/acmg-sf/README.md) |
@@ -156,7 +156,7 @@ classification ([clinical-traceability.md](../clinical-traceability.md)).
 | Helix mtDB | mtDNA population frequency | mutserve annotation TSV | Bundled with the annotator |
 | 1000 Genomes phase 3 PCA reference (from peddy's public files) | The exploratory ancestry PCA only: outside the intended purpose (TF-01 §4), never in a sign-out | bundled `backend/app/data/ancestry/1000g-grch38-v1.npz` + JSON sidecar | Pinned: SHA-256 `802a3590063e…` (`DEFAULT_REFERENCE_SHA256` in `ancestry_projection.py`), built by `scripts/prepare_ancestry_reference.py` from peddy revision `1d340cd3e876…` (MIT, `PEDDY-LICENSE.txt`); 2,504 individuals, 9,569 SNPs. Its exome mask `1000g-grch38-v1.exome.json`, pinned as SHA-256 `73fb3a86242e…` (`DEFAULT_EXOME_MASK_SHA256`), is built by `scripts/prepare_ancestry_exome_mask.py` from the GENCODE v50 basic GTF, SHA-256 `5b9ad9aa71f6…` ([ancestry-pca.md](../ancestry-pca.md)) |
 
-**The bundled ClinGen recurrent-CNV file (TRACE-3).**
+**The bundled ClinGen recurrent-CNV file.**
 `data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed`, which
 the startup loads as the GRCh38 segmental duplications/LCR track, is ClinGen's recurrent-CNV
 file for GRCh38, release **V2.1**, unchanged. Its SHA-256 is
@@ -170,7 +170,7 @@ pins the SHA-256: a changed file fails the tests until it is checked against Cli
 recorded here and in the
 [note beside the file](../../data/ref-data/clinical_cnv_syndromes_hg38_bundle/COGA-PROVENANCE.md).
 
-The same SHA-256 is pinned where CoGA reads the file (TRACE-14); no setting overrides it.
+The same SHA-256 is pinned where CoGA reads the file; no setting overrides it.
 
 - **Startup:** loads a segmental-duplication file (`REFERENCE_SEGMENTAL_DUPLICATIONS_PATH`; on
   Cloud Run the reference-data bucket's copy) only if its SHA-256 is this one
@@ -182,13 +182,12 @@ The same SHA-256 is pinned where CoGA reads the file (TRACE-14); no setting over
   `92f331fe6dd2ba2932db747fdf29e6284efe53e033a8775c2c1ad5e22ce2e0b1`, the SHA-256 of ClinGen's
   V2.1 GRCh37 file `ClinGen_recurrent_CNV_V2.1-hg37.bed` as downloaded from
   ftp.clinicalgenome.org on 2026-10-27, with the owner's permission (16,772 bytes, last modified
-  2026-03-18, the day ClinGen moved to V2.1; TRACE-18). Before that pin, a GRCh37 rebuild
-  stopped before it downloaded the file. The repository holds no copy of it: only the build
-  reads it.
+  2026-03-18, the day ClinGen moved to V2.1). The repository holds no copy of it: only the
+  build reads it.
 - **Rebuild record:** a rebuild records, as the knowledgebase's release, the ClinGen file it
   read (by release and SHA-256) and every other file it read as published that day (ClinGen's
   dosage curation, the UCSC cytobands, ClinVar's variant summary, Orphanet's nomenclature, a
-  DECIPHER map) by file name and SHA-256 (TRACE-18). The signed analysis record freezes that
+  DECIPHER map) by file name and SHA-256. The signed analysis record freezes that
   release.
 
 [`test_reference_file_pins.py`](../../backend/tests/test_reference_file_pins.py) fails until the
@@ -208,7 +207,7 @@ rests on. Versions are captured **per family** from the pipeline's `software_ver
 | GLnexus | Joint genotyping | pipeline manifest |
 | Sniffles2 | Structural-variant calling | pipeline manifest, `##source=Sniffles2` |
 | NeedlR | SV annotation + population filtering | filename release + `##INFO` descriptions |
-| HiFiCNV | Depth-based CNV calling | pipeline manifest, `##source=HiFiCNV v…` (read from each CNV VCF at import since TRACE-8) |
+| HiFiCNV | Depth-based CNV calling | pipeline manifest, `##source=HiFiCNV v…` (read from each CNV VCF at import) |
 | TRGT | Repeat-expansion genotyping | pipeline manifest, `##trgtVersion` |
 | Paraphase | Segmental-duplication resolution | pipeline manifest |
 | mutserve | mtDNA variant annotation | pipeline manifest |
