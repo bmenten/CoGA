@@ -142,7 +142,7 @@ async def _insert_job(
         "id, assembly_name, :status, now() - CAST(:requested_ago AS interval), "
         "now() - CAST(:started_ago AS interval)"
     )
-    if heartbeat_ago is not None:  # a table from before the heartbeat has no such columns
+    if heartbeat_ago is not None:
         columns += ", worker_id, heartbeat_at"
         values += ", 'a-worker-that-is-gone', now() - CAST(:heartbeat_ago AS interval)"
         params["heartbeat_ago"] = heartbeat_ago
@@ -281,10 +281,9 @@ def test_two_requests_at_the_same_moment_get_one_job(kb) -> None:
     ("status", "requested_ago", "started_ago", "heartbeat_ago"),
     [
         ("queued", _STALE, None, None),
-        ("running", _STALE, _STALE, None),
         ("running", 6 * _STALE, 6 * _STALE, _STALE),
     ],
-    ids=["queued-never-started", "running-from-before-heartbeats", "running-heartbeat-stopped"],
+    ids=["queued-never-started", "running-heartbeat-stopped"],
 )
 def test_a_job_whose_worker_is_gone_is_closed_and_a_new_rebuild_accepted(
     kb, status: str, requested_ago, started_ago, heartbeat_ago

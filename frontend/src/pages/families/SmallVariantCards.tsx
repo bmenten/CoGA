@@ -165,8 +165,7 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
   }
   // The primary transcript is delivered as the flat variant fields and omitted
   // from `transcripts` (so it isn't serialized twice); reconstruct it and lead the
-  // list with it, dropping any listed entry that duplicates it (older payloads
-  // still included the primary inline).
+  // list with it, dropping any listed entry with the primary's transcript and allele.
   const primary: SmallVariantTranscript = {
     alt_allele: variant.alt_allele,
     gene: variant.gene,
