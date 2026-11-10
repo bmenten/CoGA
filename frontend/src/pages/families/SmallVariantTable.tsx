@@ -7,7 +7,6 @@ import {
   type FamilyMember,
   type SmallVariant,
   type SmallVariantTagDefinition,
-  normalizeReviewClassification,
 } from './smallVariantSearch';
 import {
   buildSmallVariantGeneInfoHref,
@@ -15,7 +14,7 @@ import {
   buildSvSecondHitHref,
   formatCompoundHetPhaseStatus,
   getClinvarHighlightTone,
-  getReviewClassificationTone,
+  reviewClassChips,
   sortReviewTagKeys,
   sortSmallVariants,
   visibleReviewTagKeys,
@@ -163,7 +162,18 @@ export default function SmallVariantTable({
             const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
             const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
             const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-            const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
+            // The review's class once, by the one rule (CLIN-76); a class tag that is not the
+            // class shown is no chip.
+            const reviewClass = reviewClassChips(
+              variant.review?.classification,
+              variant.review?.tags,
+              visibleReviewTagKeys(sortedReviewTags),
+            );
+            const visibleReviewTags = reviewClass.tagKeys;
+            const pairReview = variant.review?.compound_het;
+            const pairClass = pairReview
+              ? reviewClassChips(pairReview.classification, pairReview.tags, sortReviewTagKeys(pairReview.tags, tagMap))
+              : null;
 
             return (
               <tr
@@ -303,16 +313,10 @@ export default function SmallVariantTable({
                         ))}
                       </div>
                     ) : null}
-                    {/* The word as the SV pages show it, not as typed (ENG-10). */}
-                    {normalizeReviewClassification(variant.review?.classification) &&
-                    !visibleReviewTags.some((tagKey) => tagMap[tagKey]?.group === 'classification') ? (
-                      <span
-                        className={`table-chip table-chip--${getReviewClassificationTone(
-                          variant.review?.classification,
-                        )}`}
-                      >
-                        {normalizeReviewClassification(variant.review?.classification)}
-                      </span>
+                    {/* The class shown, when its tag is no chip above: a class word as its label
+                        (ENG-10), or the text as stored. */}
+                    {reviewClass.chipLabel ? (
+                      <span className={`table-chip table-chip--${reviewClass.tone}`}>{reviewClass.chipLabel}</span>
                     ) : null}
                     {variant.review?.compound_het ? (
                       <div className="variant-table-review-group">
@@ -323,18 +327,12 @@ export default function SmallVariantTable({
                         <p className="table-subtle">
                           {formatCompoundHetPhaseStatus(variant.review.compound_het.phase_status)}
                         </p>
-                        {variant.review.compound_het.classification ? (
-                          <span
-                            className={`table-chip table-chip--${getReviewClassificationTone(
-                              variant.review.compound_het.classification,
-                            )}`}
-                          >
-                            {variant.review.compound_het.classification}
-                          </span>
+                        {pairClass?.chipLabel ? (
+                          <span className={`table-chip table-chip--${pairClass.tone}`}>{pairClass.chipLabel}</span>
                         ) : null}
-                        {variant.review.compound_het.tags.length ? (
+                        {pairClass?.tagKeys.length ? (
                           <div className="table-chip-list">
-                            {sortReviewTagKeys(variant.review?.compound_het?.tags || [], tagMap).map((tagKey) => (
+                            {pairClass.tagKeys.map((tagKey) => (
                               <ReviewTagChip
                                 key={`compound-het-${tagKey}`}
                                 className="table-chip table-chip--tag"

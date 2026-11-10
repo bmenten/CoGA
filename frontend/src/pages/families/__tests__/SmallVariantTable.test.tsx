@@ -3,7 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import SmallVariantTable from '../SmallVariantTable';
-import { niptClassification, review, smallVariant, svSecondHit } from '../../../test/variants';
+import { ACMG_CLASSIFICATION_LABELS, type SmallVariantReview } from '../smallVariantSearch';
+import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
+import { compoundHetReview, niptClassification, review, smallVariant, svSecondHit } from '../../../test/variants';
+import reviewClassCases from './fixtures/review-class-cases.json';
 
 describe('SmallVariantTable', () => {
   it('keeps long allele values constrained while preserving the full value in the tooltip', () => {
@@ -388,5 +391,72 @@ describe('SmallVariantTable SV second hit', () => {
     renderWithHit({});
     expect(screen.queryByRole('link', { name: /also hit by a deletion/i })).not.toBeInTheDocument();
     expect(screen.getByText(/SV: DEL/)).toBeInTheDocument();
+  });
+});
+
+// CLIN-76 (the owner's decision of 2026-11-10): the table shows a review's class by the one rule
+// of the family page. It hid the class word whenever a tag of the classification group was a
+// chip, a VUS tier or *Secondary finding* too: text "VUS" beside the tag of class 4 showed
+// class 4, and "VUS" beside *Secondary finding* no class at all. Two class tags showed two classes.
+describe('SmallVariantTable review class', () => {
+  const renderReview = (fields: Partial<SmallVariantReview>) =>
+    render(
+      <MemoryRouter>
+        <SmallVariantTable
+          variants={[
+            smallVariant({
+              _id: '1-100-A-G',
+              chr: '1',
+              start: 100,
+              end: 100,
+              type: 'SNV',
+              gene: 'GENE1',
+              genotypes: [],
+              review: review({ variant_id: '1-100-A-G', ...fields }),
+            }),
+          ]}
+          members={[]}
+          familyId="F1"
+          locationSearch=""
+          tags={BUILT_IN_REVIEW_TAGS}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+
+  const classLabels = Object.values(ACMG_CLASSIFICATION_LABELS).map((label) => label.toLowerCase());
+  // The classes a cell shows: its chips that read as a class, or as the text shown.
+  const classesIn = (cell: HTMLElement, shown: string) =>
+    Array.from(cell.querySelectorAll('.table-chip'))
+      .map((chip) => chip.textContent ?? '')
+      .filter((text) => classLabels.includes(text.toLowerCase()) || (shown !== '' && text === shown));
+
+  it.each(reviewClassCases.cases)('shows the class the rule gives, once: $why', ({ classification, tags, shown }) => {
+    const { container } = renderReview({ classification, tags });
+    const cell = container.querySelector('.variant-table-review') ?? container;
+    expect(classesIn(cell as HTMLElement, shown)).toEqual(shown ? [shown] : []);
+  });
+
+  it('keeps a VUS tier and Secondary finding as tags beside the class word', () => {
+    renderReview({ classification: 'VUS', tags: ['acmg_vus_warm', 'secondary_finding'] });
+    expect(screen.getByText('VUS - class 3')).toHaveClass('table-chip--warning');
+    expect(screen.getByText('VUS — warm')).toHaveClass('table-chip--tag');
+    expect(screen.getByText('Secondary finding')).toHaveClass('table-chip--tag');
+  });
+
+  it('shows a compound-het pair review’s class by the same rule', () => {
+    const { container } = renderReview({
+      compound_het: compoundHetReview({
+        group_id: 'g1',
+        partner_variant_ids: ['1-200-C-T'],
+        classification: 'VUS',
+        tags: ['acmg_class_4', 'report'],
+      }),
+    });
+    const pair = container.querySelector('.variant-table-review-group') as HTMLElement;
+    expect(classesIn(pair, 'VUS - class 3')).toEqual(['VUS - class 3']);
+    expect(pair).toHaveTextContent('Report');
   });
 });

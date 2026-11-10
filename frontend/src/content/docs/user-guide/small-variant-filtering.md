@@ -153,7 +153,8 @@ computed. The smaller panel gets its own ranking instead when it reaches a varia
 lacks (through a region of its own, such as the position PanelApp gives for a gene), or keeps one
 variant of a compound-het pair without the other.
 
-**Download CSV** exports the list, with *Priority* and *Rank* columns when the ranking is on.
+**Download CSV** exports the list, with *Priority* and *Rank* columns when the ranking is on. Its
+*Classification* column holds the class each review shows on the page; *Tags* holds the review's tags.
 
 ### Also hit by a structural variant
 

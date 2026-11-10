@@ -2,12 +2,15 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import SmallVariantReviewDialog from '../SmallVariantReviewDialog';
 import { FamilyReadOnlyContext } from '../../../lib/familyAccess';
-import type {
-  SmallVariantReview,
-  SmallVariantReviewSavePayload,
-  SmallVariantTagDefinition,
+import {
+  ACMG_CLASSIFICATION_TAGS,
+  REVIEW_CLASSIFICATION_OPTIONS,
+  type SmallVariantReview,
+  type SmallVariantReviewSavePayload,
+  type SmallVariantTagDefinition,
 } from '../smallVariantSearch';
 import { review as reviewOf, smallVariant } from '../../../test/variants';
+import reviewClassCases from './fixtures/review-class-cases.json';
 
 // The review dialog is the tag and note editor for small and structural variants. It
 // shows a classification as one of the ACMG class boxes; a stored label it cannot show
@@ -96,6 +99,72 @@ describe('SmallVariantReviewDialog classification', () => {
   it('sends no classification for a review that has none', async () => {
     const payload = await saveWith({ note: 'just a note' });
     expect(payload.classification).toBeUndefined();
+  });
+});
+
+// CLIN-76: the dialog opens on the class the review shows on the page, by the one rule (a class
+// word in the text before a class tag), and changes the classification only when the user
+// chooses another class. It took the class tag first: a review of text "VUS" beside the tag of
+// class 4, shown as class 3, opened on class 4, and its save, the class left alone, wrote
+// "Likely pathogenic - class 4". A class tag other than the one ticked stayed on the review
+// unseen, so a chosen class could show as another one, and a cleared class did not clear.
+describe('SmallVariantReviewDialog opens on the class the review shows', () => {
+  const ticked = () =>
+    ACMG_CLASSIFICATION_TAGS.map((option) => option.label).filter((label) =>
+      (box(label) as HTMLInputElement).checked,
+    );
+
+  it.each(reviewClassCases.cases)('ticks the class shown: $why', ({ classification, tags, shown }) => {
+    render(
+      <SmallVariantReviewDialog
+        members={[]}
+        variant={smallVariant({
+          _id: '1-1000-A-G',
+          chr: '1',
+          start: 1000,
+          end: 1000,
+          type: 'SNV',
+          review: reviewOf({ variant_id: '1-1000-A-G', classification, tags }),
+        })}
+        tags={[]}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+    // The box of the class shown; text shown as stored ticks none (as a label stored without its
+    // class tag, above).
+    const classLabels: readonly string[] = REVIEW_CLASSIFICATION_OPTIONS;
+    expect(ticked()).toEqual(classLabels.includes(shown) ? [shown] : []);
+  });
+
+  it('sends the text and the class tags back as stored when the class is left alone', async () => {
+    const payload = await saveWith(
+      { classification: 'VUS', tags: ['acmg_class_4', 'report'], note: 'first' },
+      () => fireEvent.change(screen.getByRole('textbox'), { target: { value: 'second' } }),
+    );
+    expect(payload).toEqual({ classification: 'VUS', tags: ['acmg_class_4', 'report'], note: 'second' });
+  });
+
+  it('adds no text to a review classified by its class tag alone when the class is left alone', async () => {
+    const payload = await saveWith({ classification: null, tags: ['acmg_class_4', 'acmg_vus_hot'] });
+    expect(payload.classification).toBeUndefined();
+    expect(payload.tags).toEqual(['acmg_class_4', 'acmg_vus_hot']);
+  });
+
+  it('replaces every class tag with the class the user chooses, so the review shows it', async () => {
+    const payload = await saveWith({ classification: null, tags: ['acmg_class_4', 'acmg_class_5', 'report'] }, () =>
+      fireEvent.click(box('VUS - class 3')),
+    );
+    expect(payload.classification).toBe('VUS - class 3');
+    expect(payload.tags).toEqual(['acmg_class_3', 'report']);
+  });
+
+  it('takes every class tag off when the user unticks the class shown', async () => {
+    const payload = await saveWith({ classification: 'VUS', tags: ['acmg_class_4', 'acmg_vus_warm'] }, () =>
+      fireEvent.click(box('VUS - class 3')),
+    );
+    expect(payload).toHaveProperty('classification', null);
+    expect(payload.tags).toEqual(['acmg_vus_warm']); // a VUS tier is a tag, unticked on its own
   });
 });
 

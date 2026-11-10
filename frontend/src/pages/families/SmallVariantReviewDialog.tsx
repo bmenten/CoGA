@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useModalDialog } from '../../lib/useModalDialog';
 import {
+  ACMG_CLASSIFICATION_TAG_KEYS,
   ACMG_CLASSIFICATION_TAGS,
   addableTagDefinitions,
   getClassificationLabelFromTagKey,
-  getClassificationTagKeyFromClassification,
-  getClassificationTagKeyFromTags,
+  getReviewClassTagKey,
   heldTagOptions,
   normalizeTagKeys,
   sortTagDefinitions,
@@ -17,6 +17,9 @@ import {
 import { formatLocus, SEGREGATION_MODE_LABELS } from './smallVariantResultUtils';
 import ReadOnlyNote from '../../components/ReadOnlyNote';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
+
+const CLASS_TAG_KEYS: readonly string[] = ACMG_CLASSIFICATION_TAG_KEYS;
+const isClassTag = (tagKey: string) => CLASS_TAG_KEYS.includes(tagKey);
 
 // The fields of a small or structural variant the dialog reads.
 type ReviewableVariant = Pick<
@@ -152,14 +155,16 @@ export default function SmallVariantReviewDialog({
   const [note, setNote] = useState('');
 
   useEffect(() => {
-    const variantClassificationTagKey =
-      getClassificationTagKeyFromTags(variant.review?.tags || []) ||
-      getClassificationTagKeyFromClassification(variant.review?.classification);
+    // The class the review shows on the page, by the one rule (CLIN-76): a class word in its
+    // text before its class tag ("VUS" beside the tag of class 4 shows class 3, and opens so).
+    const variantClassificationTagKey = getReviewClassTagKey(
+      variant.review?.classification,
+      variant.review?.tags,
+    );
     setClassificationTagKey(variantClassificationTagKey);
     setShownClassificationTagKey(variantClassificationTagKey);
-    setSelectedTags(
-      normalizeTagKeys((variant.review?.tags || []).filter((tag) => tag !== variantClassificationTagKey)),
-    );
+    // The class tags are the class boxes, not tag options: the save keeps or replaces them all.
+    setSelectedTags(normalizeTagKeys((variant.review?.tags || []).filter((tag) => !isClassTag(tag))));
     setNote(variant.review?.note || '');
   }, [variant]);
 
@@ -207,20 +212,22 @@ export default function SmallVariantReviewDialog({
 
   const handleSave = async () => {
     try {
+      // Left alone, the class goes back as stored, its text and its class tags (CLIN-76), as a
+      // quick tag toggle sends it: a save of the tags or the note changes no classification. So
+      // does a stored label the class boxes cannot show (the ClinGen CNV dialog writes one
+      // without a class tag); left out, the save would erase it. A class the user chose, or
+      // cleared, replaces the text and every class tag, so the review then shows that class:
+      // a milder class tag kept beside it would not show, a more severe one would.
+      const classLeftAlone = classificationTagKey === shownClassificationTagKey;
+      const heldClassTags = (variant.review?.tags || []).filter(isClassTag);
       const combinedTags = normalizeTagKeys(
-        [...selectedTags, classificationTagKey].filter(Boolean),
+        [...selectedTags, ...(classLeftAlone ? heldClassTags : [classificationTagKey])].filter(Boolean),
       );
-      const chosenLabel = getClassificationLabelFromTagKey(classificationTagKey);
       const payload: SmallVariantReviewSavePayload = {
-        classification:
-          chosenLabel ||
-          (classificationTagKey === shownClassificationTagKey
-            ? // Left alone: a stored label the class boxes cannot show (the ClinGen CNV
-              // dialog writes one without a class tag) goes back unchanged. Left out, the
-              // save would erase it.
-              variant.review?.classification || undefined
-            : // The user unticked the class shown: clear it, explicitly.
-              null),
+        classification: classLeftAlone
+          ? variant.review?.classification || undefined
+          : // The class the user ticked, or an explicit clear when they unticked the class shown.
+            getClassificationLabelFromTagKey(classificationTagKey) || null,
         tags: combinedTags,
         note: note.trim() || undefined,
       };

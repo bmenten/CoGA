@@ -33,7 +33,7 @@ import {
   hasReviewContent,
   quickTagTogglePayload,
 } from './smallVariantReview';
-import { sortReviewTagKeys, visibleReviewTagKeys } from './smallVariantResultUtils';
+import { reviewClassChips, sortReviewTagKeys, visibleReviewTagKeys } from './smallVariantResultUtils';
 import ReviewTagChip from './ReviewTagChip';
 import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
@@ -963,7 +963,14 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
             const mitomapQuery = variant.annotation.mitomap_query || variant.label;
             const mitimpactHref = buildMitoMitimpactHref(variant);
             const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
-            const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
+            // The review's class once, by the one rule of the family page (CLIN-76): its class
+            // tag's chip, or a chip of its own; a class tag that is not the class shown is no chip.
+            const reviewClass = reviewClassChips(
+              variant.review?.classification,
+              variant.review?.tags,
+              visibleReviewTagKeys(sortedReviewTags),
+            );
+            const visibleReviewTags = reviewClass.tagKeys;
             const quickTags = [
               { key: COLLABORATION_QUICK_TAGS.review, label: 'Review' },
               { key: COLLABORATION_QUICK_TAGS.excluded, label: 'Exclude' },
@@ -992,8 +999,13 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                   ) : null
                 }
                 subhead={
-                  visibleReviewTags.length ? (
+                  visibleReviewTags.length || reviewClass.chipLabel ? (
                     <div className="variant-card-chip-row variant-card-tag-row">
+                      {reviewClass.chipLabel ? (
+                        <span className={`variant-card-chip variant-card-chip--${reviewClass.tone}`}>
+                          {reviewClass.chipLabel}
+                        </span>
+                      ) : null}
                       {visibleReviewTags.map((tagKey) => (
                         <ReviewTagChip
                           key={tagKey}

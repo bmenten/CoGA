@@ -164,7 +164,10 @@ total, the VUS tier and every stored criterion (its strength, whether accepted, 
 whether an automatic suggestion), and the review's classification text as stored: the label the
 review dialog writes with the class tag, or a text sent through the API alone. A change of that
 text is recorded like a change of the ACMG record, and the summary names it after the class
-(*Classification text VUS - class 3 → Likely pathogenic - class 4*). For an SV or CNV it holds
+(*Classification text VUS - class 3 → Likely pathogenic - class 4*). A quick tag toggle
+(*Review*, *Exclude*, *Report*) sends the text back as stored, so it writes a `tags` event and no
+`classification` event; the review dialog changes the text only when another class is chosen
+(CLIN-76). For an SV or CNV it holds
 the reviewer's classification and the CNV (ClinGen) scoring: class, kind, point total, the
 accepted criteria with their points, and
 every stored criterion in the same detail. Any change to that record writes an event, even when

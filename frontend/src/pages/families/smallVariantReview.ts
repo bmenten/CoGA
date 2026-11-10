@@ -1,7 +1,6 @@
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
 import {
-  normalizeReviewClassification,
   type SmallVariant,
   type SmallVariantPage,
   type SmallVariantReview,
@@ -32,7 +31,13 @@ export const fetchFamilyReviewTags = async (
 
 /**
  * What a quick tag toggle on a variant card or table row saves: the review's tags with the
- * tag added or removed, its classification and note sent back so the save keeps them.
+ * tag added or removed, its classification and note sent back as stored so the save keeps them.
+ *
+ * The classification goes back as stored, never as the class shown (CLIN-76): toggling *Report*
+ * on a review of text "VUS - class 3" beside the tag *Likely pathogenic - class 4* rewrote the text
+ * as "Likely pathogenic - class 4", a change of classification the user never made, and one the
+ * clinical audit records (TRACE-20). Only the review dialog's class choice, or ACMG classify,
+ * changes it. Small-variant and SV pages share this payload.
  */
 export const quickTagTogglePayload = (
   review: SmallVariantReview | null | undefined,
@@ -42,7 +47,7 @@ export const quickTagTogglePayload = (
   if (nextTags.has(tagKey)) nextTags.delete(tagKey);
   else nextTags.add(tagKey);
   return {
-    classification: normalizeReviewClassification(review?.classification, review?.tags) || undefined,
+    classification: review?.classification || undefined,
     tags: Array.from(nextTags).sort((left, right) => left.localeCompare(right)),
     note: review?.note || undefined,
   };

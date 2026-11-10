@@ -3,8 +3,10 @@ import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import SmallVariantPairCards from '../SmallVariantPairCards';
-import type { SmallVariant, SmallVariantGroup } from '../smallVariantSearch';
+import { ACMG_CLASSIFICATION_LABELS, type SmallVariant, type SmallVariantGroup } from '../smallVariantSearch';
+import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
 import { compoundHetReview, genotype, smallVariant, smallVariantGroup } from '../../../test/variants';
+import reviewClassCases from './fixtures/review-class-cases.json';
 
 const variant = (id: string, gt: string, start: number): SmallVariant =>
   smallVariant({
@@ -37,7 +39,7 @@ const renderPair = (group: Partial<SmallVariantGroup>) =>
         familyId="F1"
         projectId="P1"
         locationSearch=""
-        tags={[]}
+        tags={BUILT_IN_REVIEW_TAGS}
         onEditReview={vi.fn()}
       />
     </MemoryRouter>,
@@ -85,5 +87,27 @@ describe('SmallVariantPairCards', () => {
     const curated = screen.getByText('Phase').closest('.variant-compound-het-summary-row') as HTMLElement;
     expect(within(curated).getByText('Likely cis')).toBeInTheDocument();
     expect(within(phasingRow()).getByText('In trans · read-backed')).toBeInTheDocument();
+  });
+});
+
+// CLIN-76: the pair review panel showed the pair's classification text (a class word as its
+// label) beside every class tag the pair review holds, so text "VUS" beside the tag of class 4
+// showed two classes. It shows the pair's class by the one rule of the family page.
+describe('SmallVariantPairCards pair review class', () => {
+  const classLabels = Object.values(ACMG_CLASSIFICATION_LABELS).map((label) => label.toLowerCase());
+  const classesShown = (shown: string) => {
+    const panel = document.querySelector('.variant-card-review-panel') as HTMLElement;
+    return [
+      ...new Set(
+        Array.from(panel.querySelectorAll('.variant-card-chip'))
+          .map((chip) => chip.textContent ?? '')
+          .filter((text) => classLabels.includes(text.toLowerCase()) || (shown !== '' && text === shown)),
+      ),
+    ];
+  };
+
+  it.each(reviewClassCases.cases)('shows the class the rule gives, once: $why', ({ classification, tags, shown }) => {
+    renderPair({ review: compoundHetReview({ group_id: 'g1', classification, tags }) });
+    expect(classesShown(shown)).toEqual(shown ? [shown] : []);
   });
 });

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import FamilyMitoDNAAnalysisPage from '../FamilyMitoDNAAnalysisPage';
 import { renderFamilyRoute } from '../../../test/familyRoute';
+import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
 import {
   expectFailedRequestRetried,
   expectFamilyNotFound,
@@ -783,6 +784,7 @@ describe('mtDNA variant review', () => {
       is_custom: true,
       is_active: true,
     },
+    ...BUILT_IN_REVIEW_TAGS,
   ];
   const mitoVariant = (variantId: string, review: Record<string, unknown> | null) => ({
     variant_id: variantId,
@@ -898,6 +900,33 @@ describe('mtDNA variant review', () => {
       tags: ['report', 'review', 'segregates'],
       note: 'Checked in IGV',
       classification: undefined,
+      expected_updated_at: '2026-10-01T10:00:00Z',
+    });
+  });
+
+  // CLIN-76: the card showed every class tag the review holds, and its classification text not at
+  // all: text "VUS" beside the tag of class 4 showed class 4. It shows the class the family page
+  // shows, by the one rule, and a quick tag sends the text back as stored.
+  it('shows the review’s class by the one rule, and a quick tag keeps its text', async () => {
+    renderWith([
+      mitoVariant('m.3243A>G', {
+        classification: 'VUS',
+        tags: ['acmg_class_4', 'acmg_vus_warm'],
+        updated_at: '2026-10-01T10:00:00Z',
+      }),
+    ]);
+    const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    const tagRow = card.querySelector('.variant-card-tag-row') as HTMLElement;
+    expect(within(tagRow).getByText('VUS - class 3')).toHaveClass('variant-card-chip--warning');
+    expect(within(tagRow).getByText('VUS — warm')).toBeInTheDocument();
+    expect(within(card).queryByText('Likely pathogenic - class 4')).not.toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Report' }));
+    await waitFor(() => expect(apiMock.put).toHaveBeenCalledTimes(1));
+    expect(apiMock.put.mock.calls[0][1]).toEqual({
+      classification: 'VUS',
+      tags: ['acmg_class_4', 'acmg_vus_warm', 'report'],
+      note: undefined,
       expected_updated_at: '2026-10-01T10:00:00Z',
     });
   });

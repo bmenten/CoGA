@@ -12,7 +12,6 @@ import {
   type SmallVariant,
   type SmallVariantTranscript,
   type SmallVariantTagDefinition,
-  normalizeReviewClassification,
 } from './smallVariantSearch';
 import {
   buildSmallVariantExternalLinks,
@@ -32,8 +31,8 @@ import {
   getClinvarHighlightTone,
   getClinvarTone,
   getImpactTone,
-  getReviewClassificationTone,
   parseVariantIds,
+  reviewClassChips,
   sortReviewTagKeys,
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
@@ -741,7 +740,14 @@ export default function SmallVariantCards({
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
         const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
         const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-        const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
+        // The review's class once, by the one rule (CLIN-76): in the heading, and among the tags
+        // only as its own class tag; a class tag that is not the class shown is no chip.
+        const reviewClass = reviewClassChips(
+          variant.review?.classification,
+          variant.review?.tags,
+          visibleReviewTagKeys(sortedReviewTags),
+        );
+        const visibleReviewTags = reviewClass.tagKeys;
 
         const consequenceLabel = formatTokenLabel(variant.effect);
         // Replaces the locus that used to sit in the headline: it carries the same
@@ -855,14 +861,10 @@ export default function SmallVariantCards({
                     </span>
                   )
                 ) : null}
-                {/* The word as the SV pages show it, not as typed (ENG-10). */}
-                {normalizeReviewClassification(variant.review?.classification) ? (
-                  <span
-                    className={`variant-card-chip variant-card-chip--${getReviewClassificationTone(
-                      variant.review?.classification,
-                    )}`}
-                  >
-                    {normalizeReviewClassification(variant.review?.classification)}
+                {/* The class the review shows: a class word as its label, not as typed (ENG-10). */}
+                {reviewClass.label ? (
+                  <span className={`variant-card-chip variant-card-chip--${reviewClass.tone}`}>
+                    {reviewClass.label}
                   </span>
                 ) : null}
               </div>

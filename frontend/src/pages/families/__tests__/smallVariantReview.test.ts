@@ -6,8 +6,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { reviewTagLabel } from '../../../lib/reviewTags';
 import { tagDefinition } from '../../../test/tagDefinitions';
 import { review, smallVariant, smallVariantGroup } from '../../../test/variants';
-import { fetchFamilyReviewTags, findLoadedVariantReview } from '../smallVariantReview';
+import { fetchFamilyReviewTags, findLoadedVariantReview, quickTagTogglePayload } from '../smallVariantReview';
 import type { SmallVariantPage } from '../smallVariantSearch';
+import reviewClassCases from './fixtures/review-class-cases.json';
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../../../lib/api', () => ({ default: apiMock }));
@@ -77,5 +78,45 @@ describe('findLoadedVariantReview', () => {
     expect(findLoadedVariantReview([listed], '1-100-A-G')).toBeNull();
     expect(findLoadedVariantReview([listed], '1-300-G-A')).toBeUndefined();
     expect(findLoadedVariantReview([], '1-100-A-G')).toBeUndefined();
+  });
+});
+
+// CLIN-76: a quick tag toggle sent the classification as the class shown, from the class tag, in
+// place of the text the review holds. Toggling *Report* on a review of text "VUS - class 3" beside
+// the tag of class 4 stored "Likely pathogenic - class 4", and the clinical audit recorded a change
+// of classification text (TRACE-20) no one made. Only the review dialog's class choice changes it.
+describe('quickTagTogglePayload', () => {
+  const stored = (classification: string | null, tags: string[], note: string | null = 'kept') =>
+    review({ variant_id: '1-100-A-G', classification, tags, note });
+
+  it('sends the classification text back as stored when a quick tag toggles', () => {
+    expect(quickTagTogglePayload(stored('VUS - class 3', ['acmg_class_4']), 'report')).toEqual({
+      classification: 'VUS - class 3',
+      tags: ['acmg_class_4', 'report'],
+      note: 'kept',
+    });
+    expect(quickTagTogglePayload(stored('VUS', ['acmg_class_4', 'report']), 'report')).toEqual({
+      classification: 'VUS',
+      tags: ['acmg_class_4'],
+      note: 'kept',
+    });
+  });
+
+  it('adds no text to a review classified by its class tag alone', () => {
+    const payload = quickTagTogglePayload(stored(null, ['acmg_class_4'], null), 'excluded');
+    expect(payload).toEqual({ classification: undefined, tags: ['acmg_class_4', 'excluded'], note: undefined });
+  });
+
+  it.each(reviewClassCases.cases)('keeps the stored text, whatever class it shows: $why', ({ classification, tags }) => {
+    const payload = quickTagTogglePayload(stored(classification, tags), 'review');
+    expect(payload.classification).toBe(classification || undefined);
+    expect(payload.tags).toEqual([...new Set([...tags, 'review'])].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it('toggles the tag off as well as on', () => {
+    expect(quickTagTogglePayload(stored('Pathogenic - class 5', ['acmg_class_5', 'review']), 'review').tags).toEqual([
+      'acmg_class_5',
+    ]);
+    expect(quickTagTogglePayload(null, 'report')).toEqual({ classification: undefined, tags: ['report'], note: undefined });
   });
 });

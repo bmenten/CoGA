@@ -19,7 +19,11 @@ The IVDR-critical traceability path. Over the golden-trio data it:
   without the pair, the second variant's review, which held only the pair, is deleted, and
   the clinical audit trail records exactly that. The pair clear once deleted the saved
   variant's own review first: the save answered 500, stored nothing, and committed the tag,
-  the note and the pair's removal to the trail.
+  the note and the pair's removal to the trail;
+* saves a review of text "VUS - class 3" beside the tag of class 4, then a quick tag toggle
+  as the page sends it (the text as stored, CLIN-76): the trail records the tag alone, and
+  the row keeps its text. The toggle as the page sent it before (the class shown, from the
+  tag, as its text) records a classification change no one made.
 
 Chain tamper-evidence + append-only immutability are exercised on a THROWAWAY
 family via the direct audit service (``record_clinical_event``), so the
@@ -53,6 +57,8 @@ FAMILY = "FAM_TRIO"
 PLP_VARIANT_ID = "1-2000-C-T"
 # The golden GENE_CH pair, both heterozygous in the affected proband.
 CH_PAIR = ("1-4000-T-C", "1-5000-A-T")
+# The variant the quick tag toggle is saved on, after the pair's reviews are cleared (CLIN-76).
+QUICK_TOGGLE_VARIANT_ID = CH_PAIR[1]
 
 
 async def _tamper_checks() -> dict:
@@ -260,12 +266,40 @@ async def _collect(root: Path) -> dict:
             r["drop_cleared"] = capture(await ac.put(f"{reviews}/{first}/review", json={"tags": [], "note": None}))
             out["drop_rows_at_end"] = await _pair_review_rows(facts["family_uuid"])
 
+        # CLIN-76: a quick tag toggle sends the classification text back as stored. A review of
+        # text "VUS - class 3" beside the tag of class 4 (shown as class 4) gets the Review quick
+        # tag as the page sends it now, then loses it as the page sent it before: with the class
+        # shown as its text. The trail is read after each save.
+        quick = f"{reviews}/{QUICK_TOGGLE_VARIANT_ID}/review"
+        audit_url = f"/api/families/{FAMILY}/clinical-audit"
+        try:
+            r["quick_saved"] = capture(
+                await ac.put(quick, json={"classification": "VUS - class 3", "tags": ["acmg_class_4"]})
+            )
+            r["quick_audit_saved"] = capture(await ac.get(audit_url, params={"limit": 50}))
+            r["quick_toggled"] = capture(
+                await ac.put(
+                    quick, json={"classification": "VUS - class 3", "tags": ["acmg_class_4", "review"]}
+                )
+            )
+            out["quick_rows_toggled"] = await _review_rows(facts["family_uuid"], [QUICK_TOGGLE_VARIANT_ID])
+            r["quick_audit_toggled"] = capture(await ac.get(audit_url, params={"limit": 50}))
+            r["quick_toggled_as_before"] = capture(
+                await ac.put(
+                    quick, json={"classification": "Likely pathogenic - class 4", "tags": ["acmg_class_4"]}
+                )
+            )
+            r["quick_audit_as_before"] = capture(await ac.get(audit_url, params={"limit": 50}))
+        finally:
+            r["quick_cleared"] = capture(await ac.put(quick, json={"tags": [], "note": None}))
+            out["quick_rows_at_end"] = await _review_rows(facts["family_uuid"], [QUICK_TOGGLE_VARIANT_ID])
+
     out["tamper"] = await _tamper_checks()
     return out
 
 
-async def _pair_review_rows(family_uuid: str) -> dict:
-    """The GENE_CH pair's review rows as Postgres holds them, by variant."""
+async def _review_rows(family_uuid: str, variant_ids: list[str]) -> dict:
+    """The review rows of ``variant_ids`` as Postgres holds them, by variant."""
     from sqlalchemy import bindparam, text
 
     from backend.app.core.postgres import get_postgres_sessionmaker
@@ -275,16 +309,21 @@ async def _pair_review_rows(family_uuid: str) -> dict:
             await session.execute(
                 text(
                     """
-                    SELECT variant_id, tags, note, compound_het_group_id,
+                    SELECT variant_id, classification, tags, note, compound_het_group_id,
                            compound_het_partner_variant_ids, compound_het_note
                     FROM small_variant_reviews
                     WHERE family_id = CAST(:family AS uuid) AND variant_id IN :ids
                     """
                 ).bindparams(bindparam("ids", expanding=True)),
-                {"family": family_uuid, "ids": list(CH_PAIR)},
+                {"family": family_uuid, "ids": variant_ids},
             )
         ).mappings().all()
     return {row["variant_id"]: dict(row) for row in rows}
+
+
+async def _pair_review_rows(family_uuid: str) -> dict:
+    """The GENE_CH pair's review rows as Postgres holds them, by variant."""
+    return await _review_rows(family_uuid, list(CH_PAIR))
 
 
 @pytest.fixture(scope="module")
@@ -524,3 +563,41 @@ def test_the_trail_records_what_the_save_that_dropped_the_pair_stored(snap):
             assert event["after"] == {event["action"]: stored[event["action"]]}, (event, stored)
     integrity = _resp(snap, "integrity_after_drop")
     assert integrity["status"] == 200 and integrity["json"]["verified"] is True, integrity
+
+
+# ------------------------------------------------------------ quick tag toggle (CLIN-76)
+
+
+def _new_events(snap: dict, before_key: str, after_key: str) -> list[tuple[str, str]]:
+    """The trail's events of the quick-toggle variant between two reads, as (action, summary)."""
+    seen = {event["id"] for event in _resp(snap, before_key)["json"]["events"]}
+    return sorted(
+        (event["action"], event["summary"])
+        for event in _resp(snap, after_key)["json"]["events"]
+        if event["id"] not in seen and event["variant_id"] == QUICK_TOGGLE_VARIANT_ID
+    )
+
+
+def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(snap):
+    for key in (
+        "quick_saved",
+        "quick_audit_saved",
+        "quick_toggled",
+        "quick_audit_toggled",
+        "quick_toggled_as_before",
+        "quick_audit_as_before",
+        "quick_cleared",
+    ):
+        assert _resp(snap, key)["status"] == 200, (key, _resp(snap, key)["text"])
+    # The toggle as the page sends it: the tag alone, the text kept as stored.
+    assert _new_events(snap, "quick_audit_saved", "quick_audit_toggled") == [("tags", "Tags added review")]
+    stored = snap["quick_rows_toggled"][QUICK_TOGGLE_VARIANT_ID]
+    assert (stored["classification"], sorted(stored["tags"])) == ("VUS - class 3", ["acmg_class_4", "review"])
+    assert _resp(snap, "quick_toggled")["json"]["classification"] == "VUS - class 3"
+    # As the page sent it before, with the class shown as the text: a classification change.
+    assert _new_events(snap, "quick_audit_toggled", "quick_audit_as_before") == [
+        ("classification", "Classification text VUS - class 3 → Likely pathogenic - class 4"),
+        ("tags", "Tags removed review"),
+    ]
+    # Cleared at the end, the review goes.
+    assert snap["quick_rows_at_end"] == {}

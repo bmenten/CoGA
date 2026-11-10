@@ -181,7 +181,8 @@ describe('FamilyStructuralVariantsPage', () => {
                 ...variant,
                 review: {
                   variant_id: 'v1',
-                  // Stored as the bare class word: sent back as the class label.
+                  // Stored as the bare class word: sent back as stored, as every quick tag
+                  // toggle sends the text (CLIN-76); it shows as the class label.
                   classification: 'likely pathogenic',
                   tags: ['mosaic'],
                   tag_metadata: {},
@@ -202,7 +203,7 @@ describe('FamilyStructuralVariantsPage', () => {
       const [path, body] = (api.put as unknown as Mock).mock.calls.at(-1)!;
       expect(path).toBe('/families/F1/structural-variants/v1/review');
       expect(JSON.parse(JSON.stringify(body))).toEqual({
-        classification: 'Likely pathogenic - class 4',
+        classification: 'likely pathogenic',
         tags: ['mosaic', 'review'],
         note: 'Breakpoint in intron 10.',
         expected_updated_at: '2026-10-01T10:00:00Z',
