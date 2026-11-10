@@ -375,11 +375,29 @@ with the delivery.
   is that the family exists already, **Approve…** asks for *Update* (add the missing datasets) or
   *Overwrite* (administrators). A project CoGA does not have is fixed in CoGA: add the project, and
   CoGA checks the delivery again in its next look at the folders. The same happens when the
-  delivery's family is imported or deleted meanwhile. Any other reason is fixed in the package; the
-  corrected folder comes back as a new delivery.
+  delivery's family is imported or deleted meanwhile. What the package says can be corrected here
+  (**Correct…**, below); any other reason is fixed in the package, and the corrected folder comes
+  back as a new delivery.
 - **Still copying**: a listed file is not there yet, or not complete. It is checked again when the
   copy has finished.
 - A delivery with warnings is approved only once you tick *I checked the warnings*.
+- **Correct…** completes or corrects what the package says, before you approve it: the project,
+  the analysis, the region of interest, the PGT inheritance model, affected parent and index, each
+  member's sex, parents, role, clinical status, carrier status and HPO terms, and which datasets
+  are in the import. Give a reason and save: the pipeline's file stays as it was, the correction is
+  kept beside it on the audit trail, and the delivery is checked again at once. The list then says
+  *Corrected (revision …)*, and an approval imports the package as corrected; the family's record
+  names every correction.
+  - The run, the assembly, the family and sample IDs and the files are the pipeline's and are not
+    offered: a wrong one is refused, and the pipeline delivers again.
+  - A member's sex and parents, which the pipeline used to compute some datasets (the form names
+    them), can be changed, but the delivery then needs attention until those datasets are out of
+    the import or the value is put back: the pipeline computed them with the pedigree it was
+    given.
+  - What CoGA proposed from the folder, for a package file without members or datasets, is
+    corrected the same way.
+  - Someone else may have corrected the delivery since you opened it: the save is refused, and you
+    open it again.
 - **Refuse…** sets a delivery aside, with a reason: CoGA leaves the folder alone until it changes.
 - A delivery whose folder is moved out of the watched folder leaves the list after two looks at the
   folders (it is *gone*). A watched folder that holds nothing at all is taken for a share that is not

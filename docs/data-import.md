@@ -885,6 +885,11 @@ append-only table `import_delivery_revisions`, which keeps what it changed (each
 before and after, and its kind), the reason, who made it and when, and the whole package after it
 with its SHA-256. The import reads the latest.
 
+- On the Package Import page, **Correct…** on a delivery that is ready or needs attention opens
+  the package as a form: the project, the analysis, the region of interest, the PGT details, each
+  member's sex, parents, role, clinical status, carrier fields and HPO terms, and which datasets
+  are in the import, with a reason; the corrections made so far are listed with it. The other
+  fields, `related_to`, assays, couples and a dataset's options, change through the API.
 - `GET /family-imports/deliveries/{id}/package` (superuser) gives the package as the import would
   read it now (`revision` 0 when it was not corrected), the pipeline's file as written
   (`original`), the sections CoGA proposed, and every revision.

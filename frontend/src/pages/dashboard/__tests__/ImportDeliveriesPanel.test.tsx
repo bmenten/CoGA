@@ -128,6 +128,50 @@ describe('ImportDeliveriesPanel', () => {
     storage.setItem(AUTH_STORAGE_KEYS.role, 'superuser');
   });
 
+  it('offers to correct a delivery that is ready or needs attention, and says when one was', async () => {
+    vi.mocked(api.get).mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.endsWith('/package')
+          ? {
+              delivery_id: 'id-FAM1',
+              revision: 0,
+              package: null,
+              package_sha256: null,
+              original: null,
+              proposed: [],
+              revisions: [],
+            }
+          : [
+              ...deliveries.filter((item) => item.folder_name !== 'FAM2'),
+              delivery('FAM2', { revision: 2 }),
+            ],
+      })
+    );
+    renderPanel();
+
+    const ready = await loadedRow('FAM1');
+    expect(
+      within(row('FAM3')).getByRole('button', { name: 'Correct…' })
+    ).toBeInTheDocument();
+    expect(
+      within(row('FAM4')).queryByRole('button', { name: 'Correct…' })
+    ).not.toBeInTheDocument();
+    expect(
+      within(row('FAM2')).getByText('Corrected (revision 2)')
+    ).toBeInTheDocument();
+
+    fireEvent.click(ready.getByRole('button', { name: 'Correct…' }));
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Correct FAM1' })
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith(
+        '/family-imports/deliveries/id-FAM1/package'
+      )
+    );
+  });
+
   it('tells which deliveries can be approved', () => {
     expect(isApprovable(deliveries[0] as never)).toBe(true);
     expect(needsAChoice(existingFamily as never)).toBe(true);
