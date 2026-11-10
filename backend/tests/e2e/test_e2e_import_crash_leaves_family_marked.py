@@ -3,12 +3,10 @@
 An import writes a family over minutes, committing as it goes, and its fail-clean logic
 (remove a new family nothing imported into, put back a failed overwrite, flag the rest
 ``import_incomplete``) runs in the import's own process. When that process ends part-way
--- a restart, a crash, running out of memory -- none of it runs. Observed on 2026-10-02:
-a new family's import (cancel mode) was killed after two datasets and part of a third; the
-worker that later claimed the stale job ran it again from the start, which refused the
-family the first attempt had created ("Package validation failed"), replaced the job's
-log, and left the family partly imported with no flag, so the sign-out gates let it be
-signed as complete (TF-06 H16).
+-- a restart, a crash, running out of memory -- none of it runs. A worker that ran the stale
+job again from the start would refuse a new family the first attempt had created (cancel
+mode), replace the job's log, and leave the family partly imported with no flag, which the
+sign-out gates would let be signed as complete (TF-06 H16).
 
 Over two new families this runs real import jobs (``POST /api/family-imports``, the
 worker's claim and ``run_family_import_job``) and stops each import as a dying process
@@ -333,8 +331,7 @@ def test_the_family_is_marked_from_before_the_first_write(snap) -> None:
 def test_the_worker_ends_the_stopped_job_instead_of_running_it_again(snap) -> None:
     run = snap["mid_dataset"]
     after = run["job_after_claim"]
-    # Before: the claim ran it again; the cancel refused the family the first attempt had
-    # created and the job ended "Package validation failed", its log replaced.
+    # The claim ends the job instead of running it again, and keeps its log.
     assert (after["status"], after["worker_id"]) == ("failed", None), after
     assert after["error"].startswith("Interrupted: the import's heartbeat stopped")
     assert run["claimed"] == {"status": "failed", "claimed_from": "running"}
@@ -351,7 +348,7 @@ def test_the_worker_ends_the_stopped_job_instead_of_running_it_again(snap) -> No
 
 def test_the_sign_out_names_what_the_stopped_import_had_not_finished(snap) -> None:
     run = snap["mid_dataset"]
-    # Before: no flag and no running job, so this signed out (200).
+    # No flag and no running job, yet refused: the family's unfinished entry gates it.
     detail = gate_refusal(run["signout_refused"], "import_incomplete")
     assert detail["import_incomplete"] is None
     assert set(detail["import_unfinished"]) == {run["job_id"]}
@@ -430,7 +427,7 @@ def test_the_backup_a_stopped_overwrite_made_is_dropped_when_its_job_is_ended(sn
     # process was the one to drop it.
     assert len(run["backups_after_stop"]) == 5, run["backups_after_stop"]
     assert all(f"/SNAPSHOT/{run['job_id']}/" in name for name in run["backups_after_stop"])
-    # Before: kept for good, a copy of the family's rows no process would ever drop.
+    # The claim that ends the job drops it.
     assert run["backups_after_claim"] == []
     # The family is not put back from it: it stays marked, partly overwritten.
     assert run["family_after_claim"]["snvs"] == _BATCH

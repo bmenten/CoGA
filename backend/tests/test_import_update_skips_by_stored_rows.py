@@ -2,16 +2,15 @@
 
 A package import in ``update`` mode skips a dataset, or a sample of it, that already holds
 data. The track datasets (coverage, APCAD, PCF, WisecondorX, QDNAseq, the HiFiCNV tracks)
-read that from Postgres's record of each track (``sample_interval_track_sources``), not from
-the track's rows in ClickHouse. A failed overwrite whose restore stops part-way has deleted
-the family's rows, table by table, and never reaches the Postgres restore: the record
-outlives the rows. An update then skipped a track whose rows were gone, and reported the
-dataset as ``imported``, so the import counted it as imported again and cleared its failure
-from the family's ``import_incomplete`` flag (#807) while its rows were missing; only the
-restore's whole-family entry (#829) still held the sign-out gate.
+read that from the track's rows in ClickHouse, not from Postgres's record of each track
+(``sample_interval_track_sources``). A failed overwrite whose restore stops part-way has
+deleted the family's rows, table by table, and never reaches the Postgres restore: the record
+outlives the rows. Skipped by its record, a track whose rows are gone would be reported
+``imported``, and the import would clear its failure from the family's ``import_incomplete``
+flag while its rows are missing.
 
-Now an update reads the store: it imports a track whose rows are gone and skips one whose
-rows are there. A dataset it skips whole ends ``skipped``, and a sample it skips is left
+An update reads the store: it imports a track whose rows are gone and skips one whose rows
+are there. A dataset it skips whole ends ``skipped``, and a sample it skips is left
 out of what the dataset imported again, so a skip clears no failure.
 
 The stores are faked at their edge: the interval table answers the statements
@@ -254,7 +253,7 @@ async def test_an_update_imports_coverage_whose_rows_are_gone_though_postgres_re
 
     result = await _run(job)
 
-    # Before: skipped as there, the rows still gone, and reported as imported.
+    # Imported again: the rows are back.
     assert stores.rows == {(_uuid("S1"), "coverage", "web"): 3}
     assert (result.status, result.message) == ("imported", "Imported coverage into interval tracks")
     # The BED declares nothing of what it holds: stored as unknown (TRACE-9).
@@ -274,8 +273,8 @@ async def test_an_update_skips_coverage_whose_rows_are_stored_and_ends_skipped(
 
     result = await _run(job)
 
-    # Before: "imported", so the import counted coverage as imported again; and S2, which
-    # Postgres does not record, was replaced.
+    # Skipped, so the import does not count coverage as imported again; and S2, which
+    # Postgres does not record, is kept.
     assert result.status == "skipped"
     assert result.message == "Skipped coverage import in update mode because coverage already exists for S1, S2"
     assert result.summary == {"S1": {"skipped": True, "existing": 3}, "S2": {"skipped": True, "existing": 2}}
@@ -341,7 +340,7 @@ async def test_an_update_that_skips_every_apcad_sample_ends_skipped(
 
     result = await _run(job)
 
-    # Before: "imported".
+    # Skipped, not counted as imported.
     assert result.status == "skipped"
     assert result.message == "Skipped APCAD import in update mode because APCAD tracks already exist for S1, S2"
     assert job.skipped_samples == {"S1", "S2"}
@@ -364,7 +363,7 @@ async def test_an_update_imports_an_apcad_family_vcf_whose_rows_are_gone(
 
     result = await _run(job)
 
-    # Before: skipped, "APCAD tracks already exist", with none stored.
+    # Imported: the record alone, with no rows stored, does not skip it.
     assert read == [list(SAMPLES)]
     assert result.status == "imported"
 
@@ -390,7 +389,7 @@ async def test_an_update_reads_pcf_overlays_from_the_store(
     assert result.summary == {"S1": {"skipped": True, "existing": 2}, "S2": {"maternal": {"inserted": 2}}}
     assert (result.status, job.skipped_samples) == ("imported", {"S1"})
 
-    # Once both are stored, an update skips the dataset whole. Before: "imported".
+    # Once both are stored, an update skips the dataset whole.
     job = _job(stores, tmp_path, "pcf", dataset)
     result = await _run(job)
     assert result.status == "skipped"
@@ -423,13 +422,13 @@ async def test_an_update_of_wisecondorx_reads_each_track_from_the_store(
     job = _job(stores, tmp_path, "wisecondorx", dataset)
     result = await _run(job)
 
-    # The segments are imported again (before: skipped), their stale record cleared first;
+    # The segments are imported again, their stale record cleared first;
     # the bins are left, so S1 is not imported again whole.
     assert stores.rows[(_uuid("S1"), "segments", "wisecondorx")] == 4
     assert result.message == "Imported WisecondorX data; skipped existing tracks in update mode: S1:bins"
     assert (result.status, job.skipped_samples) == ("imported", {"S1"})
 
-    # Both stored: skipped whole. Before: "imported".
+    # Both stored: skipped whole.
     job = _job(stores, tmp_path, "wisecondorx", dataset)
     result = await _run(job)
     assert result.status == "skipped"
@@ -513,8 +512,8 @@ async def test_an_update_of_the_haplotypes_reads_the_stored_blocks_not_their_rec
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # SAFE-18. The imputed genotypes and their blocks are gone; Postgres still records the
-    # blocks, as a restore that stopped part-way leaves it. Before: the update read that
-    # record and skipped, the blocks staying missing.
+    # blocks, as a restore that stopped part-way leaves it. The update reads the store, not
+    # that record, and imports them.
     loaded = _small_variant_loader(monkeypatch)
     stores.track("S1", "haplotype", "glimpse2", rows=0)
     dataset = ManifestDataset(family_vcf=_file(tmp_path, "haplotypes/family.vcf", _FAMILY_VCF))
@@ -536,9 +535,9 @@ async def test_an_update_of_the_haplotypes_reads_the_stored_blocks_not_their_rec
 async def test_an_snv_update_of_imputed_genotypes_reads_their_blocks_too(
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # SAFE-18 (#873). The family holds the blocks made from imputed genotypes, not the
-    # genotypes. Before: the SNV dataset's update counted the genotypes alone, imported them
-    # and replaced the blocks, where the haplotypes dataset's update skipped.
+    # SAFE-18. The family holds the blocks made from imputed genotypes, not the genotypes.
+    # The SNV dataset's update counts the blocks too, and skips, as the haplotypes dataset's
+    # update does, rather than import the genotypes and replace the blocks.
     loaded = _small_variant_loader(monkeypatch)
     stores.track("S1", "haplotype", "glimpse2", rows=5, recorded=False)
     imputed = ManifestDataset(
@@ -564,9 +563,9 @@ async def test_an_snv_update_of_imputed_genotypes_reads_their_blocks_too(
 async def test_a_cnv_dataset_whose_vcfs_call_no_cnv_is_imported_and_replaces_the_earlier_calls(
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # SAFE-18. Before: it ended "registered", so the import did not count it as brought
-    # again (its tracks were not recorded in imported_scopes), and an overwrite left the
-    # family's earlier HiFiCNV calls in place.
+    # SAFE-18. It ends "imported", so the import counts it as brought again (its tracks
+    # recorded in imported_scopes), and an overwrite replaces the family's earlier HiFiCNV
+    # calls.
     replaced: list[tuple[list[Any], str | None]] = []
 
     async def nothing(*_args: Any, **_kwargs: Any) -> None:
@@ -621,7 +620,7 @@ async def test_an_update_that_skips_every_paraphase_sample_ends_skipped(stores: 
 
     result = await _run(job)
 
-    # Before: "imported".
+    # Skipped, not counted as imported.
     assert result.status == "skipped"
     assert result.message == (
         "Skipped Paraphase import in update mode because Paraphase results already exist for S1, S2"
@@ -634,9 +633,9 @@ async def test_an_overwrite_of_a_track_clears_its_rows_no_record_names(
     stores: _Stores, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # SAFE-18. The sample's WisecondorX segments are stored without a record (a restore that
-    # stopped part-way, a failed upload). Before: the source's track was cleared only when
-    # Postgres recorded it, and the importer's own clear takes its file's rows alone, so those
-    # rows stayed beside the new ones.
+    # stopped part-way, a failed upload). The source's track is cleared though Postgres does
+    # not record it: the importer's own clear takes its file's rows alone, so those rows would
+    # stay beside the new ones.
     cleared: list[tuple[str, str]] = []
 
     async def clear(_session: Any, *, sample_context: Any, track_type: str, source: str) -> None:
@@ -803,7 +802,7 @@ async def test_an_update_that_imports_what_the_restore_removed_clears_its_failur
     result = await _update(stores, package)
 
     assert result.completed is True
-    # Before: both skipped and the rows still gone, yet coverage left the flag.
+    # Both imported again: the rows are back.
     assert stores.rows == {(_uuid(sample), "coverage", "web"): 3 for sample in SAMPLES}
     assert _dataset(result, "coverage").status == "imported"
     # Imported again whole: its failure goes, snv's stays, and so does the restore's entry
@@ -821,7 +820,7 @@ async def test_an_update_that_skips_coverage_leaves_its_failure_flagged(stores: 
     result = await _update(stores, package)
 
     assert result.completed is True
-    # Before: reported imported, and coverage left the flag with nothing imported again.
+    # Skipped, so coverage stays on the flag with nothing imported again.
     assert _dataset(result, "coverage").status == "skipped"
     assert stores.flag["failed_datasets"] == ["coverage", "snv"]
     assert stores.flag["failed_jobs"] == {"coverage": "job-1", "snv": "job-1"}
@@ -844,7 +843,7 @@ async def test_a_sample_an_update_skipped_keeps_the_datasets_failure_flagged(
         "imported",
         "Imported coverage; skipped existing samples in update mode: S1",
     )
-    # S1 was not imported again, so the failure, for S1 and S2, stays. Before: cleared.
+    # S1 was not imported again, so the failure, for S1 and S2, stays.
     assert stores.flag["failed_datasets"] == ["coverage", "snv"]
     # What the family holds records the sample this import imported, with what its BED
     # declared it holds: nothing, so unknown (TRACE-9).

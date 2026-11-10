@@ -10,7 +10,7 @@ stripped. A PED field holds no whitespace but can hold the other control charact
 package without a PED takes its IDs from the request, the manifest or folder names. Discover
 holds a parent the PED names but lacks as a member to the rule too.
 
-Since SEC-15 an ID holds no other character a reader cannot see either (a C1 control, a
+SEC-15: an ID holds no other character a reader cannot see either (a C1 control, a
 text-direction or zero-width character, or any other character that is not printable: two IDs
 that look the same would name different records), and it is no path: no ``/`` or ``\\``, and
 not ``.`` or ``..`` (a folder named after it, or a URL's path segment, would read it as a
@@ -701,8 +701,8 @@ def test_dots_and_url_characters_inside_an_id_are_kept(value: str) -> None:
 
 
 def test_no_id_the_rule_accepts_leads_a_path_out_of_its_folder() -> None:
-    # Discover, the family's data folders and a URL take an ID as one name in a folder. Before,
-    # '..', '../x' and '/abs/x' were IDs, and Discover only warned about them.
+    # Discover, the family's data folders and a URL take an ID as one name in a folder. None of
+    # '..', '../x' and '/abs/x' is an ID.
     candidates = [".", "..", "../x", "a/..", "a/../..", "./x", "x/.", "/abs/x", "x/", "a\\..\\b", "..\\x", "~/x"]
     candidates += ["F..1", "...", "..x", "x..", ".x", "~x"]
     parent = os.path.join(os.sep, "data", "families")

@@ -1,20 +1,16 @@
 """Package paths: a manifest through a symlink, ``~`` in a manifest path, and symlink loops.
 
-A package's ``manifest.yaml`` (or ``.yml``, ``.json``) could be a symlink that leads out of the
-package folder. Discover (``_existing_manifest_dict``) and validation (``_parse_manifest``) read
-it as the package's manifest, so any YAML or JSON file the backend can read gave the package
-its family and its files; the package list showed its family and analysis type; and Write
-manifest wrote through the link, replacing the file it pointed at, or creating the one a
-dangling link named. A manifest path starting with ``~`` was expanded: ``~/x.vcf`` named a file
-in the backend's home folder, and ``~nouser/x.vcf`` failed validation and Discover with a
-RuntimeError (a 500), as did a package folder ``~nouser/FAM1``. A symlink loop failed them too.
-On Python 3.12, which CI and the image run, ``Path.resolve`` raises RuntimeError on one: a 500
-for a package folder, a manifest path or a file Discover finds by a pattern that loops. From
-3.13 it does not, but Discover read a looping PED it found by listing, and Write manifest wrote
-through a looping manifest.yaml (OSError, a 500), and a long-read package with a looping
-per-sample entry failed Discover and the package list.
+A package's ``manifest.yaml`` (or ``.yml``, ``.json``) can be a symlink that leads out of the
+package folder: read through it, any YAML or JSON file the backend can read would give the
+package its family and its files in Discover (``_existing_manifest_dict``), validation
+(``_parse_manifest``) and the package list. A manifest path starting with ``~``, expanded, would
+name a file in the backend's home folder (``~/x.vcf``), or fail validation and Discover with a
+RuntimeError (a 500) for ``~nouser/x.vcf``, as would a package folder ``~nouser/FAM1``. On
+Python 3.12, which CI and the image run, ``Path.resolve`` raises RuntimeError on a symlink
+loop: a 500 for a package folder, a manifest path or a file Discover finds by a pattern that
+loops. From 3.13 it does not, and Discover would read a looping file it finds by listing.
 
-Now a manifest name that is a symlink out of the package, or one that loops, is refused and
+A manifest name that is a symlink out of the package, or one that loops, is refused and
 nothing is read through it (``manifest_outside_package``; CoGA writes no manifest at all); a
 manifest path starting with ``~`` is refused (400) and never expanded; a package folder whose
 path names an unknown home folder or loops is refused (``package_folder_not_allowed``, 400); a
@@ -23,10 +19,9 @@ it loops. The guards look a resolved path up to find a loop, so every Python ans
 each loop test runs with this Python's ``Path.resolve`` and with 3.12's, emulated here when
 the tests run on 3.13. A symlink that stays in the package is still followed.
 
-The package list followed a package folder that is a symlink leading out of the import root:
-it read the manifest it found there, listed the package under that manifest's family and
-analysis type, and named its path outside the root, which selection then refused (403). Now
-the list checks each folder with selection's guard before it looks anything up in it, and
+A package folder can be a symlink leading out of the import root, to a manifest that names
+another family and analysis type, at a path outside the root that selection refuses (403). The
+package list checks each folder with selection's guard before it looks anything up in it, and
 leaves out one selection refuses (a symlink out of the import roots, or one that loops) and
 one in the staging root; a symlink that stays under the roots is followed, so every folder the
 list shows is one selection takes.
@@ -483,7 +478,7 @@ def test_the_guard_refuses_a_symlink_loop_alike_on_every_python(tmp_path: Path, 
         assert (refused.value.status_code, refused.value.detail) == (400, f"Package manifest path '{value}' {LOOP}")
         assert _package_path_or_none(root, value) is None, value
         assert package_path_within(root, value) is None, value
-    # The package's own files resolve as before, and the folder itself is in the package.
+    # The package's own files resolve, and the folder itself is in the package.
     assert _resolve_package_path(root, "snv/x.vcf") == root.resolve() / "snv" / "x.vcf"
     assert _resolve_package_path(root, ".") == root.resolve()
     assert runs_through_symlink_loop(root / "loop/x.vcf")
@@ -555,8 +550,7 @@ def test_the_package_list_leaves_out_a_package_folder_that_loops(imports: Path, 
 
     listed = scan_family_import_packages()
 
-    # Left out before too (looked up, it is no folder); now by the guard that refuses it for
-    # selection, before it is looked up.
+    # Left out by the guard that refuses it for selection, before it is looked up.
     assert [item["name"] for item in listed] == [FAMILY]
 
 
@@ -576,7 +570,7 @@ def test_the_package_list_follows_a_package_folder_linked_under_the_import_roots
     listed = scan_family_import_packages()
     validation, bundle = load_validated_family_package(imports / "LINKED")
 
-    # Listed and read as before: the folder it leads to lies under the import roots.
+    # Listed and read: the folder it leads to lies under the import roots.
     assert [(item["name"], item["folder_path"], item["family_id"]) for item in listed] == [
         ("LINKED", str(target.resolve()), "LINKED")
     ]
@@ -611,7 +605,7 @@ def test_a_typed_path_into_the_staging_root_is_refused(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path
 ) -> None:
     # Under the staging root the guard admits only the package the running import staged from
-    # a bucket: a typed path there read another import's staged copy (#850, SEC-27).
+    # a bucket: a typed path there would read another import's staged copy (SEC-27).
     import tempfile
 
     from backend.app.services import family_package_source

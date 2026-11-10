@@ -2,10 +2,9 @@
 
 ClickHouse stores a family's small and structural variant rows once per project it is linked
 to, and the family's pages read the rows of its projects only. ``PUT
-/admin/families/{family_id}/projects`` used to change Postgres alone: a family moved to another
-project kept its rows under the old one, and its pages found no small or structural variants
-(the presence check said none, so the links were hidden), while its import said they were
-stored.
+/admin/families/{family_id}/projects`` moves the rows with the links: a family whose rows stayed
+under its old project would find no small or structural variants on its pages (the presence
+check says none, so the links are hidden), while its import says they are stored.
 
 Over the golden trio (clair3 SNVs and needlr SVs, in the e2e project A), with a second project
 B on the same assembly and a project C on another one, through the real API, Postgres and
@@ -15,8 +14,8 @@ ClickHouse:
   none is left under A; the summaries count them under B; the family's pages find them;
 * linked to A and B, both hold every row; back to A alone, B's go;
 * C, on another assembly, is refused with 409 and nothing changes;
-* a family moved before the fix (its links changed in Postgres, its rows left under A) gets its
-  rows under B when its projects are saved again, and A's go;
+* a family whose links changed in Postgres while its rows stayed under A gets its rows under B
+  when its projects are saved again, and A's go;
 * rows left under B from earlier, with other calls, are replaced by A's when the family is
   linked to B: no write kept them current;
 * a family in no project (its rows under ``unassigned``), and one whose only project was
@@ -145,8 +144,8 @@ async def _make_projects(project_a: str) -> tuple[str, str, str]:
 
 
 async def _link_in_postgres_only(family_uuid: str, project_id: str) -> None:
-    """Link the family and its samples to ``project_id`` alone, as the change did before the
-    fix: Postgres only, the variants left where they are."""
+    """Link the family and its samples to ``project_id`` alone, in Postgres only: the
+    variants left where they are."""
     await _sql("DELETE FROM family_projects WHERE family_id = CAST(:f AS uuid)", {"f": family_uuid})
     await _sql(
         "INSERT INTO family_projects (family_id, project_id) VALUES (CAST(:f AS uuid), CAST(:p AS uuid))",
@@ -237,7 +236,7 @@ async def _exercise(root: Path) -> dict[str, Any]:
             out["after_other_assembly"] = await _rows(family_uuid)
             out["projects_after_other_assembly"] = await _family_projects(family_uuid)
 
-            # A family moved before the fix: linked to B in Postgres, its rows under A.
+            # A family linked to B in Postgres while its rows stay under A.
             await _link_in_postgres_only(family_uuid, project_b)
             out["presence_moved_before_fix"] = await presence(project_b)
             out["repair"] = capture(await ac.put(url, json={"project_ids": [project_b]}))
@@ -264,8 +263,8 @@ async def _exercise(root: Path) -> dict[str, Any]:
             out["none_to_a"] = capture(await ac.put(url, json={"project_ids": [project_a]}))
             out["after_none_to_a"] = await _rows(family_uuid)
 
-            # A family whose only project was deleted before that was refused (PR #1223): the
-            # links went with the project, its rows stayed under the deleted project's id.
+            # A family whose only project was deleted (here in SQL): the links went with the
+            # project, its rows stayed under the deleted project's id.
             out["to_b"] = capture(await ac.put(url, json={"project_ids": [project_b]}))
             await _sql("DELETE FROM projects WHERE id = CAST(:b AS uuid)", {"b": project_b})
             out["projects_after_delete"] = await _family_projects(family_uuid)

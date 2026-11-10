@@ -1,9 +1,8 @@
 """A family made again under its ID keeps every chain of the ID verifiable (TRACE-13, real Postgres).
 
 A family ID's sign-outs are one hash chain, ordered by version, whichever family row signed
-them. They were numbered per family row, so a family deleted and made again under its ID
-signed version 1 again, and the chain failed its verification as if it had been tampered
-with. Here the real writers run against Postgres: a family made by hand and signed out twice;
+them, so a family deleted and made again under its ID signs the ID's next version and the chain
+verifies. Here the real writers run against Postgres: a family made by hand and signed out twice;
 replaced by a family made by hand with overwrite (the Family Builder's replacement, as a PED
 upload's: the old family deleted and a new one made under its ID, in one transaction) and
 signed out twice; then deleted by an admin, made again and signed out once. Then:
@@ -221,7 +220,7 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
             # Structure versions are numbered per family row: each family's pedigree is its
             # version 1. The trail names them apart (ENG-19): each family made again names how
             # many versions the families deleted under the ID stored before it, its first event
-            # says so, and so does its deletion. The first family's are recorded as before.
+            # says so, and so does its deletion. The first family's name none.
             assert [row["version"] for row in structure] == [1, 1, 1]
             pedigree = [event for event in pedigree_trail if event["action"] == "pedigree"]
             assert [

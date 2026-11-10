@@ -1,7 +1,7 @@
 """Each role check in the services answers as the user's role says (services/access_control.py).
 
-Twelve checks once compared the role with the literal ``"admin"`` and refused a superuser the
-routes let in. Each check now asks ``access_control`` by what it guards: a superuser's and an
+Each check asks ``access_control`` by what it guards, rather than comparing the role with the
+literal ``"admin"``, which would refuse a superuser the routes let in: a superuser's and an
 admin's (``has_superuser_rights``: every project, gene panels, variant tags, import jobs) or an
 admin's alone (``is_admin_user``: overwriting a family, the user list). These tests hold the
 roles that have the right to the same answer, and the roles below them to the refusal, except
@@ -273,9 +273,8 @@ async def test_a_superuser_and_an_admin_see_every_import_job(role: str) -> None:
 @pytest.mark.parametrize("role", BELOW_SUPERUSER)
 async def test_a_role_below_superuser_reads_no_import_job(role: str) -> None:
     # Every import route needs a superuser (dependencies.get_current_superuser). The service
-    # still gave a user below one the jobs their own account requested, which no route reached
-    # (ENG-23). It now refuses them as the routes do, before it reads anything, their own job
-    # included.
+    # refuses a user below one as the routes do (ENG-23), before it reads anything, their own
+    # job included.
     user = _user(role)
     own_job = _Session(_Result([_job(user.email)]))
     with pytest.raises(HTTPException) as refused:

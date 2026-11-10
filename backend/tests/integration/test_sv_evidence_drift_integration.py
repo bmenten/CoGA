@@ -17,7 +17,7 @@
   again refreezes the evidence and clears the drift. A reported SV whose scoring froze no
   evidence gates too. The whole signed history is one verified chain.
 - Two callers of one SV (TRACE-11), in a family whose id gives the upload's row the lower
-  storage key (the row the save froze, and the drift check read, before): the real save
+  storage key (the row a read by the lowest key would take): the real save
   freezes the row of the caller it names, refuses one that names no caller (422) or a
   caller that does not call the SV (404) and writes nothing then, and takes the one row of
   an SV one caller calls; the drift check compares evidence frozen from NeedlR's row with

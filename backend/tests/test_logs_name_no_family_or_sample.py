@@ -2,12 +2,11 @@
 
 AGENTS.md: logs carry no values. The family and sample IDs are the lab's identifiers of a
 patient's samples, so a log line names a family by its UUID (``families.id``) or by the import
-job that writes it, and a sample by its UUID or not at all. About thirty lines named the family
-by its ID: the import's bookkeeping when a write failed, the upload and restore clean-ups, the
-lineage and ranking warm-ups, the Sample QC warnings, the sign-out's tamper alarm; one named
-the couples and children of an ambiguous pedigree, one the package path of a file named after
-the family ID, one a managed copy by its path (the family's folder and the uploaded file's
-name).
+job that writes it, and a sample by its UUID or not at all. This holds for the import's
+bookkeeping when a write fails, the upload and restore clean-ups, the lineage and ranking
+warm-ups, the Sample QC warnings and the sign-out's tamper alarm, as for the lines on an
+ambiguous pedigree's couples and children, on a package file named after the family ID and on
+a managed copy's path (the family's folder and the uploaded file's name).
 
 The guard reads every logging call in ``backend/app`` and refuses one whose arguments read a
 value held under a family's or a sample's ID name. A line that must name the family passes its
@@ -71,8 +70,8 @@ def test_no_log_line_reads_a_family_or_sample_id() -> None:
         relative = path.relative_to(_APP).as_posix()
         for call in _logging_calls(ast.parse(path.read_text(encoding="utf-8"))):
             lines.extend(f"{relative}:{call.lineno} logs {name}" for name in _id_reads(call))
-    # Before: some thirty lines in the import, the uploads, Sample QC, the lineage and ranking
-    # warm-ups and the sign-out named the family by its ID.
+    # No line in the import, the uploads, Sample QC, the lineage and ranking warm-ups or the
+    # sign-out names the family by its ID.
     assert lines == []
 
 
@@ -166,7 +165,7 @@ async def test_a_bookkeeping_write_that_fails_logs_the_family_by_its_uuid(
 
     messages = [record.getMessage() for record in caplog.records if record.name == registration.logger.name]
     assert messages, "the failed write leaves its trace"
-    # Before: each line named the family by its ID ("Failed to flag family FAMILY-ID-MARKER
-    # as import-incomplete"). Now by its UUID, or by the import whose failure it records.
+    # Each line names the family by its UUID, or by the import whose failure it records, never
+    # by its ID.
     assert not [message for message in messages if FAMILY_ID in message]
     assert all(FAMILY_UUID in message or "job-1" in message for message in messages), messages

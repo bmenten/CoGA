@@ -1,4 +1,4 @@
-"""The aggregated small-variant presence query (#266) (track availability).
+"""The aggregated small-variant presence query (track availability).
 
 Exercises the real query construction (via the real ``_small_query_filter_parts``) and the
 per-sample presence logic, mocking only the ClickHouse execute. A sample is "present" iff a
@@ -65,11 +65,11 @@ def test_presence_maps_ids_to_names_and_filters_to_family(monkeypatch):
     # PROBAND (by name) + MOTHER (by uuid) map in; "stranger" is not a family sample.
     assert present == {"PROBAND", "MOTHER"}
     # One SELECT over the family's rows: each row's samples with an ALT allele, picked from
-    # its call arrays, and the distinct samples. It was an ARRAY JOIN aggregate over an
-    # inner filtered subquery, which ClickHouse's analyzer was slow to analyse (ENG-19).
+    # its call arrays, and the distinct samples. No ARRAY JOIN aggregate over an inner
+    # filtered subquery, which ClickHouse's analyzer is slow to analyse (ENG-19).
     assert "SELECT DISTINCT arrayJoin(arrayFilter(" in cap["query"]
     assert "ARRAY JOIN" not in cap["query"] and "FROM (" not in cap["query"]
-    # Presence counts every call with an ALT allele, haploid and multi-allelic too (#511).
+    # Presence counts every call with an ALT allele, haploid and multi-allelic too.
     assert cap["params"]["track_nonref_gts"] == genotype_vocabulary("het", "hom_alt")
     assert {"1", "1/2", "2/2"} <= set(cap["params"]["track_nonref_gts"])
 
@@ -114,7 +114,7 @@ def test_explicit_sample_absent_when_base_does_not_match(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Structural-variant presence aggregate (#267). Present iff the sample has a call
+# Structural-variant presence aggregate. Present iff the sample has a call
 # in a matching variant — any genotype (no non-ref requirement, unlike small variants).
 # --------------------------------------------------------------------------- #
 

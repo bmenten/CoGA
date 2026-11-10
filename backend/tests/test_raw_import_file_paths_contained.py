@@ -3,18 +3,16 @@
 Every importer records the source file it read in ``raw_import_files``. The admin page lists
 the rows, downloads a file and verifies its SHA-256 at the recorded ``storage_path``, and a
 family or sample delete unlinks the family's ``managed`` copies (web uploads, written under
-``data/raw_imports``). The path is read back from the database as data, and each of these
-used it as found: an edited row let an admin download or hash any file the backend can read,
-and turned a family or sample delete into deleting any file the backend may write.
+``data/raw_imports``). The path is read back from the database as data; used as found, an
+edited row would let an admin download or hash any file the backend can read, and turn a
+family or sample delete into deleting any file the backend may write.
 
-Since SEC-29 a recorded local path was read only when its real path, symlinks resolved, lay
-inside a local FAMILY_IMPORT_ROOTS folder, the staging folder of a package downloaded from a
-bucket or the upload folder: an edited row of one family could still name another family's
-package in the import area. Now it is read only inside the package folder the family's own
-import read (``families.metadata.package_import.folder_path``, below a local import root, as
-the IGV endpoints serve a sample's files) or the upload folder, which holds every managed copy
-(an upload, a manifest kept for an import); the file is then read by that real path. Any other
-path is refused before anything is read: the download and Verify answer 403 and log it, and the
+A recorded local path is read only when its real path, symlinks resolved, lies inside the
+package folder the family's own import read (``families.metadata.package_import.folder_path``,
+below a local import root, as the IGV endpoints serve a sample's files) or the upload folder,
+which holds every managed copy (an upload, a manifest kept for an import); the file is then
+read by that real path. Any other path, another family's package in the import area among
+them, is refused before anything is read: the download and Verify answer 403 and log it, and the
 list shows the file unavailable. The store is asked about a recorded object only in the family's
 bucket package folder. A purge unlinks a managed copy only inside the upload folder, skips any
 other row with a log line, and never unlinks its path. A package folder need not be named after
@@ -121,8 +119,7 @@ OUTSIDE_CASES = [
 
 
 # Recorded paths in the import area outside the family's own package, as an edited row could
-# hold them (SEC-38): each was read before, as a path below the import root (or, the staged
-# copy, in the staging folder).
+# hold them (SEC-38): below the import root, or, the staged copy, in the staging folder.
 def _other_package_paths(where: SimpleNamespace) -> dict[str, str]:
     return {
         "another family's package": str(where.other_package),
@@ -234,7 +231,7 @@ async def test_a_file_in_the_folders_is_downloaded(
 async def test_a_file_in_the_import_area_outside_the_familys_package_is_not_downloaded(
     where: SimpleNamespace, records: dict[str, dict[str, Any]], case: str
 ) -> None:
-    # SEC-38: before, 200 with the file's bytes, another family's package file among them.
+    # SEC-38: refused, another family's package file among them.
     assert await _download(records, _other_package_paths(where)[case], where.folder) == (403, OUTSIDE)
 
 
@@ -266,8 +263,7 @@ async def test_a_recorded_path_outside_the_folders_is_not_downloaded(
     with caplog.at_level(logging.WARNING, logger=rif.__name__):
         answer = await _download(records, storage_path, where.folder)
 
-    # Before: 200 with the file's bytes (the secret, the old package, ...), or 410 for the
-    # relative path, which was looked up from the backend's working directory.
+    # Refused, the relative path too: it is not looked up from the backend's working directory.
     assert answer == (403, OUTSIDE)
     # The line names the record and the kind of place, never the path: it can name another
     # family's folder (SEC-39, the owner's decision of 2026-11-10).
@@ -317,8 +313,8 @@ async def test_with_no_import_roots_only_the_upload_folder_is_read(
 ) -> None:
     # FAMILY_IMPORT_ROOTS empty: the import takes a package folder anywhere (development
     # mode). A recorded path is still bounded: by the upload folder alone, as the IGV
-    # endpoints serve nothing from a package folder no root lists. The staging folder was
-    # read too before (SEC-38).
+    # endpoints serve nothing from a package folder no root lists. The staging folder is not
+    # read either (SEC-38).
     monkeypatch.setattr(settings, "family_import_roots", [])
 
     assert await _download(records, str(where.package), where.folder) == (403, OUTSIDE)
@@ -344,8 +340,8 @@ async def test_verify_refuses_a_recorded_path_outside_the_folders_without_readin
     storage_path = {**_outside_paths(where), **_other_package_paths(where)}[case]
 
     with pytest.raises(HTTPException) as refused:
-        # Before: the file was hashed, and its checksum reported (SEC-29 for a path outside
-        # the import area, SEC-38 for one in it outside the family's package).
+        # Refused before the file is hashed (SEC-29 for a path outside the import area,
+        # SEC-38 for one in it outside the family's package).
         await rif.verify_raw_import_file(_record(storage_path, sha256=_sha256("secret"), package_folder=where.folder))
 
     assert (refused.value.status_code, refused.value.detail) == (403, OUTSIDE)
@@ -387,7 +383,7 @@ async def test_verify_through_the_app_answers_403_for_a_path_outside_the_folders
         verified = await client.post("/api/admin/data/files/rec-2/verify")
         across = await client.post("/api/admin/data/files/rec-3/verify")
 
-    # Before: 200, "verified", with the secret's checksum, and with the other package file's.
+    # The secret and the other package's file are refused; the family's own is verified.
     assert (refused.status_code, refused.json()) == (403, {"detail": OUTSIDE})
     assert (verified.status_code, verified.json()["status"]) == (200, "verified")
     assert (across.status_code, across.json()) == (403, {"detail": OUTSIDE})
@@ -396,7 +392,7 @@ async def test_verify_through_the_app_answers_403_for_a_path_outside_the_folders
 # Objects named by a recorded URI, with the import root gs://phi/imports and the family's
 # package folder gs://phi/imports/F1.
 REMOTE_OUTSIDE = {
-    # SEC-38: below the import root, outside the family's package. Before, the store was asked.
+    # SEC-38: below the import root, outside the family's package. The store is not asked.
     "another family's package": "gs://phi/imports/F2/bams/S2.cram",
     "a folder beside the package sharing its name": "gs://phi/imports/F1-old/bams/S1.cram",
     "`..` from the package into another's": "gs://phi/imports/F1/../F2/bams/S2.cram",
@@ -443,8 +439,7 @@ async def test_verify_asks_the_store_only_about_an_object_in_the_familys_package
             await rif.verify_raw_import_file({**record, "package_folder": package_folder})
         refusals[f"package folder {package_folder!r}"] = (refused.value.status_code, refused.value.detail)
 
-    # Before: the store was asked about each object below the import root, and its size and
-    # generation compared.
+    # The store is asked about the object inside the family's package alone.
     assert set(refusals.values()) == {(403, OUTSIDE_THE_PACKAGE)}
     assert len(refusals) == len(REMOTE_OUTSIDE) + 5
     assert asked == [inside]
@@ -479,9 +474,9 @@ async def test_the_list_shows_a_file_outside_the_folders_unavailable(where: Simp
     listed = await rif.list_raw_import_files(_ListSession(rows), "family-uuid")  # type: ignore[arg-type]
 
     availability = [(row["exists"], row["download_available"], row["in_object_store"]) for row in listed]
-    # Before: every file outside the folders that is there was listed present and
-    # downloadable (all but the relative path); since SEC-29, a file in another family's
-    # package, at the import root or in the staging folder still was (SEC-38).
+    # A file outside the folders is listed neither present nor downloadable, whether it lies
+    # outside the import area (SEC-29) or in another family's package, at the import root or in
+    # the staging folder (SEC-38).
     assert availability == [(True, True, False), (True, True, False)] + [(False, False, False)] * (1 + len(cases))
     # And the row says why: a file that is gone is not a location CoGA does not read (SEC-27).
     assert [row["outside_read_folders"] for row in listed] == [False, False, False] + [True] * len(cases)
@@ -497,7 +492,8 @@ async def test_the_list_marks_an_object_outside_the_familys_package(
 
     listed = await rif.list_raw_import_files(_ListSession(rows), "family-uuid")  # type: ignore[arg-type]
 
-    # Before: each was listed as kept in the object store, though Verify refuses it (SEC-27).
+    # Each is listed as kept in the object store, and marked outside the folders Verify reads
+    # (SEC-27).
     assert [row["in_object_store"] for row in listed] == [True] * len(uris)
     assert [row["outside_read_folders"] for row in listed] == [False] + [True] * len(REMOTE_OUTSIDE)
 
@@ -558,8 +554,8 @@ async def test_a_family_delete_unlinks_only_managed_copies_in_the_upload_folder(
     assert not where.upload.exists() and not renamed.exists()
     # The link inside the folder is unlinked, never its target.
     assert not (uploads / "F1" / "linked-in.vcf").is_symlink() and kept_target.read_text() == "another upload"
-    # Before: the package file, the file elsewhere, the one reached by `..` and the one
-    # reached through the linked folder were deleted.
+    # The package file, the file elsewhere, the one reached by `..` and the one reached
+    # through the linked folder are kept.
     assert where.package.read_text() == "package file"
     assert {name: path.read_text() for name, path in victims.items()} == {name: name for name in victims}
     assert (uploads / "F1" / "linked-out.vcf").is_symlink()
@@ -584,5 +580,5 @@ async def test_a_sample_delete_unlinks_only_managed_copies_in_the_upload_folder(
 
     assert session.params == [{"sample_uuid": "sample-uuid"}]
     assert removed == 1 and not where.upload.exists()
-    # Before: deleted.
+    # Kept: it is outside the upload folder.
     assert where.secret.read_text() == "secret"

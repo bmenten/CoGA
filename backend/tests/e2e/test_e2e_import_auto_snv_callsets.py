@@ -1,14 +1,13 @@
 """An `auto` SNV import reads the callset it stores, and the import-incomplete flag keeps
 each callset that failed (SAFE-27, SAFE-26), E2E.
 
-With ``source_format: auto`` (the default) the SNV importer's update check counted the
-family's direct calls (clair3), and its clean-up after a failure deleted them, whatever the
-family VCF held (SAFE-27): an update of imputed genotypes was skipped when the family held
-direct calls, and a failed import of imputed genotypes, its overwrite without a backup to
-put the family back from, removed the direct calls, which its flag did not name. And the
-flag kept one scope per failed dataset (SAFE-26): a later failure of the SNV dataset for
-another callset replaced the earlier one, so importing the later callset again cleared the
-flag while the earlier callset was still missing.
+With ``source_format: auto`` (the default) the SNV importer's update check and its clean-up
+after a failure act on the callset the family VCF holds (SAFE-27): an update of imputed
+genotypes is imported beside the family's direct calls (clair3), and a failed import of
+imputed genotypes, its overwrite without a backup to put the family back from, removes them
+and leaves the direct calls. And the flag keeps one scope per failed callset (SAFE-26): a
+later failure of the SNV dataset for another callset keeps the earlier one, so importing the
+later callset again leaves the flag while the earlier callset is still missing.
 
 Over one new one-sample family this runs real import jobs (``POST /api/family-imports``,
 the worker's ``run_family_import_job``) into Postgres and ClickHouse, the SNV dataset's
@@ -17,19 +16,17 @@ the worker's ``run_family_import_job``) into Postgres and ClickHouse, the SNV da
 
 * 1 (cancel): 4 direct calls, stored as clair3;
 * 2 (update): 4 imputed genotypes with their posteriors are imported, stored as glimpse2,
-  beside the direct calls (before: skipped, as the family held direct calls);
+  beside the direct calls;
 * 3 (update): the same imputed genotypes are skipped, the family holding them, and the
   job's dataset says which callset it found;
 * 4 (overwrite; the family's backup fails, and ClickHouse fails the write of the imputed
-  genotypes): the import fails, the imputed genotypes are gone and the direct calls stay
-  (before: deleted too); the flag names the SNV dataset for the imputed genotypes, with this
-  job, and the sign-out is refused;
+  genotypes): the import fails, the imputed genotypes are gone and the direct calls stay;
+  the flag names the SNV dataset for the imputed genotypes, with this job, and the sign-out
+  is refused;
 * 5 (overwrite; the backup and ClickHouse fail again, for the direct calls): the import
-  fails, the direct calls gone too; the flag keeps both callsets, each with its job
-  (before: the direct calls replaced the imputed genotypes);
+  fails, the direct calls gone too; the flag keeps both callsets, each with its job;
 * 6 (update): the direct calls imported again complete, but the family stays flagged for
-  the imputed genotypes, naming job 4, its log says so, and the sign-out is refused
-  (before: the flag was cleared, and the family signed out without its imputed genotypes);
+  the imputed genotypes, naming job 4, its log says so, and the sign-out is refused;
 * 7 (update): the imputed genotypes imported again complete the family, and the report
   signs out with no import acknowledgement.
 
@@ -237,7 +234,7 @@ def test_an_update_of_imputed_genotypes_imports_them_beside_the_direct_calls(sna
     first, step = snap["steps"]["1_direct"], snap["steps"]["2_imputed_update"]
     assert first["job"]["status"] == "completed", first["job"]["error"]
     assert (first["family"]["clair3"], first["family"]["glimpse2"]) == (_VARIANTS, 0)
-    # Before: skipped, as the family held direct calls; the imputed genotypes never came in.
+    # The imputed genotypes are imported though the family holds direct calls.
     assert step["job"]["status"] == "completed", step["job"]["error"]
     assert step["job"]["snv"]["status"] == "imported", step["job"]["snv"]
     assert (step["family"]["clair3"], step["family"]["glimpse2"]) == (_VARIANTS, _VARIANTS)
@@ -257,7 +254,7 @@ def test_a_failed_import_of_imputed_genotypes_leaves_the_direct_calls(snap) -> N
     assert step["job"]["status"] == "failed"
     assert step["job"]["error"] == "Family package import failed for dataset(s): snv"
     # No backup to put the family back from: the overwrite replaced the imputed genotypes
-    # and failed. Its clean-up removed them and nothing else (before: the direct calls too).
+    # and failed. Its clean-up removed them and nothing else.
     assert (step["family"]["clair3"], step["family"]["glimpse2"]) == (_VARIANTS, 0)
     flag = step["family"]["flag"]
     assert flag["failed_datasets"] == ["snv"]
@@ -270,7 +267,7 @@ def test_a_later_failure_for_the_other_callset_keeps_both(snap) -> None:
     assert step["job"]["status"] == "failed"
     assert (step["family"]["clair3"], step["family"]["glimpse2"]) == (0, 0)
     flag = step["family"]["flag"]
-    # Before: the direct calls' scope replaced the imputed genotypes'.
+    # The direct calls' scope is kept beside the imputed genotypes'.
     assert flag["failed_scopes"] == {
         "snv": [
             {"scope": _IMPUTED, "job_id": imputed["job_id"]},
@@ -286,7 +283,7 @@ def test_the_direct_calls_imported_again_leave_the_imputed_genotypes_flagged(sna
     assert step["job"]["status"] == "completed", step["job"]["error"]
     assert step["job"]["snv"]["status"] == "imported"
     assert (step["family"]["clair3"], step["family"]["glimpse2"]) == (_VARIANTS, 0)
-    # Before: the flag was cleared here, and this signed out without the imputed genotypes.
+    # The flag still names the imputed genotypes.
     flag = step["family"]["flag"]
     assert flag["failed_scopes"] == {"snv": [{"scope": _IMPUTED, "job_id": imputed["job_id"]}]}
     # The job that holds the error left, as the pages and the sign-out name it.

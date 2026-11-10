@@ -84,8 +84,7 @@ def _floor_script_constant(name: str) -> float:
 
 def test_the_unit_jobs_coverage_gate_is_the_floor_scripts_global_floor() -> None:
     # Both read the total of the same unit run: pytest-cov rounds it to whole percent before
-    # comparing, the floor script compares coverage.json's unrounded total. The gate stood at
-    # 70 while the script held 74 (OPS-11).
+    # comparing, the floor script compares coverage.json's unrounded total (OPS-11).
     steps = _workflow("ci.yml")["jobs"]["backend"]["steps"]
     tests = [step for step in steps if "python -m pytest" in step.get("run", "")]
     assert len(tests) == 1, "the backend job runs pytest once"
@@ -188,9 +187,8 @@ def _header_command_changed(text: str) -> str:
 
 # Differences between the lock the script writes and the committed one that the check fails
 # on: a pin (pip-compile changes it when the .in files no longer allow it, with its hashes),
-# a hash, the dependency that pulls a package in, the Python it was compiled for (#894
-# compiled with 3.13 and kept the 3.12 line), and the header's command line, which the
-# pinned click writes the same on every run.
+# a hash, the dependency that pulls a package in, the Python it was compiled for, and the
+# header's command line, which the pinned click writes the same on every run.
 EDITS = {
     "a pin": _first_pin_changed,
     "a hash": lambda text: re.sub(r"^    --hash=sha256:[0-9a-f]{64} \\\n", "", text, count=1, flags=re.M),

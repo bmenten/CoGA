@@ -1,9 +1,9 @@
 """Auto-seeding the NIPT artifact list counts only the assay's own cfDNA samples and skips
 common and ClinVar pathogenic variants — real Postgres + ClickHouse.
 
-The seed used to list every variant carried by five samples anywhere on the assembly: every
+A seed of every variant carried by five samples anywhere on the assembly would list every
 common SNP, so the paternal sites the fetal fraction is read from, and every other assay's
-recurrent artifacts, which the NIPT analysis then excluded. A rare pathogenic founder variant
+recurrent artifacts, which the NIPT analysis then excludes. A rare pathogenic founder variant
 recurs in a disease-focused panel too, and listing it would drop it from every analysis. This
 seeds a fixture with one variant of each kind and checks that each assay lists only its own
 recurrent, non-common variants without a ClinVar P/LP (or conflicting) record, counting a

@@ -1,15 +1,14 @@
 """The SV upload's record readers (``structural_variant_ingest``): malformed records are
 skipped, not allowed to abort the whole ingest, and a manual row's breakend keeps its partner.
 
-A single bad POS/END used to raise mid-loop, leaving partially-flushed ClickHouse rows
-behind (issue #334). The record iterators now coerce coordinates and skip records that
+A single bad POS/END raising mid-loop would leave partially-flushed ClickHouse rows
+behind, so the record iterators coerce coordinates and skip records that
 can't be positioned — mirroring the package-import SV path. The Sniffles, Spectre and
 manual TSV readers each skip such a record; a non-numeric QUAL or phase set is read as
 missing rather than dropping the record, and a record format the upload does not know is
 refused.
 
-A manual TSV row of type BND reads its remote breakend partner from its bracketed ALT
-(merged here from ``test_structural_variant_breakends.py``).
+A manual TSV row of type BND reads its remote breakend partner from its bracketed ALT.
 """
 
 import pytest

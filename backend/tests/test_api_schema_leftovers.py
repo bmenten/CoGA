@@ -1,30 +1,27 @@
 """The API serves and takes only what the server sets and reads (ENG-4).
 
-- A gene profile's homologs carry no percent identity or coverage: no source set them since
-  the Ensembl homology request went (dbNSFP, the one source left, names a mouse and a
-  zebrafish gene), so they were always null. A homolog cached with them still loads.
-- The UCSC assembly catalogue no longer says that each assembly has cytobands and genes:
-  nothing set the two fields, so they read true for every assembly, also one UCSC has no
+- A gene profile's homologs carry no percent identity or coverage: dbNSFP, the one source of
+  homologs, names a mouse and a zebrafish gene and sets neither. A cached homolog that holds
+  them loads, without them.
+- The UCSC assembly catalogue does not say whether an assembly has cytobands and genes:
+  nothing sets the two fields, which would read true for every assembly, also one UCSC has no
   cytoband or gene table for.
 - One model for a couple in a request (the structure edit's and the manual PED family's), and
   one for an HPO term in a response (a Monarch match's terms, a gene's Monarch phenotypes, a
   variant's phenotype matches).
 - The clinical-CNV track's ``end`` is an integer, as ``start`` is: a value that is not one is
-  refused with the 422 a bad ``start`` gets. It was text, cut at a colon, and a value that was
-  no number was refused with 400.
-- A member edit takes no ``clear_existing_genomic_data``: it was accepted and ignored (the
-  structure edit, which keeps the field, is the one that clears data). A request that still
-  sends it is answered as before.
-- The SV review save takes no ``acmg`` or ``compound_het``, a small variant's, which it never
-  read. A request that sends them, or any field the save does not take, is refused (422)
-  naming the field, as the small-variant save's is.
-- A gene's homologs carry no Ensembl gene id and no "in the platform" flag: no source set the
-  one, the other was always false, and no screen shows homologs. A homolog cached with them
-  still loads.
+  refused with the 422 a bad ``start`` gets.
+- A member edit takes no ``clear_existing_genomic_data`` (the structure edit, which keeps the
+  field, is the one that clears data). A request that sends it gets the edit made, and the
+  flag goes no further.
+- The SV review save takes no ``acmg`` or ``compound_het``, a small variant's. A request that
+  sends them, or any field the save does not take, is refused (422) naming the field, as the
+  small-variant save's is.
+- A gene's homologs carry no Ensembl gene id and no "in the platform" flag: no source sets
+  either, and no screen shows homologs. A cached homolog that holds them loads, without them.
 - The small-variant review save takes no ``cnv_acmg``, a structural variant's CNV
-  classification, which it accepted and never read. No page sends it; a request that does is
-  refused (422) naming the field, as is any field the save does not take, so that a client is
-  told its value went nowhere.
+  classification. No page sends it; a request that does is refused (422) naming the field, as
+  is any field the save does not take, so that a client is told its value would go nowhere.
 
 All data here are synthetic.
 """
@@ -133,7 +130,7 @@ def test_a_gene_homolog_serves_no_percent_identity_or_coverage() -> None:
     assert [entry["symbol"] for entry in written] == ["Brca1", "brca1"]
     assert all(set(entry) <= set(GeneHomologOut.model_fields) for entry in written)
 
-    # A homolog cached by the Ensembl request CoGA once made still loads, without them.
+    # A cached homolog that holds them loads, without them.
     cached = GeneHomologOut.model_validate(
         {"species_name": "Mus Musculus", "symbol": "Brca1", "percent_id": 81.2, "percent_coverage": 96.4}
     )
@@ -150,7 +147,7 @@ def test_a_gene_homolog_serves_no_ensembl_id_or_platform_flag() -> None:
     )
     assert [set(entry) for entry in written] == [{"species_name", "common_name", "symbol", "homology_type"}] * 2
 
-    # A homolog cached with the flag (always false) still loads, without either field.
+    # A cached homolog that holds both loads, without either field.
     cached = GeneHomologOut.model_validate(
         {"species_name": "Mus Musculus", "symbol": "Brca1", "ensembl_gene_id": None, "in_platform": False}
     )
@@ -282,8 +279,7 @@ def test_a_member_edit_takes_no_request_to_clear_the_data(client: TestClient, mo
     monkeypatch.setattr(families_router, "precompute_family_lineage_safe", nothing)
     monkeypatch.setattr(families_router, "precompute_family_ranking_safe", nothing)
 
-    # A page loaded before this sends the flag: the edit is made as before, and the flag,
-    # which never cleared anything here, goes no further.
+    # A request that sends the flag: the edit is made, and the flag goes no further.
     response = client.put(
         f"/api/families/{FAMILY}/members/{SAMPLE}",
         json={"clinical_status": "affected", "clear_existing_genomic_data": True},
@@ -338,7 +334,7 @@ def test_an_sv_review_save_with_a_small_variant_field_is_refused(
         json={"tags": ["report"], "note": "Breakpoints checked.", field: value},
     )
 
-    # Before, the save went through and the value was dropped without a word.
+    # Refused, naming the field, rather than saved with the value dropped without a word.
     assert response.status_code == 422
     [error] = response.json()["detail"]
     assert (error["type"], error["loc"]) == ("extra_forbidden", ["body", field])
@@ -394,7 +390,7 @@ def test_a_small_variant_review_save_with_a_field_it_does_not_take_is_refused(
         json={"tags": ["report"], "note": "Checked.", field: value},
     )
 
-    # Before, the save went through and the value was dropped without a word.
+    # Refused, naming the field, rather than saved with the value dropped without a word.
     assert response.status_code == 422
     [error] = response.json()["detail"]
     assert (error["type"], error["loc"]) == ("extra_forbidden", ["body", field])

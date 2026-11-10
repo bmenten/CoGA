@@ -1,16 +1,13 @@
 """The repeat genome track reads a call as the family table does, and a review says why (CLIN-14).
 
-The track showed the status and the thresholds stored with a call at import, and the ranges of
-the catalogue row of its stored locus ID, while the table reclassified the call against the
-catalogue row that classifies it now. The two disagreed once the catalogue was reseeded: an
-FMR1 call of exactly 200, stored as pathogenic under the built-in row before #799, read
-pathogenic on the track and a premutation in the table. Both now read the call the same way:
-the same catalogue row (one SQL fragment), the alleles reclassified against it, the count-unit
-warnings and the male chrX note.
+The track and the table read a call the same way, not by the status and the thresholds stored
+with it at import: the catalogue row that classifies it now (one SQL fragment), the alleles
+reclassified against it, the count-unit warnings and the male chrX note. An FMR1 call of
+exactly 200, stored as pathogenic under a threshold of 200, reads a premutation on both.
 
 A call reads ``review`` for one of two reasons: a count the catalogue cannot classify, or a
-man's two different chrX alleles. The page said "outside catalogued ranges" for both; the call,
-its locus and the track now carry the reason (``review_reason``).
+man's two different chrX alleles. The call, its locus and the track carry the reason
+(``review_reason``).
 
 The classifier reads a count between a row's benign range and its pathogenic threshold, where
 the row states no grey zone, as the grey zone (the owner's decision of 2026-10-27): see
@@ -39,8 +36,8 @@ def _context(*, proband_sex: str = "female") -> FamilyMetadataContext:
 
 
 def _fmr1(counts: list[int], *, stored: str, sample: str = PROBAND) -> dict[str, Any]:
-    """An FMR1 call stored as ``stored`` under thresholds of its time, read against the
-    current row: grey zone from 45, premutation from 55, pathogenic from 201 (#799)."""
+    """An FMR1 call stored as ``stored`` under the thresholds stored with it, read against the
+    current row: grey zone from 45, premutation from 55, pathogenic from 201."""
     return {
         "sample_uuid": sample,
         "locus_id": "FMR1",
@@ -102,13 +99,13 @@ async def _track(rows: list[dict[str, Any]], **context: Any):
 
 @pytest.mark.asyncio
 async def test_the_track_reads_a_stored_call_against_the_row_that_classifies_it_now() -> None:
-    # Stored pathogenic under the built-in row's threshold of 200; the row now says 201.
+    # Stored pathogenic under a threshold of 200; the row says 201.
     stored = _fmr1([30, 200], stored="pathogenic")
 
     [item] = (await _track([stored])).items
     [locus] = (await _table([stored])).loci
 
-    # Before: the track showed "pathogenic", the status stored at import.
+    # The track reads the row's status, not the one stored at import.
     assert item.status == locus.status == locus.calls["PROBAND1"].status == "premutation"
     assert (item.warning_min, item.pathogenic_min) == (locus.warning_min, locus.pathogenic_min) == (45, 201)
 
@@ -147,7 +144,7 @@ async def test_a_mans_two_chrx_alleles_read_review_for_that_reason() -> None:
     assert (proband.status, proband.review_reason) == ("review", "male_x_alleles")
     assert proband.note == repeat_expansion_pg.MALE_X_DISTINCT_ALLELES_NOTE
     assert (locus.status, locus.review_reason) == ("review", "male_x_alleles")
-    # Before: the track showed the stored "normal", and no reason.
+    # The track reads the review and its reason, not the stored "normal".
     assert (item.status, item.review_reason) == ("review", "male_x_alleles")
 
 

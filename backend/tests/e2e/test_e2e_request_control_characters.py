@@ -1,10 +1,10 @@
 """A control character in a request's path or query string is refused at sign-in (E2E).
 
 A ``%00`` in a URL arrives decoded (uvicorn and Starlette unquote the path, and the query
-string is parsed the same way), so ``GET /api/families/FAM%00X`` bound a NUL into the family
-lookup. Postgres refuses a NUL in a text parameter (SQLSTATE 22021), and the request failed
-with a 500; so did a NUL in every other path or query value a route looked up, the admin
-and reference routes included. No family or sample ID may hold a control character (C0 or
+string is parsed the same way), so ``GET /api/families/FAM%00X`` would bind a NUL into the
+family lookup. Postgres refuses a NUL in a text parameter (SQLSTATE 22021), and the request
+would fail with a 500; so would a NUL in every other path or query value a route looks up, the
+admin and reference routes included. No family or sample ID may hold a control character (C0 or
 DEL, ``family_identifiers.py``), nor any other key a route looks up, so ``get_current_user``
 refuses one in a path parameter, a query parameter's name or a ``family_id`` or
 ``sample_id`` query value, and a NUL in any query value, with a 400 once the caller is
@@ -214,7 +214,7 @@ def test_the_family_is_there_to_be_looked_up(snap: dict[str, Any]) -> None:
 def test_a_nul_in_a_family_path_is_refused(snap: dict[str, Any]) -> None:
     from backend.app.services.family_identifiers import IDENTIFIER_RULE
 
-    # It used to reach the family lookup, and Postgres failed the request (500).
+    # Refused before the family lookup, where Postgres would fail the request (500).
     r = snap["responses"]["family_nul"]
     assert r["status"] == 400, r
     assert r["json"]["detail"] == (
@@ -241,7 +241,7 @@ def test_without_a_token_the_answer_is_still_the_401(snap: dict[str, Any]) -> No
 
 @pytest.mark.parametrize(("key", "escape"), [("family_tab", "\\t"), ("family_esc", "\\x1b"), ("family_del", "\\x7f")])
 def test_any_other_control_character_in_a_family_path_is_refused(snap: dict[str, Any], key: str, escape: str) -> None:
-    # Postgres compares these, so the lookup used to answer 404: no family can hold one.
+    # Postgres compares these, but no family can hold one: refused, not looked up (404).
     r = snap["responses"][key]
     assert r["status"] == 400, r
     assert f"contains a control character ({escape})" in r["json"]["detail"]

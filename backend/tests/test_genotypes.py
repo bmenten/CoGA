@@ -1,8 +1,8 @@
-"""One genotype classification for filters, counts and presence checks (#511).
+"""One genotype classification for filters, counts and presence checks.
 
-Genotypes are stored exactly as the VCF writes them, but the filters, inheritance checks
-and counts each used a diploid, biallelic literal list, so haploid calls (chrM, male
-chrX/chrY from callers that emit ploidy-1 calls) and multi-allelic calls matched nothing.
+Genotypes are stored exactly as the VCF writes them, and the filters, inheritance checks
+and counts share one classification (``classify_genotype``), so haploid calls (chrM, male
+chrX/chrY from callers that emit ploidy-1 calls) and multi-allelic calls match their class.
 The SQL side of the classification is checked against real ClickHouse in
 ``integration/test_genotype_classes_clickhouse.py``.
 """
@@ -81,7 +81,7 @@ def _keeps(entry: str, gt: str) -> bool:
 
 
 def test_the_hom_filter_keeps_a_haploid_alt_call() -> None:
-    # The UI's Hom group: before #511 a chrM "1" (or a male chrX "1") matched nothing.
+    # The UI's Hom group keeps a chrM "1" (or a male chrX "1").
     hom = "PROBAND:1/1|1|1"
     assert _keeps(hom, "1")
     assert _keeps(hom, "2/2")

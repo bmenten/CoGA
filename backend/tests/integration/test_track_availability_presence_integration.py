@@ -1,13 +1,13 @@
-"""End-to-end (#266): the aggregated small-variant presence query against real ClickHouse.
+"""End-to-end: the aggregated small-variant presence query against real ClickHouse.
 
 Ingests a tiny fixture (one variant where S1 is non-ref + S2 is ref on chr1; another where
 S2 is non-ref on chr2) and asserts the aggregate's per-sample presence: non-ref counts,
 ref does not, and the chromosome filter scopes correctly. This both validates the
-real-ClickHouse semantics and catches any SQL-execution error in the new query.
+real-ClickHouse semantics and catches any SQL-execution error in the query.
 
-The aggregate is one SELECT over the family's rows since ENG-19 (each row's samples with an
-ALT allele picked from its call arrays); it was an ARRAY JOIN over a subquery, which
-ClickHouse's analyzer was slow to analyse under a large panel. The members it counts for
+The aggregate is one SELECT over the family's rows (ENG-19): each row's samples with an ALT
+allele are picked from its call arrays, as an ARRAY JOIN over a subquery is slow for
+ClickHouse's analyzer to analyse under a large panel. The members it counts for
 each kind of call are pinned here, and a loose guard holds the analyzer's time over it near
 its time over a member's track count, which applies the same panel clause.
 
@@ -111,7 +111,7 @@ def test_small_variant_presence_aggregate_against_clickhouse() -> None:
 
         # Reference-parent case (de-novo style): on chr3 S2 is ABSENT from the variant's
         # calls, but an explicit S2:0/0 (include_absent) filter must still mark S2 present
-        # (the base query matches), matching the old per-sample probe. S1 is non-ref there.
+        # (the base query matches). S1 is non-ref there.
         present_ref_parent = await _small_variant_present_sample_names(
             ctx, _filters(chromosome="3", sample_filters=["S2:0/0"])
         )
@@ -120,7 +120,7 @@ def test_small_variant_presence_aggregate_against_clickhouse() -> None:
     run_closing_stores(_run)
 
 
-# Each member's one call in the variant, and whether it carries an ALT allele (#511's classes).
+# Each member's one call in the variant, and whether it carries an ALT allele (by genotype class).
 _GENOTYPES = {
     "HET": ("0/1", True),
     "HOM": ("1|1", True),

@@ -1,6 +1,6 @@
-"""The small-variant interval lists (#604): an entry that cannot be read as written is
-refused and named, never skipped. Skipped, the search covered less than the list asked,
-and a list with no entry left was answered as a family without variants."""
+"""The small-variant interval lists: an entry that cannot be read as written is
+refused and named, never skipped. Skipped, the search would cover less than the list asked,
+and a list with no entry left would be answered as a family without variants."""
 
 from __future__ import annotations
 

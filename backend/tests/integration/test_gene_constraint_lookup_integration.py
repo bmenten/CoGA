@@ -3,10 +3,9 @@
 A variant's gene pLI and missense Z come from its gene's profile in ``gene_info``, which holds
 one profile per assembly. The variant list, the ranking, the evidence snapshot a classification
 freezes and the drift check read them through one lookup
-(``gene_constraint_metrics.fetch_gene_constraint_metrics``). It read the newest profile of any
-assembly, so a family on one assembly was served, and froze, the value of another assembly's
-profile once that one was refreshed later; and it matched a symbol in any case in SQL but only
-as written afterwards, so a gene written otherwise than its profile had no constraint.
+(``gene_constraint_metrics.fetch_gene_constraint_metrics``). It reads the profile of the
+family's assembly, never another assembly's refreshed later, and matches a symbol in any case,
+so a gene written otherwise than its profile has its constraint.
 
 Here two assemblies each hold a profile of one gene, the other assembly's refreshed later, and
 the first holds a gene whose symbol is stored in mixed case. The lookup in each assembly reads
@@ -76,11 +75,10 @@ def test_each_familys_gene_constraint_is_read_from_its_own_assembly_whatever_the
             second = await fetch_gene_constraint_metrics(session, genes, assembly_id=assemblies["second"])
             none = await fetch_gene_constraint_metrics(session, genes, assembly_id=None)
 
-        # Each assembly's own profile. Before, both read the second assembly's, the newer one.
+        # Each assembly's own profile, not the second assembly's, the newer one.
         assert first["gene"] == {"gene_pli": 0.1, "gene_missense_z": 2.0}
         assert second["gene"] == {"gene_pli": 0.9, "gene_missense_z": 9.0}
-        # Found whatever the case it is asked in. Before, the read found its profile, and the
-        # match after it, as written, did not.
+        # Found whatever the case it is asked in.
         assert first["upper"] == first["lower"] == {"gene_pli": None, "gene_missense_z": 3.3}
         # Only the first assembly holds it.
         assert "upper" not in second and "lower" not in second

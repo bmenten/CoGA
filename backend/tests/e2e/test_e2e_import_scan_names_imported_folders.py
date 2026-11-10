@@ -1,9 +1,9 @@
 """The package list names the families imported from each folder (E2E, real Postgres and ClickHouse).
 
-A package folder stays on the share after its import, so the import page's list kept every
-folder ever imported. The list (``GET /family-imports/packages``) now gives each folder the
-families whose package record names it (``families.metadata.package_import.folder_path``), and
-the import page hides a folder whose families all imported completely.
+A package folder stays on the share after its import. The list (``GET /family-imports/packages``)
+gives each folder the families whose package record names it
+(``families.metadata.package_import.folder_path``), and the import page hides a folder whose
+families all imported completely.
 
 Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see
 test_e2e_api_contract.py), as the e2e administrator, for two one-sample packages in an import

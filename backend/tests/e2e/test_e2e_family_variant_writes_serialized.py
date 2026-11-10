@@ -5,8 +5,8 @@ again changed, in ClickHouse, which has no transactions: the per-sample SV uploa
 file's calls into its source's stored rows, the admin per-sample SV delete writes the
 family's rows back without the sample's calls, the per-sample small-variant upload (the
 package import's mitochondrial path) merges its file into the callset's rows. Two such writes
-of one family ran at once, each from what it had read before the other wrote, and both
-answered 200: one writer's calls were lost, or a variant was stored twice with different
+of one family run at once, each from what it had read before the other wrote, would both
+answer 200 while one writer's calls were lost, or a variant was stored twice with different
 calls and a part merge then kept only one of the rows.
 
 Over the golden trio (NeedlR SVs) this starts writes of the family together, each on a
@@ -22,7 +22,7 @@ two processes run them:
 
 Each storage read is wrapped so that it waits, for a moment at most, until the other writes
 have read too: the interleaving writes started together can take, made certain. Without a
-lock every write then wrote from what it had read. With one, a write reads only once the
+lock every write would then write from what it had read. With one, a write reads only once the
 write before it has committed, and the earlier write's wait ends by its timeout.
 
 After each round every write answered 200, each variant is one live row holding every call,
@@ -406,9 +406,8 @@ def test_every_write_is_answered(run) -> None:
 
 
 def test_three_uploads_of_one_sv_leave_one_row_with_every_call(run) -> None:
-    # Before: each upload wrote back what it had read before the others wrote, so the
-    # deletion was stored once per upload, each row with one sample's call, or only the
-    # last upload's call was left.
+    # The deletion is one row holding every upload's call: not one row per upload, each with
+    # one sample's call, nor only the last upload's call.
     assert _calls(run["after_uploads"], "sniffles") == {
         _DEL: [{"FATHER": "0/1", "MOTHER": "1/1", "PROBAND": "0/1"}]
     }
@@ -417,8 +416,7 @@ def test_three_uploads_of_one_sv_leave_one_row_with_every_call(run) -> None:
 
 def test_an_admin_delete_and_an_upload_keep_each_others_change(run) -> None:
     rows = run["after_delete_and_upload"]
-    # Before: the upload wrote the father's call back, or the admin delete wrote the
-    # family's rows back without the mother's duplication.
+    # The father's call stays deleted, and the mother's duplication stays.
     assert _calls(rows, "sniffles") == {
         _DEL: [{"MOTHER": "1/1", "PROBAND": "0/1"}],
         _DUP: [{"MOTHER": "0/1"}],
@@ -432,7 +430,7 @@ def test_two_mitochondrial_uploads_keep_both_samples_calls(run) -> None:
         ("M-3243-A-G", {"PROBAND": "1/1"}),
         ("M-73-A-G", {"MOTHER": "1/1", "PROBAND": "1/1"}),
     ]
-    # Before: the second rewrite removed the first upload's calls, or stored chrM 73 twice.
+    # Neither rewrite removes the other upload's calls, and chrM 73 is stored once.
     assert run["mito"] == expected
     assert run["mito_merged"] == expected
 

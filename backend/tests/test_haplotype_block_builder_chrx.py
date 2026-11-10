@@ -1,12 +1,12 @@
 """The haplotype blocks on chrX, where a man has one X outside the pseudo-autosomal regions.
 
-The block builder read every member as two copies. With men's calls written as one allele
-(``1``), as GLIMPSE2 writes a haploid call, no child had a transmission on chrX outside the
-PARs: the embryos at an X-linked ROI had no blocks there, or their PAR1 blocks ran on over
+Were every member read as two copies, men's calls written as one allele (``1``), as GLIMPSE2
+writes a haploid call, would give no child a transmission on chrX outside the PARs: the
+embryos at an X-linked ROI would have no blocks there, or their PAR1 blocks would run on over
 the whole X with the homologs read in PAR1. Written twice (``1|1``), a son's maternal
-homolog was read only where his father's allele was his.
+homolog would be read only where his father's allele was his.
 
-The builder now reads chrX by the rule of the phasing QC (CLIN-60), where
+The builder reads chrX by the rule of the phasing QC (CLIN-60), where
 ``sex_chromosomes`` knows the PAR bounds of the family's assembly: a member recorded as male
 has one copy outside the PARs, his call written once or twice. A son's blocks come from his
 mother alone: his maternal homolog is read where she is heterozygous, and he has no
@@ -333,7 +333,7 @@ def test_each_block_lies_in_one_stretch_and_carries_no_par_homolog_over_the_x(wr
 
 
 def test_without_a_man_recorded_no_par_homolog_runs_over_the_x() -> None:
-    # Nobody's sex recorded: every member is read as two copies, as before. The men's calls
+    # Nobody's sex recorded: every member is read as two copies. The men's calls
     # written once give no transmission outside the PARs, so there the children have no
     # blocks rather than their PAR1 homologs carried over the X.
     children = {name: Child(child.sex, child.maternal, recorded="und") for name, child in SON_AND_DAUGHTER.items()}
@@ -364,7 +364,7 @@ def test_a_member_whose_sex_is_not_recorded_is_read_as_two_copies() -> None:
 
 def test_on_an_assembly_without_par_bounds_every_member_has_two_copies() -> None:
     # CHM13 v1.0: CoGA does not know its PARs, so a man's one-allele calls are not read and
-    # the blocks are not cut, as before.
+    # the blocks are not cut.
     context = _context(_member_rows(SON_AND_DAUGHTER), assembly_name="T2T-CHM13v1.0")
     rows = _build(context, _genotypes(SON_AND_DAUGHTER, written="once", sites=ROI_SITES))
 
@@ -463,7 +463,7 @@ def test_a_side_first_read_at_a_stretch_last_position_opens_no_block() -> None:
 @pytest.mark.parametrize("written", ["once", "twice"])
 def test_a_stretch_ending_in_a_block_of_several_sites_keeps_it_to_its_last_position(written: str) -> None:
     # Neighbours: a site at a stretch's last position inside a block of several sites, and at
-    # each PAR edge, extends the block to it, as before; nothing else changes.
+    # each PAR edge, extends the block to it; nothing else changes.
     sites = PAR1_SITES + [PAR1_LAST] + ROI_SITES + [PAR2_FIRST - 1] + PAR2_SITES
     context = _context(_member_rows(SON_AND_DAUGHTER))
     genotypes = _genotypes(SON_AND_DAUGHTER, written=written, sites=sites)

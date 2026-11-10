@@ -1,7 +1,7 @@
 """Package imports claimed and run by import-worker processes of their own (E2E).
 
-Every import ran in the API's process, all of them on the one core a Python process uses,
-and on the event loop that answers the requests. ``python -m app.import_worker``
+An import in the API's process would run on the one core a Python process uses, beside every
+other import, and on the event loop that answers the requests. ``python -m app.import_worker``
 (``backend/app/import_worker.py``) runs the workers without the API, and
 ``FAMILY_IMPORT_WORKER_COUNT=0`` leaves the API without any, as docker-compose.yml runs them.
 What the workers share goes through Postgres: the claim of a job, its heartbeat, stamped and

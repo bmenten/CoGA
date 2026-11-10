@@ -6,11 +6,11 @@ with a folder per sample in each. They follow such a folder when it is a symboli
 wherever it leads: a PED in a linked ``ped/`` lists the package, and Discover proposes a
 member from a linked per-sample folder, though what it holds may be another family's. The
 owner chose a warning over a refusal (2026-10-28): Discover and the package validation (a
-dry run, and the import, which runs it) still follow such a link, and report it
+dry run, and the import, which runs it) follow such a link, and report it
 (``package_folder_link``). The warning names the folder in the package and where it leads:
 the folder relative to the import folder that holds it, or that it lies outside the import
-folders, never an absolute path. The containment guards stay as they were: a file is read
-only when it lies in the package. All packages, IDs and files are synthetic.
+folders, never an absolute path. The containment guards hold: a file is read only when it
+lies in the package. All packages, IDs and files are synthetic.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def test_discover_follows_a_per_sample_folder_linked_into_another_package_and_re
 
     answer = _discover(couple)
 
-    # Still followed: the linked folder gives the package a member, as before.
+    # Followed: the linked folder gives the package a member.
     assert _added_members(answer) == [MOTHER, FATHER]
     # Reported: the folder, and where it leads within the import folders.
     assert _links(answer.warnings) == [
@@ -215,7 +215,7 @@ def test_the_package_list_still_lists_a_package_by_a_ped_in_a_linked_ped_folder(
 
     listed = {item["name"]: item for item in scan_family_import_packages()}
 
-    # Followed, as before: the PED behind the link lists the package.
+    # Followed: the PED behind the link lists the package.
     assert listed["FAM1"]["has_ped"] is True
 
 

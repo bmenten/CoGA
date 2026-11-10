@@ -1,10 +1,9 @@
 """The ACMG secondary-findings list CoGA ships, and the gene reference sync's verdict (CLIN-19).
 
-The gene page's "ACMG secondary finding" row read a key no source wrote, so it said "—" for
-every gene, BRCA1 included. The list is now vendored (data/ref-data/acmg-sf/, ACMG SF v3.3)
-and the gene reference sync reads it for every gene: a listed gene gets its entry and the
-status ``success``, any other gene ``missing`` ("not on the list"), both with the list's
-version. A list that cannot be read whole is an ``error`` for every gene, never a
+The gene page's "ACMG secondary finding" row reads the vendored list (data/ref-data/acmg-sf/,
+ACMG SF v3.3), and the gene reference sync reads it for every gene: a listed gene gets its
+entry and the status ``success``, any other gene ``missing`` ("not on the list"), both with
+the list's version. A list that cannot be read whole is an ``error`` for every gene, never a
 ``missing``. Nothing here goes to the network.
 """
 
@@ -263,8 +262,7 @@ def test_a_missing_or_unreadable_list_is_an_error_for_every_gene(
     dataset = gene_info_bulk_sources._load_acmg_sf_dataset(path)
 
     assert dataset.status == "error"
-    # The error by its kind, not its text, which is not CoGA's sentence (SEC-39; before, for
-    # instance "'utf-8' codec can't decode byte 0xff in position 0: invalid start byte").
+    # The error by its kind, not its text, which is not CoGA's sentence (SEC-39).
     assert dataset.message == f"The ACMG SF list at {path} could not be read: {kind}"
     status = _bundle("BRCA1", dataset)["source_status"]["acmg_sf"]
     assert status["status"] == "error"

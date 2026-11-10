@@ -1,11 +1,10 @@
 """The lineage of relatives on chrX, where a man has one X outside the pseudo-autosomal regions.
 
-Every relative's lineage was grey on chrX, whatever its sex, and so was every embryo's in a
-one-parent (donor) family (CLIN-12). chrX is now read one stretch at a time, by the PARs of the
-family's assembly: a PAR as an autosome, and the X between the PARs by the members' recorded
-sexes. There a man's one X is one of a woman's homologs, run by run, whichever of the two is the
-parent: his mother's mosaic, switching at her crossovers, or the X he gave his daughter whole.
-Nothing passes from a man to his son.
+chrX is read one stretch at a time, for every relative and for every embryo of a one-parent
+(donor) family (CLIN-12), by the PARs of the family's assembly: a PAR as an autosome, and the X
+between the PARs by the members' recorded sexes. There a man's one X is one of a woman's
+homologs, run by run, whichever of the two is the parent: his mother's mosaic, switching at her
+crossovers, or the X he gave his daughter whole. Nothing passes from a man to his son.
 
 The families are simulated: a couple screening embryos for an X-linked disorder, with the
 mother's parents and brother and the father's parents, and two donor families. Every
@@ -180,7 +179,7 @@ def test_the_mothers_father_carries_her_paternal_x_whole(one_copy_form: str) -> 
     grandfather = _annotate(family)["GF"]
 
     # His one X is the mother's homolog 1, along the X between the PARs, on both lanes: the
-    # views draw a man's one X on whichever lane they choose. Before: grey.
+    # views draw a man's one X on whichever lane they choose.
     for lane in ("hap1", "hap2"):
         assert _coloured_span(grandfather, lane, ("1", MATERNAL), 3 * MB, 33 * MB) > 0.97 * 30 * MB
 
@@ -349,7 +348,7 @@ def _donor_family(*, seed: int, known: str) -> Family:
 def test_a_known_mothers_son_carries_her_x_switching_at_her_crossover() -> None:
     out = _annotate(_donor_family(seed=10, known="mother"), region=(3 * MB, 33 * MB))
 
-    # Before: every embryo of a one-parent family was grey on chrX.
+    # An embryo of a one-parent family is coloured on chrX.
     assert _lanes_at(out["D2"], 10 * MB) == (("0", MATERNAL), ("0", MATERNAL))
     assert _lanes_at(out["D2"], 30 * MB) == (("1", MATERNAL), ("1", MATERNAL))
     # His sister: her maternal lane as on an autosome, the donor's grey.

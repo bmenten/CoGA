@@ -5,12 +5,11 @@ opened through the API, and the rankings it caches are read back from the real t
 record of a ranking's panel goes through the jsonb round trip). Everything runs in ONE event
 loop via an in-process ``httpx.ASGITransport`` client (see test_e2e_api_contract.py for why).
 
-**A ranking does not outlive the variant data (#509).** The view is opened twice (the second
+**A ranking does not outlive the variant data.** The view is opened twice (the second
 open is a cache hit). The family's small variants are then deleted through the admin data
-endpoint — a write path that, before #509, never cleared the ranking cache, so the next open
-kept serving the old ranking (with the old total over variants that no longer exist). The
-cache key now covers the family's storage-level data version, so the next open must
-recompute over the emptied data. The golden trio is re-imported at the end so any module
+endpoint. The cache key covers the family's storage-level data version, so the next open must
+recompute over the emptied data rather than serve the old ranking (with the old total over
+variants that no longer exist). The golden trio is re-imported at the end so any module
 that runs afterwards sees the usual state.
 
 **A narrower panel is served from a broader cached ranking only while that ranking's panel
@@ -19,10 +18,8 @@ the panel API:
 
 * a panel's ranking serves another panel with the same gene (its panel unchanged);
 * the panel then gains a gene: the version moves, so the exact key misses, and the ranking
-  cached for the first version must not serve the panel either (before CLIN-27 it did,
-  without the new gene's variant);
-* a row that recorded nothing of its panel (cached before rankings recorded it, made here
-  by removing the record) is not used;
+  cached for the first version must not serve the panel either;
+* a row that records nothing of its panel (made here by removing the record) is not used;
 * a row whose panel was deleted is passed over instead of failing the request with 404;
 * a ranking without a panel still serves a narrower panel.
 
@@ -77,7 +74,7 @@ _FILLERS = 1_000
 _PANELAPP_GENE_PATH = "1:1900-7100"
 
 
-# --- A ranking does not outlive the variant data (#509) ------------------------------------
+# --- A ranking does not outlive the variant data -------------------------------------------
 
 
 async def _exercise_cache(root: Path) -> dict:
@@ -159,7 +156,7 @@ def test_admin_delete_moves_the_family_data_version(data_change) -> None:
 def test_prioritised_view_recomputes_after_the_delete(data_change) -> None:
     after = data_change["after_delete"]
     assert after["status"] == 200, after["text"]
-    # Before #509 this was a cache hit: ranking_cached True, the old total, no variants.
+    # Not a cache hit: the ranking is computed over the emptied data.
     assert after["json"]["ranking_cached"] is False
     assert after["json"]["total"] == 0
     assert after["json"]["variants"] == []
@@ -329,7 +326,7 @@ async def _exercise_sub_panel(root: Path, panelapp_id: int) -> dict:
             out["edit"] = {"status": edit.status_code, "text": edit.text}
             out["broad_after_edit"] = await prioritised("broad")
 
-            # Rows cached before rankings recorded their panel: take the record away.
+            # Rows that record nothing of their panel: take the record away.
             async with get_postgres_sessionmaker()() as session:
                 stripped = await session.execute(
                     text(
@@ -465,7 +462,7 @@ def test_another_panel_is_served_from_a_ranking_whose_panel_is_unchanged(sub_pan
 
 def test_a_panel_that_gained_a_gene_is_not_served_from_its_earlier_ranking(sub_panel) -> None:
     assert sub_panel["edit"]["status"] == 200, sub_panel["edit"]["text"]
-    # Before CLIN-27: served from the first version's ranking, without GENE_DENOVO.
+    # Computed afresh, with GENE_DENOVO.
     _served(sub_panel["broad_after_edit"], cached=False, genes=["GENE_DENOVO", "GENE_PATH"])
 
 

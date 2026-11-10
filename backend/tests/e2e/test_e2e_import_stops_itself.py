@@ -2,10 +2,8 @@
 
 A running import writes its job's heartbeat every minute, and a worker that finds it ten
 minutes old ends the job as interrupted; and the import holds its family's variant-write
-locks on a Postgres connection of its own, which Postgres releases with the connection. An
-import whose heartbeat could not reach the database went on for as long as that lasted, and
-an import whose lock connection was lost went on writing, unaware that the next writer could
-start. Now the import's heartbeat stops it where it is in both cases: once its beats have not
+locks on a Postgres connection of its own, which Postgres releases with the connection, so
+the next writer can start. The import's heartbeat stops it where it is: once its beats have not
 reached the database for half the stale window (``FAMILY_IMPORT_SELF_STOP``), and as soon as
 its check of the lock connection fails (every ``FAMILY_IMPORT_LOCK_CHECK_SECONDS``).
 
@@ -290,7 +288,7 @@ def snap(tmp_path_factory, request) -> dict:
 
 def test_an_import_whose_heartbeat_cannot_be_written_stops_itself(snap) -> None:
     run = snap["beat_lost"]
-    # Before: it went on for as long as its heartbeat could not be written (here: for ever).
+    # It stops once its heartbeat cannot be written.
     assert run["run"] == "returned"
     assert run["beats_failed"] >= 2
     assert len(run["stopped_log"]) == 1, run["stopped_log"]
@@ -329,7 +327,7 @@ def test_the_family_was_complete_before_its_overwrite(snap) -> None:
 def test_an_import_whose_lock_connection_is_lost_stops_where_it_is(snap) -> None:
     run = snap["locks_lost"]
     family = run["family_after"]
-    # Before: it went on writing, though the next writer could start.
+    # It stops where it is once its lock connection is lost.
     assert run["run"] == "returned"
     # Nothing restored: the overwrite's first flush stays, the family keeps its mark.
     assert family["snvs"] == _BATCH

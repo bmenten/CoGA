@@ -1,4 +1,4 @@
-"""The client address behind trusted proxies (#520).
+"""The client address behind trusted proxies.
 
 With FORWARDED_ALLOW_IPS="*" uvicorn takes the left-most X-Forwarded-For entry, which a
 client sets itself; the audit log and the login/signup throttles would use it.

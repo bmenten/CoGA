@@ -68,8 +68,8 @@ def test_gene_region_uses_canonical_when_mane_select_is_absent() -> None:
 
     selected = reference_metadata_service._select_preferred_gene_rows(rows)
 
-    # ENG-8. Before: the canonical transcript was read from keys no import writes, never
-    # found, and the longest transcript won.
+    # ENG-8: the canonical transcript is read from the keys an import writes, and wins over
+    # the longest transcript.
     assert [row["gene_id"] for row in selected] == ["ENST_CANON"]
 
 

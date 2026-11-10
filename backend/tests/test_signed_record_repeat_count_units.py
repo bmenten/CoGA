@@ -3,8 +3,8 @@
 TRGT's count need not be the clinical repeat number (at FMR1 it leaves out the AGG
 interruptions, so a 55-repeat premutation can read 53), so until QA validates a catalogue locus
 the repeat page marks a count within 3 repeats of a classification boundary
-(``repeat_count_units``, #889). The signed record's ``repeat_expansions`` section
-(``signed_record_sections.repeat_expansion_calls``) now holds, as they stood at sign-out:
+(``repeat_count_units``). The signed record's ``repeat_expansions`` section
+(``signed_record_sections.repeat_expansion_calls``) holds, as they stood at sign-out:
 
 * per allele the count classified (``repeat_count``: TRGT's count with QA's correction for the
   locus, CLIN-57) and TRGT's own count beside it (``trgt_repeat_count``);

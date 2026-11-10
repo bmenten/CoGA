@@ -54,8 +54,8 @@ def test_sanitize_detail_masks_sensitive_keys() -> None:
 
 def test_sanitize_detail_drops_nested_structures_without_leaking() -> None:
     # Top-level key masking misses a secret nested under a non-sensitive key. The nested
-    # value must be recorded as a shape placeholder, never serialized (which previously
-    # persisted the token verbatim, truncated).
+    # value must be recorded as a shape placeholder, never serialized (which would
+    # persist the token verbatim, truncated).
     sanitized = _sanitize_detail(
         {"headers": {"authorization": "Bearer super-secret-token"}, "tags": ["a", "b"]}
     )
@@ -114,7 +114,7 @@ def test_event_batch_accepts_up_to_the_cap() -> None:
 
 
 def test_event_batch_rejects_oversize_batch() -> None:
-    # An over-cap batch is now an explicit validation error (HTTP 422 at the
+    # An over-cap batch is an explicit validation error (HTTP 422 at the
     # route) rather than a silently truncated 202.
     with pytest.raises(ValidationError):
         UiEventBatchIn(
@@ -178,10 +178,10 @@ def test_an_event_that_cannot_be_stored_is_recorded_and_the_batch_still_answered
     mode, monkeypatch, caplog
 ) -> None:
     # In sync mode, and in async mode while no worker runs, each event is written as the
-    # request runs. A failed write answered 500 after the events before it were stored, so
-    # the client resent the batch and stored those twice, and the loss was not counted. The
-    # batch is now answered as the worker's queue answers it, and the lost event recorded as
-    # the worker records one: counted, and logged with its payload (TF-13 S-5).
+    # request runs. The batch is answered as the worker's queue answers it, and the lost
+    # event recorded as the worker records one: counted, and logged with its payload (TF-13
+    # S-5). A 500 after the events before it were stored would make the client resend the
+    # batch and store those twice.
     stored: list[str | None] = []
 
     async def _write(payloads):
@@ -221,8 +221,8 @@ def test_an_event_that_cannot_be_stored_is_recorded_and_the_batch_still_answered
 
 # occurred_at is the browser's clock. The endpoint keeps it from a day before to five minutes
 # after it received the event, and otherwise stores the receive time, keeping the client's
-# value in the detail. A value the database driver could not convert to UTC used to fail the
-# event's write, and in the async mode every other event of the worker's batch with it.
+# value in the detail. Written as sent, a value the database driver cannot convert to UTC would
+# fail the event's write, and in the async mode every other event of the worker's batch with it.
 
 # The moment the server received the events of the bound tests.
 _RECEIVED = datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc)
@@ -289,10 +289,10 @@ def test_an_occurred_at_within_its_bounds_is_stored_as_sent(sent, stored) -> Non
         ("2026-10-09T12:05:00.000001", "2026-10-09T12:05:00.000001"),
         # The receive time as a clock ten hours behind UTC reads it: ten hours ahead.
         ("2026-10-09T12:00:00-10:00", "2026-10-09T12:00:00-10:00"),
-        # Before the year 1 and after the year 9999 in UTC: the driver could not convert them.
+        # Before the year 1 and after the year 9999 in UTC: the driver cannot convert them.
         ("0001-01-01T00:00:00+05:00", "0001-01-01T00:00:00+05:00"),
         ("9999-12-31T23:59:59-05:00", "9999-12-31T23:59:59-05:00"),
-        # The extremes without an offset, which the driver wrote as -infinity and infinity.
+        # The extremes without an offset, which the driver would write as -infinity and infinity.
         ("0001-01-01T00:00:00", "0001-01-01T00:00:00"),
         ("9999-12-31T23:59:59.999999", "9999-12-31T23:59:59.999999"),
         # The Unix epoch.
@@ -322,8 +322,8 @@ def test_an_event_with_an_impossible_occurred_at_is_stored_with_the_rest_of_its_
     mode, monkeypatch
 ) -> None:
     # Sync mode, and async mode while no worker runs, write each event as its request runs:
-    # the year 1 with a positive offset failed its own write, and was counted as lost. The
-    # naive year 9999 was written as infinity. Both are now stored at the receive time.
+    # written as sent, the year 1 with a positive offset would fail its own write, and the
+    # naive year 9999 be written as infinity. Both are stored at the receive time.
     stored: list[UiEventPayload] = []
 
     async def _write(payloads):
@@ -423,7 +423,6 @@ async def test_the_workers_batch_keeps_every_users_events(monkeypatch) -> None:
 # The browser gives each UI event an id of its own (frontend lib/telemetry.ts), and the endpoint
 # stores the event under it: the INSERT does nothing for an id the table holds (SEC-17), so a
 # batch the browser sends again, one in flight as its page closed, stores each event once.
-# Before, the endpoint gave every event it received a new id, so such a batch was stored twice.
 _BROWSER_EVENT_ID = "6f1c2d3e-0000-4000-8000-00000000e0a1"
 
 
@@ -451,7 +450,7 @@ def test_an_event_is_stored_under_the_id_the_browser_gave_it(spelled) -> None:
     "sent", [None, "", "not-a-uuid", "6f1c2d3e_0000-4000-8000-00000000e0a1"]
 )
 def test_an_event_without_a_uuid_of_the_browsers_gets_one_of_the_servers(sent) -> None:
-    # As every event did before; a value that is no UUID is not kept (core/sql.py's spelling).
+    # A value that is no UUID is not kept (core/sql.py's spelling).
     body = {"event_type": "click"} if sent is None else {"event_type": "click", "event_id": sent}
     first, second = (
         _payload_from_event(

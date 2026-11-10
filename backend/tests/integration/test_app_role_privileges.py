@@ -1,6 +1,6 @@
 """The restricted runtime role `coga_app` cannot bypass the append-only controls.
 
-Verifying evidence for the privilege separation that closes the hash chains' owner-bypass gap (#262). As
+Verifying evidence for the privilege separation that closes the hash chains' owner-bypass gap. As
 `coga_app` (assumed via ``SET LOCAL ROLE`` — auto-resets at transaction end, so no pooled
 connection keeps the role) the test asserts, for every append-only table:
 - it MAY ``INSERT`` + ``SELECT`` them (the app's real access), and
@@ -17,7 +17,7 @@ connection keeps the role) the test asserts, for every append-only table:
 The append-only tables are the ones guarded by a ``*_block_mutation`` trigger. The test
 reads that set from the catalogue and requires it to equal ``_APPEND_ONLY``, so a new
 append-only table cannot ship without being exercised here, and so without its REVOKE in
-``05_grants.sql`` (``qc_threshold_changes`` once shipped with its trigger but no REVOKE).
+``05_grants.sql``.
 
 The schema-migration ledger (``alembic_version``) is not append-only, since the migration step
 moves its one row on, but it is the owner's alone: coga_app may read it and nothing more.

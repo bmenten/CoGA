@@ -1,11 +1,9 @@
 """A structural-variant filter preset is saved, listed and deleted (E2E, real Postgres).
 
-``POST /api/families/{family_id}/structural-variant-filter-presets`` answered 500 for every
-family and every body. The route read its body as a small-variant preset, whose ``scope`` went
-when small-variant presets became their owner's, reusable in every family (#681), while an SV
-preset kept the choice between one family and all of them and the service still read the
-scope. The list served the presets without their scope, so the SV page labelled each one
-reusable. No test saved an SV preset.
+``POST /api/families/{family_id}/structural-variant-filter-presets`` reads its body as an SV
+preset. Unlike a small-variant preset, which is its owner's and reusable in every family, an
+SV preset keeps the choice between one family and all of them (its ``scope``), and the list
+serves each preset with its scope, by which the SV page labels it.
 
 Each request runs over HTTP through an in-process ``httpx.ASGITransport`` client, on one event
 loop (see test_e2e_api_contract.py for why), as the seeded admin, who owns the presets, and as

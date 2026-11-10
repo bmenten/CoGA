@@ -2,15 +2,15 @@
 
 The family response carries its active members (sex, clinical status) and its relationships,
 and a PED text (``pedigree``) that the family page, the NIPT page and the Sample QC page draw
-the pedigree from. That text was the one stored on the family by its last import or Family
-Builder save, and could disagree with the structure:
+the pedigree from. The text stored on the family by its last import or Family Builder save
+can disagree with the structure:
 
-* a package import of an existing family replaced the stored text but not the stored
-  relationships or sexes (#893): the drawing showed the package's pedigree;
-* a Family Builder request whose parent ID was spaces alone stored a row of five fields
-  (the relationship was not made), which shifted the drawing's columns.
+* a package import of an existing family can store a text whose relationships or sexes the
+  stored structure does not hold: the drawing would show the package's pedigree;
+* a stored row of five fields (a parent ID of spaces alone, no relationship made) would shift
+  the drawing's columns.
 
-Now the text is written from the response's own members and parent-child relationships, by the
+So the text is written from the response's own members and parent-child relationships, by the
 rule the PED download uses (``pedigree_text``), whatever the stored text says. Only the stored
 text's order of the members is kept, which the drawing places siblings and couples by; a member
 it does not list follows, by role and sample ID.

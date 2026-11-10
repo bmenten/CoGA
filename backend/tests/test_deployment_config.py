@@ -1,4 +1,4 @@
-"""Pre-deployment hardening that lives in configuration files (#520).
+"""Pre-deployment hardening that lives in configuration files.
 
 These guard the settings against quiet regression: a review of a compose or Terraform
 diff does not always catch a port that is published again or a mount that is writable.
@@ -120,7 +120,7 @@ def test_ci_service_images_are_pinned_by_digest() -> None:
 
 def test_every_environment_runs_the_same_datastore_images() -> None:
     # The suites verify the device against the CI service images, so compose, every CI job
-    # and the Terraform VM must run exactly those (#524). A Dependabot digest bump in
+    # and the Terraform VM must run exactly those. A Dependabot digest bump in
     # compose fails here until CI and Terraform move with it.
     compose = _compose()["services"]
     workflow = (REPO / ".github" / "workflows" / "ci.yml").read_text()
@@ -144,8 +144,8 @@ def _chomp(text: str) -> str:
 def test_the_clickhouse_vm_gets_the_users_d_files_compose_mounts(tmp_path: Path) -> None:
     # OPS-14. Compose mounts clickhouse/users.d/memory-guards.xml into ClickHouse: each query
     # capped at 4 GB, GROUP BY and ORDER BY state spilled to disk past 2 GB. The Google Cloud
-    # VM had none of it. Its startup script now writes each such file from the repository, as
-    # database.tf reads it, and mounts it where Compose does, read-only.
+    # VM's startup script writes each such file from the repository, as database.tf reads it,
+    # and mounts it where Compose does, read-only.
     compose: dict[str, Path] = {}
     for volume in _compose()["services"]["clickhouse"]["volumes"]:
         host_path, container_path, *options = str(volume).split(":")
@@ -423,7 +423,7 @@ def _variable_default(name: str) -> str:
 
 def test_the_deploy_job_refuses_to_run_without_required_reviewers() -> None:
     # The gcp-deploy environment gates `terraform apply -auto-approve` only once it has
-    # required reviewers, so the job checks for them before it touches the cloud (#364).
+    # required reviewers, so the job checks for them before it touches the cloud.
     workflow = yaml.safe_load((REPO / ".github" / "workflows" / "build.yml").read_text())
     deploy = workflow["jobs"]["deploy"]
     assert deploy["environment"] == "gcp-deploy"
@@ -440,7 +440,7 @@ def test_the_deploy_job_refuses_to_run_without_required_reviewers() -> None:
 
 def test_the_restricted_db_role_keeps_the_owner_password_from_the_api() -> None:
     # Off by default. When on, the API runs as coga_app and cannot read the owner's password,
-    # not even through Secret Manager; the migration job runs as its own account (#364).
+    # not even through Secret Manager; the migration job runs as its own account.
     assert _variable_default("db_runtime_role") == '"owner"'
     main = _terraform("main.tf")
     logins = re.search(r"db_login_secret = \{(.*?)\}", main, re.S)
@@ -1036,7 +1036,7 @@ def _hsts_policy(source: str) -> str:
 
 def test_the_app_page_and_the_api_both_send_hsts_on_google_cloud(monkeypatch) -> None:
     # TLS ends at the load balancer for the page and for /api alike (loadbalancer.tf).
-    # Terraform turned HSTS on for the backend only, so the app page went without it (SEC-5).
+    # Terraform turns HSTS on for the app page as for the backend (SEC-5).
     # Each container of the frontend image sets ENABLE_HSTS to the value its server compares
     # with, and does so unconditionally: the optional entries are left out here.
     frontend = _containers("var.frontend_image")
@@ -1053,7 +1053,7 @@ def test_the_app_page_and_the_api_both_send_hsts_on_google_cloud(monkeypatch) ->
 
 def test_the_load_balancer_sends_the_one_hsts_policy_on_the_https_path_only() -> None:
     # SEC-23. An answer Cloud Run gives itself, such as its error page when no instance can
-    # serve, carried no HSTS. The HTTPS URL map now sets the policy both servers send on every
+    # serve, carries no HSTS, so the HTTPS URL map sets the policy both servers send on every
     # answer it relays, in place of theirs, so an answer carries one HSTS header, never two.
     # The plain-HTTP listener only redirects to HTTPS, and sends none (a browser ignores HSTS
     # over HTTP).
@@ -1080,9 +1080,9 @@ def test_the_load_balancer_sends_the_one_hsts_policy_on_the_https_path_only() ->
 
 
 def test_the_frontend_proxies_api_to_the_backend_service() -> None:
-    # SEC-23. The frontend's server proxies /api to BACKEND_URL (server.mjs), which defaulted
+    # SEC-23. The frontend's server proxies /api to BACKEND_URL (server.mjs), which defaults
     # to Compose's http://backend:8000, a host Cloud Run does not have. The load balancer sends
-    # /api to the backend itself; the frontend now names the backend service all the same.
+    # /api to the backend itself; the frontend names the backend service all the same.
     assert "process.env.BACKEND_URL" in (REPO / "frontend" / "server.mjs").read_text()
     frontend = _containers("var.frontend_image")["google_cloud_run_v2_service.frontend"]
     values = {_attributes(entry)["name"]: _attributes(entry).get("value") for _, entry in _blocks(frontend, "env")}
@@ -1268,12 +1268,12 @@ def test_the_clickhouse_tls_keys_are_ephemeral_and_the_ca_is_issued_with_the_ser
 
 
 def test_a_new_clickhouse_tls_secret_version_exists_before_the_old_one_is_destroyed() -> None:
-    # SEC-19. Terraform replaced a version of the ClickHouse TLS key or certificate by
-    # destroying the old one first, so a VM that booted in between found no version to read,
-    # and its startup script stopped before it started ClickHouse. The new version is now
-    # created first. The VM reads the latest version of each secret, by the secret's ID, at
-    # boot and in its daily refresh: the old one until the new one exists. Nothing reads a
-    # version itself, which would hold the VM to one that is about to be destroyed.
+    # SEC-19. Terraform creates a new version of the ClickHouse TLS key or certificate before it
+    # destroys the old one, so a VM that boots in between finds a version to read and its
+    # startup script starts ClickHouse. The VM reads the latest version of each secret, by the
+    # secret's ID, at boot and in its daily refresh: the old one until the new one exists.
+    # Nothing reads a version itself, which would hold the VM to one that is about to be
+    # destroyed.
     resources = _top_level_blocks("resource")
     for address in (
         "google_secret_manager_secret_version.clickhouse_tls_key",

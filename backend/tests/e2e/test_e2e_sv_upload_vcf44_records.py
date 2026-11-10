@@ -2,14 +2,14 @@
 CLIN-33, CLIN-37, CLIN-41).
 
 VCF 4.4 lets a structural-variant record leave END and SVTYPE out, and writes SVLEN ``.`` for
-a sequence allele. The Sniffles and Spectre uploads read a record without END as ending at its
-POS, and took a record without SVTYPE to be of the type its ALT spells: a deletion written
-with SVLEN alone lay on one base, so a search for a gene it deletes downstream of its POS, or
-for a region inside it, missed it; a breakend was stored as of type ``N]5:3000000]``, which
-the type filter and the translocation rule of the length filters do not know. And a call
-without SVLEN was measured by END − POS: an insertion written as its sequence, its END at its
-POS, was 0 bp, so a minimum length dropped it (CLIN-41; the owner's decision, 2026-10-14: such
-a call is measured by its alleles).
+a sequence allele. The Sniffles and Spectre uploads read such a record as VCF 4.4 defines it.
+Read as ending at its POS, a deletion written with SVLEN alone would lie on one base, so a
+search for a gene it deletes downstream of its POS, or for a region inside it, would miss it;
+read as of the type its ALT spells, a breakend would be of type ``N]5:3000000]``, which the
+type filter and the translocation rule of the length filters do not know. And a call without
+SVLEN is measured by its alleles (CLIN-41; the owner's decision, 2026-10-14), not by END − POS,
+which makes an insertion written as its sequence, its END at its POS, 0 bp, so a minimum length
+would drop it.
 
 The family here is its own, created through the PED upload under a new id each run, so the
 golden trio is never touched; a gene row, E2E_SPANNED on 1:30500-30800, is seeded for the
@@ -19,7 +19,7 @@ the family SV search (``GET /families/{family_id}/structural-variants``) reads i
 
 * a 1 kb deletion at 1:30000 (``<DEL>``, SVLEN 1000) is stored on 1:30000-31000, listed with
   E2E_SPANNED, and found by a search for that gene and for the SVs overlapping a region
-  inside it, but no longer by a search for the SVs within a region it reaches beyond;
+  inside it, but not by a search for the SVs within a region it reaches beyond;
 * a breakend at 1:60000 (``N]5:3000000]``) is a BND with its mate on 5:3000000, found by a
   BND search and, a translocation, by a 10 Mb minimum length;
 * a 5 kb insertion at 1:80000 (``<INS>``, SVLEN 5000) stays on its POS: it spans no
@@ -198,8 +198,6 @@ def test_the_family_is_created_and_the_childs_vcf_uploaded(run) -> None:
 
 
 def test_each_record_is_stored_where_vcf_4_4_puts_it(run) -> None:
-    # Before: every record on its POS alone, the breakend of type "N]5:3000000]" and the
-    # sequence-resolved deletion of type "ACCC…" (its REF's bases).
     assert _found(run, "all") == {_DEL, _BND, _INS, _SEQUENCE_DEL, _SEQUENCE_INS}
 
 
@@ -210,12 +208,12 @@ def test_the_deletion_is_listed_with_the_gene_it_spans(run) -> None:
 
 @pytest.mark.parametrize("name", ["gene", "overlapping"])
 def test_a_search_for_the_gene_or_a_region_inside_it_finds_the_deletion(run, name) -> None:
-    # Before: the deletion lay on 1:30000, outside both, and neither search found it.
+    # The deletion lies on 1:30000-31000, so both searches find it.
     assert _found(run, name) == {_DEL}
 
 
 def test_a_search_within_a_region_the_deletion_reaches_beyond_does_not_find_it(run) -> None:
-    # Before: a point on 1:30000, within 1:29000-30500.
+    # The deletion, on 1:30000-31000, reaches beyond 1:29000-30500.
     assert _found(run, "within") == set()
 
 
@@ -238,7 +236,7 @@ def _lengths(run: dict, name: str) -> dict[tuple[str, int, int], int]:
 
 
 def test_a_call_without_svlen_is_listed_with_the_length_its_alleles_state(run) -> None:
-    # Before: the sequence insertion 0 bp and the sequence deletion 100, their END − POS.
+    # Measured by their alleles, not by their END − POS.
     lengths = _lengths(run, "all")
     assert (lengths[_SEQUENCE_INS], lengths[_SEQUENCE_DEL]) == (350, -100)
     # A call that writes SVLEN shows it as written.
@@ -246,11 +244,11 @@ def test_a_call_without_svlen_is_listed_with_the_length_its_alleles_state(run) -
 
 
 def test_a_minimum_length_keeps_the_sequence_insertion(run) -> None:
-    # Before: the sequence insertion, 0 bp, was dropped.
+    # The sequence insertion, 350 bp by its alleles, is kept.
     assert _found(run, "min_50") == {_DEL, _BND, _INS, _SEQUENCE_DEL, _SEQUENCE_INS}
 
 
 @pytest.mark.parametrize(("name", "expected"), [("exact_350", _SEQUENCE_INS), ("exact_100", _SEQUENCE_DEL)])
 def test_an_exact_length_finds_a_sequence_allele_by_its_alleles(run, name, expected) -> None:
-    # Before: the insertion was 0 bp; the deletion, 100 bp by its END − POS, was found.
+    # The deletion, listed as -100 bp, is found by an exact length of 100.
     assert _found(run, name) == {expected}

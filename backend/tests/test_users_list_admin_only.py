@@ -1,10 +1,10 @@
 """``GET /api/users``, the list of active accounts, answers administrators only (SEC-33).
 
-The list gives the name and e-mail address of every active account. No screen reads it since
-#909: the case pickers read the family's own list (``GET /families/{id}/assignable-users``)
-and the *Users* page reads ``GET /api/auth/users``. Any signed-in user got it, an accepted
-residual (the staff roster, security-posture.md §1) that the owner ended on 2026-10-28: the
-route stays, for administrators alone (REQ-SEC-002).
+The list gives the name and e-mail address of every active account. No screen reads it: the
+case pickers read the family's own list (``GET /families/{id}/assignable-users``) and the
+*Users* page reads ``GET /api/auth/users``. The route stays, for administrators alone
+(REQ-SEC-002), as the owner decided on 2026-10-28: open to any signed-in user, it would hand
+out the staff roster (security-posture.md §1).
 
 The requests go through the real ``get_current_user`` (a local token, without Microsoft
 sign-in) and ``get_current_admin_user``. Only the account lookup and the list's query are

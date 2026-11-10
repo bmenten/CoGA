@@ -1,11 +1,11 @@
 """An uploaded SV VCF is read from the uploaded sample's own column (unit, fakes).
 
 ``POST /structural-variants/upload/{sample_id}`` stores one sample's calls from one Sniffles
-or Spectre VCF. It used to read the file's first sample column whatever that column was
-named, and store it under the sample in the URL: a joint Sniffles2 VCF stored its first
-member's calls as this sample's, and another member's file replaced this sample's calls
-without a word. The column is now chosen by the rule of the TRGT upload and the package's
-per-sample files (``per_sample_vcf_column``), before anything is read or written:
+or Spectre VCF. Read from the file's first sample column whatever its name, a joint Sniffles2
+VCF would store its first member's calls as this sample's, and another member's file would
+replace this sample's calls without a word. The column is chosen by the rule of the TRGT
+upload and the package's per-sample files (``per_sample_vcf_column``), before anything is read
+or written:
 
 * the column named after the sample (as is, or with a tool suffix such as ``_sv_phased``) is
   read, at any position;
@@ -201,7 +201,7 @@ async def test_a_joint_vcf_stores_the_uploaded_samples_own_column(
     result = await _upload(session, "PROBAND", _joint_vcf(columns, source=source), format_hint=format_hint)
 
     assert (result["processed"], result["created"], result["source_format"]) == (2, 2, format_hint)
-    # Before the fix: the first column's genotypes and phase set, stored as PROBAND's.
+    # PROBAND's own column, wherever it stands, not the first one.
     assert _written(fake) == _PROBANDS_OWN
     # The columns were checked against the sample's family and the samples they name.
     [lookup] = session.lookups
@@ -285,7 +285,7 @@ async def test_a_file_without_one_column_for_the_uploaded_sample_is_refused_and_
             session, "PROBAND", _joint_vcf(columns, source=source), format_hint=format_hint, overwrite=True
         )
 
-    # Before the fix: 200, the first column's calls stored as PROBAND's in place of its own.
+    # Refused: the first column's calls are not stored as PROBAND's in place of its own.
     assert (exc.value.status_code, exc.value.detail) == (400, detail)
     assert fake.reads == []
     assert fake.rewrites == []
@@ -306,7 +306,7 @@ async def test_a_vcf_with_no_sample_column_is_refused_and_nothing_is_written(sto
     with pytest.raises(HTTPException) as exc:
         await _upload(session, "PROBAND", sites_only, overwrite=True)
 
-    # Before the fix: refused too, but only after reading the stored rows, for having no record.
+    # Refused before the stored rows are read.
     assert (exc.value.status_code, exc.value.detail) == (400, "Sniffles VCF has no sample column")
     assert (fake.reads, fake.rewrites, session.statements, session.committed) == ([], [], [], False)
 
@@ -342,7 +342,7 @@ async def test_a_vcf_without_one_chrom_line_before_its_records_is_refused(
     with pytest.raises(HTTPException) as exc:
         await _upload(session, "PROBAND", body, overwrite=True)
 
-    # Before the fix: 200, every record's first sample field stored as PROBAND's.
+    # Refused: no record's first sample field is stored as PROBAND's.
     assert (exc.value.status_code, exc.value.detail) == (400, detail)
     assert (fake.reads, fake.rewrites, session.statements, session.committed) == ([], [], [], False)
 

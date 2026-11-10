@@ -1,4 +1,4 @@
-"""The package-import dataset importers (#528): one per manifest dataset type, registered
+"""The package-import dataset importers: one per manifest dataset type, registered
 where it is defined, and reached through the registry instead of one branch per type."""
 
 from __future__ import annotations

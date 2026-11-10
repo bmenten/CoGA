@@ -1,9 +1,9 @@
-"""The family search keeps what it kept for a gene panel's regions, on every path (E2E, ENG-15).
+"""On every path, the family search's region join keeps what a per-row test keeps (E2E, ENG-15).
 
-The family page kept a variant in one of a panel's regions by testing each of its rows against
-every region (``arrayExists`` over the regions): 1.3 s at 500 regions and 2.1 s at 1,000 for a
-family of about 190,000 rows. It now joins the family's own rows to the regions on 64-kb
-windows (``clickhouse_variant_queries._small_family_region_condition``).
+The family page keeps a variant in one of a panel's regions by joining the family's own rows to
+the regions on 64-kb windows (``clickhouse_variant_queries._small_family_region_condition``),
+not by testing each of its rows against every region (``arrayExists`` over the regions: 1.3 s at
+500 regions and 2.1 s at 1,000 for a family of about 190,000 rows).
 ``integration/test_family_panel_regions_integration.py`` shows on synthetic rows that the two
 keep the same rows; this shows it on the family search's SQL paths, through the API.
 
@@ -17,8 +17,8 @@ answered by the test), and one of two genes through the panel API, with gene-ref
 seeded for the run (one spelled "chr7", one over variants whose annotation names another gene),
 and the same two genes with 1,000 filler genes: a panel of more than 1,000 regions, as the
 Mendeliome is, which keeps on every path what the panel of the two genes keeps, the variants
-it reaches by a gene's locus only included (owner decision 2026-10-14: such a panel was
-matched on gene symbols alone). Each panel goes to the family search unranked, ranked, at a
+it reaches by a gene's locus only included (owner decision 2026-10-14). Each panel goes to
+the family search unranked, ranked, at a
 locus, with compound-het and
 recessive pairing, with expanded carrier screening (unranked and ranked), as the genome-browser
 track, and to the CSV export (unranked and ranked), once with the join and once with the
@@ -477,8 +477,7 @@ def test_a_panel_of_more_than_1000_regions_keeps_what_the_panel_of_its_genes_kee
 ) -> None:
     # The Mendeliome's size class: the two genes and 1,000 fillers. It keeps on every path
     # what the panel of the two genes keeps, _ON_RC and _AFTER_RC by ENG15LOC's locus included,
-    # with the same pairs, scores, ranks, totals and exported file. It was matched on gene
-    # symbols alone, and left those two out on every path (owner decision 2026-10-14).
+    # with the same pairs, scores, ranks, totals and exported file (owner decision 2026-10-14).
     assert run["large panel regions"] > 1_000
     large = run["answers"]["more than 1,000 regions"][path]["join"]
     genes = run["answers"]["genes and their loci"][path]["join"]

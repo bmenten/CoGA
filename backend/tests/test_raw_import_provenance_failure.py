@@ -1,8 +1,7 @@
-"""A raw-file provenance record that could not be written (#686). Recording stays
+"""A raw-file provenance record that could not be written. Recording stays
 best-effort, so the import stands, but the loss is logged with the family and the dataset.
-Before, the error was swallowed and the missing record left no trace. The family is named by
-its UUID, and the file not at all: its ID and the uploaded file's name, which can hold a
-sample's ID, stay out of the log (SEC-39)."""
+The family is named by its UUID, and the file not at all: its ID and the uploaded file's
+name, which can hold a sample's ID, stay out of the log (SEC-39)."""
 
 from __future__ import annotations
 

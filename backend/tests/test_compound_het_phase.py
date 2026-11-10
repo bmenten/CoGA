@@ -8,14 +8,13 @@ candidate at all. The SNV + SV second-hit badge reads a phased call by the same 
 (``compound_het_phase.phased_alt_haplotype``): ``TestBothPathsReadAPhasedCallAlike`` runs each
 phased pair through both.
 
-Phase from the family. SNV+SNV compound hets and the SNV+SV second hit used to answer
-differently from the same genotypes. The SV second-hit badge called a pair trans whenever the
-family had an unaffected member who did not carry both hits, even one who carried neither, and
-marked a deletion "effectively biallelic" on that; an SNV pair with the same genotypes stayed
-unknown. Both now go through one rule, ``compound_het_phase.segregation_phase``, which counts a
-relative as evidence only where they are: a parent, traced hit by hit, or an unaffected relative
-carrying both hits. Every scenario of ``SCENARIOS`` is run through both paths, and both must
-reach the same verdict; the reads outrank the parents.
+Phase from the family. SNV+SNV compound hets and the SNV+SV second hit answer alike from the
+same genotypes: an unaffected member who does not carry both hits, or carries neither, makes
+neither a pair trans nor a deletion "effectively biallelic". Both go through one rule,
+``compound_het_phase.segregation_phase``, which counts a relative as evidence only where they
+are: a parent, traced hit by hit, or an unaffected relative carrying both hits. Every scenario
+of ``SCENARIOS`` is run through both paths, and both must reach the same verdict; the reads
+outrank the parents.
 """
 
 from __future__ import annotations
@@ -236,10 +235,10 @@ def test_phase_is_symmetric(left_gt: str, right_gt: str, expected: str | None) -
 class TestBothPathsReadAPhasedCallAlike:
     """The SNV + SNV pair and the SNV + SV second-hit badge read one phase set alike.
 
-    The badge used to place a half call such as ``1|.`` on a haplotype, where the pair
-    declines it, so the same calls could be trans by read phasing on the badge and
-    unresolved as a pair. Each case is one affected sample with both calls in one phase
-    set, the second call standing for the second small variant or for the SV.
+    The badge declines a half call such as ``1|.`` as the pair does, so the same calls are
+    never trans by read phasing on the badge and unresolved as a pair. Each case is one
+    affected sample with both calls in one phase set, the second call standing for the
+    second small variant or for the SV.
     """
 
     # The read verdict as each path reports it: a cis pair is dropped, the badge shows cis.
@@ -352,7 +351,7 @@ SCENARIOS = [
         expected="trans",
     ),
     Scenario(
-        # The reported defect: this used to be trans on the SV side.
+        # Unknown on the SV side too: a sibling carrying neither hit is no evidence of trans.
         "an unaffected sibling carrying neither hit",
         first={"P": "0/1", "S": "0/0"},
         second={"P": "0/1", "S": "0/0"},

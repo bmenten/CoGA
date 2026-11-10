@@ -3,9 +3,8 @@
 The genome overview serves a precomputed lineage, hash-guarded: after a pedigree edit it
 shows the relatives grey until the lineage is computed again, and nothing computes it on a
 page load. So each edit schedules that precompute, and a warm of the prioritised ranking,
-whose cache key the edit changed. The member edits (single, batch, removal) and a PED
-upload did; `PUT /families/{id}/structure`, the structure editor's save, did not, so its
-relatives stayed grey until some other edit came along. It now schedules both. A change
+whose cache key the edit changed: the member edits (single, batch, removal), a PED upload
+and `PUT /families/{id}/structure`, the structure editor's save, each schedule both. A change
 of the ROI schedules the lineage too, as a relative of unknown degree is read there. A
 request that fails schedules nothing.
 """

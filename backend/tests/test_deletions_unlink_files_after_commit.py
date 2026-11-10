@@ -3,9 +3,9 @@ they have committed (SAFE-35).
 
 A web upload keeps a copy of its file under ``data/raw_imports`` (a ``managed`` row of
 ``raw_import_files``, with the file's size and SHA-256), and deleting the sample or the family
-deletes that copy. It was unlinked before the deletion committed: a deletion that then failed
-(its commit, or a write after the unlink) rolled the rows back, and the records named files
-that were gone, a traceability gap that Verify reports as missing. Now the deletion reads the
+deletes that copy. Unlinked before the deletion committed, a deletion that then failed (its
+commit, or a write after the unlink) would roll the rows back and leave records naming files
+that are gone, a traceability gap that Verify reports as missing. So the deletion reads the
 copies its rows name in its transaction and unlinks them once it has committed. A copy that
 cannot be unlinked then is left, a file without a record, never a record without its file: the
 deletion stands, and a log line names the record, the file and the error's kind, never its
@@ -150,8 +150,7 @@ async def test_a_sample_deletion_whose_commit_fails_keeps_the_samples_file(copie
     with pytest.raises(ConnectionError, match="the commit failed"):
         await _delete_sample(session)
 
-    # The rollback keeps S2's record, and the file it names is still there (before: unlinked
-    # before the commit, so the record named a file that was gone).
+    # The rollback keeps S2's record, and the file it names is still there.
     assert "DELETE FROM samples" in session.statements and session.commits == 0
     assert copies.sample.read_text() == "S2 upload"
     assert copies.family.read_text() == "family upload"
@@ -164,7 +163,7 @@ async def test_a_family_deletion_whose_commit_fails_keeps_the_familys_files(copi
     with pytest.raises(ConnectionError, match="the commit failed"):
         await _delete_family(session)
 
-    # Before: both unlinked, their records rolled back.
+    # Both files stay with their records.
     assert "DELETE FROM families" in session.statements and session.commits == 0
     assert (copies.family.read_text(), copies.sample.read_text()) == ("family upload", "S2 upload")
 
@@ -175,8 +174,8 @@ async def test_a_sample_deletion_unlinks_its_file_once_it_has_committed(copies, 
 
     result = await _delete_sample(session)
 
-    # The file was there when the deletion committed (before: already unlinked), and is gone
-    # after; the family's upload stays. The deletion counts what it unlinked.
+    # The file was there when the deletion committed, and is gone after; the family's upload
+    # stays. The deletion counts what it unlinked.
     assert session.at_commit == [{"family": True, "sample": True}]
     assert not copies.sample.exists() and copies.family.read_text() == "family upload"
     assert result["deleted"]["raw_import_files"] == 1
@@ -213,9 +212,8 @@ async def test_a_file_that_cannot_be_unlinked_after_the_commit_is_left_and_logge
 
     # The deletion stands: committed, counting the one file it unlinked. The other is left, a
     # file without a record, and said in the log by its record, the error's kind and the random
-    # prefix of its name, which finds it in the upload folder: never the error's text (before:
-    # skipped without a word), nor its path, which holds the family's ID and the uploaded
-    # file's name (SEC-39; before, the line gave the path).
+    # prefix of its name, which finds it in the upload folder: never the error's text, nor its
+    # path, which holds the family's ID and the uploaded file's name (SEC-39).
     assert session.commits == 1 and result["deleted"]["raw_files"] == 1
     assert not copies.family.exists() and copies.sample.read_text() == "S2 upload"
     messages = [record.getMessage() for record in caplog.records if record.name == rif.__name__]
@@ -240,8 +238,7 @@ async def test_a_failure_of_the_unlinking_itself_leaves_the_deletion_standing(
     with caplog.at_level(logging.WARNING, logger=rif.__name__):
         result = await _delete_family(session)
 
-    # Committed, and answered: nothing was unlinked, which the log says by the error's kind
-    # (before: the error failed the deletion, before its commit).
+    # Committed, and answered: nothing was unlinked, which the log says by the error's kind.
     assert session.commits == 1 and result["deleted"]["raw_files"] == 0
     assert copies.family.exists() and copies.sample.exists()
     assert [record.getMessage() for record in caplog.records if record.name == rif.__name__] == [

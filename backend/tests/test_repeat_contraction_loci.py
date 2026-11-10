@@ -51,7 +51,7 @@ class TestContractionLoci:
     def test_vwa1_count_outside_every_stated_range_is_review(self) -> None:
         # Not "normal": at a locus where risk does not rise with count, being further
         # from the threshold proves nothing, and the catalog does not cover this. It is
-        # "review" rather than "unknown", so it outranks a normal allele (#535).
+        # "review" rather than "unknown", so it outranks a normal allele.
         assert classify(5, VWA1) == "review"
 
     def test_mir7_2_normal_is_not_flagged_and_the_deletion_is(self) -> None:
@@ -79,8 +79,8 @@ class TestExpansionLociUnchanged:
         assert classify_repeat_count(10, 27, 36) == "normal"
 
     def test_an_uncatalogued_locus_is_not_assessed_and_a_no_call_is_unknown(self) -> None:
-        # Read as "normal" before CLIN-26, so an expansion there could not be seen
-        # (test_repeat_not_assessed.py).
+        # Not "normal", so an expansion there can be seen (CLIN-26,
+        # test_repeat_not_assessed.py).
         assert classify_repeat_count(12, None, None) == "not_assessed"
         assert classify_repeat_count(None, 27, 36) == "unknown"
         assert classify_repeat_count(None, None, None) == "unknown"
@@ -88,8 +88,8 @@ class TestExpansionLociUnchanged:
 
 class TestReclassification:
     def test_stored_alleles_are_re_read_against_the_ranges(self) -> None:
-        # Rows written before the ranges were consulted carry the old status; the read
-        # path recomputes it.
+        # A stored row's status may differ from what the ranges give; the read path
+        # recomputes it.
         alleles = [
             {"repeat_count": 2, "status": "pathogenic"},
             {"repeat_count": 3, "status": "pathogenic"},
@@ -136,11 +136,11 @@ class TestReclassification:
 
 
 class TestReviewStatusSurfaces:
-    """#535 — a count the catalog cannot classify must never hide behind a normal allele."""
+    """A count the catalog cannot classify must never hide behind a normal allele."""
 
     def test_a_review_allele_outranks_a_normal_one(self) -> None:
         # VWA1 2/5: one normal allele, one outside every catalogued range. Summarised as
-        # "normal" before, so the aberrant-only view hid the row.
+        # "review", so the aberrant-only view shows the row.
         assert summarize_repeat_status([classify(2, VWA1), classify(5, VWA1)]) == "review"
 
     def test_ranking_order(self) -> None:
@@ -156,9 +156,8 @@ class TestReviewStatusSurfaces:
 
 
 class TestSharedBoundaryOnMonotonicLoci:
-    """#535 — where the catalog's benign range shares its upper endpoint with the grey
-    zone, the monotonic thresholds decide: the ambiguous count reads as intermediate, as
-    it did before the contraction-locus fix (#474) started consulting benign ranges."""
+    """Where the catalog's benign range shares its upper endpoint with the grey zone, the
+    monotonic thresholds decide: the ambiguous count reads as intermediate."""
 
     @pytest.mark.parametrize(
         ("count", "locus", "expected"),
@@ -178,7 +177,7 @@ class TestSharedBoundaryOnMonotonicLoci:
 @pytest.mark.asyncio
 async def test_catalog_join_breaks_ties_deterministically() -> None:
     # A gene can be catalogued twice (built-in ATXN8OS and STRchive SCA8_ATXN8OS); the
-    # call's thresholds must not depend on row order (#535).
+    # call's thresholds must not depend on row order.
     session = RowsSession([])
 
     table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(

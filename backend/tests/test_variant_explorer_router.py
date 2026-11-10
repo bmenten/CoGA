@@ -41,8 +41,8 @@ def test_export_columns_cover_every_row_field() -> None:
 
 
 def test_sample_genotype_values_allow_a_colon_in_the_sample_id() -> None:
-    # The page sends "<sample>:<mode>". Splitting on the first ":" read "LAB:1:hom" as
-    # sample "LAB" (#526); the mode is the text after the last ":", when it is one.
+    # The page sends "<sample>:<mode>". Split on the first ":", "LAB:1:hom" would read as
+    # sample "LAB"; the mode is the text after the last ":", when it is one.
     assert _parse_sample_genotype_filters(["LAB:1:hom", "S1:het", "S2:het_hom"]) == [
         ("LAB:1", "hom"),
         ("S1", "het"),

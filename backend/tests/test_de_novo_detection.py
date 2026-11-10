@@ -5,10 +5,10 @@ reference (``_call_is_confident_hom_ref``: called, and covered when the caller g
 parent carrying the ALT, a parent without a genotype and a parent missing from the trio each rule
 it out, and a homozygous child of two reference parents is read as a likely artefact, not de novo.
 
-A son's hemizygous de novo call on chrX or chrY is a de novo candidate (#545). Outside the
+A son's hemizygous de novo call on chrX or chrY is a de novo candidate. Outside the
 pseudo-autosomal regions a male carries one X and one Y, so a de novo variant there is written as a
-haploid ``1`` or as ``1/1``, never as ``0/1``. The de novo patterns required a heterozygous child
-and never admitted it. A son's X comes from his mother and his Y from his father, so only that
+haploid ``1`` or as ``1/1``, never as ``0/1``: a pattern that required a heterozygous child would
+never admit it. A son's X comes from his mother and his Y from his father, so only that
 parent has to be confidently reference.
 """
 
@@ -127,7 +127,7 @@ def test_low_coverage_reference_parent_is_not_confident() -> None:
     assert _call_is_confident_hom_ref(_call("FA", "0/0", dp=None))
 
 
-# ---- A son's hemizygous call on chrX or chrY (#545) -----------------------------------------------
+# ---- A son's hemizygous call on chrX or chrY ----------------------------------------------------
 
 
 def _is_de_novo(record: SmallVariantRecord, *, child: str = "SON", parents=TRIO, roles=ROLES, assembly="GRCh38") -> bool:
@@ -194,7 +194,7 @@ def test_the_diploid_rules_hold_in_a_par_in_a_daughter_and_off_scope() -> None:
     daughter_het = _record("chrX", X_NON_PAR, _call("DAUGHTER", "0/1"), _call("MOTHER", "0/0"), _call("FATHER", "0"))
     assert not _is_de_novo(daughter_hom, child="DAUGHTER", parents=daughter_trio)
     assert _is_de_novo(daughter_het, child="DAUGHTER", parents=daughter_trio)
-    # No listed PARs (another CHM13 release): read as diploid, as before.
+    # No listed PARs (another CHM13 release): read as diploid.
     off_scope = _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0"))
     assert not _is_de_novo(off_scope, assembly="T2T-CHM13v1.0")
 

@@ -1,10 +1,9 @@
 """The SV page keeps, for a gene panel of any size, the SVs named by its genes or in its regions (E2E).
 
-The owner decided on 2026-10-20 that the structural-variant page follows the small-variant
-rule (#897): a gene panel of any size, the Mendeliome included, keeps an SV whose annotation
-names one of its genes or that overlaps one of its regions. Until then a panel of more than
-1,000 regions was matched on the genes an SV's annotation names alone, and a smaller panel on
-its regions alone; the genome view's track availability matched a panel's regions alone.
+The structural-variant page follows the small-variant rule (owner decision 2026-10-20): a gene
+panel of any size, the Mendeliome included, keeps an SV whose annotation names one of its genes
+or that overlaps one of its regions, and the genome view's track availability follows the same
+rule.
 
 The family here is its own (a new id each run): a trio imported as a package, each member with
 a HiFiCNV file whose records name their genes in VEP's CSQ. Two genes are seeded in the gene
@@ -300,9 +299,8 @@ def test_the_family_and_the_panels_are_stored(run: dict[str, Any]) -> None:
 @pytest.mark.parametrize("path", list(_PATHS))
 @pytest.mark.parametrize("panel", _PANELS)
 def test_each_panel_keeps_the_svs_named_by_its_genes_or_in_its_regions(run: dict[str, Any], panel: str, path: str) -> None:
-    # Before: the panel of two genes left out the mother's deletion beside SVPNLB that names
-    # it; the panel of more than 1,000 regions the son's deletion in SVPNLA's locus named
-    # otherwise and his CNV on SVPNLB's last base.
+    # Both panels keep the mother's deletion beside SVPNLB that names it, the son's deletion in
+    # SVPNLA's locus named otherwise and his CNV on SVPNLB's last base.
     answer = run["answers"][panel][path]
     kept = _exported(answer) if path.startswith("export") else _listed(answer)
     assert kept == _KEPT
@@ -318,8 +316,7 @@ def test_each_members_genome_track_draws_the_svs_the_panel_keeps(run: dict[str, 
 
 @pytest.mark.parametrize("panel", _PANELS)
 def test_the_track_availability_offers_the_tracks_of_the_svs_the_panel_keeps(run: dict[str, Any], panel: str) -> None:
-    # Before: the availability matched a panel's regions alone, so the mother's SV track was
-    # not offered, although the panel keeps her SV.
+    # The mother's SV track is offered: the panel keeps her SV.
     answer = run["answers"][panel]["track availability"]
     assert answer["status"] == 200, answer["text"]
     offered = {name.split("_", 1)[0]: sample["variants"] for name, sample in answer["json"]["samples"].items()}

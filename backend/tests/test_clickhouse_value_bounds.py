@@ -1,17 +1,13 @@
 """A value beyond its ClickHouse column is stored as missing, never a failed write (SAFE-30).
 
 The loaders fill the ClickHouse columns from file values, and the ClickHouse client refuses
-a whole insert when one value falls outside its column. A read depth above 65,535 -- a
-mitochondrial or amplicon call reads far more -- did not fit the UInt16 ``calls.dp`` and
-``calls.ad``; a negative phase set fitted no UInt64, a QUAL or caller metric of 1e39 no
-Float32, a negative BED start no UInt64; and a GQ of ``inf`` failed before the insert, at
-its conversion to a whole number. Each failed the upload or the import with a 500, after
-the rows it replaced were deleted.
-
-Now the depth columns are UInt32, so such a depth is stored as the file has it, and every
-other value is bound to its column before the write: one the column cannot hold, or that
-is no finite number, is stored as missing. A record whose position no column holds is
-skipped as malformed by its loader, and counted.
+a whole insert when one value falls outside its column. The depth columns ``calls.dp`` and
+``calls.ad`` are UInt32, so a read depth above 65,535 -- a mitochondrial or amplicon call reads
+far more -- is stored as the file has it, and every other value is bound to its column before
+the write: one the column cannot hold (a negative phase set, a QUAL or caller metric of 1e39),
+or that is no finite number (a GQ of ``inf``), is stored as missing. A record whose position
+no column holds is skipped as malformed by its loader, and counted, so neither an upload nor
+an import fails on such a value.
 
 The ClickHouse here is a fake that enforces what the real client enforces: it records the
 tables the backend creates, with the column types their CREATE statements give them, and
@@ -255,7 +251,7 @@ def test_a_decimal_is_kept_only_when_it_is_finite_and_a_float32_holds_it() -> No
 
 
 def test_no_number_parser_raises_on_an_infinite_value() -> None:
-    # Before the fix each raised OverflowError: a 500, not a value left out.
+    # None raises OverflowError: the value is left out.
     for coerce in (
         clickhouse_variant_records._coerce_int,
         family_package_common._coerce_int,
@@ -286,7 +282,7 @@ def test_no_number_parser_raises_on_an_infinite_value() -> None:
 async def test_the_depth_columns_are_created_wide_and_the_genotype_quality_is_not(clickhouse) -> None:
     await clickhouse_variant_storage.ensure_clickhouse_variant_tables(_ASSEMBLY)
     entries = clickhouse.tables[f"{_ASSEMBLY}/SNV_INDEL/entries"]
-    # Before the fix both were UInt16: a mitochondrial or amplicon depth failed the insert.
+    # Both are UInt32: a mitochondrial or amplicon depth fits.
     assert entries["calls.dp"] == "Array(Nullable(UInt32))"
     assert entries["calls.ad"] == "Array(Array(Nullable(UInt32)))"
     # A genotype quality is a phred score, not a count of reads: it stays UInt16.
@@ -298,7 +294,7 @@ async def test_the_depth_columns_are_created_wide_and_the_genotype_quality_is_no
 
 @pytest.mark.asyncio
 async def test_a_mitochondrial_depth_is_stored_as_the_file_has_it(clickhouse) -> None:
-    # Before the fix: DataError on the UInt16 depth columns, a 500.
+    # The depth columns hold 120,000 reads.
     result = await _upload_small_variants(_VCF_HEADER + _MITO_DEEP)
 
     assert (result["inserted"], result["skipped_malformed"], result["source_format"]) == (1, 0, "mito")
@@ -317,7 +313,7 @@ async def test_a_mitochondrial_depth_is_stored_as_the_file_has_it(clickhouse) ->
 
 @pytest.mark.asyncio
 async def test_an_infinite_genotype_quality_is_stored_as_missing(clickhouse) -> None:
-    # Before the fix: OverflowError where the row was built, a 500.
+    # The infinite GQ does not fail where the row is built.
     result = await _upload_small_variants(_VCF_HEADER + _INFINITE_GQ)
 
     assert result["inserted"] == 1
@@ -382,8 +378,7 @@ async def test_a_file_with_no_storable_position_leaves_the_stored_callset(clickh
         await _upload_small_variants(_VCF_HEADER + records, overwrite=True)
 
     assert excinfo.value.status_code == 400
-    # Before the fix the records were read as storable, the callset deleted, and the
-    # insert failed: a 500 with the callset gone.
+    # The file is refused before anything is deleted: no delete, no insert.
     assert clickhouse.deletes() == []
     assert clickhouse.entries() == []
 
@@ -395,7 +390,7 @@ async def test_a_contig_named_by_a_number_out_of_rank_is_stored(clickhouse) -> N
 
     assert result["inserted"] == 1
     [entry] = clickhouse.entries()
-    # Ranked with the other contigs: before the fix its xpos was negative.
+    # Ranked with the other contigs: its xpos is not negative.
     assert entry["xpos"] == 99_000_000_100
 
 
@@ -477,7 +472,7 @@ async def test_an_sv_upload_stores_values_no_column_holds_as_missing(clickhouse,
     monkeypatch.setattr(variant_upload_service, "known_vcf_sample_ids", family_samples)
     monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", no_genes)
 
-    # Before the fix: DataError on the Int32 SVLEN (and the UInt32 positions).
+    # The SVLEN beyond Int32 (and the positions beyond UInt32) do not fail the upload.
     result = await variant_upload_service.upload_structural_variant_file(
         _Session(),  # type: ignore[arg-type]
         family_context=_family(),
@@ -522,15 +517,15 @@ async def test_package_sv_readers_skip_unplaceable_records_and_store_the_rest_wi
             sample_contexts={name: _sample(name) for name in _SAMPLES},
         )
     )
-    # The unplaceable records are skipped as malformed; before the fix they were read.
+    # The unplaceable records are skipped as malformed.
     assert [(record.chr, record.start, record.end) for record in records] == [
         ("1", 1000, 5000),
         ("M", 8470, 13447),
         ("2", 500, 600),
     ]
 
-    # Before the fix: DataError on the Int32 SVLEN, the UInt16 copy number and the UInt32
-    # read support.
+    # The SVLEN beyond Int32, the copy number beyond UInt16 and the read support beyond UInt32
+    # are stored as missing.
     await clickhouse_variant_storage.insert_structural_variant_records(_ASSEMBLY, "family-uuid", ["project-uuid"], records)
 
     details = clickhouse.rows[f"{_ASSEMBLY}/SV/variants/details"]
@@ -623,8 +618,8 @@ async def test_every_value_of_a_small_variant_record_meets_its_column(clickhouse
     [entry] = clickhouse.entries()
     assert entry["qual"] is None
     # The fractions are stored all or none (DATA-7): with the NaN left out, the second allele's
-    # 0.25 was stored as the first allele's, and so was the allele balance. The balance now
-    # comes from the allele depths as stored.
+    # 0.25 is not stored as the first allele's. The balance comes from the allele depths as
+    # stored.
     assert _calls(entry) == {
         "gq": None,
         "dp": None,
@@ -652,7 +647,7 @@ async def test_every_value_of_a_small_variant_record_meets_its_column(clickhouse
 async def test_a_bed_line_with_a_negative_coordinate_is_left_out(clickhouse) -> None:
     bed = "chr1\t-5\t100\t1.0\nchr1\t100\t200\t1.5\nchr1\t300\t18446744073709551616\t2.0\n"
 
-    # Before the fix the negative start reached the insert: DataError after the delete.
+    # The line with the negative start is left out before the insert.
     result = await bed_service.upload_bed_data(
         _Session(),  # type: ignore[arg-type]
         sample_context=_sample("S1"),
@@ -724,7 +719,7 @@ def test_package_track_readers_leave_out_a_negative_coordinate() -> None:
         {"chrom": "1", "start.pos": "-1", "end.pos": "100", "mean": "0.5"},
         sample_context=sample, path=path, line_no=1, origin="paternal",
     ) is None
-    # A coordinate the column holds is read as before.
+    # A coordinate the column holds is read as the file has it.
     stored = _parse_copy_number_interval_row(
         ["chr1", "5", "100", "0.5"], header=None, sample_context=sample, track_type="coverage",
         source="qdnaseq", path=path, line_no=1,

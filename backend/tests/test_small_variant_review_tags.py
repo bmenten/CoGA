@@ -1,4 +1,4 @@
-"""Variant tag definitions: built-in and custom tags, their scope and their lifecycle (#526).
+"""Variant tag definitions: built-in and custom tags, their scope and their lifecycle.
 
 Tags decide what a review is marked with, including the report tag a sign-out collects,
 so what may be created, seen, renamed and deleted is pinned here. A tag's key is its
@@ -457,8 +457,8 @@ def test_only_an_admin_deletes_tags() -> None:
 def test_a_projects_deletion_deactivates_its_tags_under_the_lock_then_deletes_it_in_one_transaction(
     monkeypatch,
 ) -> None:
-    # The cascade deleted a project's tags while the reviews, signed records and audit events
-    # kept their keys. They are now deactivated first, and the deletion detaches them.
+    # A cascade that deleted a project's tags would leave the reviews, signed records and audit
+    # events holding their keys. They are deactivated first, and the deletion detaches them.
     from backend.app.services import metadata_service
 
     async def _found(session, project_id):

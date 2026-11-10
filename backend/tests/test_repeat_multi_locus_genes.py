@@ -1,13 +1,12 @@
 """A gene with several STRchive loci: its name picks the tract by the call's position (CLIN-31).
 
 STRchive lists two repeat tracts in ARX (EIEE1_ARX, pathogenic from 17 GCN repeats; PRTS_ARX,
-from 20) and three in HOXA13 (HFG_HOXA13-I and -III from 22, -II from 18). A TRGT call whose
-TRID is the gene's name resolved to the first of them by locus ID, so a call at PRTS_ARX was
-read against EIEE1_ARX's thresholds: 17 repeats read pathogenic where PRTS_ARX does not call
-them so. The owner decided on 2026-10-14 that such a TRID is resolved by position: the STRchive
-locus the call's region overlaps, on the family's assembly. A region that overlaps none of
-them, or several, or an assembly STRchive gives no coordinates on, classifies the call by no
-locus: it reads *not assessed*, and the call carries the reason.
+from 20) and three in HOXA13 (HFG_HOXA13-I and -III from 22, -II from 18). The owner decided on
+2026-10-14 that a TRGT call whose TRID is the gene's name is resolved by position: the STRchive
+locus the call's region overlaps, on the family's assembly, so a call at PRTS_ARX is read
+against PRTS_ARX's thresholds, not EIEE1_ARX's, under which 17 repeats read pathogenic. A region
+that overlaps none of them, or several, or an assembly STRchive gives no coordinates on,
+classifies the call by no locus: it reads *not assessed*, and the call carries the reason.
 
 - The catalogue a start seeds names ARX's and HOXA13's tracts under the gene's name, and the
   name maps to no row by itself; a STRchive ID or STRipy ID still names its locus.
@@ -109,7 +108,7 @@ async def test_the_gene_name_of_a_locus_with_several_tracts_names_each_tract_and
     lookup = await import_lookup(monkeypatch)
 
     for gene, tracts in GENE_TRACTS.items():
-        assert gene.lower() not in lookup  # the first tract by locus ID before
+        assert gene.lower() not in lookup  # the gene's name maps to no row
         assert [row["locus_id"] for row in lookup.tracts[gene.lower()]] == tracts
         for row in lookup.tracts[gene.lower()]:
             assert (row["warning_min"], row["pathogenic_min"]) == TRACT_THRESHOLDS[row["locus_id"]]
@@ -136,14 +135,14 @@ async def test_a_strchive_or_stripy_id_still_names_its_locus_wherever_the_call_l
 # ---- The gene's name picks the tract the call's region overlaps --------------------------------------
 
 # (tract, count, status under the tract's own thresholds), at the counts where the tracts of the
-# gene disagree; the first tract by locus ID gave the other status before.
+# gene disagree.
 OWN_TRACT_CASES = [
     ("EIEE1_ARX", 17, P),
-    ("PRTS_ARX", 17, I),  # pathogenic under EIEE1_ARX's 17 before
+    ("PRTS_ARX", 17, I),  # pathogenic under EIEE1_ARX's 17
     ("PRTS_ARX", 19, I),
     ("PRTS_ARX", 20, P),
     ("HFG_HOXA13-I", 18, I),
-    ("HFG_HOXA13-II", 18, P),  # normal under HFG_HOXA13-I's 22 before
+    ("HFG_HOXA13-II", 18, P),  # normal under HFG_HOXA13-I's 22
     ("HFG_HOXA13-II", 17, I),
     ("HFG_HOXA13-III", 21, I),
     ("HFG_HOXA13-III", 22, P),
@@ -190,8 +189,8 @@ async def test_the_tract_is_found_on_t2t_by_its_t2t_coordinates(
 
 @pytest.mark.asyncio
 async def test_a_tag_several_loci_share_is_resolved_by_position_too(monkeypatch) -> None:
-    """STRchive's tags are aliases as well; one names loci of several genes, and the first of
-    them by locus ID (CANVAS_RFC1) classified the call before."""
+    """STRchive's tags are aliases as well; one names loci of several genes, and it is resolved
+    by position, not to the first of them by locus ID (CANVAS_RFC1)."""
     lookup = await import_lookup(monkeypatch)
     chrom, start, stop = _tract_region("PRTS_ARX")
 
@@ -210,7 +209,7 @@ async def test_a_region_that_overlaps_no_tract_is_not_assessed_with_the_reason(m
 
     params = _call(lookup, trid="ARX", chrom="chrX", start=25_020_000, end=25_020_060, count=40)
 
-    # EIEE1_ARX's thresholds before: 40 repeats read pathogenic.
+    # Not EIEE1_ARX's thresholds, under which 40 repeats read pathogenic.
     assert allele_statuses(params) == [NOT_ASSESSED, NOT_ASSESSED]
     assert params["status"] == NOT_ASSESSED
     assert (params["locus_id"], params["warning_min"], params["pathogenic_min"]) == ("ARX", None, None)

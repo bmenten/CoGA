@@ -114,7 +114,7 @@ def test_the_family_page_joins_the_panel_s_regions_to_its_own_rows() -> None:
     )
     assert params["panel_region_family_guid"] == params["family_guid"] == "eng15-family"
     assert params["panel_region_project_ids"] == params["project_ids"] == ("eng15-project-a", "eng15-project-b")
-    # The panel's genes are read as before, beside the regions.
+    # The panel's genes are read too, beside the regions.
     assert "arrayExists(gene -> lower(gene) IN %(panel_gene_terms)s, e.gene_symbols)" in clause
     assert params["panel_annotation_gene_terms"] == ("brca1",)
 
@@ -180,10 +180,9 @@ def test_without_an_assembly_the_rule_is_tested_per_row() -> None:
 
 def test_a_mendeliome_sized_gene_panel_joins_its_regions_beside_its_genes() -> None:
     # Every panel keeps a variant in one of its regions as well as one annotated with one of
-    # its genes, whatever its size (owner decision 2026-10-14). A panel of genes with more
-    # than 1,000 regions, such as the Mendeliome, was matched on gene symbols alone and read
-    # no region. Its regions are now joined to the family's rows on windows as a smaller
-    # panel's are: once, the region arrays bound as parameters of the join, not tested
+    # its genes, whatever its size (owner decision 2026-10-14). A panel of genes with more than
+    # 1,000 regions, such as the Mendeliome, has its regions joined to the family's rows on windows
+    # as a smaller panel's are: once, the region arrays bound as parameters of the join, not tested
     # against each row nor written into the query region by region.
     genes = tuple(f"PANELGENE{index:04d}" for index in range(5_300))
     regions = tuple(Region(chr="2", start=10_000 * index, end=10_000 * index + 500) for index in range(5_300))
@@ -198,7 +197,7 @@ def test_a_mendeliome_sized_gene_panel_joins_its_regions_beside_its_genes() -> N
         "fe.family_guid = %(panel_region_family_guid)s AND fe.sign = 1"
         " AND fe.project_guid IN %(panel_region_project_ids)s"
     )
-    # Beside the genes, read as before: the row's own symbols and the gene index.
+    # The genes too, beside the regions: the row's own symbols and the gene index.
     assert "arrayExists(gene -> lower(gene) IN %(panel_gene_terms)s, e.gene_symbols)" in clause
     assert len(params["panel_annotation_gene_terms"]) == 5_300
 

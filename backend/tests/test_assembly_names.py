@@ -1,26 +1,21 @@
-"""GRCh38, GRCh37 and T2T-CHM13 under each name they carry (found while fixing #1013 and OPS-17).
+"""GRCh38, GRCh37 and T2T-CHM13 under each name they carry.
 
-GRCh38 and GRCh37 (#1013). The UCSC reference import names an assembly as UCSC's description
+GRCh38 and GRCh37. The UCSC reference import names an assembly as UCSC's description
 of it does, ``GRCh38``, and by UCSC's own name for the genome, ``hg38``, where the description
 does not parse (``reference_source_service._parse_assembly_name``). ``sex_chromosomes.grc_build``
 reads GRCh38 or hg38, GRCh37 or hg19, in any case and with or without a patch suffix
-(``GRCh38.p14``); the PARs are looked up by it (#1006). The gene page's UCSC and gnomAD links and
-the order of a gene's assemblies and of a panel's regions read the exact name ``GRCh38`` alone
-(GRCh37 or hg19 for GRCh37): a GRCh38 assembly named ``hg38`` or ``GRCh38.p14`` had no UCSC or
-gnomAD link on the gene page and came last, after T2T and GRCh37. They now read ``grc_build``,
-and both lists take one order, ``sex_chromosomes.assembly_display_rank``: GRCh38, T2T-CHM13,
-GRCh37, then the rest.
+(``GRCh38.p14``); the PARs are looked up by it. The gene page's UCSC and gnomAD links and the
+order of a gene's assemblies and of a panel's regions read ``grc_build`` too, and both lists
+take one order, ``sex_chromosomes.assembly_display_rank``: GRCh38, T2T-CHM13, GRCh37, then the
+rest.
 
 T2T-CHM13 (OPS-17). The UCSC reference import names T2T-CHM13v2.0 the way UCSC's description of
 it does, ``T2T CHM13v2.0`` with a space. NCBI writes ``T2T-CHM13v2.0``, its ClickHouse tables are
-keyed ``T2T_CHM13v2.0``, and UCSC calls it ``hs1``. Several places recognised it by
-``startswith("T2T-CHM13")`` alone, so the assembly the import creates had no UCSC link on the gene
-page and sorted after GRCh37 in the gene reference and in a panel's regions. One rule now reads
-every name, ``sex_chromosomes.is_t2t_chm13``; GRCh38 and GRCh37 read as before. T2T is outside
-the validated scope (GRCh38 only, REQ-TRACE-009): this is the correct behaviour of an off-scope
-assembly, not a clinical claim.
+keyed ``T2T_CHM13v2.0``, and UCSC calls it ``hs1``. One rule reads every name,
+``sex_chromosomes.is_t2t_chm13``. T2T is outside the validated scope (GRCh38 only,
+REQ-TRACE-009): this is the correct behaviour of an off-scope assembly, not a clinical claim.
 
-The exact names read as before. All values are synthetic.
+All values are synthetic.
 """
 
 from __future__ import annotations
@@ -40,8 +35,7 @@ from backend.app.services.gene_metadata_service import (
 from backend.app.services.reference_source_service import _parse_assembly_name
 from backend.app.services.repeat_expansion_pg import _strchive_coordinates_of
 
-# Each name grc_build reads, with the build it denotes. The exact names GRCh38, GRCh37 and
-# hg19 were read before; the others were not.
+# Each name grc_build reads, with the build it denotes.
 GRC_NAMES = [
     ("GRCh38", "GRCh38"),
     ("hg38", "GRCh38"),
@@ -134,7 +128,7 @@ def test_the_ucsc_import_names_t2t_with_a_space() -> None:
 
 @pytest.mark.parametrize(("name", "build"), GRC_NAMES)
 def test_grc_build_reads_each_name(name: str, build: str) -> None:
-    # The rule the PARs are looked up by (#1006), which the links and the order now follow.
+    # The rule the PARs are looked up by, which the links and the order follow.
     assert sex_chromosomes.grc_build(name) == build
 
 
@@ -168,7 +162,6 @@ def test_t2t_has_no_grc_build_and_its_own_pars_under_each_name() -> None:
 
 @pytest.mark.parametrize(("name", "build"), GRC_NAMES)
 def test_the_gene_page_links_ucsc_and_gnomad_under_each_grc_name(name: str, build: str) -> None:
-    # Before: no UCSC and no gnomAD link for hg38, GRCh38.p14, grch38, GRCh37.p13 or HG19.
     assert _ucsc_db_name(name) == UCSC_DB[build]
     assert _gnomad_dataset_name(name) == GNOMAD_DATASET[build]
     links = _gene_page_links(name)
@@ -223,7 +216,6 @@ def test_no_ucsc_link_to_hs1_for_another_chm13_release_or_assembly() -> None:
 
 @pytest.mark.parametrize(("name", "build"), GRC_NAMES)
 def test_the_gene_reference_ranks_each_grc_name_by_its_build(name: str, build: str) -> None:
-    # Before: 9, the rank of an unknown assembly, for every name but GRCh38, GRCh37 and hg19.
     assert gene_info_jobs_pg._assembly_priority(name) == (RANK[build], name)
 
 
@@ -242,9 +234,9 @@ def test_one_order_for_a_gene_s_assemblies_and_a_panel_s_regions() -> None:
 
 
 # Each case: the assemblies in the order the table holds them, and the order the gene reference
-# and a panel's regions list them in. GRCh38 and GRCh37 under the exact names, as before, under
-# UCSC's names and as patch releases (#1013); T2T under each name the import, ClickHouse, UCSC
-# and NCBI give it, after GRCh38 and before GRCh37 (OPS-17; before: after GRCh37).
+# and a panel's regions list them in. GRCh38 and GRCh37 under the exact names, under UCSC's
+# names and as patch releases; T2T under each name the import, ClickHouse, UCSC and NCBI give
+# it, after GRCh38 and before GRCh37 (OPS-17).
 ORDER_CASES = [
     pytest.param(
         [OTHER_NAME, grch37, UCSC_IMPORT_NAME, grch38],

@@ -441,13 +441,12 @@ def test_expand_groups_keeps_a_renamed_locus_even_though_its_old_symbol_is_unkno
 
 # --- the account that requested the refresh (SEC-35) ---------------------------------------------
 #
-# A refresh is an administrator's (the routes require one), and the worker ran it whoever had
-# asked for it by then. The job now keeps its requester by the account's id, and the worker
-# runs it only for an active administrator, as the owner decided on 2026-10-28: a job whose
-# requester no longer exists, has been deactivated or is no longer an administrator when a
-# worker takes it up (a queued job, or one taken again after its worker stopped) ends failed,
-# saying why, before any gene record is written, and frees the slot for the next refresh. The
-# refresh a start queues (``startup-bootstrap``) is no account's, and runs.
+# A refresh is an administrator's (the routes require one). The job keeps its requester by the
+# account's id, and the worker runs it only for an active administrator (the owner's decision of
+# 2026-10-28): a job whose requester no longer exists, has been deactivated or is no longer an
+# administrator when a worker takes it up (a queued job, or one taken again after its worker
+# stopped) ends failed, saying why, before any gene record is written, and frees the slot for the
+# next refresh. The refresh a start queues (``startup-bootstrap``) is no account's, and runs.
 
 JOB = "00000000-0000-0000-0000-0000000000e0"
 WORKER = "gene-worker-1"
@@ -601,7 +600,6 @@ async def test_a_refresh_whose_requester_lost_their_rights_is_not_run(
 
     await job.run()
 
-    # Before, the refresh ran, whoever had asked for it.
     assert job.ran == [], "the refresh ran for an account that may no longer ask for it"
     expected = getattr(gene_info_jobs_pg, error)
     [(sql, params)] = job.updates
@@ -649,12 +647,12 @@ async def test_the_refresh_a_start_queues_is_no_accounts_and_runs(monkeypatch: p
 # --- one worker per refresh (SAFE-36) -------------------------------------------------------------
 #
 # Another worker takes a running job up once its heartbeat is older than
-# GENE_REFERENCE_STALE_HEARTBEAT (five minutes). The worker wrote no heartbeat while it loaded the
-# bulk sources (whole-file downloads and the dbNSFP gene file), so a load longer than that let a
-# second worker take the job up and run the refresh beside the first. And a run that failed ended
-# the job whoever's it was by then: a worker whose job had been taken up ended the other's run.
-# The worker now writes the heartbeat while the sources load, stops once it finds the job no
-# longer its own, and ends a failed job only while it is still its own.
+# GENE_REFERENCE_STALE_HEARTBEAT (five minutes). Without a heartbeat while it loads the bulk
+# sources (whole-file downloads and the dbNSFP gene file), a load longer than that would let a
+# second worker take the job up and run the refresh beside the first; and a failed run that ended
+# the job whoever's it was by then would end the other worker's run. The worker writes the
+# heartbeat while the sources load, stops once it finds the job no longer its own, and ends a
+# failed job only while it is still its own.
 
 OTHER_WORKER = "gene-worker-2"
 
@@ -670,7 +668,6 @@ async def test_the_refresh_writes_its_heartbeat_while_it_loads_the_bulk_sources(
 
     await job.run()
 
-    # Before, nothing was written to the job until the sources had loaded.
     assert job.beats_while_loading, "no heartbeat was written while the sources loaded"
     for heartbeat in job.heartbeats():
         assert (heartbeat["job_id"], heartbeat["worker_id"]) == (JOB, WORKER)
@@ -701,8 +698,7 @@ async def test_a_refresh_taken_up_by_another_worker_while_it_loads_stops_and_wri
 
     await job.run()
 
-    # Before, it went on to write every gene record beside the other worker, and then the job's
-    # end.
+    # It writes no gene record beside the other worker, nor the job's end.
     assert "sources loaded" not in job.ran, "the load went on once the job was no longer this worker's"
     assert "records written" not in job.ran
     assert job.heartbeats(), "no heartbeat found the job taken"
@@ -732,11 +728,11 @@ async def test_a_failed_refresh_ends_the_job_only_while_it_is_this_workers(
 
     [(sql, params)] = job.updates
     assert sql.startswith("UPDATE gene_info_refresh_jobs SET status = 'failed', active_slot = NULL, worker_id = NULL,")
-    # Before, it ended the job whichever worker's it was by then.
+    # It ends the job only while the job is its own.
     assert sql.endswith("WHERE id = CAST(:job_id AS uuid) AND worker_id = :worker_id")
     assert (params["job_id"], params["worker_id"]) == (JOB, WORKER)
     # The job's error, which the admin page shows, is a fixed sentence naming the error by its
-    # kind; it was the error's text, the address and the value with it (SEC-37). The log line
+    # kind, never the error's text, the address and the value with it (SEC-37). The log line
     # names the job and the kind.
     assert params["error"] == (
         "The gene reference refresh failed (RuntimeError). The genes it had saved keep their new "
@@ -805,9 +801,8 @@ async def test_the_refresh_stops_writing_gene_records_once_the_job_is_another_wo
             bulk_context=None,  # type: ignore[arg-type]
         )
 
-    # Before, it wrote every gene beside the worker that had taken the job up. Now it commits only
-    # while the job is its own (the start, then each gene's progress), and the gene it was writing
-    # when it found the job taken is left to the run's rollback.
+    # It commits only while the job is its own (the start, then each gene's progress), and the
+    # gene it was writing when it found the job taken is left to the run's rollback.
     assert (session.commits, looked_up) == (commits, fetched)
 
 

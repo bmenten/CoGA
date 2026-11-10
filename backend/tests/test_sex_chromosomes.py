@@ -1,4 +1,4 @@
-"""Where a male is hemizygous: chrX and chrY outside the pseudo-autosomal regions (#545).
+"""Where a male is hemizygous: chrX and chrY outside the pseudo-autosomal regions.
 
 GRCh38 and GRCh37 by the GRC's bounds; T2T-CHM13v2.0 by the T2T consortium's, as NCBI's
 assembly states them (CLIN-12), each edge on both sides. Another assembly has none, and a male

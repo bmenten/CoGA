@@ -1,11 +1,10 @@
 """The admin HPO sync records the release the ontology file states, and the file's SHA-256 (TRACE-18).
 
-``POST /admin/hpo/sync`` loaded any ontology file in the folder unchecked, and took a release the
-admin typed over the one the file states. That release went onto every term and into every
-signed record after it, so a record could name a release the file was not, and no record named
-the file. The owner chose (2026-10-27) to keep the sync as the route for a new release, checked:
-the release is the one the file states (its ``data-version``), an expected release or date the
-admin types must be what the file states or nothing is imported, a file that states no release
+A release the admin typed over the one the file states would go onto every term and into every
+signed record after it, so a record could name a release the file was not. The sync
+(``POST /admin/hpo/sync``) stays the route for a new release (the owner's choice of 2026-10-27),
+checked: the release is the one the file states (its ``data-version``), an expected release or date
+the admin types must be what the file states or nothing is imported, a file that states no release
 is refused, and the terms keep the SHA-256 of the bytes imported (``metadata.release_sha256``),
 which the loaded release, the admin summary and the signed record's HPO entry name. The startup
 import of the pinned file records the pinned digest the same way.
@@ -73,7 +72,7 @@ def test_an_expected_release_the_file_states_is_accepted(expected: str) -> None:
 
 @pytest.mark.parametrize("expected", ["hp/releases/2026-10-01", "2026-10-01", "09-01", "releases/2026"])
 def test_an_expected_release_the_file_does_not_state_is_refused(expected: str) -> None:
-    # Before, the typed release replaced the file's own, unchecked.
+    # The typed release never replaces the file's own.
     with pytest.raises(ValueError, match=f"is release hp/releases/2026-09-01, not the expected {expected}"):
         hpo_service.checked_hpo_file_release(_OBO.encode(), source_format="obo", expected_version=expected)
 
@@ -84,7 +83,6 @@ def test_an_expected_date_the_file_does_not_state_is_refused() -> None:
 
 
 def test_a_file_that_states_no_release_is_refused() -> None:
-    # Before, it was imported with the typed release, or with none.
     without_release = _OBO.replace("data-version: hp/releases/2026-09-01\n", "")
 
     with pytest.raises(ValueError, match="states no release"):

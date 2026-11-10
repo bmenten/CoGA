@@ -60,7 +60,7 @@ class _RecordingSession:
 )
 def test_a_classification_filter_matches_a_review_whatever_the_case_of_its_label(lister) -> None:
     # ENG-6: the class labels are in sentence case ("Likely pathogenic - class 4"). A review or a
-    # link saved before holds "Likely Pathogenic - class 4"; each finds the other.
+    # link that holds "Likely Pathogenic - class 4" and one that holds the label find each other.
     session = _RecordingSession(
         [
             {"variant_id": "1-100-A-G", "classification": "Likely Pathogenic - class 4", "tags": [], "note": None},
@@ -108,7 +108,7 @@ def _review(variant_id: str, classification=None, tags=(), pair_classification=N
     }
 
 
-# The reviews of the owner's before/after table (CLIN-75), one per variant.
+# A review of each shape the classification filter reads (CLIN-75), one per variant.
 _SHOWN_CLASS_REVIEWS = [
     _review("1-100-A-G", tags=["acmg_class_4", "report"]),  # a class tag alone
     _review("1-200-A-G", classification="VUS"),  # a bare class word
@@ -116,7 +116,7 @@ _SHOWN_CLASS_REVIEWS = [
     _review("1-400-A-G", pair_tags=["acmg_class_5"]),  # the pair review's class tag alone
     _review("1-500-A-G", classification="Some free text"),  # free text
     _review("1-600-A-G", classification="Some free text", tags=["acmg_class_1"]),  # free text, class tag
-    _review("1-700-A-G", classification="Likely Pathogenic - class 4"),  # a label in an older case
+    _review("1-700-A-G", classification="Likely Pathogenic - class 4"),  # a label in another case
 ]
 
 
@@ -136,10 +136,10 @@ _SHOWN_CLASS_REVIEWS = [
     ],
 )
 def test_a_classification_filter_keeps_a_review_by_the_class_it_shows(wanted, kept) -> None:
-    # CLIN-75 (the owner's decision of 2026-11-10): the filter read the classification text
-    # alone, so "Likely pathogenic - class 4" dropped a variant the family page shows with that
-    # class by its class tag, and kept one shown as class 4 for text saying class 3. It now keeps
-    # a review, or its pair review, by the class it shows (review_class_label), in any case.
+    # CLIN-75 (the owner's decision of 2026-11-10): the filter keeps a review, or its pair
+    # review, by the class it shows (review_class_label), in any case, not by its classification
+    # text alone: "Likely pathogenic - class 4" keeps a variant the family page shows with that
+    # class by its class tag, and "VUS - class 3" leaves out one shown as class 4.
     session = _RecordingSession(_SHOWN_CLASS_REVIEWS)
     assert asyncio.run(
         small_variant_review_pg.list_matching_small_variant_review_ids(
@@ -277,9 +277,9 @@ def _selected_columns(sql: str) -> set[str]:
 
 @pytest.mark.asyncio
 async def test_a_review_list_selects_every_field_a_review_is_served_with() -> None:
-    # A list serves each review as a read of that one review does. Its query once left out
-    # the ACMG record, so every list served a classified variant with acmg = None, and the
-    # ACMG dialog opened from a list was seeded without the saved criteria.
+    # A list serves each review as a read of that one review does. Its query selects the ACMG
+    # record too: without it every list would serve a classified variant with acmg = None, and
+    # the ACMG dialog opened from a list would be seeded without the saved criteria.
     session = _RecordingSession([_STORED_REVIEW])
 
     served = await small_variant_review_pg.get_small_variant_review_map(
@@ -313,9 +313,9 @@ class _ProjectingSession:
 
 @pytest.mark.asyncio
 async def test_a_review_holding_only_an_acmg_record_counts_as_reviewed() -> None:
-    # A classification saved with no tag, class label or note is still a review. The
-    # summary's query once selected neither the ACMG record nor the compound-het partners,
-    # so such a review was not counted.
+    # A classification saved with no tag, class label or note is still a review: the
+    # summary's query selects the ACMG record and the compound-het partners, so such a
+    # review is counted.
     acmg_only = {
         **{key: None for key in _STORED_REVIEW},
         "variant_id": "var-1",
@@ -545,11 +545,11 @@ def test_a_re_save_with_the_same_classification_text_audits_nothing(monkeypatch)
 
 
 # --- a quick tag toggle changes the tags alone (CLIN-76) -------------------------------------------
-# The quick tag toggle (quickTagTogglePayload in smallVariantReview.ts) sent the class the review
-# shows, read from its class tag, in place of its classification text: toggling Report on a review
-# of text "VUS - class 3" beside the tag of class 4 stored "Likely pathogenic - class 4", and the
-# trail recorded a change of classification text no one made (TRACE-20). It now sends the text back
-# as stored, as these saves do: a tags event alone.
+# The quick tag toggle (quickTagTogglePayload in smallVariantReview.ts) sends the classification
+# text back as stored, as these saves do: a tags event alone. Sending the class the review shows,
+# read from its class tag, would store "Likely pathogenic - class 4" when toggling Report on a
+# review of text "VUS - class 3" beside the tag of class 4, and the trail would record a change of
+# classification text no one made (TRACE-20).
 
 
 @pytest.mark.parametrize(
@@ -567,7 +567,7 @@ def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(
     existing = _stored_review(classification=classification, tags=tags)
     toggled = sorted([*tags, "report"])
 
-    # The toggle as it is sent now: the classification text as stored.
+    # The toggle as it is sent: the classification text as stored.
     payload = SmallVariantReviewUpdate(classification=classification, tags=toggled, note="reported")
     audits, writes, _reads = _save_tags(monkeypatch, existing, payload, allowed=["report"])
 
@@ -577,7 +577,7 @@ def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(
     events = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
     assert [(event["action"], event["summary"]) for event in events] == [("tags", "Tags added report")]
 
-    # As it was sent before: the class shown, recorded as a classification change.
+    # Sent with the class shown instead: recorded as a classification change.
     payload = SmallVariantReviewUpdate(classification=shown, tags=toggled, note="reported")
     audits, _writes, _reads = _save_tags(monkeypatch, existing, payload, allowed=["report"])
     [audit] = audits
@@ -588,8 +588,8 @@ def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(
 
 # --- a tag the review holds is kept, whatever became of its definition ----------------------------
 # The quick tag toggle and the review dialog send the stored tags back with every save. A
-# tag deleted since (or one outside the family's projects) used to refuse every later save
-# of the review with 400, the one removing it included. Only a tag the save adds is checked.
+# tag deleted since (or one outside the family's projects) refuses no later save of the
+# review, the one removing it included: only a tag the save adds is checked.
 
 
 def _save_tags(monkeypatch, existing: dict | None, payload: SmallVariantReviewUpdate, allowed: list[str]):
@@ -631,10 +631,9 @@ def test_a_save_removing_a_tag_whose_definition_is_gone_goes_ahead(monkeypatch) 
 
 
 def test_a_class_label_saved_in_another_case_is_stored_as_the_label_is_now(monkeypatch) -> None:
-    # ENG-6: a page loaded before the labels were put in sentence case sends "Likely Pathogenic -
-    # class 4" back with a save that leaves the class alone, and so may any other client. It is
-    # stored as the label is now, so the review keeps the case revision 0013 gave it; text that
-    # names no class label is stored as sent.
+    # ENG-6: a client may send "Likely Pathogenic - class 4" back with a save that leaves the
+    # class alone. It is stored as the label is, so the review keeps the label's sentence case;
+    # text that names no class label is stored as sent.
     from backend.app.services.review_pg_utils import _stored_classification
 
     existing = _stored_review(classification="Likely pathogenic - class 4", tags=["acmg_class_4", "report"])

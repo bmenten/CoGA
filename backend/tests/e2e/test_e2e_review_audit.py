@@ -17,13 +17,11 @@ The IVDR-critical traceability path. Over the golden-trio data it:
 * records the pair again, then saves its first variant with a tag, a note and
   ``{"compound_het": null}``: the save stores the tag and note on that variant's review
   without the pair, the second variant's review, which held only the pair, is deleted, and
-  the clinical audit trail records exactly that. The pair clear once deleted the saved
-  variant's own review first: the save answered 500, stored nothing, and committed the tag,
-  the note and the pair's removal to the trail;
+  the clinical audit trail records exactly that;
 * saves a review of text "VUS - class 3" beside the tag of class 4, then a quick tag toggle
   as the page sends it (the text as stored, CLIN-76): the trail records the tag alone, and
-  the row keeps its text. The toggle as the page sent it before (the class shown, from the
-  tag, as its text) records a classification change no one made.
+  the row keeps its text. A toggle that sends the class shown (from the tag) as its text
+  records a classification change no one made.
 
 Chain tamper-evidence + append-only immutability are exercised on a THROWAWAY
 family via the direct audit service (``record_clinical_event``), so the
@@ -194,7 +192,7 @@ async def _collect(root: Path) -> dict:
         r["integrity_signouts"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
         )
-        # #508: the report page asks whether its live content still matches the latest
+        # The report page asks whether its live content still matches the latest
         # sign-out. Straight after signing it must — through the real JSONB round-trip —
         # and after a reported review is edited it must not.
         check_url = f"/api/families/{FAMILY}/report/sign-out-check"
@@ -268,8 +266,8 @@ async def _collect(root: Path) -> dict:
 
         # CLIN-76: a quick tag toggle sends the classification text back as stored. A review of
         # text "VUS - class 3" beside the tag of class 4 (shown as class 4) gets the Review quick
-        # tag as the page sends it now, then loses it as the page sent it before: with the class
-        # shown as its text. The trail is read after each save.
+        # tag as the page sends it, then loses it in a save that sends the class shown as its
+        # text. The trail is read after each save.
         quick = f"{reviews}/{QUICK_TOGGLE_VARIANT_ID}/review"
         audit_url = f"/api/families/{FAMILY}/clinical-audit"
         try:
@@ -422,7 +420,7 @@ def test_audit_table_is_append_only(snap):
 
 
 def test_signout_check_matches_right_after_signout(snap):
-    # #508: identical content compares equal through the real JSONB round-trip.
+    # Identical content compares equal through the real JSONB round-trip.
     resp = _resp(snap, "check_after_signout")
     signout2 = _resp(snap, "signout2")
     assert resp["json"]["version"] == signout2["json"]["version"]
@@ -594,7 +592,7 @@ def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(snap):
     stored = snap["quick_rows_toggled"][QUICK_TOGGLE_VARIANT_ID]
     assert (stored["classification"], sorted(stored["tags"])) == ("VUS - class 3", ["acmg_class_4", "review"])
     assert _resp(snap, "quick_toggled")["json"]["classification"] == "VUS - class 3"
-    # As the page sent it before, with the class shown as the text: a classification change.
+    # Sent with the class shown as the text: a classification change.
     assert _new_events(snap, "quick_audit_toggled", "quick_audit_as_before") == [
         ("classification", "Classification text VUS - class 3 → Likely pathogenic - class 4"),
         ("tags", "Tags removed review"),

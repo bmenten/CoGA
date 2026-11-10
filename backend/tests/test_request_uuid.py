@@ -1,12 +1,11 @@
 """A UUID in a request is read once, and bound as its canonical text (``core/sql.py``).
 
-asyncpg's uuid codec takes nothing but hex digits and hyphens. A route that bound the value
-it received into ``CAST(:x AS uuid)`` answered a non-UUID in its path or query string with a
-500 (the raw-file download and verify, the import job, the HPO annotation and NIPT artifact
-routes); a route that checked the value with ``uuid.UUID`` and then bound it as received did
-the same for a spelling ``uuid.UUID`` reads and asyncpg does not, such as ``{…}`` or
-``urn:uuid:…`` (the panel, preset, user, project and clinical CNV routes, and the panel
-filter of the variant pages). Each now reads the value with ``canonical_uuid`` or
+asyncpg's uuid codec takes nothing but hex digits and hyphens. Bound as received into
+``CAST(:x AS uuid)``, a non-UUID in a path or query string would answer 500 (the raw-file
+download and verify, the import job, the HPO annotation and NIPT artifact routes), and so
+would a spelling ``uuid.UUID`` reads and asyncpg does not, such as ``{…}`` or ``urn:uuid:…``,
+checked with ``uuid.UUID`` first (the panel, preset, user, project and clinical CNV routes,
+and the panel filter of the variant pages). Each reads the value with ``canonical_uuid`` or
 ``require_uuid``:
 
 * a value that spells no UUID names no record, and is answered as an unknown record is (the
@@ -296,7 +295,7 @@ def test_a_value_that_is_no_uuid_is_answered_without_being_bound(
     not_a_uuid: Any,
 ) -> None:
     client, session = admin_client
-    # It used to reach asyncpg's uuid codec, and the request failed with a 500.
+    # Answered without reaching asyncpg's uuid codec, which would fail the request (500).
     assert _answer(client, method, path, body, NOT_A_UUID) == (unknown if not_a_uuid is SAME else not_a_uuid)
     assert NOT_A_UUID not in session.bound
     assert _answer(client, method, path, body, UNKNOWN) == unknown
@@ -314,13 +313,13 @@ def test_each_spelling_of_a_uuid_is_bound_as_its_canonical_text(
     spelling: str,
 ) -> None:
     client, session = admin_client
-    # The braces and the URN prefix passed uuid.UUID, and then failed asyncpg (500).
+    # The braces and the URN prefix pass uuid.UUID but would fail asyncpg (500): bound canonical.
     assert _answer(client, method, path, body, spelling) == unknown
     assert UNKNOWN in session.bound
     assert spelling not in session.bound
 
 
-# --- what a spelling other than the canonical one used to miss ---------------------------
+# --- what a spelling other than the canonical one names --------------------------------
 
 
 def _panel_row(panel_id: str) -> dict[str, Any]:

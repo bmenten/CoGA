@@ -13,7 +13,7 @@ def test_health_liveness_and_routing_without_datastores() -> None:
 
     Boots with startup tasks skipped, so this needs no datastores and runs in the
     normal backend job. It catches import / router-wiring / middleware crashes —
-    the kind that previously only surfaced at runtime as "Unable to reach API".
+    the kind that would otherwise only surface at runtime as "Unable to reach API".
     """
     app.state.skip_startup_tasks = True
     try:
@@ -67,8 +67,8 @@ def _fail_the_readiness_check(monkeypatch) -> None:
 
 def test_an_unhandled_error_is_answered_with_the_security_headers(monkeypatch) -> None:
     # SEC-23. Starlette's ServerErrorMiddleware answers such an exception, outside every
-    # middleware the app adds, so its plain 500 went without the headers the security-headers
-    # middleware sets, HSTS included. Its text stays the same.
+    # middleware the app adds, so its plain 500 would go without the headers the
+    # security-headers middleware sets, HSTS included; it carries them. Its text stays the same.
     _fail_the_readiness_check(monkeypatch)
     app.state.skip_startup_tasks = True
     try:
@@ -94,7 +94,7 @@ def test_an_unhandled_error_is_answered_with_the_security_headers(monkeypatch) -
 
 def test_an_unhandled_error_still_reaches_the_server(monkeypatch) -> None:
     # Answering it does not swallow it: Starlette raises it again, so uvicorn still logs it,
-    # by its frames and kinds (#769), after the request middleware has logged and audited it.
+    # by its frames and kinds, after the request middleware has logged and audited it.
     _fail_the_readiness_check(monkeypatch)
     app.state.skip_startup_tasks = True
     try:

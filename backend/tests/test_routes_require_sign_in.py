@@ -9,7 +9,7 @@ signed link first (``test_request_control_characters.py``). Every other route is
 the app and asked without a token: each answers 401 before it reads the database, so a route
 that loses its sign-in, or reads anything before it, fails here.
 
-The reference routers need a signed-in user too (#522), the species list included: reference
+The reference routers need a signed-in user too, the species list included: reference
 data (genes, assemblies, the CNV catalogue) is not project-scoped and not PHI, but it must not
 be scraped, or used to load the database, anonymously. ``/assemblies/reference-status``
 embeds import provenance (the source and the operator's e-mail address who performed it): it is

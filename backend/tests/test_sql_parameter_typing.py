@@ -7,17 +7,14 @@ bare ``IS NULL`` test has no inferable type and the driver raises
     CASE WHEN :assembly_id IS NULL THEN NULL ELSE CAST(:assembly_id AS uuid) END
 
 This is not caught by the unit suite, because those tests mock the session and never
-reach a real prepare. It bit twice: the family annotation manifest was silently never
-written from the day provenance capture was added (the merge is best-effort and logs
-instead of raising, so nothing surfaced), and the QC-threshold insert failed the same way
-before it shipped.
+reach a real prepare, and in a best-effort path that logs instead of raising the error
+would surface nowhere.
 
 The working form casts a sentinel instead, giving the parameter a concrete type:
 
     CAST(NULLIF(:assembly_id, '') AS uuid)
 
-A grep-style test is the cheap guard that would have caught both, and it costs no
-containers.
+A grep-style test is the cheap guard, and it costs no containers.
 """
 
 from __future__ import annotations
@@ -67,7 +64,7 @@ def test_the_guard_actually_matches_the_pattern_it_describes() -> None:
     assert _AMBIGUOUS_CASE.search(multi_line)
     # The safe form must not be flagged.
     assert not _AMBIGUOUS_CASE.search("CAST(NULLIF(:assembly_id, '') AS uuid)")
-    # A CASE over two *different* parameters is not this bug: the cast parameter has a
+    # A CASE over two *different* parameters is not this case: the cast parameter has a
     # type of its own.
     assert not _AMBIGUOUS_CASE.search(
         "CASE WHEN :flag IS NULL THEN NULL ELSE CAST(:other AS uuid) END"

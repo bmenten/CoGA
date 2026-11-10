@@ -1,10 +1,8 @@
 """The SV search keeps, for a gene panel of any size, the SVs named by its genes or in its regions.
 
-The owner decided on 2026-10-20 that the structural-variant page follows the small-variant
-rule (#897): a gene panel of any size, the Mendeliome included, keeps an SV whose annotation
-names one of its genes or that overlaps one of its regions. Until then a panel of more than
-1,000 regions was matched on the genes an SV's annotation names alone, in Python, after the
-50,000-SV candidate cap; a smaller panel on its regions alone.
+The structural-variant page follows the small-variant rule: a gene panel of any size, the
+Mendeliome included, keeps an SV whose annotation names one of its genes or that overlaps one
+of its regions.
 
 Two checks, in ClickHouse:
 
@@ -378,9 +376,8 @@ def test_the_sv_search_applies_a_panel_of_any_size_in_sql_before_the_cap(monkeyp
             await close_clickhouse_client()
 
     answers = asyncio.run(_run())
-    # Before: the two-gene panel left out the SV beside SVPANB that names it; the panel of more
-    # than 1,000 regions read the first three SVs of the callset, none of the panel's, and kept
-    # none, flagged as capped (and left out the SV in SVPANC's locus named otherwise in any case).
+    # Each panel, in each view, keeps the SV named by a panel gene, the SV in a gene's locus
+    # named otherwise and the SV named and in it, and none is capped or estimated.
     kept = {"sv-name-only", "sv-position-only", "sv-both"}
     assert answers == {
         (name, path): (kept, False) for name in panels for path in ("list", "ranked", "track")

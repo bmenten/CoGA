@@ -1,7 +1,7 @@
 """The phenotypes an import changes are on the family's clinical audit trail (E2E, SEC-1).
 
 A phenotype added, changed or removed on screen is a ``phenotype`` event on the family's
-hash-chained clinical audit trail (#887). So is every change an import makes to a family's
+hash-chained clinical audit trail. So is every change an import makes to a family's
 phenotypes (HPO terms). Through the real package import (``execute_family_package_import``,
 the entry the import job runs), the real PED upload and Postgres:
 
@@ -176,8 +176,7 @@ async def _exercise(base: Path) -> dict[str, Any]:
         out["v3"] = (failed.completed, failed.error, any("restored" in line for line in failed.logs))
         out["held_after_v3"] = await stored_phenotypes(replaced_id)
         out["before_ped"] = await phenotype_events(replaced_id)
-        # The trail as the family's report reads it (before: an import's events were lists,
-        # which the served schema refused, and the trail answered 500).
+        # The trail as the family's report reads it: an import's events in the served schema.
         async with AsyncClient(transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://e2e") as client:
             client.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(client)}"
             served = await client.get(f"/api/families/{replaced_id}/clinical-audit")

@@ -1,13 +1,11 @@
 """A queued import does not run as an account deactivated, or no longer an administrator, since it was queued (E2E, real Postgres and ClickHouse).
 
-Found while fixing SEC-32 (#1005). The worker runs a queued import job as the account that
-requested it, found by the job's ``requested_by_id``, and took that account whatever its
-state: an account an administrator deactivated between the request and the run had its import
-run as it, writing the family, though deactivating an account ends its access at once
-(docs/security-posture.md). And only an administrator queues an import, but the import
-checked the requester's access to the job's project only: an administrator demoted to viewer
-since, an analyst of that project, still had it run (SEC-35; refused as the owner decided on
-2026-10-28).
+The worker runs a queued import job as the account that requested it, found by the job's
+``requested_by_id``. Deactivating an account ends its access at once
+(docs/security-posture.md), so an account an administrator deactivated between the request and
+the run has no import run as it. And only an administrator queues an import, so one demoted to
+viewer since is refused even while it is an analyst of the job's project (SEC-35; the owner's
+decision of 2026-10-28).
 
 Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see
 test_e2e_api_contract.py), for each of two colleagues, administrators and analysts in the e2e
@@ -291,8 +289,7 @@ def test_the_job_of_the_changed_account_ends_failed_saying_why(ran, change: str)
     from backend.app.services import family_package_import as package_import
 
     seen = ran[change]
-    # Before, the worker ran the import as the deactivated or demoted account, and the job
-    # completed: a demoted colleague is still an analyst of the job's project.
+    # A demoted colleague is still an analyst of the job's project, and the job ends failed.
     job = seen["job"]
     expected = getattr(package_import, _ERRORS[change])
     assert job["status"] == "failed", job
@@ -305,8 +302,6 @@ def test_the_job_of_the_changed_account_ends_failed_saying_why(ran, change: str)
 
 @pytest.mark.parametrize("change", list(_CHANGES))
 def test_nothing_of_the_family_is_written(ran, change: str) -> None:
-    # Before, the family, its sample and its variants were written, made by the deactivated
-    # or demoted account.
     seen = ran[change]
     assert seen["job"]["family_id"] is None
     assert seen["written"] == {"family": False, "made_by": [], "samples": 0, "variants": 0}

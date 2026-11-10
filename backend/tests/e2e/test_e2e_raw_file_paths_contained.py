@@ -2,9 +2,10 @@
 
 The admin page lists a family's ``raw_import_files`` rows, downloads a file and verifies its
 SHA-256 at the recorded ``storage_path``, and deleting a sample or the family unlinks the
-``managed`` copies (web uploads, under ``data/raw_imports``). Each used the recorded path as
-found, so an edited row let an admin download or hash any file the backend can read, and
-turned a sample or family delete into deleting any file the backend may write.
+``managed`` copies (web uploads, under ``data/raw_imports``). Each keeps to the family's own
+folders: used as found, an edited row's path would let an admin download or hash any file the
+backend can read, and turn a sample or family delete into deleting any file the backend may
+write.
 
 Over the real API (an in-process ``httpx.ASGITransport`` client, one event loop, see
 test_e2e_api_contract.py) and Postgres and ClickHouse, with the seeded admin signed in, a
@@ -17,14 +18,13 @@ the upload folder) and ``elsewhere``, which is neither.
 
 * a package file, in a package folder not named after the family, and an upload are listed,
   downloaded and verified; a row naming a file elsewhere, a path that climbs out of the import
-  root with ``..`` or a link in the package that leads out is listed unavailable (before:
-  present and downloadable), and its download and Verify answer 403 (before: 200 with the
-  file's bytes, and its checksum); so does one naming a file of another family's package in
-  the import area, or a link in the package to it (SEC-38; before: 200);
+  root with ``..`` or a link in the package that leads out is listed unavailable, and its
+  download and Verify answer 403; so does one naming a file of another family's package in
+  the import area, or a link in the package to it (SEC-38);
 * deleting the second sample unlinks its upload and leaves the file elsewhere that another of
-  its managed rows names (before: deleted); deleting the family unlinks its upload, also one
-  in the folder of a former ID, and leaves the package file and the file elsewhere that its
-  managed rows name (before: both deleted); each delete counts only what it unlinked.
+  its managed rows names; deleting the family unlinks its upload, also one in the folder of a
+  former ID, and leaves the package file and the file elsewhere that its managed rows name;
+  each delete counts only what it unlinked.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it. The IDs and
 files are synthetic, and the family is dropped at the end.
@@ -233,15 +233,13 @@ def test_the_family_is_made_and_listed(exercised: dict[str, Any]) -> None:
 
 def test_the_list_shows_a_file_outside_the_folders_unavailable(exercised: dict[str, Any]) -> None:
     available, unavailable = (True, True), (False, False)
-    # Before: the file elsewhere, by its path, by `..` and through the link, was listed
-    # present and downloadable.
     assert exercised["listed"] == {
         "package": available,
         "upload": available,
         "elsewhere": unavailable,
         "climbing": unavailable,
         "linked_out": unavailable,
-        # Before (SEC-38): present and downloadable, as files below the import root.
+        # SEC-38: another family's package, below the import root too.
         "other_package": unavailable,
         "linked_across": unavailable,
         # Read where it lies (the family's package); not deleted for it, below.
@@ -254,8 +252,6 @@ def test_the_list_shows_a_file_outside_the_folders_unavailable(exercised: dict[s
 
 
 def test_a_file_outside_the_folders_is_neither_downloaded_nor_verified(exercised: dict[str, Any]) -> None:
-    # Before: 200 with the secret's bytes, and Verify hashed it ("verified").
-    # Before (SEC-38): 200 with the other package's bytes, and "verified".
     assert exercised["downloads"] == {
         "package": (200, b"package file"),
         "upload": (200, b"family upload"),
@@ -280,12 +276,12 @@ def test_a_sample_delete_unlinks_only_its_upload(exercised: dict[str, Any]) -> N
     assert exercised["sample_delete"] == (200, 1)
     after = exercised["after_sample_delete"]
     assert after["sample_upload"] is False
-    # Before: deleted, as the sample's managed copy.
+    # Another of the sample's managed rows names it, and it is left.
     assert after["victim_sample"] is True
 
 
 def test_a_family_delete_unlinks_only_its_uploads(exercised: dict[str, Any]) -> None:
-    # Before: 4, the package file and the file elsewhere among them.
+    # Its two uploads alone, not the package file or the file elsewhere.
     assert exercised["family_delete"] == (200, 2)
     assert exercised["after_family_delete"] == {
         "package": True,

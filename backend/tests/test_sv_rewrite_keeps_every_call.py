@@ -6,7 +6,7 @@ rows to change one sample's calls. They read the rows with
 no family-view filter, and write them back with ``rewrite_family_structural_variants``, each
 row under its own project. So the calls of samples the view does not show (an inactive
 member's), the phase sets, the genotype as stored and the breakend's remote end survive.
-They used to be read through the family view, which drops all of those. The upload also
+Read through the family view, which drops all of those, they would be lost. The upload also
 records its VCF header's caller in the family's annotation manifest.
 ``test_e2e_sv_rewrite_keeps_every_call`` shows the same against real ClickHouse and Postgres.
 """
@@ -325,8 +325,7 @@ async def test_upload_writes_back_every_other_call_and_field_as_stored(storage) 
     assert fake.reads == ["sniffles"]
     assert fake.rewrites[0]["source"] == "sniffles"
     written = _written(fake)
-    # Before: PROBAND's phase set came back empty, and FATHER (not in the family view) lost
-    # his call here and his own deletion altogether.
+    # PROBAND's phase set, and FATHER's call (he is not in the family view), are written back.
     assert _calls(written[("project-uuid", _DEL_30000)]) == {
         "FATHER": ("1|0", 9001),
         "MOTHER": ("0/1", None),

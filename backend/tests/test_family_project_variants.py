@@ -3,8 +3,7 @@
 ClickHouse stores a family's small and structural variant rows once per project it is linked
 to, and the family is read through its projects only. A change of its projects copies its rows
 to each project it is added to before the new links commit, and removes those under the
-projects it left once they have; a project on another assembly is refused. Before, the change
-touched Postgres only, and a family moved to another project showed no variants.
+projects it left once they have; a project on another assembly is refused.
 
 Over a fake ClickHouse (the storage module's ``_execute``) and a fake Postgres session:
 
@@ -14,7 +13,8 @@ Over a fake ClickHouse (the storage module's ``_execute``) and a fake Postgres s
 * a project the family is not linked to yet has whatever it holds replaced, even with as many
   rows as the origin: no write has kept them current;
 * a linked project's rows are never deleted by the copy; a linked project without a callset
-  gets it (a family moved before the fix, or a project an import added);
+  gets it (a family whose project links changed while its rows stayed under the earlier
+  project, or a project an import added);
 * the copy refreshes the small-variant summaries or moves the SV data version only for what
   it wrote; the prune deletes only rows outside the kept projects;
 * a family without a project keeps its rows under ``unassigned``, as the writers store them;
@@ -172,7 +172,7 @@ async def test_a_linked_projects_rows_are_never_deleted(clickhouse) -> None:
 
 @pytest.mark.asyncio
 async def test_a_linked_project_without_a_callset_gets_it(clickhouse) -> None:
-    # The family was moved to B before this fix: B is linked, its rows stayed under A.
+    # B is linked while the family's rows stayed under A.
     fake = clickhouse({"clair3": {A: 10}}, {"needlr": {A: 3}})
 
     await _copy([B], [B])
@@ -319,9 +319,8 @@ class _AssemblySession:
 
 @pytest.mark.asyncio
 async def test_a_family_in_no_project_is_looked_for_on_every_assembly(monkeypatch) -> None:
-    # Its projects saved as none (its rows under "unassigned"), or its only project deleted
-    # before that was refused (its rows under the deleted id): no project names the assembly
-    # its rows are on, and a project on another one was not refused.
+    # Its projects saved as none (its rows under "unassigned"), or its rows under the id of a
+    # deleted project: no project names the assembly its rows are on.
     searched: list[str] = []
 
     async def assemblies(_session, project_ids):
@@ -356,7 +355,7 @@ async def test_a_family_in_no_project_is_looked_for_on_every_assembly(monkeypatc
     assert await family_project_variants.family_variant_assemblies(None, FAMILY, linked=[], project_ids=[]) == [ASSEMBLY]
     assert searched == ["all"] * 4
 
-    # A family with a project is looked for on its projects' assemblies only, as before.
+    # A family with a project is looked for on its projects' assemblies only.
     assert await family_project_variants.family_variant_assemblies(None, FAMILY, linked=[A], project_ids=[B]) == [ASSEMBLY]
     assert searched == ["all"] * 4
 

@@ -58,8 +58,8 @@ def test_log_model_update_sorts_fields() -> None:
 
 
 def test_the_request_audit_and_the_ui_events_mask_one_list_of_keys() -> None:
-    # ENG-8. Each kept a copy of the list of secret-looking keys, so either could come to
-    # mask less than the other; both now read the one in coga_logging.
+    # ENG-8. Both read the one list of secret-looking keys in coga_logging, so neither can
+    # come to mask less than the other.
     from app.core import coga_logging
     from app.routers import ui_events
 
@@ -104,7 +104,7 @@ def _request_with_content_type(content_type: str) -> Request:
 
 
 def test_parse_request_body_masks_form_urlencoded_password() -> None:
-    # Regression: the OAuth2 password flow posts application/x-www-form-urlencoded,
+    # The OAuth2 password flow posts application/x-www-form-urlencoded,
     # which never parses as JSON. The parsed body must mask the password and must
     # not contain the plaintext anywhere before it is persisted to the audit DB.
     request = _request_with_content_type("application/x-www-form-urlencoded")
@@ -259,7 +259,7 @@ def _audited_update_fields(monkeypatch, method: str, path: str, body: dict) -> l
 @pytest.mark.parametrize(
     ("method", "path", "body", "listed"),
     [
-        # Before, "note" was listed: a key ProjectChange ignores, which changed nothing.
+        # "note" is not listed: a key ProjectChange ignores, which changes nothing.
         ("PUT", "/api/projects/p1", {"name": "n", "note": "x"}, ["name"]),
         ("PUT", "/api/projects/p1/optional", {"description": "d", "note": "x"}, ["description"]),
         # Several body models: the body's keys are the parameters'.
@@ -526,8 +526,8 @@ def test_a_failed_synchronous_audit_write_is_counted_and_logged_with_its_row(
 ) -> None:
     # AUDIT_LOG_MODE=sync writes the row as its request ends, and so does async while no
     # worker runs (before the lifespan starts it, after shutdown, under an in-process
-    # client). A failed write there left only a warning: not counted, so the alert stayed
-    # quiet, and the row lost. It is recorded now as one the worker could not store.
+    # client). A failed write there is recorded as one the worker could not store: counted,
+    # and logged with its row.
     failure = _insert_error_quoting_the_row()
 
     async def _failing_batch(_payloads):
@@ -563,8 +563,8 @@ def test_an_audit_write_that_raises_is_recorded_and_never_fails_the_request(
 
 def test_an_unhandled_error_is_logged_by_kind_and_frames_not_by_its_text(monkeypatch, caplog) -> None:
     # A failed statement's text quotes its SQL and parameters, here a value from the request
-    # body. The 500 line used to carry that text twice (message and traceback); it now names
-    # the error, its route and its frames, and only the audit row keeps the text.
+    # body. The 500 line names the error, its route and its frames, never that text, and only
+    # the audit row keeps the text.
     class _AsyncpgError(Exception):
         pass
 

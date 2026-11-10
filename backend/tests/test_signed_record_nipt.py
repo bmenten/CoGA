@@ -542,9 +542,10 @@ async def test_a_plasma_without_a_target_table_has_no_coverage_check_and_no_sex_
 # --- The notes of the coverage check over the coverage tracks (TRACE-17) ---------------------
 # Without a per-target table the NIPT page reads the plasma's coverage tracks over the genes or
 # panel of its search, else the family's region of interest, and names each track it does not
-# read as depth. The owner decided on 2026-10-28 to freeze those notes. The sign-out does not
-# know the page's search: it runs the check itself as the page runs it without a gene or panel,
-# over the family's ROI, and freezes its notes word for word with what it ran for.
+# read as depth. The record freezes those notes (the owner's decision of 2026-10-28). The
+# sign-out does not know the page's search: it runs the check itself as the page runs it without
+# a gene or panel, over the family's ROI, and freezes its notes word for word with what it ran
+# for.
 
 # A coverage BED that declares nothing, and WisecondorX's bins: neither is read as depth.
 _NOT_DEPTH = {"web": "unknown", "wisecondorx": "log2_ratio"}
@@ -759,12 +760,12 @@ def test_a_failed_check_without_its_message_still_gives_a_reason() -> None:
     ]
 
 
-# --- One analysis for the sign-out's Sample QC and its record (#900, OPS-9) ----------------
+# --- One analysis for the sign-out's Sample QC and its record (OPS-9) ----------------------
 #
-# The analysis reads the family's whole callset. A sign-out ran it twice, for the Sample QC's
-# NIPT checks (paternity, the fetal sex from the father's X, the category distribution),
-# which the sign-out gates on, and for the record's NIPT section, and the two could read
-# different inputs: the assay's artifact list is curated apart from the family's data.
+# The analysis reads the family's whole callset. A sign-out runs it once, for both the Sample
+# QC's NIPT checks (paternity, the fetal sex from the father's X, the category distribution),
+# which the sign-out gates on, and the record's NIPT section: run twice, the two could read
+# different inputs, as the assay's artifact list is curated apart from the family's data.
 
 
 class _SignOutSession(_Session):
@@ -856,7 +857,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     async def no_pgt_section(*_args, **_kwargs):  # pragma: no cover - must not be read
         raise AssertionError("the fetus, read as an embryo, is no PGT embryo")
 
-    # The fetus is an embryo member (_sample_rows): its record held a PGT section once (#922).
+    # The fetus is an embryo member (_sample_rows), yet its record holds no PGT section.
     monkeypatch.setattr(srs, "pgt_embryo_results", no_pgt_section)
 
 

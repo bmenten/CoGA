@@ -5,8 +5,8 @@ Its helpers (the variant type, the most severe class, the term lists, the table 
 WHERE it builds over the entries (each filter it shares with the family search the family
 search's own clause, read on each row's own annotation: the location, type, callset, gene,
 rsID, excluded ClinVar and the per-transcript filters in one subquery, CLIN-29; the ClinVar
-rescue of the frequency ceilings, #526; imputed calls left out by default; per-sample genotype
-classes, #511, read by variant), the count cap, the cursor and its fingerprint, the review-tag filter's
+rescue of the frequency ceilings; imputed calls left out by default; per-sample genotype classes,
+read by variant), the count cap, the cursor and its fingerprint, the review-tag filter's
 cap (DATA-2), and the gene panel read as the family page reads it (CLIN-48). A variant's
 carriers (the row limit and its truncation flag) and the annotation a row shows (one
 transcript's consequence and HGVS, CLIN-50).
@@ -166,8 +166,8 @@ def test_sample_genotype_filters_build_per_sample_subqueries() -> None:
     assert params["explorer_sample_1_samples"] == ("S2", "u2")
     assert params["explorer_sample_2_samples"] == ("S3", "u3")
     assert [params[f"explorer_sample_{index}_families"] for index in range(3)] == [("f1",), ("f1",), ("f2",)]
-    # The family page's sample filter reads each sample's call, with its genotype classes
-    # (#511): hom includes a haploid "1", het a "1/2", het_hom both.
+    # The family page's sample filter reads each sample's call, with its genotype classes:
+    # hom includes a haploid "1", het a "1/2", het_hom both.
     family_params = _small_native_sample_filter_clauses(
         _FAMILY,
         SmallVariantQueryFilters(page=1, page_size=1, sample_filters=["S1:hom", "S2:het", "S3:het|hom"]),
@@ -390,8 +390,8 @@ def _family_search_condition(**explorer_filters: Any) -> tuple[str, dict[str, An
 
 def test_clinvar_rescue_keeps_pathogenic_variants_past_the_frequency_ceilings() -> None:
     # The explorer page offers "ClinVar P/LP overrules the frequency filter", on by
-    # default, and the service ignored it: a pathogenic variant above a cut-off was
-    # dropped although the page said it was kept (#526). The rescue is the family search's,
+    # default, and the service applies it: a pathogenic variant above a cut-off is kept,
+    # as the page says. The rescue is the family search's,
     # on the transcript that meets the other annotation filters (CLIN-29).
     clauses, params = _explorer_where(
         max_gnomad_af=0.01, max_gnomad_hom_count=2, clinvar_overrides_frequency=True
@@ -435,9 +435,9 @@ def test_frequency_ceilings_apply_to_every_variant_without_the_rescue() -> None:
 def test_per_transcript_filters_hold_on_one_transcript_together(filters: dict[str, Any]) -> None:
     # CLIN-29: the family search needs one transcript to meet every annotation filter: with
     # MANE only and impact HIGH it drops a variant whose HIGH transcript is not MANE and
-    # whose MANE transcript is MODIFIER. The explorer tested each filter against the
-    # annotation index, which pools the transcripts, and kept that variant. Now both
-    # filters sit in one subquery over the transcript rows, and none on the pooled index.
+    # whose MANE transcript is MODIFIER. Tested each against the annotation index, which
+    # pools the transcripts, the filters would keep that variant: both sit in one subquery
+    # over the transcript rows, and none on the pooled index.
     clauses, _params = _explorer_where(**filters)
     condition, _family_params = _family_search_condition(**filters)
     assert _transcript_subqueries(clauses) == [_transcript_subquery(condition)]
@@ -650,7 +650,7 @@ class _RecordingSession:
 def test_review_filter_reads_one_id_past_its_cap_in_variant_id_order() -> None:
     # The tag / classification filter takes at most `limit` ids. Postgres returns them in
     # variant_id order with one more, so a capped list is the same on every request and the
-    # caller knows more matched (DATA-2; before, an arbitrary subset was kept silently).
+    # caller knows more matched (DATA-2).
     from backend.app.services.variant_explorer_service import _variant_ids_matching_reviews
 
     session = _RecordingSession(rows=[("1-100-A-G",), ("1-200-A-G",), ("1-300-A-G",)])
@@ -675,7 +675,7 @@ def test_review_filter_reads_one_id_past_its_cap_in_variant_id_order() -> None:
 
 def test_the_classification_filter_matches_a_review_whatever_the_case_of_its_label() -> None:
     # ENG-6: the class labels are in sentence case ("Likely pathogenic - class 4"); a review or
-    # a filter saved before holds "Likely Pathogenic - class 4". Both sides are lowercased, as
+    # a filter may hold "Likely Pathogenic - class 4". Both sides are lowercased, as
     # the family page compares them.
     from backend.app.services.variant_explorer_service import _variant_ids_matching_reviews
 
@@ -877,13 +877,13 @@ def test_the_shown_class_and_review_time_do_not_depend_on_the_order_the_reviews_
 
 
 def test_the_classification_filter_keeps_a_review_by_the_class_it_shows_as_the_family_search_does() -> None:
-    # CLIN-75 (the owner's decision of 2026-11-10): the filter matched the classification text
-    # alone, so a review classified by its class tag was shown with its class (CLIN-71) and not
-    # found by it. It now keeps a review, or its pair review, by the class it shows, in SQL:
-    # review_class_label_sql over the review's own text and tags and over the pair's, the rule of
-    # the family search's filter (review_shows_class). A bare class word asks for its class.
-    # integration/test_variant_explorer_export_integration.py evaluates the SQL on Postgres
-    # beside the Python rule, and compares this filter with the family search's.
+    # CLIN-75 (the owner's decision of 2026-11-10): a review classified by its class tag is shown
+    # with its class (CLIN-71) and found by it: the filter keeps a review, or its pair review, by
+    # the class it shows, not by its classification text alone, in SQL: review_class_label_sql over
+    # the review's own text and tags and over the pair's, the rule of the family search's filter
+    # (review_shows_class). A bare class word asks for its class.
+    # integration/test_variant_explorer_export_integration.py evaluates the SQL on Postgres beside
+    # the Python rule, and compares this filter with the family search's.
     from backend.app.services.review_pg_utils import review_class_label_sql
     from backend.app.services.variant_explorer_service import _variant_ids_matching_reviews
 
@@ -1053,9 +1053,8 @@ def _region_join(panel: PanelFilterConstraints) -> str:
 
 
 def test_the_panel_is_the_family_page_condition_with_its_regions_joined() -> None:
-    # CLIN-48: the explorer read the panel's gene symbols only, on the annotation index. A
-    # variant in one of the panel's regions (a PanelApp region, or a gene's locus in the
-    # gene reference) was left out, which the family page keeps. Now the explorer's panel
+    # CLIN-48: a variant in one of the panel's regions (a PanelApp region, or a gene's locus
+    # in the gene reference) is kept, as the family page keeps it: the explorer's panel
     # condition is the family page's own, with the same parameters: the regions, the row's
     # gene symbols, the gene index. Only the regions are tested as a join, which reads every
     # family's variants at once with the same answer.
@@ -1090,7 +1089,7 @@ def test_a_panel_of_regions_only_keeps_the_variants_in_its_regions() -> None:
 def test_a_large_gene_panel_is_matched_by_its_genes_and_its_regions() -> None:
     # As on the family page: a panel of genes with more than 1,000 regions, such as the
     # Mendeliome, keeps the variants in its regions as well as its genes' (owner decision
-    # 2026-10-14). It was matched on its genes' symbols alone, and its regions not read.
+    # 2026-10-14).
     regions = tuple(("2", 10_000 * index, 10_000 * index + 500) for index in range(1_001))
     panel = _panel(genes=("SYN48A", "SYN48B"), regions=regions)
     clauses, params = _explorer_panel(panel)
@@ -1188,7 +1187,7 @@ def _explorer_search(monkeypatch: pytest.MonkeyPatch, panel: PanelFilterConstrai
 
 def test_the_panel_is_read_for_the_explorers_assembly(monkeypatch: pytest.MonkeyPatch) -> None:
     # The family page's reading of the panel, for the assembly the explorer searches: the
-    # regions stored for that assembly and its genes' loci in that assembly (#515).
+    # regions stored for that assembly and its genes' loci in that assembly.
     seen = _explorer_search(monkeypatch, _panel(genes=("SYN48A",), regions=(("9", 100, 200),)))
     assert seen["panel_reads"] == [(_PANEL_ID, _SCOPE.assembly_id), (_PANEL_ID, _SCOPE.assembly_id)]
     # The search's count and the export's rows apply it, on the entry rows as alias "e".
@@ -1217,7 +1216,7 @@ def test_a_panel_that_does_not_exist_is_answered_as_on_the_family_page(monkeypat
 
 def test_the_cursor_belongs_to_the_panels_genes_and_regions() -> None:
     # A cursor issued before an edit of the panel restarts the list rather than paging on
-    # with other genes or regions, as it did when the filters held the panel's genes.
+    # with other genes or regions.
     from backend.app.services.variant_explorer_service import _filters_fingerprint
 
     filters = GlobalVariantFilters(panel_id=_PANEL_ID)
@@ -1344,8 +1343,8 @@ async def test_fetch_annotation_display_maps_columns_without_gene_symbols(monkey
 
     result = await ves._fetch_annotation_display("GRCh38", [1])
 
-    # The never-read gene_symbols aggregate is no longer selected, and the
-    # remaining columns map to the shifted indices.
+    # The gene_symbols aggregate, which nothing reads, is not selected, and the
+    # remaining columns map to their indices.
     assert "gene_symbols" not in captured["query"]
     assert result[1] == {
         "gene_ids": ["ENSG1"],

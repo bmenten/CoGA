@@ -1,6 +1,6 @@
 """The phenotypes an import changes are on the family's clinical audit trail (SEC-1).
 
-A phenotype added, changed or removed on screen writes a ``phenotype`` event (#887); so does
+A phenotype added, changed or removed on screen writes a ``phenotype`` event; so does
 every import that changes a family's phenotypes (HPO terms): a package import's phenotypes, a
 failed import's restore that puts them back, a failed import that removes the family it had
 created, and a PED upload or the Family Builder that replaces a family. Each writes, in the
@@ -491,8 +491,8 @@ def _served(event: dict[str, Any], at: datetime) -> dict[str, Any]:
 
 
 def test_the_trail_serves_every_kind_of_import_event(events: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch) -> None:
-    # Before: an import's before and after were lists, which the served schema
-    # (ClinicalAuditEventOut: an object or none) refused, so the family's trail answered 500.
+    # An import's before and after are each an object or none, as the served schema
+    # (ClinicalAuditEventOut) takes them, so the family's trail serves every kind of event.
     session = _Session(_annotation("S1", "HP:0001250", note="since birth"))
     _import(session, _row("S1", "HP:0001250", note="since age 2"), _row("S2", "HP:0001263", "absent"))
     restore = _RestoreSession(

@@ -1,11 +1,11 @@
 """The SV CSV export names a breakend's mate (DATA-5).
 
 The SV list serves a breakend's mate (``remote_chr``, ``remote_start``: its *Remote chr* and
-*Remote start* columns), but ``GET /families/{family_id}/structural-variants/export`` wrote
-neither, so an exported translocation named no partner, whatever its source. The export now
-writes the mate under the list's names, *Remote chr* and *Remote start*, beside the locus
-(after *End*), and leaves both empty for an SV without a mate. The ranked export holds the
-same columns after its *Priority* and *Rank*.
+*Remote start* columns), and so does ``GET /families/{family_id}/structural-variants/export``,
+so an exported translocation names its partner, whatever its source. The export writes the
+mate under the list's names, *Remote chr* and *Remote start*, beside the locus (after *End*),
+and leaves both empty for an SV without a mate. The ranked export holds the same columns after
+its *Priority* and *Rank*.
 
 Each export here runs through the route and the real SV search: unranked (the callset's
 native page), filtered (the rows filtered in Python) and ranked (the SV page's default). The
@@ -254,7 +254,7 @@ def _mates(table: list[list[str]]) -> dict[tuple[str, str, str, str], tuple[str,
 
 @pytest.mark.parametrize("search", sorted(_SEARCHES))
 def test_the_mate_stands_beside_the_locus_under_the_sv_lists_names(export, search: str) -> None:
-    # Before: Chromosome, Start, End, Type, … with no mate column.
+    # The mate's columns follow End.
     expected = ["Priority", "Rank", *_COLUMNS] if search == "ranked" else _COLUMNS
     assert export(**_SEARCHES[search])[0] == expected
 

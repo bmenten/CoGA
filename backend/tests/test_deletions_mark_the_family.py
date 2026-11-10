@@ -1,29 +1,29 @@
 """A deletion of a family's data marks the family before its first ClickHouse write (SAFE-31).
 
-ClickHouse has no transactions. The admin's deletion of a sample with its data deleted the
-sample's tracks, then rewrote the family's small variants (with no restore) and structural
-variants without the sample's calls, before the sample's Postgres rows went; the admin's
-family delete deleted the family's variants and tracks before its Postgres rows; a PED upload
-or a manual family that replaces a family, and a structure change that clears the family's
-data, delete its ClickHouse data last, just before their commit. A failure after a
-ClickHouse write -- a rewrite, a Postgres write, the commit -- or a process that stopped there
-rolled the family back without what was deleted, and nothing marked it: the report could be
-signed out as complete, with a member that lost its calls looking homozygous reference.
+ClickHouse has no transactions. The admin's deletion of a sample with its data deletes the
+sample's tracks, then rewrites the family's small variants and structural variants without
+the sample's calls, before the sample's Postgres rows go; the admin's family delete deletes
+the family's variants and tracks before its Postgres rows; a PED upload or a manual family
+that replaces a family, and a structure change that clears the family's data, delete its
+ClickHouse data last, just before their commit. A failure after a ClickHouse write -- a
+rewrite, a Postgres write, the commit -- or a process that stops there rolls the family back
+without what was deleted; unmarked, the report could be signed out as complete, with a member
+that lost its calls looking homozygous reference.
 
-Now each such deletion writes a mark into ``import_unfinished`` before its first ClickHouse
+Each such deletion writes a mark into ``import_unfinished`` before its first ClickHouse
 write (``deletion-…``, committed on a connection of its own, ``FamilyDeletion``), listing
 what it may leave partly written or missing, one sample at a time: a process that stops
 leaves it. Its commit removes it -- with the family, for a deletion of the family -- and the
 deletion of a sample strikes that sample's items from every mark: nothing of a sample that is
 gone can be missing. A deletion that fails leaves the mark listing exactly what its writes may
-have left so, given how far it got (the rewrite of the family's small variants now puts the
+have left so, given how far it got (the rewrite of the family's small variants puts the
 rows back as the SV rewrite does), or removes it when that is nothing. It gates sign-out as an
 import's entry does, and goes item by item as each dataset is brought again with overwrite.
 
 SAFE-35: a PED upload or a manual family that replaces a family deletes its interval tracks
-too, through the structure clear's deletes, and marks the family for them; they used to stay
-in ClickHouse. The deletion of a sample also strikes the sample off the import-incomplete flag
-and off the entry of an import that stopped, which no import could clear while they named it.
+too, through the structure clear's deletes, and marks the family for them. The deletion of a
+sample also strikes the sample off the import-incomplete flag and off the entry of an import
+that stopped, which no import can clear while they name it.
 
 Against fakes at the stores' edge: ClickHouse (written at once, kept whatever becomes of the
 request), and the family row in Postgres (a write is the transaction's until it commits; the
@@ -454,7 +454,7 @@ async def test_a_sample_deletion_whose_process_stops_leaves_the_family_marked_fo
         await _delete_s2(database)
 
     # S2's tracks are gone and every small variant with them; nothing of the request committed.
-    # Before: nothing marked the family, which read as complete.
+    # The mark keeps the family from reading as complete.
     assert clickhouse.small == [] and "uuid-S2" not in clickhouse.tracks and database.commits == 0
     key, mark = _deletion_mark(database)
     assert key.startswith("deletion-")
@@ -477,8 +477,7 @@ async def test_a_sample_deletion_whose_sv_rewrite_fails_leaves_the_samples_data_
         await _delete_s2(database)
 
     # The SV rewrite put every SV back; the small variants had been rewritten without S2's
-    # calls, and its tracks deleted, while the rollback brings S2 back. Before: S2 came back
-    # without its data, and nothing marked the family.
+    # calls, and its tracks deleted, while the rollback brings S2 back, marked for that data.
     assert clickhouse.sv_calls() == {"1-7000-12000-DEL---": {"S1", "S2"}, "1-30000-31000-DEL---": {"S1", "S2"}}
     assert clickhouse.small_calls() == [["S1", "S3"], ["S1", "S3"]]
     _key, mark = _deletion_mark(database)
@@ -497,8 +496,7 @@ async def test_a_sample_deletion_whose_small_rewrite_fails_puts_the_rows_back(st
     with pytest.raises(RuntimeError, match="ClickHouse insert failed"):
         await _delete_s2(database)
 
-    # The rows as they were, S2's calls included (before: every small variant of the family
-    # was gone), and no SV touched.
+    # The rows as they were, S2's calls included, and no SV touched.
     assert clickhouse.small == _STORED_SMALL
     assert ("delete SVs",) not in database.events
     # Only S2's tracks, which went first, may be missing.
@@ -606,8 +604,8 @@ async def test_a_sample_deletion_that_completes_strikes_the_sample_off_the_impor
     left = database.committed["flag"]
     # S2's part of each failure went: nothing of a sample that is gone can be missing. What the
     # others may lack stays: S1's coverage, S1's TRGT calls, and the direct calls of the family
-    # VCF, a file of every sample. Before: the flag kept naming S2, whose data no import or
-    # upload can bring again, so it could never be cleared.
+    # VCF, a file of every sample. The flag names nothing of S2, whose data no import or
+    # upload can bring again: it can still be cleared.
     assert left["failed_datasets"] == ["coverage", "repeats_trgt", "snv"]
     assert left[registration.FAILED_SCOPES_KEY] == {
         "coverage": [
@@ -646,7 +644,7 @@ async def test_a_sample_deletion_removes_a_flag_that_named_that_sample_alone(sto
 
     await _delete_s2(database)
 
-    # Before: it stayed, and gated sign-out for good.
+    # It goes, rather than gating sign-out for good.
     assert database.committed["flag"] is None and database.commits == 1
 
 
@@ -686,8 +684,8 @@ async def test_a_sample_deletion_strikes_the_sample_off_a_stopped_imports_entry(
     marks = database.marks()
     # The import that stopped part-way keeps what the others may lack: S1's coverage and the
     # direct calls. S2's TRGT calls go from it, finished as they were: none of them is the
-    # family's now. The import that set out to bring S2's data alone goes. Before: both stayed
-    # naming S2, and only an import of S2's data could have removed them.
+    # family's now. The import that set out to bring S2's data alone goes: no import can bring
+    # that data again.
     assert set(marks) == {"job-c"}
     entry = marks["job-c"]
     assert (entry["job_id"], entry["at"]) == ("job-c", stopped.at)
@@ -744,7 +742,7 @@ async def test_an_sv_deletion_whose_process_stops_in_its_rewrite_leaves_the_fami
         )
 
     # Every source's SVs are gone. The family is marked for every SV dataset but S2's own,
-    # whose calls were to go (before: nothing marked it).
+    # whose calls were to go.
     assert clickhouse.sv == []
     assert _items(_deletion_mark(database)[1]) == {
         _item("mito", "S1"),
@@ -789,7 +787,7 @@ async def test_a_family_deletion_that_fails_after_its_first_delete_leaves_the_fa
 
     # The rollback brings the family back, without its small variants, and marked for what
     # the deletes that began may have left missing: its small variants and its SVs, not its
-    # tracks (before: nothing marked it).
+    # tracks.
     assert database.committed["exists"] is True and clickhouse.small == []
     assert _items(_deletion_mark(database)[1]) == _SMALL | _SV
     assert database.events[:3] == [("lock",), ("mark",), ("delete small variants",)]
@@ -888,8 +886,7 @@ async def test_a_ped_upload_whose_commit_fails_leaves_the_replaced_family_marked
         await _upload_ped(database)
 
     # The rollback brings the replaced family back, without its variants and tracks (deleted
-    # last, just before the commit), and marked for them (before: nothing marked it; and the
-    # tracks were not deleted, SAFE-35).
+    # last, just before the commit, SAFE-35), and marked for them.
     assert database.committed["exists"] is True
     assert clickhouse.small == [] and clickhouse.sv == [] and clickhouse.tracks == {}
     assert _items(_deletion_mark(database)[1]) == _SMALL | _SV | _TRACKS
@@ -931,8 +928,8 @@ async def test_a_ped_upload_that_replaces_a_family_deletes_its_interval_tracks(r
     await _upload_ped(database)
 
     # The replaced family's tracks go with its variants, last, just before the commit, as a
-    # structure change that clears a family's data deletes them. Before: they stayed in
-    # ClickHouse under a family that was gone (SAFE-35).
+    # structure change that clears a family's data deletes them: none stays in ClickHouse
+    # under a family that is gone (SAFE-35).
     assert clickhouse.small == [] and clickhouse.sv == [] and clickhouse.tracks == {}
     assert database.events[-4:] == [("delete small variants",), ("delete SVs",), ("delete tracks", "family"), ("commit",)]
 
@@ -1032,7 +1029,7 @@ async def test_a_structure_change_whose_commit_fails_after_clearing_the_data_lea
 
     # The rollback brings the family back with its structure, reviews and repeat calls, but
     # not its variants and tracks (deleted last, just before the commit): marked for each of
-    # its datasets held in ClickHouse (before: nothing marked it).
+    # its datasets held in ClickHouse.
     assert clickhouse.small == [] and clickhouse.sv == [] and clickhouse.tracks == {}
     assert _items(_deletion_mark(database)[1]) == _SMALL | _SV | _TRACKS
     # Marked before the change locked the family row.

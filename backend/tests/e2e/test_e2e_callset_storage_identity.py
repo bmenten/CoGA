@@ -1,12 +1,12 @@
 """Two callsets' calls of one variant are two stored rows, and both survive part merges (E2E).
 
-A small variant's storage key is the variant, and a family's ``entries`` rows were sorted
-by ``(project, family, position, key)`` only. A clair3 row and a GLIMPSE2 row for one
-variant then had one sort key, and when ClickHouse merged the parts the CollapsingMergeTree
-kept the later row, the imputed one: the direct call was gone, and with it the variant
-from the diagnostic lists, which hide imputed callsets. SVs collided the same way: a
+A small variant's storage key is the variant. Were a family's ``entries`` rows sorted by
+``(project, family, position, key)`` only, a clair3 row and a GLIMPSE2 row for one variant
+would share one sort key, and when ClickHouse merged the parts the CollapsingMergeTree would
+keep the later row, the imputed one: the direct call would be gone, and with it the variant
+from the diagnostic lists, which hide imputed callsets. SVs could collide the same way: a
 per-sample upload's id (``chrom-start-end-type---``) names no caller, so a Sniffles and a
-Spectre call at the same coordinates had one key, and a merge kept one of them.
+Spectre call at the same coordinates could share one key, and a merge would keep one of them.
 
 Over the golden trio (clair3 SNVs, NeedlR SVs) this stores:
 
@@ -265,7 +265,7 @@ async def _exercise(root: Path) -> dict:
             )
 
         # The merges ClickHouse runs in the background, forced: this is where one row of
-        # each colliding pair used to disappear.
+        # each colliding pair would disappear.
         await optimize_clickhouse_variant_tables(_harness.ASSEMBLY, final=True)
         out["small_after"] = await _small_rows(family_uuid)
         out["sv_after"] = await _sv_rows(family_uuid)
@@ -279,7 +279,7 @@ async def _exercise(root: Path) -> dict:
 
         out["list"] = await page()
         # The family's de novo / dominant mode, by its name: "de_novo" is the NIPT list's fetal
-        # view, which this list refuses (found while fixing #1012).
+        # view, which this list refuses.
         out["de_novo"] = await page(inheritance="de_novo_dominant")
         out["compound_het"] = await page(inheritance="compound_het")
         out["imputed_list"] = await page(source="glimpse2")
@@ -354,7 +354,7 @@ def test_the_uploads_are_accepted(run) -> None:
 
 def test_a_direct_and_an_imputed_call_of_one_variant_survive_the_merge(run) -> None:
     rows = run["small_after"]
-    # Before the fix the merge kept only the GLIMPSE2 row at 1:3000 and 1:4000.
+    # Both rows at 1:3000 and 1:4000, the clair3 one and the GLIMPSE2 one, survive the merge.
     assert _by(rows, _DE_NOVO) == {
         "clair3": {"FATHER": "0/0", "MOTHER": "0/0", "PROBAND": "0/1"},
         "glimpse2": {"FATHER": "0|0", "MOTHER": "0|1", "PROBAND": "1|1"},
@@ -412,7 +412,7 @@ def test_reviews_read_the_direct_call(run) -> None:
 def test_two_callers_of_one_sv_survive_the_merge(run) -> None:
     sv = run["sv_after"]
     entries = _by(sv["entries"], _DELETION)
-    # Before the fix both uploads shared one key and the merge kept one of them.
+    # Each upload has its own key, and the merge keeps both.
     assert entries == {"sniffles": {"PROBAND": "0/1"}, "spectre": {"PROBAND": "1/1"}}
     keys = {row["source"]: row["key"] for row in sv["entries"] if row["variant_id"] == _DELETION}
     assert keys["sniffles"] != keys["spectre"]

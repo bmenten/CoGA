@@ -1,8 +1,7 @@
 """The one parser of a VCF record's INFO column and of a sample's FORMAT values
-(``services/vcf_fields.py``), shared since ENG-8 by every reader that splits a record itself:
+(``services/vcf_fields.py``), shared by every reader that splits a record itself (ENG-8):
 the TRGT repeat calls, the structural-variant and small-variant uploads, the per-sample
-callsets and the family-package readers. Each reader had its own copy before; these tests pin
-what the copies did."""
+callsets and the family-package readers. These tests pin what each reader reads through it."""
 
 from __future__ import annotations
 
@@ -75,8 +74,8 @@ def test_every_reader_reads_through_the_shared_parsers() -> None:
 
 
 def test_a_package_cnv_call_without_sample_values_is_a_no_call_without_a_copy_number() -> None:
-    # The family-package copy read an empty sample field as no values at all, the shared parser
-    # as an empty GT: the reader takes either for a no-call, as before.
+    # The shared parser reads an empty sample field as an empty GT, which the reader takes for
+    # a no-call.
     vcf = (
         "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample0\n"
         "chr1\t1000\tHiFiCNV.DUP.1\tN\t<DUP>\t20\tPASS\tSVTYPE=DUP;END=9000;IMPRECISE\tGT:CN\t\n"

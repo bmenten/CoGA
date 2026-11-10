@@ -7,17 +7,15 @@ ClickHouse has no transactions. Into real Postgres and ClickHouse:
   and BED upload routes; the admin then deletes the child with its data, and the rewrite of
   the family's SVs fails once (an insert error, simulated) after the rewrite of its small
   variants removed the child's calls. The SVs are put back and the request answers 500; the
-  rollback brings the child back without its coverage track and its calls. Before, nothing
-  marked the family, and its report signed out as complete. Now the deletion's mark
+  rollback brings the child back without its coverage track and its calls. The deletion's mark
   (``deletion-…`` in ``import_unfinished``, written before its first ClickHouse write)
   stays, listing exactly the child's data -- its coverage track, and its part of the direct
   calls -- and sign-out is refused (409) with a message that names the deletion. Deleting
   the child again completes, and strikes the child's items off the mark, which goes;
 * a one-sample family's direct calls are imported, then imported again with overwrite while
   its backup cannot be taken, from a package whose VEP table has no header: the loader
-  refuses the table before it replaces anything, and the import fails. Before, the SNV
-  importer's clean-up deleted the direct calls; now they stay, and the flag names the SNV
-  dataset for the import that failed.
+  refuses the table before it replaces anything, and the import fails. The direct calls stay,
+  and the flag names the SNV dataset for the import that failed.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why); app exceptions come back as a 500 response.
@@ -228,8 +226,8 @@ def test_a_sample_deletion_that_fails_mid_way_leaves_the_family_marked_for_the_s
     assert failed["child_coverage"] == 0
     assert failed["clair3"] == [["father", "mother"]] * 4
     assert failed["sniffles"] == [["child", "father"]]
-    # Before: nothing marked the family. Now the deletion's mark lists exactly the child's
-    # data: its coverage track, and its part of the direct calls.
+    # The deletion's mark lists exactly the child's data: its coverage track, and its part of
+    # the direct calls.
     key, mark = the_one_mark(failed)
     assert key.startswith("deletion-")
     assert (mark["job_id"], mark["datasets"], mark["finished_datasets"]) == (None, ["bed_coverage", "snv"], [])
@@ -425,8 +423,8 @@ def test_an_snv_overwrite_whose_file_is_refused_without_a_backup_keeps_the_calls
     assert step["job"]["status"] == "failed"
     assert step["job"]["snv"]["status"] == "failed"
     assert "missing a header row" in step["job"]["snv"]["message"]
-    # Refused before the loader replaced anything: the direct calls stay (before: the
-    # importer's clean-up deleted them, with no backup to put them back from).
+    # Refused before the loader replaced anything: the direct calls stay, with no backup to
+    # put them back from.
     assert step["family"]["clair3"] == _SNV_VARIANTS
     # The import failed for the dataset, and says so.
     flag = step["family"]["flag"]

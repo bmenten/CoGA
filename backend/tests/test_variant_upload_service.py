@@ -589,7 +589,7 @@ async def test_overwrite_scopes_delete_to_uploaded_source(
     expected_source: str,
     expect_haplotype_block_delete: bool,
 ) -> None:
-    # #329: re-importing one small-variant callset must not wipe the other. The
+    # Re-importing one small-variant callset must not wipe the other. The
     # overwrite branch must delete only the uploaded source's rows, and only clear
     # haplotype blocks for glimpse2 (which owns them).
     count_sources: list[str | None] = []
@@ -1335,10 +1335,10 @@ async def test_the_stored_row_keeps_each_call_under_its_own_sample(monkeypatch: 
 # Off the event loop (OPS-9)
 # --------------------------------------------------------------------------- #
 #
-# An import parsed every VCF line, and built every batch's rows, on the event loop that
-# serves every other request, which waited for each batch. The upload reads and parses the
-# file in a worker thread now, a batch at a time, and builds each batch's rows in one: the
-# event loop only awaits the inserts and the progress reports.
+# Parsing every VCF line, and building every batch's rows, on the event loop would make every
+# other request wait for each batch. The upload reads and parses the file in a worker thread,
+# a batch at a time, and builds each batch's rows in one: the event loop only awaits the
+# inserts and the progress reports.
 
 _TRIO_HEADER = _TRIO_VCF[: _TRIO_VCF.index("#CHROM")] + (
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tPROBAND\tMOTHER\tFATHER\n"

@@ -193,9 +193,9 @@ async def test_an_event_written_at_once_skips_the_queue_and_is_not_counted():
 
 @pytest.mark.asyncio
 async def test_an_event_that_cannot_be_written_at_once_is_recorded_not_raised(caplog):
-    # Such a loss used to raise into the request and stay out of the count, so the alert on
-    # coga_audit_events_not_persisted_total missed it. It is now recorded as the worker
-    # records one: counted, and logged once with its payload, the error by its kind.
+    # Such a loss does not raise into the request, and the alert on
+    # coga_audit_events_not_persisted_total sees it: it is recorded as the worker records
+    # one, counted, and logged once with its payload, the error by its kind.
     caplog.set_level(logging.ERROR, logger="app.services.event_pipeline")
 
     async def failing(_batch):
@@ -282,8 +282,8 @@ async def test_a_failed_batch_is_logged_by_kind_not_by_its_text(monkeypatch, cap
 async def test_a_row_the_database_refuses_costs_only_itself(monkeypatch, caplog):
     # One row Postgres refuses for something other than its characters (here a foreign key)
     # fails the INSERT of its whole batch, on every attempt. Every other event of the batch,
-    # up to AUDIT_LOG_BATCH_SIZE of any user's, used to be lost with it. After the last attempt
-    # each event is now written alone, once.
+    # up to AUDIT_LOG_BATCH_SIZE of any user's, is kept: after the last attempt each event is
+    # written alone, once.
     _fast_retries(monkeypatch, attempts=2)
     caplog.set_level(logging.WARNING, logger="app.services.event_pipeline")
     stored, calls, write_batch = _database(refuses="row-b")

@@ -113,7 +113,7 @@ def _signal(region, metrics, *, chromosome: str, sex: str | None) -> bool:
 
 def test_paraphase_male_x_linked_single_copy_is_normal() -> None:
     """A man has one X: IKBKG + IKBKGP1 is total CN 2 / gene CN 1, F8 int22h is 3 and
-    the opsin array 2-4. Against a flat diploid 2 every man used to read as changed and
+    the opsin array 2-4. Against a flat diploid 2 every man would read as changed and
     land on review."""
     ikbkg = paraphase_pg._paraphase_region_for_gene("ikbkg")
     f8 = paraphase_pg._paraphase_region_for_gene("f8")

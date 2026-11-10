@@ -17,8 +17,7 @@ AD, an ROI on chr1), imported from a package and read through the API, this:
 * signs the family out and reads the record back: it holds the outdated flag and the uninformative
   calls, verifies and matches.
 
-Before, the stored blocks were read as current whatever had changed. Skipped unless
-``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
+Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
 
 from __future__ import annotations
@@ -137,7 +136,7 @@ def test_a_corrected_sex_makes_them_outdated_and_no_embryo_is_called(outdated) -
     _ok(outdated, "sex_edit")
     analysis = _ok(outdated, "after_sex")
 
-    # Before, the blocks built with the old sex were read as current.
+    # The blocks built with the old sex are outdated.
     assert analysis["inputs"]["blocks_outdated"] is True
     assert _calls(analysis) == {names["E_RISK"]: "uninformative", names["E_CLEAR"]: "uninformative"}
     assert analysis["disease_haplotype_resolved"] is False and analysis["disease_haplotypes"] == []

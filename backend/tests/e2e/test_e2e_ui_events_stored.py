@@ -5,21 +5,20 @@ acknowledges it (frontend ``lib/telemetry.ts``): when its page closes while the 
 flight, it sends the batch again, whether or not the first request arrived. Each event
 carries the id the browser gave it, the endpoint stores the event under that id
 (``routers/ui_events.py``), and the writers' INSERT does nothing for an id the table holds
-(SEC-17), so the batch is stored once. Before, the endpoint gave every event it received a new
-id, and a batch sent again was stored twice (found while fixing the page-close flush, #1018).
+(SEC-17), so the batch is stored once.
 Here a batch is sent twice, then a third time with its ids in capitals and in braces, and, to
 compare, an event without an id is sent twice. An event of another user, written as the
 worker writes one, under an id the table holds stores nothing.
 
 **An impossible timestamp loses no event.** The browser sends each UI event with
 ``occurred_at``, its own clock. ``0001-01-01T00:00:00+05:00`` is a valid date-time, but it lies
-before the year 1 in UTC: the Postgres driver (asyncpg) could not convert it, and the INSERT
-failed. In the async mode the worker writes up to ``AUDIT_LOG_BATCH_SIZE`` queued events, any
-user's, in one statement, and that statement failed on every attempt: every event of the batch
-reached only the error log and the counter. The naive ``9999-12-31T23:59:59.999999`` was
-written as ``infinity`` (AUDIT-2). The endpoint now keeps ``occurred_at`` from a day before to
-five minutes after it received the event, and otherwise stores the receive time, keeping the
-client's value in ``detail._client_occurred_at``. Here a request holds both, and the worker's
+before the year 1 in UTC: the Postgres driver (asyncpg) cannot convert it, and an INSERT of it
+fails. In the async mode the worker writes up to ``AUDIT_LOG_BATCH_SIZE`` queued events, any
+user's, in one statement, which such a value would fail on every attempt, for every event of
+the batch. The naive ``9999-12-31T23:59:59.999999`` would be written as ``infinity``
+(AUDIT-2). The endpoint keeps ``occurred_at`` from a day before to five minutes after it
+received the event, and otherwise stores the receive time, keeping the client's value in
+``detail._client_occurred_at``. Here a request holds both, and the worker's
 batch write is called with events the endpoint built for two users, one with the year 1.
 
 The requests run over HTTP through an in-process ``httpx.ASGITransport`` client, as the seeded
@@ -154,7 +153,7 @@ def test_each_send_is_answered_as_the_first(sent_again) -> None:
 
 
 def test_a_batch_sent_again_is_stored_once_under_the_ids_the_browser_gave(sent_again) -> None:
-    # Before, three rows each, one per send, each under an id of the server's.
+    # One row each, under the id the browser gave it, however often it was sent.
     for label, event_id in sent_again["ids"].items():
         assert [row["event_id"] for row in _rows(sent_again, label)] == [event_id], label
 

@@ -7,9 +7,9 @@ switched off but for the emergency administrator: ``test_microsoft_sign_in_route
 tokens the sign-in issues are checked in ``test_auth_token_verification.py``, the throttle's
 bookkeeping in ``test_auth_rate_limit_pg.py``.
 
-Login must not leak account existence through response timing. The no-such-account branch
-used to return before calling ``verify_password``, so only real accounts paid the bcrypt cost,
-a measurable enumeration oracle. The handler now runs a throwaway verify against a constant
+Login must not leak account existence through response timing: were the no-such-account
+branch to return before calling ``verify_password``, only real accounts would pay the bcrypt
+cost, a measurable enumeration oracle. The handler runs a throwaway verify against a constant
 hash on that branch. A throttled sign-in is refused (429, with ``Retry-After``) before any
 account is looked up; an inactive account's right password is refused and counts as a failed
 attempt. The Swagger form issues the same bearer token, and the OpenAPI password flow points
@@ -18,7 +18,7 @@ at it.
 The sign-up is rate-limited per IP (429 and ``Retry-After`` before any hash or account is
 made), and a new and an already-registered address get the same generic 202, so the sign-up
 cannot enumerate accounts. A password under 15 characters is refused with 422 before any of
-that (#582).
+that.
 
 The requests go through the real routes; the account store, the throttle and the password
 check are replaced. The accounts are synthetic.
@@ -325,7 +325,7 @@ def test_signup_records_attempt_and_creates_when_not_throttled(password_client) 
 
     # Generic acknowledgement (202) rather than the created user record: a fresh
     # signup must be indistinguishable from a duplicate so accounts can't be
-    # enumerated. The email/is_active fields are no longer returned.
+    # enumerated. The email/is_active fields are not returned.
     assert response.status_code == 202
     body = response.json()
     assert "email" not in body

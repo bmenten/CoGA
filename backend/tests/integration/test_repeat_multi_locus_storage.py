@@ -9,10 +9,9 @@ their own, deleted afterwards. Only Postgres is needed. Skipped unless ``RUN_INT
   gone after the next start; the built-in rows and the release's 75 loci stay.
 - TRID ARX at PRTS_ARX's region is stored and read against PRTS_ARX's thresholds (17 GCN
   repeats normal, pathogenic from 20), at EIEE1_ARX's region against EIEE1_ARX's (17
-  pathogenic). All three calls read against EIEE1_ARX's before, the first of the gene's loci by
-  locus ID. A call whose region overlaps neither is stored not assessed, with the reason, and
-  the family table, whose query matched it to EIEE1_ARX by the gene's name, reads it not
-  assessed with the reason.
+  pathogenic). A call whose region overlaps neither is stored not assessed, with the reason,
+  and the family table reads it not assessed with the reason, not matched to EIEE1_ARX by the
+  gene's name.
 All samples and values are synthetic.
 """
 
@@ -169,7 +168,7 @@ def test_a_gene_name_trid_is_stored_and_read_against_the_tract_its_call_lies_on(
         eiee1: ("EIEE1_ARX", "pathogenic", 17, None),
         between: ("ARX", "not_assessed", None, reason),
     }
-    # The table's query no longer matches the call between the tracts to EIEE1_ARX by the
+    # The table's query does not match the call between the tracts to EIEE1_ARX by the
     # gene's name (pathogenic at 17 there); it shows why the call is not assessed.
     assert read_by_table == {
         prts: ("PRTS_ARX", "intermediate", 20, None),

@@ -144,8 +144,8 @@ def _run_build_metadata(repo: Path, *, ref_name: str, ref_type: str) -> tuple[di
 
 def test_after_a_release_tag_a_build_of_main_never_reports_that_releases_version(tmp_path: Path) -> None:
     # The release candidate is tagged v1.4.0-rc.1 with VERSION 1.4.0-rc.1, and main moves on
-    # without touching VERSION. Every build of main used to stamp 1.4.0-rc.1 too, so /api/version
-    # and every report it signed named the release candidate.
+    # without touching VERSION. A build of main stamps 1.4.0-rc.1.dev: stamped 1.4.0-rc.1,
+    # /api/version and every report it signed would name the release candidate.
     repo = init_release_repo(tmp_path / "repo", "1.4.0-rc.1")
     release, release_summary = _run_build_metadata(repo, ref_name="v1.4.0-rc.1", ref_type="tag")
     commit(repo)

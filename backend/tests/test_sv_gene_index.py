@@ -87,8 +87,8 @@ def test_phase_trans_with_unaffected_parents() -> None:
 
 
 def test_an_unaffected_relative_carrying_neither_hit_is_not_evidence_of_trans() -> None:
-    # The defect: an unaffected sibling who carries neither hit says nothing about which
-    # copy each hit is on, yet the verdict used to be trans (and the pair "biallelic").
+    # An unaffected sibling who carries neither hit says nothing about which copy each hit
+    # is on: the verdict is not trans (and the pair not "biallelic").
     summary = summarize_second_hit(
         [_sv("DEL", {"child": "0/1", "sib": "0/0"})],
         ["child"],
@@ -115,7 +115,7 @@ def test_unaffected_members_without_a_pedigree_are_not_evidence_of_trans() -> No
 
 def test_parents_carrying_neither_hit_leave_the_phase_unknown() -> None:
     # Both hits absent from both parents (de novo, or missed calls): either could sit on
-    # either copy. This used to be trans because no unaffected member carried both.
+    # either copy, though no unaffected member carries both.
     summary = summarize_second_hit(
         [_sv("DEL", {"child": "0/1", "mother": "0/0", "father": "0/0"})],
         ["child"],
@@ -370,9 +370,8 @@ def test_segregation_used_when_no_phasing() -> None:
 
 
 # CLIN-28: each SV of the gene gets its own phase against the SNV, and the badge's verdict
-# is drawn from theirs. One read verdict used to cover all of a gene's SVs, and any cis
-# won it: a duplication in cis hid a deletion in trans in the same phase block, and the
-# badge said cis✓ where the SNV is the only copy left.
+# is drawn from theirs, so a duplication in cis does not hide a deletion in trans in the same
+# phase block, where the SNV is the only copy left.
 
 
 def _sv_at(
@@ -459,8 +458,8 @@ def test_a_deletion_without_read_backed_phase_leaves_a_singleton_unknown(
     del_gt: str, del_ps: int | None
 ) -> None:
     # The duplication is in cis by the reads, but the deletion is not placed (no phase set,
-    # a half call that places nothing (#803), another phase block), and a singleton cannot
-    # place it. The gene is no longer called cis on the duplication's word.
+    # a half call that places nothing, another phase block), and a singleton cannot
+    # place it. The gene is not called cis on the duplication's word.
     deletion = _sv_at(
         "DEL", 5_000, 9_000, {"child": del_gt}, ps={"child": del_ps} if del_ps else None
     )
@@ -518,8 +517,8 @@ def test_a_parents_own_call_of_the_same_sv_stands_in_for_a_per_sample_file() -> 
     # Per-sample SV files: each record holds one sample's call. The mother's own file holds
     # the child's deletion (its breakpoints a few bases off), the father's an insertion in
     # the gene. Only the same SV counts: the mother carries the deletion, the father is not
-    # known to, and the trace puts it in trans. Any SV of the father's used to count, so
-    # the father, unaffected and carrying the SNV, made it cis.
+    # known to, and the trace puts it in trans. His insertion does not count, so the father,
+    # unaffected and carrying the SNV, does not make it cis.
     svs = [
         _sv_at("DEL", 10_000, 15_000, {"child": "0/1"}),
         _sv_at("DEL", 10_040, 14_980, {"mother": "0/1"}),
@@ -836,8 +835,8 @@ class _IndexSession:
     """Just enough of an AsyncSession to run sv_gene_index_service's SQL in memory."""
 
     def __init__(self, built_from: dict[str, str | None] | None = None) -> None:
-        # family_id -> the SV data version its index was built from (None: before the
-        # column existed). A family absent here has no index.
+        # family_id -> the SV data version its index was built from (None: none recorded).
+        # A family absent here has no index.
         self.built_from: dict[str, str | None] = dict(built_from or {})
         self.genes: dict[str, set[str]] = {fid: {"STALE"} for fid in self.built_from}
         self.commits = 0

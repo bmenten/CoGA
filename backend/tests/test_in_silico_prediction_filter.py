@@ -6,13 +6,10 @@ VEP writes a SIFT or PolyPhen call with its score, ``deleterious(0.01)`` or
 a transcript whose value names the prediction the filter names, whatever its score:
 ``deleterious`` keeps ``deleterious(0.01)`` and ``deleterious``, not
 ``deleterious_low_confidence(0.03)``, which the filter form offers as a choice of its own.
-The SQL condition matched the filter's text anywhere in the value, so ``deleterious`` also
-kept ``deleterious_low_confidence`` and ``tolerated`` kept ``tolerated_low_confidence``; a
-second, Python reading needed the whole value, so ``deleterious(0.01)`` was not
-``deleterious``. The SQL is now the one definition (the roadmap's *One filter definition*).
+The SQL is the one definition (the roadmap's *One filter definition*).
 
 The SQL condition is evaluated here as ClickHouse evaluates it on the stored value, with a
-stand-in for each function it has used: ``positionCaseInsensitive`` (the text anywhere, in any
+stand-in for each function it may use: ``positionCaseInsensitive`` (the text anywhere, in any
 capitals) and ``match`` (an RE2 pattern; the filter's pattern holds only what RE2 and Python's
 ``re`` read alike). ``e2e/test_e2e_in_silico_prediction_filters.py`` runs it in ClickHouse.
 """
@@ -208,8 +205,7 @@ def test_spaces_and_underscores_name_the_same_prediction(filter_value: str) -> N
 
 @pytest.mark.parametrize("filter_value", [" ", "_", "(0.01)"])
 def test_a_filter_value_that_names_no_prediction_asks_nothing(filter_value: str) -> None:
-    # Blank, or a score alone: no SQL condition. A second, Python reading used to keep
-    # nothing while the SQL ignored it.
+    # Blank, or a score alone: no SQL condition.
     filters = SmallVariantQueryFilters(page=1, page_size=100, sift=filter_value)
     assert _small_detail_filter_clauses(filters) == ([], {})
 

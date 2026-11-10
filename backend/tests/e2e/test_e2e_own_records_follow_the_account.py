@@ -1,12 +1,11 @@
 """A Microsoft account keeps its import jobs and presets when its address and user name change (E2E, real Postgres, SEC-32).
 
 A Microsoft sign-in follows the token's e-mail address and user name (SEC-4). The records a
-user keeps as their own were found by these: an import job's requester by the e-mail address
-the job was requested under, and a user's filter presets by their user name. So a colleague
-whose address changed between an import's request and its run had the import refused
-("Requesting user no longer exists"), and once another colleague had signed in with the address
-they left behind, the import ran as that colleague; the presets went out of the first
-colleague's lists and into the other's. Each is now kept by the account's id.
+user keeps as their own, an import job's requester and a user's filter presets, are kept by
+the account's id. Found by the e-mail address and the user name, a colleague whose address
+changed between an import's request and its run would have the import refused, or run as
+another colleague who signed in with the address they left behind, and the presets would go
+out of the first colleague's lists and into the other's.
 
 On real Postgres, through the app over HTTP (an in-process ``httpx.ASGITransport`` client on
 one event loop, see test_e2e_api_contract.py for why), a colleague, an administrator in the e2e
@@ -255,7 +254,7 @@ def test_the_colleague_saved_presets_and_queued_an_import_then_signed_in_renamed
 def test_the_presets_stay_the_colleagues_after_the_change(ran) -> None:
     names = ran["names"]
     lists = ran["colleague_lists"]
-    # Before, each list read the presets of the user name now another account's: none.
+    # Each list reads the account's presets, not those of its old user name.
     assert _names(lists["small"]) == [names["small"]]
     assert _names(lists["small_in_family"]) == [names["small"]]
     assert _names(lists["sv"]) == sorted([names["sv_family"], names["sv_global"]])
@@ -264,7 +263,7 @@ def test_the_presets_stay_the_colleagues_after_the_change(ran) -> None:
 
 
 def test_the_account_with_the_old_address_and_user_name_gets_none_of_them(ran) -> None:
-    # Before, it listed the colleague's presets as its own, and deleted them.
+    # It lists none of the colleague's presets as its own, and deletes none.
     assert _names(ran["successor_lists"]["small"]) == []
     assert _names(ran["successor_lists"]["sv"]) == []
     assert {key: deleted["status"] for key, deleted in ran["successor_deletes"].items()} == {
@@ -285,8 +284,7 @@ def test_the_colleague_deletes_their_presets(ran) -> None:
 
 
 def test_the_import_runs_as_the_account_that_requested_it(ran) -> None:
-    # Before, it ran as the account that had the address by then, or failed with
-    # "Requesting user no longer exists".
+    # Not as the account that has the address by then, and without failing.
     assert "run_error" not in ran, ran.get("run_error")
     assert ran["ran_as"] == [(ran["colleague_id"], ran["new"])]
     job = ran["job_after_run"]

@@ -3,9 +3,9 @@ real uvicorn).
 
 A failed statement quotes what it was given: SQLAlchemy's error text holds the SQL and its
 parameters, and Postgres's own message can quote the value it could not read. The request
-middleware used to log that text twice on the 500 line (its message and its traceback), and
-uvicorn, to which Starlette raises the exception again once it has answered it, logged it a
-third time as "Exception in ASGI application".
+middleware logs the failure on the 500 line (its message and its traceback), and uvicorn, to
+which Starlette raises the exception again once it has answered it, logs it again as
+"Exception in ASGI application".
 
 Here a route binds a value from the request body into a statement Postgres refuses. The request
 goes over HTTP to a real uvicorn server on this test's event loop, through the request

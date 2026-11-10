@@ -1,11 +1,10 @@
-"""A value beyond its ClickHouse column no longer fails an upload or an import (SAFE-30), E2E.
+"""A value beyond its ClickHouse column does not fail an upload or an import (SAFE-30), E2E.
 
 The loaders fill the ClickHouse columns from file values, and the client refuses a whole
 insert when one value falls outside its column. A mitochondrial call's read depth above
-65,535 did not fit the UInt16 depth columns, a GQ of ``inf`` failed where the row was built,
-and a negative phase set, a QUAL beyond Float32, an SVLEN beyond Int32 and a negative BED
-start did not fit theirs: each upload, and the package import of a mitochondrial callset,
-failed with a 500, after the rows it replaced were deleted.
+65,535 is stored with its true value; a GQ of ``inf``, a negative phase set, a QUAL beyond
+Float32 and an SVLEN beyond Int32 are stored as missing, and a negative BED start leaves its
+line out, so no upload, and no package import of a mitochondrial callset, fails on them.
 
 Here, through the routes and a package import into real Postgres and ClickHouse (new family
 ids each run; every sample and value synthetic):
@@ -289,7 +288,7 @@ def test_the_family_is_created(run) -> None:
 
 
 def test_a_deep_mitochondrial_call_is_uploaded_with_its_true_depths(run) -> None:
-    # Before the fix: 500, the UInt16 depth columns refusing 120,000 reads.
+    # A call of 120,000 reads: 200, stored with its true depths.
     upload = run["upload"]
     assert upload["status"] == 200, upload["text"]
     assert (upload["json"]["inserted"], upload["json"]["skipped_malformed"]) == (1, 0)
@@ -298,8 +297,8 @@ def test_a_deep_mitochondrial_call_is_uploaded_with_its_true_depths(run) -> None
 
 
 def test_an_overwrite_with_values_no_column_holds_answers_200_and_leaves_no_flag(run) -> None:
-    # Before the fix: 500, the infinite GQ failing where the row was built, after the
-    # callset was deleted; the family was left flagged import-incomplete.
+    # The infinite GQ does not fail the overwrite, and the family is not left flagged
+    # import-incomplete.
     overwrite = run["overwrite"]
     assert overwrite["status"] == 200, overwrite["text"]
     assert (overwrite["json"]["inserted"], overwrite["json"]["skipped_malformed"]) == (2, 1)
@@ -325,7 +324,7 @@ def test_the_mtdna_workspace_shows_the_true_depth(run) -> None:
 
 
 def test_an_sv_upload_stores_values_no_column_holds_as_missing(run) -> None:
-    # Before the fix: 500, the Int32 SVLEN and the UInt32 positions refusing the rows.
+    # The SVLEN beyond Int32 is stored as missing; the record whose END no UInt32 holds is skipped.
     sv_upload = run["sv_upload"]
     assert sv_upload["status"] == 200, sv_upload["text"]
     assert sv_upload["json"]["processed"] == 1
@@ -347,7 +346,7 @@ def test_a_bed_line_with_a_negative_start_is_left_out(run) -> None:
 
 
 def test_a_package_import_stores_a_deep_mitochondrial_call(run) -> None:
-    # Before the fix: the mito dataset failed, the depths beyond UInt16 and the infinite GQ.
+    # The mito dataset imports, with depths beyond UInt16 and an infinite GQ.
     imported = run["import"]
     assert imported["completed"] is True, imported
     assert imported["mito_status"] == "imported", imported

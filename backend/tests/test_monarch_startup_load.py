@@ -1,12 +1,12 @@
 """A start on a database without Monarch data loads Monarch's newest release.
 
-A new instance had no Monarch associations until an administrator loaded them, so phenotype
-matching and the phenotype ranking had nothing to match against (owner decision, 2026-11-05:
-a new instance starts on the newest reference data). The start now runs the admin page's
-refresh (``refresh_monarch``, tested in test_monarch_ingest.py) when both Monarch tables are
-empty, and never stops on a failure. A database with Monarch data keeps it, and the start builds
-no Mendeliome panel: a panel is created by an account, on the Gene panels page. Nothing here
-goes to the network: the refresh is replaced.
+Without Monarch associations, phenotype matching and the phenotype ranking have nothing to
+match against, and a new instance starts on the newest reference data (owner decision,
+2026-11-05). The start runs the admin page's refresh (``refresh_monarch``, tested in
+test_monarch_ingest.py) when both Monarch tables are empty, and never stops on a failure. A
+database with Monarch data keeps it, and the start builds no Mendeliome panel: a panel is
+created by an account, on the Gene panels page. Nothing here goes to the network: the refresh
+is replaced.
 """
 
 from __future__ import annotations

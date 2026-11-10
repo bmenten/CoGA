@@ -3,12 +3,10 @@
 The chromosome view asks which tracks each member has (``GET /families/{family_id}/
 track-availability``) with the filters it came with, the small-variant page's gene panel among
 them, and draws a member's small-variant track only when the answer offers it. The small-variant
-presence applied a panel's regions alone, each row tested against every region, while the list
-and the member's track keep a variant annotated with one of the panel's genes or in one of its
-regions, whatever the panel's size (#897): a member whose only variant under the panel is named
-by one of its genes outside its regions (VEP's upstream and downstream genes) was offered no
-small-variant track, although the list showed them that variant. The presence now applies the
-panel with the list's own SQL.
+presence applies the panel with the list's own SQL: the list and the member's track keep a
+variant annotated with one of the panel's genes or in one of its regions, whatever the panel's
+size, so a member whose only variant under the panel is named by one of its genes outside its
+regions (VEP's upstream and downstream genes) is offered a small-variant track too.
 
 A trio is created through the PED upload under a new id each run, and a VEP-annotated VCF goes in
 through the family small-variant upload. Two genes are seeded in the gene reference for the run,
@@ -26,8 +24,8 @@ view asks for them: the track availability, each member's track (the list in tra
 member's own non-reference calls, as ``SmallVariantTrack.tsx`` asks for it) and the plain list.
 Each member is offered a small-variant track exactly when their track and the list hold a variant
 of theirs: under both gene panels the father and the mother, not the proband; under the panel
-without genes, which keeps nothing, nobody (it was read as no panel, and every member was
-offered a track). Without a panel every member is. The panels and the seeded genes are removed
+without genes, which keeps nothing, nobody: it is not read as no panel. Without a panel every
+member is. The panels and the seeded genes are removed
 afterwards. Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client
 (see test_e2e_api_contract.py for why).
 
@@ -302,17 +300,16 @@ def test_without_a_panel_each_member_is_offered_the_track_of_their_variants(run:
 def test_a_member_is_offered_a_small_variant_track_exactly_when_the_list_shows_them_a_variant(
     run: dict[str, Any], panel: str, view: str
 ) -> None:
-    # Before: the availability read the panel's regions alone, so the father, whose only
-    # variant the panel keeps by its gene TAVPNLA, was offered no track although his track and
-    # the list showed that variant.
+    # The father, whose only variant the panel keeps by its gene TAVPNLA, is offered a track:
+    # his track and the list show that variant.
     shown = _shown(run["answers"][(panel, view)])
     assert shown == {role: {"offered": kept, "track": kept, "list": kept} for role, kept in _OFFERED.items()}
 
 
 @pytest.mark.parametrize("view", list(_VIEWS))
 def test_a_panel_that_keeps_nothing_offers_no_member_a_small_variant_track(run: dict[str, Any], view: str) -> None:
-    # Before: the availability read a panel without genes or regions as no panel, and offered
-    # every member a track, which then drew nothing: the list keeps no variant under it.
+    # A panel without genes or regions is not read as no panel: the list keeps no variant under
+    # it, so no member is offered a track.
     shown = _shown(run["answers"][("no gene", view)])
     assert shown == {role: {"offered": False, "track": False, "list": False} for role in _ROLES}
 

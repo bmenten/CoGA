@@ -2,8 +2,8 @@
 
 ClickHouse 26.8 buffers an insert by default (``async_insert = 1``) and, waiting for it,
 answers only once a timer of 50 to 200 ms has flushed the buffer. Every writer sends its rows
-in batches, one batch at a time, and each batch waited for that timer.
-``core/clickhouse.insert_clickhouse`` now sends every insert with ``async_insert = 0``, and a
+in batches, one batch at a time, so each batch would wait for that timer.
+``core/clickhouse.insert_clickhouse`` sends every insert with ``async_insert = 0``, and a
 writer's own settings go over that default. These tests hold the default, each writer's
 inserts to it (the variant tables' are in test_small_variant_import_reads_once.py), and every
 write to the driver to that one function.

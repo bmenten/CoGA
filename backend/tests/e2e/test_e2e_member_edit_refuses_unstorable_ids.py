@@ -2,9 +2,8 @@
 
 A family or sample ID is printable text without spaces (``family_identifiers.py``). The member
 edits and the structure edit take sample IDs from the request: a member's new ID, its father
-and mother, the members the structure edit adds. Before, these were only stripped: a rename to
-an ID with a tab or a space, a batch rename with a line break, a member added with an escape or
-a space was stored, and one holding a NUL failed (500) when Postgres refused it.
+and mother, the members the structure edit adds. Each is stripped of the whitespace around it
+and refused unless it follows that rule.
 
 Over the real API (an in-process ``httpx.ASGITransport`` client that answers an app failure
 with 500, see test_e2e_import_refuses_unstorable_ids.py), Postgres and ClickHouse, on a trio

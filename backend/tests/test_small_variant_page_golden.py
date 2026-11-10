@@ -1,4 +1,4 @@
-"""Characterisation test for ``get_family_small_variants_page`` (#528).
+"""Characterisation test for ``get_family_small_variants_page``.
 
 The function decides, from its filters, which of several paths serves a small-variant
 page: the dashboard presence probe, the prioritised ranking, the capped track, the
@@ -7,7 +7,7 @@ screening, track sampling). This test fakes every collaborator the function call
 the ClickHouse fetches and counts, the Postgres lookups — and records, per scenario,
 each call with its arguments and the page returned. The pure helpers run for real.
 
-The recorded behaviour was captured from the function before it was split up
+The recorded behaviour is the reference
 (``fixtures/small_variant_page_golden.json``); a refactor must reproduce every call, in
 order, and every page. Regenerate only for an intended behaviour change:
 
@@ -178,9 +178,9 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "exclude_ids": {"v5"},
         "count": (2, False),
     },
-    # Refused (422), no longer answered as a page without variants (#604).
+    # Refused (422), not answered as a page without variants.
     "intervals_unparseable": {"request": {"intervals": "not an interval"}},
-    # A list of blank lines restricts nothing; it used to be answered as empty (#604).
+    # A list of blank lines restricts nothing; it is not answered as empty.
     "intervals_blank_lines": {"request": {"intervals": " \n \n", "page_size": 10}},
     "intervals_and_exclusions": {
         "request": {

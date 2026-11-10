@@ -2,22 +2,20 @@
 
 A TRGT call's TRID chooses the catalogue row that classifies it: a gene name (as in the demo
 data) finds the built-in row (``repeat_expansion_catalog.py``), a STRchive ID such as
-``SCA1_ATXN1`` the STRchive row (``data/ref-data/STRchive-loci.json``). At fifteen loci the two
-rows started the intermediate or the pathogenic range at a different repeat count, so the same
-allele was called differently depending on the pipeline's TRIDs (CLIN-22). The owner decided
-on 2026-10-09 that the built-in rows take STRchive's thresholds wherever STRchive has the
-locus. A threshold is the first count of its range (the classifier tests ``>=``), as
-STRchive's inclusive ranges read: ``warning_min`` starts the intermediate range,
-``pathogenic_min`` the pathogenic one.
+``SCA1_ATXN1`` the STRchive row (``data/ref-data/STRchive-loci.json``). The owner decided on
+2026-10-09 that the built-in rows take STRchive's thresholds wherever STRchive has the locus, so
+the same allele is called the same whatever the pipeline's TRIDs (CLIN-22). A threshold is the
+first count of its range (the classifier tests ``>=``), as STRchive's inclusive ranges read:
+``warning_min`` starts the intermediate range, ``pathogenic_min`` the pathogenic one.
 
 - The guard: every built-in row has exactly one STRchive row, with the same two thresholds.
-- Each side of every threshold that changed, STRchive's and the built-in row's old one, run
+- Each side of every threshold at fifteen loci, STRchive's and another a row could state, run
   through the catalogue a start seeds and the import's TRID lookup, under the gene name and
   under the STRchive ID.
 - Every start writes the thresholds over those an earlier start stored, BEAN1's missing
   intermediate threshold as NULL.
-- The family table classifies a call stored under an old row again against the catalogue row's
-  thresholds, NULL included. (The genome tracks show the status stored at import until the
+- The family table classifies a call stored under other thresholds again against the catalogue
+  row's thresholds, NULL included. (The genome tracks show the status stored at import until the
   calls are imported again; integration/test_repeat_status_storage.py runs this on Postgres.)
 All samples and values are synthetic.
 """
@@ -51,16 +49,16 @@ BUILT_IN_LOCI_STRCHIVE_LACKS: frozenset[str] = frozenset()
 
 @dataclass(frozen=True)
 class ChangedLocus:
-    """A locus whose built-in thresholds changed to STRchive's (CLIN-22)."""
+    """A built-in locus that carries STRchive's thresholds, checked against other ones (CLIN-22)."""
 
     gene_trid: str  # the built-in row's locus_id, the TRID of the demo data
     strchive_trid: str  # STRchive's locus ID
-    now: tuple[int | None, int]  # (warning_min, pathogenic_min): STRchive's, and the built-in row's now
-    before: tuple[int, int]  # the built-in row's before
+    now: tuple[int | None, int]  # (warning_min, pathogenic_min): STRchive's, the built-in row's
+    before: tuple[int, int]  # other thresholds a stored row or call may carry
     # The status of an allele of each count, on each side of every threshold in ``now`` and
     # ``before``, under either row.
     statuses: dict[int, str]
-    # A count whose status changed, and the status the old built-in row gave it.
+    # A count whose status differs under ``before``, and the status ``before`` gives it.
     flip: tuple[int, str]
 
 
@@ -122,7 +120,7 @@ def test_every_built_in_row_has_one_strchive_row_with_the_same_thresholds() -> N
 
 def test_the_cases_below_are_the_built_in_rows_whose_thresholds_changed() -> None:
     """Each case pairs a built-in row with its STRchive row and STRchive's thresholds; the six
-    built-in rows without a case already agreed with STRchive (FMR1 since #799)."""
+    built-in rows without a case agree with STRchive."""
     strchive_by_id = {row["locus_id"]: row for row in shipped_strchive_loci()}
     builtin_by_id = {locus["locus_id"]: locus for locus in BUILTIN_REPEAT_LOCI}
     for locus in CHANGED_LOCI:
@@ -178,7 +176,7 @@ async def test_each_side_of_every_changed_threshold_reads_the_same_under_either_
 
 @pytest.mark.asyncio
 async def test_each_start_writes_strchives_thresholds_over_those_an_earlier_start_stored(monkeypatch) -> None:
-    """A database seeded with the old built-in rows gets STRchive's thresholds on its next start:
+    """A database seeded with other thresholds gets STRchive's on its next start:
     the upsert by locus_id sets both columns from the row, so BEAN1's NULL replaces a stored 300."""
     session = await seed_a_start(monkeypatch)
     upserted = {params["locus_id"]: (sql, params) for sql, params in upserts(session)}
@@ -207,7 +205,7 @@ def _context():
 async def test_the_family_table_reads_a_call_stored_under_the_old_row_with_strchives_thresholds(
     monkeypatch, locus: ChangedLocus
 ) -> None:
-    """A call imported under the old built-in row keeps its stored status (the genome tracks show
+    """A call imported under other thresholds keeps its stored status (the genome tracks show
     it until the calls are imported again); the family table classifies it again against the row
     a start leaves."""
     builtin = (await catalogue_after_a_start(monkeypatch))[locus.gene_trid]

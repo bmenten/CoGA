@@ -1,8 +1,8 @@
 """An import whose package changed while it was read is undone, and its folder offered again (E2E).
 
-The owner's decision of 2026-11-05: what an import read of a package that changed while it was
-read may be partly the package as it was and partly as it is now, so the import is undone and the
-package offered again. After each dataset the import takes the package folder's fingerprint
+What an import read of a package that changed while it was read may be partly the package as it
+was and partly as it is now, so the import is undone and the package offered again (the owner's
+decision of 2026-11-05). After each dataset the import takes the package folder's fingerprint
 again; when it differs from the one its validation took, the import stops and is undone.
 
 Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see

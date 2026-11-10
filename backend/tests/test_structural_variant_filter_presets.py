@@ -1,12 +1,12 @@
 """Structural-variant filter presets: the route's body and answer carry the preset's scope.
 
 An SV preset is its owner's, for the family it is saved in (``scope: 'family'``, what the SV
-page sends) or, reusable, for every family they can open (``scope: 'global'``). The save route
-read its body as a small-variant preset, which has no scope since small-variant presets became
-their owner's (#681), and answered 500 whatever it was sent; the list served the presets
-without their scope. Each request here runs through the route with its real body and answer
-models and the real service, on a session that answers the preset statements as Postgres
-would; ``e2e/test_e2e_sv_filter_presets_are_saved.py`` runs the same on real Postgres.
+page sends) or, reusable, for every family they can open (``scope: 'global'``); a
+small-variant preset, its owner's, has no scope. The save route reads its body as an SV preset
+with its scope, and the list serves the presets with theirs. Each request here runs through the
+route with its real body and answer models and the real service, on a session that answers the
+preset statements as Postgres would; ``e2e/test_e2e_sv_filter_presets_are_saved.py`` runs the
+same on real Postgres.
 """
 
 from __future__ import annotations

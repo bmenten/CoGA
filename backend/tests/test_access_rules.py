@@ -1,4 +1,4 @@
-"""The access rules in services/access_control.py (#528): the global roles and the
+"""The access rules in services/access_control.py: the global roles and the
 project-scoped access levels.
 
 The endpoint-level checks are in test_access_control.py and, for the access levels (SEC-1),

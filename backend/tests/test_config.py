@@ -107,7 +107,7 @@ def test_build_identity_reads_from_env() -> None:
 def test_list_settings_parse_from_the_real_environment(monkeypatch, variable, field, raw, expected) -> None:
     # Set as a process environment variable, which is how docker compose (env_file) and
     # Cloud Run pass them. Passed as a constructor argument, as above, the value skips
-    # the environment source that used to JSON-decode it and reject the comma form.
+    # the environment source, which must read the comma form without JSON-decoding it.
     monkeypatch.setenv(variable, raw)
     assert getattr(Settings(_env_file=None), field) == expected
 

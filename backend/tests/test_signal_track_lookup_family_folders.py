@@ -3,15 +3,15 @@
 The CNV caller's signal files (read depth, minor allele fraction, copy number) are served to
 IGV from the path the import recorded under ``samples.metadata['signal_tracks']``, relative to
 the family's package folder, ``<data>/families/<family>``. The path comes back from the
-database as data, and an edited row can hold ``..`` or an absolute path. The lookup used to
-join it to the package folder and check only that the result stayed inside the data
-directory, so a recorded path such as ``../F2/cnv/S2.depth.bw``, or an absolute path into
-family F2's folder, served F2's track under a sample of F1, the manifest listed it, and a
-symlinked folder or file could lead into another family's folder; a family ID that is no
-single folder name (``..``, ``../F2``) reached other families' folders too. This is what the
-alignment lookup did before SEC-20 (#836, ``test_alignment_lookup_family_folders.py``).
+database as data, and an edited row can hold ``..`` or an absolute path. A check only that
+the joined path stays inside the data directory would let a recorded path such as
+``../F2/cnv/S2.depth.bw``, or an absolute path into family F2's folder, serve F2's track under
+a sample of F1, listed in the manifest, and a symlinked folder or file lead into another
+family's folder; a family ID that is no single folder name (``..``, ``../F2``) would reach
+other families' folders too. The alignment lookup guards against the same (SEC-20,
+``test_alignment_lookup_family_folders.py``).
 
-Now the recorded path is joined to the package folder and normalised as a string, and dropped
+The recorded path is joined to the package folder and normalised as a string, and dropped
 before anything is looked up when it leaves that folder; one that stays must also have its
 real path, symlinks resolved, inside one of the family's own folders, ``<data>/<family>`` and
 ``<data>/families/<family>``; a family ID that is no single folder name has no folder

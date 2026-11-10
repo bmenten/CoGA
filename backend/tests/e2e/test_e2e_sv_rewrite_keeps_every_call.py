@@ -13,10 +13,10 @@ Over the golden trio (NeedlR SVs for all three members):
 
 * PROBAND uploads a phased Sniffles deletion and a breakend; FATHER a phased call on the
   same deletion and a deletion of his own. FATHER is then made inactive.
-* MOTHER's upload merges into the shared Sniffles deletion. The rewrite used to read the
-  rows through the family view: PROBAND's phase set and the breakend's remote end came back
-  empty, and FATHER's calls, and his own deletion, were not read at all and were deleted.
-* The admin delete of MOTHER's SVs then used to drop FATHER's calls from every source.
+* MOTHER's upload merges into the shared Sniffles deletion. The rewrite keeps what a read
+  through the family view would empty or leave out: PROBAND's phase set, the breakend's
+  remote end, and FATHER's calls and his own deletion.
+* The admin delete of MOTHER's SVs then keeps FATHER's calls in every source.
 
 The upload also records its caller (``##source=Sniffles2_2.2``) in the family's annotation
 manifest. Afterwards FATHER is made active again, the manifest is put back, the Sniffles
@@ -246,8 +246,8 @@ def test_uploads_store_phase_sets_and_the_breakend_remote_end(run) -> None:
 def test_upload_rewrite_keeps_phase_sets_remote_end_and_inactive_members_calls(run) -> None:
     assert run["mother"]["status"] == 200, run["mother"]["text"]
     assert run["mother"]["json"]["merged"] == 1
-    # Before: PROBAND's phase set came back empty, FATHER (inactive) lost his call on the
-    # shared deletion, and his own deletion was deleted.
+    # PROBAND keeps his phase set, and FATHER (inactive) his call on the shared deletion and
+    # his own deletion.
     assert _rows(run["rows_after_upload"], "sniffles") == {
         _DEL_30000: {
             "FATHER": ("1|0", 9001),
@@ -257,7 +257,7 @@ def test_upload_rewrite_keeps_phase_sets_remote_end_and_inactive_members_calls(r
         _BND_60000: {"PROBAND": ("0/1", None)},
         _DEL_80000: {"FATHER": ("0/1", None)},
     }
-    # Before: rewritten with an empty remote end.
+    # The breakend keeps its remote end.
     assert run["remote_ends_after_upload"][_BND_60000] == 3000000
     # Another source is not part of the upload's rewrite at all.
     assert _rows(run["rows_after_upload"], "needlr") == _rows(run["rows_before"], "needlr")
@@ -266,7 +266,7 @@ def test_upload_rewrite_keeps_phase_sets_remote_end_and_inactive_members_calls(r
 def test_admin_delete_removes_only_that_sample_and_keeps_every_other_call(run) -> None:
     assert run["admin_delete"]["status"] == 200, run["admin_delete"]["text"]
     rows = run["rows_after_admin_delete"]
-    # Before: FATHER (inactive) lost every call, in both sources, along with the phase sets.
+    # FATHER (inactive) keeps every call, in both sources, with the phase sets.
     assert _rows(rows, "needlr") == {
         _NEEDLR_DEL: {"FATHER": ("0/1", None), "PROBAND": ("0/1", None)},
         _NEEDLR_BND: {"FATHER": ("0/0", None), "PROBAND": ("0/1", None)},
@@ -297,7 +297,7 @@ def test_upload_records_its_caller_in_the_annotation_manifest(run) -> None:
     manifest = run["manifest"]
     assert manifest["status"] == 200, manifest["text"]
     modules = {module["key"]: module for module in manifest["json"]["modules"]}
-    # Before: a per-sample SV upload recorded no provenance at all.
+    # The per-sample SV upload records its caller's provenance.
     assert modules["sniffles"]["version"] == "2.2"
     assert modules["sniffles"]["detail"] == "sv caller"
     assert modules["sniffles"]["by_modality"] == {"sv": "2.2"}

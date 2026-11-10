@@ -4,8 +4,8 @@ record and its chain, and the check of the report against the latest record.
 The sections, in order: the signer's role (TF-06 H15); the assembly-scope gate (TF-06 H12); a
 family whose data is being
 written (TF-06 H16); a family made again under its ID (TRACE-13); the evidence-drift gate and
-the content hash; the Sample-QC gate, its could-not-run checks (#330) and the reasons it names
-(CLIN-8, CLIN-58); the sequencing QC cut-offs and what a record could not capture (#514); the
+the content hash; the Sample-QC gate, its could-not-run checks and the reasons it names
+(CLIN-8, CLIN-58); the sequencing QC cut-offs and what a record could not capture; the
 incomplete-import gate and imports that stopped part-way; reading a signed version; the gate of
 abnormal repeat and Paraphase calls without a review (REQ-TRACE-016); the HPO release; the
 reported SVs' evidence (REQ-TRACE-014); the signed analysis record's sections, its NIPT and PGT
@@ -150,7 +150,7 @@ def _patch_common(
         return None
 
     async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
-        # Sample QC is computed inside build_report_snapshot now; stub it with a
+        # Sample QC is computed inside build_report_snapshot; stub it with a
         # parameterizable overall_status (default "pass" -> the QC gate stays open).
         return SampleIntegrityReport(overall_status=qc_status)
 
@@ -232,7 +232,7 @@ def test_a_supervisor_and_above_sign_out(monkeypatch, role: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Off-scope assembly gate (TF-06 H12, #515)
+# Off-scope assembly gate (TF-06 H12)
 # ---------------------------------------------------------------------------
 
 
@@ -731,7 +731,7 @@ def test_sign_out_proceeds_with_acknowledged_drift(monkeypatch) -> None:
 
 def test_reported_variant_without_snapshot_gates_sign_out(monkeypatch) -> None:
     # A reported classification with no frozen evidence snapshot can't be drift-verified,
-    # so it must trip the drift gate (#332) rather than sign out unchallenged.
+    # so it must trip the drift gate rather than sign out unchallenged.
     async def _reviews_no_snapshot(session, family_uuid):
         return [{"variant_id": "9-9-A-G", "acmg_class": "acmg_class_4"}]  # no snapshot
 
@@ -1002,7 +1002,7 @@ def _asserted_parent_child(sites: int, status: str = "warn") -> RelatednessCheck
 
 
 def test_unverifiable_asserted_relatedness_blocks_sign_out(monkeypatch) -> None:
-    # #330: a swap that manifests as MISSING data leaves the parent-child relatedness
+    # A swap that manifests as MISSING data leaves the parent-child relatedness
     # check unable to run (0 informative sites -> warn, not fail). It must still gate.
     _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
     _patch_qc_report(
@@ -1090,7 +1090,7 @@ def test_nipt_paternity_and_silent_maternal_pass_through_block(monkeypatch) -> N
     assert detail["unverifiable_checks"] == ["Sample FATHER (father): too few paternal-informative sites."]
 
     # The NIPT category QC reports "pass" when maternal transmission is skipped for too
-    # few maternal-informative sites — an unverified mother that must now gate despite
+    # few maternal-informative sites — an unverified mother that must gate despite
     # the overall "pass" verdict.
     detail = _refused_by_the_qc(
         monkeypatch,
@@ -1121,8 +1121,7 @@ def test_nipt_paternity_and_silent_maternal_pass_through_block(monkeypatch) -> N
         ),
         pytest.param(
             # A single-sample / couple / added-relative member whose identity rests solely on
-            # the sex check: an indeterminate sex with no anchoring relatedness edge must gate
-            # (the fail-open the review found — _unverifiable_swap_checks previously ignored sex).
+            # the sex check: an indeterminate sex with no anchoring relatedness edge must gate.
             SampleIntegrityReport(
                 overall_status="warn",
                 application="single",
@@ -1142,7 +1141,7 @@ def test_nipt_paternity_and_silent_maternal_pass_through_block(monkeypatch) -> N
     ],
 )
 def test_a_check_that_could_not_run_gates_the_sign_out(monkeypatch, report, unverifiable) -> None:
-    # #330: a swap that manifests as MISSING data leaves the check unable to run (it never
+    # A swap that manifests as MISSING data leaves the check unable to run (it never
     # becomes "fail"), so it gates as a check that could not run, named with its sample.
     detail = _refused_by_the_qc(monkeypatch, report)
     assert detail["unverifiable_checks"] == [unverifiable]
@@ -1556,11 +1555,9 @@ def _failed_trio_beside_an_unchecked_relative() -> SampleIntegrityReport:
 def test_a_failed_qc_refusal_lists_the_check_that_could_not_run_beside_the_failure(
     monkeypatch,
 ) -> None:
-    # The refusal said only that the QC failed, and listed only the failure and the warning:
-    # the relative whose sex could not be checked, which gates on its own, reached the
-    # refusal's list of checks that could not run but not the dialog, so the reason written
-    # there might not cover it. The message now names both kinds of concern, and each
-    # concern is in its own group, once.
+    # The relative whose sex could not be checked gates on its own: the message names both
+    # kinds of concern, the failure and the check that could not run, and each concern is in
+    # its own group, once, so the dialog lists it and the reason written there covers it.
     detail = _qc_refusal(monkeypatch, _failed_trio_beside_an_unchecked_relative())
 
     assert detail["message"] == f"{_QC_FAILED} {_COULD_NOT_RUN} {_RESOLVE_OR_ACKNOWLEDGE}"
@@ -1574,8 +1571,8 @@ def test_a_failed_qc_refusal_lists_the_check_that_could_not_run_beside_the_failu
 
 def test_an_acknowledged_refusal_audits_each_group_its_dialog_listed(monkeypatch) -> None:
     # The audit event records every group the refusal listed, as the dialog showed them, so
-    # the trail says what the acknowledgement covered: before, it held the QC status but not
-    # which checks failed, nor the warnings beside them.
+    # the trail says what the acknowledgement covered: which checks failed and the warnings
+    # beside them, not the QC status alone.
     detail = _qc_refusal(monkeypatch, _failed_trio_beside_an_unchecked_relative())
     captured = _capture_audit(monkeypatch)
     out = asyncio.run(
@@ -1689,7 +1686,7 @@ def test_snapshot_freezes_the_cut_offs_the_qc_verdict_was_judged_against(monkeyp
     assert "HG002" in frozen["samples"], "the sample's QC verdict must be frozen too"
     # A sample with no recorded QC contributes nothing rather than a fabricated pass.
     assert "NOQC" not in frozen["samples"]
-    # Only a failed lookup carries the marker, so an ordinary snapshot hashes as before.
+    # Only a failed lookup carries the marker: an ordinary snapshot holds none.
     assert "unavailable" not in frozen
 
 
@@ -1705,7 +1702,7 @@ def test_snapshot_sequencing_qc_survives_an_unresolvable_profile(monkeypatch) ->
 
     # QC display is advisory; it has never been allowed to break sign-out. But the
     # frozen block must say the cut-offs could not be read: empty on its own is the
-    # shape of a family imported without QC outputs (#514).
+    # shape of a family imported without QC outputs.
     assert frozen == {
         "profile_key": None,
         "profile_label": None,
@@ -1790,7 +1787,7 @@ def test_a_complete_sign_out_records_no_gaps(monkeypatch) -> None:
 
 
 def test_acknowledging_drift_without_a_reason_is_422(monkeypatch) -> None:
-    # #508: overriding the evidence-drift gate is attested like the QC override.
+    # Overriding the evidence-drift gate is attested like the QC override.
     _patch_common(monkeypatch, drifted_count=1)
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(
@@ -1816,8 +1813,8 @@ def test_no_drift_needs_no_drift_reason(monkeypatch) -> None:
 
 
 def test_reported_structural_variants_are_frozen_and_hashed(monkeypatch) -> None:
-    # #508: the report page renders structural variants tagged for reporting, so the
-    # signed snapshot must hold them — before, a reported CNV was printed but not signed.
+    # The report page renders structural variants tagged for reporting, so the signed
+    # snapshot must hold them: a reported CNV is signed as it is printed.
     def _body(structural):
         async def _sv_reviews(session, family_uuid):
             return structural
@@ -1934,7 +1931,7 @@ def test_signout_check_matches_unchanged_content(monkeypatch) -> None:
 
 
 def test_signout_check_names_what_the_signed_record_could_not_capture(monkeypatch) -> None:
-    # #514: QC thresholds could not be read at sign-out, so the signed record froze an
+    # QC thresholds could not be read at sign-out, so the signed record froze an
     # explicit marker. The report page must say so beside the signed banner.
     _patch_check(monkeypatch, reviews=[_REVIEW])
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
@@ -2238,7 +2235,7 @@ _UNFINISHED = {
 
 
 def test_an_import_that_stopped_part_way_blocks_sign_out(monkeypatch) -> None:
-    # Before: no flag was set, the job had ended, and the family signed out as complete.
+    # Its unfinished entry gates the sign-out: the family does not sign out as complete.
     _patch_common(monkeypatch, drifted_count=0, import_unfinished=_UNFINISHED)
     captured = _capture_audit(monkeypatch)
     session = _Session()
@@ -2381,8 +2378,8 @@ def test_the_gate_message_names_each_failed_datasets_job() -> None:
 
 def test_a_failure_no_import_job_records_is_never_named_under_another_failures_job() -> None:
     # SAFE-18. An upload of sv failed (SAFE-25: no job), then an import failed for snv: the
-    # flag's job is the import's, and its failed_jobs lists sv with none. Before: sv was
-    # frozen and named under the import's job, whose record holds no error of it.
+    # flag's job is the import's, and its failed_jobs lists sv with none: sv is not named
+    # under the import's job, whose record holds no error of it.
     flag = {**_INCOMPLETE, "failed_jobs": {"snv": _IMPORT_JOB_ID, "sv": None}}
     state = asyncio.run(rss._import_incomplete_state(_ScalarSession(flag), "u1"))
     assert state["failed_jobs"] == {"snv": _IMPORT_JOB_ID, "sv": None}
@@ -2406,8 +2403,8 @@ def test_a_failure_no_import_job_records_is_never_named_under_another_failures_j
 
 def test_a_restore_that_did_not_finish_is_frozen_and_named_as_one() -> None:
     # SAFE-18. A failed overwrite whose restore did not finish leaves its entry listing the
-    # whole family's datasets. Before: frozen like any entry, so the 409, its dialog and the
-    # signed record called it an import that "stopped before it finished".
+    # whole family's datasets. It is frozen as a restore, so the 409, its dialog and the
+    # signed record do not call it an import that "stopped before it finished".
     restore = {
         "job_id": "job-r",
         "at": "2026-10-13T09:00:00+00:00",
@@ -2436,7 +2433,7 @@ def test_a_restore_that_did_not_finish_is_frozen_and_named_as_one() -> None:
         "whole_family": True,
     }
     # An upload's mark lists its items the same way, but is no restore; a stopped import's
-    # entry is frozen as before.
+    # entry is frozen unchanged.
     assert "whole_family" not in state["upload-1"]
     assert state[_STOPPED_JOB_ID] == _UNFINISHED[_STOPPED_JOB_ID]
 
@@ -2651,7 +2648,7 @@ def test_a_signed_version_whose_record_was_changed_is_served_unverified(monkeypa
     [record] = [r for r in caplog.records if "content hash mismatch" in r.getMessage()]
     assert record.signout_version == 1 and record.stored_content_hash == _PRE_GATE_CONTENT_HASH
     assert record.recomputed_content_hash == rss._canonical_hash(row["snapshot"])
-    # The family by its UUID, never its ID (SEC-39; before, ``family_id`` FAM1).
+    # The family by its UUID, never its ID (SEC-39).
     assert record.family_uuid == "u1" and not hasattr(record, "family_id")
 
 
@@ -3077,8 +3074,7 @@ def test_an_acknowledged_sv_drift_is_frozen_and_audited(monkeypatch) -> None:
 
 def test_a_reported_sv_without_frozen_evidence_blocks_sign_out(monkeypatch) -> None:
     # A reported SV whose classification froze no evidence (no CNV scoring saved, or one
-    # saved before CoGA froze it) cannot be shown unchanged, like an unsnapshotted small
-    # variant (#332).
+    # saved without it) cannot be shown unchanged, like an unsnapshotted small variant.
     _patch_sv(monkeypatch, reported=[_reported_sv(evidence_snapshot=None)], structural_drifted=[])
     with pytest.raises(HTTPException) as refused:
         asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
@@ -4117,7 +4113,7 @@ def test_the_reported_variants_are_read_by_the_review_tag_filters_rule() -> None
 
 def test_a_variant_reported_through_its_pair_is_frozen_with_the_pair_review() -> None:
     rows = [
-        # Tagged on its own review: frozen as before, with no pair key.
+        # Tagged on its own review: frozen with no pair key.
         _review_row("1-100-A-G", tags=["report"]),
         # Tagged on its pair review only (the API sets such a tag): frozen with the pair review
         # that reports it, so the record says why a variant whose own tags lack it is reported.
@@ -4158,7 +4154,7 @@ def test_a_variant_reported_through_its_pair_is_frozen_with_the_pair_review() ->
 
 def test_a_variant_its_pair_reports_without_frozen_evidence_gates_like_any_other(monkeypatch) -> None:
     # A reported variant whose classification froze no evidence cannot be drift-verified, so the
-    # drift gate asks for an acknowledgement (#332): a variant its pair reports as well.
+    # drift gate asks for an acknowledgement: a variant its pair reports as well.
     _patch_common(monkeypatch, drifted_count=0)
 
     async def _pair_reported(session, family_uuid):
@@ -4187,9 +4183,7 @@ def test_a_variant_its_pair_reports_without_frozen_evidence_gates_like_any_other
 # The owner's decision of 2026-11-10: the signed record freezes the class a reported variant's
 # review shows, by the family page's one rule (review_class_label), beside its classification
 # text; the live report and the signed version show that class, with the ACMG (or CNV) score
-# beside it when the two differ. Before, the record froze no small variant's text, so the signed
-# version showed the ACMG score, an overridden one too, and the check missed a class changed by
-# its text alone.
+# beside it when the two differ.
 
 # The shared cases of the one rule (smallVariantSearch.ts and review_pg_utils.py read them alike).
 _REVIEW_CLASS_CASES = json.loads(
@@ -4307,7 +4301,7 @@ def test_the_record_freezes_the_class_each_reported_review_shows_with_its_text(m
     for row, shown in _OWNER_SMALL_CASES:
         entry = small[row["variant_id"]]
         assert entry.get("class_shown") == shown, row
-        # The text the class was read from, as stored; the ACMG record as frozen before.
+        # The text the class was read from, as stored; the ACMG record as frozen.
         assert entry.get("classification") == row["classification"]
         assert entry["acmg"] == row["acmg"]
     # The ACMG score the dialog's class overrode stays in the record, beside the class shown.
@@ -4355,8 +4349,8 @@ def test_the_class_shown_is_bound_into_the_content_hash(monkeypatch) -> None:
 
 def test_signout_check_reads_a_class_changed_by_its_text_alone_as_a_change(monkeypatch) -> None:
     # Signed as "VUS" beside the tag of class 4 (class 3 shown); the analyst then writes
-    # "Likely benign", the tags left as they were. The record froze no text before, so the check
-    # read the report as unchanged while the page showed another class.
+    # "Likely benign", the tags left as they were. The record froze the text, so the check reads
+    # the report as changed, as the page shows another class.
     _patch_reported(monkeypatch, rows=[_classified_row("1-300-A-G", "VUS", ["acmg_class_4", "report"])])
     signed = _snapshot_now()
     assert _checked_with_latest(signed)["matches"] is True

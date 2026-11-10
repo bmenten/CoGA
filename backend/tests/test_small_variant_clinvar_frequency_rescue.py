@@ -5,7 +5,7 @@ The rescue lifts the whole frequency block (the population frequencies and the g
 homozygote, hemizygote and allele counts), for a ClinVar pathogenic or likely pathogenic record,
 ClinVar's aggregate form included; never for a benign record or a variant without ClinVar, and
 not at all when the search does not ask for it. The ClickHouse condition applies it
-(``_small_detail_filter_clauses``, #534); the real-ClickHouse filter spec holds it to the rule
+(``_small_detail_filter_clauses``); the real-ClickHouse filter spec holds it to the rule
 (integration/test_small_variant_filter_parity_clickhouse.py).
 """
 
@@ -28,7 +28,7 @@ def _filters(**overrides) -> SmallVariantQueryFilters:
     return SmallVariantQueryFilters(**base)
 
 
-# --- #534: the ClickHouse filter must apply the same rescue ------------------------------
+# --- The ClickHouse filter must apply the same rescue -----------------------------------
 # The candidate fetch filters on population frequency in SQL before any row reaches the
 # Python matcher above, so a rescue that exists only in Python never runs.
 
@@ -77,7 +77,7 @@ def test_clinvar_aggregate_significance_is_split_into_its_terms() -> None:
     # ClinVar's own CLNSIG aggregate forms.
     assert _status_terms("Pathogenic/Likely_pathogenic") == {"pathogenic", "likely pathogenic"}
     assert _status_terms("Benign/Likely_benign") == {"benign", "likely benign"}
-    # VEP's CLIN_SIG joins with "&"; still split as before.
+    # VEP's CLIN_SIG joins with "&"; split the same way.
     assert _status_terms("pathogenic&likely_pathogenic") == {"pathogenic", "likely pathogenic"}
 
 

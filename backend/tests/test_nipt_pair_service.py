@@ -481,8 +481,8 @@ async def test_the_quality_checks_payload(monkeypatch: pytest.MonkeyPatch) -> No
         "indeterminate", "female_no_chrY_signal", "female"
     )
     assert qc.plasma_profile_status == "pass"
-    # The verdicts the page made itself before, from the backend now (nipt_quality_checks),
-    # as the signed record freezes them.
+    # The verdicts come from the backend (nipt_quality_checks), as the signed record freezes
+    # them.
     assert (qc.fetal_fraction_status, qc.fetal_sex.status) == ("pass", "pass")
     assert qc.de_novo_window is not None and qc.target_coverage is not None
     assert qc.model.reference.startswith("R NIPT-M v0.5.1")
