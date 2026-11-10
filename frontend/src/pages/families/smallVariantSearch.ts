@@ -326,23 +326,6 @@ export const PATHOGENIC_TO_VUS_CLASSIFICATIONS: readonly string[] = ['acmg_class
   (key) => ACMG_CLASSIFICATION_LABELS[key],
 );
 
-const CLASSIFICATION_OPTION_BY_LOWERED = new Map(
-  REVIEW_CLASSIFICATION_OPTIONS.map((label) => [label.toLowerCase(), label]),
-);
-
-/**
- * A classification filter with each class label written as the options write it. A filter
- * saved in a link before the labels were put in sentence case holds "Likely Pathogenic - class
- * 4"; the server matches it whatever its case, and read through this its box shows ticked.
- * Any other value is kept as it is.
- */
-export const canonicalClassificationFilter = (value: string) =>
-  joinFilterValues(
-    parseCommaSeparatedValues(value).map(
-      (entry) => CLASSIFICATION_OPTION_BY_LOWERED.get(entry.toLowerCase()) ?? entry,
-    ),
-  );
-
 // MAGI-ACMG VUS sub-tier tags. Auto-managed alongside the acmg_class_* tags so a
 // "hot VUS" is filterable/reportable through the existing review-tag pipeline.
 export const ACMG_VUS_TIER_TAGS = [
@@ -1458,7 +1441,6 @@ export const deserializePresetFilters = (
   (Object.keys(nextFilters) as (keyof SmallFilterState)[]).forEach((key) => {
     nextFilters[key] = normalizeStoredFilterValue(key, filters[key]);
   });
-  nextFilters.classification = canonicalClassificationFilter(nextFilters.classification);
   return nextFilters;
 };
 
@@ -1641,9 +1623,7 @@ export const useSmallVariantSearchState = ({
         return;
       }
       if (key === 'classification') {
-        initialFilters.classification = canonicalClassificationFilter(
-          joinFilterValues(params.getAll('classification')),
-        );
+        initialFilters.classification = joinFilterValues(params.getAll('classification'));
         return;
       }
       if (key === 'review_tags') {

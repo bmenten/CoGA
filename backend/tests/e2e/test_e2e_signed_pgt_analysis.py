@@ -16,11 +16,6 @@ chr1, the inheritance model AD and an ROI on chr1), through the API, this:
   with the analysis's rules;
 * signs the family out and reads the record back: it holds those calls as served, verifies,
   and still matches right after it was signed, with nothing named as not captured;
-* signs out once more as a build from before the section (its key left out): that record
-  verifies and reads, nothing it predates is "not captured", and the check names the
-  section as not compared;
-* signs out once more as a build from before the QC verdict (the section without it): that
-  record verifies, reads and still matches, the verdict named as not compared;
 * answers a user outside the family's projects with the 404 of an unknown family.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
@@ -75,7 +70,6 @@ async def _collect(root: Path, family_id: str) -> dict:
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
-    from backend.app.services import report_signout_service as rss
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
@@ -108,51 +102,6 @@ async def _collect(root: Path, family_id: str) -> dict:
         r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
         r["analysis_after"] = capture(await ac.get(f"{family}/pgt-analysis"))
         r["chain"] = capture(
-            await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
-        )
-
-        # A record signed by a build from before the section: its key left out.
-        real_build = rss.build_report_snapshot
-
-        async def _old_build(*args, **kwargs):
-            body = await real_build(*args, **kwargs)
-            body.pop("pgt_analysis", None)
-            return body
-
-        mp = pytest.MonkeyPatch()
-        mp.setattr(rss, "build_report_snapshot", _old_build)
-        try:
-            r["old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-        finally:
-            mp.undo()
-        old_version = (r["old_signout"]["json"] or {}).get("version")
-        r["old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{old_version}"))
-        r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-        r["old_chain"] = capture(
-            await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
-        )
-
-        # A record signed by a build from before the embryos' QC verdict: the section without
-        # each embryo's verdict and without the thresholds.
-        async def _pre_verdict_build(*args, **kwargs):
-            body = await real_build(*args, **kwargs)
-            analysis = body.get("pgt_analysis")
-            if isinstance(analysis, dict):
-                for embryo in analysis.get("embryos") or []:
-                    embryo.pop("qc_verdict", None)
-                (analysis.get("rules") or {}).pop("qc_thresholds", None)
-            return body
-
-        mp = pytest.MonkeyPatch()
-        mp.setattr(rss, "build_report_snapshot", _pre_verdict_build)
-        try:
-            r["pre_verdict_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-        finally:
-            mp.undo()
-        pre_verdict_version = (r["pre_verdict_signout"]["json"] or {}).get("version")
-        r["pre_verdict_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{pre_verdict_version}"))
-        r["pre_verdict_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-        r["pre_verdict_chain"] = capture(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
         )
 
@@ -247,22 +196,7 @@ def test_the_signed_record_holds_the_calls_the_family_page_shows(pgt) -> None:
     assert [gap for gap in detail["not_captured"] if gap["section"] == "pgt_analysis"] == []
     assert _ok(pgt, "chain")["verified"] is True
     check = _ok(pgt, "check")
-    assert check["matches"] is True, check
-    assert check["not_compared"] == []
-
-
-def test_a_pgt_record_signed_before_the_section_still_verifies_and_reads(pgt) -> None:
-    old = _ok(pgt, "old_signout")
-    detail = _ok(pgt, "old_detail")
-    assert detail["verified"] is True and "pgt_analysis" not in detail["snapshot"]
-    # Nothing it predates is "not captured": the signed view says the record does not hold it.
-    assert [gap for gap in detail["not_captured"] if gap["section"] == "pgt_analysis"] == []
-    assert detail["report_code"] == old["report_code"]
-    assert _ok(pgt, "old_chain")["verified"] is True
-    check = _ok(pgt, "old_check")
-    assert check["version"] == old["version"]
-    assert check["not_compared"] == ["pgt_analysis"]
-    assert check["matches"] is True, check
+    assert check["matches"] is True and check["changed_sections"] == [], check
 
 
 def test_each_embryo_call_carries_its_qc_verdict_and_the_record_freezes_it(pgt) -> None:
@@ -306,23 +240,6 @@ def test_each_embryo_call_carries_its_qc_verdict_and_the_record_freezes_it(pgt) 
     assert [embryo["mixed_homologs"] for embryo in held["embryos"]] == [
         embryo["mixed_homologs"] for embryo in analysis["embryos"]
     ]
-
-
-def test_a_pgt_record_signed_before_the_qc_verdict_still_verifies_reads_and_matches(pgt) -> None:
-    signed = _ok(pgt, "pre_verdict_signout")
-    detail = _ok(pgt, "pre_verdict_detail")
-    assert detail["verified"] is True
-    held = detail["snapshot"]["pgt_analysis"]
-    assert held["embryos"] and all("qc_verdict" not in embryo for embryo in held["embryos"])
-    assert "qc_thresholds" not in held["rules"]
-    # Nothing it predates is "not captured".
-    assert [gap for gap in detail["not_captured"] if gap["section"] == "pgt_analysis"] == []
-    assert _ok(pgt, "pre_verdict_chain")["verified"] is True
-    # Compared on what it holds: it matches, and the verdict is named as not compared.
-    check = _ok(pgt, "pre_verdict_check")
-    assert check["version"] == signed["version"]
-    assert check["not_compared"] == ["pgt_analysis.qc_verdict"]
-    assert check["matches"] is True and check["changed_sections"] == [], check
 
 
 def test_a_user_outside_the_familys_projects_gets_the_404_of_an_unknown_family(pgt) -> None:

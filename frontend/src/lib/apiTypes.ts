@@ -454,7 +454,7 @@ export interface ApiReportSignoutList {
 
 // Whether the report, as it would be signed now, matches the latest sign-out (#508).
 // `matches` is null when the family has never been signed out; `changed_sections` names
-// the snapshot sections that differ, `not_compared` those an older snapshot predates.
+// the snapshot sections that differ, each section compared whole.
 export interface ApiReportSnapshotGap {
   section: string;
   item: string;
@@ -467,7 +467,6 @@ export interface ApiReportSignoutCheck {
   content_hash: string | null;
   matches: boolean | null;
   changed_sections: string[];
-  not_compared: string[];
   // Parts the signed snapshot froze as unavailable because a lookup failed (#514).
   not_captured?: ApiReportSnapshotGap[];
   checked_at: string;

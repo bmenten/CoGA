@@ -578,9 +578,8 @@ async def _variant_ids_matching_reviews(
     A classification keeps a review, or its compound-het pair review, by the class it shows,
     as the family search's filter does (``list_matching_small_variant_review_ids``, CLIN-75):
     the rule ``review_shows_class``, here in SQL (``review_class_label_sql``), so the Explorer
-    keeps exactly the variants a family search keeps in some family. Whatever the case: a
-    filter or a review saved before the labels were put in sentence case (ENG-6) holds "Likely
-    Pathogenic - class 4"; Postgres's lower() and Python's agree on the class labels and words.
+    keeps exactly the variants a family search keeps in some family. Whatever the case:
+    Postgres's lower() and Python's agree on the class labels and words.
     """
 
     classifications = review_class_filter(classifications)

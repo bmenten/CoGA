@@ -8,11 +8,10 @@ drift, on real Postgres + ClickHouse (CLIN-7; TF-09a REQ-TRACE-002, REQ-TRACE-00
   the real ``acmg_evidence_snapshot`` column, the population frequencies and in-silico scores
   of its primary transcript: the values the variant list serves the ACMG dialog
   (``get_family_small_variants_page``).
-- Read back from JSONB, unchanged evidence is current, and so is a snapshot stored as the
-  writer stored it before CLIN-7 (the annotation version and set hash, ClinVar and the time).
+- Read back from JSONB, unchanged evidence is current.
 - A re-import with a new annotation (another REVEL score, another gnomAD genome frequency)
   reads as drift naming each value that moved, with the value as frozen and as it is now,
-  while the snapshot stored the old way stays current: its annotation set did not change.
+  while a second classification whose variant's annotation did not change stays current.
   Sign-out is refused until the drift is acknowledged with a reason; the signed record holds
   the frozen values of the reported classification and the drift naming what moved, and the
   sign-out check, computing both again, finds the live report still matching it. Saving the
@@ -22,8 +21,7 @@ drift, on real Postgres + ClickHouse (CLIN-7; TF-09a REQ-TRACE-002, REQ-TRACE-00
   profile in Postgres through the variant list's own gene lookup: a gene profile refresh
   that moves the missense Z reads as drift for the missense variant and not for a stop
   gained of the same gene; a re-annotation that adds a consequence term to the stop gained
-  and turns LOFTEE's call from LC to HC reads as drift naming both; a snapshot stored before
-  these values were frozen stays current.
+  and turns LOFTEE's call from LC to HC reads as drift naming both.
 
 The family context, the Sample QC and the QC cut-off lookup are stubbed, and the variant
 list's hydration (reviews, gene metrics, cohort) is left out; its gene lookup is called
@@ -60,10 +58,9 @@ _ASSEMBLY = "GRCh38"
 _SAMPLE = "PROBAND"
 # Positions no other test writes: the variant details are shared across families.
 _CLASSIFIED = "12-40100101-C-T"
-_OLD_SNAPSHOT = "12-40100201-G-A"
+_OTHER_CLASSIFIED = "12-40100201-G-A"
 _MANE_TRANSCRIPT = "ENST00000000101"
 _REASON = "REVEL rose with the new dbNSFP release; PP3 re-reviewed at the case meeting."
-_OLD_FORMAT_KEYS = ("annotation_version", "annotation_set_hash", "clinvar", "captured_at")
 
 _CSQ_FIELDS = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
@@ -188,7 +185,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
             ]
         ),
     )
-    old_way = SmallVariantReviewUpdate(
+    other_classification = SmallVariantReviewUpdate(
         classification="VUS - class 3",
         tags=["acmg_class_3"],
         acmg=AcmgClassificationPayload(
@@ -206,7 +203,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
             [project],
             [
                 _record(_CLASSIFIED, _annotations(revel=revel, gnomad_genomes=gnomad_genomes)),
-                _record(_OLD_SNAPSHOT, _annotations()),
+                _record(_OTHER_CLASSIFIED, _annotations()),
             ],
         )
 
@@ -276,31 +273,19 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
             assert frequencies["gnomad_hemi_count"] is None
             assert frozen["clinvar"] == served.clinvar == "uncertain_significance"
 
-            # A classification whose snapshot was stored as the writer before CLIN-7 stored
-            # it: the annotation version and set hash, ClinVar and the time.
+            # A second classification, of a variant whose annotation no release moves.
             async with sm() as s:
                 await upsert_small_variant_review(
-                    s, context=_ctx_now(), variant_id=_OLD_SNAPSHOT, payload=old_way, user=user
+                    s, context=_ctx_now(), variant_id=_OTHER_CLASSIFIED, payload=other_classification, user=user
                 )
-            async with sm() as s:
-                stored_old = await _frozen(s, holder["uuid"], _OLD_SNAPSHOT)
-                old_snapshot = {key: stored_old[key] for key in _OLD_FORMAT_KEYS}
-                await s.execute(
-                    text(
-                        "UPDATE small_variant_reviews SET acmg_evidence_snapshot = CAST(:snap AS jsonb) "
-                        "WHERE family_id = CAST(:f AS uuid) AND variant_id = :v"
-                    ),
-                    {"snap": json.dumps(old_snapshot), "f": holder["uuid"], "v": _OLD_SNAPSHOT},
-                )
-                await s.commit()
 
-            # (b) Read back from JSONB, unchanged evidence is current, the old snapshot too.
+            # (b) Read back from JSONB, unchanged evidence is current.
             async with sm() as s:
                 drift = await cds.evaluate_classification_drift(s, family_id=label, user=user)
             assert (drift["checked"], drift["drifted_count"], drift["drifted"]) == (2, 0, [])
 
             # (c) A new annotation release: REVEL and the gnomAD genome frequency move. The
-            # drift names each value that moved; the old snapshot's annotation is unchanged.
+            # drift names each value that moved; the other variant's annotation is unchanged.
             await _import(revel="0.951", gnomad_genomes="0.012")
             async with sm() as s:
                 drift = await cds.evaluate_classification_drift(s, family_id=label, user=user)
@@ -377,12 +362,9 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
 
 # --- The consequence, the LoF call and the gene's missense Z --------------------------------------
 
-# Three variants of one gene: a missense variant and a stop gained, both reported, and a
-# missense variant whose snapshot is stored in the format from before the consequence and
-# the missense Z were frozen.
+# Two variants of one gene: a missense variant and a stop gained, both reported.
 _MISSENSE = "12-40100301-C-T"
 _STOP_GAINED = "12-40100501-G-T"
-_EARLIER = "12-40100401-G-A"
 _GENE8_TRANSCRIPT = "ENST00000000108"
 _GENE8 = "GENE8"
 _GENE8_ID = "ENSG00000000108"
@@ -420,7 +402,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
     ACMG dialog, the missense Z from the gene's profile in Postgres and for the missense
     variant only. A gene profile refresh reads as drift for the missense variant and not for
     the stop gained (owner, 2026-10-20); a re-annotation of the stop gained names its
-    consequence and LoF call; a snapshot frozen before these values were stays current.
+    consequence and LoF call.
     Sign-out, the signed record and its check; saving again clears the drift."""
     from backend.app.core.clickhouse import close_clickhouse_client
     from backend.app.core.postgres import (
@@ -500,14 +482,6 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
             ]
         ),
     )
-    earlier = SmallVariantReviewUpdate(
-        classification="VUS - class 3",
-        tags=["acmg_class_3"],
-        acmg=AcmgClassificationPayload(
-            criteria=[AcmgCriterionSelection(code="PM2", strength="supporting", accepted=True)]
-        ),
-    )
-
     async def _import(*, stop_consequence: str, stop_lof: str) -> None:
         await delete_family_small_variants(_ASSEMBLY, holder["uuid"], source="clair3")
         await insert_small_variant_records(
@@ -519,7 +493,6 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 _record(
                     _STOP_GAINED, _gene8_annotations(consequence=stop_consequence, impact="HIGH", lof=stop_lof)
                 ),
-                _record(_EARLIER, _gene8_annotations(consequence="missense_variant", impact="MODERATE")),
             ],
         )
 
@@ -627,35 +600,19 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
             }
             assert "gene_constraint" not in frozen_stop and metrics[_STOP_GAINED]["gene_missense_z"] == 2.95
 
-            # A classification whose snapshot was stored before the consequence and the
-            # missense Z were frozen: the transcript, frequencies and in-silico scores.
-            async with sm() as s:
-                await upsert_small_variant_review(s, context=_ctx_now(), variant_id=_EARLIER, payload=earlier, user=user)
-            async with sm() as s:
-                stored_earlier = await _frozen(s, holder["uuid"], _EARLIER)
-                del stored_earlier["consequence"], stored_earlier["gene_constraint"]
-                await s.execute(
-                    text(
-                        "UPDATE small_variant_reviews SET acmg_evidence_snapshot = CAST(:snap AS jsonb) "
-                        "WHERE family_id = CAST(:f AS uuid) AND variant_id = :v"
-                    ),
-                    {"snap": json.dumps(stored_earlier), "f": holder["uuid"], "v": _EARLIER},
-                )
-                await s.commit()
-
-            # (b) Read back from JSONB, unchanged evidence is current, the earlier snapshot too.
+            # (b) Read back from JSONB, unchanged evidence is current.
             async with sm() as s:
                 drift, _ = await _drift(s)
-            assert (drift["checked"], drift["drifted_count"], drift["drifted"]) == (3, 0, [])
+            assert (drift["checked"], drift["drifted_count"], drift["drifted"]) == (2, 0, [])
 
             # (c) The gene profiles are refreshed: the gene's missense Z moves, no annotation
             # does. Drift for the missense variant, under its unchanged hash; none for the stop
-            # gained, which froze no missense Z; none for the earlier snapshot, which froze none.
+            # gained, which froze no missense Z.
             async with sm() as s:
                 await _set_missense_z(s, 3.52)
             async with sm() as s:
                 drift, by_variant = await _drift(s)
-            assert (drift["checked"], sorted(by_variant)) == (3, [_MISSENSE])
+            assert (drift["checked"], sorted(by_variant)) == (2, [_MISSENSE])
             moved = by_variant[_MISSENSE]
             assert (moved["status"], moved["changed"]) == ("drifted", ["gene_missense_z"])
             assert (moved["evidence_from"]["gene_missense_z"], moved["evidence_to"]["gene_missense_z"]) == (2.95, 3.52)
@@ -665,7 +622,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
             await _import(stop_consequence="stop_gained&splice_region_variant", stop_lof="HC")
             async with sm() as s:
                 drift, by_variant = await _drift(s)
-            assert (drift["checked"], sorted(by_variant)) == (3, sorted([_MISSENSE, _STOP_GAINED]))
+            assert (drift["checked"], sorted(by_variant)) == (2, sorted([_MISSENSE, _STOP_GAINED]))
             stop = by_variant[_STOP_GAINED]
             assert (stop["status"], stop["changed"]) == ("drifted", ["effect", "lof", "annotations"])
             assert (stop["evidence_from"]["effect"], stop["evidence_to"]["effect"]) == (
@@ -738,7 +695,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 }
                 assert (await _frozen(s, holder["uuid"], _STOP_GAINED))["consequence"]["lof"] == "HC"
                 drift, _ = await _drift(s)
-            assert (drift["checked"], drift["drifted_count"]) == (3, 0)
+            assert (drift["checked"], drift["drifted_count"]) == (2, 0)
         finally:
             await close_postgres_engine()
             await close_clickhouse_client()

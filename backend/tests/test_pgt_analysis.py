@@ -333,60 +333,6 @@ def test_an_embryo_not_called_has_no_qc_verdict(monkeypatch) -> None:
     assert out.rules.qc_thresholds.min_informative_sites == 50
 
 
-# --- A record signed before the QC verdict ------------------------------------------------
-
-
-def _current(monkeypatch) -> dict[str, Any]:
-    _patch_reads(monkeypatch)
-    return asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context())).model_dump(mode="json")
-
-
-def _before_the_verdict(analysis: dict[str, Any]) -> dict[str, Any]:
-    """The analysis as a record signed before the QC verdict holds it."""
-    return {
-        **analysis,
-        "embryos": [{key: value for key, value in embryo.items() if key != "qc_verdict"} for embryo in analysis["embryos"]],
-        "rules": {key: value for key, value in analysis["rules"].items() if key != "qc_thresholds"},
-    }
-
-
-def test_a_record_signed_before_the_qc_verdict_is_compared_on_what_it_holds(monkeypatch) -> None:
-    current = _current(monkeypatch)
-    signed = _before_the_verdict(current)
-    comparable, predated = pgt_analysis.comparable_with_record(signed, current)
-    assert comparable == signed
-    assert predated == ["pgt_analysis.qc_verdict"]
-    # The current analysis itself is left as it is.
-    assert all("qc_verdict" in embryo for embryo in current["embryos"])
-
-    # What the record holds is still compared: a call that changed reads as a change.
-    changed = {**current, "embryos": [{**current["embryos"][0], "call": "carrier"}, *current["embryos"][1:]]}
-    comparable, _ = pgt_analysis.comparable_with_record(signed, changed)
-    assert comparable != signed
-
-
-def test_a_record_holding_the_qc_verdict_is_compared_whole(monkeypatch) -> None:
-    current = _current(monkeypatch)
-    assert pgt_analysis.comparable_with_record(current, current) == (current, [])
-    # A threshold or verdict that changed since the record was signed is not hidden.
-    moved = {**current, "rules": {**current["rules"], "qc_thresholds": {**current["rules"]["qc_thresholds"], "min_markers_per_flank": 3}}}
-    assert pgt_analysis.comparable_with_record(current, moved) == (moved, [])
-
-
-@pytest.mark.parametrize(
-    ("signed", "current"),
-    [
-        ({"unavailable": "The PGT analysis's embryo results could not be read."}, {"embryos": []}),
-        ({"rules": {}}, {"unavailable": "The PGT analysis's embryo results could not be read."}),
-        ({"rules": {}}, None),
-        ({"rules": {}}, {"rules": {"window_flank": 1}, "embryos": ["not an embryo"]}),
-    ],
-)
-def test_a_record_or_analysis_that_holds_no_verdict_is_compared_as_it_is(signed, current) -> None:
-    # Unavailable on either side, or nothing the record predates: compared as it is, nothing named.
-    assert pgt_analysis.comparable_with_record(signed, current) == (current, [])
-
-
 def test_the_analysis_does_not_depend_on_the_order_the_store_returns_blocks_in(monkeypatch) -> None:
     _patch_reads(monkeypatch)
     stored = asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context()))

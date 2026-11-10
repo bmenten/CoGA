@@ -139,8 +139,6 @@ phenotype context, the audit trail — and never fills that in from current data
 
 **Open the live report** shows the current data. It says *This is the live report, not signed version
 N*, and whether it still matches: amber when something changed since (it names what), grey when the
-check could not be made (*treat it as unsigned*). It also names what version N does not hold and so
-could not compare (*Not in signed version N, so not compared: …*). Its printout starts with *Not the
-signed report*.
+check could not be made (*treat it as unsigned*). Its printout starts with *Not the signed report*.
 
 [Report traceability and sign-out reference (footer, drift, audit, the sign-out checks)](/docs/reference/clinical-traceability "further-reading")

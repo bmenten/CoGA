@@ -383,28 +383,6 @@ def test_a_number_compares_by_value_whatever_its_encoding() -> None:
     assert cds._same("deleterious(0.01)", "deleterious(0.01)") and cds._same(None, None)
 
 
-def test_an_old_snapshot_without_the_values_stays_current() -> None:
-    # Frozen before the frequencies and in-silico scores were: the annotation version,
-    # the annotation-set hash, the ClinVar significance and the time.
-    old = {"annotation_version": "v1", "annotation_set_hash": "h1", "clinvar": "Pathogenic", "captured_at": "x"}
-    now = _now(_annotated("h1", _OTHER, _MANE, clinvar="Pathogenic"))
-    diff = cds._diff(old, now)
-    assert diff["status"] == "current"
-    assert diff["changed"] == [] and diff["evidence_from"] is None
-    # A new annotation set is still a drift, by its hash, as before; nothing else is named.
-    moved = cds._diff(old, _now(_annotated("h2", _OTHER, _MANE, clinvar="Pathogenic")))
-    assert (moved["status"], moved["changed"], moved["evidence_from"]) == ("drifted", ["annotations"], None)
-
-
-def test_only_the_values_a_snapshot_froze_are_compared() -> None:
-    # A snapshot holding only REVEL is compared on REVEL: a value CoGA freezes later does
-    # not turn it into a drift.
-    partial = {"annotation_version": "v1", "annotation_set_hash": "h1", "clinvar": None, "in_silico": {"revel": 0.412}}
-    diff = cds._diff(partial, _now(_annotated("h1", _OTHER, _MANE)))
-    assert diff["status"] == "current"
-    assert diff["evidence_from"] == {"revel": 0.412}
-
-
 def test_a_frozen_group_that_cannot_be_read_is_unknown_not_current() -> None:
     unreadable = {"annotation_version": "v1", "annotation_set_hash": "h1", "clinvar": None, "frequencies": "?"}
     now = _now(_annotated("h1", _OTHER, _MANE))
@@ -437,7 +415,7 @@ def test_evaluate_classification_drift_names_the_moved_value(monkeypatch) -> Non
             "updated_at": _WHEN,
         },
         {
-            # Frozen before CLIN-7, its variant unchanged: not listed.
+            # Its variant unchanged: not listed.
             "variant_id": "2-200-C-T",
             "acmg_class": "acmg_class_3",
             "acmg_evidence_snapshot": {"annotation_set_hash": "h9", "clinvar": None, "annotation_version": "v1"},
@@ -787,21 +765,6 @@ def test_the_drift_names_what_moved_in_the_order_a_reviewer_reads_it() -> None:
     assert diff["evidence_to"]["gene_missense_z"] == 3.52
 
 
-def test_a_snapshot_from_before_the_consequence_was_frozen_is_compared_on_what_it_holds() -> None:
-    # Frozen with the transcript, frequencies and in-silico scores but without the
-    # consequence and the missense Z: those are not compared, so a value there now, or one
-    # that changed, is no drift.
-    earlier = _stored(_freeze(_annotated("h1", _OTHER, _MANE)))
-    del earlier["consequence"], earlier["gene_constraint"]
-    diff = cds._diff(earlier, _now(_annotated("h1", _OTHER, _MANE), gene_missense_z=3.52))
-    assert (diff["status"], diff["changed"]) == ("current", [])
-    assert not {"effect", "impact", "lof", "gene_missense_z"} & set(diff["evidence_from"])
-    # What it froze is still compared and named.
-    recalled = _csq(transcript="ENST00000000001", mane=True, consequence="stop_gained", impact="HIGH", revel="0.951")
-    moved = cds._diff(earlier, _now(_annotated("h1", _OTHER, recalled), gene_missense_z=3.52))
-    assert (moved["status"], moved["changed"]) == ("drifted", ["revel"])
-
-
 def test_a_consequence_or_constraint_group_that_cannot_be_read_is_unknown() -> None:
     now = _now(_annotated("h1", _MANE))
     for group in ("consequence", "gene_constraint"):
@@ -1056,19 +1019,6 @@ def test_a_missense_z_read_from_another_source_reads_as_drift_naming_it() -> Non
     assert cds._diff(from_vcf, _now(_vcf_z("h1", (_MANE, "4.2"))))["status"] == "current"
 
 
-def test_a_snapshot_frozen_before_the_source_was_is_compared_on_its_missense_z() -> None:
-    # Frozen before TRACE-15 froze the source: its missense Z was the gene profile's. The value is
-    # compared, the source it does not hold is not.
-    earlier = _stored(_freeze(_annotated("h1", _MANE), gene_missense_z=2.95))
-    del earlier["gene_constraint"]["gene_missense_z_source"]
-    diff = cds._diff(earlier, _now(_annotated("h1", _MANE), gene_missense_z=2.95))
-    assert (diff["status"], diff["changed"]) == ("current", [])
-    assert "gene_missense_z_source" not in diff["evidence_from"]
-    # Its gene's profile holds none now and the VCF does: PP2 reads another value.
-    moved = cds._diff(earlier, _now(_vcf_z("h1", (_MANE, "4.2"))))
-    assert (moved["status"], moved["changed"]) == ("drifted", ["gene_missense_z"])
-
-
 def test_a_multi_allelic_records_snapshot_names_the_alt_its_values_are_of() -> None:
     # The transcript alone does not say which allele's annotation a classification of a
     # record with two ALTs read: the ALT is frozen with the consequence, for such a record only.
@@ -1086,10 +1036,6 @@ def test_a_multi_allelic_records_snapshot_names_the_alt_its_values_are_of() -> N
     moved.alt = "G,T"
     diff = cds._diff(_stored(snap), _now(moved))
     assert diff["changed"][0] == "alt_allele"
-    # A snapshot frozen before the ALT was is compared on what it froze.
-    older = _stored(snap)
-    del older["consequence"]["alt_allele"]
-    assert "alt_allele" not in cds._diff(older, _now(moved))["changed"]
 
 
 def test_the_snapshot_freezes_what_the_new_criteria_read() -> None:

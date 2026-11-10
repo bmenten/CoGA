@@ -34,9 +34,9 @@ _CLASS_LABELS_BY_LOWERED = {
 def current_class_label(value: str) -> str:
     """``value`` written as the class label it names, when it names one in another case.
 
-    The class labels are in sentence case (ENG-6): "Likely Pathogenic - class 4", as a review
-    or a signed record from before holds it, or as an older page still sends it, reads as
-    "Likely pathogenic - class 4". Any other text is returned as it is.
+    The class labels are in sentence case (ENG-6): "Likely Pathogenic - class 4", as a client
+    of the review API may send it, is stored as "Likely pathogenic - class 4". Any other text
+    is returned as it is.
     """
     return _CLASS_LABELS_BY_LOWERED.get(value.strip().lower(), value)
 

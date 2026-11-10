@@ -10,9 +10,7 @@
 - End to end, through the real writers and readers: an SV imported into ClickHouse is
   classified through the real review save, which freezes its evidence and the SV
   callset's versions (from the real manifest row) into the real
-  ``cnv_evidence_snapshot`` column. A sign-out stored before this existed (a snapshot
-  without the new section, as the old writer stored it) keeps verifying and is compared
-  without the section it predates. With the evidence unchanged, sign-out needs no
+  ``cnv_evidence_snapshot`` column. With the evidence unchanged, sign-out needs no
   acknowledgement. When a re-import changes the genes the CNV overlaps, sign-out is
   refused (nothing written or audited) until the drift is acknowledged with a reason,
   which is frozen with the drift and recorded in the audit event. Saving the scoring
@@ -212,7 +210,6 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
     from backend.app.services import annotation_manifest_service as ams
     from backend.app.services import classification_drift_service as cds
     from backend.app.services import report_signout_service as rss
-    from backend.app.services import hash_chain
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_structural_variant_records,
@@ -249,7 +246,6 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
     scoring = CnvAcmgClassificationPayload(
         kind="loss", criteria=[CnvAcmgCriterion(code="2A", points=1.0, accepted=True)]
     )
-    signed_at = datetime(2026, 9, 1, 8, 30, 0, 250000, tzinfo=timezone.utc)
 
     counts = {
         "report_signouts": text("SELECT count(*) FROM report_signouts WHERE family_identifier = :f"),
@@ -267,8 +263,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
             await ensure_clickhouse_variant_tables(_ASSEMBLY)
             sm = get_postgres_sessionmaker()
 
-            # A family whose SV callset declared its annotation versions, with one
-            # sign-out made before SV evidence was frozen (the old writer's snapshot).
+            # A family whose SV callset declared its annotation versions.
             async with sm() as s:
                 holder["uuid"] = (
                     await s.execute(
@@ -291,61 +286,6 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                             }
                         ),
                     },
-                )
-                old = {
-                    "family_id": label,
-                    "assembly": _ASSEMBLY,
-                    "modules": [],
-                    "reference_modules": ["assembly", "gene_loci", "monarch", "hpo"],
-                    "software": {"version": "1.5.0", "git_sha": "0633db8"},
-                    "drift": {"checked": 0, "drifted_count": 0, "drifted": []},
-                    "sample_qc": {"overall_status": "pass"},
-                    "sequencing_qc": {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}},
-                    "import_incomplete": None,
-                    "reported_variants": [],
-                    "reported_structural_variants": [
-                        {
-                            "variant_id": _SV_ID,
-                            "variant_key": None,
-                            "classification": None,
-                            "cnv_class": "cnv_class_5",
-                            "cnv_point_total": 1.0,
-                            "cnv_acmg": None,
-                            "tags": ["report"],
-                            "note": None,
-                        }
-                    ],
-                    "version": 1,
-                    "generated_at": signed_at.isoformat(),
-                    "signed_out_by": "auditor",
-                    "acknowledged_drift": False,
-                    "drift_acknowledgement_reason": None,
-                    "acknowledged_qc": False,
-                    "qc_acknowledgement_reason": None,
-                    "acknowledged_import_incomplete": False,
-                    "import_incomplete_acknowledgement_reason": None,
-                }
-                content_hash = rss._canonical_hash(old)
-                row_hash = hash_chain.chain_row_hash(
-                    None,
-                    rss._signout_chain_payload(
-                        {
-                            "version": 1,
-                            "content_hash": content_hash,
-                            "signed_out_at": signed_at,
-                            "signed_out_by": "auditor",
-                            "family_identifier": label,
-                        }
-                    ),
-                )
-                await s.execute(
-                    text(
-                        "INSERT INTO report_signouts (family_id, family_identifier, version, "
-                        "signed_out_by, signed_out_at, content_hash, snapshot, row_hash, prev_hash) "
-                        "VALUES (CAST(:f AS uuid), :fl, 1, 'auditor', :ts, :ch, CAST(:snap AS jsonb), :rh, NULL)"
-                    ),
-                    {"f": holder["uuid"], "fl": label, "ts": signed_at, "ch": content_hash,
-                     "snap": json.dumps(old), "rh": row_hash},
                 )
                 await s.commit()
 
@@ -376,29 +316,17 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
             # The versions of the SV callset, not of its SNVs.
             assert frozen["versions"] == {"gencode": "45", "needlr": "0.4.2"}
 
-            # (a) The record signed before SV evidence was frozen still verifies. The check
-            # does not compare the SV/CNV drift section it lacks, but compares its reported
-            # CNV whole: the evidence frozen since reads as a change (#681).
+            # (a) Evidence unchanged: sign-out needs no acknowledgement.
             async with sm() as s:
-                v1 = await rss.get_report_signout(s, family_id=label, version=1, user=user)
-                assert v1["verified"] is True
-                check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
-                assert "structural_drift" in check["not_compared"]
-                assert "structural_drift" not in check["changed_sections"]
-                assert "reported_structural_variants" in check["changed_sections"]
-                assert check["not_captured"] == []
-
-            # (b) Evidence unchanged: sign-out needs no acknowledgement.
+                v1 = await rss.sign_out_report(s, family_id=label, user=user)
+            assert v1["version"] == 1 and v1["drift_acknowledged"] is False
             async with sm() as s:
-                v2 = await rss.sign_out_report(s, family_id=label, user=user)
-            assert v2["version"] == 2 and v2["drift_acknowledged"] is False
-            async with sm() as s:
-                stored = await stored_signout_snapshot(s, label, 2)
+                stored = await stored_signout_snapshot(s, label, 1)
             assert stored["structural_drift"] == {"checked": 1, "drifted_count": 0, "drifted": []}
             [reported] = stored["reported_structural_variants"]
             assert reported["evidence_snapshot"]["evidence_hash"] == frozen["evidence_hash"]
 
-            # (c) A re-import changes the genes the CNV overlaps: the drift is reported and
+            # (b) A re-import changes the genes the CNV overlaps: the drift is reported and
             # sign-out is refused, with nothing written or audited.
             await replace_family_structural_variants(_ASSEMBLY, holder["uuid"], [project], [_sv(["TCF4"])])
             async with sm() as s:
@@ -417,7 +345,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
             assert refusal["gate"] == "evidence_drift"
             assert "structural-variant or CNV" in refusal["message"]
             async with sm() as s:
-                assert await _count(s, "report_signouts") == 2
+                assert await _count(s, "report_signouts") == 1
                 assert await _count(s, "clinical_audit_events") == events_before
                 with pytest.raises(HTTPException) as no_reason:
                     await rss.sign_out_report(
@@ -426,10 +354,10 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                 await s.rollback()
             assert no_reason.value.status_code == 422
 
-            # (d) Acknowledged with a reason and the fingerprint of the drift the refusal listed,
+            # (c) Acknowledged with a reason and the fingerprint of the drift the refusal listed,
             # as its dialog sends it (TRACE-19): frozen with the drift, and audited.
             async with sm() as s:
-                v3 = await rss.sign_out_report(
+                v2 = await rss.sign_out_report(
                     s,
                     family_id=label,
                     user=user,
@@ -437,9 +365,9 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                     drift_acknowledgement_reason=_REASON,
                     drift_concerns_fingerprint=refusal["concerns_fingerprint"],
                 )
-            assert v3["version"] == 3 and v3["drift_acknowledged"] is True
+            assert v2["version"] == 2 and v2["drift_acknowledged"] is True
             async with sm() as s:
-                stored = await stored_signout_snapshot(s, label, 3)
+                stored = await stored_signout_snapshot(s, label, 2)
                 assert stored["structural_drift"]["drifted_count"] == 1
                 assert stored["structural_drift"]["drifted"][0]["evidence_to"]["gene_symbols"] == ["TCF4"]
                 assert stored["drift_acknowledgement_reason"] == _REASON
@@ -457,9 +385,9 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                 assert after["drift_acknowledgement_reason"] == _REASON
                 assert after["drift_concerns_fingerprint"] == refusal["concerns_fingerprint"]
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
-                assert check["version"] == 3 and check["matches"] is True, check
+                assert check["version"] == 2 and check["matches"] is True, check
 
-            # (e) Re-reviewed: saving the scoring again freezes the evidence as it is now,
+            # (d) Re-reviewed: saving the scoring again freezes the evidence as it is now,
             # and the drift clears.
             async with sm() as s:
                 await upsert_structural_variant_review(
@@ -475,10 +403,10 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
                 assert set(check["changed_sections"]) == {"reported_structural_variants", "structural_drift"}
             async with sm() as s:
-                v4 = await rss.sign_out_report(s, family_id=label, user=user)
-            assert v4["version"] == 4 and v4["drift_acknowledged"] is False
+                v3 = await rss.sign_out_report(s, family_id=label, user=user)
+            assert v3["version"] == 3 and v3["drift_acknowledged"] is False
 
-            # (f) A reported SV whose scoring froze no evidence (saved where no SV storage
+            # (e) A reported SV whose scoring froze no evidence (saved where no SV storage
             # could be read) gates too.
             async with sm() as s:
                 await upsert_structural_variant_review(
@@ -498,10 +426,10 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
             assert {"variant_id": "needlr_DUP_7_1000000", "classification": None,
                     "cnv_class": "cnv_class_5", "status": "no_snapshot"} in body["structural_drift"]["drifted"]
 
-            # The whole signed history, old record included, is one verified chain.
+            # The whole signed history is one verified chain.
             async with sm() as s:
                 chain = await rss.verify_report_signout_chain(s, label)
-                assert chain.verified and chain.rows_checked == 4, chain
+                assert chain.verified and chain.rows_checked == 3, chain
         finally:
             await close_postgres_engine()
             await close_clickhouse_client()

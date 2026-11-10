@@ -1445,36 +1445,6 @@ def test_an_acknowledged_refusal_audits_the_named_reasons_and_freezes_the_checks
     ] == [("PARTNER_A", _NO_CHRX), ("PARTNER_B", _NO_CHRX)]
 
 
-def test_a_record_signed_before_the_reasons_named_their_samples_still_matches(monkeypatch) -> None:
-    # The checks are frozen as before, so a version signed before CLIN-8 does not read as
-    # changed: only the refusal and the audit event name the samples.
-    _patch_check(monkeypatch, reviews=[_REVIEW])
-    _patch_qc_report(monkeypatch, _couple_without_chrx())
-    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-
-    def _sex_check(sample_id: str, recorded_sex: str) -> dict:
-        return {
-            "sample_id": sample_id, "recorded_sex": recorded_sex, "inferred_sex": "indeterminate",
-            "x_het_rate": None, "x_sites": 0, "status": "skip", "message": _NO_CHRX,
-        }
-
-    # The Sample QC as a sign-out before CLIN-8 froze it.
-    signed["sample_qc"] = {
-        "overall_status": "warn", "application": "couple", "application_label": "",
-        "application_summary": "", "genotype_source": None,
-        "sex_checks": [_sex_check("PARTNER_A", "female"), _sex_check("PARTNER_B", "male")],
-        "relatedness_checks": [], "mendelian_checks": [], "paternity_check": None,
-        "fetal_sex_check": None, "category_qc_check": None, "autosomal_sites": 0, "notes": [],
-    }
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(
-            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()
-        )
-    )
-    assert out["matches"] is True
-    assert out["changed_sections"] == []
-
-
 @pytest.mark.parametrize(
     ("message", "reads"),
     [
@@ -1758,7 +1728,6 @@ def test_snapshot_gaps_list_what_the_record_could_not_capture() -> None:
             {"key": "clinvar", "label": "ClinVar", "version": "2026-05"},
             {"key": "monarch", "label": "Monarch", "version": "unavailable", "detail": "lookup failed"},
         ],
-        "reference_modules": list(ams.REFERENCE_MODULE_KEYS),
         "sequencing_qc": {"thresholds": {}, "samples": {}, "unavailable": "QC thresholds could not be resolved"},
     }
     assert rss.snapshot_gaps(snapshot) == [
@@ -1767,34 +1736,10 @@ def test_snapshot_gaps_list_what_the_record_could_not_capture() -> None:
     ]
     complete = {
         "modules": [{"key": "clinvar", "version": "2026-05"}],
-        # HPO was looked up and none was loaded: nothing to capture, so no gap.
-        "reference_modules": list(ams.REFERENCE_MODULE_KEYS),
         "sequencing_qc": {"thresholds": {}, "samples": {}},
     }
     assert rss.snapshot_gaps(complete) == []
     assert rss.snapshot_gaps(None) == []
-
-
-_HPO_PREDATES_GAP = {"section": "modules", "item": "HPO", "reason": "signed before CoGA recorded its version"}
-
-
-def test_snapshot_gaps_name_a_reference_module_added_after_the_record_was_signed() -> None:
-    # CoGA started recording the HPO release after this record was signed: its list of the
-    # reference modules it looked up does not name HPO, and it holds no HPO version.
-    older = {
-        "modules": [{"key": "clinvar", "version": "2026-05"}],
-        "reference_modules": ["assembly", "gene_loci", "monarch"],
-        "sequencing_qc": {"thresholds": {}, "samples": {}},
-    }
-    assert rss.snapshot_gaps(older) == [_HPO_PREDATES_GAP]
-    # One whose pipeline declared an HPO version holds one, so nothing is missing.
-    declared = {**older, "modules": [*older["modules"], {"key": "hpo", "label": "HPO", "version": "2025-01"}]}
-    assert rss.snapshot_gaps(declared) == []
-    # A record that names no looked-up modules has each one it lacks named, never assumed.
-    unnamed = {key: value for key, value in older.items() if key != "reference_modules"}
-    assert [gap["item"] for gap in rss.snapshot_gaps(unnamed)] == [
-        rss.module_label(key) for key in ams.REFERENCE_MODULE_KEYS
-    ]
 
 
 def _capture_audit(monkeypatch) -> dict:
@@ -1944,7 +1889,7 @@ def _patch_check(monkeypatch, *, reviews):
 
 def _no_finding_reviews(monkeypatch) -> None:
     # The repeat and Paraphase reviews (finding_review_pg), held constant: these checks are
-    # about the other sections, and a record of the time each predates held none.
+    # about the other sections.
     async def _findings(session, context, sections):
         return {
             "repeat_expansion_reviews": [],
@@ -1983,8 +1928,9 @@ def test_signout_check_matches_unchanged_content(monkeypatch) -> None:
     assert out["version"] == 3
     assert out["matches"] is True
     assert out["changed_sections"] == []
-    assert out["not_compared"] == []
     assert out["not_captured"] == []
+    # Every section is compared: nothing is left out as not compared.
+    assert "not_compared" not in out
 
 
 def test_signout_check_names_what_the_signed_record_could_not_capture(monkeypatch) -> None:
@@ -2017,78 +1963,9 @@ def test_signout_check_flags_a_review_changed_after_signout(monkeypatch) -> None
     assert out["changed_sections"] == ["reported_variants"]
 
 
-def _labelled_reviews(label: str) -> tuple[list[dict], list[dict]]:
-    """A reported small variant and SV/CNV whose classifications all carry ``label``."""
-    small = {
-        **_REVIEW,
-        "classification": label,
-        "acmg": {"criteria": [], "point_total": 7, "classification": label, "vus_tier": None},
-        "compound_het": {"partner_variant_ids": ["1-2-C-T"], "classification": label},
-    }
-    structural = {
-        "variant_id": "1-1000-5000-DEL---",
-        "classification": label,
-        "cnv_class": "cnv_class_4",
-        "cnv_acmg": {"kind": "loss", "criteria": [], "point_total": 0.9, "classification": label},
-        "tags": ["report"],
-    }
-    return [small], [structural]
-
-
-def _patch_labelled_reviews(monkeypatch, label: str) -> None:
-    small, structural = _labelled_reviews(label)
-    _patch_check(monkeypatch, reviews=small)
-
-    async def _structural(session, family_uuid):
-        return structural
-
-    monkeypatch.setattr(rss, "_reported_structural_reviews", _structural)
-
-
-def test_signout_check_reads_a_class_label_signed_in_another_case_as_unchanged(monkeypatch) -> None:
-    # ENG-6: the class labels were put in sentence case and revision 0013 rewrote the stored
-    # reviews. A record signed before keeps "Likely Pathogenic - class 4": that case alone is no
-    # change since sign-out, in the small variants' and the SVs'/CNVs' classifications alike.
-    _patch_labelled_reviews(monkeypatch, "Likely Pathogenic - class 4")
-    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-    assert signed["reported_variants"][0]["classification"] == "Likely Pathogenic - class 4"
-    _patch_labelled_reviews(monkeypatch, "Likely pathogenic - class 4")
-
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
-    )
-
-    assert out["changed_sections"] == [] and out["matches"] is True
-    # Another class is still a change.
-    _patch_labelled_reviews(monkeypatch, "Pathogenic - class 5")
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
-    )
-    # The structural drift section names each SV/CNV classification too.
-    assert out["changed_sections"] == ["reported_variants", "reported_structural_variants", "structural_drift"]
-
-
-def test_only_a_classification_s_class_label_is_read_whatever_its_case() -> None:
-    # The class a reported variant's review showed (CLIN-80) is read so too.
-    value = {
-        "classification": "LIKELY pathogenic - CLASS 4",
-        "class_shown": "likely Pathogenic - class 4",
-        "note": "Likely Pathogenic - class 4",
-        "acmg": {"classification": "likely benign - class 2"},
-        "pair": [{"classification": "Not a class label"}],
-    }
-    assert rss._with_current_class_labels(value) == {
-        "classification": "Likely pathogenic - class 4",
-        "class_shown": "Likely pathogenic - class 4",
-        "note": "Likely Pathogenic - class 4",
-        "acmg": {"classification": "Likely benign - class 2"},
-        "pair": [{"classification": "Not a class label"}],
-    }
-
-
-def test_signout_check_does_not_compare_a_section_the_record_does_not_hold(monkeypatch) -> None:
-    # A section CoGA adds after a record was signed is not in that record: it is not
-    # comparable, and does not on its own make the page "changed".
+def test_signout_check_reads_a_section_the_record_does_not_hold_as_changed(monkeypatch) -> None:
+    # Every record holds every section, and each is compared whole: a record without one does
+    # not hold what the report holds now, so the section reads as changed.
     _patch_check(monkeypatch, reviews=[_REVIEW])
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
     for key in ("reported_structural_variants", "sequencing_qc"):
@@ -2096,17 +1973,8 @@ def test_signout_check_does_not_compare_a_section_the_record_does_not_hold(monke
     row = _signed_row(signed)
 
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
-    assert out["matches"] is True
-    assert out["not_compared"] == ["reported_structural_variants", "sequencing_qc"]
-
-    async def _one_cnv(session, family_uuid):
-        return [{"variant_id": "DEL-1-1000-2000", "tags": ["report"]}]
-
-    monkeypatch.setattr(rss, "_reported_structural_reviews", _one_cnv)
-    out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
     assert out["matches"] is False
-    # The CNV was reported without frozen evidence, so the SV/CNV drift the record holds changed.
-    assert out["changed_sections"] == ["structural_drift"]
+    assert out["changed_sections"] == ["reported_structural_variants", "sequencing_qc"]
 
 
 # ---------------------------------------------------------------------------
@@ -2628,10 +2496,9 @@ def test_signout_check_flags_an_import_that_stopped_after_signout(monkeypatch) -
     assert out["changed_sections"] == ["import_unfinished"]
 
 
-# A sign-out exactly as the writer stored it before the incomplete-import gate existed,
-# captured from that writer: its snapshot has none of the gate's keys, and the content
-# hash and row hash are the ones it computed then. A signed record is never re-hashed,
-# so it must keep verifying as stored — its missing keys are not a tampering finding.
+# A stored sign-out row, its content hash and row hash pinned: verification hashes the record
+# as stored and never rebuilds it, whatever it holds. Synthetic, and shorter than a record a
+# sign-out writes (it holds none of the analysis sections).
 _PRE_GATE_SIGNED_AT = "2026-09-29T17:43:01.402810+00:00"
 _PRE_GATE_SNAPSHOT = {
     "acknowledged_drift": False,
@@ -2720,38 +2587,6 @@ def _pre_gate_row() -> dict:
     }
 
 
-def test_a_sign_out_made_before_the_import_gate_still_verifies(monkeypatch) -> None:
-    gate_keys = {
-        "import_incomplete",
-        "acknowledged_import_incomplete",
-        "import_incomplete_acknowledgement_reason",
-    }
-    assert not gate_keys & set(_PRE_GATE_SNAPSHOT)
-    # The hash the old writer computed is what the verifier computes over the record as
-    # stored: nothing adds the new keys (or a default for them) before hashing.
-    assert rss._canonical_hash(_pre_gate_row()["snapshot"]) == _PRE_GATE_CONTENT_HASH
-
-    chain = asyncio.run(rss.verify_report_signout_chain(_RowsSession([_pre_gate_row()]), "FAM1"))
-    assert chain.verified and chain.rows_checked == 1, chain
-
-    _patch_common(monkeypatch, drifted_count=0)
-    detail = asyncio.run(
-        rss.get_report_signout(
-            _RowsSession([_pre_gate_row()]), family_id="FAM1", version=1, user=_user()
-        )
-    )
-    assert detail["verified"] is True
-    # It predates the gate: no acknowledgement is claimed either way.
-    assert detail["import_incomplete_acknowledged"] is None
-    assert detail["import_incomplete_acknowledgement_reason"] is None
-    assert detail["import_incomplete_failed_datasets"] is None
-    assert detail["import_incomplete_job_id"] is None
-
-
-# The report page renders a signed version from its record alone, whichever version it is,
-# so reading one says what that record lacks, as the sign-out check does for the latest.
-
-
 def _detail_of(monkeypatch, row: dict) -> dict:
     _patch_common(monkeypatch, drifted_count=0)
     return asyncio.run(
@@ -2766,7 +2601,6 @@ def test_a_signed_version_names_what_its_record_could_not_capture(monkeypatch) -
             {"key": "clinvar", "label": "ClinVar", "version": "2026-05"},
             {"key": "monarch", "label": "Monarch", "version": "unavailable", "detail": "lookup failed"},
         ],
-        "reference_modules": list(ams.REFERENCE_MODULE_KEYS),
         "sequencing_qc": {"thresholds": {}, "samples": {}, "unavailable": "QC thresholds could not be resolved"},
     }
     row = {**_pre_gate_row(), "snapshot": snapshot, "content_hash": rss._canonical_hash(snapshot)}
@@ -2780,18 +2614,8 @@ def test_a_signed_version_names_what_its_record_could_not_capture(monkeypatch) -
     assert ReportSignoutDetail.model_validate(detail).model_dump()["not_captured"] == gaps
 
 
-def test_a_version_that_names_no_looked_up_modules_names_each_one_it_lacks(monkeypatch) -> None:
-    # The pinned record holds no list of the reference modules it looked up, and only a
-    # pipeline module: every reference module is named as missing, none assumed looked up.
-    gaps = _detail_of(monkeypatch, _pre_gate_row())["not_captured"]
-    assert [gap["item"] for gap in gaps] == [rss.module_label(key) for key in ams.REFERENCE_MODULE_KEYS]
-    assert {gap["reason"] for gap in gaps} == {"signed before CoGA recorded its version"}
-
-
 def test_a_complete_signed_version_names_nothing_missing(monkeypatch) -> None:
-    snapshot = {**_PRE_GATE_SNAPSHOT, "reference_modules": list(ams.REFERENCE_MODULE_KEYS)}
-    row = {**_pre_gate_row(), "snapshot": snapshot, "content_hash": rss._canonical_hash(snapshot)}
-    assert _detail_of(monkeypatch, row)["not_captured"] == []
+    assert _detail_of(monkeypatch, _pre_gate_row())["not_captured"] == []
 
 
 def test_a_signed_version_read_back_as_text_is_served_as_the_record(monkeypatch) -> None:
@@ -2873,21 +2697,6 @@ def test_signout_check_flags_an_import_completed_after_signout(monkeypatch) -> N
     )
     assert out["matches"] is False
     assert out["changed_sections"] == ["import_incomplete"]
-
-
-def test_signout_check_cannot_compare_the_import_state_of_an_older_record(monkeypatch) -> None:
-    # A record signed before the gate never froze the import state: that section is not
-    # comparable, and does not on its own make the page "changed".
-    _patch_check(monkeypatch, reviews=[_REVIEW])
-    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-    signed.pop("import_incomplete")
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(
-            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()
-        )
-    )
-    assert out["matches"] is True
-    assert out["not_compared"] == ["import_incomplete"]
 
 
 def test_the_sign_out_endpoint_passes_the_import_acknowledgement_on(monkeypatch) -> None:
@@ -3089,123 +2898,8 @@ def _patch_manifest(monkeypatch, platform: dict) -> None:
     monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
 
 
-def _signed_before_hpo_was_recorded(monkeypatch) -> dict:
-    """A snapshot signed before CoGA recorded the HPO release: no HPO module, and HPO not
-    among the reference modules it looked up (a module CoGA added later)."""
-    _patch_check(monkeypatch, reviews=[_REVIEW])
-    _patch_manifest(monkeypatch, _ASSEMBLY)
-    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-    signed["reference_modules"] = [key for key in signed["reference_modules"] if key != "hpo"]
-    return signed
-
-
-def test_the_snapshot_records_which_reference_modules_it_looked_up(monkeypatch) -> None:
-    _patch_common(monkeypatch, drifted_count=0)
-    snapshot = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-    assert snapshot["reference_modules"] == ["assembly", "gene_loci", "monarch", "hpo"]
-    # Bound into the content hash like the rest of the record.
-    assert rss._canonical_hash(snapshot) != rss._canonical_hash({**snapshot, "reference_modules": []})
-
-
-def test_a_record_signed_before_the_hpo_release_was_recorded_still_verifies(monkeypatch) -> None:
-    # Verification re-hashes the snapshot as stored. It never rebuilds the snapshot or reads
-    # the live manifest, so a record without an HPO module verifies as it did when signed.
-    import json as _json
-    from datetime import datetime, timezone
-
-    signed = _signed_before_hpo_was_recorded(monkeypatch)
-    assert "hpo" not in {m["key"] for m in signed["modules"]}
-    stored = _json.loads(_json.dumps(signed, default=str))  # the JSONB round-trip
-    row = {
-        "version": 1,
-        "id": "1",
-        "signed_out_by": "someone",
-        "signed_out_at": datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc),
-        "content_hash": rss._canonical_hash(stored),
-        "family_identifier": "FAM1",
-        "snapshot": stored,
-        "software_version": None,
-        "git_sha": None,
-        "qc_status": None,
-        "qc_acknowledged": None,
-        "qc_acknowledgement_reason": None,
-        "drift_acknowledged": None,
-        "drift_acknowledgement_reason": None,
-        "prev_hash": None,
-    }
-    row["row_hash"] = rss.chain_row_hash(None, rss._signout_chain_payload(row))
-
-    async def _must_not_rebuild(*args, **kwargs):
-        raise AssertionError("verification must not rebuild the snapshot from live data")
-
-    monkeypatch.setattr(rss, "get_family_annotation_manifest", _must_not_rebuild)
-    monkeypatch.setattr(rss, "build_report_snapshot", _must_not_rebuild)
-
-    class _Rows:
-        def mappings(self):
-            return self
-
-        def first(self):
-            return row
-
-        def all(self):
-            return [row]
-
-    class _RowSession:
-        async def execute(self, *args, **kwargs):
-            return _Rows()
-
-    record = asyncio.run(rss.get_report_signout(_RowSession(), family_id="FAM1", version=1, user=_user()))
-    assert record["verified"] is True
-    chain = asyncio.run(rss.verify_report_signout_chain(_RowSession(), "FAM1"))
-    assert chain.verified is True, chain
-
-
-def test_signout_check_does_not_call_a_record_signed_before_a_module_was_added_changed(monkeypatch) -> None:
-    # The live manifest now carries the HPO release, which a record signed before CoGA
-    # recorded it does not hold. Comparing the module lists as they are would report every
-    # such record as changed ("annotation and pipeline versions") though nothing it froze
-    # changed. Like a snapshot section a record predates (#508), the module is not
-    # compared, and the record is said not to hold it.
-    signed = _signed_before_hpo_was_recorded(monkeypatch)
-    _patch_manifest(monkeypatch, {**_ASSEMBLY, **_HPO})
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
-    )
-    assert out["matches"] is True, out
-    assert out["changed_sections"] == []
-    assert out["not_compared"] == ["modules.hpo"]
-    assert out["not_captured"] == [_HPO_PREDATES_GAP]
-
-    # Any other module still compares: a changed assembly detail is a change.
-    _patch_manifest(monkeypatch, {"assembly": {"version": "GRCh38", "detail": "p15"}, **_HPO})
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
-    )
-    assert out["matches"] is False
-    assert out["changed_sections"] == ["modules"]
-
-
-def test_signout_check_flags_an_hpo_version_a_family_pipeline_declared_after_sign_out(monkeypatch) -> None:
-    # Only the reference layer's HPO postdates the older record. An HPO version the family's
-    # own pipeline now declares came from a re-import after sign-out: a change.
-    signed = _signed_before_hpo_was_recorded(monkeypatch)
-
-    async def _manifest(session, *, family_id, user, project_id=None):
-        return {"assembly": "GRCh38", "modules": ams._module_list({**_CLINVAR, "hpo": "2025-01"}, _ASSEMBLY)}
-
-    monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
-    )
-    assert out["matches"] is False
-    assert out["changed_sections"] == ["modules"]
-    assert out["not_compared"] == []
-
-
 def test_signout_check_flags_an_hpo_ontology_loaded_after_sign_out(monkeypatch) -> None:
-    # A record signed with this change looked HPO up: without an HPO module, none was
-    # loaded then. An ontology loaded since is a change, not an older record.
+    # Signed without an HPO module, none was loaded then: an ontology loaded since is a change.
     _patch_check(monkeypatch, reviews=[_REVIEW])
     _patch_manifest(monkeypatch, _ASSEMBLY)
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
@@ -3215,7 +2909,6 @@ def test_signout_check_flags_an_hpo_ontology_loaded_after_sign_out(monkeypatch) 
     )
     assert out["matches"] is False
     assert out["changed_sections"] == ["modules"]
-    assert out["not_compared"] == []
     assert out["not_captured"] == []
 
 
@@ -3230,7 +2923,7 @@ def test_signout_check_flags_a_new_hpo_release(monkeypatch) -> None:
     out = asyncio.run(
         rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
     )
-    assert out["matches"] is True and out["not_compared"] == []
+    assert out["matches"] is True
 
     _patch_manifest(monkeypatch, {**_ASSEMBLY, "hpo": {"version": "hp/releases/2026-09-01", "detail": "2026-09-01"}})
     out = asyncio.run(
@@ -3439,98 +3132,8 @@ def test_the_reported_sv_evidence_is_frozen_into_the_content_hash(monkeypatch) -
     assert rss._canonical_hash(frozen) != rss._canonical_hash(moved)
 
 
-# A sign-out exactly as the writer stored it before SV/CNV classifications froze their
-# evidence, captured from that writer (origin/main at 0633db8) for a family with one
-# reported CNV: no `structural_drift` section and no evidence in the reported SV. The
-# stored hashes are the ones it computed; the record is never re-hashed, so it must keep
-# verifying as stored.
-_PRE_SV_EVIDENCE_SIGNED_AT = "2026-09-29T23:02:28.105813+00:00"
-_PRE_SV_EVIDENCE_SNAPSHOT = {
-    "acknowledged_drift": False,
-    "acknowledged_import_incomplete": False,
-    "acknowledged_qc": False,
-    "assembly": "GRCh38",
-    "drift": {"checked": 0, "drifted": [], "drifted_count": 0},
-    "drift_acknowledgement_reason": None,
-    "family_id": "FAM1",
-    "generated_at": _PRE_SV_EVIDENCE_SIGNED_AT,
-    "import_incomplete": None,
-    "import_incomplete_acknowledgement_reason": None,
-    "modules": [{"key": "clinvar", "version": "2026-05"}],
-    "qc_acknowledgement_reason": None,
-    "reference_modules": ["assembly", "gene_loci", "monarch", "hpo"],
-    "reported_structural_variants": [
-        {
-            "classification": "Pathogenic - class 5",
-            "cnv_acmg": {
-                "classification": "Pathogenic - class 5",
-                "criteria": [{"accepted": True, "code": "2A", "points": 1.0}],
-                "kind": "loss",
-                "point_total": 1.0,
-            },
-            "cnv_class": "cnv_class_5",
-            "cnv_point_total": 1.0,
-            "note": None,
-            "tags": ["report"],
-            "variant_id": _SV_ID,
-            "variant_key": 7,
-        }
-    ],
-    "reported_variants": [],
-    "sample_qc": {
-        "application": "unknown",
-        "application_label": "",
-        "application_summary": "",
-        "autosomal_sites": 0,
-        "category_qc_check": None,
-        "fetal_sex_check": None,
-        "genotype_source": None,
-        "mendelian_checks": [],
-        "notes": [],
-        "overall_status": "pass",
-        "paternity_check": None,
-        "relatedness_checks": [],
-        "sex_checks": [],
-    },
-    "sequencing_qc": {"profile_key": "wgs", "profile_label": "WGS", "samples": {}, "thresholds": {}},
-    "signed_out_by": "lab-signer",
-    "software": {"git_sha": "0633db8", "version": "1.5.0"},
-    "version": 1,
-}
-_PRE_SV_EVIDENCE_CONTENT_HASH = "fa6dc209662121586420b9033d34cfe02595d4b58767cf3abeb5ca6dbec04c8a"
-_PRE_SV_EVIDENCE_ROW_HASH = "10e45f07187d1b45ea15190d2dbf775ef708e6a95604855da48b6a51a3971c50"
-
-
-def _pre_sv_evidence_row() -> dict:
-    return {
-        **_pre_gate_row(),
-        "signed_out_at": datetime.fromisoformat(_PRE_SV_EVIDENCE_SIGNED_AT),
-        "content_hash": _PRE_SV_EVIDENCE_CONTENT_HASH,
-        "snapshot": json.loads(json.dumps(_PRE_SV_EVIDENCE_SNAPSHOT)),
-        "row_hash": _PRE_SV_EVIDENCE_ROW_HASH,
-        "import_incomplete_acknowledged": False,
-    }
-
-
-def test_a_sign_out_made_before_sv_evidence_was_frozen_still_verifies(monkeypatch) -> None:
-    assert "structural_drift" not in _PRE_SV_EVIDENCE_SNAPSHOT
-    assert "evidence_snapshot" not in _PRE_SV_EVIDENCE_SNAPSHOT["reported_structural_variants"][0]
-    # The verifier hashes the record as stored: nothing adds the new section, or a default
-    # for it, before hashing.
-    assert rss._canonical_hash(_pre_sv_evidence_row()["snapshot"]) == _PRE_SV_EVIDENCE_CONTENT_HASH
-
-    chain = asyncio.run(rss.verify_report_signout_chain(_RowsSession([_pre_sv_evidence_row()]), "FAM1"))
-    assert chain.verified and chain.rows_checked == 1, chain
-
-    _patch_common(monkeypatch, drifted_count=0)
-    detail = asyncio.run(
-        rss.get_report_signout(_RowsSession([_pre_sv_evidence_row()]), family_id="FAM1", version=1, user=_user())
-    )
-    assert detail["verified"] is True
-
-
 def _as_now(monkeypatch, *, reported: list, structural_drifted: list) -> None:
-    """The family as it would be signed now, over the same content as the older record."""
+    """The family as it would be signed now: one reported CNV, no small variant."""
     _patch_sv(monkeypatch, reported=reported, structural_drifted=structural_drifted)
 
     async def _no_small_reviews(session, family_uuid):
@@ -3543,45 +3146,11 @@ def _as_now(monkeypatch, *, reported: list, structural_drifted: list) -> None:
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
 
 
-def test_signout_check_compares_the_sv_evidence_a_record_does_not_hold(monkeypatch) -> None:
-    # The same reported CNV, now with frozen evidence that has not drifted. The pinned
-    # record froze no evidence in its reported SV and holds no SV/CNV drift section: the
-    # section is not compared, but the reported SV is, whole, so the record reads as
-    # changed rather than as matching (records from before the release candidate get no
-    # special reading, #681).
-    row = _pre_sv_evidence_row()
-    _as_now(monkeypatch, reported=[_reported_sv()], structural_drifted=[])
-    out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
-    assert out["matches"] is False, out
-    assert out["changed_sections"] == ["reported_structural_variants"]
-    # Nor does it hold the unfinished imports, a section added after it too.
-    assert out["not_compared"] == [
-        "structural_drift",
-        "import_unfinished",
-        # Nor the repeat and Paraphase reviews, which records hold since 2026-10-28.
-        "repeat_expansion_reviews",
-        "paraphase_reviews",
-        "finding_review_drift",
-        "unreviewed_findings",
-        # Nor what the analysis looked at, which records hold since 2026-10-14.
-        "variant_descriptions",
-        "gene_panels",
-        "reference_data",
-        "repeat_expansions",
-        "paraphase",
-        # Nor what each coverage track holds, which records hold since 2026-10-20.
-        "coverage_tracks",
-        # Nor the delivered package and its corrections at intake, held since 2026-11-10.
-        "package_intake",
-    ]
-    assert out["not_captured"] == []
-
-
 def test_signout_check_flags_sv_evidence_that_drifted_after_sign_out(monkeypatch) -> None:
     _as_now(monkeypatch, reported=[_reported_sv()], structural_drifted=[])
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()))
-    assert (out["matches"], out["not_compared"], out["not_captured"]) == (True, [], [])
+    assert (out["matches"], out["not_captured"]) == (True, [])
 
     # A re-import changed the genes the CNV overlaps.
     _as_now(monkeypatch, reported=[_reported_sv()], structural_drifted=[_sv_drift_entry()])
@@ -3906,7 +3475,7 @@ def test_a_nipt_familys_results_are_bound_into_the_content_hash_and_compared(mon
     out = asyncio.run(
         rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
     )
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (True, [], [])
+    assert (out["matches"], out["changed_sections"]) == (True, [])
 
     # A re-import moved the fetal fraction.
     moved = _nipt_section()
@@ -3921,24 +3490,9 @@ def test_a_nipt_familys_results_are_bound_into_the_content_hash_and_compared(mon
     assert out["changed_sections"] == ["nipt"]
 
 
-def test_a_nipt_record_signed_before_the_section_names_it_not_compared(monkeypatch) -> None:
-    _patch_check(monkeypatch, reviews=[_REVIEW])
-    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-    assert "nipt" not in signed
-    # The family is a NIPT family: the current data holds the section the record predates.
-    _with_sections(monkeypatch, nipt=_nipt_section())
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
-    )
-    assert out["matches"] is True
-    assert out["not_compared"] == ["nipt"]
-    assert out["not_captured"] == []
-
-
-def test_a_nipt_record_signed_before_its_coverage_notes_names_them_not_compared(monkeypatch) -> None:
-    # The notes of the NIPT coverage check over the coverage tracks are frozen since TRACE-17
-    # (owner, 2026-10-28). A record signed before holds none: the rest of its NIPT section is
-    # compared, and the notes are named as not compared, never as a change.
+def test_a_nipt_coverage_note_gone_since_sign_out_is_a_change(monkeypatch) -> None:
+    # The notes of the NIPT coverage check over the coverage tracks are frozen with the section
+    # (TRACE-17) and compared with it.
     notes = {
         "gene": None,
         "panel": None,
@@ -3946,42 +3500,29 @@ def test_a_nipt_record_signed_before_its_coverage_notes_names_them_not_compared(
         "notes": ["CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth."],
     }
     _patch_check(monkeypatch, reviews=[_REVIEW])
-    _with_sections(monkeypatch, nipt=_nipt_section())
-    older = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-    assert "coverage_notes" not in older["nipt"]
-    _with_sections(monkeypatch, nipt={**_nipt_section(), "coverage_notes": notes})
 
     def _check(signed: dict) -> dict:
         return asyncio.run(
             rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
         )
 
-    out = _check(older)
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (True, [], ["nipt.coverage_notes"])
-    # What it holds is compared: a fetal fraction moved since is a change, the notes still not compared.
-    moved = _nipt_section()
-    moved["fetal_fraction"] = {**moved["fetal_fraction"], "ff": 0.13}
-    _with_sections(monkeypatch, nipt={**moved, "coverage_notes": notes})
-    out = _check(older)
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["nipt"], ["nipt.coverage_notes"])
-    # A record that holds them is compared on them: a note gone since is a change.
     _with_sections(monkeypatch, nipt={**_nipt_section(), "coverage_notes": notes})
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-    assert (_check(signed)["matches"], _check(signed)["not_compared"]) == (True, [])
+    assert _check(signed)["matches"] is True
     _with_sections(monkeypatch, nipt={**_nipt_section(), "coverage_notes": {**notes, "notes": []}})
     out = _check(signed)
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["nipt"], [])
+    assert (out["matches"], out["changed_sections"]) == (False, ["nipt"])
 
 
 def test_the_check_of_a_family_that_is_no_nipt_family_names_no_nipt_section(monkeypatch) -> None:
-    # Neither the record nor the family's data holds it: not compared, and not named.
+    # Neither the record nor the family's data holds it: not compared.
     _patch_check(monkeypatch, reviews=[_REVIEW])
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
     out = asyncio.run(
         rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
     )
     assert "nipt" in rss.REPORT_CONTENT_SECTIONS
-    assert (out["matches"], out["not_compared"], out["changed_sections"]) == (True, [], [])
+    assert (out["matches"], out["changed_sections"]) == (True, [])
 
 
 def test_nipt_results_not_captured_are_named_by_the_check_and_the_audit(monkeypatch) -> None:
@@ -4075,7 +3616,7 @@ def test_signout_check_compares_the_embryo_calls_a_pgt_familys_record_holds(monk
     out = asyncio.run(
         rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
     )
-    assert out["matches"] is True and out["not_compared"] == []
+    assert out["matches"] is True
 
     # After sign-out an embryo's call changes (a member's status edited, blocks re-imported).
     changed = copy.deepcopy(_PGT_ANALYSIS)
@@ -4090,9 +3631,9 @@ def test_signout_check_compares_the_embryo_calls_a_pgt_familys_record_holds(monk
     assert out["changed_sections"] == ["pgt_analysis"]
 
 
-def test_signout_check_names_the_embryo_calls_a_pgt_familys_older_record_predates(monkeypatch) -> None:
-    # Signed before CoGA froze the embryo calls: the record still matches, the section is
-    # not compared, and nothing is "not captured".
+def test_signout_check_reads_embryo_calls_the_family_gained_since_sign_out_as_a_change(monkeypatch) -> None:
+    # Signed while the family had no embryo, so the record holds no embryo calls; the family's
+    # data gives them now (an embryo added since): the section only one side holds is a change.
     _patch_check(monkeypatch, reviews=[_REVIEW])
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
     assert "pgt_analysis" not in signed
@@ -4100,8 +3641,7 @@ def test_signout_check_names_the_embryo_calls_a_pgt_familys_older_record_predate
     out = asyncio.run(
         rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
     )
-    assert out["matches"] is True
-    assert out["not_compared"] == ["pgt_analysis"]
+    assert (out["matches"], out["changed_sections"]) == (False, ["pgt_analysis"])
     assert out["not_captured"] == []
 
 
@@ -4113,7 +3653,7 @@ def test_signout_check_does_not_name_the_pgt_section_for_a_family_without_embryo
         rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
     )
     assert "pgt_analysis" not in signed
-    assert out["matches"] is True and out["not_compared"] == [] and out["changed_sections"] == []
+    assert out["matches"] is True and out["changed_sections"] == []
 
 
 def test_signout_check_says_when_a_family_lost_the_embryo_calls_its_record_holds(monkeypatch) -> None:
@@ -4128,8 +3668,8 @@ def test_signout_check_says_when_a_family_lost_the_embryo_calls_its_record_holds
     assert out["matches"] is False and out["changed_sections"] == ["pgt_analysis"]
 
 
-# The same analysis as CoGA serves it since 2026-10-20: each embryo's phasing-QC verdict and the
-# thresholds it was made against (pgt_embryo_qc). _PGT_ANALYSIS above is a record signed before.
+# The same analysis with each embryo's phasing-QC verdict and the thresholds it was made against
+# (pgt_embryo_qc); _PGT_ANALYSIS above leaves them out.
 def _with_qc_verdict(analysis: dict, **thresholds: float) -> dict:
     from backend.app.schemas import PgtEmbryoQcOut, PgtQcThresholdsOut
     from backend.app.services import pgt_embryo_qc
@@ -4144,33 +3684,6 @@ def _with_qc_verdict(analysis: dict, **thresholds: float) -> dict:
     return out
 
 
-def test_signout_check_compares_a_pgt_record_signed_before_the_qc_verdict_on_what_it_holds(monkeypatch) -> None:
-    # Signed before CoGA checked the embryos' QC against thresholds: the record still matches,
-    # the verdict is named as not compared, and nothing is "not captured".
-    _patch_check(monkeypatch, reviews=[_REVIEW])
-    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
-    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-    current = _with_qc_verdict(_PGT_ANALYSIS)
-    assert current["embryos"][0]["qc_verdict"]["status"] == "warning"
-    _with_sections(monkeypatch, pgt_analysis=current)
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
-    )
-    assert out["matches"] is True, out
-    assert out["changed_sections"] == []
-    assert out["not_compared"] == ["pgt_analysis.qc_verdict"]
-    assert out["not_captured"] == []
-
-    # What the record holds is still compared: a call that changed since reads as a change.
-    changed = copy.deepcopy(current)
-    changed["embryos"][0]["call"] = "unaffected_non_carrier"
-    _with_sections(monkeypatch, pgt_analysis=changed)
-    out = asyncio.run(
-        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
-    )
-    assert (out["matches"], out["changed_sections"]) == (False, ["pgt_analysis"])
-
-
 def test_signout_check_reads_a_changed_qc_verdict_or_threshold_as_a_change(monkeypatch) -> None:
     _patch_check(monkeypatch, reviews=[_REVIEW])
     signed_analysis = _with_qc_verdict(_PGT_ANALYSIS)
@@ -4179,7 +3692,7 @@ def test_signout_check_reads_a_changed_qc_verdict_or_threshold_as_a_change(monke
     out = asyncio.run(
         rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
     )
-    assert (out["matches"], out["not_compared"]) == (True, [])
+    assert out["matches"] is True
 
     # The laboratory lowers the marker threshold after sign-out: the verdict the record froze
     # is no longer the one CoGA gives, and the check says so.
@@ -4190,12 +3703,12 @@ def test_signout_check_reads_a_changed_qc_verdict_or_threshold_as_a_change(monke
     out = asyncio.run(
         rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
     )
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["pgt_analysis"], [])
+    assert (out["matches"], out["changed_sections"]) == (False, ["pgt_analysis"])
 
 
 # --- The repeat calls' near-boundary warnings and QA's counting-units records ---------------
 #
-# Since the record froze them (signed_record_sections.repeat_expansion_calls), each allele carries
+# The record freezes them (signed_record_sections.repeat_expansion_calls): each allele carries
 # its near-boundary warning and each locus QA's record of TRGT's counting units there
 # (repeat_count_units). The sections are built in test_signed_record_repeat_count_units.py; here
 # the check reads them.
@@ -4254,18 +3767,6 @@ def _repeat_section(count_units: dict, *, count: int = 53, warning: dict | None 
     }
 
 
-def _before_count_units(section: dict) -> dict:
-    """``repeat_expansions`` as a record signed before CoGA froze the warnings holds it."""
-    old = copy.deepcopy(section)
-    old.pop("count_unit_margin")
-    for locus in old["loci"]:
-        locus.pop("count_units")
-        for call in locus["calls"]:
-            for allele in call["alleles"]:
-                allele.pop("count_unit_warning")
-    return old
-
-
 def _check_against(monkeypatch, signed_section: dict, current_section: dict) -> dict:
     _with_sections(monkeypatch, repeat_expansions=signed_section)
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
@@ -4279,42 +3780,25 @@ def test_signout_check_reads_a_locus_validated_since_sign_out_as_a_change(monkey
     _patch_check(monkeypatch, reviews=[_REVIEW])
     signed_section = _repeat_section(_NOT_VALIDATED, warning=_WARNING_53)
     out = _check_against(monkeypatch, signed_section, signed_section)
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (True, [], [])
+    assert (out["matches"], out["changed_sections"]) == (True, [])
 
     # QA validates TRGT's counting units at FMR1 after sign-out: the 53 is no longer marked, and
     # the record held it marked at a locus not validated.
     out = _check_against(monkeypatch, signed_section, _repeat_section(_VALIDATED))
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["repeat_expansions"], [])
+    assert (out["matches"], out["changed_sections"]) == (False, ["repeat_expansions"])
 
 
 def test_signout_check_reads_a_withdrawn_validation_as_a_change(monkeypatch) -> None:
     _patch_check(monkeypatch, reviews=[_REVIEW])
     out = _check_against(monkeypatch, _repeat_section(_VALIDATED), _repeat_section(_WITHDRAWN, warning=_WARNING_53))
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["repeat_expansions"], [])
-
-
-def test_signout_check_compares_a_repeat_record_signed_before_the_warnings_on_what_it_holds(monkeypatch) -> None:
-    # Signed before CoGA froze the warnings: the record still matches, the warnings and QA's
-    # records are named as not compared, and nothing is "not captured".
-    _patch_check(monkeypatch, reviews=[_REVIEW])
-    old = _before_count_units(_repeat_section(_NOT_VALIDATED))
-    out = _check_against(monkeypatch, old, _repeat_section(_NOT_VALIDATED, warning=_WARNING_53))
-    assert out["matches"] is True, out
-    assert out["changed_sections"] == []
-    assert out["not_compared"] == ["repeat_expansions.count_units"]
-    assert out["not_captured"] == []
-
-    # What it holds is still compared: a count that changed since reads as a change.
-    out = _check_against(monkeypatch, old, _repeat_section(_NOT_VALIDATED, count=56, warning=None))
     assert (out["matches"], out["changed_sections"]) == (False, ["repeat_expansions"])
-    assert out["not_compared"] == ["repeat_expansions.count_units"]
 
 
 def test_signout_check_compares_a_repeat_section_not_captured_at_sign_out_whole(monkeypatch) -> None:
     _patch_check(monkeypatch, reviews=[_REVIEW])
     unavailable = {"unavailable": "The repeat-expansion calls could not be read."}
     out = _check_against(monkeypatch, unavailable, _repeat_section(_NOT_VALIDATED, warning=_WARNING_53))
-    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["repeat_expansions"], [])
+    assert (out["matches"], out["changed_sections"]) == (False, ["repeat_expansions"])
     assert out["not_captured"] == [
         {"section": "repeat_expansions", "item": "Repeat expansions (TRGT)", "reason": unavailable["unavailable"]}
     ]
@@ -4371,26 +3855,6 @@ def test_a_listed_version_names_its_report_code() -> None:
     assert rss._serialize_signout(row)["report_code"] == report_code("FAM1", 2, "ab" * 32)
     # A row whose fields cannot make one names none, rather than a wrong one.
     assert rss._serialize_signout({**row, "family_identifier": None})["report_code"] is None
-
-
-def test_a_record_signed_before_these_sections_still_verifies_and_reads(monkeypatch) -> None:
-    row = _pre_gate_row()
-    assert not {section.key for section in RECORD_SECTIONS} & set(row["snapshot"])
-    assert "record_statement" not in row["snapshot"]
-    chain = asyncio.run(rss.verify_report_signout_chain(_RowsSession([row]), "FAM1"))
-    assert chain.verified, chain
-
-    detail = _detail_of(monkeypatch, row)
-    assert detail["verified"] is True
-    # It has a report code: made from fields every record holds.
-    assert detail["report_code"] == report_code("FAM1", 1, _PRE_GATE_CONTENT_HASH)
-    # The sections it predates are not "not captured": the view says the record does not
-    # hold them, and the check does not compare them.
-    keys = {section.key for section in RECORD_SECTIONS}
-    assert not [gap for gap in detail["not_captured"] if gap["section"] in keys]
-
-
-# --- Finding a record by its report code -------------------------------------------------
 
 
 class _CodeSession:
@@ -4894,7 +4358,6 @@ def test_signout_check_reads_a_class_changed_by_its_text_alone_as_a_change(monke
     out = _checked_with_latest(signed)
     assert out["matches"] is False
     assert out["changed_sections"] == ["reported_variants"]
-    assert out["not_compared"] == []
 
 
 def test_signout_check_reads_an_svs_class_changed_since_as_a_change(monkeypatch) -> None:

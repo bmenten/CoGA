@@ -215,8 +215,7 @@ def test_the_record_freezes_the_class_each_review_shows_beside_its_scoring(signe
 def test_the_record_verifies_and_matches_right_after_it_was_signed(signed) -> None:
     assert ok_json(signed, "detail")["verified"] is True
     check = ok_json(signed, "check")
-    assert check["matches"] is True, check
-    assert check["not_compared"] == []
+    assert check["matches"] is True and check["changed_sections"] == [], check
 
 
 def test_a_class_changed_since_sign_out_reads_as_a_change(signed) -> None:
@@ -226,7 +225,6 @@ def test_a_class_changed_since_sign_out_reads_as_a_change(signed) -> None:
     assert check["matches"] is False
     # The small variant's text alone changed, and the SV's.
     assert {"reported_variants", "reported_structural_variants"} <= set(check["changed_sections"]), check
-    assert check["not_compared"] == []
 
 
 def test_the_next_sign_out_freezes_the_classes_shown_now(signed) -> None:

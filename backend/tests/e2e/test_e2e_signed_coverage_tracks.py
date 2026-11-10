@@ -13,13 +13,10 @@ and S2 has WisecondorX bins too (log2 ratios). Through the API, this:
   left out with a note for each of its two tracks;
 * signs the family out and reads the record back: S1's BED as read depth from a package, S2's as
   unknown from a package, S2's WisecondorX bins as a log2 ratio, each with its file, rows and load
-  time; a verified content hash and chain; a check that matches, with nothing it does not compare
-  and nothing of the section not captured;
+  time; a verified content hash and chain; a check that matches, with nothing of the section not
+  captured;
 * uploads S2's BED again, declared as read depth: the check names the coverage tracks as changed
-  since sign-out, and a new sign-out freezes S2's BED as read depth from a single-file upload;
-* signs out once more as a build from before the section (its key left out): that record still
-  verifies and reads, nothing it predates is called not captured, and the check names the section
-  as not compared.
+  since sign-out, and a new sign-out freezes S2's BED as read depth from a single-file upload.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the API
 (see test_e2e_api_contract.py for why).
@@ -82,7 +79,6 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
-    from backend.app.services import report_signout_service as rss
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
@@ -145,24 +141,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         version = (r["signout_after_upload"]["json"] or {}).get("version")
         r["detail_after_upload"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
 
-        # A record signed by a build from before the section: its key left out.
-        real_build = rss.build_report_snapshot
-
-        async def _old_build(*args: Any, **kwargs: Any) -> dict[str, Any]:
-            body = await real_build(*args, **kwargs)
-            body.pop("coverage_tracks", None)
-            return body
-
-        mp = pytest.MonkeyPatch()
-        mp.setattr(rss, "build_report_snapshot", _old_build)
-        try:
-            r["old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-        finally:
-            mp.undo()
-        version = (r["old_signout"]["json"] or {}).get("version")
-        r["old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
-        r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-        r["old_chain"] = await chain()
+        r["chain_after_upload"] = await chain()
     return out
 
 
@@ -244,7 +223,6 @@ def test_the_check_matches_the_record_right_after_it_was_signed(run) -> None:
     check = ok_json(run, "check")
     # Through the JSONB round trip the section compares equal to the one built again.
     assert check["matches"] is True, check
-    assert check["not_compared"] == []
     assert _section_gaps(check["not_captured"]) == []
 
 
@@ -261,17 +239,6 @@ def test_a_coverage_bed_declared_again_since_sign_out_is_named_and_frozen_by_the
     assert (upload["file"], upload["loaded_from"], upload["declared"]) == (f"{s2}.depth.bed", "upload", "read_depth")
 
 
-def test_a_record_signed_before_the_section_still_verifies_reads_and_is_not_called_not_captured(run) -> None:
-    old = ok_json(run, "old_signout")
-    detail = ok_json(run, "old_detail")
-    assert detail["version"] == old["version"]
-    assert "coverage_tracks" not in detail["snapshot"]
-    assert detail["verified"] is True
-    assert ok_json(run, "old_chain")["verified"] is True
-    # Nothing it predates is called "not captured": the signed view says it is not held.
-    assert _section_gaps(detail["not_captured"]) == []
-    # The check compares what it holds, and names the section it predates as not compared.
-    check = ok_json(run, "old_check")
-    assert check["version"] == old["version"]
-    assert check["not_compared"] == ["coverage_tracks"]
-    assert check["matches"] is True, check
+def test_the_record_frozen_after_the_upload_verifies_on_its_chain(run) -> None:
+    assert ok_json(run, "detail_after_upload")["verified"] is True
+    assert ok_json(run, "chain_after_upload")["verified"] is True

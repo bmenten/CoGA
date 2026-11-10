@@ -80,7 +80,6 @@ import {
   FINDING_DRIFT_WORDS,
   FINDING_NOUN,
   NIPT_NOT_CLASSIFIED_REASONS,
-  notComparedSentence,
   paraphaseStatusWords,
   parseSignedReport,
   qcStatusLabel,
@@ -99,27 +98,20 @@ import {
 
 // What the live report shows around each reported variant and the signed record does not
 // hold. The signed view leaves these out and says so; it never fills them in from live data.
-// A record signed before CoGA froze the variant description lacks that too.
-const notInRecord = (descriptions: boolean): string[] => [
-  descriptions
-    ? 'the population frequency and the in silico predictions the live report shows'
-    : 'the variant description: gene, HGVS, consequence, genotypes, population frequency and in silico predictions',
+const NOT_IN_RECORD: string[] = [
+  'the population frequency and the in silico predictions the live report shows',
   'the segregation in the family, and the family’s members',
   'the gene description, its associated conditions and its gene panels',
   'the phenotype (HPO) terms and their overlap with the gene',
   'the clinical audit trail and the analysis pipeline settings',
 ];
-const notInRecordPerVariant = (descriptions: boolean): string =>
-  descriptions
-    ? 'Not in the signed record: the segregation, gene and phenotype.'
-    : 'Not in the signed record: the variant description, segregation, gene and phenotype.';
+const NOT_IN_RECORD_PER_VARIANT = 'Not in the signed record: the segregation, gene and phenotype.';
 
 /**
- * A section of what the analysis looked at, in each of its states: not in a record signed
- * before CoGA recorded it, not captured when it could not be read, else as `children` renders
- * it, said first when part of it cannot be read here (a malformed list, TRACE-17). Every
- * section of signed_record_sections.py is shown through this, so none drops out of the signed
- * view without a trace.
+ * A section of what the analysis looked at, in each of its states: not captured when it could
+ * not be read, else as `children` renders it, said first when part of it cannot be read here (a
+ * malformed list, TRACE-17). Every section of signed_record_sections.py is shown through this,
+ * so none drops out of the signed view without a trace.
  */
 function RecordSectionBlock<T>({
   title,
@@ -129,7 +121,7 @@ function RecordSectionBlock<T>({
   children,
 }: {
   title: string;
-  /** What the section holds, in the sentence that says the record lacks it. */
+  /** What the section holds, in the sentence that says it was not captured. */
   what: string;
   section: SignedRecordSection<T>;
   version: number;
@@ -138,11 +130,7 @@ function RecordSectionBlock<T>({
   return (
     <section className="surface-card report-signed-checks">
       <h2 className="report-audit-heading">{title}</h2>
-      {section.state === 'absent' ? (
-        <p className="report-paragraph">
-          Not in the signed record: version {version} was signed before CoGA recorded {what}.
-        </p>
-      ) : section.state === 'unavailable' ? (
+      {section.state === 'unavailable' ? (
         <p className="report-paragraph" role="note">
           Not captured: {what} could not be read when version {version} was signed ({section.reason}).
         </p>
@@ -180,7 +168,6 @@ const VariantDescription: React.FC<{
   descriptions: SignedRecordSection<SignedVariantDescriptions>;
   version: number;
 }> = ({ variantId, kind, descriptions, version }) => {
-  if (descriptions.state === 'absent') return null;
   // One entry per callset or caller that calls the variant: what it is, where, and the
   // genotypes the analyst saw.
   const entries =
@@ -408,9 +395,7 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> 
           </div>
         ) : null}
         <p className="report-variant-locus">Tags: {variant.tags.join(', ') || 'none'}</p>
-        <p className="report-signed-absent-line">
-          {notInRecordPerVariant(descriptions.state !== 'absent')}
-        </p>
+        <p className="report-signed-absent-line">{NOT_IN_RECORD_PER_VARIANT}</p>
       </>
     )}
   </article>
@@ -421,7 +406,7 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant } & Car
   descriptions,
   version,
 }) => {
-  const title = variant.variantId ?? variant.variantKey;
+  const title = variant.variantId;
   return (
     <article className="surface-card report-variant">
       <div className="report-variant-head">
@@ -488,9 +473,7 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant } & Car
             </div>
           ) : null}
           <p className="report-variant-locus">Tags: {variant.tags.join(', ') || 'none'}</p>
-          <p className="report-signed-absent-line">
-            {notInRecordPerVariant(descriptions.state !== 'absent')}
-          </p>
+          <p className="report-signed-absent-line">{NOT_IN_RECORD_PER_VARIANT}</p>
         </>
       )}
     </article>
@@ -500,21 +483,17 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant } & Car
 /** The reference-data releases in one line, beside the modules in the footer. */
 const describeReferenceDataLine = (record: SignedReport | null): string => {
   const reference = record?.referenceData;
-  if (!reference || reference.state === 'absent') return 'not in the signed record';
+  if (!reference) return 'not in the signed record';
   if (reference.state === 'unavailable') return `not captured (${reference.reason})`;
   const { geneReference, clinicalCnvs } = reference.value;
   const genes =
     geneReference.state === 'recorded'
       ? `gene reference ${describeGeneReferenceReleases(geneReference.value) ?? 'with no release recorded'}`
-      : geneReference.state === 'unavailable'
-        ? 'gene reference not captured'
-        : 'gene reference not in the record';
+      : 'gene reference not captured';
   const cnvs =
     clinicalCnvs.state === 'recorded'
       ? `clinical CNV knowledgebase ${describeCnvKnowledgebase(clinicalCnvs.value)}`
-      : clinicalCnvs.state === 'unavailable'
-        ? 'clinical CNV knowledgebase not captured'
-        : 'clinical CNV knowledgebase not in the record';
+      : 'clinical CNV knowledgebase not captured';
   const panelApp =
     record.genePanels.state === 'recorded'
       ? record.genePanels.value
@@ -529,7 +508,7 @@ const describeReferenceDataLine = (record: SignedReport | null): string => {
 /** The coverage tracks as the footer lists them, or why the record has none to list. */
 const describeCoverageTracksLine = (record: SignedReport | null): string => {
   const coverage = record?.coverageTracks;
-  if (!coverage || coverage.state === 'absent') return 'not in the signed record';
+  if (!coverage) return 'not in the signed record';
   if (coverage.state === 'unavailable') return `not captured (${coverage.reason})`;
   return describeCoverageTracks(coverage.value);
 };
@@ -537,7 +516,7 @@ const describeCoverageTracksLine = (record: SignedReport | null): string => {
 /**
  * What each coverage track of the family's samples held when the version was signed, as the
  * depth readers read it (TRACE-9; owner decision of 2026-10-20), with the files each was loaded
- * from: which kind of coverage a depth check rested on. Every family's record holds it since.
+ * from: which kind of coverage a depth check rested on.
  */
 const CoverageTracksSection: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => {
   // The checks that read a coverage track as depth; a family that is no NIPT family hears nothing
@@ -592,8 +571,8 @@ const IntakeChangeLine: React.FC<{ change: SignedIntakeChange }> = ({ change }) 
 /**
  * The delivered package the family's data came from, and each correction made to it in CoGA
  * before the import (owner decision of 2026-11-10): what changed, why, by whom and when, a change
- * to a member's sex or parents (which the pipeline used) marked. Every family's record holds it
- * since; one whose last import was no delivery's says so.
+ * to a member's sex or parents (which the pipeline used) marked. A family whose last import was
+ * no delivery's says so.
  */
 const PackageIntakeSection: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => (
   <RecordSectionBlock
@@ -650,26 +629,16 @@ const niptStatusLabel = (status: string | null): string =>
 
 /**
  * The notes of the coverage check without a per-target table, as the record froze them (TRACE-17):
- * nothing with a per-target table, whose targets the check reads; "not in the signed record" for a
- * record signed before CoGA froze them, never "none".
+ * nothing with a per-target table, whose targets the check reads.
  */
-const NiptCoverageNotesLine: React.FC<{ nipt: SignedNipt; version: number }> = ({ nipt, version }) => {
+const NiptCoverageNotesLine: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
   const notes = nipt.coverageNotes;
-  let said: string;
-  if (notes.state === 'recorded') {
-    if (notes.value === null) return null;
-    said = describeNiptCoverageNotes(notes.value);
-  } else if (notes.state === 'unavailable') {
-    said = `not captured (${notes.reason}).`;
-  } else {
-    // A record signed before them: with a per-target table there were none to freeze.
-    if (nipt.targetCoverage) return null;
-    said = `not in the signed record (version ${version} was signed before CoGA recorded the coverage check’s notes).`;
-  }
-  return <li>Coverage tracks not read as depth: {said}</li>;
+  if (notes.state === 'unavailable') return <li>Coverage tracks not read as depth: not captured ({notes.reason}).</li>;
+  if (notes.value === null) return null;
+  return <li>Coverage tracks not read as depth: {describeNiptCoverageNotes(notes.value)}</li>;
 };
 
-const NiptResultsBody: React.FC<{ nipt: SignedNipt; version: number }> = ({ nipt, version }) => {
+const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
   const { fetalFraction: ff, paternity, fetalSex: sex, plasmaSample: plasma, targetCoverage: coverage } = nipt;
   return (
     <>
@@ -713,7 +682,7 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt; version: number }> = ({ nipt
                 }`
               : 'no per-target coverage table'}
           </li>
-          <NiptCoverageNotesLine nipt={nipt} version={version} />
+          <NiptCoverageNotesLine nipt={nipt} />
           <li>
             Filters: {describeNiptFunnel(nipt.filterCounts)}
             {nipt.qualityFailures.length
@@ -815,24 +784,24 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt; version: number }> = ({ nipt
  * holds none, and nothing is said of them.
  */
 const NiptResults: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) =>
-  isNiptRecord(record) ? (
+  record.nipt.state !== 'absent' ? (
     <RecordSectionBlock title="NIPT results" what="the NIPT results" section={record.nipt} version={version}>
-      {(nipt) => <NiptResultsBody nipt={nipt} version={version} />}
+      {(nipt) => <NiptResultsBody nipt={nipt} />}
     </RecordSectionBlock>
   ) : null;
 
 /**
  * A PGT family's embryo calls at the ROI, as the record froze them: the calls the family page
- * showed, each with what it rests on. A PGT family's record signed before CoGA froze them
- * says it does not hold them; the record of any other family has no such section.
+ * showed, each with what it rests on. The record of any other family has no such section.
  */
 const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => {
-  if (record.pgtAnalysis.state === 'absent' && record.sampleQc?.application !== 'pgt') return null;
+  const section = record.pgtAnalysis;
+  if (section.state === 'absent') return null;
   return (
     <RecordSectionBlock
       title="PGT embryo results"
       what="the PGT embryo results"
-      section={record.pgtAnalysis}
+      section={section}
       version={version}
     >
       {(analysis) => {
@@ -924,7 +893,7 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
  * What the analysis looked at beyond the reported variants, as the record froze it: a PGT
  * family's embryo calls, the gene panels its searches applied, the repeat expansions and
  * Paraphase results of the family's samples, what each of their coverage tracks held, and the
- * reference-data releases. A section the record predates says so.
+ * reference-data releases.
  */
 const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => (
   <>
@@ -968,11 +937,10 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
             Each call’s status as CoGA classified it when this version was signed, against the
             repeat catalogue of {describeCatalogue(repeats.catalogue, 'loci')}.
           </p>
-          {/* A record signed before CoGA froze the near-boundary warnings reads as it was signed. */}
           {repeats.countUnitMargin !== null ? (
             <p className="report-paragraph">{describeCountUnitMargin(repeats.countUnitMargin)}</p>
           ) : null}
-          {/* Only where a count correction was frozen: a record without one reads as before. */}
+          {/* Only where a count correction was frozen. */}
           {describeCountCorrections(repeats) ? (
             <p className="report-paragraph">{describeCountCorrections(repeats)}</p>
           ) : null}
@@ -1336,9 +1304,6 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
           : check.data.matches
             ? 'matches'
             : 'changed';
-  // What the check could not compare, this version not holding it: named beside "still matches"
-  // and beside what changed, so neither reads as covering it (TRACE-19).
-  const notCompared = notComparedSentence(check.data?.not_compared, 'this version');
   // Heads the printout whenever it is not simply the latest, intact signed record.
   const printNotice =
     [
@@ -1520,16 +1485,11 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
             role={checkState === 'changed' ? 'alert' : undefined}
           >
             {checkState === 'checking' ? 'Checking the family’s current data against this version…' : null}
-            {checkState === 'matches'
-              ? notCompared
-                ? `The family’s current data still matches this signed version in everything it holds. ${notCompared}`
-                : 'The family’s current data still matches this signed version.'
-              : null}
+            {checkState === 'matches' ? 'The family’s current data still matches this signed version.' : null}
             {checkState === 'changed' ? (
               <>
                 <strong>⚠ Changed since this version was signed:</strong>{' '}
-                {describeReportSections(check.data?.changed_sections ?? [])}.{' '}
-                {notCompared ? `${notCompared} ` : null}This page still shows version {version} as
+                {describeReportSections(check.data?.changed_sections ?? [])}. This page still shows version {version} as
                 it was signed. Open the live report to review the changes, and sign out again to
                 issue a new version.
               </>
@@ -1580,15 +1540,12 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
           <section className="surface-card report-signed-absent" role="note">
             <h2 className="report-audit-heading">Not in the signed record</h2>
             <p className="report-paragraph">
-              The record holds each reported variant’s classification, criteria, tags and note
-              {record.variantDescriptions.state !== 'absent'
-                ? ', its description as the analyst reviewed it'
-                : ''}
-              , and the evidence frozen when it was classified. It does not hold the rest of what
+              The record holds each reported variant’s classification, criteria, tags and note, its
+              description as the analyst reviewed it, and the evidence frozen when it was classified. It does not hold the rest of what
               the live report shows, so this page leaves it out:
             </p>
             <ul className="report-signed-list">
-              {notInRecord(record.variantDescriptions.state !== 'absent').map((item, index, items) => (
+              {NOT_IN_RECORD.map((item, index, items) => (
                 <li key={item}>
                   {item}
                   {index === items.length - 1 ? '.' : ';'}
@@ -1678,7 +1635,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
           )}
           {(structuralVariants ?? []).map((variant, index) => (
             <StructuralVariantCard
-              key={`sv-${variant.variantId ?? variant.variantKey ?? 'entry'}-${index}`}
+              key={`sv-${variant.variantId ?? 'entry'}-${index}`}
               variant={variant}
               descriptions={record.variantDescriptions}
               version={version}
@@ -1699,8 +1656,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
           ) : (
             <section className="surface-card report-empty">
               <p className="report-paragraph">
-                The signed record holds no reviews of repeat loci or Paraphase regions: it was signed
-                before CoGA froze them.
+                Not in the signed record: the reviews of repeat loci and Paraphase regions.
               </p>
             </section>
           )}

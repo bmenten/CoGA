@@ -19,9 +19,7 @@ API, this:
   the quality checks with their verdicts, each reported variant as the variant list
   classifies it, the artifact as not classified, the de novo candidate's triage, the inputs),
   the variants the reported view listed and named, a verified content hash and chain, and a
-  check that matches with nothing it does not compare;
-* signs out once more as a build from before the NIPT section (its key left out) and shows
-  that record still verifies and reads, and that the check names ``nipt`` as not compared;
+  check that matches;
 * asks the sign-out as a reader in the family's project (SEC-1), the account made for the run
   and removed at its end: the family reads as read-only to them, which both pages that sign it
   out (the NIPT page and the report) disable the sign-out by, and the server refuses theirs
@@ -157,7 +155,6 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.main import app
-    from backend.app.services import report_signout_service as rss
     from backend.tests.e2e import _harness
 
     out: dict = {"import": await import_demo(root), "family": family_id, "responses": {}}
@@ -178,7 +175,7 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
         reader_id = None
         try:
             r["artifacts"] = capture(await ac.get("/api/admin/nipt/artifacts", params=scope))
-            await _sign_out_and_read(ac, r, family, family_id, rss)
+            await _sign_out_and_read(ac, r, family, family_id)
 
             # A reader in the family's project: the same sign-out, the one the NIPT page sends.
             reader_id, bearer = await _add_reader(out["import"]["project_id"], f"{panel}-reader@example.org")
@@ -198,11 +195,9 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
     return out
 
 
-async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> None:
+async def _sign_out_and_read(ac, r: dict, family: str, family_id: str) -> None:
     """Read the NIPT page, tag two variants for the report, sign out through the gates, and
-    read the record, the check and the chain back; then a record of an older build."""
-    from backend.tests.e2e import _harness
-
+    read the record, the check and the chain back."""
     # What the NIPT page shows: its coverage card asks for no gene or panel when it opens.
     r["summary"] = capture(await ac.get(f"{family}/nipt/summary"))
     r["coverage"] = capture(await ac.get(f"{family}/nipt/coverage"))
@@ -255,46 +250,6 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
         await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
     )
     r["audit"] = capture(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
-
-    # A record signed by a build from before the NIPT section: its key left out.
-    real_build = rss.build_report_snapshot
-
-    async def _old_build(*args, **kwargs):
-        body = await real_build(*args, **kwargs)
-        body.pop("nipt", None)
-        return body
-
-    mp = pytest.MonkeyPatch()
-    mp.setattr(rss, "build_report_snapshot", _old_build)
-    try:
-        r["old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-    finally:
-        mp.undo()
-    old_version = (r["old_signout"]["json"] or {}).get("version")
-    r["old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{old_version}"))
-    r["old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-    r["old_chain"] = capture(
-        await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
-    )
-
-    # A record signed by a build from before the coverage notes (TRACE-17): its NIPT section
-    # without them.
-    async def _before_notes(*args, **kwargs):
-        body = await real_build(*args, **kwargs)
-        body["nipt"].pop("coverage_notes", None)
-        return body
-
-    mp = pytest.MonkeyPatch()
-    mp.setattr(rss, "build_report_snapshot", _before_notes)
-    try:
-        r["notes_old_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-    finally:
-        mp.undo()
-    notes_old_version = (r["notes_old_signout"]["json"] or {}).get("version")
-    r["notes_old_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{notes_old_version}"))
-    r["notes_old_check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-    # The family ends on a record of today's build.
-    r["final_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
 
 
 @pytest.fixture(scope="module")
@@ -447,7 +402,7 @@ def test_a_reader_is_refused_the_nipt_sign_out(signed) -> None:
     refused = signed["responses"]["reader_signout"]
     assert (refused["status"], refused["json"]) == (403, {"detail": READ_ONLY}), refused["text"]
     # Nothing signed: the family holds the analyst's versions only.
-    assert signed["versions_after_reader"] == ok_json(signed, "final_signout")["version"]
+    assert signed["versions_after_reader"] == ok_json(signed, "signout")["version"]
 
 
 def test_the_run_leaves_no_artifact_behind(signed) -> None:
@@ -517,33 +472,13 @@ def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed)
     assert detail["report_code"] == ok_json(signed, "signout")["report_code"]
     assert ok_json(signed, "chain")["verified"] is True
     check = ok_json(signed, "check")
-    assert check["matches"] is True, check
-    assert check["not_compared"] == []
+    assert check["matches"] is True and check["changed_sections"] == [], check
     assert [gap for gap in check["not_captured"] if gap["section"] == "nipt"] == []
     # The sign-out's audit event names the NIPT checks the acknowledgement covered: none.
     # Most recent first: the sign-out just made.
     event = next(event for event in ok_json(signed, "audit")["events"] if event["action"] == "sign_out")
     assert event["after"]["version"] == detail["version"]
     assert event["after"]["nipt_failed_checks"] == []
-
-
-# ------------------------------------------------ a record from before the NIPT section
-
-
-def test_a_record_without_the_nipt_section_still_verifies_and_is_named_not_compared(signed) -> None:
-    detail = ok_json(signed, "old_detail")
-    assert detail["verified"] is True
-    assert "nipt" not in detail["snapshot"]
-    assert [gap for gap in detail["not_captured"] if gap["section"] == "nipt"] == []
-    assert ok_json(signed, "old_chain")["verified"] is True
-    check = ok_json(signed, "old_check")
-    assert check["version"] == ok_json(signed, "old_signout")["version"]
-    assert check["not_compared"] == ["nipt"]
-    assert check["matches"] is True, check
-    assert ok_json(signed, "notes_old_signout")["version"] == check["version"] + 1
-
-
-# ---------------------------------- the notes of the coverage check over the tracks (TRACE-17)
 
 
 def test_the_record_freezes_the_coverage_notes_the_nipt_page_showed(signed) -> None:
@@ -570,25 +505,6 @@ def test_the_record_freezes_the_coverage_notes_the_nipt_page_showed(signed) -> N
     }
     assert [(region["chrom"], region["start"], region["end"]) for region in frozen["regions"]] == [("1", 1000, 20000)]
 
-
-def test_a_record_signed_before_the_coverage_notes_names_them_not_compared(signed) -> None:
-    detail = ok_json(signed, "notes_old_detail")
-    assert detail["verified"] is True
-    assert "coverage_notes" not in detail["snapshot"]["nipt"]
-    check = ok_json(signed, "notes_old_check")
-    assert check["version"] == ok_json(signed, "notes_old_signout")["version"]
-    # The rest of its NIPT section still matches; the notes are not compared, never a change.
-    assert (check["matches"], check["changed_sections"], check["not_compared"]) == (
-        True,
-        [],
-        ["nipt.coverage_notes"],
-    ), check
-    final = ok_json(signed, "final_signout")
-    assert final["version"] == check["version"] + 1
-    assert final["snapshot"]["nipt"]["coverage_notes"] == _nipt(signed)["coverage_notes"]
-
-
-# ------------------------- a fetus of unknown status, and a pair tagged for the report (TRACE-19)
 
 MATERNAL = "1-3001-A-G"  # GENE_RECESS, category 3: the maternal allele of the demo's compound het
 
@@ -673,7 +589,7 @@ def test_a_nipt_record_holds_no_pgt_section_for_its_fetus(pair_signed) -> None:
     assert "nipt" in snapshot
     assert "pgt_analysis" not in snapshot
     check = ok_json(pair_signed, "check")
-    assert (check["matches"], check["changed_sections"], check["not_compared"]) == (True, [], []), check
+    assert (check["matches"], check["changed_sections"]) == (True, []), check
 
 
 def test_a_pair_tagged_for_the_report_is_frozen_as_the_nipt_page_listed_it(pair_signed) -> None:

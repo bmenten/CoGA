@@ -558,8 +558,7 @@ describe('FamilyNiptReportPage', () => {
       latest = LATEST,
       matches = true,
       listFails = false,
-      notCompared = [],
-    }: { latest?: typeof LATEST | null; matches?: boolean; listFails?: boolean; notCompared?: string[] } = {}) => {
+    }: { latest?: typeof LATEST | null; matches?: boolean; listFails?: boolean } = {}) => {
       serveReport({});
       const base = apiMock.get.getMockImplementation()!;
       apiMock.get.mockImplementation((url: string, config?: unknown) => {
@@ -576,7 +575,6 @@ describe('FamilyNiptReportPage', () => {
               content_hash: latest?.content_hash ?? null,
               matches,
               changed_sections: matches ? [] : ['nipt'],
-              not_compared: notCompared,
               not_captured: [],
               checked_at: '2026-10-16T09:00:00Z',
             },
@@ -607,18 +605,6 @@ describe('FamilyNiptReportPage', () => {
       expect(
         screen.getByText('Not the signed report — this is the live report. Print signed version 2 from its record.'),
       ).toHaveClass('print-only');
-    });
-
-    it('names what the check could not compare with the signed version (TRACE-19)', async () => {
-      serveSigned({ notCompared: ['coverage_tracks'] });
-      renderPage('');
-
-      const status = await signoutStatus();
-      await waitFor(() =>
-        expect(status).toHaveTextContent(
-          'The family’s current data still matches it in everything it holds. Not in signed version 2, so not compared: coverage tracks.',
-        ),
-      );
     });
 
     it('warns when the family’s analysis changed since the signed version', async () => {
@@ -676,12 +662,10 @@ describe('FamilyNiptReportPage', () => {
     const serve = ({
       latest = null,
       changed = null,
-      notCompared = [],
       readOnly = false,
     }: {
       latest?: typeof LATEST | null;
       changed?: string[] | null;
-      notCompared?: string[];
       readOnly?: boolean;
     } = {}) => {
       serveReport({});
@@ -710,7 +694,6 @@ describe('FamilyNiptReportPage', () => {
               content_hash: latest?.content_hash ?? null,
               matches: !changed,
               changed_sections: changed ?? [],
-              not_compared: notCompared,
               not_captured: [],
               checked_at: '2026-10-16T09:00:00Z',
             },
@@ -970,19 +953,6 @@ describe('FamilyNiptReportPage', () => {
       expect(within(status).getByRole('link', { name: 'View signed version 2' })).toHaveAttribute(
         'href',
         '/families/NIPT001/report?version=2',
-      );
-    });
-
-    it('names what the check could not compare with the latest signed version (TRACE-19)', async () => {
-      serve({ latest: LATEST, notCompared: ['nipt'] });
-      renderWithReport();
-
-      expect(await screen.findByRole('button', { name: 'Amend sign-out' })).toBeEnabled();
-      const status = await signoutStatus();
-      await waitFor(() =>
-        expect(status).toHaveTextContent(
-          'The family’s current data still matches it in everything it holds. Not in signed version 2, so not compared: NIPT results.',
-        ),
       );
     });
 

@@ -30,7 +30,6 @@ import {
   LIVE_REPORT_SIGN_OFF_STATEMENT,
   liveReportSignedNotice,
   liveReportSignedState,
-  notComparedSentence,
   parseSignedVersionParam,
   reportViewSearch,
 } from './signedReportRecord';
@@ -422,9 +421,6 @@ const LiveFamilyReport: React.FC = () => {
     checkFailed: signoutCheckFailed,
     check: signoutCheck,
   });
-  // What the check could not compare, the signed version not holding it: named beside "still
-  // matches" and beside what changed, so neither reads as covering it (TRACE-19).
-  const notCompared = notComparedSentence(signoutCheck?.not_compared, `signed version ${latestSignout?.version}`);
   // Every printout of this page says it is not the signed report: even content that matches
   // the latest signed version is drawn from current data, the gene and phenotype context
   // included, which the signed record does not hold.
@@ -702,16 +698,11 @@ const LiveFamilyReport: React.FC = () => {
             {signedState === 'checking'
               ? `Checking this page against signed version ${latestSignout.version}…`
               : null}
-            {signedState === 'matches'
-              ? notCompared
-                ? `This page still matches signed version ${latestSignout.version} in everything that version holds. ${notCompared}`
-                : `This page still matches signed version ${latestSignout.version}.`
-              : null}
+            {signedState === 'matches' ? `This page still matches signed version ${latestSignout.version}.` : null}
             {signedState === 'changed' ? (
               <>
                 <strong>⚠ Changed since sign-out:</strong>{' '}
-                {describeReportSections(signoutCheck?.changed_sections ?? [])}.{' '}
-                {notCompared ? `${notCompared} ` : null}This page shows the current state, not
+                {describeReportSections(signoutCheck?.changed_sections ?? [])}. This page shows the current state, not
                 signed version {latestSignout.version} — sign out again to issue a new version.
               </>
             ) : null}

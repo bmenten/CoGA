@@ -69,14 +69,6 @@ RULES = PgtRulesOut(
     qc_thresholds=QC_THRESHOLDS,
 )
 
-# What the QC verdict added to the analysis on 2026-10-20: each embryo's ``qc_verdict`` and the
-# thresholds in ``rules``. A record signed before holds neither (``comparable_with_record``).
-QC_VERDICT_NOT_COMPARED = "pgt_analysis.qc_verdict"
-
-# What the outdated-blocks check added on 2026-10-27: ``inputs.blocks_outdated``. A record signed
-# before holds none (``comparable_with_record``).
-BLOCKS_OUTDATED_NOT_COMPARED = "pgt_analysis.inputs.blocks_outdated"
-
 # A block as the calls read it: what the digest of the blocks read covers.
 _BLOCK_FIELDS = ("chr", "start", "end", "hap1", "hap2", "ps", "hap1_lineage", "hap2_lineage", "hemizygous_in_males")
 
@@ -348,54 +340,3 @@ async def family_pgt_analysis(session: AsyncSession, context: FamilyMetadataCont
     ]
     analysis.inputs.markers_truncated = truncated
     return analysis
-
-
-def comparable_with_record(signed: Any, current: Any) -> tuple[Any, list[str]]:
-    """The current analysis to compare with a signed record's ``pgt_analysis``, and what of it
-    the record predates.
-
-    A record signed before CoGA checked each embryo's phasing QC against thresholds holds no
-    ``qc_verdict`` and no ``rules.qc_thresholds``, and one signed before the outdated-blocks
-    check no ``inputs.blocks_outdated`` (``BLOCKS_OUTDATED_NOT_COMPARED``). Like a section a record predates, these are
-    left out of the comparison and named as not compared (``QC_VERDICT_NOT_COMPARED``), rather
-    than every such record reading as changed; the rest of the analysis is compared on what the
-    record holds. A record that holds them is compared whole, so a verdict or a threshold that
-    changed since it was signed reads as a change.
-    """
-    if not isinstance(signed, Mapping) or not isinstance(current, Mapping):
-        return current, []
-    comparable = dict(current)
-    not_compared: list[str] = []
-    signed_rules = signed.get("rules")
-    if isinstance(signed_rules, Mapping) and "qc_thresholds" not in signed_rules:
-        predated = False
-        rules = comparable.get("rules")
-        if isinstance(rules, Mapping) and "qc_thresholds" in rules:
-            comparable["rules"] = {key: value for key, value in rules.items() if key != "qc_thresholds"}
-            predated = True
-        embryos = comparable.get("embryos")
-        if isinstance(embryos, list):
-            held = [
-                {key: value for key, value in embryo.items() if key != "qc_verdict"}
-                if isinstance(embryo, Mapping)
-                else embryo
-                for embryo in embryos
-            ]
-            predated = predated or held != embryos
-            comparable["embryos"] = held
-        if predated:
-            not_compared.append(QC_VERDICT_NOT_COMPARED)
-    # A record signed before the outdated-blocks check (CLIN-66) holds no blocks_outdated: the
-    # flag is left out of the comparison and named as not compared. Blocks outdated now leave
-    # every embryo uninformative, which the embryos' comparison sees.
-    signed_inputs = signed.get("inputs")
-    inputs = comparable.get("inputs")
-    if (
-        isinstance(signed_inputs, Mapping)
-        and "blocks_outdated" not in signed_inputs
-        and isinstance(inputs, Mapping)
-        and "blocks_outdated" in inputs
-    ):
-        comparable["inputs"] = {key: value for key, value in inputs.items() if key != "blocks_outdated"}
-        not_compared.append(BLOCKS_OUTDATED_NOT_COMPARED)
-    return comparable, not_compared

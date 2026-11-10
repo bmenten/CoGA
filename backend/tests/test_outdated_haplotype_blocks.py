@@ -213,26 +213,6 @@ def test_no_embryo_is_called_from_outdated_blocks(monkeypatch: pytest.MonkeyPatc
     assert out.inputs.blocks_read == 4 and out.inputs.blocks_digest is not None
 
 
-# ---- A record signed before the check ------------------------------------------------------------
-
-
-def test_a_record_signed_before_the_check_names_it_as_not_compared() -> None:
-    current = {"embryos": [], "inputs": {"blocks_read": 4, "blocks_outdated": False}, "rules": {"qc_thresholds": {}}}
-    signed = {"embryos": [], "inputs": {"blocks_read": 4}, "rules": {"qc_thresholds": {}}}
-
-    comparable, not_compared = pgt_analysis.comparable_with_record(signed, current)
-
-    assert comparable["inputs"] == {"blocks_read": 4}
-    assert not_compared == [pgt_analysis.BLOCKS_OUTDATED_NOT_COMPARED]
-
-
-def test_a_record_that_holds_the_check_is_compared_whole() -> None:
-    current = {"embryos": [], "inputs": {"blocks_read": 4, "blocks_outdated": True}, "rules": {"qc_thresholds": {}}}
-    signed = {"embryos": [], "inputs": {"blocks_read": 4, "blocks_outdated": False}, "rules": {"qc_thresholds": {}}}
-
-    assert pgt_analysis.comparable_with_record(signed, current) == (current, [])
-
-
 # ---- The lineage precompute ----------------------------------------------------------------------
 
 

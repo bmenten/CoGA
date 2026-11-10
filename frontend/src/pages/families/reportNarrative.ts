@@ -229,7 +229,7 @@ export interface ReportedClass {
 
 /**
  * The scoring's class beside the class shown: null when there is none, or when it is the class
- * shown whatever its case (a label signed before the labels were put in sentence case, ENG-6).
+ * shown (compared whatever their case).
  */
 export const scoreBesideClass = (shown: string | null, scored: string | null | undefined): string | null => {
   const score = scored?.trim() || null;

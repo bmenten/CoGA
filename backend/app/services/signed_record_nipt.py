@@ -90,11 +90,8 @@ TRIO_UNRESOLVED = (
     "plasma sample."
 )
 
-# The section's part a record signed before TRACE-17 does not hold: the notes of the coverage
-# check over the coverage tracks. The sign-out check names it as not compared
-# (``nipt_comparable_with_record``).
+# The notes of the coverage check over the coverage tracks, in the section.
 COVERAGE_NOTES_KEY = "coverage_notes"
-COVERAGE_NOTES_NOT_COMPARED = "nipt.coverage_notes"
 
 _ANALYSIS_TYPE_SQL = text(
     """
@@ -525,29 +522,6 @@ async def nipt_results(
         coverage_notes=coverage_notes,
         qc=qc,
     )
-
-
-def nipt_comparable_with_record(signed: Any, current: Any) -> tuple[Any, list[str]]:
-    """The current ``nipt`` section to compare with a signed record's, and what of it the record
-    predates.
-
-    A record signed before TRACE-17 holds no ``coverage_notes``: like a section a record
-    predates, they are left out of the comparison and named as not compared
-    (``COVERAGE_NOTES_NOT_COMPARED``), rather than every such record reading as changed; the
-    rest of the section is compared on what the record holds. A record that holds them (null
-    too, with a per-target table) is compared whole, and so is a section either side holds as
-    unavailable."""
-    if (
-        not isinstance(signed, Mapping)
-        or "unavailable" in signed
-        or COVERAGE_NOTES_KEY in signed
-        or not isinstance(current, Mapping)
-        or "unavailable" in current
-        or COVERAGE_NOTES_KEY not in current
-    ):
-        return current, []
-    comparable = {key: value for key, value in current.items() if key != COVERAGE_NOTES_KEY}
-    return comparable, [COVERAGE_NOTES_NOT_COMPARED]
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

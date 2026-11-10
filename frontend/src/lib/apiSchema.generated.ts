@@ -3597,10 +3597,8 @@ export interface ReportCodeLookupOut {
  * Whether the report, as it would be signed now, matches the latest sign-out.
  *
  * ``matches`` is None when the family has never been signed out. ``changed_sections``
- * names the snapshot sections whose content differs from the signed one;
- * ``not_compared`` those the signed snapshot predates and so cannot be compared (a
- * reference module as ``modules.<key>``, e.g. ``modules.hpo``); ``not_captured`` the
- * parts the signed snapshot records as unavailable or, being older, does not hold.
+ * names the snapshot sections whose content differs from the signed one, each section
+ * compared whole; ``not_captured`` the parts the signed snapshot records as unavailable.
  */
 export interface ReportSignoutCheckOut {
   family_id: string;
@@ -3608,7 +3606,6 @@ export interface ReportSignoutCheckOut {
   content_hash: string | null;
   matches: boolean | null;
   changed_sections: string[];
-  not_compared: string[];
   not_captured: ReportSnapshotGapOut[];
   checked_at: string;
 }
