@@ -595,8 +595,8 @@ export const buildSvSecondHitHref = (
   if (hit?.chr && typeof hit.start === 'number' && typeof hit.end === 'number') {
     params.set('locus', `${hit.chr}:${hit.start}-${hit.end}`);
   } else {
-    // Older payloads carry no span: fall back to the gene the SV hit, then the
-    // variant's own symbol.
+    // No span (no SV the second hit names has a position): fall back to the gene the SV
+    // hit, then the variant's own symbol.
     const geneLabel = (hit?.gene || variant.gene || variant.gene_id || '').trim();
     if (!geneLabel) return null;
     params.set('gene', geneLabel);

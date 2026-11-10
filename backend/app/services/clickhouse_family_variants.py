@@ -2172,8 +2172,8 @@ async def _superset_panel_if_unchanged(
 
     The ranking can serve another panel only as a superset: the narrowing can drop its
     variants, never add any. A ranking computed before its panel gained a gene holds none
-    of that gene's variants, whatever the panel holds now (CLIN-27). A row cached before
-    rankings recorded their panel cannot show its panel unchanged, and a panel deleted
+    of that gene's variants, whatever the panel holds now (CLIN-27). A row that records no
+    panel cannot show its panel unchanged, and a panel deleted
     since has nothing to compare (its lookup answers 404, which must not fail a request
     for another panel).
     """

@@ -447,7 +447,7 @@ def blocks_outdated(context: FamilyMetadataContext, rows: Sequence[Mapping[str, 
     """Whether a member's stored haplotype blocks rest on another pedigree than the family's
     (CLIN-66): the loader kept, beside each member's blocks, the couple, the couple's children
     and the sexes they were built for (``haplotype_block_basis``), and the pedigree or a sex has
-    changed since. Blocks without that record, loaded before it was kept, count as outdated.
+    changed since. Blocks without a readable record count as outdated.
     The blocks are then read for the inputs' digest, but no embryo is called from them until
     the phased genotypes are imported again."""
     for row in rows:

@@ -250,7 +250,7 @@ async def _close_jobs_whose_worker_is_gone(session: AsyncSession) -> None:
                 UPDATE clinical_cnv_kb_jobs
                 SET status = 'failed', worker_id = NULL, completed_at = now(), error = :error
                 WHERE status IN ('queued', 'running')
-                  AND COALESCE(heartbeat_at, started_at, requested_at)
+                  AND COALESCE(heartbeat_at, requested_at)
                       < now() - CAST(:stale_window AS interval)
                 RETURNING id::text AS id
                 """
