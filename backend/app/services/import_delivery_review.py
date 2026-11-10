@@ -10,11 +10,15 @@ route's check, as for every overwrite).
   exists (``existing_family``, with ``existing_samples``) and the approver chooses update or
   overwrite. Its warnings must be acknowledged. Its folder must be as it was checked (the same
   package fingerprint); one that changed is left to the watcher's next round, which makes it a
-  new delivery. The import job is queued as the approver, into the project the marker names,
-  with the manifest the delivery keeps, and names the delivery (its id, run, marker's SHA-256 and
-  fingerprint), which the family's package record keeps. A real approval makes the delivery
-  ``queued``; a dry run leaves it as it is. The delivery is locked while it is decided, and the
-  job, the delivery's change and its audit event are one transaction.
+  new delivery. The approval names the revision of the package the approver saw
+  (``import_delivery_revisions``: 0 when it was not corrected); one corrected since is refused.
+  The import job is queued as the approver, into the project the package names, with the
+  manifest the delivery keeps (made from the package as last corrected), and names the delivery
+  (its id, run, package file's SHA-256 and fingerprint, the revision, the SHA-256 of the package
+  it imports, and every correction: what it changed, why, by whom and when), which the family's
+  package record keeps. A real approval makes the delivery ``queued``; a dry run leaves it as it
+  is. The delivery is locked while it is decided, and the job, the delivery's change and its
+  audit event are one transaction.
 - **Refuse.** An open delivery (``incomplete``, ``ready``, ``needs_attention``), with a reason.
 - **The job's end.** A queued delivery whose import job has ended is ``imported`` or ``failed``
   (``sync_delivery_jobs``, at the start of each watch round).
@@ -40,7 +44,8 @@ from .access_control import CurrentUser
 from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
 from .family_package_jobs import queue_family_import_job
-from .import_watcher import IMPORT_INBOX_CHAIN, WATCHER_ACTOR, get_import_delivery
+from .coga_package import package_document_sha256
+from .import_watcher import IMPORT_INBOX_CHAIN, WATCHER_ACTOR, get_import_delivery, latest_revision
 
 DELIVERY_NOT_FOUND = "Delivery not found"
 # The issues an approver resolves by choosing update or overwrite: the family exists.
@@ -50,6 +55,10 @@ OPEN_STATES = ("incomplete", "ready", "needs_attention")
 DELIVERY_CHANGED = (
     "The delivery's folder changed since it was checked: nothing was queued. The watcher checks "
     "it again in its next round, as a new delivery."
+)
+DELIVERY_REVISED_SINCE = (
+    "The delivery's package was corrected since you looked at it: look at it again, and approve "
+    "it as it is now."
 )
 WARNINGS_NOT_ACKNOWLEDGED = (
     "The delivery has warnings: check them, and confirm that you did (acknowledge_warnings), to "
@@ -70,7 +79,7 @@ async def _locked_delivery(session: AsyncSession, delivery_id: str) -> dict[str,
                 """
                 SELECT id::text AS id, folder_path, folder_name, state, package_fingerprint,
                        marker_sha256, run_id, family_id, project_id::text AS project_id, issues,
-                       warnings, manifest_text
+                       warnings, manifest_text, package
                 FROM import_deliveries
                 WHERE id = CAST(:id AS uuid)
                 FOR UPDATE
@@ -108,19 +117,48 @@ async def _record(
     )
 
 
+async def _corrections(session: AsyncSession, delivery_id: str) -> list[dict[str, Any]]:
+    """The corrections of the delivery's package, as the family's record keeps them."""
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT revision, changes, reason, created_by_name, created_at
+                FROM import_delivery_revisions
+                WHERE delivery_id = CAST(:id AS uuid)
+                ORDER BY revision
+                """
+            ),
+            {"id": delivery_id},
+        )
+    ).mappings().all()
+    return [
+        {
+            "revision": int(row["revision"]),
+            "changes": row["changes"] if isinstance(row["changes"], list) else json.loads(row["changes"] or "[]"),
+            "reason": row["reason"],
+            "by": row["created_by_name"],
+            "at": row["created_at"].isoformat(),
+        }
+        for row in rows
+    ]
+
+
 async def approve_delivery(
     session: AsyncSession,
     *,
     delivery_id: str,
     user: CurrentUser,
+    revision: int,
     dry_run: bool,
     conflict_mode: str,
     acknowledge_warnings: bool,
 ) -> tuple[ImportDeliveryOut, FamilyPackageImportJobOut]:
-    """Approve the delivery ``delivery_id`` (see the module's docstring): queue its import job,
-    or its dry run, as ``user``. Refused: 404 for no such delivery; 409 for one in another state,
-    one whose issues a choice does not resolve, or one whose folder changed; 400 for a choice
-    that does not fit it, or warnings not acknowledged."""
+    """Approve the delivery ``delivery_id`` (see the module's docstring) as its package is at
+    ``revision``: queue its import job, or its dry run, as ``user``. Refused: 404 for no such
+    delivery; 409 for one in another state, one whose issues a choice does not resolve, one
+    corrected since ``revision``, or one whose folder changed; 400 for a choice that does not fit
+    it, or warnings not acknowledged."""
     delivery = await _locked_delivery(session, delivery_id)
     codes = _issue_codes(delivery["issues"])
     state = delivery["state"]
@@ -149,8 +187,15 @@ async def approve_delivery(
         raise HTTPException(status_code=400, detail=WARNINGS_NOT_ACKNOWLEDGED)
     if delivery["project_id"] is None:
         raise HTTPException(status_code=409, detail="The delivery names no project CoGA has.")
+    current, revised = await latest_revision(session, delivery["id"])
+    if revision != current:
+        raise HTTPException(status_code=409, detail=DELIVERY_REVISED_SINCE)
     if await _folder_fingerprint(delivery["folder_path"]) != delivery["package_fingerprint"]:
         raise HTTPException(status_code=409, detail=DELIVERY_CHANGED)
+    package = revised or (
+        delivery["package"] if isinstance(delivery["package"], dict) else json.loads(delivery["package"] or "null")
+    )
+    corrections = await _corrections(session, delivery["id"]) if current else []
 
     job = await queue_family_import_job(
         session,
@@ -166,6 +211,9 @@ async def approve_delivery(
             "run_id": delivery["run_id"],
             "marker_sha256": delivery["marker_sha256"],
             "package_fingerprint": delivery["package_fingerprint"],
+            "revision": current,
+            "package_sha256": package_document_sha256(package) if isinstance(package, dict) else None,
+            "corrections": corrections,
         },
         commit=False,
     )
@@ -196,6 +244,7 @@ async def approve_delivery(
             "family_id": delivery["family_id"],
             "run_id": delivery["run_id"],
             "marker_sha256": delivery["marker_sha256"],
+            "revision": current,
             "warnings_acknowledged": bool(acknowledge_warnings),
         },
     )

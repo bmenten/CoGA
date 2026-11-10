@@ -66,6 +66,7 @@ files = [
     "backend/app/services/haplotype_lineage_service.py",
     "backend/app/services/hash_chain.py",
     "backend/app/services/import_delivery_review.py",
+    "backend/app/services/import_delivery_revisions.py",
     "backend/app/services/import_watcher.py",
     "backend/app/services/imported_package_folders.py",
     "backend/app/services/integrity_anchor_service.py",

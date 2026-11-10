@@ -303,8 +303,11 @@ CREATE INDEX IF NOT EXISTS idx_family_import_jobs_status ON family_import_jobs U
 -- changes is a new delivery. The import watcher (import_watcher.py) writes it from the folder's
 -- package file (coga-package.json: marker holds it, marker_sha256 its bytes' SHA-256, run_id the
 -- run it names) and its checks: state is where the delivery stands, issues why it needs
--- attention, warnings what an approver should see. manifest_text is the manifest the import
--- reads, made from the package file (with what it leaves out proposed by Discover), with its
+-- attention, warnings what an approver should see. package is the package as the watcher checked
+-- it (the file, with what it leaves out proposed by Discover), package_check what reading the
+-- folder found (the file checks, the files whose checksum was verified, what was proposed), which
+-- a check again after a change in CoGA or a correction reuses. manifest_text is the manifest the
+-- import reads, made from the package as last corrected (import_delivery_revisions), with its
 -- SHA-256. Mutable state: each change of state is an event on the clinical audit chain
 -- system:import-inbox, which is the record.
 CREATE TABLE IF NOT EXISTS import_deliveries (
@@ -324,6 +327,8 @@ CREATE TABLE IF NOT EXISTS import_deliveries (
     validation jsonb,
     manifest_text text,
     manifest_sha256 text,
+    package jsonb,
+    package_check jsonb,
     job_id uuid,
     missing_rounds integer DEFAULT 0 NOT NULL,
     first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -341,6 +346,36 @@ CREATE TABLE IF NOT EXISTS import_deliveries (
 
 CREATE INDEX IF NOT EXISTS idx_import_deliveries_folder ON import_deliveries USING btree (folder_path, first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_import_deliveries_state ON import_deliveries USING btree (state, state_changed_at);
+
+-- ---------------------------------------------------------------------------
+-- A correction of a delivery's package, made in CoGA before it is approved
+-- (import_delivery_revisions.py): append-only, one row per revision of a delivery, numbered from
+-- 1. The pipeline's file is never changed (import_deliveries.marker); a revision keeps what it
+-- changed (changes: each field's path, its value before and after, and the kind of field), the
+-- reason, who made it and when, and the whole package after it with that package's SHA-256
+-- (base_sha256: the package it was made on). The import reads the latest. Each revision is also
+-- an event on the clinical audit chain system:import-inbox. The trigger in 04_traceability.sql
+-- refuses UPDATE and DELETE, but for the ON DELETE SET NULL of created_by.
+CREATE TABLE IF NOT EXISTS import_delivery_revisions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    delivery_id uuid NOT NULL,
+    revision integer NOT NULL,
+    base_sha256 text NOT NULL,
+    package jsonb NOT NULL,
+    package_sha256 text NOT NULL,
+    changes jsonb NOT NULL,
+    reason text NOT NULL,
+    created_by uuid,
+    created_by_name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT import_delivery_revisions_pkey PRIMARY KEY (id),
+    CONSTRAINT import_delivery_revisions_delivery_revision_key UNIQUE (delivery_id, revision),
+    CONSTRAINT import_delivery_revisions_revision_check CHECK ((revision >= 1)),
+    CONSTRAINT import_delivery_revisions_sha256_check CHECK (((base_sha256 ~ '^[0-9a-f]{64}$'::text) AND (package_sha256 ~ '^[0-9a-f]{64}$'::text))),
+    CONSTRAINT import_delivery_revisions_reason_check CHECK (((char_length(reason) >= 1) AND (char_length(reason) <= 2000))),
+    CONSTRAINT import_delivery_revisions_delivery_id_fkey FOREIGN KEY (delivery_id) REFERENCES import_deliveries(id) ON DELETE RESTRICT,
+    CONSTRAINT import_delivery_revisions_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
 
 -- ---------------------------------------------------------------------------
 -- individual_hpo

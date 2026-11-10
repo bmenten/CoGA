@@ -465,6 +465,32 @@ CREATE TRIGGER qc_threshold_changes_immutable
     FOR EACH ROW EXECUTE FUNCTION qc_threshold_changes_block_mutation();
 
 -- ---------------------------------------------------------------------------
+-- import_delivery_revisions — append-only corrections of a delivered package
+-- ---------------------------------------------------------------------------
+-- The table lives in 03_assay (next to the deliveries it corrects). A revision is the record of
+-- what a person changed in a pipeline's package before its import, and why: the import reads the
+-- package it ends with, and the family's record names it. It must not be rewritable. DELETE is
+-- blocked; UPDATE is blocked but for the ON DELETE SET NULL that nulls created_by when an account
+-- is removed (created_by_name keeps who it was).
+CREATE OR REPLACE FUNCTION import_delivery_revisions_block_mutation() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'import_delivery_revisions is append-only; DELETE is not permitted';
+    END IF;
+    IF (NEW.created_by IS NOT NULL AND NEW.created_by IS DISTINCT FROM OLD.created_by)
+        OR (to_jsonb(NEW) - 'created_by') IS DISTINCT FROM (to_jsonb(OLD) - 'created_by') THEN
+        RAISE EXCEPTION 'import_delivery_revisions is append-only; UPDATE is not permitted';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS import_delivery_revisions_immutable ON import_delivery_revisions;
+CREATE TRIGGER import_delivery_revisions_immutable
+    BEFORE UPDATE OR DELETE ON import_delivery_revisions
+    FOR EACH ROW EXECUTE FUNCTION import_delivery_revisions_block_mutation();
+
+-- ---------------------------------------------------------------------------
 -- family_structure_versions — append-only, hash-chained pedigree history
 -- ---------------------------------------------------------------------------
 -- The table lives in 03_assay (next to the pedigree it records). A structure version is

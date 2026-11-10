@@ -1779,9 +1779,11 @@ export interface IdeogramBandOut {
 /**
  * A delivery approved for import: as a dry run or for real; ``cancel`` for a new family,
  * ``update`` or ``overwrite`` (an administrator's) for one whose family exists; its warnings
- * acknowledged when it has any.
+ * acknowledged when it has any. ``revision`` is the revision of its package the approver saw (0
+ * when it was not corrected): an approval of another is refused.
  */
 export interface ImportDeliveryApprove {
+  revision: number;
   dry_run?: boolean;
   conflict_mode?: "cancel" | "update" | "overwrite";
   acknowledge_warnings?: boolean;
@@ -1790,6 +1792,17 @@ export interface ImportDeliveryApprove {
 export interface ImportDeliveryApproveOut {
   delivery: ImportDeliveryOut;
   job: FamilyPackageImportJobOut;
+}
+
+/**
+ * One field of a delivery's package set to a value, or removed (``value`` null). ``path``
+ * names it: ``["project"]``, ``["analysis_type"]``, ``["family", "roi"]``, ``["family", "pgt"]``
+ * or one of its fields, ``["members", <sample ID>, <field>]``, ``["couples"]``, or
+ * ``["datasets", <dataset>]`` (import_delivery_revisions.py says which may change).
+ */
+export interface ImportDeliveryChange {
+  path: string[];
+  value?: unknown;
 }
 
 /**
@@ -1826,6 +1839,7 @@ export interface ImportDeliveryOut {
   issues: ImportDeliveryIssue[];
   warnings: ImportDeliveryIssue[];
   manifest_sha256: string | null;
+  revision: number;
   job_id: string | null;
   job_status: "queued" | "validating" | "running" | "completed" | "failed" | null;
   job_dry_run: boolean | null;
@@ -1834,9 +1848,63 @@ export interface ImportDeliveryOut {
   state_changed_at: string;
 }
 
+/**
+ * A delivery's package as its import would read it now: the latest revision's (``revision``,
+ * 0 for none), or the package as checked; the pipeline's file as written (``original``); the
+ * sections CoGA proposed from the folder; and every correction.
+ */
+export interface ImportDeliveryPackageOut {
+  delivery_id: string;
+  revision: number;
+  package: Record<string, unknown> | null;
+  package_sha256: string | null;
+  original: Record<string, unknown> | null;
+  proposed: string[];
+  revisions: ImportDeliveryRevisionOut[];
+}
+
 /** A delivery refused, and why. */
 export interface ImportDeliveryRefuse {
   reason: string;
+}
+
+/**
+ * A correction of a delivery's package: made on ``revision`` (the latest the person saw, 0
+ * when there is none), with its reason.
+ */
+export interface ImportDeliveryRevise {
+  revision: number;
+  reason: string;
+  changes: ImportDeliveryChange[];
+}
+
+export interface ImportDeliveryRevisedOut {
+  delivery: ImportDeliveryOut;
+  package: ImportDeliveryPackageOut;
+}
+
+/**
+ * A field a correction changed: its path, its kind (the laboratory's, or one the pipeline
+ * used), and its value before and after (null: not set).
+ */
+export interface ImportDeliveryRevisionChange {
+  path: string[];
+  kind: "laboratory" | "pipeline_used";
+  before: unknown;
+  after: unknown;
+}
+
+/**
+ * A correction of a delivery's package, as kept: its number, what it changed, why, by whom
+ * and when, and the SHA-256 of the package it ends with.
+ */
+export interface ImportDeliveryRevisionOut {
+  revision: number;
+  changes: ImportDeliveryRevisionChange[];
+  reason: string;
+  created_by_name: string;
+  created_at: string;
+  package_sha256: string;
 }
 
 /** A family whose package record names a scanned folder as the one it was imported from. */

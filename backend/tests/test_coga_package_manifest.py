@@ -25,7 +25,7 @@ from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildRequest
 from backend.app.services import import_watcher as watcher
 from backend.app.services.coga_package import PACKAGE_FILE_NAME, CogaPackage
-from backend.app.services.coga_package_manifest import package_manifest, proposed_sections
+from backend.app.services.coga_package_manifest import package_manifest, proposed_package, proposed_sections
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_manifest import _ped_members_for_import
 from backend.app.services.family_package_validation import load_validated_family_package
@@ -165,6 +165,64 @@ def test_without_a_family_the_drafts_family_id_is_kept() -> None:
     package = _package(status="failed", family=None)
     assert package_manifest(package, {"family_id": "FOLDER"})["family_id"] == "FOLDER"
     assert "family_id" not in package_manifest(package, None)
+
+
+def test_what_discover_proposes_is_written_into_the_package() -> None:
+    package = _package(family={"family_id": "FAM001", "pgt": {"indexes": ["INDEX1"]}})
+    draft = {
+        "roi": "chr7:1000-2000",
+        "metadata": {"pgt": {"inheritance_model": "AR", "indexes": ["OTHER"], "affected_parents": ["MOTHER"]}},
+        "samples": {"MOTHER": {"assay": "nipt_cfdna", "assay_panel": "PANEL1"}, "FATHER1": "not an object"},
+        "individuals": {"PROBAND": {"hpo": {"present": ["HP:0001250"]}}},
+        "family": {
+            "relationships": {
+                "couples": [{"partners": ["FATHER1", "MOTHER"], "context": "reproductive"}, "not a couple"],
+                "relatives": [{"member": "INDEX1", "related_to": ["MOTHER"]}, {"related_to": ["X"]}],
+            }
+        },
+        "datasets": {"snv": {"family_vcf": "a.vcf.gz"}, "pcf": {"enabled": False}, "qc": "not an entry"},
+    }
+    members = [
+        {"sample_id": "FATHER1", "sex": "male", "role": "father", "clinical_status": "unknown", "carrier_status": "carrier", "carrier_type": "obligate"},
+        {"sample_id": "MOTHER", "sex": "female", "role": "mother", "clinical_status": "unaffected", "carrier_status": "unknown"},
+        {"sample_id": "PROBAND", "sex": "und", "father_id": "FATHER1", "mother_id": "MOTHER", "role": "proband", "clinical_status": "affected"},
+        {"sample_id": "INDEX1", "sex": "female", "role": "relative"},
+    ]
+
+    completed = proposed_package(package, draft, members)
+
+    document = completed.model_dump(mode="json", exclude_none=True)
+    assert document["family"] == {
+        "family_id": "FAM001",
+        "roi": "chr7:1000-2000",
+        # What the file gives (the index) wins; what it leaves out is the draft's.
+        "pgt": {"inheritance_model": "AR", "affected_parents": ["MOTHER"], "indexes": ["INDEX1"]},
+    }
+    assert document["members"] == [
+        {"sample_id": "FATHER1", "sex": "male", "role": "father", "carrier_status": "carrier", "carrier_type": "obligate", "related_to": []},
+        {"sample_id": "MOTHER", "sex": "female", "role": "mother", "clinical_status": "unaffected", "assay": "nipt_cfdna", "assay_panel": "PANEL1", "related_to": []},
+        {
+            "sample_id": "PROBAND",
+            "sex": "unknown",
+            "father": "FATHER1",
+            "mother": "MOTHER",
+            "role": "proband",
+            "clinical_status": "affected",
+            "hpo": {"present": ["HP:0001250"], "absent": []},
+            "related_to": [],
+        },
+        {"sample_id": "INDEX1", "sex": "female", "role": "relative", "related_to": ["MOTHER"]},
+    ]
+    assert document["couples"] == [{"partners": ["FATHER1", "MOTHER"], "context": "reproductive"}]
+    assert document["datasets"] == {"snv": {"family_vcf": "a.vcf.gz"}}
+
+
+def test_a_file_that_gives_its_members_and_datasets_keeps_them() -> None:
+    package = _package(
+        members=[{"sample_id": "PROBAND", "sex": "male"}], datasets={"snv": {"family_vcf": "b.vcf.gz"}}, couples=[]
+    )
+    completed = proposed_package(package, {"roi": None, "datasets": {"snv": {"family_vcf": "a.vcf.gz"}}}, [])
+    assert completed.members == package.members and completed.datasets == package.datasets
 
 
 # --- read by the import ----------------------------------------------------------------------
@@ -326,8 +384,18 @@ async def test_a_minimal_file_has_its_members_and_datasets_proposed(tmp_path: Pa
     codes = [issue.code for issue in assessment.warnings]
     assert "package_members_proposed" in codes and "package_datasets_proposed" in codes
     assert [issue.code for issue in assessment.issues] == ["package_project_unknown"]
+    # Discover's draft is written into the package: the folder's PED as members (the embryos'
+    # role, the index it adds from the samplesheet, linked to the mother), the datasets and the
+    # PGT details, so they can be corrected like the pipeline's.
+    package = assessment.package or {}
+    roles = {member["sample_id"]: member.get("role") for member in package["members"]}
+    assert roles == {FATHER: "father", MOTHER: "mother", "EMB1": "embryo", "EMB2": "embryo", INDEX: "relative"}
+    index = next(member for member in package["members"] if member["sample_id"] == INDEX)
+    assert index["related_to"] == [MOTHER]
+    assert {"apcad", "qdnaseq", "alignments", "qc"} <= set(package["datasets"])
+    assert package["family"]["pgt"]["affected_parents"] == [MOTHER]
+    assert (assessment.package_check or {})["proposed"] == ["members", "datasets"]
     manifest = json.loads(assessment.manifest_text or "")
-    # Discover's draft: the folder's PED, with the index it adds from the samplesheet.
-    assert manifest["ped"] == "ped/combined.ped"
+    assert "ped" not in manifest
     assert manifest["analysis_type"] == "pgt_m"
     assert INDEX in assessment.validation["sample_ids"]

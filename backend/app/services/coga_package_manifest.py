@@ -14,13 +14,17 @@ approved import reads.
   person checks it before approving.
 - What the file gives always wins over the draft: the family ID, the analysis, the region of
   interest and the PGT details.
+- ``proposed_package`` writes the draft into the package itself: the members (as the import reads
+  Discover's draft: from the PED, with Discover's roles and carrier fields), the couples and
+  relatives, assays, HPO terms, the PGT details and the datasets. The package then says
+  everything, so a person can correct what was proposed as they correct what the pipeline gave.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from .coga_package import CogaPackage, PackageMember
+from .coga_package import CogaPackage, PackageMember, package_document
 
 # The manifest's parts that describe the members, taken from the draft when the file names none.
 _MEMBER_SECTIONS = ("ped", "family", "samples", "individuals", "phenotypes")
@@ -130,3 +134,83 @@ def package_manifest(package: CogaPackage, draft: dict[str, Any] | None) -> dict
     else:
         manifest["datasets"] = draft.get("datasets") or {}
     return manifest
+
+
+_SEX = {"male": "male", "female": "female"}
+
+
+def _object(value: Any) -> dict[str, Any]:
+    """``value`` when it is a JSON object, else an empty one."""
+    return value if isinstance(value, dict) else {}
+
+
+def _drafted_member(member: dict[str, Any], draft: dict[str, Any]) -> dict[str, Any]:
+    """A member as the import reads Discover's draft (``_ped_members_for_import``), in the package
+    format: what is unknown left out."""
+    sample_id = str(member["sample_id"])
+    entry: dict[str, Any] = {"sample_id": sample_id, "sex": _SEX.get(str(member.get("sex")), "unknown")}
+    for name, key in (("father", "father_id"), ("mother", "mother_id"), ("role", "role")):
+        if member.get(key):
+            entry[name] = str(member[key])
+    if member.get("clinical_status") in ("affected", "unaffected"):
+        entry["clinical_status"] = member["clinical_status"]
+    if member.get("carrier_status") in ("carrier", "not_carrier"):
+        entry["carrier_status"] = member["carrier_status"]
+    if member.get("carrier_type"):
+        entry["carrier_type"] = member["carrier_type"]
+    samples = _object(draft.get("samples"))
+    sample = _object(samples.get(sample_id))
+    for name in ("assay", "assay_panel"):
+        if isinstance(sample.get(name), str) and sample[name]:
+            entry[name] = sample[name]
+    individuals = _object(draft.get("individuals"))
+    individual = _object(individuals.get(sample_id))
+    hpo = _object(individual.get("hpo"))
+    if hpo.get("present") or hpo.get("absent"):
+        entry["hpo"] = {"present": list(hpo.get("present") or []), "absent": list(hpo.get("absent") or [])}
+    return entry
+
+
+def proposed_package(package: CogaPackage, draft: dict[str, Any], members: list[dict[str, Any]]) -> CogaPackage:
+    """The package ``package`` with what it leaves out (``proposed_sections``) taken from
+    Discover's draft ``draft`` of its folder, written into it. ``members`` are the draft's members
+    as the import reads them (``_ped_members_for_import`` over the draft's PED, with its explicit
+    ``family.members``, not the statuses the import derives from the PGT model, which it derives
+    again). What the file gives is kept as it is."""
+    document = package_document(package)
+    proposed = proposed_sections(package)
+    family = document.setdefault("family", {})
+    if family.get("roi") is None and draft.get("roi") is not None and isinstance(draft.get("roi"), str):
+        family["roi"] = draft["roi"]
+    metadata = _object(draft.get("metadata"))
+    drafted_pgt = _object(metadata.get("pgt"))
+    if drafted_pgt:
+        pgt = family.setdefault("pgt", {})
+        for name in ("inheritance_model", "affected_parents", "indexes"):
+            if pgt.get(name) in (None, []) and drafted_pgt.get(name):
+                pgt[name] = drafted_pgt[name]
+    if "members" in proposed:
+        entries = [_drafted_member(member, draft) for member in members]
+        drafted_family = _object(draft.get("family"))
+        relationships = _object(drafted_family.get("relationships"))
+        related: dict[str, list[str]] = {}
+        for relative in relationships.get("relatives") or []:
+            if isinstance(relative, dict) and relative.get("member"):
+                related.setdefault(str(relative["member"]), []).extend(str(item) for item in relative.get("related_to") or [])
+        for entry in entries:
+            if related.get(entry["sample_id"]):
+                entry["related_to"] = related[entry["sample_id"]]
+        document["members"] = entries
+        couples = [
+            {"partners": [str(partner) for partner in couple.get("partners") or []], **({"context": str(couple["context"])} if couple.get("context") else {})}
+            for couple in relationships.get("couples") or []
+            if isinstance(couple, dict)
+        ]
+        if couples and not document.get("couples"):
+            document["couples"] = couples
+    if "datasets" in proposed:
+        drafted = _object(draft.get("datasets"))
+        document["datasets"] = {
+            name: dict(entry) for name, entry in drafted.items() if isinstance(entry, dict) and entry.get("enabled", True) is not False
+        }
+    return CogaPackage.model_validate(document)

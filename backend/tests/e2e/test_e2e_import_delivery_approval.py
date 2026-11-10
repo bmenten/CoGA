@@ -84,7 +84,9 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
 
         async def approve(name: str, **body: Any) -> dict[str, Any]:
             delivery = await delivery_of(name)
-            return capture(await client.post(f"/api/family-imports/deliveries/{delivery['id']}/approve", json=body))
+            return capture(
+                await client.post(f"/api/family-imports/deliveries/{delivery['id']}/approve", json={"revision": 0, **body})
+            )
 
         new = await delivery_of(names["NEW"])
         out["new_before"] = new
@@ -154,7 +156,9 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         out["existing_update"] = await approve(names["NEW"], conflict_mode="update", acknowledge_warnings=True)
 
         out["unknown"] = capture(
-            await client.post(f"/api/family-imports/deliveries/{uuid4()}/approve", json={"acknowledge_warnings": True})
+            await client.post(
+                f"/api/family-imports/deliveries/{uuid4()}/approve", json={"revision": 0, "acknowledge_warnings": True}
+            )
         )
         out["not_an_id"] = capture(await client.post("/api/family-imports/deliveries/nope/refuse", json={"reason": "x"}))
         out["verified"] = capture(
@@ -227,7 +231,12 @@ def test_the_family_and_the_job_name_the_delivery_it_came_from(ran) -> None:
         "run_id": before["run_id"],
         "marker_sha256": before["marker_sha256"],
         "package_fingerprint": before["package_fingerprint"],
+        # Not corrected in CoGA: revision 0, no corrections, the package as the watcher checked it.
+        "revision": 0,
+        "package_sha256": ran["record"]["package_sha256"],
+        "corrections": [],
     }
+    assert len(ran["record"]["package_sha256"]) == 64
     assert ran["record"] == expected
     # The job's record, written from the validation's metadata as the import ran, keeps it too.
     assert ran["job_delivery"] == expected

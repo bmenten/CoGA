@@ -19,8 +19,10 @@ owner approved the plan on 2026-11-10, in phases:
 1. Done: CoGA reads `coga-package.json` in the watched folders, in place of `coga-ready.json` and
    a folder manifest. What a minimal file leaves out, CoGA proposes from the folder, as Discover
    does.
-2. A delivery can be completed and corrected in **Deliveries** before it is approved, within
-   the limits below, each change with its reason on the record.
+2. A delivery can be completed and corrected before it is approved, within the limits below,
+   each change with its reason on the record. Done through the API
+   ([data-import.md](data-import.md#correcting-a-delivery)); the forms in **Deliveries**, and the
+   corrections on the family page and in the signed record, are next.
 3. Adding a family by hand makes the same file: CoGA drafts it from the folder, a PED if there
    is one, and what the person adds. Such a delivery goes through Deliveries like a pipeline's.
 4. The PED and the manifest are no longer read by the import of a typed folder either.
@@ -163,10 +165,13 @@ and the family and samples CoGA already holds.
 ## What can be changed in CoGA (phase 2)
 
 The pipeline's file is never changed: CoGA keeps its bytes and their SHA-256. A change made in
-Deliveries is kept beside it, with its reason, who made it and when, on the import inbox's audit
-chain, and the import reads the file with the changes. The family's record keeps the file's
-checksum, the changes and the result; the signed record lists the changes made to the members,
-the pedigree or a sex at intake.
+CoGA is a revision kept beside it (`import_delivery_revisions`, append-only), with its reason, who
+made it and when, and on the import inbox's audit chain, and the import reads the package with
+the changes ([data-import.md](data-import.md#correcting-a-delivery)). What CoGA proposed for a
+minimal file is written into the package first, and is corrected the same way. The family's
+record keeps the file's checksum, the revision, the SHA-256 of the package imported and every
+change; the signed record is to list the changes made to the members, the pedigree or a sex at
+intake.
 
 | Kind of field | Fields | In Deliveries |
 | --- | --- | --- |

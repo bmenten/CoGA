@@ -54,6 +54,7 @@ _APPEND_ONLY = (
     "ancestry_sample_choices",
     "ancestry_files",
     "ancestry_file_scans",
+    "import_delivery_revisions",
 )
 
 # A syntactically-valid UPDATE per table (a real column); the privilege check fires before
@@ -72,6 +73,7 @@ _UPDATE_SQL = {
     "ancestry_sample_choices": "UPDATE ancestry_sample_choices SET mode = mode",
     "ancestry_files": "UPDATE ancestry_files SET label = label",
     "ancestry_file_scans": "UPDATE ancestry_file_scans SET error = error",
+    "import_delivery_revisions": "UPDATE import_delivery_revisions SET reason = reason",
 }
 
 # coga_app's privileges on one table, read from the catalogue without running a mutation

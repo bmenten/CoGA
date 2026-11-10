@@ -40,6 +40,7 @@ const delivery = (name: string, overrides: Record<string, unknown> = {}) => ({
   issues: [],
   warnings: [],
   manifest_sha256: null,
+  revision: 0,
   job_id: null,
   job_status: null,
   job_dry_run: null,
@@ -186,6 +187,7 @@ describe('ImportDeliveriesPanel', () => {
       expect(api.post).toHaveBeenCalledWith(
         '/family-imports/deliveries/id-FAM1/approve',
         {
+          revision: 0,
           dry_run: false,
           conflict_mode: 'cancel',
           acknowledge_warnings: true,
@@ -213,6 +215,7 @@ describe('ImportDeliveriesPanel', () => {
       expect(api.post).toHaveBeenCalledWith(
         '/family-imports/deliveries/id-FAM2/approve',
         {
+          revision: 0,
           dry_run: true,
           conflict_mode: 'cancel',
           acknowledge_warnings: false,
@@ -249,6 +252,7 @@ describe('ImportDeliveriesPanel', () => {
       expect(api.post).toHaveBeenCalledWith(
         '/family-imports/deliveries/id-FAMX/approve',
         {
+          revision: 0,
           dry_run: false,
           conflict_mode: 'update',
           acknowledge_warnings: false,
