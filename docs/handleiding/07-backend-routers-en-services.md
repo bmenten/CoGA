@@ -46,7 +46,7 @@ Alle vormen van verzoeken en antwoorden staan in `backend/app/schemas/`, één m
 - ze **leggen de vorm van het antwoord vast** (`response_model=`), zodat onbedoelde velden wegvallen;
 - ze leveren de **OpenAPI-beschrijving** van de API.
 
-Elke route die JSON antwoordt, noemt haar model, nooit een losse `dict`. De frontend leest het antwoord via het type dat daaruit gegenereerd wordt (`frontend/src/lib/apiSchema.generated.ts`), en `test_api_response_models.py` faalt op een route zonder model (ENG-4). Alleen de BED-leesroutes geven de JSON terug die hun service bouwt. Hun model beschrijft die zonder de tot een miljoen rijen opnieuw te valideren; tests vergelijken elk tracktype met het model. Buiten ontwikkeling zijn `/docs`, `/redoc` en `/openapi.json` uitgeschakeld. Omdat alle schemas op één plek staan, kan een reviewer daar nagaan welke gegevens het systeem in- en uitgaan.
+Elke route die JSON antwoordt, noemt haar model, nooit een losse `dict`. De frontend leest het antwoord via het type dat daaruit gegenereerd wordt (`frontend/src/lib/apiSchema.generated.ts`), en `test_api_response_models.py` faalt op een route zonder model. Alleen de BED-leesroutes geven de JSON terug die hun service bouwt. Hun model beschrijft die zonder de tot een miljoen rijen opnieuw te valideren; tests vergelijken elk tracktype met het model. Buiten ontwikkeling zijn `/docs`, `/redoc` en `/openapi.json` uitgeschakeld. Omdat alle schemas op één plek staan, kan een reviewer daar nagaan welke gegevens het systeem in- en uitgaan.
 
 ## Veiligheidsregels die overal gelden
 
@@ -63,7 +63,7 @@ Waarden gaan nooit als tekst in een query, altijd als losse parameter.
     - krijgt, als de waarde geen UUID is, hetzelfde antwoord als een UUID zonder record (de 404 van de route, of de 400 die de route voor een ongeldige id geeft), en komt dan nooit in een query;
     - wordt in zijn canonieke vorm gebonden (kleine letters, met koppeltekens), zodat `{…}` of `urn:uuid:…` hetzelfde record vindt.
 
-    Een schrijfactie die naar een record verwijst, zoekt dat record eerst op. Een NIPT-artefact voor een onbestaande assembly of een importjob voor een onbestaand project krijgt een 404 vóór er iets geschreven wordt, en de audittrail van de artefactlijst krijgt er geen event voor. Voordien gaf zo'n verzoek een 500.
+    Een schrijfactie die naar een record verwijst, zoekt dat record eerst op. Een NIPT-artefact voor een onbestaande assembly of een importjob voor een onbestaand project krijgt een 404 vóór er iets geschreven wordt, en de audittrail van de artefactlijst krijgt er geen event voor.
 
 Alleen tabelnamen staan wél in de tekst. Die worden afgeleid van de assemblynaam via één functie die alleen veilige tekens toelaat (hoofdstuk 3).
 
@@ -124,7 +124,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `product.py` | `/product` | De releasecatalogus |
 | `admin.py` | `/admin` | Alle beheerfuncties, elk achter `get_current_admin_user`; de varianttags, het overzicht van de presetfilters en de grenzen voor sequencing-QC achter `get_current_superuser` (hoofdstuk 15) |
 | `ui_events.py` | `/ui-events` | UI-telemetrie (hoofdstuk 15) |
-| `lookups.py` | `/family-statuses`, `/users` | De statuslijst voor de keuzelijst op de familiepagina, en de lijst van actieve accounts (alleen voor beheerders, SEC-33) |
+| `lookups.py` | `/family-statuses`, `/users` | De statuslijst voor de keuzelijst op de familiepagina, en de lijst van actieve accounts (alleen voor beheerders) |
 
 ## De servicegroepen
 
@@ -179,16 +179,16 @@ Twee onderdelen zorgen dat elk HTTP-verzoek gelogd en geaudit wordt.
 
     De enige uitzondering is een auditrij die de databank niet kan opslaan. Die wordt met inhoud gelogd, body en fouttekst inbegrepen, zodat ze te herstellen is (zie hieronder).
 
-- **Wat Postgres niet kan opslaan:** een NUL-teken (een `%00` in het pad of de querystring, `\u0000` in een JSON-body), de helft van een UTF-16-surrogaatpaar en de getallen `NaN` en `Infinity`. Zo'n waarde wordt als zichtbare escape bewaard: een NUL als de vier tekens `\x00`, een half paar als `\udXXX`, een getal als de tekst `"NaN"`, `"Infinity"` of `"-Infinity"`. `request_meta._escaped` noemt de kolommen waarin dat gebeurde (`core/pg_storable.py`). Voorheen liet zo'n waarde de rij mislukken, in de async-modus met de rest van de batch: een gebruiker kon zo een actie uitvoeren zonder rij in `audit_log_events`. De UI-eventlog doet hetzelfde, met `_escaped` in `detail`. De beheerpagina Auditlogs toont beide in de kolom *Flags*, met de kolommen erbij (hoofdstuk 15).
+- **Wat Postgres niet kan opslaan:** een NUL-teken (een `%00` in het pad of de querystring, `\u0000` in een JSON-body), de helft van een UTF-16-surrogaatpaar en de getallen `NaN` en `Infinity`. Zo'n waarde wordt als zichtbare escape bewaard: een NUL als de vier tekens `\x00`, een half paar als `\udXXX`, een getal als de tekst `"NaN"`, `"Infinity"` of `"-Infinity"`. `request_meta._escaped` noemt de kolommen waarin dat gebeurde (`core/pg_storable.py`). De UI-eventlog doet hetzelfde, met `_escaped` in `detail`. De beheerpagina Auditlogs toont beide in de kolom *Flags*, met de kolommen erbij (hoofdstuk 15).
 
 De auditregels lopen via een wachtrij die in productie nooit stil iets laat vallen:
 
 - Bij een volle wachtrij schrijft de backend synchroon.
 - Zonder wachtrij (`AUDIT_LOG_MODE=sync`, of zolang er geen worker draait, zoals tijdens het opstarten en afsluiten) schrijft elk verzoek zijn regel zelf weg.
-- De worker schrijft een batch in één INSERT. Mislukt die ook bij de laatste poging, dan schrijft hij de regels één voor één, elk één keer en zonder te wachten. Een regel die de databank om zichzelf weigert (een constraint, of een waarde die de driver niet kan coderen, zoals een tijdstip vóór het jaar 1 in UTC), kost zo alleen zichzelf. Voorheen nam hij de hele batch mee: tot `AUDIT_LOG_BATCH_SIZE` regels van eender welke gebruiker.
-- Een regel van een gebruiker wiens account verwijderd werd terwijl de regel wachtte (alleen met SQL door een beheerder), viel voorheen weg op de foreign key naar `users`. Bij het schrijven één voor één wordt hij nu zonder die koppeling bewaard: het id van de gebruiker staat in `request_meta._deleted_user_id` (bij een UI-event in `detail._deleted_user_id`), en `user_email` en `user_role` blijven zoals ze waren. De log meldt het met het soort fout, zonder waarden.
-- Elke gebeurtenis krijgt een eigen id (`event_id`) zodra ze gemaakt wordt, vóór ze in de wachtrij gaat. De INSERT doet niets voor een id dat de tabel al heeft (`ON CONFLICT (event_id) DO NOTHING`). Ging het antwoord op een geslaagde commit verloren, dan schrijft de worker de batch opnieuw, en staat elke regel er toch één keer in (voorheen twee keer).
-- Is de databank niet bereikbaar, dan stopt het één voor één schrijven na de eerste regel: de overige worden zonder nieuwe poging gelogd en geteld, zoals vroeger de hele batch.
+- De worker schrijft een batch in één INSERT. Mislukt die ook bij de laatste poging, dan schrijft hij de regels één voor één, elk één keer en zonder te wachten. Een regel die de databank om zichzelf weigert (een constraint, of een waarde die de driver niet kan coderen, zoals een tijdstip vóór het jaar 1 in UTC), kost zo alleen zichzelf, niet de hele batch (tot `AUDIT_LOG_BATCH_SIZE` regels van eender welke gebruiker).
+- Een regel van een gebruiker wiens account verwijderd werd terwijl de regel wachtte (alleen met SQL door een beheerder), wordt bij het schrijven één voor één zonder de koppeling naar `users` bewaard: het id van de gebruiker staat in `request_meta._deleted_user_id` (bij een UI-event in `detail._deleted_user_id`), en `user_email` en `user_role` blijven zoals ze waren. De log meldt het met het soort fout, zonder waarden.
+- Elke gebeurtenis krijgt een eigen id (`event_id`) zodra ze gemaakt wordt, vóór ze in de wachtrij gaat. De INSERT doet niets voor een id dat de tabel al heeft (`ON CONFLICT (event_id) DO NOTHING`). Ging het antwoord op een geslaagde commit verloren, dan schrijft de worker de batch opnieuw, en staat elke regel er toch één keer in.
+- Is de databank niet bereikbaar, dan stopt het één voor één schrijven na de eerste regel: de overige worden zonder nieuwe poging gelogd en geteld.
 - Een regel die echt niet op te slaan is, wordt in elke modus met inhoud gelogd en geteld. De alert op `coga_audit_events_not_persisted_total` gaat af, en de regel is uit de log te herstellen. Van de fout bij het wegschrijven wordt alleen het soort gelogd (type en SQLSTATE), niet haar tekst, die de query en de rij citeert. Het verzoek van de gebruiker faalt er niet door, en een batch UI-events krijgt ook dan 202.
 - Alleen in ontwikkeling mag een volle wachtrij regels laten vallen (`AUDIT_LOG_DROP_ALLOWED`) of mag de auditlog helemaal uit (`AUDIT_LOG_MODE=off`). Daarbuiten weigert de backend met die waarden te starten. De standaard is `async`.
 
@@ -204,7 +204,7 @@ In Starlette (waarop FastAPI draait) is de laatst geregistreerde middleware de b
 4. `security_headers_middleware` — zet de security-headers op elk antwoord (hoofdstuk 2).
 5. `TrustedProxyClientMiddleware` — als laatste geregistreerd, dus de buitenste: bepaalt het echte client-IP (`TRUSTED_PROXY_HOPS`) voordat logging, rate limiting en audit het lezen.
 
-Buiten die keten staat nog Starlettes `ServerErrorMiddleware`. Die beantwoordt een fout die niets anders afhandelt met een `500`, via de handler `_answer_server_error` uit `main.py`: dezelfde tekst als Starlettes eigen antwoord, maar met dezelfde security-headers, HSTS inbegrepen (SEC-23). Daarna gooit hij de fout opnieuw op, zodat uvicorn ze nog logt; de request-logging heeft het verzoek dan al gelogd en in de audit gezet.
+Buiten die keten staat nog Starlettes `ServerErrorMiddleware`. Die beantwoordt een fout die niets anders afhandelt met een `500`, via de handler `_answer_server_error` uit `main.py`: dezelfde tekst als Starlettes eigen antwoord, maar met dezelfde security-headers, HSTS inbegrepen. Daarna gooit hij de fout opnieuw op, zodat uvicorn ze nog logt; de request-logging heeft het verzoek dan al gelogd en in de audit gezet.
 
 **Waar in de code:** het einde van `backend/app/main.py`; `backend/app/middleware/`.
 
