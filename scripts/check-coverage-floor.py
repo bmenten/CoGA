@@ -54,6 +54,8 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/cnv_acmg_points.py": 97.0,  # (100.0, 2026-11-03)
     # (100.0 measured locally when it was added: the package file coga-package.json)
     "backend/app/services/coga_package.py": 97.0,
+    # (100.0 measured locally when it was added: the manifest the import reads for a package file)
+    "backend/app/services/coga_package_manifest.py": 97.0,
     "backend/app/services/compound_het_phase.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured when added for TRACE-9)
     "backend/app/services/coverage_read_depth.py": 97.0,  # (100.0, measured when added for CLIN-46)
@@ -71,8 +73,6 @@ MODULE_FLOORS: dict[str, float] = {
     # (90.1 measured locally when it was added: approving and refusing a delivery; the e2e tests
     # run the job sync)
     "backend/app/services/import_delivery_review.py": 87.0,
-    # (99.0 measured locally when it was added: the ready marker a pipeline writes last)
-    "backend/app/services/import_ready_marker.py": 96.0,
     # (100.0 measured locally when it was added: the families imported from each listed folder)
     "backend/app/services/imported_package_folders.py": 97.0,
     "backend/app/services/integrity_anchor_service.py": 97.0,  # (100.0, 2026-11-03; also floored combined)

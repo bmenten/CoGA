@@ -622,7 +622,7 @@ class Settings(BaseSettings):
     # import-worker processes, as docker-compose.yml does; such a process refuses 0.
     family_import_worker_count: int = Field(default=1, ge=0, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
     # The import folders the import watcher looks into, every FAMILY_IMPORT_WATCH_INTERVAL_SECONDS,
-    # for packages a pipeline delivered with a ready marker (coga-ready.json): local folders under
+    # for packages a pipeline delivered with their package file (coga-package.json): local folders under
     # FAMILY_IMPORT_ROOTS, comma-separated or a JSON list. Empty, the default: no watcher.
     family_import_watch_roots: Annotated[list[str], NoDecode] = Field(
         default_factory=list, alias="FAMILY_IMPORT_WATCH_ROOTS"

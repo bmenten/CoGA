@@ -12,19 +12,18 @@ CoGA reads the file with. Its JSON Schema is
 [schemas/coga-package-1.schema.json](schemas/coga-package-1.schema.json), and
 [schemas/examples/](schemas/examples/) holds a synthetic example of each kind of package.
 
-**Where this stands (2026-11-10).** The format is defined; CoGA does not read it yet. Until it
-does, the watched import folders read `coga-ready.json` and a manifest
-([data-import.md](data-import.md#watched-import-folders)). The owner approved the plan on
-2026-11-10, in phases:
+**Where this stands (2026-11-10).** The watched import folders read `coga-package.json`; a
+`coga-ready.json` is no longer read ([data-import.md](data-import.md#watched-import-folders)). The
+owner approved the plan on 2026-11-10, in phases:
 
-1. CoGA reads `coga-package.json` in the watched folders, in place of `coga-ready.json` and a
-   folder manifest. What a minimal file leaves out, CoGA proposes from the folder, as Discover
-   does now.
+1. Done: CoGA reads `coga-package.json` in the watched folders, in place of `coga-ready.json` and
+   a folder manifest. What a minimal file leaves out, CoGA proposes from the folder, as Discover
+   does.
 2. A delivery can be completed and corrected in **Deliveries** before it is approved, within
    the limits below, each change with its reason on the record.
 3. Adding a family by hand makes the same file: CoGA drafts it from the folder, a PED if there
    is one, and what the person adds. Such a delivery goes through Deliveries like a pipeline's.
-4. The PED, the manifest and `coga-ready.json` are no longer read by the import.
+4. The PED and the manifest are no longer read by the import of a typed folder either.
 
 ## Writing the file
 
@@ -37,12 +36,14 @@ does, the watched import folders read `coga-ready.json` and a manifest
   `"status": "complete"`. The file may be there before that:
   - `running`: the run is under way. Write it when the run starts. It is optional, but a run
     into a folder delivered before then tells CoGA at once that the folder is changing: a
-    delivery of that folder that no one has decided on yet is withdrawn.
+    delivery of that folder that no one has decided on yet is superseded, and no delivery is
+    made until the file says `complete`.
   - `complete`: the last step of the run, once every output file is in place in the folder, with
     `files` listing them. In Nextflow, write it from `workflow.onComplete` or after the step that
     copies the outputs, not from a process whose outputs `publishDir` still copies in the
     background.
-  - `failed`: the run stopped. CoGA offers nothing.
+  - `failed`: the run stopped. CoGA offers nothing, and supersedes an undecided delivery of the
+    folder as for `running`.
 - **Copy the outputs, do not link them** (`publishDir mode: 'copy'`): CoGA reads no file through
   a link.
 - **Check the file before writing it**, against the JSON Schema: with
@@ -128,10 +129,11 @@ then refused until those datasets are left out of the import or the pipeline run
 ### A minimal file and a full one
 
 A pipeline can start with a **minimal** file: the fields every file holds, and what a complete
-one needs (where the package belongs and its files). That is what `coga-ready.json` asks now
+one needs (where the package belongs and its files). That is what `coga-ready.json` asked
 ([schemas/examples/minimum.json](schemas/examples/minimum.json)). CoGA then proposes the members
-(from the pipeline's PED, if the folder has one) and the datasets (from the folder's layout), and
-a person checks them before the import. A **full** file adds `members`, `couples`, `datasets` and
+(from the pipeline's PED, if the folder has one) and the datasets (from the folder's layout), for
+the family the file names, and the delivery warns that it did (`package_members_proposed`,
+`package_datasets_proposed`): a person checks them before approving. A **full** file adds `members`, `couples`, `datasets` and
 `pipeline_used_pedigree`: nothing is proposed, and the pipeline says what it did. Each pipeline
 moves from minimal to full at its own pace.
 
@@ -151,9 +153,12 @@ Reading the file ([coga_package.py](../backend/app/services/coga_package.py)):
   of the parent's sex where it is known;
 - every dataset in `pipeline_used_pedigree` is one of the file's datasets.
 
-Against the folder and CoGA, when CoGA reads the file (phase 1), as the watcher checks
-`coga-ready.json` now: every listed file is there with its size and checksum, the project and its
-assembly, the family and samples CoGA already holds, and the package's validation.
+Against the folder and CoGA, when the import watcher reads the file
+([data-import.md](data-import.md#watched-import-folders)): every listed file is there with its
+size and checksum, the pipeline's QC, the project and its assembly, a PED in the folder against
+the members (a warning when it says otherwise: the pipeline's tools may have read it), the
+package's validation with the manifest made from the file, every file the import reads listed,
+and the family and samples CoGA already holds.
 
 ## What can be changed in CoGA (phase 2)
 

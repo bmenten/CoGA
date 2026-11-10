@@ -1,14 +1,16 @@
 """The import watcher's parts that need no database: what it watches, what it reads, its loop.
 
 The watcher looks into the folders of FAMILY_IMPORT_WATCH_ROOTS that lie under FAMILY_IMPORT_ROOTS
-(never a bucket), at each package folder there that holds a ready marker. It compares the
-marker's samples with the package's members and the files the import reads with the ones the
-marker lists; a check that fails is recorded with a fixed sentence, never the error; a folder that
-changed while it was checked is left to the next round. A round skips a watched folder only when it
-cannot be read, or lists nothing while it has open deliveries (a share not mounted); one that lists
-folders without a marker is mounted, and its missing deliveries count. An open delivery seen again is checked
-again only when what CoGA holds has changed in what its check read (the project its marker names,
-the family and samples of its package), never after a check that could not read them. Its loop
+(never a bucket), at each package folder there that holds a package file, coga-package.json. A
+file that says its run is under way, or failed, is no delivery, and supersedes the open ones of its
+folder. The watcher compares the files the import reads with the ones the package file lists, and
+warns when the folder's PED says otherwise than the file's members; a check that fails is recorded
+with a fixed sentence, never the error; a folder that changed while it was checked is left to the
+next round. A round skips a watched folder only when it cannot be read, or lists nothing while it
+has open deliveries (a share not mounted); one that lists folders without a package file is
+mounted, and its missing deliveries count. An open delivery seen again is checked again only when
+what CoGA holds has changed in what its check read (the project its package file names, the
+family and samples of its package), never after a check that could not read them. Its loop
 runs only while it holds the
 leadership, logs a failed round without values, and returns at once when nothing is watched. The
 rounds against a real database are in e2e/test_e2e_import_watcher.py.
@@ -19,6 +21,8 @@ All samples and values here are synthetic.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,16 +33,16 @@ import pytest
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageValidationOut
 from backend.app.services import import_watcher as watcher
-from backend.app.services.import_ready_marker import MARKER_FILE_NAME, ReadyMarker
+from backend.app.services.coga_package import PACKAGE_FILE_NAME, CogaPackage
 
 
-def _package(root: Path, name: str, *, marker: bool = True) -> Path:
+def _package(root: Path, name: str, *, package_file: bool = True) -> Path:
     folder = root / name
     (folder / "snv").mkdir(parents=True)
     (folder / "family.ped").write_text(f"{name}\tPROBAND\t0\t0\t1\t2\n", encoding="utf-8")
     (folder / "snv" / "family.vcf").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
-    if marker:
-        (folder / MARKER_FILE_NAME).write_text("{}", encoding="utf-8")
+    if package_file:
+        (folder / PACKAGE_FILE_NAME).write_text("{}", encoding="utf-8")
     return folder
 
 
@@ -72,7 +76,7 @@ def test_with_no_import_roots_in_development_any_local_folder_is_watched(tmp_pat
 def test_the_marked_package_folders_of_a_watched_folder_are_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
     marked = _package(tmp_path, "FAM2")
-    _package(tmp_path, "FAM1", marker=False)
+    _package(tmp_path, "FAM1", package_file=False)
     _package(tmp_path, ".hidden")
     (tmp_path / "loose.txt").write_text("a file, no folder", encoding="utf-8")
     (tmp_path / "LINK").symlink_to(marked, target_is_directory=True)
@@ -89,7 +93,7 @@ def test_a_watched_folder_with_only_hidden_entries_is_empty_and_one_with_unmarke
     hidden_only.mkdir()
     (hidden_only / ".DS_Store").write_text("x", encoding="utf-8")
     _package(hidden_only, ".hidden")
-    _package(unmarked, "FAM1", marker=False)
+    _package(unmarked, "FAM1", package_file=False)
 
     # A share that is not mounted reads as an empty folder; one that lists a folder is mounted.
     assert watcher.marked_folders(hidden_only) == watcher.WatchedFolderListing(folders=[], empty=True)
@@ -114,34 +118,62 @@ def test_a_watched_folder_whose_listing_fails_gives_none(tmp_path: Path, monkeyp
 # --- samples and files -----------------------------------------------------------------------
 
 
-def test_the_markers_samples_must_be_members_of_the_sex_the_ped_gives() -> None:
-    marker = ReadyMarker.model_validate(
+def _members_package(*members: dict[str, Any]) -> CogaPackage:
+    return CogaPackage.model_validate(
         {
-            "schema": "coga-ready/1",
-            "samples": [
-                {"sample_id": "PROBAND", "sex": "male"},
-                {"sample_id": "MOTHER", "sex": "female"},
-                {"sample_id": "FATHER1", "sex": "unknown"},
-                {"sample_id": "EMB1"},
-            ],
+            "schema": "coga-package/1",
+            "status": "complete",
+            "written_at": "2026-11-10T09:00:00Z",
+            "pipeline": {"name": "p", "version": "1", "run_id": "RUN1"},
+            "family": {"family_id": "FAM1"},
+            "members": list(members),
         }
     )
 
-    issues, warnings = watcher._sample_issues(
-        marker, {"PROBAND": "female", "MOTHER": "female", "FATHER1": "male", "FETUS": "unknown"}
+
+def test_a_folder_ped_that_says_otherwise_than_the_members_is_a_warning(tmp_path: Path) -> None:
+    folder = tmp_path / "FAM1"
+    folder.mkdir()
+    (folder / "FAM1.ped").write_text(
+        "FAM1\tPROBAND\tFATHER1\tMOTHER\t1\t2\nFAM1\tFATHER1\t0\t0\t1\t1\nFAM1\tMOTHER\t0\t0\t2\t1\n"
+        "FAM1\tSIB1\tFATHER1\tMOTHER\t0\t1\n",
+        encoding="utf-8",
     )
+    agreeing = _members_package(
+        {"sample_id": "PROBAND", "sex": "male", "father": "FATHER1", "mother": "MOTHER"},
+        {"sample_id": "FATHER1", "sex": "male"},
+        {"sample_id": "MOTHER", "sex": "unknown"},
+        # Unknown sex in the PED, and a member the PED lacks (an index): no difference.
+        {"sample_id": "SIB1", "sex": "female", "father": "FATHER1", "mother": "MOTHER"},
+        {"sample_id": "INDEX1", "sex": "female"},
+    )
+    assert watcher._folder_ped_differences(folder, agreeing) is None
 
-    assert [(issue.code, issue.message) for issue in issues] == [
-        ("marker_sample_sex_differs", "coga-ready.json gives sample 'PROBAND' another sex than the PED."),
-        ("marker_sample_not_in_package", "coga-ready.json names sample 'EMB1', which the package does not hold."),
-    ]
-    assert [issue.message for issue in warnings] == ["coga-ready.json does not name the package's member(s) FETUS."]
+    differing = _members_package(
+        {"sample_id": "PROBAND", "sex": "female", "father": "FATHER1", "mother": "MOTHER"},
+        {"sample_id": "FATHER1", "sex": "male"},
+        {"sample_id": "MOTHER", "sex": "female", "father": "FATHER1"},
+    )
+    warning = watcher._folder_ped_differences(folder, differing)
+
+    assert warning is not None and warning.code == "package_ped_differs"
+    assert "(FAM1.ped)" in warning.message
+    assert "of MOTHER, PROBAND, SIB1:" in warning.message
 
 
-def test_a_marker_without_samples_is_not_compared() -> None:
-    marker = ReadyMarker.model_validate({"schema": "coga-ready/1"})
+def test_without_members_or_a_readable_ped_nothing_is_compared(tmp_path: Path) -> None:
+    folder = tmp_path / "FAM1"
+    folder.mkdir()
+    package = _members_package({"sample_id": "PROBAND", "sex": "male"})
+    assert watcher._folder_ped_differences(folder, package) is None
 
-    assert watcher._sample_issues(marker, {"PROBAND": "male"}) == ([], [])
+    (folder / "FAM1.ped").write_bytes(b"\xff\xfe not text")
+    assert watcher._folder_ped_differences(folder, package) is None
+    (folder / "FAM1.ped").write_text("FAM1\tPROBAND\n", encoding="utf-8")
+    assert watcher._folder_ped_differences(folder, package) is None
+
+    no_members = package.model_copy(update={"members": None})
+    assert watcher._folder_ped_differences(folder, no_members) is None
 
 
 def test_the_files_the_import_reads_are_the_ped_and_each_enabled_datasets(tmp_path: Path) -> None:
@@ -191,22 +223,88 @@ def _factory(store: list[str]) -> Any:
 
 
 @pytest.mark.asyncio
-async def test_a_marker_that_cannot_be_read_needs_attention(tmp_path: Path) -> None:
+async def test_a_package_file_that_cannot_be_read_needs_attention(tmp_path: Path) -> None:
     folder = _package(tmp_path, "FAM1")
-    (folder / MARKER_FILE_NAME).write_text("{not json", encoding="utf-8")
+    (folder / PACKAGE_FILE_NAME).write_text("{not json", encoding="utf-8")
 
     assessment = await watcher.assess_delivery(_factory([]), folder)
 
-    assert (assessment.state, [issue.code for issue in assessment.issues]) == ("needs_attention", ["marker_not_json"])
+    assert (assessment.state, [issue.code for issue in assessment.issues]) == ("needs_attention", ["package_not_json"])
+
+
+def _complete_file(folder: Path, **fields: Any) -> None:
+    """A complete package file for ``folder`` that lists its files as they are now."""
+    files = [
+        {"path": path.relative_to(folder).as_posix(), "size": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+        for path in sorted(folder.rglob("*"))
+        if path.is_file() and path.name != PACKAGE_FILE_NAME
+    ]
+    body: dict[str, Any] = {
+        "schema": "coga-package/1",
+        "status": "complete",
+        "written_at": "2026-11-10T09:00:00Z",
+        "pipeline": {"name": "p", "version": "1", "run_id": "RUN1"},
+        "project": "WGS",
+        "assembly": "GRCh38",
+        "analysis_type": "wgs",
+        "family": {"family_id": folder.name},
+        "files": files,
+        **fields,
+    }
+    (folder / PACKAGE_FILE_NAME).write_text(json.dumps(body), encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_a_package_whose_copy_runs_still_is_incomplete(tmp_path: Path) -> None:
+    folder = _package(tmp_path, "FAM1")
+    _complete_file(folder)
+    body = json.loads((folder / PACKAGE_FILE_NAME).read_text())
+    body["files"].append({"path": "snv/family.vcf.tbi", "size": 10, "sha256": "0" * 64})
+    (folder / PACKAGE_FILE_NAME).write_text(json.dumps(body), encoding="utf-8")
+
+    assessment = await watcher.assess_delivery(_factory([]), folder)
+
+    assert (assessment.state, [(issue.code, issue.path) for issue in assessment.issues]) == (
+        "incomplete",
+        [("file_missing", "snv/family.vcf.tbi")],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("qc", "issue", "warning"), [("fail", "package_qc_failed", None), ("warn", None, "package_qc_warned")])
+async def test_the_pipelines_qc_and_the_files_it_does_not_list_are_told(
+    tmp_path: Path, qc: str, issue: str | None, warning: str | None
+) -> None:
+    folder = _package(tmp_path, "FAM1")
+    _complete_file(folder, qc={"status": qc}, family=None)
+    for number in range(7):
+        (folder / f"later{number}.txt").write_text("x", encoding="utf-8")
+
+    assessment = await watcher.assess_delivery(_factory([]), folder)
+
+    # A complete file without its family: nothing is read after the project (which the fake
+    # session does not hold).
+    assert [item.code for item in assessment.issues] == [
+        "package_field_missing",
+        *([issue] if issue else []),
+        "package_project_unknown",
+    ]
+    assert [item.code for item in assessment.warnings] == ["file_not_in_package", *([warning] if warning else [])]
+    assert assessment.warnings[0].message == (
+        "The folder holds 7 file(s) coga-package.json does not list: "
+        "later0.txt, later1.txt, later2.txt, later3.txt, later4.txt, and 2 more."
+    )
+    assert (assessment.state, assessment.manifest_text, assessment.family_id) == ("needs_attention", None, None)
 
 
 @pytest.mark.asyncio
 async def test_a_folder_discover_cannot_draft_for_needs_attention(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "family_import_roots", [])
     folder = _package(tmp_path, "FAM1")
-    (folder / MARKER_FILE_NAME).write_text(
-        '{"schema": "coga-ready/1", "written_at": "x", "family_id": "FAM1", "analysis_type": "wgs", "assembly": "GRCh38",'
-        ' "pipeline": {"name": "p", "version": "1"}, "run": {"id": "r"}, "files": []}',
+    (folder / PACKAGE_FILE_NAME).write_text(
+        '{"schema": "coga-package/1", "status": "complete", "written_at": "2026-11-10T09:00:00Z",'
+        ' "family": {"family_id": "FAM1"}, "analysis_type": "wgs", "assembly": "GRCh38",'
+        ' "pipeline": {"name": "p", "version": "1", "run_id": "r"}, "files": []}',
         encoding="utf-8",
     )
 
@@ -218,13 +316,15 @@ async def test_a_folder_discover_cannot_draft_for_needs_attention(tmp_path: Path
     assessment = await watcher.assess_delivery(_factory([]), folder)
 
     assert assessment.state == "needs_attention"
-    # The marker gives no project and no files; Discover found no PED.
+    # The package file gives no project and no files, nor its members and datasets; Discover
+    # found no PED to propose them from.
     assert [issue.code for issue in assessment.issues] == [
-        "marker_field_missing",
-        "marker_field_missing",
+        "package_field_missing",
+        "package_field_missing",
         "discover_failed",
         "ped_missing",
     ]
+    assert (assessment.run_id, assessment.family_id) == ("r", "FAM1")
 
 
 @pytest.mark.asyncio
@@ -336,6 +436,82 @@ async def test_a_folder_that_cannot_be_fingerprinted_has_none(tmp_path: Path) ->
     assert await watcher._fingerprint(tmp_path / "missing") is None
 
 
+class _OpenDeliveriesSession(_Session):
+    """Answers the supersede statement with one open delivery of the folder."""
+
+    async def execute(self, statement: Any, _params: Any = None) -> Any:
+        self.store.append(str(statement))
+        rows = [("d1", "f" * 64)] if "SET state = 'superseded'" in str(statement) else []
+        return SimpleNamespace(all=lambda: rows)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["running", "failed"])
+async def test_a_run_under_way_or_failed_is_no_delivery_and_supersedes_the_open_ones(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
+) -> None:
+    folder = _package(tmp_path, "FAM1")
+    (folder / PACKAGE_FILE_NAME).write_text(
+        json.dumps(
+            {
+                "schema": "coga-package/1",
+                "status": status,
+                "written_at": "2026-11-10T09:00:00Z",
+                "pipeline": {"name": "p", "version": "1", "run_id": "RUN2"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    recorded: list[dict[str, Any]] = []
+
+    async def record(_session: Any, **fields: Any) -> None:
+        recorded.append(fields)
+
+    async def no_fingerprint(_folder: Path) -> str:
+        raise AssertionError("a run under way is no delivery: its folder is not fingerprinted")
+
+    monkeypatch.setattr(watcher, "_record", record)
+    monkeypatch.setattr(watcher, "_fingerprint", no_fingerprint)
+    store: list[str] = []
+
+    assert await watcher.look_at_folder(lambda: _OpenDeliveriesSession(store), tmp_path, folder) == ("superseded", "1")
+    assert not any("INSERT INTO import_deliveries" in statement for statement in store)
+    (event,) = recorded
+    assert event["action"] == "import_delivery_superseded" and event["delivery_id"] == "d1"
+    assert (event["after"]["package_status"], event["after"]["run_id"]) == (status, "RUN2")
+    assert event["summary"] == f"Delivery FAM1: superseded, a pipeline run in its folder is {status}"
+
+    # With no open delivery of the folder, nothing is superseded and nothing is reported.
+    assert await watcher.look_at_folder(_factory([]), tmp_path, folder) is None
+
+
+@pytest.mark.asyncio
+async def test_a_round_counts_the_deliveries_superseded_by_a_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.app.services import import_delivery_review
+
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    _package(tmp_path, "FAM1")
+    _package(tmp_path, "FAM2")
+    looks = iter([("superseded", "2"), ("new", "ready")])
+
+    async def no_jobs(_factory: Any) -> int:
+        return 0
+
+    async def look(*_args: Any) -> tuple[str, str]:
+        return next(looks)
+
+    async def mark_missing(*_args: Any) -> int:
+        return 0
+
+    monkeypatch.setattr(import_delivery_review, "sync_delivery_jobs", no_jobs)
+    monkeypatch.setattr(watcher, "look_at_folder", look)
+    monkeypatch.setattr(watcher, "mark_missing", mark_missing)
+
+    done = await watcher.run_watch_round(None, [tmp_path])  # type: ignore[arg-type]
+
+    assert (done.superseded_for_run, done.deliveries, done.checked_again) == (2, {"ready": 1}, {})
+
+
 
 # --- checking an open delivery again ----------------------------------------------------------
 
@@ -345,7 +521,7 @@ def _seen(**fields: Any) -> dict[str, Any]:
     row: dict[str, Any] = {
         "id": "d" * 8,
         "state": "needs_attention",
-        "issues": [{"code": "marker_project_unknown", "message": "", "path": None}],
+        "issues": [{"code": "package_project_unknown", "message": "", "path": None}],
         "project_id": None,
         "marker": {"project": "LATER", "assembly": "GRCh38"},
         "validation": {"family_id": "FAM1", "sample_ids": ["PROBAND"]},
@@ -355,7 +531,7 @@ def _seen(**fields: Any) -> dict[str, Any]:
 
 
 def _coga(monkeypatch: pytest.MonkeyPatch, *, project: tuple[str, str | None] | None, existing: tuple[str, ...] = ()) -> None:
-    """What CoGA holds now: the project the marker names, and the codes of a family or samples
+    """What CoGA holds now: the project the package file names, and the codes of a family or samples
     that exist."""
 
     async def find_project(_session: Any, _name: str) -> tuple[str, str | None] | None:
@@ -410,8 +586,8 @@ async def test_a_family_imported_or_deleted_since_the_check_is_a_change(monkeypa
 @pytest.mark.asyncio
 async def test_what_a_check_did_not_read_is_never_a_change(monkeypatch: pytest.MonkeyPatch) -> None:
     _coga(monkeypatch, project=("p1", "GRCh38"), existing=("existing_family",))
-    # A marker that could not be read: the check read neither the project nor the family.
-    unread = _seen(issues=[{"code": "marker_invalid"}], validation=None)
+    # A package file that could not be read: the check read neither the project nor the family.
+    unread = _seen(issues=[{"code": "package_field_invalid"}], validation=None)
     assert await watcher._coga_side_changed(_Session([]), unread) is False
     # A check that failed, or could not be stored: nothing it read is kept.
     failed = _seen(issues=[{"code": "watch_check_failed"}], marker=None, validation=None)
@@ -448,7 +624,7 @@ async def test_an_open_delivery_seen_again_is_checked_again_only_when_coga_chang
     async def coga_side_changed(_session: Any, _row: Any) -> bool:
         return changed["value"]
 
-    async def assess(_factory: Any, checked: Path) -> Any:
+    async def assess(_factory: Any, checked: Path, _read: Any = None) -> Any:
         assessed.append(checked)
         return watcher.DeliveryAssessment(state="ready", project_id="p1")
 
@@ -555,9 +731,9 @@ async def test_a_round_skips_only_a_watched_folder_that_lists_nothing_while_deli
     from backend.app.services import import_delivery_review
 
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
-    # Its delivery's folder was moved away; the folder still lists a folder without a marker.
+    # Its delivery's folder was moved away; the folder still lists a folder without a package file.
     mounted = tmp_path / "mounted"
-    _package(mounted, "FAM1", marker=False)
+    _package(mounted, "FAM1", package_file=False)
     unmounted = tmp_path / "unmounted"
     unmounted.mkdir()
     counted: list[tuple[Path, set[str]]] = []

@@ -1,24 +1,28 @@
 """The import watcher finds, checks and records the packages pipelines deliver (E2E, real Postgres).
 
-A pipeline writes a package folder into a watched import folder and, last, its ready marker
-``coga-ready.json``. The watcher (``import_watcher.run_watch_round``) makes each marked folder a
-delivery per package fingerprint, checks a new one once (marker, sizes, checksums, project,
-manifest, validation, samples) and records its state in ``import_deliveries``, each change an
-event on the clinical audit chain ``system:import-inbox``.
+A pipeline writes a package folder into a watched import folder with its package file
+``coga-package.json``, whose ``status`` is ``complete`` once the package is. The watcher
+(``import_watcher.run_watch_round``) makes each folder with a complete package file a delivery per
+package fingerprint, checks a new one once (the file, sizes, checksums, project, the manifest made
+from the file, validation) and records its state in ``import_deliveries``, each change an event on
+the clinical audit chain ``system:import-inbox``. A package file that says its run is under way
+is no delivery, and supersedes the open delivery of its folder.
 
 In a watched folder of synthetic packages, as rounds go:
 
-- round 1: a complete package of the e2e project is ``ready``; one whose PED differs from its
-  checksum, and one of a project CoGA lacks, ``needs_attention``; one whose marker lists a file not
-  copied yet ``incomplete``; one without a manifest is drafted one by Discover, which the delivery
-  keeps; a folder without a marker is no delivery;
+- round 1: a full package of the e2e project (its members and datasets in the package file) is
+  ``ready``, its manifest the file's; one whose PED differs from its checksum, and one of a
+  project CoGA lacks, ``needs_attention``; one whose package file lists a file not copied yet
+  ``incomplete``; a minimal one (no members, no datasets) has them proposed by Discover, which the
+  delivery keeps; a folder without a package file is no delivery;
 - round 2, nothing changed: no new delivery, each seen again;
-- the ready package changes (a file added, its marker rewritten): a new delivery, the one before
-  ``superseded``;
+- the ready package changes (a file added, its package file rewritten): a new delivery, the one
+  before ``superseded``; another's pipeline runs again in its folder (``status: running``): its
+  open delivery is superseded, and no delivery is made until the file says ``complete`` again;
 - the copying package's folder goes: after two rounds its delivery is ``gone``;
 - a watched folder that is empty while it had an open delivery is skipped, its delivery kept open;
-  once it lists a folder without a marker it is mounted: watched, and the delivery is ``gone``
-  after two rounds;
+  once it lists a folder without a package file it is mounted: watched, and the delivery is
+  ``gone`` after two rounds;
 - what CoGA holds changes: the project CoGA lacked is added, and the delivery that named it is
   checked again, now ``ready``; the family of a ready delivery is imported (it needs attention),
   then deleted (ready again); a round after that, with nothing changed, checks nothing again;
@@ -46,31 +50,51 @@ from backend.tests.e2e._import_jobs import one_sample_package
 pytestmark = pytest.mark.integration
 
 
-def write_marker(folder: Path, *, project: str, family_id: str, extra_files: tuple[dict[str, Any], ...] = (), **fields: Any) -> None:
-    """The ready marker of ``folder``, listing every file in it as it is now."""
+def write_package(
+    folder: Path,
+    *,
+    project: str,
+    family_id: str,
+    full: bool = True,
+    status: str = "complete",
+    extra_files: tuple[dict[str, Any], ...] = (),
+    **fields: Any,
+) -> None:
+    """The package file of ``folder``, listing every file in it as it is now. A ``full`` one names
+    the member and the dataset; a minimal one leaves them to Discover. Written under a temporary
+    name and renamed, as a pipeline writes it."""
     files = []
     for path in sorted(folder.rglob("*")):
-        if path.is_file() and path.name != "coga-ready.json":
+        if path.is_file() and path.name != "coga-package.json":
             content = path.read_bytes()
             files.append(
                 {"path": path.relative_to(folder).as_posix(), "size": len(content), "sha256": hashlib.sha256(content).hexdigest()}
             )
-    body = {
-        "schema": "coga-ready/1",
-        "written_at": "2026-11-05T14:02:11Z",
+    body: dict[str, Any] = {
+        "schema": "coga-package/1",
+        "status": status,
+        "written_at": "2026-11-10T14:02:11Z",
+        "pipeline": {"name": "nf-core/example", "version": "1.0.0", "run_id": f"run-{uuid4().hex[:8]}"},
         "project": project,
-        "family_id": family_id,
-        "analysis_type": "wgs",
         "assembly": "GRCh38",
-        "pipeline": {"name": "nf-core/example", "version": "1.0.0"},
-        "run": {"id": f"run-{uuid4().hex[:8]}"},
-        "samples": [{"sample_id": f"{family_id}_S1", "role": "proband", "sex": "male"}],
+        "analysis_type": "wgs",
+        "family": {"family_id": family_id},
         "files": [*files, *extra_files],
         **fields,
     }
-    tmp = folder / ".coga-ready.json.tmp"
+    if full:
+        body["members"] = [{"sample_id": f"{family_id}_S1", "sex": "male", "role": "proband", "clinical_status": "affected"}]
+        body["datasets"] = {"snv": {"family_vcf": "snv/family.vcf"}}
+    tmp = folder / ".coga-package.json.tmp"
     tmp.write_text(json.dumps(body), encoding="utf-8")
-    tmp.replace(folder / "coga-ready.json")
+    tmp.replace(folder / "coga-package.json")
+
+
+def package_folder(root: Path, name: str) -> Path:
+    """A one-sample package without a manifest of its own: the package file describes it."""
+    folder = one_sample_package(root / name, name, variants=2, datasets=("snv",))
+    (folder / "manifest.yaml").unlink()
+    return folder
 
 
 async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
@@ -89,23 +113,24 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
             await session.execute(text("SELECT name FROM projects WHERE id = CAST(:p AS uuid)"), {"p": project_id})
         ).scalar_one()
 
-    names = {key: f"E2E_WATCH_{key}_{run}" for key in ("READY", "CORRUPT", "COPYING", "NOMARKER", "NOPROJECT", "NOMANIFEST")}
-    folders = {key: one_sample_package(base / name, name, variants=2, datasets=("snv",)) for key, name in names.items()}
-    write_marker(folders["READY"], project=project, family_id=names["READY"])
-    write_marker(folders["CORRUPT"], project=project, family_id=names["CORRUPT"])
-    # Its PED changed after the marker was written: affected became unaffected.
+    keys = ("READY", "CORRUPT", "COPYING", "NOPACKAGE", "NOPROJECT", "MINIMAL", "RERUN")
+    names = {key: f"E2E_WATCH_{key}_{run}" for key in keys}
+    folders = {key: package_folder(base, name) for key, name in names.items()}
+    write_package(folders["READY"], project=project, family_id=names["READY"])
+    write_package(folders["CORRUPT"], project=project, family_id=names["CORRUPT"])
+    # Its PED changed after the package file was written: affected became unaffected.
     ped = folders["CORRUPT"] / "family.ped"
     ped.write_text(ped.read_text().replace("\t1\t2\n", "\t1\t1\n"), encoding="utf-8")
-    write_marker(
+    write_package(
         folders["COPYING"],
         project=project,
         family_id=names["COPYING"],
         extra_files=({"path": "snv/family.vcf.tbi", "size": 10, "sha256": "0" * 64},),
     )
     later_project = f"E2E_WATCH_LATER_PROJECT_{run}"
-    write_marker(folders["NOPROJECT"], project=later_project, family_id=names["NOPROJECT"])
-    (folders["NOMANIFEST"] / "manifest.yaml").unlink()
-    write_marker(folders["NOMANIFEST"], project=project, family_id=names["NOMANIFEST"])
+    write_package(folders["NOPROJECT"], project=later_project, family_id=names["NOPROJECT"])
+    write_package(folders["MINIMAL"], project=project, family_id=names["MINIMAL"], full=False)
+    write_package(folders["RERUN"], project=project, family_id=names["RERUN"])
 
     async def deliveries() -> list[dict[str, Any]]:
         async with sessionmaker() as session:
@@ -113,7 +138,8 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
                 await session.execute(
                     text(
                         "SELECT id::text AS id, folder_name, state, issues, warnings, package_fingerprint, "
-                        "manifest_text IS NOT NULL AS kept_manifest, missing_rounds, last_seen_at, project_id::text AS project_id "
+                        "manifest_text IS NOT NULL AS kept_manifest, manifest_text, missing_rounds, last_seen_at, "
+                        "project_id::text AS project_id "
                         "FROM import_deliveries WHERE folder_name LIKE :run ORDER BY first_seen_at, folder_name"
                     ),
                     {"run": f"%{run}"},
@@ -130,20 +156,25 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
     out["after2"] = await deliveries()
 
     (folders["READY"] / "notes.txt").write_text("a later output\n", encoding="utf-8")
-    write_marker(folders["READY"], project=project, family_id=names["READY"])
+    write_package(folders["READY"], project=project, family_id=names["READY"])
+    # The pipeline runs again into RERUN's folder: its package file says so first.
+    write_package(folders["RERUN"], project=project, family_id=names["RERUN"], status="running")
     out["round3"] = await import_watcher.run_watch_round(sessionmaker, roots)
     out["after3"] = await deliveries()
 
     shutil.rmtree(folders["COPYING"])
-    await import_watcher.run_watch_round(sessionmaker, roots)
+    out["round4"] = await import_watcher.run_watch_round(sessionmaker, roots)
     out["after4"] = await deliveries()
+    # The run has finished: its package file says complete again.
+    (folders["RERUN"] / "notes.txt").write_text("the second run's output\n", encoding="utf-8")
+    write_package(folders["RERUN"], project=project, family_id=names["RERUN"])
     out["round5"] = await import_watcher.run_watch_round(sessionmaker, roots)
     out["after5"] = await deliveries()
 
     # A second watched folder whose one delivery's folder is moved away: empty, it is skipped.
     lone = f"E2E_WATCH_LONE_{run}"
-    lone_folder = one_sample_package(second / lone, lone, variants=2, datasets=("snv",))
-    write_marker(lone_folder, project=project, family_id=lone)
+    lone_folder = package_folder(second, lone)
+    write_package(lone_folder, project=project, family_id=lone)
     await import_watcher.run_watch_round(sessionmaker, [second.resolve()])
     # Out of both watched folders, so no later round of either finds it.
     shutil.move(str(lone_folder), str(second.parent / f"moved-away-{run}"))
@@ -158,7 +189,7 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
         return str(row[0]), int(row[1])
 
     out["lone"] = await lone_delivery()
-    # The folder now lists a folder without a marker: it is mounted, and the lone delivery's
+    # The folder now lists a folder without a package file: it is mounted, and the lone delivery's
     # folder is missing from it.
     (second / f"E2E_WATCH_UNMARKED_{run}").mkdir()
     out["mounted_rounds"] = []
@@ -179,14 +210,14 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
         await session.commit()
     out["round_project"] = await run_round(sessionmaker, roots)
     out["after_project"] = await deliveries()
-    # The family of the ready delivery Discover drafted for is imported, then deleted.
+    # The family of the ready delivery Discover proposed members for is imported, then deleted.
     async with sessionmaker() as session:
-        await session.execute(text("INSERT INTO families (family_id) VALUES (:f)"), {"f": names["NOMANIFEST"]})
+        await session.execute(text("INSERT INTO families (family_id) VALUES (:f)"), {"f": names["MINIMAL"]})
         await session.commit()
     out["round_family"] = await run_round(sessionmaker, roots)
     out["after_family"] = await deliveries()
     async with sessionmaker() as session:
-        await session.execute(text("DELETE FROM families WHERE family_id = :f"), {"f": names["NOMANIFEST"]})
+        await session.execute(text("DELETE FROM families WHERE family_id = :f"), {"f": names["MINIMAL"]})
         await session.commit()
     out["round_family_gone"] = await run_round(sessionmaker, roots)
     out["after_family_gone"] = await deliveries()
@@ -213,7 +244,7 @@ async def _exercise(base: Path, second: Path, run: str) -> dict[str, Any]:
             for row in (
                 await session.execute(
                     text(
-                        "SELECT action, actor, after ->> 'folder' FROM clinical_audit_events "
+                        "SELECT action, actor, after ->> 'folder', after ->> 'package_status' FROM clinical_audit_events "
                         "WHERE family_identifier = :chain AND after ->> 'folder' LIKE :run ORDER BY created_at, id"
                     ),
                     {"chain": import_watcher.IMPORT_INBOX_CHAIN, "run": f"%{run}"},
@@ -273,20 +304,30 @@ def _codes(row: dict[str, Any], key: str = "issues") -> list[str]:
     return [issue["code"] for issue in row[key]]
 
 
-def test_the_first_round_checks_each_marked_folder_once(ran) -> None:
+def test_the_first_round_checks_each_folder_with_a_package_file_once(ran) -> None:
     rows = _by_name(ran, ran["after1"])
-    assert "NOMARKER" not in rows
+    assert "NOPACKAGE" not in rows
     assert [row["state"] for row in rows["READY"]] == ["ready"], rows["READY"]
     assert rows["READY"][0]["project_id"] == ran["project_id"]
+    # The manifest the import will read is the package file's: its member, no PED.
+    manifest = json.loads(rows["READY"][0]["manifest_text"])
+    assert "ped" not in manifest
+    assert manifest["family"]["add_members"] == [
+        {"sample_id": f"{ran['names']['READY']}_S1", "sex": "male", "role": "proband", "clinical_status": "affected"}
+    ]
+    assert manifest["datasets"] == {"snv": {"family_vcf": "snv/family.vcf"}}
     [corrupt] = rows["CORRUPT"]
     assert (corrupt["state"], _codes(corrupt)) == ("needs_attention", ["file_checksum_differs"])
     [copying] = rows["COPYING"]
     assert (copying["state"], _codes(copying)) == ("incomplete", ["file_missing"])
     [no_project] = rows["NOPROJECT"]
-    assert (no_project["state"], _codes(no_project)) == ("needs_attention", ["marker_project_unknown"])
-    [drafted] = rows["NOMANIFEST"]
-    assert (drafted["state"], drafted["kept_manifest"]) == ("ready", True)
-    assert ran["round1"].deliveries == {"ready": 2, "needs_attention": 2, "incomplete": 1}
+    assert (no_project["state"], _codes(no_project)) == ("needs_attention", ["package_project_unknown"])
+    [minimal] = rows["MINIMAL"]
+    assert (minimal["state"], minimal["kept_manifest"]) == ("ready", True)
+    assert {"package_members_proposed", "package_datasets_proposed"} <= set(_codes(minimal, "warnings"))
+    # Discover proposed the members from the folder's PED.
+    assert json.loads(minimal["manifest_text"])["ped"] == "family.ped"
+    assert ran["round1"].deliveries == {"ready": 3, "needs_attention": 2, "incomplete": 1}
 
 
 def test_a_round_that_finds_nothing_new_checks_nothing_again(ran) -> None:
@@ -303,6 +344,25 @@ def test_a_changed_folder_is_a_new_delivery_and_supersedes_the_one_before(ran) -
     assert [row["state"] for row in ready] == ["superseded", "ready"]
     assert ready[0]["package_fingerprint"] != ready[1]["package_fingerprint"]
     assert ran["round3"].deliveries == {"ready": 1}
+
+
+def test_a_run_under_way_supersedes_the_open_delivery_and_makes_none_until_it_is_complete(ran) -> None:
+    assert [row["state"] for row in _by_name(ran, ran["after1"])["RERUN"]] == ["ready"]
+    # Running: the delivery before is superseded, and no delivery is made, in round 3 and after.
+    assert [row["state"] for row in _by_name(ran, ran["after3"])["RERUN"]] == ["superseded"]
+    assert ran["round3"].superseded_for_run == 1
+    assert [row["state"] for row in _by_name(ran, ran["after4"])["RERUN"]] == ["superseded"]
+    assert ran["round4"].superseded_for_run == 0
+    # Complete again: a new delivery.
+    rerun = _by_name(ran, ran["after5"])["RERUN"]
+    assert [row["state"] for row in rerun] == ["superseded", "ready"]
+    assert ran["round5"].deliveries == {"ready": 1}
+    names = ran["names"]
+    assert [status for action, _actor, folder, status in ran["events"] if folder == names["RERUN"]] == [
+        None,  # ready
+        "running",  # superseded by the run
+        None,  # ready again
+    ]
 
 
 def test_a_delivery_whose_folder_went_is_gone_after_two_rounds(ran) -> None:
@@ -336,18 +396,18 @@ def test_a_delivery_is_checked_again_when_what_coga_holds_changes(ran) -> None:
     assert project_added["project_id"] is not None and project_added["project_id"] != ran["project_id"]
     assert (ran["round_project"].deliveries, ran["round_project"].checked_again) == ({}, {"ready": 1})
 
-    [family_imported] = _by_name(ran, ran["after_family"])["NOMANIFEST"]
+    [family_imported] = _by_name(ran, ran["after_family"])["MINIMAL"]
     assert (family_imported["state"], _codes(family_imported)) == ("needs_attention", ["existing_family"])
     assert family_imported["kept_manifest"] is True
     assert ran["round_family"].checked_again == {"needs_attention": 1}
-    [family_gone] = _by_name(ran, ran["after_family_gone"])["NOMANIFEST"]
+    [family_gone] = _by_name(ran, ran["after_family_gone"])["MINIMAL"]
     assert (family_gone["state"], _codes(family_gone)) == ("ready", [])
     assert ran["round_family_gone"].checked_again == {"ready": 1}
 
     # Nothing changed since: nothing is checked again, and every other delivery is as it was.
     assert (ran["round_still"].deliveries, ran["round_still"].checked_again) == ({}, {})
     unchanged = {
-        row["id"]: (row["state"], _codes(row)) for row in ran["after5"] if row["folder_name"] not in (names["NOPROJECT"], names["NOMANIFEST"])
+        row["id"]: (row["state"], _codes(row)) for row in ran["after5"] if row["folder_name"] not in (names["NOPROJECT"], names["MINIMAL"])
     }
     assert {row["id"]: (row["state"], _codes(row)) for row in ran["final"] if row["id"] in unchanged} == unchanged
 
@@ -356,9 +416,9 @@ def test_a_delivery_is_checked_again_when_what_coga_holds_changes(ran) -> None:
         (event["folder"], event["previous_state"], event["previous_issues"], event["state"], event["issues"])
         for event in ran["checked_again"]
     ] == [
-        (names["NOPROJECT"], "needs_attention", ["marker_project_unknown"], "ready", []),
-        (names["NOMANIFEST"], "ready", [], "needs_attention", ["existing_family"]),
-        (names["NOMANIFEST"], "needs_attention", ["existing_family"], "ready", []),
+        (names["NOPROJECT"], "needs_attention", ["package_project_unknown"], "ready", []),
+        (names["MINIMAL"], "ready", [], "needs_attention", ["existing_family"]),
+        (names["MINIMAL"], "needs_attention", ["existing_family"], "ready", []),
     ]
     assert ran["checked_again"][0]["delivery_id"] == project_added["id"]
 
@@ -380,13 +440,13 @@ def test_the_list_shows_the_deliveries_by_state_when_asked(ran) -> None:
     )
     assert ready["run_id"].startswith("run-") and len(ready["marker_sha256"]) == 64
     filtered = [item for item in ran["listed_ready"]["json"] if item["folder_name"] in names]
-    assert sorted(item["state"] for item in filtered) == ["gone", "ready", "ready", "ready"]
+    assert sorted(item["state"] for item in filtered) == ["gone", "ready", "ready", "ready", "ready"]
     assert ran["listed_bad_state"]["status"] == 422
 
 
 def test_each_change_of_state_is_on_the_import_inbox_chain_which_verifies(ran) -> None:
-    actions = [action for action, actor, _folder in ran["events"]]
-    assert {actor for _action, actor, _folder in ran["events"]} == {"system:import-watcher"}
+    actions = [action for action, _actor, _folder, _status in ran["events"]]
+    assert {actor for _action, actor, _folder, _status in ran["events"]} == {"system:import-watcher"}
     assert {"import_delivery_ready", "import_delivery_needs_attention", "import_delivery_incomplete"} <= set(actions)
     assert {"import_delivery_superseded", "import_delivery_gone", "import_delivery_checked_again"} <= set(actions)
     verified = ran["verified"]

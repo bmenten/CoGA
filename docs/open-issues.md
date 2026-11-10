@@ -158,7 +158,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - The count correction: always applied once recorded; the boundary warning lifted only by validation (#1135).
     - T2T-CHM13's PARs: a man is now hemizygous outside them on T2T (#1136; T2T is outside the validated scope).
 - 2026-11-05 to 2026-11-09:
-    - The watched folders' `coga-ready.json` defaults, to confirm with the pipeline owners: MD5 accepted beside SHA-256, `samples` optional and checked when given, `request_id` kept, a pipeline QC `fail` needs attention (#1158).
+    - The package file `coga-package.json`'s choices, to confirm with the pipeline owners ([coga-package.md](coga-package.md)): MD5 accepted beside SHA-256, a minimal file accepted (CoGA proposes the members and datasets), `request_id` kept, a pipeline QC `fail` needs attention, an unknown field refused.
     - A review's classification text is audited as stored, trimmed but case-sensitive (#1199).
     - The register of closed IDs the technical file cites, `closed-issues.md`: its wording (#1200).
 - A point that asks only for a TF-10 §8 phrase lapses where a TF-10 §8 area covers it.
@@ -176,7 +176,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - the PASS-only filter: every member's call that carries the ALT allele passed (PASS, `.` or none), read from its own FILTER in a callset of one file per sample and from the record's in a multi-sample VCF;
     - the Variant Explorer: each family's rows read through the family search's filters, counting only the members the family shows;
     - the annotation read since 2026-11-06: ClinVar from the annotated ClinVar file before VEP's cache, a multi-allelic record's annotation tied to its ALT, a field listing several values read as none, VEP's `MAX_AF` kept apart from gnomAD's popmax, and the owner's ACMG rules of 2026-11-06 (no criterion applied on a missing value; BA1/BS1 on gnomAD's FAF95; PP5/BP6 always to consider; PVS1 to consider on a LOFTEE flag or an NMD-escaping variant; the mtDNA frequencies);
-    - imports from a watched folder: the ready marker and its checksums, the approval queue, the manifest kept in CoGA, and an import refused or undone when its package changed;
+    - imports from a watched folder: the package file and its checksums, the manifest made from it, the approval queue, the manifest kept in CoGA, and an import refused or undone when its package changed;
     - a new instance's references: HPO's newest release, recorded with its SHA-256, and Monarch's newest release, recorded in the annotation manifest.
 - The developer drafts the lines, after checking each against the code; QA confirms them with the list at the RC (REG-3).
 

@@ -1964,6 +1964,9 @@ def _validate_and_load_package(
                 family_id=family_id,
                 ped_sample_ids=set(ped.sample_ids),
                 ped_from_database=metadata.get("ped_source") == "database",
+                # Without a PED the added members are the whole pedigree: one without a role gets
+                # one from it, as a PED row does.
+                default_role=None if metadata.get("ped_source") == "manifest" else "relative",
             )
             errors.extend(added_errors)
             if added_rows:

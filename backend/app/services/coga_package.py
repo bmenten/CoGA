@@ -16,32 +16,42 @@ A field the format does not know is refused, never kept unread: a misspelt field
 (``clinical_staus``) would otherwise leave its member's status unset without a word. Free
 information goes under ``extra``, which CoGA keeps and never reads.
 
-- ``read_coga_package`` reads the file's bytes: UTF-8 JSON, one object, no key twice, no NaN or
-  Infinity, no NUL or lone surrogate, at most ``PACKAGE_MAX_BYTES``.
+- ``read_package_file`` reads the file in a package folder (a regular file, never a link, at most
+  ``PACKAGE_MAX_BYTES``) and ``read_coga_package`` its bytes: UTF-8 JSON, one object, no key twice,
+  no NaN or Infinity, no NUL or lone surrogate. The status is read even from a file that breaks
+  the format, so that a run under way is never offered.
 - ``CogaPackage`` is the format; ``coga_package_json_schema`` is its JSON Schema, which a
   pipeline can check the file against before writing it
   (``docs/schemas/coga-package-1.schema.json``, written by
   ``scripts/generate-coga-package-schema.py``).
 - ``package_issues`` checks what the schema cannot say: the fields a complete file needs, and that
   every member, file and dataset named is the one meant.
+- ``check_package_files`` checks the folder against the file's ``files``: each listed file there,
+  of its size (else the copy runs still) and its checksum (else the copy is not what the pipeline
+  made), and the files the folder holds that it does not list.
 
-What the package says against the folder and CoGA (the files there, the project, the family) is
-checked where the package is read for import.
+What the package says against CoGA (the project, the family) is checked by the import watcher
+(``import_watcher``).
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 import hashlib
 import json
 import math
+import os
+from pathlib import Path, PurePosixPath
+import stat
 from typing import Annotated, Any, Literal, get_args
 
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .family_identifiers import identifier_problem
 from .family_package_common import manifest_text_problem
+from .family_package_fingerprint import PACKAGE_FINGERPRINT_MAX_ENTRIES, PackageFolderTooLarge
 
 PACKAGE_FILE_NAME = "coga-package.json"
 PACKAGE_SCHEMA = "coga-package/1"
@@ -49,7 +59,7 @@ PACKAGE_SCHEMA = "coga-package/1"
 PACKAGE_MAX_BYTES = 20 * 1024 * 1024
 
 PackageStatus = Literal["running", "complete", "failed"]
-# The analyses a package may name (as import_ready_marker.ANALYSIS_TYPES).
+# The analyses a package may name.
 AnalysisType = Literal["wgs", "wgs_trio", "pgt_m", "monogenic_nipt", "long_read_wgs", "long_read_couple"]
 # The datasets the import reads (family_package_common.SUPPORTED_DATASETS).
 DatasetName = Literal[
@@ -263,11 +273,21 @@ class PackageIssue:
 @dataclass(frozen=True, slots=True)
 class PackageRead:
     """A package file as read: its bytes' SHA-256 (None when there were none to read), the package
-    (None when it is no ``coga-package/1`` file) and what is wrong with it."""
+    (None when it is no valid ``coga-package/1`` file) and what is wrong with it. ``status`` is the
+    file's own ``status`` wherever it is one of the format's, also in a file that breaks the format
+    otherwise; ``payload`` the parsed object, when it is one CoGA can store."""
 
     sha256: str | None
     package: CogaPackage | None
     issues: list[PackageIssue] = field(default_factory=list)
+    status: str | None = None
+    payload: dict[str, Any] | None = None
+
+    @property
+    def offered(self) -> bool:
+        """Whether the package is offered for import: its file says it is complete, or says no
+        status the format knows (it is then offered with what is wrong with it)."""
+        return self.status not in ("running", "failed")
 
 
 class _DuplicateKey(ValueError):
@@ -339,11 +359,7 @@ def read_coga_package(raw: bytes) -> PackageRead:
     no package; one that is but breaks the format is read with its issues."""
     digest = hashlib.sha256(raw).hexdigest()
     if len(raw) > PACKAGE_MAX_BYTES:
-        return PackageRead(
-            digest,
-            None,
-            [PackageIssue("package_too_large", f"{PACKAGE_FILE_NAME} is larger than {PACKAGE_MAX_BYTES // (1024 * 1024)} MB.")],
-        )
+        return PackageRead(digest, None, [_too_large()])
     try:
         payload = json.loads(
             raw.decode("utf-8"),
@@ -358,27 +374,66 @@ def read_coga_package(raw: bytes) -> PackageRead:
         return PackageRead(digest, None, [PackageIssue("package_not_json", f"{PACKAGE_FILE_NAME} is no JSON text.")])
     if not isinstance(payload, dict):
         return PackageRead(digest, None, [PackageIssue("package_not_json", f"{PACKAGE_FILE_NAME} is no JSON object.")])
+    written_status = payload.get("status")
+    status = written_status if written_status in literal_values(PackageStatus) else None
     # A NUL or a lone surrogate (JSON escapes can carry both) is no text Postgres stores.
     if _unstorable(payload):
         return PackageRead(
             digest,
             None,
             [PackageIssue("package_unstorable_text", f"{PACKAGE_FILE_NAME} holds a NUL or a lone surrogate.")],
+            status,
         )
-    # A number too large for a float reads as infinity.
+    # A number too large for a float reads as infinity, which no stored JSON holds.
     if _non_finite(payload):
         return PackageRead(
-            digest, None, [PackageIssue("package_number_invalid", f"{PACKAGE_FILE_NAME} holds a number out of range.")]
+            digest,
+            None,
+            [PackageIssue("package_number_invalid", f"{PACKAGE_FILE_NAME} holds a number out of range.")],
+            status,
         )
     if payload.get("schema") != PACKAGE_SCHEMA:
         return PackageRead(
-            digest, None, [PackageIssue("package_schema_unknown", f"{PACKAGE_FILE_NAME} is not of the format {PACKAGE_SCHEMA}.")]
+            digest,
+            None,
+            [PackageIssue("package_schema_unknown", f"{PACKAGE_FILE_NAME} is not of the format {PACKAGE_SCHEMA}.")],
+            status,
+            payload,
         )
     try:
         package = CogaPackage.model_validate(payload)
     except ValidationError as error:
-        return PackageRead(digest, None, _validation_issues(error))
-    return PackageRead(digest, package, package_issues(package))
+        return PackageRead(digest, None, _validation_issues(error), status, payload)
+    return PackageRead(digest, package, package_issues(package), status, payload)
+
+
+def _too_large() -> PackageIssue:
+    return PackageIssue("package_too_large", f"{PACKAGE_FILE_NAME} is larger than {PACKAGE_MAX_BYTES // (1024 * 1024)} MB.")
+
+
+def read_package_file(folder: Path) -> PackageRead:
+    """Read ``coga-package.json`` in the package folder ``folder``: a regular file, never a link,
+    never more than ``PACKAGE_MAX_BYTES``."""
+    path = folder / PACKAGE_FILE_NAME
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return PackageRead(None, None, [PackageIssue("package_missing", f"The folder holds no {PACKAGE_FILE_NAME}.")])
+    if not stat.S_ISREG(info.st_mode):
+        return PackageRead(
+            None, None, [PackageIssue("package_not_a_file", f"{PACKAGE_FILE_NAME} is a link or no regular file, and is not read.")]
+        )
+    if info.st_size > PACKAGE_MAX_BYTES:
+        return PackageRead(None, None, [_too_large()])
+    try:
+        # Opened without following a link: one put in the file's place after the look above is
+        # not read.
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(descriptor, "rb") as handle:
+            raw = handle.read(PACKAGE_MAX_BYTES + 1)
+    except OSError:
+        return PackageRead(None, None, [PackageIssue("package_unreadable", f"{PACKAGE_FILE_NAME} could not be read.")])
+    return read_coga_package(raw)
 
 
 def _duplicates(values: list[str]) -> list[str]:
@@ -526,3 +581,126 @@ def literal_values(alias: Any) -> tuple[str, ...]:
     """The values of one of the ``Literal`` aliases above, for the tests that hold them to the
     sets the import reads."""
     return tuple(get_args(alias))
+
+
+# Written by a file browser, never by a pipeline, and the package file itself (and its temporary
+# name while it is written): not reported as unlisted.
+_IGNORED_NAMES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini", PACKAGE_FILE_NAME})
+_IGNORED_PREFIXES = ("._", f".{PACKAGE_FILE_NAME}")
+
+
+@dataclass(slots=True)
+class FileCheck:
+    """A folder checked against its package file's ``files``: the issues that keep it from import
+    (``location``: the file's path), whether the copy is still running (``incomplete``: a file
+    missing or of another size), the files present that the package file does not list, and each
+    listed file's SHA-256 as computed."""
+
+    issues: list[PackageIssue] = field(default_factory=list)
+    incomplete: bool = False
+    unlisted: list[str] = field(default_factory=list)
+    sha256: dict[str, str] = field(default_factory=dict)
+
+
+def _path_in_folder(folder: Path, written: str) -> bool:
+    """Whether the listed path ``written`` (one the format allows) stays in the folder once its
+    links are followed."""
+    resolved = os.path.realpath(folder / PurePosixPath(written))
+    return resolved.startswith(os.path.realpath(folder) + os.sep)
+
+
+def _checksums(path: Path, *, md5: bool) -> tuple[str, str | None]:
+    """The file's SHA-256, and its MD5 when asked, in one read."""
+    sha256_digest = hashlib.sha256()
+    md5_digest = hashlib.md5(usedforsecurity=False) if md5 else None
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            sha256_digest.update(block)
+            if md5_digest is not None:
+                md5_digest.update(block)
+    return sha256_digest.hexdigest(), md5_digest.hexdigest() if md5_digest is not None else None
+
+
+def _folder_files(folder: Path) -> list[str]:
+    """Every regular file in the package folder, as a path in it, but those a file browser writes
+    and the package file itself; links are not followed."""
+    found: list[str] = []
+    pending = [(folder, "")]
+    seen = 0
+    while pending:
+        current, relative = pending.pop()
+        try:
+            with os.scandir(current) as listing:
+                entries = list(listing)
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name in _IGNORED_NAMES or entry.name.startswith(_IGNORED_PREFIXES):
+                continue
+            seen += 1
+            if seen > PACKAGE_FINGERPRINT_MAX_ENTRIES:
+                raise PackageFolderTooLarge(PACKAGE_FINGERPRINT_MAX_ENTRIES)
+            path = f"{relative}/{entry.name}" if relative else entry.name
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append((Path(entry.path), path))
+                elif entry.is_file(follow_symlinks=False):
+                    found.append(path)
+            except OSError:
+                continue
+    return sorted(found)
+
+
+def check_package_files(folder: Path, files: Iterable[PackageFile], *, checksums: bool) -> FileCheck:
+    """Check the package folder ``folder`` against the files its package file lists (paths the
+    format allows, each listed once: ``package_issues``); with ``checksums`` each file is read to
+    compare its SHA-256, or its MD5 when the file gives only that, and every file's SHA-256 is
+    kept. Without, only paths and sizes are compared (a cheap look whether the copy has
+    finished)."""
+    check = FileCheck()
+    listed: dict[str, PackageFile] = {}
+    for entry in files:
+        if not _path_in_folder(folder, entry.path):
+            check.issues.append(
+                PackageIssue("file_outside", f"A file {PACKAGE_FILE_NAME} lists leads out of the package folder.", entry.path)
+            )
+            continue
+        listed.setdefault(entry.path, entry)
+    for path, entry in sorted(listed.items()):
+        try:
+            info = os.lstat(folder / path)
+        except OSError:
+            check.incomplete = True
+            check.issues.append(PackageIssue("file_missing", f"A file {PACKAGE_FILE_NAME} lists is not in the folder yet.", path))
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            check.issues.append(PackageIssue("file_not_regular", f"A file {PACKAGE_FILE_NAME} lists is a link or a folder.", path))
+            continue
+        if info.st_size != entry.size:
+            check.incomplete = True
+            check.issues.append(
+                PackageIssue(
+                    "file_size_differs", f"A file has another size than {PACKAGE_FILE_NAME} lists: the copy may still run.", path
+                )
+            )
+            continue
+        if not checksums:
+            continue
+        try:
+            sha256, md5 = _checksums(folder / path, md5=entry.sha256 is None)
+        except OSError:
+            check.issues.append(PackageIssue("file_unreadable", f"A file {PACKAGE_FILE_NAME} lists could not be read.", path))
+            continue
+        if (entry.sha256 is not None and sha256 != entry.sha256) or (entry.sha256 is None and md5 != entry.md5):
+            check.issues.append(
+                PackageIssue(
+                    "file_checksum_differs",
+                    f"A file's checksum differs from the one in {PACKAGE_FILE_NAME}: the copy is not what the pipeline made.",
+                    path,
+                )
+            )
+            continue
+        check.sha256[path] = sha256
+    present = set(_folder_files(folder))
+    check.unlisted = sorted(present - set(listed))
+    return check

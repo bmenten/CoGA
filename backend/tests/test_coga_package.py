@@ -21,7 +21,6 @@ from backend.app.services.coga_package import (
     PACKAGE_FILE_NAME,
     PACKAGE_MAX_BYTES,
     PACKAGE_PATH_PATTERN,
-    AnalysisType,
     DatasetName,
     InheritanceModel,
     Role,
@@ -34,7 +33,6 @@ from backend.app.services.coga_package import (
 )
 from backend.app.services.family_package_common import SUPPORTED_DATASETS
 from backend.app.services.family_package_manifest import _INHERITANCE_MODELS, _PED_ROLE_VALUES
-from backend.app.services.import_ready_marker import ANALYSIS_TYPES
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_FILE = ROOT / "docs" / "schemas" / "coga-package-1.schema.json"
@@ -133,7 +131,6 @@ def test_the_json_schema_asks_a_complete_file_where_it_belongs_and_a_checksum_pe
 
 def test_the_formats_value_lists_are_the_ones_the_import_reads() -> None:
     assert literal_values(DatasetName) == SUPPORTED_DATASETS
-    assert set(literal_values(AnalysisType)) == ANALYSIS_TYPES
     assert set(literal_values(Role)) == _PED_ROLE_VALUES
     assert set(literal_values(InheritanceModel)) == _INHERITANCE_MODELS
 

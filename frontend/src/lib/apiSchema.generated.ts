@@ -1804,8 +1804,8 @@ export interface ImportDeliveryIssue {
 
 /**
  * A package a pipeline delivered into a watched import folder (import_watcher.py): the
- * folder, its fingerprint and ready marker, what the marker says it is, and where the delivery
- * stands.
+ * folder, its fingerprint and package file (``marker_sha256``: the package file's SHA-256), what
+ * the package file says it is, and where the delivery stands.
  */
 export interface ImportDeliveryOut {
   _id: string;

@@ -751,11 +751,12 @@ sign-out needs the acknowledgement.
 ### Watched import folders
 
 A pipeline, or the step that copies its output onto the share, can deliver a package without
-anyone typing its path: it writes the package folder into a **watched import folder** and, last,
-its **ready marker** `coga-ready.json`. The import watcher
-([import_watcher.py](../backend/app/services/import_watcher.py)) finds it, checks it once and
-records where it stands. It imports nothing by itself: a person approves each delivery, on the
-Package Import page, and only then is its import queued (below).
+anyone typing its path: it writes the package folder into a **watched import folder**, with its
+**package file** `coga-package.json` ([coga-package.md](coga-package.md)). The file describes the
+package in place of a PED, a manifest and a ready marker, and its `status` says when the package
+is complete. The import watcher ([import_watcher.py](../backend/app/services/import_watcher.py))
+finds it, checks it once and records where it stands. It imports nothing by itself: a person
+approves each delivery, on the Package Import page, and only then is its import queued (below).
 
 **Settings.** `FAMILY_IMPORT_WATCH_ROOTS` names the watched folders: local folders under
 `FAMILY_IMPORT_ROOTS`, comma-separated or a JSON list (a bucket, or a folder outside the import
@@ -766,87 +767,94 @@ runs import workers itself (`FAMILY_IMPORT_WORKER_COUNT` above 0). One watcher l
 holds a Postgres advisory lock on a connection of its own, and the others skip their rounds until
 that connection is gone.
 
-One file is to take the place of the ready marker, the PED and the manifest: the package file
-`coga-package.json`, whose `status` says when the package is complete ([coga-package.md](coga-package.md),
-approved by the owner on 2026-11-10). Its format is defined; until CoGA reads it, the watcher reads
-the ready marker below.
+**The package file** (format `coga-package/1`, [coga_package.py](../backend/app/services/coga_package.py)):
+its fields, how to write it and the checks of the file itself are in
+[coga-package.md](coga-package.md). It is read as a regular file in the package folder, never
+through a link, at most 20 MB. A `coga-ready.json` or a `manifest.yaml` in the folder is not read
+(the validation warns of a manifest: `manifest_in_folder_not_read`).
 
-**The ready marker** (format `coga-ready/1`, [import_ready_marker.py](../backend/app/services/import_ready_marker.py)).
-A JSON object, at most 20 MB, written last, under a temporary name first and then renamed:
+**A run under way.** A package file whose `status` is `running` or `failed` is no delivery: the
+pipeline is writing the folder, or stopped. An open delivery of the folder from before
+(`incomplete`, `ready`, `needs_attention`) is `superseded`, recorded with the run and the status,
+and the folder is a delivery again once its file says `complete`. The status is read also from a
+file that breaks the format otherwise.
 
-| Field | Required | What CoGA does with it |
-| --- | --- | --- |
-| `schema` | yes | `coga-ready/1`; another value is not read |
-| `written_at` | yes | kept |
-| `project` | yes | the unique project name; a project CoGA lacks needs attention |
-| `family_id` | yes | must be the package's family, and an ID a family can be stored under |
-| `analysis_type` | yes | one of `wgs`, `wgs_trio`, `pgt_m`, `monogenic_nipt`, `long_read_wgs`, `long_read_couple` |
-| `assembly` | yes | must be the project's assembly |
-| `pipeline.name`, `pipeline.version` | yes | kept and shown |
-| `run.id` | yes | kept and shown: one id per run |
-| `files` | yes | each file of the package: `path` (in the folder), `size`, and `sha256` or `md5` |
-| `samples` | no | each `sample_id` must be a member of the package, of the `sex` the PED gives; a member it does not name is a warning (a fetus has no data of its own) |
-| `qc.status` | no | `fail` needs attention, `warn` is a warning |
-| `request_id`, `manifest`, `reference`, `supersedes`, `priority`, `notes` | no | kept |
+**The manifest the import reads** ([coga_package_manifest.py](../backend/app/services/coga_package_manifest.py)).
+The delivery keeps the manifest its import will read (`manifest_text`), made from the package
+file, as JSON so that every ID stays text:
 
-A field the format does not know is kept. A missing required field needs attention, and so does a
-path that leaves the folder, a file listed twice, a file without a checksum, or a link listed as a
-file.
+- The file's `members` are the pedigree: each becomes a row of `family.add_members`, and no PED is
+  read. Their carrier fields go under `family.members`, their HPO terms under `individuals`,
+  their assay under `samples`, the couples and the relatives under `family.relationships`. A
+  member without a `role` gets one from the pedigree, as a PED row does.
+- A file that leaves out its `members` or its `datasets` has them proposed by Discover, from the
+  folder, for the family the file names: the members from the folder's PED (or its per-sample
+  folders), the datasets from its layout. The warnings `package_members_proposed` and
+  `package_datasets_proposed` say so, with Discover's own notes: check them before approving.
+- What the file gives wins over Discover's draft: the family ID, the analysis, the region of
+  interest and the PGT details.
+- A folder that holds a PED which says otherwise than the file's members (a member it does not
+  name, or another sex or parents) is warned of (`package_ped_differs`): the pipeline's own tools
+  may have read that PED, so a dataset computed with it may not match the members the import
+  records. A member the PED lacks (a PGT index) is no difference.
 
-**A round.** In each watched folder, every package folder that holds a marker is a delivery per
-package fingerprint (above): a folder that changes is a new delivery. One seen before is seen
-again, and checked again only when what CoGA holds has changed (below). A new one is checked:
+**A round.** In each watched folder, every package folder whose package file is complete, or does
+not say it is running or failed, is a delivery per package fingerprint (above): a folder that
+changes is a new delivery. One seen before is seen again, and checked again only when what CoGA
+holds has changed (below). A new one is checked:
 
-1. the marker is read;
+1. the package file is read and checked ([coga-package.md](coga-package.md#what-coga-checks));
 2. every listed file is there with its listed size; if not, the delivery is `incomplete` (the copy
    runs still; its fingerprint changes once it has finished, which makes a new delivery);
 3. every file's SHA-256, or MD5, is the listed one: a file that differs is a copy that is not what
-   the pipeline made. A file in the folder that the marker does not list is a warning (a file
-   browser's own files are not counted);
-4. the project, its assembly, the analysis type, the family ID and the pipeline's QC;
-5. the manifest: the folder's own or, without one, the draft Discover makes, which the delivery
-   keeps (`manifest_text`), with Discover's notes as warnings;
+   the pipeline made. A file in the folder that the package file does not list is a warning (a
+   file browser's own files are not counted);
+4. the pipeline's QC (`fail` needs attention, `warn` is a warning), and the project and its
+   assembly;
+5. the manifest made from the package file (above), and the folder's PED against the members;
 6. the package's validation, as **Validate package** runs it, and the region of interest;
-7. every file the import reads (the PED, and each file an enabled dataset names) is listed in the
-   marker with a matching checksum;
-8. the marker's samples against the PED, and a family or samples that already exist: an existing
-   family needs an approver's choice of update or overwrite, never a new family.
+7. every file the import reads (each file an enabled dataset names, and the PED when Discover
+   proposed the members from it) is listed with a matching checksum;
+8. a family or samples that already exist: an existing family needs an approver's choice of update
+   or overwrite, never a new family.
 
 Any of these that fails makes the delivery `needs_attention`, each failure an issue; one that
 passes them all is `ready`. A check that cannot run (an error) is the issue `watch_check_failed`,
 with a fixed sentence. A folder that changed while it was checked is left to the next round.
 
 **Checked again when CoGA changes.** Some issues come from what CoGA holds, not from the folder:
-the project the marker names (`marker_project_unknown`, `marker_assembly_differs`) and a family or
-samples that already exist (`existing_family`, `existing_samples`). In each round, an open delivery
-(`ready` or `needs_attention`) seen again is compared with what CoGA holds now: a project added,
-deleted or of another assembly, a family or samples imported or deleted. When that differs from
-what its check found, it is checked again as a whole, in place (the same delivery), and the event
-`import_delivery_checked_again` records the state and issue codes before and after. So adding the
-project a marker names makes its delivery `ready` in the next round, without touching the folder.
-Only what the check read is compared: a delivery whose marker could not be read, or whose check
-could not run or be stored, is checked again only when its folder changes.
+the project the package file names (`package_project_unknown`, `package_assembly_differs`) and a
+family or samples that already exist (`existing_family`, `existing_samples`). In each round, an
+open delivery (`ready` or `needs_attention`) seen again is compared with what CoGA holds now: a
+project added, deleted or of another assembly, a family or samples imported or deleted. When that
+differs from what its check found, it is checked again as a whole, in place (the same delivery),
+and the event `import_delivery_checked_again` records the state and issue codes before and after.
+So adding the project a package file names makes its delivery `ready` in the next round, without
+touching the folder. Only what the check read is compared: a delivery whose package file could not
+be read, or whose check could not run or be stored, is checked again only when its folder changes.
 
 **States** (`import_deliveries.state`): `incomplete`, `ready`, `needs_attention`, `superseded` (a
-newer delivery of the same folder came before anyone decided), `gone` (its folder, or its marker,
-missing for two rounds while the watched folder could be read); and, once a person decided,
+newer delivery of the same folder came before anyone decided, or its pipeline runs again in the
+folder), `gone` (its folder, or its package file, missing for two rounds while the watched folder
+could be read); and, once a person decided,
 `queued`, `imported`, `failed` or `refused` (below). `approved` and `changed_after_import` are for
 the watch over imported packages, which comes later. A watched folder that cannot be read, or that
 lists nothing but hidden entries while it had open deliveries (a share that is not mounted reads as
 an empty folder), is skipped for the round: nothing is decided on it. A watched folder that lists
-anything else, even only folders without a marker, is mounted: it is watched, so a delivery whose
+anything else, even only folders without a package file, is mounted: it is watched, so a delivery whose
 folder was moved away is `gone` after two rounds. A watched folder emptied of everything keeps its
 open deliveries until a delivery or another folder is back in it.
 
 **The record.** Each change of a delivery's state is an event on the clinical audit chain
-`system:import-inbox`, by `system:import-watcher`: the folder, its fingerprint, the marker's
-SHA-256, the run and the family, the state and its issue codes (for a delivery checked again, also
-the state and issue codes it had). Verify it with
+`system:import-inbox`, by `system:import-watcher`: the folder, its fingerprint, the package
+file's SHA-256 (`marker_sha256`), the run and the family, the state and its issue codes (for a
+delivery checked again, also the state and issue codes it had; for one superseded by a run, the
+run and its status). Verify it with
 `GET /admin/integrity/verify?table=clinical_audit_events&family_id=system:import-inbox`. The logs
 name counts only, never a folder or a family.
 
 **The list.** `GET /family-imports/deliveries` (superuser) gives the deliveries, the latest change
-first, with their state, issues, warnings, what the marker says (project, analysis type,
+first, with their state, issues, warnings, what the package file says (project, analysis type,
 pipeline, run, request) and the last import job it was approved for (`job_id`, `job_status`,
 `job_dry_run`); `state` (repeatable) keeps those in the states named, `limit` (at most 200) how
 many. The Package Import page shows them under **Deliveries**, the open ones first (the decided
@@ -864,8 +872,9 @@ Nothing is imported until a superuser decides, on the Package Import page or thr
   new delivery. A delivery with warnings is approved only once they are acknowledged. Its folder
   must be as it was checked (the same package fingerprint), or the approval answers 409 and the
   watcher checks it again as a new delivery.
-- The import job is queued as the approver, into the project the marker names, with the manifest
-  the delivery keeps, and names the delivery (its id, run, marker's SHA-256 and fingerprint) in
+- The import job is queued as the approver, into the project the package file names, with the
+  manifest the delivery keeps, and names the delivery (its id, run, package file's SHA-256 and
+  fingerprint) in
   its metadata; the family's package record keeps it (`families.metadata.package_import.delivery`).
   The job's own checks (its fingerprint as it starts, the undo of a package that changes while it
   is read) hold as for any import. A real approval makes the delivery `queued`; a dry run leaves
@@ -1263,7 +1272,9 @@ the other parent.
 member already in the PED is an error; its states go under `family.members`. Other links go under
 `family.relationships`, which may only name members. A manifest without `ped` names all its
 members under `family.add_members`, whose rows are then the whole PED (the long-read couple's
-manifest, which Discover drafts).
+manifest, which Discover drafts, and the manifest made from a package file). There, a member
+without a `role` is no `relative` but gets its role from the pedigree, as a PED row does: father
+or mother when it is one, else embryo, proband or sibling.
 
 `family.relationships.relatives` links a member to the family through another member by an
 unknown degree: a PGT index known only to be on the mother's side, say, or related to both
