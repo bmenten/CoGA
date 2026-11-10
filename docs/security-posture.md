@@ -11,7 +11,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 
 ## 1. Authentication & RBAC
 
-- ✅ **Sign-in with Microsoft (SEC-4).** With Azure AD (Microsoft Entra ID) configured
+- ✅ **Sign-in with Microsoft.** With Azure AD (Microsoft Entra ID) configured
   (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`), users sign in with their hospital or university
   Microsoft account. Entra ID checks the password and MFA; IT handles password resets and
   leavers. The browser (MSAL, `frontend/src/lib/microsoftSignIn.ts`) uses the authorization
@@ -33,7 +33,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   (below). A half configuration is refused at startup, in every environment: a tenant without
   a client ID, a tenant that is no GUID (such as `common`), a scope or the override without
   Azure AD.
-- ✅ **Sign-in through the organisation's CAS server (SEC-4).** Where the organisation offers
+- ✅ **Sign-in through the organisation's CAS server.** Where the organisation offers
   CAS rather than an Entra app registration, such as Ghent University's `login.ugent.be`
   (`CAS_SERVER_URL`, `CAS_SERVICE_URL`; not beside Microsoft sign-in), the browser goes to the
   CAS login page for CoGA's service and comes back to /login with a one-time service ticket.
@@ -54,15 +54,14 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   account bound to an object ID, or the emergency administrator while `AZURE_ADMIN_OVERRIDE` is
   on (logged and flagged). There is no password sign-in or sign-up. Neither the ticket nor the
   CAS answer reaches the log.
-- ✅ **A user's own records stay with the account (SEC-32).** A later Microsoft sign-in updates
+- ✅ **A user's own records stay with the account.** A later Microsoft sign-in updates
   the account's e-mail address and user name from the token, so nothing a user owns is found by
   either. It is found by the account's id:
   - an import job keeps its requester (`family_import_jobs.requested_by_id`); the worker runs
     the import as that account while it is an active superuser or administrator (*Session
     tokens*, below);
   - so do a gene-reference refresh, a clinical CNV knowledgebase rebuild and a DGV load
-    (`requested_by_id` on `gene_info_refresh_jobs`, `clinical_cnv_kb_jobs` and `dgv_load_jobs`,
-    SEC-35);
+    (`requested_by_id` on `gene_info_refresh_jobs`, `clinical_cnv_kb_jobs` and `dgv_load_jobs`);
   - a user's filter presets belong to the account (`owner_id`).
 
   A changed address or user name keeps them the user's. An account that later signs in with an
@@ -88,9 +87,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   Every check asks `access_control` by what it guards (`is_admin_user`, `has_superuser_rights`,
   `role_changes_records`, `may_sign_out`); `test_admin_role_checks.py` fails on any comparison
   of a role with a literal role name elsewhere. The project access level (below) only takes
-  rights away. A role CoGA does not know has no right at all. Revision 0015 made each viewer of
-  a database from before an analyst, as a viewer could then change the records of each project
-  where it was an analyst; superusers and admins kept their role.
+  rights away. A role CoGA does not know has no right at all.
 - ✅ **Signing out is a supervisor's (TF-06 H15).** `sign_out_report` calls
   `require_sign_out_authority` after the family's checkpoint (so a family the user may not see
   still answers 404, and a viewer or reader is still told they only read) and before every
@@ -126,13 +123,13 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   `request_meta.record_hidden` (`family`, `sample` or `project`), which the response never
   carries (`main._answer_record_not_visible`); the admin *Audit logs* page flags it (§2). The
   same holds for deleting another user's filter preset (`404 Preset not found`, row naming
-  `filter_preset`, SEC-9). Import jobs are a superuser's or an admin's, who see every job: the
+  `filter_preset`). Import jobs are a superuser's or an admin's, who see every job: the
   routes and the import-job service refuse anyone else (403).
   `backend/tests/e2e/test_e2e_inaccessible_records_look_unknown.py` calls every route with a
   family or sample ID in its path, on real Postgres, for a family of another project and for an
   unknown one, and requires the same status and body. Refusals for the caller's role
-  (`403 Admin access required`) are unchanged: they say nothing about the record.
-- ✅ **Read-only project access: analyst or reader (SEC-1).** Each project membership has an
+  (`403 Admin access required`) say nothing about the record.
+- ✅ **Read-only project access: analyst or reader.** Each project membership has an
   access level (`project_users.access_level`):
   - an **analyst** reads and changes the project's records, as far as their role lets them (a
     viewer changes nothing);
@@ -149,8 +146,8 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   changes nothing, and a field the change does not take is refused (422), so no change of
   access is left out without a word. Every writer of the memberships, from either side, takes
   one transaction lock first (`_lock_project_memberships`), so two saves at once never deadlock
-  and the audit's "from" is what the change replaced. A membership made without a level, and
-  every membership made before the levels existed, is an analyst's.
+  and the audit's "from" is what the change replaced. A membership made without a level is an
+  analyst's.
 
   `get_current_user` records whether a request changes something: any method but GET, HEAD and
   OPTIONS, unless its route is marked `changes_only_own_data` (`services/access_control.py`:
@@ -186,7 +183,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   `e2e/test_e2e_case_assignee_eligibility.py`).
 - ✅ **No control characters in what a request looks up.** A `%00` in a URL arrives decoded,
   and Postgres cannot compare a NUL, so a path such as `/api/families/FAM%00X`, or any path or
-  query value holding one, failed with a 500. `get_current_user` answers 400, naming the
+  query value holding one, would fail with a 500 at the database. `get_current_user` answers 400, naming the
   parameter, when:
   - a path parameter, a query parameter's name, or a `family_id` or `sample_id` query value
     holds a C0 control character or DEL, which no family or sample ID may hold
@@ -208,11 +205,11 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   reader and a viewer can do none of these. Each phenotype change, also one an import makes, is an event on the family's clinical
   audit trail. Every member saves their own filter presets.
 - ✅ **A UUID a request names a record by is read once.** asyncpg's uuid codec takes only hex
-  digits and hyphens. So a path or query value that was no UUID
-  (`/api/admin/data/files/PROBEX/download`) failed with a 500, as did a UUID in braces or after
-  `urn:uuid:` that a route had checked with `uuid.UUID` and then bound as received. Every such
+  digits and hyphens. So a path or query value that is no UUID
+  (`/api/admin/data/files/PROBEX/download`) would fail with a 500 if bound as received, as would
+  a UUID in braces or after `urn:uuid:` that `uuid.UUID` accepts. Every such
   value (a raw file, an import job, an HPO annotation, a NIPT artifact, a panel, a filter
-  preset, a user, a project, an assembly, a clinical CNV, the `panel_id` filter) is now read by
+  preset, a user, a project, an assembly, a clinical CNV, the `panel_id` filter) is read by
   `core/sql.py` (`canonical_uuid`, `require_uuid`):
   - one that spells no UUID gets an unknown record's answer (the route's own 404, or its 400
     for an invalid id), before any query;
@@ -238,7 +235,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   (`families.metadata.package_import.folder_path`, below `FAMILY_IMPORT_ROOTS`;
   `within_family_package` in `services/family_package_source.py`). So a changed database row
   cannot point them at any other object, another family's package in the import area
-  included (SEC-27; the check used to be against the import area alone). A location recorded
+  included. A location recorded
   for a family without such a folder is not signed: the layout probes are tried instead.
 
   With local storage, the CRAM/BAM, signal-track and QC-report endpoints
@@ -251,7 +248,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
     itself (`local_family_package_folder`). With no local root configured, nothing is served
     from it. A recorded file must lie, symlinks resolved, inside it, and a recorded CRAM/BAM
     or index must have that file's extension: a changed row can point at most at another file
-    of that kind in the family's own package, as in a bucket (SEC-27).
+    of that kind in the family's own package, as in a bucket.
   - A path built from the IDs or read back from `samples.metadata` is normalised, and dropped
     before any look-up when it leaves the family's folder: a sample ID such as `../F2/S2`, a
     recorded path holding `..` or naming an absolute path elsewhere, a family ID that is no
@@ -271,12 +268,11 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   other path answers 403 and is logged, and the file list shows it unavailable without looking
   it up. Verify asks the object store only about an object in the family's bucket package
   folder. The list marks a row of either kind as recorded outside what CoGA reads
-  (`outside_read_folders`), and the page gives the reason a Verify was refused (SEC-27). A family
+  (`outside_read_folders`), and the page gives the reason a Verify was refused. A family
   or sample delete unlinks a managed copy only inside the upload folder, and skips any other
   path a managed row names, with a log line. Otherwise an edited row could download any file the
-  backend can read, and make a delete remove any file it may write (SEC-29). Until SEC-38 a
-  recorded path was read anywhere below the import roots and in the staging folder of a bucket
-  package, so an edited row of one family could name another family's package.
+  backend can read, and make a delete remove any file it may write. An edited row of one family
+  cannot name another family's package.
 - ✅ **A package import reads only its own folder.** Package Import takes a folder only below
   `FAMILY_IMPORT_ROOTS` (`package_folder_not_allowed`). The package list leaves out, and reads
   nothing in, a folder that is a symlink leading out of the roots. Every path a manifest names
@@ -286,24 +282,24 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   with `~` (never expanded to a home folder), and one that runs through a symlink loop.
   - A `manifest.yaml`, `.yml` or `.json` that is a symlink leading out of the folder, or one
     that loops, is refused (`manifest_outside_package`): Discover and validation do not read
-    it, and **Write manifest** does not write through it. A linked manifest gave a package the
-    family of any YAML or JSON file the backend could read, and Write manifest replaced the
-    file it pointed at (SEC-21; [data-import.md](data-import.md)).
+    it, and **Write manifest** does not write through it. Otherwise a linked manifest would give
+    a package the family of any YAML or JSON file the backend can read, and Write manifest would
+    replace the file it points at ([data-import.md](data-import.md)).
   - Write manifest follows no link at all: it writes the text into a new file of the package
     folder, created exclusively and not through a link, and renames it over `manifest.yaml`.
-    The checks above ran before the write, so a link put in the manifest's place between them
-    was written through (SEC-27); now it is replaced.
+    A link put in the manifest's place between the checks above and the write is replaced, not
+    written through.
   - A package staged from a bucket is read only by the import or validation that staged it. A
     typed folder in the staging folder, or an import root linked there, is refused
-    (`package_folder_not_allowed`); it used to read another import's staged copy.
+    (`package_folder_not_allowed`).
   - The staging folder, `coga-family-imports` in the temp folder, is private to the backend
     (mode 0700). One found there that is a symlink, no folder or another user's is refused, not
-    followed, so a link planted in a shared temp folder cannot widen the rule (SEC-27).
+    followed, so a link planted in a shared temp folder cannot widen the rule.
   - A package's `ped/` folder or long-read folder (a dataset's, a sample's) that is a symlink
     is followed wherever it leads, by the package list and by Discover, which may propose a
     member from it; the owner chose a warning over a refusal. Discover and validation report
     each such link (`package_folder_link`): where it leads relative to the import roots, or
-    that it leads outside them, never as an absolute path (SEC-27). A file read through such a
+    that it leads outside them, never as an absolute path. A file read through such a
     link must still lie in the package.
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when:
@@ -356,13 +352,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   terms. Its backup download fetches the vendored file's release from its versioned URL and uses
   the file only if its SHA-256 is the vendored file's; another file is refused and logged before
   anything is written. The URLs and the backup's SHA-256 are fixed in the code; no setting
-  changes them, and the removed `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` are ignored if
-  still set. An accepted backup file is written atomically
+  changes them: `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` are ignored if set. An accepted backup file is written atomically
   ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#how-a-start-loads-hpo)). The
   clinical-CNV knowledgebase script runs with an allowlisted environment: no database
   passwords, signing keys or cloud credentials; `OMIM_API_KEY` is its one credential. It reads
   ClinGen's recurrent CNV file only if its SHA-256 is pinned for the assembly, and stops
-  otherwise (TRACE-14, [data-import.md](data-import.md)).
+  otherwise ([data-import.md](data-import.md)).
 - ✅ **Bounded input sizes and decompression.** A file read whole is read up to
   `MAX_UPLOAD_BYTES` (1 GiB by default) and unpacked up to `MAX_DECOMPRESSED_UPLOAD_BYTES`
   (2 GiB), so a small gzip "bomb" cannot fill the memory (`services/upload_safety.py`). That
@@ -382,7 +377,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 **IDOR review.** Every endpoint that takes a `family_id`, `sample_id` or `project_id` goes
 through the checkpoint above. No unscoped PHI endpoint was found.
 
-**Accepted residual: IDs that are taken (SEC-9).** Family and sample IDs are unique across all
+**Accepted residual: IDs that are taken.** Family and sample IDs are unique across all
 projects. So the Family Builder (`POST /api/ped/manual`), which an analyst of a project may
 use, refuses an ID already in use, also by a family or sample the analyst cannot see:
 `409 Family id already exists: <ID>` or `409 Sample id already exists: <IDs>`. With
@@ -412,13 +407,13 @@ three things bound the damage an XSS, or a token copied from the browser, could 
   (`ACCESS_TOKEN_EXPIRE_MINUTES`). MSAL renews Microsoft's token silently with its refresh
   token (kept in the tab's `sessionStorage`, gone when the tab closes) before each request,
   the API client's and the IGV viewer's alike (IGV asks for the session's token at each of its
-  requests, SEC-32);
+  requests);
 - the logout, which ends every session of the account on the server: `POST /api/auth/logout`
   records when the account signed out (`users.sessions_ended_at`), and every request refuses a
   token issued to the account before then, CoGA's own and Microsoft's, on every device
   (`_refuse_if_signed_out` in `dependencies.py`). CoGA's own tokens say when they were issued to
   the microsecond (`iat`), so a sign-in right after a logout is not taken for one before it; a
-  token that does not say (one issued before this change) counts as issued before. Entra ID
+  token that does not say counts as issued before. Entra ID
   dates its tokens about five minutes early, so a Microsoft token counts as issued at its `iat`
   plus five minutes, the latest it can have been (`TOKEN_DATED_EARLY_SECONDS` in
   `core/azure.py`): a sign-in right after a logout works. The logout ends the sessions at least
@@ -428,7 +423,7 @@ three things bound the damage an XSS, or a token copied from the browser, could 
 Every request re-checks `is_active`, so deactivating a user ends their access at once, and the
 role, so a role change takes effect at the account's next request (`get_current_superuser`,
 `get_current_admin_user`). The jobs an administrator queues are held to the same (owner's
-decision, 2026-10-28, SEC-35). Each keeps its requester by the account's id, and is not run
+decision, 2026-10-28). Each keeps its requester by the account's id, and is not run
 when that account is deactivated, no longer holds the role the job needs (an import: superuser
 or admin; a gene-reference refresh or knowledgebase rebuild: admin), or gone when the job
 starts. The job then ends failed, saying why,
@@ -436,9 +431,7 @@ with nothing written; the log names neither the account nor its address:
 
 - an import job (`family_package_import.run_family_import_job`), which runs as the account
   that requested it, is checked as a worker takes it up, and again when a job still validating
-  is claimed again after its worker stopped. Nothing of the family is written. It used to run
-  as a deactivated account; for one demoted to viewer, only the import project's check applied,
-  which an analyst of the project passes.
+  is claimed again after its worker stopped. Nothing of the family is written.
 - a gene-reference refresh (`gene_info_jobs_pg.run_gene_reference_refresh_job`) is checked as
   a worker takes it up, also again after its worker stopped. It frees its slot for the next
   refresh, and the gene records stay as they were. The refresh a start queues
@@ -451,8 +444,7 @@ with nothing written; the log names neither the account nor its address:
   Nothing is committed, and the DGV variants from before stay. The load a start queues
   (`startup-bootstrap`) is no account's, and runs.
 
-The refresh and the rebuild used to run for whoever had asked, as neither acts with an
-account's rights. An import or a refresh already running when its account is deactivated or
+An import or a refresh already running when its account is deactivated or
 demoted runs to its end: the account is checked as it starts, and stopping an import part-way
 would leave its family to the import's fail-clean restore. A leaked token of a still-active
 user stays valid until it expires or the user logs out, which ends every session of the account
@@ -469,9 +461,7 @@ residual**.
 The UI telemetry sends its last events, as the page is hidden or closed, with a `keepalive`
 request that cannot wait for a renewal: it sends the token the session holds. So the flush
 timer renews a Microsoft session's token that expires within five minutes, also when nothing
-is queued, and again when the page is hidden or shown (`lib/telemetry.ts`). Before, a page
-closed after an idle hour sent its last events with an expired token, which the API refused
-(found while fixing SEC-32).
+is queued, and again when the page is hidden or shown (`lib/telemetry.ts`).
 
 Events that would go with an expired token anyway (the device slept, or MSAL needs the user),
 a batch the API refuses for its session (401), and the events queued when another request's
@@ -480,10 +470,8 @@ a batch the API refuses for its session (401), and the events queued when anothe
 its subject), at most 200 per account. They go out with that account's next flush the API
 takes, after a renewal or its next sign-in, never under another account. A batch stays queued
 until the API acknowledges it, so the flush at page close also sends one still in flight. The
-browser gives each event its id (`event_id`), under which the API stores it once (SEC-17, §2),
-so a batch sent again stores nothing twice. This closed two losses (found while fixing the
-page-close flush on 2026-10-27): the events of a session ended by another request's 401 were
-dropped, as no token was left to send them, and a batch in flight as the page closed was lost.
+browser gives each event its id (`event_id`), under which the API stores it once (§2),
+so a batch sent again stores nothing twice.
 
 The page-close `keepalive` keeps its events the same way before it is sent. They leave the
 browser only once the API has taken them (a 2xx answer). A keepalive that fails, is refused,
@@ -494,10 +482,7 @@ cannot undo each other's writes; at worst two tabs both send an event, which the
 once. Only the limit of 200 per account (the oldest go first) removes a kept event the API has
 not answered. An event made with no session (on the sign-in page, or once the session has
 ended) is not recorded: the API records every event of a batch as the act of the user whose
-token sends it, and no account made this one. This closed three faults (SEC-36): nothing read
-the keepalive's answer, so a failed one lost its events; tabs read, changed and wrote back one
-shared value, so one tab's write could undo another's; and an event made with no session went
-out with the session the next flush found, if any, as that user's.
+token sends it, and no account made this one.
 
 **Emergency (break-glass) administrator.** With Microsoft sign-in there is one local account,
 the emergency administrator: the account `ADMIN_USERNAME` names (`coga-admin` on Google
@@ -514,17 +499,16 @@ includes anyone holding `SECRET_KEY` or the emergency password, without MFA: swi
 for an emergency, and off afterwards. The sign-in page does not link to it, so nobody is led
 to type a Microsoft password into CoGA.
 
-**The account list is for administrators (SEC-33).** `GET /api/users` returns the names and
+**The account list is for administrators.** `GET /api/users` returns the names and
 e-mail addresses of every active account, to administrators only (`get_current_admin_user`;
 a superuser is refused too).
 Anyone else gets the 403 of the other admin routes; an inactive administrator gets the 401 of
 every inactive account. No screen reads it: the family page's assignee and reviewer pickers
 read the family's own list, its projects' analysts, the superusers and the admins (§1), and
 the *Users* page
-reads `GET /api/auth/users`. This ends the accepted residual *staff roster* (owner's decision,
-2026-10-28): any signed-in user used to get the list, so with Microsoft sign-in a member of the
-directory who could sign in without being assigned to the lab's group (deployment-gcp.md
-§12.12) would have seen the roster, though no patient data.
+reads `GET /api/auth/users`. So a member of the directory who can sign in with Microsoft
+without being assigned to the lab's group (deployment-gcp.md §12.12) does not see the staff
+roster (owner's decision, 2026-10-28).
 
 ## 2. Access / audit logging
 
@@ -538,8 +522,8 @@ directory who could sign in without being assigned to the lab's group (deploymen
   *Audit logs* page flags the row in its *Flags* column (*Family outside the user's projects*)
   and shows nothing else of `request_meta`, which also holds two request headers
   (`AdminAuditLogsPage.tsx`).
-- ✅ **Accounts made and changed, and the emergency sign-in, stay visible in the audit
-  (SEC-4).** The row of a request that made an account at a first Microsoft sign-in, or changed
+- ✅ **Accounts made and changed, and the emergency sign-in, stay visible in the audit.**
+  The row of a request that made an account at a first Microsoft sign-in, or changed
   an account's role, activation or project access, carries `request_meta.account_change`: the
   account, and each field from and to. The emergency administrator's password sign-in, and
   every request made with it, carries `request_meta.emergency_sign_in`. The *Audit logs* page
@@ -548,7 +532,7 @@ directory who could sign in without being assigned to the lab's group (deploymen
 - ✅ **Minimal personal data.** Query strings are reduced to their keys by default
   (`AUDIT_LOG_QUERY_STRING_MODE=keys`), and secret-like body fields are masked.
 - ✅ **Append-only.** Triggers in `04_traceability.sql` block DELETE and UPDATE on
-  `audit_log_events` and on the UI-event log `ui_events` (SEC-7), and `05_grants.sql` revokes
+  `audit_log_events` and on the UI-event log `ui_events`, and `05_grants.sql` revokes
   UPDATE, DELETE and TRUNCATE on both from the runtime role `coga_app`. The one exception is the
   `ON DELETE SET NULL` unlink when a user account is deleted; the copied `user_email` and
   `user_role` keep the actor. Neither table is hash-chained: a request row and a UI event record
@@ -562,23 +546,21 @@ directory who could sign in without being assigned to the lab's group (deploymen
     and counted for alerting.
   - The same holds without the queue, with `AUDIT_LOG_MODE=sync` or while no worker runs
     (before startup completes, after shutdown): each event is written as its request runs, and
-    a failed write is logged and counted the same way. It used to leave only a warning the
-    alert did not count.
+    a failed write is logged and counted the same way.
   - Neither the request nor a batch of UI events fails because of it: the UI-event endpoint
     still answers 202, so the browser does not resend the events already stored.
   - One event the database refuses for its own sake (a constraint, or a value its driver
     cannot encode, such as a UI event's time before the year 1 in UTC) fails every attempt of
-    its batch's INSERT. It used to take the batch's other events with it, up to
-    `AUDIT_LOG_BATCH_SIZE` of any user's. Written one at a time, each once and without waiting,
-    it now costs only itself.
+    its batch's INSERT, which holds up to `AUDIT_LOG_BATCH_SIZE` events of any user's. Written
+    one at a time, each once and without waiting, it costs only itself.
   - A write that cannot reach the database at all (no connection) ends that pass; the events
-    not yet written are recorded without being tried, as the whole batch used to be.
+    not yet written are recorded without being tried.
   - Outside development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which
     drops events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
     request or UI-event log at all (`core/config.py`).
-- ✅ **Each event stored once, and a deleted user's row kept (SEC-17).** A commit whose answer
-  never reached the worker (the connection dropped as Postgres committed) looked like a failed
-  write, and the batch written again stored each row twice. Now each event carries its own id,
+- ✅ **Each event stored once, and a deleted user's row kept.** A commit whose answer
+  never reaches the worker (the connection dropped as Postgres committed) looks like a failed
+  write, and the batch is written again. So each event carries its own id,
   `event_id`, given when the event is made, before it is queued. The writers' INSERT does
   nothing for an id the table holds (`ON CONFLICT (event_id) DO NOTHING`, unique in both
   tables), so every write of an event stores it once. A UI event's id is the one the browser
@@ -586,24 +568,23 @@ directory who could sign in without being assigned to the lab's group (deploymen
   such as one in flight as its page closed, is stored once too. An id the table holds stores
   and changes nothing: with one, a client can keep only its own event out, as it could by not
   sending it (`routers/ui_events.py`). A row naming a user whose account was deleted while the
-  row waited in the queue (operator SQL only) failed the foreign key on `user_id` and was lost.
-  Now, written alone, it is stored without the link: the user's id is kept in
+  row waited in the queue (operator SQL only) fails the foreign key on `user_id`; written alone,
+  it is stored without the link: the user's id is kept in
   `request_meta._deleted_user_id` (`detail._deleted_user_id` for a UI event), and `user_email`
   and `user_role` keep the actor. The log says so by the error's kind, without values; the
   event is stored, so it is not counted as lost ([database.md](database.md)).
 - ✅ **No request escapes the audit table.** Postgres refuses a NUL, half a surrogate pair,
-  `NaN` and `Infinity` in TEXT or JSONB. A signed-in user could put one in a JSON field the
-  endpoint ignores, or `%00` in the URL: the action was carried out, but its row, with every
-  other row of its async batch, reached only the log. Now such a value is stored as a visible
+  `NaN` and `Infinity` in TEXT or JSONB. A signed-in user can put one in a JSON field the
+  endpoint ignores, or `%00` in the URL. Such a value is stored as a visible
   escape, with the columns named in `request_meta._escaped` ([database.md](database.md)); the
   UI-event log does the same, in `detail._escaped`. The *Audit logs* page shows the flag, with
-  the columns, in the *Flags* column of both views. A NUL in the URL is now refused at sign-in
+  the columns, in the *Flags* column of both views. A NUL in the URL is refused at sign-in
   (§1), and the refusal's row is kept the same way, under the caller's name. A UI event's
   `occurred_at` (the browser's clock) is kept only from a day before to five minutes after the
   server received the event. Any other value is stored as the receive time, with the client's
-  value in `detail._client_occurred_at`, which a client cannot set. A value the database driver
-  cannot convert to UTC, such as `0001-01-01T00:00:00+05:00`, used to lose its event and, in
-  the async mode, every other event of its batch, any user's (`routers/ui_events.py`).
+  value in `detail._client_occurred_at`, which a client cannot set. That includes a value the
+  database driver cannot convert to UTC, such as `0001-01-01T00:00:00+05:00`
+  (`routers/ui_events.py`).
 - ✅ **A failed audit write is logged by its kind.** The log line names the exception by its
   type and SQLSTATE (`describe_error` in `core/coga_logging.py`), never by the error's text,
   which quotes the statement and the row it could not insert. The row itself is logged once,
@@ -637,20 +618,20 @@ directory who could sign in without being assigned to the lab's group (deploymen
     `log_event_loop_exception`. The lifespan installs it on the loop uvicorn runs the app on,
     where every background worker runs as a task. An import-worker process
     (`backend/app/import_worker.py`) installs it on its own loop, and writes the same JSON log.
-    asyncio's own handler, and uvloop's, wrote each object's repr into the message: a task's
+    asyncio's own handler, and uvloop's, write each object's repr into the message: a task's
     repr holds its exception's message, and the callback's line quotes its arguments (uvloop;
-    asyncio on Python 3.12). The line now gives asyncio's fixed message up to the first object
+    asyncio on Python 3.12). The line gives asyncio's fixed message up to the first object
     it quotes (a message it does not know is not written), the task by its name and coroutine,
     other objects by their type, and the exception by its kind and frames. asyncio's debug
     mode, which writes reprs in lines of its own, is never turned on.
-- ✅ **No family or sample ID in the application log (SEC-39).** The family and sample IDs are
+- ✅ **No family or sample ID in the application log.** The family and sample IDs are
   the lab's identifiers of a patient's samples, and a log line never carries them (the owner,
   2026-11-10). A line names a family by its UUID (`families.id`) or by the import job that
   writes it, and a sample by its UUID or not at all.
-  - About thirty lines named the family by its ID: the import's bookkeeping when a write of it
-    failed, the uploads' clean-ups, Sample QC's warnings, the lineage and ranking warm-ups, and
-    the sign-out's tamper alarm, which now gives `family_uuid` in its fields. An ambiguous
-    pedigree's warning named its couples and their children; it gives the counts.
+  - The import's bookkeeping when a write of a family fails, the uploads' clean-ups, Sample
+    QC's warnings, the lineage and ranking warm-ups, and the sign-out's tamper alarm, which
+    gives `family_uuid` in its fields, name no family ID. An ambiguous pedigree's warning gives
+    the counts of its couples and their children.
   - A path that holds an ID is not logged either. A package file that cannot be read is
     named by its kind (the PGT reader's KING table is named after the family ID), a remote
     package file by its dataset, and a raw-file provenance record that was not written by its
@@ -663,13 +644,13 @@ directory who could sign in without being assigned to the lab's group (deploymen
     path, so an edited row leaves its trace (`raw_import_files_pg.py`).
   - A unit test reads every logging call in `backend/app` and refuses one that reads a value
     held under a family's or a sample's ID name (`test_logs_name_no_family_or_sample.py`).
-- ✅ **A stored or shown error is CoGA's sentence or the error's kind (SEC-39).** The message
+- ✅ **A stored or shown error is CoGA's sentence or the error's kind.** The message
   of a failed dataset and its line in the job's log, the import job's error, and the status of
   a gene reference source that could not be read (which each gene's record keeps and the gene
-  and admin pages show) held the error's text: a failed statement's SQL and the values it was
-  given, a line of a package file, the address a source was read from. Each now holds CoGA's
-  own refusal as it is written, and any other error by its kind (`describe_error`), its
-  frames in the server log. CoGA's own refusal is an `HTTPException` or an error of a class
+  and admin pages show) hold CoGA's own refusal as it is written, and any other error by its
+  kind (`describe_error`), its frames in the server log, never the error's text: a failed
+  statement's SQL and the values it was given, a line of a package file, the address a source
+  was read from. CoGA's own refusal is an `HTTPException` or an error of a class
   CoGA defines (`own_error_message` in `core/coga_logging.py`); the import's refusals raise
   `ImportRefused`. A refusal that quotes a manifest's `vcf_sample` or a file's column names
   shows each character a reader cannot see as its escape (`visible`).
@@ -701,7 +682,7 @@ of their own; see [clinical-traceability.md](clinical-traceability.md).
   `Strict-Transport-Security: max-age=63072000; includeSubDomains`: Terraform sets
   `ENABLE_HSTS=true` on both Cloud Run services, so a browser that has opened the app keeps to
   HTTPS for that host for two years. The API's 500 for an exception nothing else answers
-  carries it too (SEC-23). The load balancer's HTTPS URL map sets the same header on every
+  carries it too. The load balancer's HTTPS URL map sets the same header on every
   answer it relays, in place of the services' own, so Cloud Run's own error pages carry it as
   well. Whether it reaches the answers the load balancer and Cloud Armor give themselves (a
   refusal, a rate limit) is to be checked on the deployed load balancer. Docker Compose serves
@@ -751,23 +732,20 @@ What the application relies on there:
     goes once the API has answered the flushed UI events, which it would otherwise refuse, or
     after two seconds, and at once when the page is closed meanwhile; it is a keepalive, so it
     survives the page. When it does not arrive (offline, or the token had already expired), the
-    account's tokens stay valid until they expire, as before.
+    account's tokens stay valid until they expire.
   - A logout in one tab ends the session in every tab of the browser, since they share it.
     Told by the browser that the token is gone, each other tab clears its query cache and
     MSAL's account and tokens in the tab, and opens the sign-in page
     (`onSessionEndedElsewhere` in `lib/auth.ts`, used by `Layout`). The storage wrapper keeps a
     page's own copy of a write only where the browser's storage did not take it
-    (`lib/storage.ts`). Copying every write let a tab that had written the token itself (it
-    signed in, or renewed a Microsoft token) read it back after another tab's logout, go on
-    showing the user's data, and sign every tab in again at its next renewal (found while
-    fixing SEC-36).
+    (`lib/storage.ts`). Copying every write would let a tab that had written the token itself
+    (it signed in, or renewed a Microsoft token) read it back after another tab's logout, go on
+    showing the user's data, and sign every tab in again at its next renewal.
   - A sign-in of another account in another tab (on a sign-in page left open there) ends the
     session the same way. The other tabs see the user name (the account's address) change and
     clear that account's session with it, so no tab goes on as an account it does not show; the
     account signs in again. A token renewal, and a sign-in of the same account, keep the user
-    name, and the session goes on. Such a sign-in used to replace the session without a logout:
-    a tab went on showing the first account's pages while its requests, and with them the
-    audit's record of who did what, went out as the other account (found while fixing SEC-36).
+    name, and the session goes on.
   - Login starts with an empty cache. The Microsoft sign-in always asks which account
     continues, so a shared workstation never silently signs the next person in as the previous
     one. The page CoGA asked for travels to Microsoft only as a random key (the path, with any
@@ -791,11 +769,10 @@ What the application relies on there:
     one holding `../` cannot reach another family's.
   - Two kinds of ID cannot be reached through a path segment: one that is exactly `.` or `..`
     (a browser resolves it whatever its encoding) and one holding `/` (the backend matches its
-    routes on the decoded path). Such a request answers 404. Since SEC-15 the ID rule refuses
+    routes on the decoded path). Such a request answers 404. The ID rule refuses
     both, along with a `\` and every character a reader cannot see (a C1 control, a
     text-direction or zero-width character, any other non-printable character), wherever an ID
-    is written (`services/family_identifiers.py`). An ID stored before is not changed (the data
-    are synthetic). A refusal that quotes an ID it could not match (a member the family lacks,
+    is written (`services/family_identifiers.py`). A refusal that quotes an ID it could not match (a member the family lacks,
     a VCF column that names none) shows each such character as its escape, as the rule's own
     refusals do (`visible`).
   - On a case-insensitive file system (a macOS bind mount in development), two family IDs that
@@ -803,16 +780,16 @@ What the application relies on there:
     case-sensitive, and the rule leaves case alone.
   - In-app routes are built the same way, with `routePath` (`lib/routePath.ts`), so a link or
     a navigation to a family, panel, CNV or report code keeps an ID holding `?`, `#`, `%` or
-    `/` whole. Raw, `?` and `#` cut the path short and `/` added a segment no route matched
-    (SEC-15). A guard test finds any route template left raw.
+    `/` whole. Raw, `?` and `#` would cut the path short and `/` would add a segment no route
+    matches. A guard test finds any route template left raw.
   - The IGV page's Back link takes its `back_path` only when it is one of the family pages, as
     the HPO page's does: a link could send it to another site.
   - A file named after an ID (the PED download, a variant export, a signed URL's file) carries
     its name in `Content-Disposition` encoded as RFC 6266 has it
     (`backend/app/core/content_disposition.py`). A name with a quote, a backslash, a percent
     sign or a character outside ASCII goes in `filename*`, with an ASCII stand-in in
-    `filename`. Raw, a quote ended the name early, and an ID beyond Latin-1 failed the PED
-    download with a 500.
+    `filename`. Raw, a quote would end the name early, and an ID beyond Latin-1 would fail the
+    PED download with a 500.
 - ✅ **Escaped tooltips.** The d3 tooltips built as HTML escape their values
   (`lib/escapeHtml.ts`).
 - ✅ **Proxy robustness** (`frontend/server.mjs`, `proxyRequest.mjs`). A reset mid-stream ends
@@ -826,16 +803,16 @@ What the application relies on there:
   browser cannot choose the address the backend throttles and audits. On Cloud Run the load
   balancer sends `/api` straight to the backend; this proxy is the path for Docker Compose.
   Terraform still gives the frontend service the backend service's address as `BACKEND_URL`
-  (SEC-23), where the proxy used to aim at Compose's `http://backend:8000`. The backend's
+  (SEC-23). The backend's
   ingress admits only the load balancer and internal traffic, and the frontend's traffic does
   not go through the VPC, so on Cloud Run the proxy would be refused there all the same.
 - ✅ **Headers** (`frontend/securityHeaders.mjs`): a CSP that allows scripts only from the app
   itself (`script-src 'self'`), no framing and no plugins, and a `Permissions-Policy` that
   denies the camera, microphone, geolocation, payment, USB and the other device APIs. API
   responses carry `default-src 'none'` (`backend/app/middleware/security_headers.py`), the 500
-  for an exception nothing else answers included (SEC-23). Where TLS ends in front of the app,
+  for an exception nothing else answers included. Where TLS ends in front of the app,
   `ENABLE_HSTS=true` adds the HSTS header the API sends (§3). The frontend server reads the
-  setting as the backend does, so `1`, `True` or `yes` turn on both headers (SEC-23).
+  setting as the backend does, so `1`, `True` or `yes` turn on both headers.
 - 🟡 **CSP `connect-src`** is `'self' https:` by default, because IGV loads genomes from a
   changing set of hosts and a signed CRAM URL points at the object store. A deployment that
   knows its hosts narrows it with `CSP_CONNECT_SRC`, keeping
