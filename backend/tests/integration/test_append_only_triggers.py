@@ -7,7 +7,8 @@ six of the exploratory ancestry PCA, outside the intended purpose: ``wgs_sources
 ``audit_log_events`` (the HTTP access log), ``clinical_audit_events`` (the clinical action
 log), ``report_signouts`` (frozen signed reports), ``qc_threshold_changes`` (the history of
 QC acceptance limits), ``family_structure_versions`` (the pedigree's history) and
-``ui_events`` (the UI-event log): a direct UPDATE of a non-carve-out column and any DELETE
+``ui_events`` (the UI-event log), and ``import_delivery_revisions`` (the corrections of a
+delivered package): a direct UPDATE of a non-carve-out column and any DELETE
 are rejected by the ``BEFORE UPDATE/DELETE`` triggers, while the FK ``ON DELETE SET NULL``
 carve-out (the user/actor unlink that keeps account deletion working, and for the structure
 versions the family unlink) is permitted — and nothing else. This is the verifying evidence
@@ -146,6 +147,15 @@ _FIRED = {
         f"RETURNING id) INSERT INTO ancestry_file_scans (file_id, status, sha256, reference_sha256) "
         f"SELECT id, 'scanned', 'aa', {_MARKER_SHA256} FROM f RETURNING id",
         "UPDATE ancestry_file_scans SET sha256 = 'tampered' WHERE id = :id",
+    ),
+    # A correction of a delivered package stays as it was made: what it changed and why.
+    "import_delivery_revisions": (
+        "WITH d AS (INSERT INTO import_deliveries (watch_root, folder_path, folder_name, package_fingerprint, state) "
+        f"VALUES ('/w', '/w/p1-5-' || gen_random_uuid(), 'p1-5-test', {_MARKER_SHA256}, 'ready') RETURNING id) "
+        "INSERT INTO import_delivery_revisions (delivery_id, revision, base_sha256, package, package_sha256, changes, "
+        f"reason, created_by_name) SELECT id, 1, {_MARKER_SHA256}, '{{}}'::jsonb, {_MARKER_SHA256}, '[]'::jsonb, "
+        "'marker', 'p1-5-test' FROM d RETURNING id",
+        "UPDATE import_delivery_revisions SET reason = 'tampered' WHERE id = :id",
     ),
 }
 # The column a marker row is found by, where it is not ``id``.
