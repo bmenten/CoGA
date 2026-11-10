@@ -14,10 +14,15 @@ classification (TRACE-15): the dialog's sources and their order are the server's
 
 The class labels the server stores with a classification are the ones the dialogs show, and
 the built-in classification and VUS-tier tags carry them; all are in sentence case (ENG-6).
+
+The server reads the class a review shows from its text and its tags as the family page does
+(``review_class_label`` and ``normalizeReviewClassification``): both read one table of cases
+(CLIN-71).
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -251,3 +256,30 @@ def test_the_class_labels_and_the_classification_tags_are_in_sentence_case_as_th
     assert {key: built_in[key] for key in vus_tier_tags} == vus_tier_tags
     labels = [*built_in.values(), *acmg_points.CLASS_LABELS.values(), *cnv_acmg_points.CLASS_LABELS.values()]
     assert [label for label in labels if not _in_sentence_case(label)] == []
+
+
+# --- the class a review shows (CLIN-71) -----------------------------------------------------------
+
+REVIEW_CLASS_CASES = SMALL_VARIANT_SEARCH_TS.parent / "__tests__" / "fixtures" / "review-class-cases.json"
+
+
+def test_a_review_shows_the_class_the_family_page_reads_from_its_text_and_its_tags() -> None:
+    # The family page reads a review's class with normalizeReviewClassification: a class word in
+    # the text as its label, else the most severe class tag, else the text. The Variant Explorer
+    # read the text alone, so a review classified by its class tag showed no class there (CLIN-71).
+    # The server's rule is review_class_label; smallVariantSearch.test.ts reads the same cases.
+    from backend.app.services.review_pg_utils import CLASS_WORD_TAG_KEYS, review_class_label
+
+    cases = json.loads(REVIEW_CLASS_CASES.read_text(encoding="utf-8"))["cases"]
+    assert len(cases) >= 10
+    for case in cases:
+        shown = review_class_label(case["classification"], case["tags"])
+        assert (shown or "") == case["shown"], case["why"]
+
+    # The tables the rule reads are the frontend's: the class words, and the class tags in the
+    # order in which the first one held is taken (the most severe first).
+    source = SMALL_VARIANT_SEARCH_TS.read_text(encoding="utf-8")
+    body = re.search(r"const CLASS_WORD_TAG_KEYS: Record<string, string> = \{([^}]*)\}", source)
+    assert body, f"CLASS_WORD_TAG_KEYS not found in {SMALL_VARIANT_SEARCH_TS.name}"
+    assert dict(re.findall(r"'?(\w[\w ]*?)'?:\s*'(\w+)'", body.group(1))) == CLASS_WORD_TAG_KEYS
+    assert list(_ts_tags("export const ACMG_CLASSIFICATION_TAGS")) == list(acmg_points.CLASS_LABELS)

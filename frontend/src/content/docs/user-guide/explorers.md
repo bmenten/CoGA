@@ -23,7 +23,10 @@ resources.
 Every small variant across the projects you can access, one row per variant: gene, variant,
 classification, consequence and tags, with the number of carriers (het and hom) and of families.
 A variant reviewed in more than one family shows the most severe classification of those reviews, and
-the tags of all of them.
+the tags of all of them. Each review counts with the class the family page shows for it, also when it
+holds only a class tag such as *Likely pathogenic - class 4*. Of two reviews of the same class, the row
+shows the one saved last. The classification filter reads the classification text, as on the family
+page: to find a variant classified by its class tag alone, filter on that tag.
 
 - Filter as on the family page (gene, consequence, ClinVar, frequency, in-silico scores), plus tags and
   classification — for example every variant tagged *Report*.

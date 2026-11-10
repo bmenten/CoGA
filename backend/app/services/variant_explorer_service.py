@@ -43,6 +43,7 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
 
 from sqlalchemy import bindparam, text
@@ -82,6 +83,7 @@ from .family_variant_filters import (
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, has_superuser_rights, user_metadata_project_ids
+from .review_pg_utils import _as_utc, review_class_label
 from .variant_ranking_cache import panel_members_digest
 
 
@@ -202,7 +204,9 @@ _IMPACT_RANK = {"high": 4, "moderate": 3, "low": 2, "modifier": 1}
 # ("Pathogenic - class 5", the same for ACMG and CNV classes); other clients and older
 # reviews may hold a class key ("acmg_class_4", "cnv_class_4") or the bare class word in any
 # case or spelling ("Likely_Pathogenic", "VUS"). Each reads as the class it names (CLIN-69):
-# the class number when the text ends in one, else the class word.
+# the class number when the text ends in one, else the class word. What is ranked is the class
+# each review shows (review_class_label, as the family page reads it: a class word as its label,
+# else the review's class tag, else the text; CLIN-71).
 _CLASS_NUMBER = re.compile(r"(?:^|_)class_([1-5])$")
 _CLASSIFICATION_WORD_RANK = {
     "pathogenic": 5,
@@ -553,6 +557,9 @@ def _shown_carrier_condition(params: dict[str, Any]) -> str:
 # Postgres review (tag / classification) bridge                               #
 # --------------------------------------------------------------------------- #
 
+# The sort key of a review without a save time (none in Postgres: the column is NOT NULL).
+_NO_TIME = datetime.min.replace(tzinfo=timezone.utc)
+
 
 async def _variant_ids_matching_reviews(
     session: AsyncSession,
@@ -652,7 +659,15 @@ async def _review_display_map(
     project_ids: Sequence[str],
     variant_ids: Sequence[str],
 ) -> dict[str, dict[str, Any]]:
-    """Per variant_id: union of tags + most-severe classification across families."""
+    """Per variant_id: the union of its reviews' tags, the class each review shows, and the
+    latest review time, across the families of ``project_ids``.
+
+    Each review shows its class as the family page reads it (``review_class_label``): a
+    review classified by its class tag alone shows that class (CLIN-71). Its own class comes
+    before its compound-het pair's, and the reviews are taken saved last first, then by
+    family id, whatever order the rows come in: of two reviews of the same class
+    ``_most_severe`` keeps the first, so the class shown no longer depends on row order.
+    """
 
     variant_ids = [str(value).strip() for value in variant_ids if str(value).strip()]
     if not variant_ids or not project_ids:
@@ -665,6 +680,7 @@ async def _review_display_map(
         """
         SELECT
             r.variant_id,
+            r.family_id::text AS family_id,
             r.classification,
             r.tags,
             r.compound_het_classification,
@@ -674,6 +690,7 @@ async def _review_display_map(
         JOIN family_projects fp ON fp.family_id = r.family_id
         WHERE fp.project_id IN :project_ids
           AND r.variant_id = ANY(CAST(:variant_ids AS text[]))
+        ORDER BY r.variant_id, r.updated_at DESC, r.family_id
         """
     ).bindparams(uuid_list_bindparam("project_ids"))
     result = await session.execute(
@@ -682,7 +699,7 @@ async def _review_display_map(
     )
 
     aggregated: dict[str, dict[str, Any]] = {}
-    for row in result.mappings().all():
+    for row in _in_review_order(result.mappings().all()):
         variant_id = str(row["variant_id"] or "").strip()
         if not variant_id:
             continue
@@ -697,16 +714,31 @@ async def _review_display_map(
             text_tag = str(tag or "").strip()
             if text_tag:
                 entry["tags"].add(text_tag)
-        for value in (row.get("classification"), row.get("compound_het_classification")):
-            text_value = str(value or "").strip()
-            if text_value:
-                entry["classifications"].append(text_value)
+        for shown in (
+            review_class_label(row.get("classification"), row.get("tags")),
+            review_class_label(row.get("compound_het_classification"), row.get("compound_het_tags")),
+        ):
+            if shown:
+                entry["classifications"].append(shown)
         updated_at = row.get("updated_at")
         if updated_at is not None and (
             entry["updated_at"] is None or updated_at > entry["updated_at"]
         ):
             entry["updated_at"] = updated_at
     return aggregated
+
+
+def _in_review_order(rows: Sequence[Any]) -> list[Any]:
+    """``rows`` saved last first (a review without a time last), then by family id: the order
+    the review lookup reads them in, applied here too so the result holds whatever order a
+    driver hands them over in."""
+    by_family = sorted(rows, key=lambda row: str(row.get("family_id") or ""))
+    # A stable sort: reviews saved at the same time keep their family order.
+    return sorted(
+        by_family,
+        key=lambda row: (row.get("updated_at") is not None, _as_utc(row.get("updated_at")) or _NO_TIME),
+        reverse=True,
+    )
 
 
 # --------------------------------------------------------------------------- #

@@ -40,6 +40,38 @@ def current_class_label(value: str) -> str:
     return _CLASS_LABELS_BY_LOWERED.get(value.strip().lower(), value)
 
 
+# The bare class words a review's classification text may hold instead of the class label (the
+# review API takes free text), each the ACMG class tag of the class it names: the frontend's
+# ``CLASS_WORD_TAG_KEYS`` (smallVariantSearch.ts; ``test_acmg_frontend_parity.py`` compares them).
+CLASS_WORD_TAG_KEYS: dict[str, str] = {
+    "pathogenic": "acmg_class_5",
+    "likely pathogenic": "acmg_class_4",
+    "vus": "acmg_class_3",
+    "likely benign": "acmg_class_2",
+    "benign": "acmg_class_1",
+}
+
+
+def review_class_label(classification: str | None, tags: Iterable[Any] | None = None) -> str | None:
+    """The class a review shows, from its classification text and its tags, as the family page
+    reads it (``normalizeReviewClassification`` in smallVariantSearch.ts; CLIN-71).
+
+    A bare class word in the text ("VUS", "likely pathogenic") is that class's label; else the
+    most severe ACMG class tag the review holds (``acmg_class_5`` … ``acmg_class_1``) is its
+    label, so a review classified by its class tag alone shows that class; else the text as
+    stored, trimmed. None when there is neither. A VUS tier tag is no class tag.
+    """
+    text_value = str(classification or "").strip()
+    word_tag = CLASS_WORD_TAG_KEYS.get(text_value.lower())
+    if word_tag:
+        return acmg_points.CLASS_LABELS[word_tag]
+    held = {str(tag or "").strip() for tag in (tags or [])}
+    for tag_key, label in acmg_points.CLASS_LABELS.items():
+        if tag_key in held:
+            return label
+    return text_value or None
+
+
 def _stored_classification(value: str | None) -> str | None:
     """A review's classification as a save stores it: trimmed, None when empty, and a class
     label in another case written as the label is now (:func:`current_class_label`)."""

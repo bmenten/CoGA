@@ -730,9 +730,10 @@ def test_review_display_map_binds_any_number_of_variant_ids_as_one_parameter() -
         (["BENIGN - CLASS 1", "likely benign - class 2"], "likely benign - class 2"),
         # The ACMG and CNV class keys.
         (["acmg_class_3", "cnv_class_5", "acmg_class_4"], "cnv_class_5"),
-        # The bare class words the review API also takes (free text), in any case or spelling.
+        # The bare class words the review API also takes (free text), in any case or spelling;
+        # a class word the family page reads as its class shows as the class label (CLIN-71).
         (["VUS", "Likely_Pathogenic", "benign"], "Likely_Pathogenic"),
-        (["uncertain significance", "likely benign", "Pathogenic"], "Pathogenic"),
+        (["uncertain significance", "likely benign", "Pathogenic"], "Pathogenic - class 5"),
         # Text that names no class loses to any class.
         (["Not a class", "Benign - class 1"], "Benign - class 1"),
     ],
@@ -744,6 +745,35 @@ def test_the_explorer_shows_the_most_severe_classification_whatever_form_it_is_s
     # which no rank key matched, so every label ranked 0 and the first review read won: a
     # variant classified pathogenic in one family and likely benign in another could show
     # "Likely benign - class 2".
+    # One review row per family; the labels alternate between the variant's own
+    # classification and its compound-het pair's.
+    review_rows = [
+        _review_row(
+            classification=None if index % 2 else label,
+            compound_het_classification=label if index % 2 else None,
+        )
+        for index, label in enumerate(stored)
+    ]
+    assert _shown_row(monkeypatch, review_rows).classification == shown
+
+
+def _review_row(**fields: Any) -> dict[str, Any]:
+    """A review row as the Explorer's review lookup reads it: one family's review of the variant."""
+    return {
+        "variant_id": "1-100-A-G",
+        "family_id": "00000000-0000-0000-0000-00000000000a",
+        "classification": None,
+        "tags": [],
+        "compound_het_classification": None,
+        "compound_het_tags": [],
+        "updated_at": None,
+        **fields,
+    }
+
+
+def _shown_row(monkeypatch: pytest.MonkeyPatch, review_rows: list[dict[str, Any]], session=None):
+    """The Explorer row of variant 1-100-A-G, its reviews read as ``review_rows``."""
+
     async def fake_execute(query, params):
         # key, variant_id, chrom, pos, ref, alt, rsid, xpos, families, hom, het, total, genes
         return [(7, "1-100-A-G", "1", 100, "A", "G", None, 1_000_000_100, 2, 0, 2, 2, ["BRCA1"])]
@@ -753,24 +783,10 @@ def test_the_explorer_shows_the_most_severe_classification_whatever_form_it_is_s
 
     monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
     monkeypatch.setattr(ves, "_fetch_annotation_display", no_annotation)
-    # One review row per family; the labels alternate between the variant's own
-    # classification and its compound-het pair's.
-    review_rows = [
-        {
-            "variant_id": "1-100-A-G",
-            "classification": None if index % 2 else label,
-            "tags": [],
-            "compound_het_classification": label if index % 2 else None,
-            "compound_het_tags": [],
-            "updated_at": None,
-        }
-        for index, label in enumerate(stored)
-    ]
     scope = types.SimpleNamespace(project_ids=[_PROJECT], assembly_name="GRCh38")
-
     rows, _cursors = asyncio.run(
         ves._fetch_variant_rows(
-            _RecordingSession(rows=review_rows),
+            session or _RecordingSession(rows=review_rows),
             scope=scope,
             entries_table="db.entries",
             where_sql="1",
@@ -780,8 +796,108 @@ def test_the_explorer_shows_the_most_severe_classification_whatever_form_it_is_s
             limit=10,
         )
     )
+    return rows[0]
 
-    assert rows[0].classification == shown
+
+@pytest.mark.parametrize(
+    ("reviews", "shown"),
+    [
+        # A review classified by its class tag alone, with no classification text: the quick
+        # tag toggle and a client of the review API can store one. The family page shows its
+        # class; the Explorer showed none.
+        ([{"tags": ["acmg_class_4", "report"]}], "Likely pathogenic - class 4"),
+        ([{"compound_het_tags": ["acmg_class_5"]}], "Pathogenic - class 5"),
+        # A class tag outranks another family's classification text, and loses to a more
+        # severe one.
+        (
+            [{"classification": "Likely benign - class 2"}, {"tags": ["acmg_class_4"]}],
+            "Likely pathogenic - class 4",
+        ),
+        (
+            [{"classification": "Pathogenic - class 5"}, {"tags": ["acmg_class_3"]}],
+            "Pathogenic - class 5",
+        ),
+        # Text and tag together, as the family page reads them: a class tag before a class
+        # label, a class word before a class tag (normalizeReviewClassification).
+        ([{"classification": "VUS - class 3", "tags": ["acmg_class_4"]}], "Likely pathogenic - class 4"),
+        ([{"classification": "VUS", "tags": ["acmg_class_4"]}], "VUS - class 3"),
+        (
+            [{"compound_het_classification": "Likely benign - class 2", "compound_het_tags": ["acmg_class_5"]}],
+            "Pathogenic - class 5",
+        ),
+        # Of two class tags of one review, the more severe.
+        ([{"tags": ["acmg_class_1", "acmg_class_4"]}], "Likely pathogenic - class 4"),
+        # A VUS tier is no class tag.
+        ([{"tags": ["acmg_vus_hot", "report"]}], None),
+    ],
+)
+def test_the_explorer_shows_the_class_of_a_review_as_the_family_page_reads_it(
+    monkeypatch, reviews, shown
+) -> None:
+    # CLIN-71: the Explorer read a review's classification text alone. A review classified by
+    # its class tag (no text) showed no class, though the family page shows one.
+    review_rows = [
+        _review_row(family_id=f"00000000-0000-0000-0000-00000000000{index}", **fields)
+        for index, fields in enumerate(reviews)
+    ]
+    assert _shown_row(monkeypatch, review_rows).classification == shown
+
+
+def test_the_shown_class_and_review_time_do_not_depend_on_the_order_the_reviews_are_read(monkeypatch) -> None:
+    # CLIN-71: the review lookup had no ORDER BY, and of two reviews of the same class the first
+    # read was shown. Of two reviews of one class the one saved last is shown, then the one of
+    # the lower family id; the review time is the latest, whatever the order.
+    from datetime import datetime, timezone
+
+    earlier = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
+    later = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
+    by_key = _review_row(family_id="00000000-0000-0000-0000-00000000000a", classification="acmg_class_4", updated_at=earlier)
+    by_label = _review_row(
+        family_id="00000000-0000-0000-0000-00000000000b", classification="Likely pathogenic - class 4", updated_at=later
+    )
+    benign = _review_row(family_id="00000000-0000-0000-0000-00000000000c", classification="Benign - class 1", updated_at=later)
+    for rows in ([by_key, by_label, benign], [benign, by_label, by_key]):
+        row = _shown_row(monkeypatch, rows)
+        assert row.classification == "Likely pathogenic - class 4"
+        assert row.last_seen == later
+
+    # The same with the later review classified by its class tag alone.
+    by_tag = {**by_label, "classification": None, "tags": ["acmg_class_4"]}
+    for rows in ([by_key, by_tag, benign], [benign, by_tag, by_key]):
+        row = _shown_row(monkeypatch, rows)
+        assert row.classification == "Likely pathogenic - class 4"
+        assert row.last_seen == later
+
+    # Saved at the same time: the review of the lower family id.
+    same_time = {**by_key, "updated_at": later}
+    for rows in ([same_time, by_tag], [by_tag, same_time]):
+        assert _shown_row(monkeypatch, rows).classification == "acmg_class_4"
+
+    # Postgres reads the reviews in that order too.
+    session = _RecordingSession(rows=[by_key])
+    _shown_row(monkeypatch, [], session=session)
+    statement = " ".join(str(session.calls[0][0]).split())
+    assert "r.family_id::text AS family_id" in statement
+    assert "ORDER BY r.variant_id, r.updated_at DESC, r.family_id" in statement
+
+
+def test_the_classification_filter_reads_the_classification_text_as_the_family_search_does() -> None:
+    # CLIN-71: the family search's classification filter (list_matching_small_variant_review_ids)
+    # matches a review's classification text, or its pair's, and no tag: a review classified by
+    # its class tag alone is kept by the tag filter, not the classification filter. The Explorer's
+    # keeps the same reviews (integration/test_variant_explorer_export_integration.py compares
+    # the two on Postgres).
+    from backend.app.services.variant_explorer_service import _variant_ids_matching_reviews
+
+    session = _RecordingSession(rows=[("1-100-A-G",)])
+    asyncio.run(
+        _variant_ids_matching_reviews(
+            session, project_ids=[_PROJECT], classifications=["Likely pathogenic - class 4"], tags=[], limit=10
+        )
+    )
+    statement, params = session.calls[0]
+    assert "tags" not in str(statement)
+    assert "tags" not in params
 
 
 def test_a_classification_ranks_by_the_class_it_names() -> None:
