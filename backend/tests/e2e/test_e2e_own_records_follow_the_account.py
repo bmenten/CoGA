@@ -16,9 +16,9 @@ carries a new address and user name, and a second colleague, a viewer in the sam
 then signs in with the address and user name the first left behind. The first colleague's
 presets stay theirs, listed and deleted by them; the second lists none of them and deletes
 none. The import runs as the first colleague's account, and keeps the address it was
-requested under as its requester's. Made a viewer, the first colleague still finds the job in
-their own job list, and the second colleague does not (the service's list: only an
-administrator reaches the import routes, and an administrator sees every job).
+requested under as its requester's. The first colleague, an administrator, still finds the job;
+the second, a viewer, reads no job (the import routes are a superuser's or an administrator's,
+who see every job).
 
 The directory is a stand-in made at run time (``_microsoft_sign_in_fakes.FakeDirectory``),
 and the import is replaced by one that records the account it runs as: what this tests is
@@ -49,9 +49,6 @@ async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str,
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
-    from backend.app.services.access_control import RecordNotVisible
-    from backend.app.services.family_package_jobs import get_family_import_job, list_family_import_jobs
-    from backend.app.services.metadata_service import get_current_user_by_email
     from backend.tests.e2e import _harness
 
     family_id = f"E2E_SEC32_{run}"
@@ -183,25 +180,14 @@ async def _exercise(run: str, directory, patch: pytest.MonkeyPatch) -> dict[str,
                 out["run_error"] = str(exc)
             out["ran_as"] = [(user.id, user.email) for user in ran_as]
             out["job_after_run"] = capture(await client.get(f"/api/family-imports/{job_id}", headers=renamed))
-
-            # Made a viewer, each colleague's own job list, as the service gives it.
-            await make_member(colleague_id, "viewer")
-            async with sessionmaker() as session:
-                as_viewer = await get_current_user_by_email(session, new)
-                other = await get_current_user_by_email(session, old)
-                assert as_viewer is not None and other is not None
-
-                async def job_seen_by(user) -> str:
-                    try:
-                        await get_family_import_job(session, job_id=job_id, user=user)
-                    except RecordNotVisible:
-                        return "not visible"
-                    return "visible"
-
-                out["own_jobs"] = [job.id for job in await list_family_import_jobs(session, user=as_viewer, limit=100)]
-                out["own_job"] = await job_seen_by(as_viewer)
-                out["other_jobs"] = [job.id for job in await list_family_import_jobs(session, user=other, limit=100)]
-                out["other_job"] = await job_seen_by(other)
+            out["colleague_job_list"] = capture(await client.get("/api/family-imports?limit=100", headers=renamed))
+            # The import routes are a superuser's or an administrator's: the second colleague,
+            # a viewer, reads no job, though it signs in with the address the job was requested
+            # under.
+            out["successor_jobs"] = {
+                "job": capture(await client.get(f"/api/family-imports/{job_id}", headers=successor)),
+                "list": capture(await client.get("/api/family-imports?limit=100", headers=successor)),
+            }
 
             out["colleague_deletes"] = {
                 "small": capture(await client.delete(f"{small}/{preset_ids['small']}", headers=renamed)),
@@ -308,9 +294,9 @@ def test_the_import_runs_as_the_account_that_requested_it(ran) -> None:
     assert ran["colleague_lists"]["job"]["status"] == 200
 
 
-def test_the_job_stays_in_the_colleagues_own_list_and_out_of_the_other_accounts(ran) -> None:
-    # Before, each read the jobs of the address the account has now.
-    assert ran["job_id"] in ran["own_jobs"]
-    assert ran["own_job"] == "visible"
-    assert ran["job_id"] not in ran["other_jobs"]
-    assert ran["other_job"] == "not visible"
+def test_the_job_stays_in_the_colleagues_list_and_the_other_account_reads_none(ran) -> None:
+    listed = ran["colleague_job_list"]
+    assert listed["status"] == 200
+    assert ran["job_id"] in [job["_id"] for job in listed["json"]]
+    # A viewer reaches no import route, the address the job was requested under or not.
+    assert {key: seen["status"] for key, seen in ran["successor_jobs"].items()} == {"job": 403, "list": 403}

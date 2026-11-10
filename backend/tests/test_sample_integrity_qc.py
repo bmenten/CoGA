@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, get_args, get_type_hints
 
 import pytest
 
@@ -15,6 +15,7 @@ from backend.app.services.sample_integrity_qc import (
     MIN_MENDEL_SITES,
     MIN_RELATEDNESS_SITES,
     MIN_X_SITES,
+    PaternityCheck,
     PedigreeSpec,
     ReadSexCall,
     SampleIntegrityReport,
@@ -495,6 +496,14 @@ def test_evaluate_paternity_supported_vs_mixup() -> None:
     # Too few paternal-informative sites -> warn, not a confident verdict.
     thin = _paternity((5, 1), (10, 9))
     assert thin.status == "warn" and "Too few" in thin.message
+    assert _paternity((0, 0), (0, 0)).status == "warn"
+
+
+def test_a_paternity_check_is_pass_warn_or_fail_never_skip() -> None:
+    # ENG-23: the check's status allowed "skip", which evaluate_paternity never gives (too few
+    # sites warns), so the NIPT route had to silence the type it serves (pass, warn or fail).
+    # The signed record freezes it the same way.
+    assert set(get_args(get_type_hints(PaternityCheck)["status"])) == {"pass", "warn", "fail"}
 
 
 # --- The NIPT paternity check's totals say what they count (ENG-4) ----------------------

@@ -303,28 +303,6 @@ def _annotation_row_from_columns(
     )
 
 
-def _small_annotation_row(
-    *,
-    variant_key: int,
-    variant_id: str,
-    annotation_version: str,
-    annotation_set_hash: int,
-    record: SmallVariantRecord,
-    annotation: dict[str, Any],
-) -> tuple[Any, ...]:
-    return _annotation_row_from_columns(
-        variant_key=variant_key,
-        variant_id=variant_id,
-        annotation_version=annotation_version,
-        annotation_set_hash=annotation_set_hash,
-        annotation_hash=_annotation_payload_hash(annotation),
-        chrom=normalize_chromosome(record.chr),
-        pos=int(record.start),
-        record=record,
-        columns=_annotation_columns(annotation),
-    )
-
-
 def _small_annotation_index_row(
     *,
     variant_key: int,

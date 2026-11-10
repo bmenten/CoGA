@@ -73,11 +73,6 @@ const TITLE_HEIGHT = 18;
 const CHROM_LABEL_HEIGHT = 14;
 const KEY_HEIGHT = 18;
 
-/** The height the chart takes: its two panels, their titles, the genome view's chromosome
- * labels and the reading key. */
-export const parentalOriginChartHeight = (panelHeight: number, genome: boolean): number =>
-  2 * (TITLE_HEIGHT + panelHeight) + (genome ? CHROM_LABEL_HEIGHT : 0) + KEY_HEIGHT;
-
 interface Props {
   /** The BED reads of the embryo's segregation track: the region in view, or every chromosome. */
   urls: string[];

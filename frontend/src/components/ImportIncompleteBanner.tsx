@@ -173,21 +173,6 @@ export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnf
     .sort((a, b) => (a.at ?? '').localeCompare(b.at ?? '') || a.key.localeCompare(b.key));
 };
 
-/**
- * The keys of the `import_unfinished` entries that a failed overwrite's restore left: the
- * restore rewrites the family's rows whichever import or upload wrote them, and it did not
- * finish, so the entry lists every dataset of the family that ClickHouse holds
- * (`whole_family`), each until an import, or a single-file upload, has brought it again with
- * overwrite (family_package_registration.whole_family_entry, record_family_upload). The
- * signed record and the sign-out refusal freeze it as `whole_family: true` (SAFE-18).
- */
-export const wholeFamilyImportKeys = (metadata: unknown): Set<string> =>
-  new Set(
-    importUnfinishedFromMetadata(metadata)
-      .filter((entry) => entry.wholeFamily)
-      .map((entry) => entry.key),
-  );
-
 const bannerTime = (iso: string): string => `${iso.replace('T', ' ').slice(0, 16)} UTC`;
 
 /** One unfinished import, as the banner says it. */
