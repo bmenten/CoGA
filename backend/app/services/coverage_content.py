@@ -3,10 +3,10 @@
 A coverage BED says what it holds when it is loaded: the BED upload's ``content`` and the
 ``content`` key of a package manifest's coverage entry, ``read_depth`` or ``log2_ratio``. Its
 track's record keeps it (``content`` in ``sample_interval_track_sources.metadata``). A BED that
-declares neither -- a manifest entry without the key, or a track stored before BEDs declared
-it -- holds values of unknown kind (``unknown``): it is drawn without a depth or log2-ratio
-axis and never read as depth. ``coverage_read_depth`` decides from it, and from the transforms
-the other callers' records name, what each coverage track holds.
+declares neither -- a manifest entry without the key -- holds values of unknown kind, recorded
+as ``unknown``: it is drawn without a depth or log2-ratio axis and never read as depth.
+``coverage_read_depth`` decides from it, and from the transforms the other callers' records
+name, what each coverage track holds.
 
 No imports, so that the loaders, the validation and the bookkeeping can all read it.
 """

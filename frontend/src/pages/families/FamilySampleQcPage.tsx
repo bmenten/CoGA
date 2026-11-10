@@ -33,22 +33,6 @@ const OVERALL_COPY: Record<QcStatus, string> = {
   skip: 'No sample-integrity check could run for this family.',
 };
 
-const checkStatuses = (qc: ApiSampleIntegrityQc): QcStatus[] => [
-  ...qc.sex_checks.map((check) => check.status),
-  ...qc.relatedness_checks.map((check) => check.status),
-  ...qc.mendelian_checks.map((check) => check.status),
-  ...[qc.paternity_check, qc.fetal_sex_check, qc.category_qc_check].flatMap((check) =>
-    check ? [check.status] : [],
-  ),
-];
-
-// The overall verdict is the backend's: it is what a sign-out freezes, and it counts a check
-// that could not run as a warning. A pass beside such a check (a backend from before that
-// rule) is shown as a warning as well, so the page never says every check passed when one
-// did not run.
-const overallStatus = (qc: ApiSampleIntegrityQc): QcStatus =>
-  qc.overall_status === 'pass' && checkStatuses(qc).includes('skip') ? 'warn' : qc.overall_status;
-
 const StatusChip: React.FC<{ status: QcStatus }> = ({ status }) => (
   <span className={QC_STATUS_CHIP[status]}>{QC_STATUS_LABEL[status]}</span>
 );
@@ -509,7 +493,8 @@ const FamilySampleQcPage: React.FC = () => {
   }
 
   const perSample = buildQcStatusBySample(qc);
-  const overall = overallStatus(qc);
+  // The backend's verdict: what a sign-out freezes, a check that could not run counted as a warning.
+  const overall = qc.overall_status;
   const members = family?.members ?? [];
   const pedRows = parsePedigree(family?.pedigree);
   const hasSequencingQc = sequencingQcColumns(members).length > 0;

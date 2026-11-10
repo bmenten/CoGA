@@ -10,10 +10,8 @@ track availability):
 * A coverage BED holds what it was declared to hold when it was loaded (TRACE-9): the BED
   upload's ``content`` and the ``content`` key of the package manifest's coverage entry, which
   its record keeps (``content`` in ``sample_interval_track_sources.metadata``): ``read_depth``
-  or ``log2_ratio``. A BED that declares neither -- a manifest entry without the key, or a track
-  stored before BEDs declared it -- holds values of unknown kind. It used to be read as depth
-  (the importer called the file a BED of depths) while the views drew it on their log2-ratio
-  axis.
+  or ``log2_ratio``. A BED that declares neither -- a manifest entry without the key -- holds
+  values of unknown kind, recorded as ``unknown``.
 * Another caller's track holds what its import's transform made of its file
   (``normalization``, TRACE-7): read depth after ``none`` alone (HiFiCNV's depths stored as
   read, its file having given no usable autosomal median), a log2 ratio after a log2-ratio
@@ -103,8 +101,8 @@ def coverage_track_content(
     declare (``interval_track_contents_by_sample``). See the module docstring for the rule."""
     if source == BED_UPLOAD_SOURCE:
         declared = set(contents)
-        # Undeclared (a manifest entry without the key, a track stored before BEDs declared
-        # it), declared unknown, or two records that disagree: unknown.
+        # Declared unknown (a manifest entry without the key), no declaration, or two records
+        # that disagree: unknown.
         return declared_coverage_content(declared.pop()) if len(declared) == 1 else UNKNOWN_CONTENT
     named = set(normalizations)
     if named:

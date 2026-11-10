@@ -357,10 +357,6 @@ def test_a_later_record_of_a_samples_bed_replaces_what_the_family_holds_of_it() 
     )
 
     assert again == {"bed_coverage": [{"source": None, "samples": ["S1"], "content": "log2_ratio"}]}
-    # An upload record written before BEDs declared what they hold reads as it was.
-    assert registration.merged_imported_scopes(
-        {"bed_coverage": [{"source": None, "samples": ["S2"]}]}, ()
-    ) == {"bed_coverage": [{"source": None, "samples": ["S2"]}]}
 
 
 def test_no_overwrite_compares_what_a_bed_declared() -> None:

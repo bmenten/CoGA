@@ -71,7 +71,7 @@ _FAMILY_TABLE_RELS: tuple[str, ...] = (
 )
 
 # The owner segment of a backup's name: an import's key (a job's uuid, ``run-<hex>``), or
-# the random token of a backup made before backups were named after their import.
+# the random token of a backup made without one (``_snapshot_owner``).
 _OWNER = re.compile(r"^[0-9A-Za-z][0-9A-Za-z-]{0,63}$")
 # A backup table's name, as _snapshot_specs makes it; the dataset is
 # clickhouse_dataset_key's output.
@@ -299,9 +299,9 @@ def orphaned_import_backups(
     A backup owned by an import job is kept while that job is queued, validating or
     running (``running_jobs``: a stopped import's job stays running until a worker ends
     it, and drops its backups then); once the job has ended, or is gone, its import can no
-    longer use it. One owned by an import run outside a job (or made before backups were
-    named after their import) is kept for ``grace`` after it was made, as nothing records
-    whether that import still runs; one whose age cannot be read is kept.
+    longer use it. One owned by an import run outside a job, or by no import (a random
+    token), is kept for ``grace`` after it was made, as nothing records whether that import
+    still runs; one whose age cannot be read is kept.
     """
     orphaned: list[ImportBackupTable] = []
     for table in tables:

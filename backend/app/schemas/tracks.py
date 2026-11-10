@@ -26,9 +26,9 @@ class HaplotypeSegment(BaseModel):
     hap2: str
     ps: Optional[int] = None
     # Pedigree-aware colour class for each lane: "paternal"/"maternal" (coloured
-    # by the hap value's shade), "untransmitted"/"unknown" (grey). Absent for
-    # data that predates lineage tagging — the frontend then falls back to the
-    # role-based colourer.
+    # by the hap value's shade), "untransmitted"/"unknown" (grey). Absent where the
+    # lineage was not worked out (the view degrades to the stored blocks) — the
+    # frontend then falls back to the role-based colourer.
     hap1_lineage: Optional[str] = None
     hap2_lineage: Optional[str] = None
     # A male carries one copy of this block: chrX or chrY outside the pseudo-autosomal

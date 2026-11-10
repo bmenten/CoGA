@@ -299,8 +299,7 @@ async def upload_bed_data(
     ``log2_ratio``, which the single-file upload requires (``routers/bed.py``) and a package's
     coverage entry gives as its ``content`` key. Its track's record keeps it, as ``unknown``
     when the BED declares neither (``declared_coverage_content``): such a track is drawn
-    without a depth or log2-ratio axis and never read as depth (``coverage_read_depth``). It
-    used to record nothing, and was read as depth while the views drew it as a log2 ratio.
+    without a depth or log2-ratio axis and never read as depth (``coverage_read_depth``).
     What the upload brought is recorded with it (``interval_track_upload_scope``). The other
     track types declare nothing.
 
