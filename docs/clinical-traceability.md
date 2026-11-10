@@ -36,7 +36,7 @@ import and a replacement of one family take turns on one lock, so neither overwr
 halfway. `GET /families/{family_id}/annotation-manifest` merges it with what CoGA itself loaded:
 the reference assembly, the gene-loci source (`gene_loci`: GENCODE, or the UCSC table used when
 GENCODE could not be fetched), the Monarch release and the HPO release, with the SHA-256 of the
-ontology file its terms came from where the import recorded it (TRACE-18; how each is read:
+ontology file its terms came from where the import recorded it (how each is read:
 [annotation-provenance.md](annotation-provenance.md#the-reference-modules)). The report footer
 shows the merged list; sign-out freezes it.
 
@@ -58,9 +58,7 @@ then most severe impact; its id in `transcript_id`), through the variant list's 
   the exome, genome, gnomAD popmax, VEP `MAX_AF` (`max_af`) and TOPMed frequencies and gnomAD
   allele, homozygote and hemizygote counts the filters read, and gnomAD's FAF95 (`gnomad_faf95_af`)
   that BA1 and BS1 read; for a chrM variant only, the homoplasmic and heteroplasmic frequencies the
-  mtDNA criteria read (`gnomad_mt_af_hom`, `gnomad_mt_af_het`, `helix_af_hom`, `helix_af_het`). A
-  snapshot frozen before a field was is compared on what it froze; before, `max_af` was frozen as
-  gnomAD's popmax;
+  mtDNA criteria read (`gnomad_mt_af_hom`, `gnomad_mt_af_het`, `helix_af_hom`, `helix_af_het`);
 - under `in_silico`: CADD (`cadd_phred`), REVEL, SpliceAI (`spliceai_max`), SIFT, PolyPhen and
   the AlphaMissense class and score;
 - under `gene_constraint`, for a missense variant only: the gene's gnomAD missense Z that PP2
@@ -74,18 +72,14 @@ Z comes from:
 1. the gene's profile (`gene_info`), not the variant's annotation, through the variant list's own
    lookup (`gene_constraint_metrics.fetch_gene_constraint_metrics`) in the profiles of the
    family's assembly, for the gene the variant is served with: the primary transcript's gene id,
-   else its symbol (in any letter case), else the variant's first gene. Before TRACE-15 the lookup
-   read the newest profile of any assembly and matched a symbol only as written;
+   else its symbol (in any letter case), else the variant's first gene;
 2. else the VCF's own `MISSENSE_Z`, which the import stores in the primary transcript's
    annotation as `gene_missense_z` and the variant list serves in `annotation_extra`
    (`small_variant_review_acmg.pp2_gene_missense_z`, the owner's decision of 2026-10-28).
 
 The source is `gene_profile` or `vcf`, and `null` with the value when neither holds one. Every
 field is frozen, `null` when empty, so a value that appears later is a change. A value JSONB
-cannot hold (NaN, infinity) is frozen as `null`. Older snapshots hold less: one from before these
-values were frozen (CLIN-7) holds none; one from before the consequence and missense Z holds
-`transcript_id`, `frequencies` and `in_silico` only; one from before the source (TRACE-15) holds
-the gene profile's missense Z without it.
+cannot hold (NaN, infinity) is frozen as `null`.
 
 A structural variant (SV) or CNV has no annotation-set hash in ClickHouse. Its snapshot
 (`services/structural_variant_evidence.py`, taken on every save of a CNV scoring) holds what the
@@ -103,13 +97,12 @@ Several callers can call one event under one SV id (an uploaded SV's id names no
 NeedlR SV's has the same form); they share its review. Each caller's call is its own row on the SV
 page, with its own genes, pLI and inheritance. So the snapshot is taken from the row of the
 caller the scoring was made on, which the save names in `source` (the classification dialog sends
-the row's caller). A save naming no caller (a client from before the field) takes the SV's one
+the row's caller). A save naming no caller takes the SV's one
 row; when several callers call the SV, the row cannot be told, so it gets 422 rather than a
 snapshot of another caller's row. A save naming a caller that does not call the SV gets 404.
-Before TRACE-11 the snapshot came from the row with the lowest storage key, which could be
-another caller's. Such a snapshot is kept as stored: it names its caller (`evidence.source`) and
+The snapshot names its caller (`evidence.source`) and
 holds that caller's genes, pLI and inheritance, and the drift check compares it with that
-caller's row. Saving the scoring again from the right row freezes that row's evidence.
+caller's row.
 
 **The clinical audit trail** is written in the same transaction as the change it records, so it
 cannot drift from the data. It is written by:
@@ -120,7 +113,7 @@ cannot drift from the data. It is written by:
 - every NIPT artifact-list change, on its own chain (`system:nipt-artifacts`, not a family);
 - every record of a repeat locus's count correction and of whether TRGT's counting units there
   are validated, on another (`system:repeat-loci`);
-- every change to a family's phenotypes (SEC-1).
+- every change to a family's phenotypes.
 
 A phenotype edit writes one `phenotype` event per HPO term added, changed or removed: the member,
 the term and its label, and the status, onset, evidence, source and note before and after (none
@@ -139,8 +132,7 @@ member, as the user who ran it, in the change's transaction and under the edit l
 - a PED upload or the Family Builder replacing a family (*Phenotypes removed for S1: the family
   was replaced by a PED upload (FAM1.ped): …*);
 - an administrator deleting a family or a sample with its data (*Phenotypes removed for S1: an
-  administrator deleted the sample with its data: …*, metadata `source: admin_deletion`,
-  TRACE-16).
+  administrator deleted the sample with its data: …*, metadata `source: admin_deletion`).
 
 A family deletion writes them just before its `family_deleted` event (below); a sample deletion,
 before its `pedigree` event. A member removed from the pedigree keeps its phenotypes: its sample
@@ -166,8 +158,8 @@ review dialog writes with the class tag, or a text sent through the API alone. A
 text is recorded like a change of the ACMG record, and the summary names it after the class
 (*Classification text VUS - class 3 → Likely pathogenic - class 4*). A quick tag toggle
 (*Review*, *Exclude*, *Report*) sends the text back as stored, so it writes a `tags` event and no
-`classification` event; the review dialog changes the text only when another class is chosen
-(CLIN-76). For an SV or CNV it holds
+`classification` event; the review dialog changes the text only when another class is chosen.
+For an SV or CNV it holds
 the reviewer's classification and the CNV (ClinGen) scoring: class, kind, point total, the
 accepted criteria with their points, and
 every stored criterion in the same detail. Any change to that record writes an event, even when
@@ -177,7 +169,7 @@ back, so a total of -0.0 is stored as 0 and the chain still verifies. SV and CNV
 `metadata.modality = "sv"`, so an SV id is never read as a small variant's. A save that clears or
 deletes a review is recorded like any other change.
 
-`compound_het_pair` (SEC-7) is the review of a compound-heterozygous pair, given on one variant's
+`compound_het_pair` is the review of a compound-heterozygous pair, given on one variant's
 review with its partner. A save that records, changes or breaks up a pair writes one event per
 changed pair, with the pair before and after (partner, gene, classification, tags, note, phase).
 It is filed under the variant whose review held the pair: the saved variant or, for a pair the
@@ -185,7 +177,7 @@ save broke up by pairing either variant with another, the variant that held it. 
 the partner (*Compound-het pair with 1-200-C-T: classification Likely pathogenic → Pathogenic*);
 `metadata.compound_het_group_id` names the pair's group. An unchanged re-save writes none.
 
-`pedigree` (SEC-7) is a change of the pedigree or members: its creation (*Pedigree recorded with 3
+`pedigree` is a change of the pedigree or members: its creation (*Pedigree recorded with 3
 members: …*); an edit of the structure or of members (sex, role, affected or carrier status,
 parents, a rename, a member made inactive); a package import that changes a member's affected or
 carrier status; an admin's deletion of a sample with its data. It holds each changed member and,
@@ -199,9 +191,9 @@ deleted families under the ID stored (`metadata.deleted_family_versions`). Its f
 so in its summary (*Pedigree recorded with 3 members: …. Made again under this family ID, after 2
 structure versions of a deleted family: its own start again at 1.*), and its deletion names its
 latest version the same way (`before.deleted_family_versions`). So the ID's trail names each
-version once (ENG-19). A family never made again is recorded as before.
+version once. A family never made again carries no such count.
 
-`family_deleted` (SEC-7) is a deleted family's last event: for an admin's deletion with its data
+`family_deleted` is a deleted family's last event: for an admin's deletion with its data
 (Admin → Data), a PED upload or hand-made family that replaces it with overwrite, or a package
 import that created it and imported nothing; `metadata.source` says which. It holds who deleted
 it and when, its samples by ID, its latest structure version, and what went with it: the variant
@@ -210,7 +202,7 @@ admin's deletion the small and structural variants counted in ClickHouse (*Famil
 its data: 3 samples (F1, M1, P1), 1204 small variants, 3 structural variants, 5 variant
 reviews*).
 
-- An admin's deletion requires a reason (TRACE-16, the owner's decision of 2026-10-27). The
+- An admin's deletion requires a reason (the owner's decision of 2026-10-27). The
   dialog asks it; `DELETE /api/admin/families/{family_id}` without `{"reason": …}` in its body
   gets 400. The event holds it as `metadata.reason` and ends its summary with it (*… 5 variant
   reviews. Reason: duplicate of F2*). The other deletions, which their `source` explains, ask
@@ -220,7 +212,7 @@ reviews*).
 - The family's chains (clinical audit events, sign-outs, structure versions) stay, unlinked from
   the family row and verifiable by the family's ID. A family made again under that ID (a
   replacement with overwrite does so at once) writes on the same three chains after the
-  deletion, so each chain of a family ID covers every family made under it (TRACE-13).
+  deletion, so each chain of a family ID covers every family made under it.
 
 **The gene panels a family's searches apply** (`services/panel_use_audit.py`, REQ-CARR-003). The
 first time a search of the family's data applies a panel version, it writes a `panel_applied`
@@ -239,7 +231,7 @@ imported it; for the Mendeliome, the Monarch release.
 - A panel applied in the variant explorer, which searches across families, is recorded for no
   family.
 
-Before this, nothing recorded the panel: the HTTP audit log keeps only the query's keys by
+The HTTP audit log cannot record the panel instead: it keeps only the query's keys by
 default (`AUDIT_LOG_QUERY_STRING_MODE=keys`), writes in batches after the response and can be
 switched off, so it cannot anchor a signed record.
 
@@ -262,8 +254,7 @@ A compound-het pair save (`compound_het` with a `partner_variant_id`) also write
 review, and breaking up a pair rewrites the review of each of its variants. Each of those reviews
 is locked as its own save would lock it, all in one order (so two pair saves cannot wait on each
 other), and read only under its lock: a partner review saved meanwhile is kept, never overwritten
-from an older copy. Before this fix, a pair save racing a partner's save could put the partner's
-earlier review back: its class, ACMG criteria and note lost, its `updated_at` moved back. The
+from an older copy. The
 partner's version is checked like the variant's own. A pair save carrying
 `compound_het.partner_expected_updated_at` (the partner review's `updated_at` as loaded, null for
 none) gets the same 409 `review_conflict`, which names the partner (`variant_id`) and carries its
@@ -290,19 +281,11 @@ the variant's current annotation:
 - `unknown`: nothing is seen to have moved, but a hash is missing or a frozen group cannot be
   read, so the match cannot be verified. A stored snapshot that is not a JSON object (the writer
   never stores one) counts as one that froze nothing, so it is `unknown` too (or
-  `variant_missing`). Before TRACE-15 it was skipped, counted neither as checked nor, at sign-out,
-  as without a snapshot;
+  `variant_missing`);
 - `variant_missing`: the variant is no longer in the data.
 
 Only the values a snapshot froze are compared, numbers by value (JSONB keeps a number's digits,
-not whether it was an integer). Older snapshots:
-
-- before the frequencies and in-silico scores were frozen: `evidence_from` is null; compared by
-  hash and ClinVar significance alone, as before, so it does not turn into drift;
-- before the consequence and missense Z were: compared on transcript, frequencies and in-silico
-  scores; a consequence or missense Z it does not hold is never drift;
-- before the missense Z's source was: compared on the missense Z alone. Once the gene's profile
-  holds none and the VCF does, the value PP2 reads has moved (*gnomAD missense Z 2.95 → 4.20*).
+not whether it was an integer).
 
 Current values are read as a classification saved now would freeze them. A variant classified as
 missense and no longer called missense names its consequence and missense Z as gone (*gnomAD
@@ -315,8 +298,7 @@ caller's call of the SV is other evidence, not a change to this one. `drifted` n
 `changed` (`gene_symbols`, `pli`, `inheritance`, `sv_type`, `locus`, or `annotations` for any
 other annotation), with the evidence from → to. `variant_missing` means that caller's call is no
 longer in the data, even while another caller still calls the SV; the drift banner and the signed
-version name that caller (*its needlr call is no longer present*; TRACE-12: before, they named
-none, so an SV another caller still lists read as gone). Only frozen fields are compared. Frozen
+version name that caller (*its needlr call is no longer present*). Only frozen fields are compared. Frozen
 evidence that cannot be read, or that names no caller, is `unknown`, never `current`.
 
 At sign-out, a reported classification without a snapshot, of a small variant or an SV, also
@@ -354,17 +336,16 @@ in the EPD refers to the signed version by its report code (*The report code* be
   snapshot, and the reported SVs and CNVs with their classification, CNV criteria and evidence
   snapshot. A small variant is tagged `report` when its review or its compound-het pair review
   holds the tag: the review-tag filter's rule, by which the live report and the NIPT page's *Show
-  reported* list the reported variants (TRACE-19). Before, the sign-out read a variant's own tag
-  alone, so a tag only the pair held (only the API sets a pair review's tags) was listed there
-  and frozen nowhere. Such a variant is frozen with the pair review that reports it
+  reported* list the reported variants. A variant its pair review reports (only the API sets a
+  pair review's tags) is frozen with that pair review
   (`compound_het`: partner, gene, the pair's classification, tags and note, and its phase),
   shown in the signed version under *Compound-het pair*. A variant only its own tag reports is
-  frozen as before. Each reported small variant and SV also holds its review's classification text
+  frozen without it. Each reported small variant and SV also holds its review's classification text
   as stored (`classification`) and the class its review shows (`class_shown`): the family page's
   one rule (`review_pg_utils.review_class_label`: a bare class word in the text, else the most
   severe ACMG class tag, else the text), worked out by the backend at sign-out from the review as
   stored, never taken from the request. `class_shown` is null when the review shows no class. The
-  ACMG record and the CNV scoring are frozen beside it as before, so a class the analyst chose over
+  ACMG record and the CNV scoring are frozen beside it, so a class the analyst chose over
   the ACMG score keeps that score in the record;
 - the reviews of repeat loci and Paraphase regions in the family's assembly that carry a
   classification or the Report tag (`repeat_expansion_reviews`, `paraphase_reviews`;
@@ -373,7 +354,7 @@ in the EPD refers to the signed version by its report code (*The report code* be
   those whose calls are not (`finding_review_drift`); and each repeat locus and Paraphase region
   with an abnormal call and no review (`unreviewed_findings`, gate 6). The `repeat_expansions`
   and `paraphase` sections below still freeze every call: a review marks a finding, it removes
-  none. A record signed before these keys names them as not compared;
+  none;
 - the drift state (`drift` for the small variants, `structural_drift` for the SVs and CNVs), the
   sample-integrity QC result, and the sequencing QC with the cut-offs it was judged against;
 - the import state. `import_incomplete`: null when the family's data imported completely,
@@ -396,11 +377,11 @@ in the EPD refers to the signed version by its report code (*The report code* be
     `panel_applied` event recorded it (above): name, id, local version, gene count, source and
     the source's release (PanelApp's version of the panel, or the Mendeliome's Monarch release),
     when CoGA imported that release, and when and by whom it was first applied;
-  - `reference_data` (TRACE-5), beside the manifest's modules: the gene reference's releases for
+  - `reference_data`, beside the manifest's modules: the gene reference's releases for
     the reported variants' genes (per source, the release and checksum of the file that answered
     for each gene, and the genes it has no record of), and the clinical CNV knowledgebase loaded
     for the assembly (its source, the release its source states, for a rebuild the ClinGen
-    recurrent CNV file it read by release and SHA-256 (TRACE-14), and when it was loaded).
+    recurrent CNV file it read by release and SHA-256, and when it was loaded).
     PanelApp gives each panel its own version, which `gene_panels` holds;
   - `repeat_expansions`: every TRGT call of the family's samples, with its status at sign-out
     (as the repeat page classifies it), its alleles and the thresholds behind it; and the
@@ -451,17 +432,16 @@ in the EPD refers to the signed version by its report code (*The report code* be
     - its inputs: the haplotype file each member's blocks were built from and its load time; the
       number of blocks read and a SHA-256 digest of them as read (lineage tags included); whether
       the blocks were built for another pedigree or other sexes than the family's
-      (`blocks_outdated`, CLIN-66: every embryo is then uninformative, and the signed version
+      (`blocks_outdated`: every embryo is then uninformative, and the signed version
       says why); the distances the calls and warnings use; and the QC thresholds in force
       (`rules.qc_thresholds`).
 
-    A family without an embryo has no such key, so its record is as it was. Nor has a monogenic
+    A family without an embryo has no such key. Nor has a monogenic
     NIPT family none of whose embryos has haplotype blocks of its own
-    (`pgt_analysis.embryo_has_haplotype_blocks`, TRACE-19). The import reads a child of unknown
+    (`pgt_analysis.embryo_has_haplotype_blocks`). The import reads a child of unknown
     sex and unknown or unaffected status as an embryo, as a NIPT PED usually gives the fetus, and
     the NIPT trio takes that embryo for the fetus. But the fetus has no sequencing column, so no
-    blocks and no call. Such a record held the fetus's PGT analysis all the same (found on
-    2026-10-20). The blocks an embryo call reads are the narrowest input that makes the section
+    blocks and no call. The blocks an embryo call reads are the narrowest input that makes the section
     a PGT analysis: a NIPT family with them keeps it, as the family page calls such an embryo;
   - `nipt`, a monogenic NIPT family's only (`services/signed_record_nipt.py`; REQ-NIPT-001,
     -004, -006, -010 to -013, -015): the NIPT analysis as the NIPT page computes it at sign-out,
@@ -477,9 +457,9 @@ in the EPD refers to the signed version by its report code (*The report code* be
       null without a per-target coverage table);
     - without a per-target table, the coverage check's notes over the plasma's coverage tracks,
       word for word as the NIPT page shows them, each naming a track the check does not read as
-      depth and why (TRACE-9), with what the check ran for (`coverage_notes`: `gene` and
+      depth and why, with what the check ran for (`coverage_notes`: `gene` and
       `panel`, both null, the `regions` it read the tracks over, and the `notes`; owner decision
-      of 2026-10-28, TRACE-17). The check depends on the gene or panel of the NIPT page's search,
+      of 2026-10-28). The check depends on the gene or panel of the NIPT page's search,
       which the sign-out is not told. So the sign-out runs the page's own code
       (`nipt_service.nipt_coverage_notes`) as the page runs it without a gene or panel, over the
       family's region of interest (without one, no region and so no note), as `target_coverage`
@@ -500,10 +480,10 @@ in the EPD refers to the signed version by its report code (*The report code* be
       family's annotation kept in. `model`: the R NIPT-M v0.5.1 validation, its constants, the
       cfDNA quality filter and the fetal-fraction rules.
 
-    A family that is not a monogenic NIPT family holds no `nipt` key: its record is as before. A
+    A family that is not a monogenic NIPT family holds no `nipt` key. A
     trio that cannot be resolved (no active father, or no maternal plasma sample) is frozen as
     unavailable, with a sentence of its own;
-  - `coverage_tracks` (owner decision of 2026-10-20; TRACE-9): every coverage track of the
+  - `coverage_tracks` (owner decision of 2026-10-20): every coverage track of the
     family's members, one per sample and caller (`source`: `web` for a coverage BED, an upload's
     or a package's; `wisecondorx`, `qdnaseq`, `hificnv`). For each: what it holds as the depth
     readers read it (`content`: `read_depth`, `log2_ratio` or `unknown`, by their one rule,
@@ -511,7 +491,7 @@ in the EPD refers to the signed version by its report code (*The report code* be
     it declared when loaded; for another caller's track, what its import's transform made of its
     file); and each file it was loaded from (`files`: name, rows, load time, and from where:
     `upload` for a single-file upload, `package` for a package import's dataset, null when its
-    record does not say, as for a coverage BED loaded before 2026-10-20), with what a coverage
+    record does not say), with what a coverage
     BED declared and the transform another caller's import recorded. Only a read-depth track is
     read as depth (by the mtDNA coverage and its `mtdna.mean_depth` verdict, and the NIPT
     coverage check without a per-target table), so the record says which kind of coverage a
@@ -520,7 +500,7 @@ in the EPD refers to the signed version by its report code (*The report code* be
     without a coverage track, so a track loaded after sign-out reads as a change. A monogenic NIPT
     family's per-target coverage tables are another track type (`target_coverage`), which `nipt`
     holds (`inputs.target_tables`); without them `nipt` also holds the coverage check's notes over
-    these tracks, word for word (`nipt.coverage_notes`, above; TRACE-17);
+    these tracks, word for word (`nipt.coverage_notes`, above);
   - `package_intake` (owner decision of 2026-11-10): the delivered package the family's last
     package import came from, as the family's record names it
     (`families.metadata.package_import.delivery`): its id, the pipeline's run, the SHA-256 of the
@@ -541,7 +521,7 @@ what it read, is not frozen.
 
 Sign-out exists for the family report; a monogenic NIPT family's analysis is signed out through
 it (below). In a PGT family the snapshot holds the embryo calls (`pgt_analysis`, above; the
-owner's decision of 2026-10-14, REG-2). The backend makes them from the stored haplotype blocks
+owner's decision of 2026-10-14). The backend makes them from the stored haplotype blocks
 (`services/pgt_embryo_calls.py`), the family page shows the calls the backend serves, and
 sign-out freezes the same object. So the record holds the calls the analyst saw, made by one
 implementation from stored data. The haplotype tracks still draw the risk line and each member's
@@ -550,7 +530,7 @@ cases of `frontend/src/lib/__tests__/fixtures/pgtEmbryoCallCases.json` alike, wh
 `test_pgt_embryo_calls.py` and `haplotypeRisk.test.ts` both run. The live family report does not
 show the embryo calls; its signed version does.
 
-**A NIPT family's record** (owner decision of 2026-10-14, REG-2). A monogenic NIPT family is
+**A NIPT family's record** (owner decision of 2026-10-14). A monogenic NIPT family is
 signed out through the same `POST /families/{family_id}/report/sign-out`, from the NIPT report
 or the report page: one signed record per analysis, with the same gates, version and report code,
 which also holds the NIPT results (`nipt`, above). Where it is signed out from does not change
@@ -561,50 +541,42 @@ what is frozen.
   panels its NIPT searches applied stay in `gene_panels`.
 - The paternity check is frozen with its four counts (the father's homozygous and het alleles
   seen and not seen), not the totals the Sample QC page is served.
-- The Sample QC's summary (`application_summary`) is frozen as it read. A record signed before
-  ENG-4 says paternity was confirmed from "categories 7/8", named after the check's logic before
-  the NIPT-M pair rework (2026-10-04); one signed since says it is read from the father's
-  alleles in the plasma. So the sign-out check names the sample-integrity QC as changed for a
-  NIPT family whose latest record holds the old wording, until it is signed again.
+- The Sample QC's summary (`application_summary`) is frozen as it read: it says paternity is
+  read from the father's alleles in the plasma.
 - A NIPT variant whose review, or compound-het pair review, is tagged `report` is frozen in
   `reported_variants` and `variant_descriptions` like any reported small variant, with its
   classification, and in `nipt` with its category, reads and probabilities. The recessive fetal
   risk in `nipt` is computed over them, so it equals the NIPT page's recessive view over *Show
-  reported* (TRACE-19).
+  reported*.
 - The Sample QC's NIPT checks and the NIPT section read one run of the NIPT analysis
-  (`nipt_service.SharedNiptAnalysis`, OPS-9): the same artifact list (which the lab curates apart
+  (`nipt_service.SharedNiptAnalysis`): the same artifact list (which the lab curates apart
   from the family's data) and the same values. A failed run fails both: the Sample QC notes that
   the NIPT cfDNA analysis could not run, and the section is frozen as unavailable.
 - The Sample QC runs its NIPT checks in a savepoint, as each section is read. The analysis reads
   the family and the artifact list from Postgres; a database error there is rolled back to the
   savepoint and reads like any other failure of the analysis. The gate then lists the NIPT checks
-  among those that could not run, and the sign-out goes on in a clean transaction. Before ENG-19
-  such an error aborted the sign-out's transaction, and the sign-out failed (it signed nothing).
+  among those that could not run, and the sign-out goes on in a clean transaction.
 
 The snapshot is hashed with SHA-256 over a canonical encoding and stored as the next version.
 Versions are numbered per family ID: a family made again under a deleted family's ID numbers on
 from the deleted family's last version (its first sign-out is version 3 after two), on the same
 chain. So a family ID and a version name one signed record for good, and the database refuses a
-second record under them (`uq_report_signouts_family_identifier_version`, TRACE-13). Before
-TRACE-13 they were numbered per family row: the new family took version 1 again, and the chain
-failed verification as if tampered with. The family's pages list only its own versions; the
+second record under them (`uq_report_signouts_family_identifier_version`). The family's pages list only its own versions; the
 deleted family's stay on the chain, verifiable by the ID, and are not opened through the new
 family.
 
 An amendment is a new sign-out; no version is ever changed. The sign-out is also written to the
 clinical audit trail. A stored hash is always checked against the snapshot as stored, so a
-version signed before a field was added still verifies; the sign-out check reports that section
+version that lacks a section still verifies; the sign-out check reports that section
 as `not_compared`. A section neither the record nor the family's current data holds (the NIPT
 results of a family that is not a NIPT family) is neither compared nor listed. The live report,
 the signed version and the NIPT pages name what the check lists as not compared, beside *still
 matches* and beside what changed (*This page still matches signed version 2 in everything that
 version holds. Not in signed version 2, so not compared: the HPO version.*), so neither reads as
-covering it (TRACE-19). Before, they showed `matches` and `changed_sections` alone.
+covering it.
 
-The check reads a class label whatever its case. The class labels were put in sentence case
-(ENG-6), and revision `0013` rewrote the reviews to match; a version signed before keeps
-*Likely Pathogenic - class 4*, and the signed view shows it as signed. Compared as written, every
-such version would read as changed after the upgrade, although only the case differs. Only a
+The check reads a class label whatever its case. The class labels are in sentence case, and
+revision `0013` rewrites the reviews to match. Only a
 `classification` or `class_shown` that names a class label is read so
 (`_with_current_class_labels` in `report_signout_service.py`); a different class is still a change.
 
@@ -646,7 +618,7 @@ Six gates run first, in this order:
      connection holds them.
    - An import whose heartbeat has not reached the database for five minutes stops itself the
      same way, before a worker can take its job for stopped. One whose locks' connection is lost
-     is stopped where it is, its job ended `failed` and the family left marked (SAFE-15).
+     is stopped where it is, its job ended `failed` and the family left marked.
 3. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
    variant or of an SV or CNV, gets 409 (`gate: "evidence_drift"`), unless the request sets
    `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One
@@ -654,8 +626,7 @@ Six gates run first, in this order:
    classification it counts, as the snapshot freezes it: small variants in `drifted`, SVs and
    CNVs in `structural_drifted` (without `classified_by` and `classified_at`, which a note or tag
    saved on the review changes). The sign-out dialog lists them as the signed version does.
-   Before TRACE-19 the 409's detail was the message alone, and the dialog named no
-   classification. Repeat and Paraphase reviews whose frozen calls are no longer the family's
+   Repeat and Paraphase reviews whose frozen calls are no longer the family's
    (`finding_review_drift`, *Evidence drift* above) count in the same gate and acknowledgement.
    They are listed in `finding_drifted` (kind, key, classification, whether reported, status and
    what changed, without the review's time), and the message says how many.
@@ -678,11 +649,9 @@ Six gates run first, in this order:
    check read ("Sample X: no chrX genotypes available for sex inference."), in
    `qc_summary.messages` and in each of the groups below, as do the groups the sign-out's audit
    event records. Fetal sex and the NIPT maternal lineage, read from the cfDNA as a whole, name no
-   sample. The checks frozen in `sample_qc` keep their own messages beside their sample fields,
-   so a record signed before the names were added compares the same; an audit event recorded
-   before names none (CLIN-8).
+   sample. The checks frozen in `sample_qc` keep their own messages beside their sample fields.
 
-   The 409 lists every concern in its group (CLIN-58): checks that failed (`failed_checks`),
+   The 409 lists every concern in its group: checks that failed (`failed_checks`),
    could not run (`unverifiable_checks`), NIPT quality checks that failed
    (`nipt_failed_checks`), and checks that warn (`warning_checks`), which do not gate on their
    own. A check that warns because it could not run is listed only with those that could not
@@ -692,8 +661,7 @@ Six gates run first, in this order:
    heading, before the reason. The acknowledged sign-out's audit event records the same groups
    (`qc_failed`, `qc_unverifiable`, `nipt_failed_checks`, `qc_warnings`): what the
    acknowledgement covered. `qc_summary.messages` lists the warnings, failures and failed NIPT
-   checks together, as before; an audit event recorded before CLIN-58 holds no `qc_failed` or
-   `qc_warnings`.
+   checks together.
 5. **Incomplete import.** 409 (`gate: "import_incomplete"`, naming the failed datasets and the
    import job), unless the request sets `acknowledge_import_incomplete` with an
    `import_incomplete_acknowledgement_reason` (422 without). Every mark below gates in this one
@@ -730,7 +698,7 @@ Six gates run first, in this order:
    - **An upload or deletion that did not finish.** A single-file upload that writes ClickHouse
      marks the family the same way before its first write there, with an entry with no job keyed
      `upload-…`. So does a deletion of the family's data that deletes or rewrites rows there,
-     keyed `deletion-…` (SAFE-31): an admin's deletion of a sample, of its structural variants or
+     keyed `deletion-…`: an admin's deletion of a sample, of its structural variants or
      of the family; a PED upload or manual family that replaces it; a structure change that
      clears its data. A failure leaves the entry listing exactly what may be partly written or
      missing
@@ -740,7 +708,7 @@ Six gates run first, in this order:
      key, from which the signed record names what wrote it. Each upload or import with overwrite
      removes from it what it brought again. Deleting a sample removes that sample's items, and
      the sample from the import-incomplete flag's failures and from a stopped import's entry;
-     each goes once it names nothing else (SAFE-35).
+     each goes once it names nothing else.
 6. **Findings without a review** (REQ-TRACE-016). A repeat locus or Paraphase region with an
    abnormal call and no review gets 409 (`gate: "unreviewed_findings"`), unless the request sets
    `acknowledge_unreviewed_findings` with an `unreviewed_findings_acknowledgement_reason` (422
@@ -755,7 +723,7 @@ Six gates run first, in this order:
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 
-**An acknowledgement covers the concerns its dialog showed (TRACE-19).** Each 409 of gates 3 to
+**An acknowledgement covers the concerns its dialog showed.** Each 409 of gates 3 to
 6 carries `concerns_fingerprint`: a SHA-256 over the canonical JSON (sorted keys) of the gate and
 its concerns as the 409 lists them, each list sorted (`concerns_fingerprint` in
 `report_signout_service.py`). The concerns are: for evidence drift, `drifted`,
@@ -777,10 +745,8 @@ sign-out reads the gate again and compares:
 - none: 422. The SPA, the only client, always sends the fingerprint its dialog was given. A value
   that is not a SHA-256 in lower-case hex fails the request's own validation (422).
 
-Before TRACE-19 the acknowledgement was a flag and the sign-out read the gate again on
-confirmation, so a concern that arose after the dialog listed them was signed out over, as
-acknowledged, unseen. A gate without a concern needs no fingerprint, and an acknowledgement of
-concerns that went meanwhile acknowledges nothing (as before). The gates are read in order, so a
+A gate without a concern needs no fingerprint, and an acknowledgement of
+concerns that went meanwhile acknowledges nothing. The gates are read in order, so a
 change at an earlier gate is refused there first; the acknowledgements already given travel on to
 the next attempt. The sign-out's audit event records the fingerprint each acknowledgement carried
 (the four fields above; None for a gate without concerns). The snapshot freezes the concerns
@@ -805,8 +771,7 @@ The other sign-out endpoints:
 ### The report code
 
 The EPD report quotes the signed record by its report code (`services/report_code.py`). The code
-is made from fields of the record that never change, so no column holds it, and records signed
-before it existed have one too:
+is made from fields of the record that never change, so no column holds it:
 
 ```
 FFFFFF-V-HHHC        e.g. 7KQM2X-2-4PHT
@@ -857,8 +822,7 @@ version; one never signed out opens on the live report.
 (`frontend/src/pages/families/signedReportRecord.ts` reads it). It shows:
 
 - the version, signer, time, **report code**, content hash, `verified` and the frozen build, and
-  the sentence that says what the record is (the record's own or, for a record signed before
-  CoGA froze it, the same sentence);
+  the sentence that says what the record is;
 - each reported variant's description as reviewed, classification, accepted criteria, evidence
   snapshot, tags and note; the reported SVs with their description and ClinGen CNV scoring. The
   classification is the class the record froze as shown (`class_shown`), *Not classified* when it
@@ -872,17 +836,16 @@ version; one never signed out opens on the live report.
   as *Likely benign*);
 - in a PGT family, the embryo calls (*PGT embryo results*): the ROI, the inheritance model, the
   disease haplotype, and per embryo its call, the homologs it carries at the ROI as the track
-  names them (P1, P2, M1, M2), its warnings, its QC at the ROI and, in a record that holds them,
+  names them (P1, P2, M1, M2), its warnings, its QC at the ROI,
   that QC's verdict and the thresholds it was checked against, and the haplotype file read;
 - in a monogenic NIPT family, its NIPT results (*NIPT results*): the fetal fraction and the
   quality checks with their verdicts; the coverage; without a per-target table, the coverage
   check's notes on each coverage track it did not read as depth, word for word, with what the
   check ran for (*Coverage tracks not read as depth: … The coverage check ran without a gene or
-  panel, over the family’s region of interest …*), or, for a record signed before CoGA froze
-  them, that it does not hold them; the funnel and the categories; each reported variant as the
+  panel, over the family’s region of interest …*); the funnel and the categories; each reported variant as the
   NIPT analysis classified it; the recessive fetal risk; and what the analysis ran with. No other
   family's record shows or mentions PGT or NIPT results;
-- the gene panels applied; the repeat expansions (in a record that holds them, each count near a
+- the gene panels applied; the repeat expansions (each count near a
   boundary marked beside its call, *⚠ Near a boundary: 53 is within 3 repeats of 55
   (Premutation)*; a count QA's correction changed with TRGT's own in brackets, *18 (TRGT 19)*; and
   each locus's counting units, *TRGT’s counting units: not validated (no QA record)*, or validated
@@ -906,8 +869,7 @@ What it cannot show, it says:
   captured, with its reason.
 - A list of a section that the view cannot read (a value that is not a list, an entry not of the
   list's kind) is left out, and the section says so (*Part of … cannot be read here (N lists or
-  entries): it is left out below, and the downloaded record holds it as stored*). It used to read
-  as empty (TRACE-17).
+  entries): it is left out below, and the downloaded record holds it as stored*).
 - A parents' phase correction near the ROI that it cannot read is said where that warning stands
   (*A phase correction the record holds cannot be read here; …*), never dropped unsaid.
 - A reported variant without a description it can read, in a record holding descriptions it
@@ -916,8 +878,7 @@ What it cannot show, it says:
   (`sample_qc.application`); any other family's record shows no PGT section.
 - What no snapshot holds is said on the page: the population frequencies and in silico
   predictions the live report shows, the segregation, the gene and phenotype context, the audit
-  trail and the pipeline settings (and, for a record signed before CoGA froze it, the variant
-  description).
+  trail and the pipeline settings.
 
 Print prints this view, report code included. A printout starts with a notice when the record
 fails its content hash, when a later version supersedes it, or when the version list could not be
@@ -929,8 +890,7 @@ whether the family's data has changed since. Straight after a sign-out it says, 
 never presented as the signed record. Each reported variant shows the class its review shows, as
 the family page shows it (`reportNarrative.ts`, `reportedSmallVariantClass`,
 `reportedStructuralVariantClass`), with the ACMG or CNV score beside it as on the signed version
-(`ReportClassification.tsx`, which both views use). It used to show a small variant's ACMG
-classification, else its text as stored, so a class tag alone read *Not classified*. It says what a
+(`ReportClassification.tsx`, which both views use). It says what a
 sign-out is (*Signing out is the analytical
 sign-off in CoGA, which closes and freezes the analysis; the medical sign-off of the patient
 report happens in the EPD, which refers to the signed record by its report code.*), names the
@@ -962,50 +922,24 @@ printout starts with the live report's notice ("Draft …", "Not the signed repo
 verified …").
 
 Each snapshot also records the reference modules its build looked up (`reference_modules`). A
-module CoGA adds later is not in that list: for a record signed before it, the check lists
+module CoGA adds later is not in that list: for a record that does not list it, the check lists
 `modules.<key>` under `not_compared` instead of calling the record changed, and `not_captured`
 names the missing version. A module in the list but not held was not loaded at sign-out, so one
-loaded since is a change. A snapshot without the list names no module, so every reference module
-it does not hold is listed as missing.
+loaded since is a change.
 
-A record signed before CoGA froze one of the parts below is compared on what it holds: the check
-lists the missing part under `not_compared` instead of calling the record changed, and a change
-to what it does hold still reads as a change. A record that holds the part is compared whole.
+Each of the parts below is compared whole, so a change since signing reads as a change:
 
-- **A PGT embryo's QC verdict.** A record signed before CoGA checked each embryo's phasing QC
-  against thresholds holds no `qc_verdict` and no `rules.qc_thresholds`. Listed:
-  `pgt_analysis.qc_verdict` (`pgt_analysis.comparable_with_record`); a call that changed still
-  reads as a change. In a record that holds the verdict, a verdict or threshold changed since
-  signing reads as a change.
-- **The repeat calls' near-boundary warnings.** A record from before holds no
-  `count_unit_margin`, no `count_units` per locus and no `count_unit_warning` per allele. Listed:
-  `repeat_expansions.count_units`
-  (`signed_record_sections.repeat_expansions_comparable_with_record`); a call that changed still
-  reads as a change. The signed version shows such a record as signed, with nothing called not
-  captured. In a record that holds them, a locus whose counting units QA validated or withdrew
-  since signing reads as a change.
-- **QA's count corrections** (CLIN-57). A record signed after the warnings but before the
-  corrections holds no `count_offset` in a locus's `count_units` and no `trgt_repeat_count` per
-  allele. Listed: `repeat_expansions.count_offset`
-  (`signed_record_sections.repeat_expansions_comparable_with_record`); a record from before the
-  warnings lists it too. Its `repeat_count` is still compared: it was TRGT's own count then, so a
-  correction recorded since that moves a count, or a status, reads as a change. The signed
-  version shows such a record as signed. In a record that holds them, a correction recorded or
-  changed since signing reads as a change.
-- **The NIPT coverage check's notes** over the coverage tracks (TRACE-17). A NIPT record from
-  before holds no `coverage_notes` in its `nipt` section. Listed: `nipt.coverage_notes`
-  (`signed_record_nipt.nipt_comparable_with_record`); a fetal fraction or classification that
-  changed still reads as a change. A record that holds them (as null too, with a per-target
-  table) is compared whole: a track declared, loaded or removed since, or a changed region of
-  interest, that changes the notes or what the check ran for reads as a change. Without a
-  per-target table the signed view says such a record does not hold them (*Coverage tracks not
-  read as depth: not in the signed record …*); with a table the check read its targets and noted
-  no track.
+- **A PGT embryo's QC verdict**: a verdict or threshold changed since signing.
+- **The repeat calls' near-boundary warnings**: a locus whose counting units QA validated or
+  withdrew since signing.
+- **QA's count corrections** (CLIN-57): a correction recorded or changed since signing that moves
+  a count or a status.
+- **The NIPT coverage check's notes** over the coverage tracks (as null too, with a per-target
+  table): a track declared, loaded or removed since, or a changed region of interest, that
+  changes the notes or what the check ran for.
 
-A section CoGA has since computed differently reads as changed too. The Sample QC now counts a
+A section CoGA has since computed differently reads as changed too. The Sample QC counts a
 check that could not run as `warn`, with a note naming each sample whose sex could not be checked.
-So for a family with such a sex check, the check lists `sample_qc` as changed against a version
-signed before: that record holds no such note, and holds `pass` where the other checks passed.
 The signed version still shows what was signed; signing out again records the new verdict.
 
 A signed version lists the SV/CNV classifications whose evidence had moved at sign-out with the
@@ -1016,34 +950,26 @@ classified*, each reported small variant shows the consequence, frequencies and 
 its snapshot froze from the primary transcript, and in a sentence of its own a missense variant's
 gene missense Z with where PP2 read it (*From its gene's profile: gnomAD missense Z 3.52.*, *From
 the VCF's MISSENSE_Z, as its gene's profile held none: …*, or *Neither its gene's profile nor the
-VCF held a gnomAD missense Z.*); one frozen before the source was reads as the gene profile's,
-which it was. A group the snapshot did not freeze is left out, so a snapshot from before CoGA
-froze any of them shows its ClinVar significance and annotation version only. The check lists the
-`drift` section as changed for a version signed before a small-variant drift entry named what
-moved (CLIN-7), while it holds such an entry; and for one signed before the consequence and
-missense Z were frozen, or before the missense Z's source was (TRACE-15), while it holds a
-missense variant's entry. The entry the check recomputes also holds them as they are now
-(`evidence_to`).
+VCF held a gnomAD missense Z.*). A group the snapshot did not freeze is left out. A drift
+entry the check recomputes holds the values as they are now (`evidence_to`).
 
-The release candidate's snapshot format is the first one CoGA reads: records signed by earlier
-development builds get no reading of their own (the owner's decision of 2026-09-30). They still
-verify, since verification re-hashes the record as stored.
+CoGA reads one snapshot format, the one it writes (the owner's decision of 2026-09-30).
 
 Both views download the frozen record as JSON.
 
 ### Adding a section to the signed record
 
-The PGT embryo calls (`pgt_analysis`) and the NIPT results (`nipt`) were added as sections of
+The PGT embryo calls (`pgt_analysis`) and the NIPT results (`nipt`) are sections of
 what the analysis looked at. A new section is added in four places, or it is missing from the
 signed view without a trace.
 
 A section only one application's families hold names that application in its `RecordSection`
 (`application="pgt"`, `application="nipt"`). `build_record_sections` builds it for those families
-alone, so another family's record holds no such key and stays as it was. The sign-out check
+alone, so another family's record holds no such key. The sign-out check
 compares it where the record or the family's current data holds it, names it as not compared
 only where the data holds it and the record does not, and neither compares nor lists it where
 neither holds it. The signed view renders it only for a record of that application, read from
-the section itself or, for a record signed before it, from `sample_qc.application`
+the section itself or, for a record without it, from `sample_qc.application`
 (`PgtAnalysisSection`, `isNiptRecord`).
 
 1. **Its builder** in `backend/app/services/signed_record_sections.py`: an async function that
@@ -1097,8 +1023,7 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 
 - The variant description holds no population frequency or in silico prediction, and the
   snapshot no gene or phenotype context: a signed version says what its record lacks, and only
-  the live report shows the rest, from current data. A record signed before CoGA froze the
-  variant description (2026-10-14) names each variant by its ID alone. There is no byte-stable
+  the live report shows the rest, from current data. There is no byte-stable
   PDF: a signed version is printed from the browser, laid out by the build that renders it (named
   in its footer).
 - The gene reference is frozen for the reported variants' genes only: a record without a reported
@@ -1106,15 +1031,13 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   manifest (`gene_loci`). The clinical CNV knowledgebase states no release of its own. The record
   names the files a rebuild read: the pinned one, ClinGen's recurrent CNV file, by release and
   SHA-256; the rest (the ClinGen dosage curation, ClinVar, the cytobands, Orphanet and a DECIPHER
-  map, as they were that day) by file name and SHA-256 (TRACE-18). A rebuild loaded before the
-  pin (TRACE-14) reads `not stated`; one loaded before TRACE-18 names its pinned file alone.
+  map, as they were that day) by file name and SHA-256.
 - A panel version is recorded the first time a search of the family applies it, not at each
   search. A panel applied in the variant explorer, which searches across families, is recorded
-  for no family. Searches before the `panel_applied` event existed recorded nothing, so a record
-  signed for such a family names only the panels applied since.
+  for no family.
 - A repeat-expansion call's and a Paraphase result's status is frozen as CoGA classifies it at
   sign-out, from the catalogue loaded then. The repeat page and the genome tracks classify a call
-  alike, against the current catalogue (CLIN-14; *TRGT repeat catalogue*,
+  alike, against the current catalogue (*TRGT repeat catalogue*,
   [data-import.md](data-import.md)).
 - Anchors are made by hand: nothing in the code, CI or Terraform calls
   `POST /admin/integrity/anchor` on a schedule.
@@ -1168,6 +1091,4 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 - `coverage_tracks` names each coverage track of the members as their records list it, not the
   chromosomes a depth check read: the mtDNA coverage reads a track only where it has rows on
   chrM, the NIPT coverage check its targets' chromosomes, and a sample with two read-depth tracks
-  is read from its coverage BED. The mtDNA coverage and its verdict are not frozen. A coverage
-  BED loaded before 2026-10-20 has no record of where it came from (`loaded_from` null, *origin
-  not recorded* on the signed version).
+  is read from its coverage BED. The mtDNA coverage and its verdict are not frozen.
