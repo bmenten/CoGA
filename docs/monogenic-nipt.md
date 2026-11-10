@@ -285,7 +285,7 @@ The in-app reference describes these for lab users.
   `NiptClassificationBlock.tsx`, `niptClassification.ts`, `VariantSummaryNipt.tsx` (the variant
   summary's NIPT-M tab); views and presets in
   `smallVariantSearch.ts` and `smallVariantFilterSections.tsx`.
-- The synthetic demo family: `demo/nipt_family/` (`scripts/generate_nipt_demo.py`).
+- The synthetic demo family: `demo/nipt_family/`, a package folder delivered as a pipeline delivers one (`scripts/generate_nipt_demo.py`).
 - Tests: listed in [testing.md](testing.md).
 
 Related: [haplotype-segregation-analysis.md](haplotype-segregation-analysis.md) (shared pedigree

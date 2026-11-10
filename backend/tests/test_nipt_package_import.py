@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import importlib.util
+import json
+
 import pytest
 
 from pathlib import Path
 
 from backend.app.schemas import FamilyPackageManifestBuildRequest
 from backend.app.core.config import settings
+from backend.app.services.coga_package import check_package_files, read_package_file
+from backend.app.services.coga_package_manifest import proposed_sections
 from backend.app.services.family_package_common import ManifestDataset, PackageManifest
 from backend.app.services.family_package_manifest import _normalize_manifest_samples
 from backend.app.services.family_package_validation import (
@@ -106,6 +111,63 @@ def test_demo_package_validates_with_snv_and_coverage_datasets(
     # validate as importable datasets.
     assert datasets["snv"].status == "valid"
     assert datasets["coverage"].status == "valid"
+
+
+def test_the_demo_folder_is_a_complete_package_that_lists_every_file_it_holds() -> None:
+    # The folder is delivered as a pipeline delivers a package: its package file reads without an
+    # issue, leaves nothing for Discover to propose, and lists every file of the folder with the
+    # size and checksum it has (scripts/generate_nipt_demo.py writes it, also after a README edit).
+    read = read_package_file(_DEMO_DIR)
+
+    assert read.package is not None and read.issues == [], read.issues
+    assert (read.package.status, read.package.project, read.package.assembly) == ("complete", "Demo", "GRCh38")
+    assert proposed_sections(read.package) == []
+    checked = check_package_files(_DEMO_DIR, read.package.files or [], checksums=True)
+    assert checked.issues == [] and not checked.incomplete, checked.issues
+    assert checked.unlisted == []
+    assert sorted(checked.sha256) == ["README.md", "nipt_combined.vcf", "nipt_coverage.bed"]
+
+
+def test_the_demo_package_file_is_the_one_its_generator_writes() -> None:
+    path = Path(__file__).resolve().parents[2] / "scripts" / "generate_nipt_demo.py"
+    spec = importlib.util.spec_from_file_location("generate_nipt_demo_test", path)
+    assert spec is not None and spec.loader is not None
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+
+    assert (_DEMO_DIR / "nipt_combined.vcf").read_text(encoding="utf-8") == generator.render_vcf()
+    assert (_DEMO_DIR / "nipt_coverage.bed").read_text(encoding="utf-8") == generator.render_coverage_bed()
+    assert (_DEMO_DIR / "coga-package.json").read_text(encoding="utf-8") == generator.render_package(_DEMO_DIR)
+
+
+def test_the_demo_deliverys_manifest_names_the_trio_the_plasmas_assay_and_the_datasets() -> None:
+    # The manifest the watcher keeps for the demo's delivery: the members as the package file
+    # gives them, the plasma tagged as cfDNA, and no PED.
+    manifest = json.loads(kept_manifest(_DEMO_DIR))
+
+    assert manifest == {
+        "schema_version": 1,
+        "family_id": "FAM_NIPT_DEMO",
+        "analysis_type": "monogenic_nipt",
+        "family": {
+            "add_members": [
+                {"sample_id": "FATHER_NIPT", "sex": "male", "clinical_status": "unaffected"},
+                {"sample_id": "CFDNA_NIPT", "sex": "female", "clinical_status": "unaffected"},
+                {
+                    "sample_id": "FETUS_NIPT",
+                    "sex": "unknown",
+                    "clinical_status": "affected",
+                    "father": "FATHER_NIPT",
+                    "mother": "CFDNA_NIPT",
+                },
+            ]
+        },
+        "samples": {"CFDNA_NIPT": {"assay": "nipt_cfdna"}},
+        "datasets": {
+            "snv": {"family_vcf": "nipt_combined.vcf"},
+            "coverage": {"per_sample": {"CFDNA_NIPT": {"bed": "nipt_coverage.bed", "content": "read_depth"}}},
+        },
+    }
 
 
 _PAIR_PED = (

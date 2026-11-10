@@ -438,8 +438,12 @@ docker compose run --rm --no-deps -e PYTHONDONTWRITEBYTECODE=1 -v /srv/coga:/rep
   backend python scripts/load_demo_quartet.py --overwrite
 ```
 
-The NIPT demo is a package: copy it with `cp -r demo/nipt_family data/families/` and import it
-with Package Import.
+The NIPT demo is a package folder with its package file, for the project `Demo` on GRCh38: create
+that project, copy the folder into the project's folder of a watched import folder
+(`FAMILY_IMPORT_WATCH_ROOTS`, [below](#a-network-share)), such as
+`mkdir -p data/families/Demo && cp -r demo/nipt_family data/families/Demo/` with
+`FAMILY_IMPORT_WATCH_ROOTS=/data/families`, and approve its delivery under **Deliveries**
+([demo/nipt_family/README.md](../demo/nipt_family/README.md)).
 
 **Family packages** ([data-import.md](data-import.md)). Copy each folder from your own machine
 to `/srv/coga/data/families/`, which the backend sees as `/data/families`

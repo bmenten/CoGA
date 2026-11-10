@@ -33,8 +33,10 @@ owner approved the plan on 2026-11-10, in phases:
    Import page and its routes are gone; the import reads only the manifest CoGA keeps, never a
    PED or a manifest file in the folder, and Discover proposes members, not a PED; an update
    adds the package's new members to its existing family and changes none it holds, and an
-   overwrite makes the package's members the family's pedigree. Still to come: the demo data as
-   package files; a bucket mounted as a local folder.
+   overwrite makes the package's members the family's pedigree; the demo NIPT family is a package
+   folder with its package file, delivered as a pipeline's
+   ([demo/nipt_family](../demo/nipt_family/README.md)). Still to come: a bucket mounted as a local
+   folder.
 
 ## Writing the file
 
@@ -220,6 +222,10 @@ All synthetic, with checksums of nothing real:
   plasma, the father and the fetus, with each parent's callset and coverage table.
 - [long-read-couple.json](schemas/examples/long-read-couple.json): a couple screened for
   carriership on the long-read pipeline, with each partner's own callsets.
+
+A whole package folder to deliver is the synthetic demo NIPT family,
+[demo/nipt_family](../demo/nipt_family/README.md): a full file for the project `Demo` on GRCh38,
+with the checksums of the folder's own files (`scripts/generate_nipt_demo.py` writes it).
 
 After a change to the format's model, write the schema again with
 `python scripts/generate-coga-package-schema.py`; the unit test

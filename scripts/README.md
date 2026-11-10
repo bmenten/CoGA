@@ -30,7 +30,7 @@ scripts that import backend code need the backend's environment, installed from
 | **Demo and test data** | |
 | [generate_demo_quartet_dataset.py](generate_demo_quartet_dataset.py) | Regenerates the synthetic quartet in `demo/quartet_family/`. |
 | [load_demo_quartet.py](load_demo_quartet.py) | Loads that quartet into Postgres and ClickHouse ([demo/README.md](../demo/README.md)). |
-| [generate_nipt_demo.py](generate_nipt_demo.py) | Regenerates the synthetic NIPT trio in `demo/nipt_family/`. |
+| [generate_nipt_demo.py](generate_nipt_demo.py) | Regenerates the synthetic NIPT trio in `demo/nipt_family/`, a package folder with its `coga-package.json`. |
 | [generate_golden_trio.py](generate_golden_trio.py) | Regenerates the golden-trio fixture, with its expected results, for the end-to-end tests. |
 | [seed_playwright_e2e.py](seed_playwright_e2e.py) | Imports the golden trio and creates the user the Playwright journeys sign in as. |
 | [seed_style_diff_demo.py](seed_style_diff_demo.py) | Adds the NIPT demo and the demo quartet on top of that seed, for the frontend style diff (`frontend/scripts/stylediff`). |
