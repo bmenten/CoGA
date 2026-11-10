@@ -276,8 +276,8 @@ describe('AdminQcThresholdsPage', () => {
   });
 
   // The append-only history: who changed which bound from what to what, and why. The replaced
-  // value is the thing the HTTP request log cannot record; an edit made before a reason was
-  // required, or by an account no longer known, says so rather than showing nothing.
+  // value is the thing the HTTP request log cannot record; an edit by an account no longer
+  // known says so rather than showing nothing.
   it('shows the append-only change history with the value each edit replaced and its reason', async () => {
     mockedGet.mockResolvedValue({
       data: {
@@ -303,6 +303,7 @@ describe('AdminQcThresholdsPage', () => {
             error_value: 20,
             changed_by_email: null,
             changed_at: '2026-06-30T08:00:00',
+            reason: 'eerste instelling',
           },
         ],
       },
@@ -321,7 +322,7 @@ describe('AdminQcThresholdsPage', () => {
     expect(first.getByText('unknown')).toBeInTheDocument();
     expect(first.getByText('— → 30')).toBeInTheDocument();
     expect(first.getByText('— → 20')).toBeInTheDocument();
-    expect(first.getByText('not recorded')).toBeInTheDocument();
+    expect(first.getByText('eerste instelling')).toBeInTheDocument();
   });
 
   it('says plainly that no cut-offs are shipped by default', async () => {

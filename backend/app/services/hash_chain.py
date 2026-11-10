@@ -45,7 +45,7 @@ GENESIS = "GENESIS"
 # integer numeric (decoded back as a Python int). That makes the SAME value hash
 # differently pre-store (float) vs post-read (int). Coercing such floats to int on BOTH
 # sides collapses the two encodings. Values below 2**53 already round-trip identically,
-# so they are left untouched (existing content hashes are unchanged).
+# so they are left untouched.
 _INT_FLOAT_THRESHOLD = 2 ** 53
 
 
@@ -99,11 +99,11 @@ def verify_chain(
     rows: Sequence[dict[str, Any]],
     payload_of: Callable[[dict[str, Any]], Any],
 ) -> ChainVerification:
-    """Walk already-chained rows in order, recompute each ``row_hash`` and check links.
+    """Walk a chain's rows in order, recompute each ``row_hash`` and check links.
 
-    ``rows`` are the chained rows (``row_hash IS NOT NULL``) in chain order; each row
-    dict carries ``id``, ``row_hash`` and ``prev_hash``. ``payload_of(row)`` returns the
-    immutable payload that was hashed at insert time (must match the writer exactly).
+    ``rows`` are a chain's rows in chain order; each row dict carries ``id``, ``row_hash``
+    and ``prev_hash``. ``payload_of(row)`` returns the immutable payload that was hashed at
+    insert time (must match the writer exactly).
 
     Detects content tampering (recomputed ``row_hash`` mismatch) and deletion/reordering
     (a row's ``prev_hash`` no longer points at its predecessor's ``row_hash``).
@@ -112,7 +112,7 @@ def verify_chain(
     for index, row in enumerate(rows):
         stored_prev = row.get("prev_hash")
         if index == 0:
-            # Chain origin: prev points at genesis (or the last pre-chain row, NULL).
+            # Chain origin: prev points at genesis (stored as NULL).
             if stored_prev not in (None, GENESIS):
                 return ChainVerification(
                     False, index, str(row.get("id")), "first chained row is not a genesis link"

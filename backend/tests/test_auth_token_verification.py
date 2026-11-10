@@ -2,9 +2,10 @@
 emergency administrator's local token.
 
 REQ-SEC-003 (TF-09a). Without Azure AD, ``get_current_user`` accepts the token the login
-issues (``create_access_token``: HS256, signed with ``SECRET_KEY``, with an expiry) and
-refuses, with a 401, a token signed with another key or another algorithm, an unsigned or
-expired one, one that names no user, and one of an unknown or inactive user.
+issues (``create_access_token``: HS256, signed with ``SECRET_KEY``, with an expiry and an issue
+time) and refuses, with a 401, a token signed with another key or another algorithm, an
+unsigned or expired one, one that does not say when it was issued, one that names no user, and
+one of an unknown or inactive user.
 
 With Azure AD (Microsoft Entra ID) configured (SEC-4), the bearer token must be a Microsoft
 access token for CoGA's API: it signs in the account bound to the token's object ID (made at
@@ -17,8 +18,7 @@ Microsoft tokens alone.
 
 A logout (``POST /auth/logout``) ends every session of its account: a token issued to the
 account before its last logout, CoGA's own (whose ``iat`` is to the microsecond) or Microsoft's,
-is refused with the same 401, in each of the three sign-ins; one issued after signs in. A token
-that does not say when it was issued counts as issued before.
+is refused with the same 401, in each of the three sign-ins; one issued after signs in.
 
 The requests go through the real login route, token code, Microsoft token check and
 ``get_current_user``. Only the account lookups, the login's database calls and the audit write
@@ -210,12 +210,16 @@ def _local_token(
     algorithm: str = "HS256",
     expires_in: timedelta = timedelta(minutes=5),
     issued_at: float | None = None,
+    dated: bool = True,
 ) -> str:
-    payload: dict[str, Any] = {"exp": datetime.now(timezone.utc) + expires_in}
+    """A token as ``create_access_token`` issues one, issued now unless ``issued_at`` says
+    otherwise; ``dated=False`` leaves the issue time out."""
+    now = datetime.now(timezone.utc)
+    payload: dict[str, Any] = {"exp": now + expires_in}
     if email is not None:
         payload["sub"] = email
-    if issued_at is not None:
-        payload["iat"] = issued_at
+    if dated:
+        payload["iat"] = now.timestamp() if issued_at is None else issued_at
     return jwt.encode(payload, key, algorithm=algorithm)
 
 
@@ -316,6 +320,9 @@ def test_the_local_token_algorithm_is_fixed_not_a_setting(monkeypatch: pytest.Mo
         pytest.param(lambda: _local_token(VIEWER, algorithm="HS512"), id="signed-with-another-algorithm"),
         pytest.param(lambda: _local_token(VIEWER, key=None, algorithm="none"), id="unsigned"),
         pytest.param(lambda: _local_token(VIEWER, expires_in=timedelta(seconds=-5)), id="expired"),
+        # Not a token create_access_token issued: no logout could refuse it.
+        pytest.param(lambda: _local_token(VIEWER, dated=False), id="saying-no-issue-time"),
+        pytest.param(lambda: _local_token(VIEWER, issued_at="yesterday"), id="dated-in-words"),  # type: ignore[arg-type]
         pytest.param(lambda: _local_token(None), id="naming-no-user"),
         pytest.param(lambda: _local_token("nobody@example.com"), id="of-an-unknown-user"),
         pytest.param(lambda: _local_token(INACTIVE_ADMIN), id="of-an-inactive-user"),
@@ -477,6 +484,7 @@ def test_the_override_admits_the_emergency_admins_local_token_flags_and_logs_eac
         pytest.param(lambda: _local_token(EMERGENCY, algorithm="HS512"), id="another-algorithm"),
         pytest.param(lambda: _local_token(EMERGENCY, expires_in=timedelta(seconds=-5)), id="expired"),
         pytest.param(lambda: _local_token(EMERGENCY, key=None, algorithm="none"), id="unsigned"),
+        pytest.param(lambda: _local_token(EMERGENCY, dated=False), id="saying-no-issue-time"),
         pytest.param(lambda: _local_token(None), id="naming-no-user"),
     ],
 )
@@ -574,7 +582,6 @@ _AFTER = (_LOGGED_OUT_AT + timedelta(minutes=5)).timestamp()
     [
         pytest.param(lambda: _local_token(SIGNED_OUT, issued_at=_BEFORE), id="issued-before"),
         pytest.param(lambda: _local_token(SIGNED_OUT, issued_at=_JUST_BEFORE), id="issued-within-a-millisecond-before"),
-        pytest.param(lambda: _local_token(SIGNED_OUT), id="saying-no-issue-time"),
     ],
 )
 def test_a_local_token_issued_before_the_accounts_logout_is_refused(client: TestClient, make_token) -> None:
@@ -587,11 +594,6 @@ def test_a_local_token_issued_after_the_accounts_logout_signs_in(client: TestCli
 
     assert response.status_code == 200, response.text
     assert response.json()["email"] == SIGNED_OUT
-
-
-def test_an_account_that_never_logged_out_signs_in_with_a_token_saying_no_issue_time(client: TestClient) -> None:
-    # A token issued before tokens said when (at most one lifetime ago when this ships).
-    assert _me(client, _local_token(VIEWER)).status_code == 200
 
 
 def test_a_microsoft_token_issued_before_the_accounts_logout_is_refused_and_one_after_signs_in(

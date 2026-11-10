@@ -188,7 +188,6 @@ _DELETED_FAMILY_VERSIONS = text(
     SELECT COUNT(*) AS versions, COUNT(*) FILTER (WHERE version = 1) AS families
     FROM family_structure_versions
     WHERE family_identifier = :family_identifier
-      AND row_hash IS NOT NULL
       AND family_id IS DISTINCT FROM CAST(:family_uuid AS uuid)
     """
 )
@@ -207,15 +206,13 @@ async def _deleted_family_versions(
     ).mappings().first()
     if row is None or not int(row["versions"] or 0):
         return 0, 0
-    # At least one family: one whose first version predates the chain has no version 1 on it.
-    return int(row["versions"]), max(int(row["families"] or 0), 1)
+    return int(row["versions"]), int(row["families"])
 
 _CHAIN_HEAD = text(
     """
     SELECT created_at, row_hash
     FROM family_structure_versions
     WHERE family_identifier = :family_identifier
-      AND row_hash IS NOT NULL
     ORDER BY created_at DESC, id DESC
     LIMIT 1
     """
@@ -349,8 +346,8 @@ async def verify_family_structure_chain(
     """Walk a family's structure-version chain and say whether it is intact.
 
     Partitioned on the immutable ``family_identifier``, so the chain of a family whose row
-    was deleted can still be walked. Versions written before the chain (no ``row_hash``)
-    are not part of it.
+    was deleted can still be walked. Every version of the family ID is on it: one without a
+    ``row_hash`` does not verify.
     """
     rows = (
         await session.execute(
@@ -359,7 +356,6 @@ async def verify_family_structure_chain(
                 "snapshot, metadata, row_hash, prev_hash "
                 "FROM family_structure_versions "
                 "WHERE family_identifier IS NOT DISTINCT FROM :family_identifier "
-                "AND row_hash IS NOT NULL "
                 "ORDER BY created_at ASC, id ASC"
             ),
             {"family_identifier": family_identifier},

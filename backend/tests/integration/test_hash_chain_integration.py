@@ -5,7 +5,8 @@ Proves the per-family chains hold against real Postgres:
   / CNV review save ``upsert_structural_variant_review``) produce a chain that
   ``verify_*_chain`` accepts (genuine positive control, not the helper verifying itself);
 - a privileged mutation that BYPASSES the append-only trigger and does NOT recompute the
-  hashes (``DISABLE TRIGGER`` — careless owner / any non-owner role) is DETECTED & localised;
+  hashes (``DISABLE TRIGGER`` — careless owner / any non-owner role) is DETECTED & localised,
+  and so is an event inserted without the writer, with no hashes;
 - the chain is partitioned on the immutable ``family_identifier``, so the legitimate
   ``ON DELETE SET NULL`` cascades on account deletion (actor_id→NULL) AND family deletion
   (family_id→NULL) leave the chain intact and verifiable;
@@ -135,6 +136,30 @@ def test_clinical_audit_hash_chain_holds_and_detects_tampering() -> None:
                 )
                 gap = await verify_clinical_audit_chain(s, label_b)
                 assert not gap.verified and "prev_hash" in (gap.reason or ""), gap
+
+            # (d) An event added without the writer (no hashes; the trigger lets an INSERT
+            # through) is on the chain too, and breaks it where it stands.
+            label_c = f"p1-4-cae-c-{uuid4()}"
+            async with sm() as s:
+                fam_c = await fresh_family(s, label_c)
+                await _append(s, fam_c, label_c, 2)
+                unhashed = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO clinical_audit_events (family_id, family_identifier, actor, action, "
+                            "summary, created_at) SELECT CAST(:f AS uuid), :fl, 'p1-4-test', 'classification', "
+                            "'no hash', max(created_at) + interval '1 second' FROM clinical_audit_events "
+                            "WHERE family_identifier = :fl RETURNING id::text"
+                        ),
+                        {"f": fam_c, "fl": label_c},
+                    )
+                ).scalar_one()
+                await s.commit()
+            async with sm() as s:
+                added = await verify_clinical_audit_chain(s, label_c)
+                assert (added.verified, added.rows_checked, added.first_bad_row) == (False, 2, unhashed), added
+                # It names no predecessor: the walk stops at its missing link.
+                assert "prev_hash does not match" in (added.reason or ""), added
         finally:
             await close_postgres_engine()
 

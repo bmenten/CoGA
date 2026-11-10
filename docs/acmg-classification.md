@@ -77,10 +77,10 @@ differs.
   in `source` the caller of the row the classification was made on: callers that call one event
   under one id share its review, and the frozen evidence is that caller's row. A save that names no
   caller takes the SV's one row; it is refused (`422`) when several callers call the SV. The route
-  takes no `acmg` or `compound_het` (a small variant's fields; `StructuralVariantReviewUpdate`); a
-  client that sends them is answered without them.
-- Only a save is checked: a stored classification is served as written, and a
-  save that leaves `acmg` or `cnv_acmg` out keeps it.
+  takes no `acmg` or `compound_het` (a small variant's fields; `StructuralVariantReviewUpdate`): a
+  save that sends one is refused (`422`), naming it.
+- Only a save is checked: a save that leaves `acmg` or `cnv_acmg` out keeps the stored
+  classification.
 - Every list of small variants serves each review with the columns of a single-review read
   (`_fetch_review_rows_for_variants` in `small_variant_review_repository.py`), the ACMG record
   included. The dialog opened from a list is seeded from that record. Without it, a classified

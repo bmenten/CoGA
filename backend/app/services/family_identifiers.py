@@ -28,9 +28,9 @@ The package import reports an ID that breaks this rule as a validation error
 member and structure edits (a member's new sample ID, its father or mother, a member the
 structure edit adds) refuse it with a 400. Either way nothing is written. The message shows
 the ID with each character a reader cannot see written as its escape (``visible``), and
-states the rule. IDs stored before a part of the rule came in are not changed: the data are
-synthetic. The lookups, the folders kept for an ID (``core/family_folders.py``) and the URLs
-built from one (``core/url_path.py``) still take an ID as data, whatever it holds.
+states the rule. The lookups, the folders kept for an ID (``core/family_folders.py``) and the
+URLs built from one (``core/url_path.py``) still take an ID as data, whatever it holds: a
+request is not held to the whole rule.
 
 On a case-insensitive file system (a macOS bind mount in development) two family IDs that
 differ only in case share every folder named after an ID. The rule leaves case alone:

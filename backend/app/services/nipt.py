@@ -67,8 +67,7 @@ def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
     required father and cfDNA samples cannot both be identified.
 
     The cfDNA sample is identified by its ``assay`` tag, falling back to the
-    active ``mother`` member when no sample carries the tag (e.g. a family
-    created before the assay was recorded). The father is the active ``father``
+    active ``mother`` member when no sample carries the tag. The father is the active ``father``
     member; the fetus is the active ``embryo`` member, or the ``proband`` child
     when no ``embryo`` is present (manual family creation labels the child
     ``proband``), if present at all.

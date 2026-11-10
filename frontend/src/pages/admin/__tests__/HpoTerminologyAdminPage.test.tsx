@@ -224,16 +224,16 @@ describe('HpoTerminologyAdminPage', () => {
     });
 
     it('says a loaded ontology without a recorded release is unknown, not "Not installed"', async () => {
-      // The summary describes the latest import; one from a file without a release has none.
-      summaryReply = () => ({ ...SUMMARY, release_version: null, release_date: null, release_sha256: null });
+      // The summary describes the latest import; one from a file without a release has none,
+      // and still names the file's SHA-256 (TRACE-18).
+      summaryReply = () => ({ ...SUMMARY, release_version: null, release_date: null });
       renderPage();
 
       await screen.findByText('Total terms');
       expect(statValue('Total terms')).toBe('18,954');
       expect(statValue('Release')).toBe('Unknown');
       expect(statValue('Release date')).toBe('Unknown');
-      // An import from before the file's SHA-256 was recorded (TRACE-18).
-      expect(statValue('File SHA-256')).toBe('Not recorded');
+      expect(statValue('File SHA-256')).toBe(`${SUMMARY.release_sha256.slice(0, 12)}…`);
       expect(screen.queryByText(/No HPO terminology is installed/)).not.toBeInTheDocument();
     });
 

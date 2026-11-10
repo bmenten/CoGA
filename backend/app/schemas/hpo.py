@@ -43,8 +43,8 @@ class HpoAdminSummaryOut(BaseModel):
     obsolete_terms: int
     release_version: Optional[str] = None
     release_date: Optional[date] = None
-    # The SHA-256 of the ontology file the loaded terms came from (TRACE-18); None for an
-    # import from before it was recorded.
+    # The SHA-256 of the ontology file the loaded terms came from (TRACE-18); None when no
+    # ontology is loaded.
     release_sha256: Optional[str] = None
     last_sync_date: Optional[datetime] = None
     ontology_loaded: bool = False

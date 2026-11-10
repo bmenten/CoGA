@@ -240,9 +240,8 @@ _JOB_COLUMNS = (
 async def _close_jobs_whose_worker_is_gone(session: AsyncSession) -> None:
     """Close as failed an active job with no sign of its build for the stale window.
 
-    A running job's last sign is its heartbeat (its start, for a job from before the
-    heartbeat); a queued one's is its request, as its run starts at once. The database
-    clock judges both, as it stamped them. The caller commits.
+    A running job's last sign is its heartbeat; a queued one's is its request, as its run
+    starts at once. The database clock judges both, as it stamped them. The caller commits.
     """
     closed = (
         await session.execute(

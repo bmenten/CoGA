@@ -317,21 +317,24 @@ async def _ensure_project(session, *, species_id: str, assembly_id: str, admin_u
 
 async def seed_hpo_term(session, hpo_id: str, label: str) -> None:
     """Add an HPO term, unless it is there, as an import of the shipped ontology writes it:
-    with that release (``HPO_PINNED_RELEASE``) and its date. The signed record reads the
-    loaded release from the latest term, so a term without one made every sign-out of the
-    stack record "HPO release not recorded" (ENG-16)."""
-    from backend.app.core.config import HPO_PINNED_RELEASE
+    with that release (``HPO_PINNED_RELEASE``), its date and the file's SHA-256
+    (``HPO_PINNED_ONTOLOGY_SHA256``). The signed record reads the loaded release from the
+    latest term, so a term without one made every sign-out of the stack record "HPO release
+    not recorded" (ENG-16)."""
+    from backend.app.core.config import HPO_PINNED_ONTOLOGY_SHA256, HPO_PINNED_RELEASE
 
     await session.execute(
         text(
-            "INSERT INTO hpo_term (hpo_id, label, release_version, release_date) "
-            "VALUES (:id, :label, :release, :released) ON CONFLICT (hpo_id) DO NOTHING"
+            "INSERT INTO hpo_term (hpo_id, label, release_version, release_date, metadata) "
+            "VALUES (:id, :label, :release, :released, jsonb_build_object('release_sha256', CAST(:sha256 AS text))) "
+            "ON CONFLICT (hpo_id) DO NOTHING"
         ),
         {
             "id": hpo_id,
             "label": label,
             "release": HPO_PINNED_RELEASE,
             "released": date.fromisoformat(HPO_PINNED_RELEASE.rsplit("/", 1)[1]),
+            "sha256": HPO_PINNED_ONTOLOGY_SHA256,
         },
     )
 

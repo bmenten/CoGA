@@ -555,13 +555,13 @@ class _SignoutTable(_Session):
             chain = [row for row in self.rows if row["family_identifier"] == params["fident"]]
             return _Value(max(chain, key=lambda row: row["version"])["row_hash"] if chain else None)
         elif "FROM report_signouts" in sql and "ORDER BY version ASC" in sql:
-            # The verifier's walk: the family ID's chained rows in version order (a tie
-            # keeps the order the rows were written in).
+            # The verifier's walk: the family ID's rows in version order (a tie keeps the
+            # order the rows were written in).
             chain = sorted(
                 (
                     {**row, "id": str(row["version"])}
                     for row in self.rows
-                    if row["family_identifier"] == params["fident"] and row["row_hash"] is not None
+                    if row["family_identifier"] == params["fident"]
                 ),
                 key=lambda row: row["version"],
             )

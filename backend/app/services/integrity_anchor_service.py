@@ -55,7 +55,6 @@ from . import hash_chain
 # The append-only tables that carry per-family hash chains, mapped to the canonical
 # chain-order COLUMNS (ascending). The head is the LAST row in this order; the prefix check
 # reads the height-th row ascending. (Fixed set — never interpolate untrusted table names.)
-# An anchor made before a table joined the set holds no head of it, and verifies as before.
 _CHAIN_ORDER_COLS = {
     "report_signouts": ["version"],
     "clinical_audit_events": ["created_at", "id"],
@@ -139,7 +138,7 @@ async def _capture_heads(session: AsyncSession) -> list[dict[str, Any]]:
                 text(
                     f"SELECT family_identifier AS fid, count(*) AS height, "
                     f"(array_agg(row_hash ORDER BY {_order_by(table, 'DESC')}))[1] AS head_row_hash "
-                    f"FROM {table} WHERE row_hash IS NOT NULL GROUP BY family_identifier"
+                    f"FROM {table} GROUP BY family_identifier"
                 )
             )
         ).mappings().all()
@@ -265,8 +264,8 @@ class AnchorVerification:
 async def _head_row_hash_at_height(
     session: AsyncSession, table: str, family_identifier: str | None, height: int
 ) -> str | None:
-    """The row_hash of the ``height``-th chained row in canonical order, or None if the
-    live chain has fewer than ``height`` chained rows (truncated/shrunk)."""
+    """The row_hash of the chain's ``height``-th row in canonical order, or None if the
+    live chain has fewer than ``height`` rows (truncated/shrunk)."""
     fid_clause = "family_identifier IS NULL" if family_identifier is None else "family_identifier = :fid"
     params: dict[str, Any] = {"off": max(height - 1, 0)}
     if family_identifier is not None:
@@ -274,7 +273,7 @@ async def _head_row_hash_at_height(
     return (
         await session.execute(
             text(
-                f"SELECT row_hash FROM {table} WHERE {fid_clause} AND row_hash IS NOT NULL "
+                f"SELECT row_hash FROM {table} WHERE {fid_clause} "
                 f"ORDER BY {_order_by(table, 'ASC')} OFFSET :off LIMIT 1"
             ),
             params,

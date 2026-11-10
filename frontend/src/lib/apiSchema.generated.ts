@@ -3209,7 +3209,7 @@ export interface QcThresholdChangeOut {
   error_value: number | null;
   changed_by_email: string | null;
   changed_at: string;
-  reason: string | null;
+  reason: string;
 }
 
 export interface QcThresholdOut {

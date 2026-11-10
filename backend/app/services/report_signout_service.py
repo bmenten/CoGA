@@ -2095,6 +2095,7 @@ async def verify_report_signout_chain(
     stays verifiable after the family row is deleted (the cascade nulls ``family_id``). A
     family made again under the ID signs on the same chain, its versions numbered on from
     the deleted family's (:func:`_next_version`), so the walk covers both, in version order.
+    Every sign-out of the family ID is on it: one without a ``row_hash`` does not verify.
     """
     rows = [
         dict(row)
@@ -2105,7 +2106,6 @@ async def verify_report_signout_chain(
                     "signed_out_by, family_identifier, snapshot, row_hash, prev_hash "
                     "FROM report_signouts "
                     "WHERE family_identifier IS NOT DISTINCT FROM :fident "
-                    "AND row_hash IS NOT NULL "
                     "ORDER BY version ASC"
                 ),
                 {"fident": family_identifier},

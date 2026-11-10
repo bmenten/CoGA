@@ -557,7 +557,8 @@ async def verify_clinical_audit_chain(
 
     Partitioned on the immutable ``family_identifier`` (not the mutable ``family_id``,
     which an ``ON DELETE SET NULL`` cascade nulls), so a family's chain stays walkable
-    and intact after the family row itself is deleted.
+    and intact after the family row itself is deleted. Every event of the family ID is on
+    it: one without a ``row_hash`` does not verify.
     """
     rows = (
         await session.execute(
@@ -566,7 +567,6 @@ async def verify_clinical_audit_chain(
                 "actor, action, summary, before, after, metadata, row_hash, prev_hash "
                 "FROM clinical_audit_events "
                 "WHERE family_identifier IS NOT DISTINCT FROM :family_identifier "
-                "AND row_hash IS NOT NULL "
                 "ORDER BY created_at ASC, id ASC"
             ),
             {"family_identifier": family_identifier},

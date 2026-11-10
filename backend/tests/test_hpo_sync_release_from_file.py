@@ -224,15 +224,6 @@ async def test_each_term_keeps_the_sha256_of_the_file_it_came_from(tmp_path: Pat
     assert {json.loads(row["metadata"])["release_sha256"] for row in rows} == {_digest(_OBO.encode())}
 
 
-@pytest.mark.asyncio
-async def test_an_import_without_a_checksum_writes_none(tmp_path: Path) -> None:
-    session = _CapturingSession()
-
-    await hpo_service.import_hpo_ontology(session, path=tmp_path / "hp.obo", ontology_text=_OBO)
-
-    assert all("release_sha256" not in json.loads(row["metadata"]) for row in _term_rows(session))
-
-
 class _ReleaseResult:
     def __init__(self, row: dict[str, Any]) -> None:
         self.row = row
@@ -273,14 +264,6 @@ async def test_the_signed_records_hpo_entry_names_the_files_sha256(monkeypatch: 
     modules = await _platform_hpo_module(monkeypatch, loaded)
 
     assert modules == {"version": "hp/releases/2026-09-01", "detail": f"2026-09-01; SHA-256 {'a' * 64}"}
-
-
-@pytest.mark.asyncio
-async def test_an_import_from_before_the_checksum_keeps_its_date_alone(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def loaded(_session: Any) -> dict[str, Any]:
-        return {"release_version": "hp/releases/2026-02-16", "release_date": date(2026, 2, 16), "release_sha256": None}
-
-    assert await _platform_hpo_module(monkeypatch, loaded) == {"version": "hp/releases/2026-02-16", "detail": "2026-02-16"}
 
 
 async def _platform_hpo_module(monkeypatch: pytest.MonkeyPatch, loaded: Any) -> Any:

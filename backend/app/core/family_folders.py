@@ -6,7 +6,7 @@ serve a family's files from there look a file up only inside those folders: the 
 (``routers/cram.py``), the CNV caller's signal files (``routers/signal_tracks.py``) and the
 sequencing-QC report (``routers/family_qc_reports.py``). What names the file is data: the
 family and sample IDs come from the request, and may hold ``/`` and ``..`` (the ID rule refuses
-both since SEC-15, but a request is not held to it, and an ID stored before may hold them); a
+both in a stored ID, SEC-15, but a request is not held to it); a
 recorded path comes back from ``samples.metadata``, where an edited row can hold ``..`` or an
 absolute path.
 
