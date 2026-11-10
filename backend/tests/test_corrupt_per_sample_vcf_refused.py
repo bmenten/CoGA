@@ -1,9 +1,9 @@
-"""A per-sample ``.vcf.gz`` CoGA cannot read is refused by name, never answered with a 500 (DATA-11).
+"""A per-sample ``.vcf.gz`` CoGA cannot read is refused by name, never answered with a 500.
 
 Discover and the package validation read a per-sample SNV file's sample columns from its header.
-The read was unguarded: a gzip file cut short in its header (``EOFError``), one whose compressed
-data is damaged (``zlib.error``) or a plain-text VCF named ``.vcf.gz`` (``gzip.BadGzipFile``)
-raised out of the request, which failed with a 500. Now:
+Gzip raises a different error for each broken file: one cut short in its header (``EOFError``),
+one whose compressed data is damaged (``zlib.error``) and a plain-text VCF named ``.vcf.gz``
+(``gzip.BadGzipFile``). For each:
 
 - the validation (a delivery's check, a dry run) refuses the file
   with ``dataset_vcf_unreadable``, naming the sample and the file, never the error's own text;
@@ -29,7 +29,7 @@ from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildRequest
 from backend.app.services import family_package_common as common
 from backend.app.services.family_package_discovery import discover_family_package_manifest
-from backend.app.services.family_package_validation import validate_family_package
+from backend.tests._kept_manifest import validated
 
 PED = "NIPTPAIR\tFATHER1\t0\t0\t1\t1\nNIPTPAIR\tCFDNA1\t0\t0\t2\t1\nNIPTPAIR\tFETUS1\tFATHER1\tCFDNA1\t0\t2\n"
 MANIFEST = (
@@ -74,8 +74,8 @@ def _plain_text(sample: str) -> bytes:
 BROKEN = {"cut_in_its_header": _cut_in_its_header, "damaged": _damaged, "plain_text": _plain_text}
 
 
-def test_each_broken_file_raised_out_of_gzip_before(tmp_path: Path) -> None:
-    # What the unguarded read met: three different errors, none of them a refusal.
+def test_each_broken_file_raises_out_of_gzip(tmp_path: Path) -> None:
+    # What a read without the guard meets: three different errors, none of them a refusal.
     raised = {}
     for name, make in BROKEN.items():
         path = tmp_path / f"{name}.vcf.gz"
@@ -116,13 +116,13 @@ def _any_package_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
 
 @pytest.mark.parametrize("broken", sorted(BROKEN))
 def test_the_validation_refuses_the_file_by_its_sample_and_name(tmp_path: Path, broken: str) -> None:
-    validation = validate_family_package(_package(tmp_path, broken))
+    validation = validated(_package(tmp_path, broken))
 
     assert validation.valid is False
     [error] = [issue for issue in validation.errors if issue.code == "dataset_vcf_unreadable"]
     assert (error.message, error.dataset, error.sample_id) == (_MESSAGE, "snv", "FATHER1")
     assert error.path is not None and error.path.endswith("FATHER1.mutect2.vcf.gz")
-    # The other sample's file is read as before.
+    # The other sample's file is read.
     assert not [issue for issue in validation.errors if issue.sample_id == "CFDNA1"]
 
 
@@ -157,7 +157,7 @@ def test_the_header_readers_raise_a_refusal_naming_the_file(tmp_path: Path, brok
     assert str(named.value).startswith("The SNV file of S1 (S1.vcf.gz) could not be read")
 
 
-def test_a_whole_file_is_read_as_before(tmp_path: Path) -> None:
+def test_a_whole_file_is_read(tmp_path: Path) -> None:
     path = tmp_path / "S1.vcf.gz"
     with gzip.open(path, "wt") as handle:
         handle.write(_vcf("S1"))

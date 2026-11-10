@@ -30,11 +30,12 @@ owner approved the plan on 2026-11-10, in phases:
    ([data-import.md](data-import.md#adding-a-folder-by-hand)). The owner decided on 2026-11-10 that
    CoGA computes no checksums for it (the import records each file's SHA-256).
 4. In progress: a delivery is the only way into an import. Done: the earlier form of the Package
-   Import page and its routes (Discover, Write manifest, Validate, a typed folder's import) are
-   gone, and Discover reads no manifest in the folder. Still to come: the import reads only the
-   manifest CoGA keeps, never a PED, and an existing family follows the package's members; the
-   test packages and the demo data become package files; a bucket is mounted as a local folder
-   (the owner's decisions of 2026-11-10).
+   Import page and its routes are gone; the import reads only the manifest CoGA keeps, never a
+   PED or a manifest file in the folder, and Discover proposes members, not a PED; a package
+   whose members differ from its existing family in CoGA is corrected before its import. Still to
+   come: an overwrite that replaces the family's pedigree with the package's members, and an update
+   that adds new members (the owner's decision of 2026-11-10); the demo data as package files; a
+   bucket mounted as a local folder.
 
 ## Writing the file
 

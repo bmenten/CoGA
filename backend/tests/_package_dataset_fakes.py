@@ -77,10 +77,9 @@ def dataset_job(
         session=session,
         bundle=FamilyPackageBundle(
             root=root,
-            manifest_path=root / "manifest.yaml",
-            manifest=PackageManifest(ped="family.ped", datasets={dataset_type: dataset}),
-            ped_path=root / "family.ped",
+            manifest=PackageManifest(datasets={dataset_type: dataset}),
             ped=ParsedPed(family_ids=[family_id], members=[], sample_ids=list(SAMPLES), text=""),
+            kept_manifest_text="{}",
         ),
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type=dataset_type, status="valid"),

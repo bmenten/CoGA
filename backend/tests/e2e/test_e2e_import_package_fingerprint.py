@@ -48,7 +48,9 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         count_family_small_variants,
         ensure_clickhouse_variant_tables,
     )
+    from backend.app.services.family_package_common import manifest_text_sha256
     from backend.app.services.family_package_fingerprint import package_fingerprint
+    from backend.tests._kept_manifest import kept_manifest
     from backend.app.services.family_package_validation import load_validated_family_package
     from backend.tests.e2e import _harness
 
@@ -65,7 +67,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     jobs: list[str] = []
 
     def fingerprint() -> str:
-        return package_fingerprint(package, kept_manifest_sha256=None).sha256
+        return package_fingerprint(package, kept_manifest_sha256=manifest_text_sha256(kept_manifest(package))).sha256
 
     async def run_job(client: AsyncClient, headers: dict[str, str], job_id: str) -> dict[str, Any]:
         worker = f"e2e-fingerprint-{uuid4().hex[:8]}"
@@ -84,7 +86,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         async with AsyncClient(transport=transport, base_url="http://e2e") as client:
             headers = {"Authorization": f"Bearer {await _harness.login_admin_token(client)}"}
             out["fingerprint_before"] = fingerprint()
-            validation, _bundle = load_validated_family_package(package)
+            validation, _bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
             out["validated"] = {"valid": validation.valid, "package_fingerprint": validation.package_fingerprint}
 
             jobs.append(await queue_import(package, project_id, dry_run=True))

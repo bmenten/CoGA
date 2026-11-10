@@ -193,19 +193,19 @@ def test_discover_drafts_the_couple_and_its_per_sample_callsets(monkeypatch: pyt
 
     validation, bundle = load_validated_family_package(root, manifest_text=out.manifest_yaml)
     assert validation.valid, validation.errors
-    assert validation.metadata["ped_source"] == "manifest"
-    assert bundle is not None and bundle.ped_path is None
+    assert bundle is not None
     sexes = {member.iid: (member.sex, member.role_hint) for member in bundle.ped.members}
     assert sexes == {FATHER: ("1", "father"), MOTHER: ("2", "mother")}
 
 
-def test_a_manifest_without_a_ped_must_name_its_members(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_a_manifest_must_name_its_members(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(settings, "family_import_roots", [])
     root = _write_couple_package(tmp_path / "COUPLE1")
-    _touch(root / "manifest.yaml", "schema_version: 1\nfamily_id: COUPLE1\ndatasets: {}\n")
-    validation, bundle = load_validated_family_package(root)
+    validation, bundle = load_validated_family_package(
+        root, manifest_text="schema_version: 1\nfamily_id: COUPLE1\ndatasets: {}\n"
+    )
     assert bundle is None
-    assert "ped_missing_path" in {issue.code for issue in validation.errors}
+    assert "members_missing" in {issue.code for issue in validation.errors}
 
 
 def test_a_per_sample_snv_callset_outside_nipt_must_declare_its_primary_source(tmp_path: Path) -> None:

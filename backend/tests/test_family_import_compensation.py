@@ -42,6 +42,16 @@ from app.services.hpo_service import PhenotypeImport
 from app.services import family_package_registration as registration
 
 
+# The members of the two-sample packages below, as the manifest CoGA keeps for an import names
+# them: the import reads no PED.
+_TWO_MEMBERS = (
+    "family:\n"
+    "  add_members:\n"
+    "    - {sample_id: S1, sex: male, clinical_status: affected}\n"
+    "    - {sample_id: S2, sex: female, clinical_status: unaffected}\n"
+)
+
+
 async def no_variant_copy(*_args, **_kwargs) -> bool:
     """Nothing copied: every project of the family holds each of its callsets
     (``copy_variants_to_linked_projects``, which reads Postgres and ClickHouse)."""
@@ -1662,15 +1672,12 @@ async def test_an_import_records_the_callset_its_auto_snv_dataset_stores(monkeyp
         root = tmp_path / name
         (root / "snv").mkdir(parents=True)
         (root / "snv" / "family.vcf").write_text(vcf, encoding="utf-8")
-        (root / "family.ped").write_text("F1\tS1\t0\t0\t1\t2\nF1\tS2\t0\t0\t2\t1\n", encoding="utf-8")
-        (root / "manifest.yaml").write_text(
-            "schema_version: 1\nfamily_id: F1\nped: family.ped\n"
-            "datasets:\n  snv:\n    family_vcf: snv/family.vcf\n",
-            encoding="utf-8",
-        )
         result = await fpi.execute_family_package_import(
             row,
             folder_path=root,
+            manifest_text=(
+                "schema_version: 1\nfamily_id: F1\n" + _TWO_MEMBERS + "datasets:\n  snv:\n    family_vcf: snv/family.vcf\n"
+            ),
             project_id=None,
             dry_run=False,
             user=SimpleNamespace(id="admin"),
@@ -2337,27 +2344,26 @@ async def test_phenotypes_without_an_hpo_row_are_registered(monkeypatch) -> None
 
 
 def _carrying_package(root):
-    """A two-sample package: direct calls in a family VCF (source_format auto), imputed
-    haplotypes as per-sample GLIMPSE2 BCFs, which CoGA does not import, and a pipeline run
-    record of its execution trace alone, which CoGA does not read."""
+    """A two-sample package and the manifest CoGA keeps for its import: direct calls in a
+    family VCF (source_format auto), imputed haplotypes as per-sample GLIMPSE2 BCFs, which CoGA
+    does not import, and a pipeline run record of its execution trace alone, which CoGA does not
+    read."""
     for folder in ("snv", "haplotypes", "pipeline_info"):
         (root / folder).mkdir(parents=True)
-    (root / "family.ped").write_text("F1\tS1\t0\t0\t1\t2\nF1\tS2\t0\t0\t2\t1\n", encoding="utf-8")
     (root / "snv" / "family.vcf").write_text(_DIRECT_VCF, encoding="utf-8")
     for sample in ("S1", "S2"):
         (root / "haplotypes" / f"{sample}.bcf").write_bytes(b"BCF")
         (root / "haplotypes" / f"{sample}.bcf.csi").write_bytes(b"CSI")
     (root / "pipeline_info" / "execution_trace.txt").write_text("task_id\n", encoding="utf-8")
-    (root / "manifest.yaml").write_text(
-        "schema_version: 1\nfamily_id: F1\nped: family.ped\ndatasets:\n"
+    manifest_text = (
+        "schema_version: 1\nfamily_id: F1\n" + _TWO_MEMBERS + "datasets:\n"
         "  snv:\n    family_vcf: snv/family.vcf\n"
         "  haplotypes:\n    per_sample:\n"
         "      S1:\n        file: haplotypes/S1.bcf\n        index: haplotypes/S1.bcf.csi\n"
         "      S2:\n        file: haplotypes/S2.bcf\n        index: haplotypes/S2.bcf.csi\n"
-        "  pipeline_info:\n    execution_trace: pipeline_info/execution_trace.txt\n",
-        encoding="utf-8",
+        "  pipeline_info:\n    execution_trace: pipeline_info/execution_trace.txt\n"
     )
-    return root
+    return root, manifest_text
 
 
 @pytest.mark.asyncio
@@ -2379,7 +2385,7 @@ async def test_an_import_clears_what_it_registered_carrying_nothing_or_imported_
     from app.services.family_metadata_context import FamilyMetadataContext
 
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
-    root = _carrying_package(tmp_path / "package")
+    root, manifest_text = _carrying_package(tmp_path / "package")
     # A restore that failed part-way flagged every dataset of an earlier import of this
     # package, and coverage, which this one does not carry.
     flagged = {"snv": _CLAIR3, "haplotypes": _EMPTY_PER_SAMPLE, "pipeline_info": _EMPTY, "coverage": _one("S1")}
@@ -2435,6 +2441,7 @@ async def test_an_import_clears_what_it_registered_carrying_nothing_or_imported_
     result = await fpi.execute_family_package_import(
         row,
         folder_path=root,
+        manifest_text=manifest_text,
         project_id=None,
         dry_run=False,
         user=SimpleNamespace(id="admin"),

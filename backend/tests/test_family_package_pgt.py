@@ -60,6 +60,14 @@ FAMILY = "PGT01"
 FATHER, MOTHER, INDEX = "FATHER1", "MOTHER1", "INDEX1"
 EMBRYOS = ("EMB1", "EMB2")
 SAMPLES = (FATHER, MOTHER, *EMBRYOS, INDEX)
+# The members of the package's PED (``ped/combined.ped``) as Discover names them under
+# ``family.add_members``, before the members it adds itself: the import reads no PED.
+PED_MEMBERS = [
+    {"sample_id": FATHER, "sex": "male"},
+    {"sample_id": MOTHER, "sex": "female"},
+    {"sample_id": "EMB1", "sex": "male", "father": FATHER, "mother": MOTHER},
+    {"sample_id": "EMB2", "sex": "female", "father": FATHER, "mother": MOTHER},
+]
 
 
 @pytest.fixture(autouse=True)
@@ -225,6 +233,15 @@ def _discover(root: Path) -> Any:
     )
 
 
+def _validated(root: Path, manifest: str | dict[str, Any] | None = None) -> tuple[Any, FamilyPackageBundle | None]:
+    """The validation of the package at ``root`` and its bundle, read with ``manifest`` as the
+    manifest CoGA keeps for its import: Discover's draft when None."""
+    if manifest is None:
+        manifest = _discover(root).manifest_yaml
+    text = manifest if isinstance(manifest, str) else yaml.safe_dump(manifest)
+    return family_package_validation.load_validated_family_package(root, manifest_text=text)
+
+
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
@@ -246,7 +263,8 @@ def test_discovery_reads_the_copgtm_layout(tmp_path: Path) -> None:
     assert manifest["metadata"] == {"pgt": {"affected_parents": [MOTHER], "indexes": [INDEX]}}
     assert manifest["family"] == {
         "members": {"EMB1": {"role": "embryo"}, "EMB2": {"role": "embryo"}},
-        "add_members": [{"sample_id": INDEX, "sex": "female", "role": "relative"}],
+        # The PED's members, then the index the samplesheet adds.
+        "add_members": [*PED_MEMBERS, {"sample_id": INDEX, "sex": "female", "role": "relative"}],
         # KING measured the index related to the mother only: a relative of unknown degree.
         "relationships": {"relatives": [{"member": INDEX, "related_to": [MOTHER]}]},
     }
@@ -359,7 +377,9 @@ def test_discovery_reads_an_index_in_the_ped_as_the_couples_proband(tmp_path: Pa
 
     manifest = yaml.safe_load(result.manifest_yaml)
     assert manifest["family"] == {
-        "members": {"EMB1": {"role": "embryo"}, "EMB2": {"role": "embryo"}, INDEX: {"role": "proband"}}
+        "members": {"EMB1": {"role": "embryo"}, "EMB2": {"role": "embryo"}, INDEX: {"role": "proband"}},
+        # The index is one of the PED's members, the couple's child.
+        "add_members": [*PED_MEMBERS, {"sample_id": INDEX, "sex": "female", "father": FATHER, "mother": MOTHER}],
     }
     # An index the PED holds is the run's index too.
     assert manifest["metadata"]["pgt"]["indexes"] == [INDEX]
@@ -467,21 +487,21 @@ def test_an_index_first_degree_to_both_parents_is_added_as_their_child(tmp_path:
 
     family = yaml.safe_load(result.manifest_yaml)["family"]
     assert family["add_members"] == [
+        *PED_MEMBERS,
         {
             "sample_id": INDEX,
             "sex": "female",
             "father": FATHER,
             "mother": MOTHER,
             "role": "proband",
-        }
+        },
     ]
     assert "relationships" not in family
     index_warning = next(warning for warning in result.warnings if warning.code == "pgt_index_added")
     assert "as the couple's child, the proband" in index_warning.message
 
-    # The PED the import reads holds it as their child.
-    _write_discovered_manifest(root)
-    validation, bundle = family_package_validation.load_validated_family_package(root)
+    # The pedigree the import reads holds it as their child.
+    validation, bundle = _validated(root, result.manifest_yaml)
     assert validation.valid is True, validation.errors
     assert bundle is not None
     assert f"{FAMILY} {INDEX} {FATHER} {MOTHER} 2 0 role=proband" in bundle.ped.text
@@ -521,7 +541,9 @@ def test_an_index_nothing_links_is_added_without_a_link(tmp_path: Path) -> None:
     result = _discover(root)
 
     family = yaml.safe_load(result.manifest_yaml)["family"]
-    assert family["add_members"][0]["role"] == "relative"
+    *from_ped, index = family["add_members"]
+    assert from_ped == PED_MEMBERS
+    assert (index["sample_id"], index["role"]) == (INDEX, "relative")
     assert "relationships" not in family
     index_warning = next(warning for warning in result.warnings if warning.code == "pgt_index_added")
     assert "Declare how it is related under family.relationships" in index_warning.message
@@ -616,19 +638,13 @@ def test_every_file_role_discovery_writes_leaves_a_provenance_record() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _write_discovered_manifest(root: Path) -> None:
-    (root / "manifest.yaml").write_text(_discover(root).manifest_yaml, encoding="utf-8")
-
-
 def test_the_discovered_manifest_validates_with_the_index_as_a_member(tmp_path: Path) -> None:
     root = _write_copgtm_package(tmp_path / FAMILY)
-    _write_discovered_manifest(root)
 
-    validation, bundle = family_package_validation.load_validated_family_package(root)
+    validation, bundle = _validated(root)
 
     assert validation.valid is True, validation.errors
     assert validation.sample_ids == [FATHER, MOTHER, *EMBRYOS, INDEX]
-    assert validation.metadata["added_members"] == [INDEX]
     assert validation.metadata["roi"] == "chr7:1000-2000"
     statuses = {summary.dataset_type: summary.status for summary in validation.datasets}
     for dataset_type in ("qdnaseq", "apcad", "haplotypes", "qc", "alignments", "pipeline_info"):
@@ -668,15 +684,16 @@ def test_a_phased_vcf_sample_the_family_lacks_fails_validation_before_anything_i
     # datasets were imported.
     root = _write_copgtm_package(tmp_path / FAMILY)
     manifest = yaml.safe_load(_discover(root).manifest_yaml)
-    del manifest["family"]["add_members"]
+    manifest["family"]["add_members"] = [
+        member for member in manifest["family"]["add_members"] if member["sample_id"] != INDEX
+    ]
     del manifest["family"]["relationships"]
     del manifest["metadata"]["pgt"]["indexes"]
     del manifest["samples"][INDEX]
     for dataset in manifest["datasets"].values():
         dataset.get("per_sample", {}).pop(INDEX, None)
-    (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
-    validation = family_package_validation.validate_family_package(root)
+    validation, _bundle = _validated(root, manifest)
 
     assert validation.valid is False
     assert [(error.code, error.dataset) for error in validation.errors] == [
@@ -711,9 +728,9 @@ def test_a_phased_vcf_without_the_rois_chromosome_is_reported(tmp_path: Path) ->
     root = _write_copgtm_package(tmp_path / FAMILY)
     _write_indexed_phased_vcf(root, chromosomes=("chr1", "chr2"))
 
-    discovered = [warning for warning in _discover(root).warnings if warning.dataset == "haplotypes"]
-    _write_discovered_manifest(root)
-    validation = family_package_validation.validate_family_package(root)
+    draft = _discover(root)
+    discovered = [warning for warning in draft.warnings if warning.dataset == "haplotypes"]
+    validation, _bundle = _validated(root, draft.manifest_yaml)
 
     for warnings in (discovered, validation.warnings):
         missing = [warning for warning in warnings if warning.code == "haplotypes_roi_chromosome_missing"]
@@ -724,7 +741,7 @@ def test_a_phased_vcf_without_the_rois_chromosome_is_reported(tmp_path: Path) ->
 
     _write_indexed_phased_vcf(root, chromosomes=("chr1", "chr7"))
     assert "haplotypes_roi_chromosome_missing" not in {
-        warning.code for warning in family_package_validation.validate_family_package(root).warnings
+        warning.code for warning in _validated(root, draft.manifest_yaml)[0].warnings
     }
 
 
@@ -735,9 +752,8 @@ def test_a_trio_vcf_without_the_embryos_column_fails_and_without_a_parents_warns
         TRIO_VCF.format(embryo="EMB1").replace("FATHER1\t", "OTHER1\t"),
     )
     _write(root / "split_trio/filter_trio/EMB2.trio_filtered.vcf.gz", TRIO_VCF.format(embryo="EMB9"))
-    _write_discovered_manifest(root)
 
-    validation = family_package_validation.validate_family_package(root)
+    validation, _bundle = _validated(root)
 
     assert [(error.code, error.sample_id) for error in validation.errors] == [
         ("dataset_vcf_sample_missing", "EMB2")
@@ -750,31 +766,7 @@ def test_a_trio_vcf_without_the_embryos_column_fails_and_without_a_parents_warns
 
 
 def _manifest_with_family(family: dict[str, Any]) -> PackageManifest:
-    return PackageManifest.model_validate({"ped": "ped/combined.ped", "family": family})
-
-
-def test_adding_a_member_the_ped_already_holds_is_an_error() -> None:
-    rows, errors = _manifest_added_ped_rows(
-        _manifest_with_family({"add_members": [{"sample_id": MOTHER, "sex": "female"}]}),
-        family_id=FAMILY,
-        ped_sample_ids={FATHER, MOTHER},
-    )
-
-    assert rows == []
-    assert [error.code for error in errors] == ["manifest_added_member_in_ped"]
-
-
-def test_a_stored_pedigree_may_already_hold_an_added_member() -> None:
-    # An import into an existing family without a PED file reads the stored pedigree,
-    # which holds the member the first import added.
-    rows, errors = _manifest_added_ped_rows(
-        _manifest_with_family({"add_members": {INDEX: {"sex": "female"}}}),
-        family_id=FAMILY,
-        ped_sample_ids={FATHER, MOTHER, INDEX},
-        ped_from_database=True,
-    )
-
-    assert (rows, errors) == ([], [])
+    return PackageManifest.model_validate({"family": family})
 
 
 @pytest.mark.parametrize(
@@ -790,7 +782,6 @@ def test_an_added_member_with_an_unsupported_field_is_an_error(entry: dict[str, 
     rows, errors = _manifest_added_ped_rows(
         _manifest_with_family({"add_members": [entry]}),
         family_id=FAMILY,
-        ped_sample_ids={FATHER, MOTHER},
     )
 
     assert rows == []
@@ -801,10 +792,9 @@ def test_an_added_member_listed_twice_is_an_error() -> None:
     rows, errors = _manifest_added_ped_rows(
         _manifest_with_family({"add_members": [{"sample_id": INDEX}, {"sample_id": INDEX}]}),
         family_id=FAMILY,
-        ped_sample_ids={FATHER, MOTHER},
     )
 
-    assert rows == [f"{FAMILY} {INDEX} 0 0 0 0 role=relative"]
+    assert rows == [f"{FAMILY} {INDEX} 0 0 0 0"]
     assert [error.code for error in errors] == ["manifest_added_member_duplicate"]
 
 
@@ -812,9 +802,8 @@ def test_a_relationship_naming_someone_outside_the_family_fails_validation(tmp_p
     root = _write_copgtm_package(tmp_path / FAMILY)
     manifest = yaml.safe_load(_discover(root).manifest_yaml)
     manifest["family"]["relationships"] = {"parent_child": [{"child": MOTHER, "parents": ["0", "NOBODY"]}]}
-    (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
-    validation = family_package_validation.validate_family_package(root)
+    validation, _bundle = _validated(root, manifest)
 
     assert validation.valid is False
     assert [(error.code, error.sample_id) for error in validation.errors] == [
@@ -826,9 +815,8 @@ def test_linking_the_added_index_to_the_affected_parent_validates(tmp_path: Path
     root = _write_copgtm_package(tmp_path / FAMILY)
     manifest = yaml.safe_load(_discover(root).manifest_yaml)
     manifest["family"]["relationships"] = {"parent_child": [{"child": MOTHER, "parents": ["0", INDEX]}]}
-    (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
-    assert family_package_validation.validate_family_package(root).valid is True
+    assert _validated(root, manifest)[0].valid is True
 
 
 # ---------------------------------------------------------------------------
@@ -847,7 +835,7 @@ def _couple_ped(mother_phenotype: str = "-9", mother_columns: str = "") -> Parse
 
 
 def _pgt_manifest(pgt: dict[str, Any], family: dict[str, Any] | None = None) -> PackageManifest:
-    payload: dict[str, Any] = {"ped": "ped/combined.ped", "metadata": {"pgt": pgt}}
+    payload: dict[str, Any] = {"metadata": {"pgt": pgt}}
     if family is not None:
         payload["family"] = family
     return PackageManifest.model_validate(payload)
@@ -972,9 +960,8 @@ def test_a_discovered_manifest_with_the_model_set_shows_the_derived_status_befor
     root = _write_copgtm_package(tmp_path / FAMILY)
     manifest = yaml.safe_load(_discover(root).manifest_yaml)
     manifest["metadata"]["pgt"]["inheritance_model"] = "AD"
-    (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
-    validation = family_package_validation.validate_family_package(root)
+    validation, bundle = _validated(root, manifest)
 
     assert validation.valid is True, validation.errors
     status = [warning for warning in validation.warnings if warning.code.startswith("pgt_affected_parent")]
@@ -985,8 +972,7 @@ def test_a_discovered_manifest_with_the_model_set_shows_the_derived_status_befor
     assert [(warning.code, warning.sample_id) for warning in index_status] == [("pgt_index_status", INDEX)]
     assert f"{INDEX} is recorded as affected: the index under AD inheritance" in index_status[0].message
     assert "If the index is an unaffected relative, record its status" in index_status[0].message
-    validated, bundle = family_package_validation.load_validated_family_package(root)
-    assert validated.valid is True and bundle is not None
+    assert bundle is not None
     members = {
         member["sample_id"]: member
         for member in _ped_members_for_import(
@@ -1183,7 +1169,7 @@ def test_a_status_given_where_the_index_is_added_wins_over_the_derived_one() -> 
         f"{FAMILY} {FATHER} 0 0 1 -9\n{FAMILY} {MOTHER} 0 0 2 -9\n{FAMILY} EMB1 {FATHER} {MOTHER} 1 -9\n"
     )
     assert ped is not None and errors == []
-    rows, row_errors = _manifest_added_ped_rows(manifest, family_id=FAMILY, ped_sample_ids=set(ped.sample_ids))
+    rows, row_errors = _manifest_added_ped_rows(manifest, family_id=FAMILY)
     assert row_errors == []
     with_index, errors = _parse_ped_text_strict("\n".join([ped.text, *rows]))
     assert with_index is not None and errors == []
@@ -1343,8 +1329,7 @@ def _family_context() -> FamilyMetadataContext:
 
 
 def _job(root: Path, dataset_type: str, progress: Any = None) -> DatasetImportJob:
-    _write_discovered_manifest(root)
-    validation, bundle = family_package_validation.load_validated_family_package(root)
+    validation, bundle = _validated(root)
     assert bundle is not None, validation.errors
     return DatasetImportJob(
         session=object(),  # type: ignore[arg-type]
@@ -1582,9 +1567,8 @@ def test_an_apcad_table_naming_another_embryo_fails_validation(tmp_path: Path) -
     root = _write_copgtm_package(tmp_path / FAMILY)
     _write(root / "apcad/EMB1_APCAD_parental_data.csv", _apcad_table("EMB2"))
     _write(root / "apcad/EMB2_APCAD_parental_data.csv", _apcad_table("EMB2"))
-    _write_discovered_manifest(root)
 
-    validation = family_package_validation.validate_family_package(root)
+    validation, _bundle = _validated(root)
 
     assert validation.valid is False
     assert [(error.code, error.sample_id) for error in validation.errors] == [("apcad_table_sample_mismatch", "EMB1")]
@@ -1745,9 +1729,9 @@ def test_a_segregation_table_naming_another_embryo_or_missing_fails_validation(t
     root = _write_copgtm_package(tmp_path / FAMILY)
     _write(root / "apcad/EMB1_APCAD_parental_data.csv", _apcad_table("EMB1"))
     _write(root / "apcad/EMB1_APCAD_segregation_data.csv", _segregation_table("EMB2"))
-    _write_discovered_manifest(root)
+    draft = _discover(root).manifest_yaml
 
-    validation = family_package_validation.validate_family_package(root)
+    validation, _bundle = _validated(root, draft)
 
     assert [(error.code, error.sample_id) for error in validation.errors] == [("apcad_table_sample_mismatch", "EMB1")]
     assert validation.errors[0].message.startswith(
@@ -1755,7 +1739,7 @@ def test_a_segregation_table_naming_another_embryo_or_missing_fails_validation(t
     )
     (root / "apcad/EMB1_APCAD_segregation_data.csv").unlink()
 
-    validation = family_package_validation.validate_family_package(root)
+    validation, _bundle = _validated(root, draft)
 
     assert validation.valid is False
     assert any("segregation" in error.message for error in validation.errors)
@@ -2009,8 +1993,7 @@ def test_discovery_reads_the_mito_table_per_member(tmp_path: Path) -> None:
         "OTHER9.depth_1x_chrM.bam name no member and are not imported"
     )
     # The discovered manifest validates.
-    _write_discovered_manifest(root)
-    validation = family_package_validation.validate_family_package(root)
+    validation, _bundle = _validated(root, result.manifest_yaml)
     assert validation.valid is True, validation.errors
 
 
@@ -2029,9 +2012,8 @@ def test_a_mito_table_entry_without_its_members_rows_fails_validation(
     _write(root / "mito/variants.annotated.txt", _mito_table(*MITO_ROWS))
     manifest = yaml.safe_load(_discover(root).manifest_yaml)
     manifest["datasets"]["mito"]["per_sample"] = {"EMB2": entry}
-    (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
-    validation = family_package_validation.validate_family_package(root)
+    validation, _bundle = _validated(root, manifest)
 
     assert validation.valid is False
     assert [(error.code, error.sample_id) for error in validation.errors] == [(code, "EMB2")]
@@ -2124,10 +2106,9 @@ async def test_a_qc_dataset_without_files_records_nothing(tmp_path: Path) -> Non
         session=object(),  # type: ignore[arg-type]
         bundle=FamilyPackageBundle(
             root=root,
-            manifest_path=root / "manifest.yaml",
-            manifest=PackageManifest(ped="family.ped"),
-            ped_path=root / "family.ped",
-            ped=family_package_validation.ParsedPed(family_ids=[], members=[], sample_ids=[], text=""),
+            manifest=PackageManifest(),
+            ped=ParsedPed(family_ids=[], members=[], sample_ids=[], text=""),
+            kept_manifest_text="{}",
         ),
         dataset=ManifestDataset(),
         summary=FamilyImportDatasetSummary(dataset_type="qc", enabled=True, status="valid"),

@@ -176,13 +176,13 @@ def test_without_members_or_a_readable_ped_nothing_is_compared(tmp_path: Path) -
     assert watcher._folder_ped_differences(folder, no_members) is None
 
 
-def test_the_files_the_import_reads_are_the_ped_and_each_enabled_datasets(tmp_path: Path) -> None:
+def test_the_files_the_import_reads_are_each_enabled_datasets(tmp_path: Path) -> None:
+    # Not the folder's PED: the import reads none.
     folder = _package(tmp_path, "FAM1")
     (folder / "coverage").mkdir()
     (folder / "coverage" / "S1.bed").write_text("1\t0\t10\t3\n", encoding="utf-8")
     validation = FamilyPackageValidationOut(
         valid=True,
-        ped_path=str(folder / "family.ped"),
         datasets=[
             FamilyImportDatasetSummary(dataset_type="snv", files=["snv/family.vcf"]),
             FamilyImportDatasetSummary(dataset_type="coverage", files=["coverage"]),
@@ -190,7 +190,7 @@ def test_the_files_the_import_reads_are_the_ped_and_each_enabled_datasets(tmp_pa
         ],
     )
 
-    assert watcher._files_the_import_reads(folder, validation) == ["coverage/S1.bed", "family.ped", "snv/family.vcf"]
+    assert watcher._files_the_import_reads(folder, validation) == ["coverage/S1.bed", "snv/family.vcf"]
     assert watcher._relative(folder, "/elsewhere/family.ped") is None
     assert watcher._relative(folder, None) is None
 

@@ -173,7 +173,7 @@ def test_the_family_records_the_kept_manifest_and_holds_its_copy(ran) -> None:
     record = ran["package_import"]
     kept = ran["kept"]
     assert record["folder_path"] == str(Path(ran["package"]).resolve())
-    assert record["manifest_path"] is None
+    assert "manifest_path" not in record and "ped_path" not in record
     assert (record["manifest_source"], record["manifest_sha256"]) == ("coga", kept["manifest_sha256"])
     content = kept["manifest_text"].encode("utf-8")
     assert [

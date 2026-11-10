@@ -350,6 +350,7 @@ def _queue(session: _Session, project_id: str | None) -> Any:
             project_id=project_id,
             dry_run=True,
             requested_by=_user("admin"),
+            manifest_text="schema_version: 1\nfamily_id: FAM1\n",
         )
     )
 

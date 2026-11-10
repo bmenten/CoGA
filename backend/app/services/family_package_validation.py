@@ -23,12 +23,12 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, manifest_text_problem, manifest_text_sha256, package_text_handle, read_vcf_sample_columns, read_whole_vcf_sample_columns, sample_id_issues, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, manifest_text_problem, manifest_text_sha256, package_text_handle, read_vcf_sample_columns, read_whole_vcf_sample_columns, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_fingerprint import PackageFingerprint, PackageFolderTooLarge, package_fingerprint
 from .family_package_mito_table import mito_sample_calls, read_mito_table
 from .family_package_pgt import pgt_roi_phasing_issue
-from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_link_issues, package_folder_path, parse_manifest_text, staged_package_source
+from .family_package_source import _ensure_authorized_package_path, package_folder_link_issues, package_folder_path, parse_manifest_text
 from .family_package_nipt import nipt_vcf_column_issue
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .nipt_target_coverage import target_table_missing_columns
@@ -1651,10 +1651,9 @@ def _validate_manifest_hpo_annotations(
 def load_validated_family_package(
     folder_path: str | Path,
     *,
-    fallback_ped_text: str | None = None,
+    manifest_text: str,
     remote_only_files: frozenset[str] = frozenset(),
     source_uri: str | None = None,
-    manifest_text: str | None = None,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     """Validate the package at ``folder_path`` and load it for import.
 
@@ -1665,8 +1664,9 @@ def load_validated_family_package(
     names the source folder's objects rather than staged paths, and the bundle carries
     ``source_uri`` for the records the import writes.
 
-    ``manifest_text`` is the manifest CoGA keeps for the import's job, read instead of the
-    folder's own (``_validate_and_load_package``); None reads the folder's.
+    ``manifest_text`` is the manifest CoGA keeps for the import's job, the one a delivery's
+    package makes (``_validate_and_load_package``): the import reads no file of the folder as its
+    manifest, and no PED.
 
     The fingerprint of a local package folder, read with that manifest, is taken before the
     validation reads anything in it (``take_package_fingerprint``), and given with the report
@@ -1682,7 +1682,6 @@ def load_validated_family_package(
             return FamilyPackageValidationOut(valid=False, errors=[refusal]), None
     validation, bundle = _validate_and_load_package(
         folder_path,
-        fallback_ped_text=fallback_ped_text,
         remote_only_files=remote_only_files,
         manifest_text=manifest_text,
         # A manifest without family_id names the family after its folder: for a bucket,
@@ -1702,10 +1701,10 @@ def load_validated_family_package(
 
 
 def take_package_fingerprint(
-    folder_path: str | Path, *, manifest_text: str | None
+    folder_path: str | Path, *, manifest_text: str
 ) -> tuple[PackageFingerprint | None, FamilyImportValidationIssue | None]:
     """The fingerprint of the local package folder ``folder_path``, read with the manifest CoGA
-    keeps for the import (``manifest_text``) or the folder's own, and why the folder is refused.
+    keeps for the import (``manifest_text``), and why the folder is refused.
 
     None and no refusal for a folder the validation refuses or reports itself: one outside the
     import folders, one that does not exist or is no folder, and a kept manifest no text can
@@ -1718,13 +1717,10 @@ def take_package_fingerprint(
         return None, None
     if not root.is_dir():
         return None, None
-    kept_manifest_sha256: str | None = None
-    if manifest_text is not None:
-        if manifest_text_problem(manifest_text) is not None:
-            return None, None
-        kept_manifest_sha256 = manifest_text_sha256(manifest_text)
+    if manifest_text_problem(manifest_text) is not None:
+        return None, None
     try:
-        return package_fingerprint(root, kept_manifest_sha256=kept_manifest_sha256), None
+        return package_fingerprint(root, kept_manifest_sha256=manifest_text_sha256(manifest_text)), None
     except PackageFolderTooLarge as exc:
         return None, _issue("package_folder_too_large", str(exc), path=root)
     except OSError as exc:
@@ -1754,8 +1750,6 @@ def _report_staged_paths_as_objects(
 
     return validation.model_copy(
         update={
-            "manifest_path": _staged_path_as_object(validation.manifest_path, staged_root, source_uri),
-            "ped_path": _staged_path_as_object(validation.ped_path, staged_root, source_uri),
             "errors": relabel(validation.errors),
             "warnings": relabel(validation.warnings),
         }
@@ -1765,22 +1759,19 @@ def _report_staged_paths_as_objects(
 def _validate_and_load_package(
     folder_path: str | Path,
     *,
-    fallback_ped_text: str | None,
     remote_only_files: frozenset[str],
     folder_name: str | None,
-    manifest_text: str | None = None,
+    manifest_text: str,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     """Validate the package at ``folder_path`` and load it for import.
 
-    The manifest is the folder's own (``manifest.yaml``, ``.yml`` or ``.json``), or, given
-    ``manifest_text``, the manifest CoGA keeps for the import's job: a folder CoGA cannot write,
-    such as a share mounted read-only, holds none unless the pipeline wrote one, and Write
-    manifest cannot add it. Its paths are read relative to the package folder as a folder
-    manifest's are, and a file is read only when it lies in the package. A folder that holds a
-    manifest of its own too is told that it is not read (``manifest_in_folder_not_read``). The
-    report's metadata names the manifest read (``manifest_source``, ``folder`` or ``coga``) and
-    its SHA-256 (``manifest_sha256``: of the file's bytes, or of the kept text), as the job and
-    the family's package record keep them.
+    The manifest is ``manifest_text``, the one CoGA keeps for the import's job: a file in the
+    folder is never read as the manifest. Its paths are read relative to the package folder,
+    and a file is read only when it lies in the package. Its members are the pedigree: the
+    entries of ``family.add_members``, each one PED row for every check a PED's rows get; a
+    manifest that names a PED (``ped``) is refused, for the import reads none. The report's
+    metadata names the manifest read (``manifest_source``) and its SHA-256 (``manifest_sha256``),
+    as the job and the family's package record keep them.
     """
     try:
         root = _ensure_authorized_package_path(Path(folder_path))
@@ -1807,71 +1798,21 @@ def _validate_and_load_package(
         errors.append(_issue("package_folder_not_directory", "Family package path is not a directory", path=root))
         return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
 
-    # A manifest name that is a symlink out of the package, or one that loops: no manifest is
-    # read through it (it was any YAML or JSON file the backend can read).
-    manifest_link = manifest_link_out_of_package(root)
-    if manifest_link is not None:
-        errors.append(manifest_outside_package_issue(manifest_link))
-        return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
     # A PED folder or a long-read folder that is a symbolic link, reported as Discover reports
-    # it (SEC-27). A file the manifest names through one is still read only when it lies in
-    # the package (_resolve_package_path).
+    # it. A file the manifest names through one is still read only when it lies in the package
+    # (_resolve_package_path).
     warnings.extend(package_folder_link_issues(root))
 
-    manifest_path: Path | None
-    if manifest_text is not None:
-        # The manifest CoGA keeps for the job, never the folder's.
-        manifest_path = None
-        manifest_source = MANIFEST_KEPT_IN_COGA
-        folder_manifest = _find_manifest(root)
-        if folder_manifest is not None:
-            warnings.append(
-                _issue(
-                    "manifest_in_folder_not_read",
-                    f"The package folder holds its own {folder_manifest.name}, which this import "
-                    "does not read: it reads the manifest CoGA keeps for it.",
-                    path=folder_manifest,
-                )
-            )
-        problem = manifest_text_problem(manifest_text)
-        try:
-            if problem is not None:
-                raise ValueError(problem)
-            manifest_payload, manifest = parse_manifest_text(manifest_text)
-        except (json.JSONDecodeError, ValueError, ValidationError, yaml.YAMLError) as exc:
-            errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {exc}"))
-            return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
-        manifest_sha256 = manifest_text_sha256(manifest_text)
-    else:
-        manifest_path = _find_manifest(root)
-        manifest_source = MANIFEST_IN_FOLDER
-        if manifest_path is None:
-            errors.append(
-                _issue(
-                    "manifest_missing",
-                    "Manifest file not found; expected manifest.yaml, manifest.yml, or manifest.json. "
-                    "A folder CoGA cannot write can be imported with the manifest Discover drafts, "
-                    "kept in CoGA instead of written to the folder.",
-                    path=root,
-                )
-            )
-            return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
-
-        try:
-            manifest_payload, manifest, manifest_sha256 = _parse_manifest(manifest_path)
-        except (OSError, json.JSONDecodeError, ValueError, ValidationError, yaml.YAMLError) as exc:
-            errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {exc}", path=manifest_path))
-            return (
-                FamilyPackageValidationOut(
-                    valid=False,
-                    manifest_path=str(manifest_path),
-                    errors=errors,
-                    warnings=warnings,
-                    datasets=summaries,
-                ),
-                None,
-            )
-    shown_manifest_path = str(manifest_path) if manifest_path is not None else None
+    manifest_source = MANIFEST_KEPT_IN_COGA
+    problem = manifest_text_problem(manifest_text)
+    try:
+        if problem is not None:
+            raise ValueError(problem)
+        manifest_payload, manifest = parse_manifest_text(manifest_text)
+    except (json.JSONDecodeError, ValueError, ValidationError, yaml.YAMLError) as exc:
+        errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {exc}"))
+        return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
+    manifest_sha256 = manifest_text_sha256(manifest_text)
 
     metadata = {
         "schema_version": manifest.schema_version,
@@ -1890,7 +1831,6 @@ def _validate_and_load_package(
             _issue(
                 "manifest_schema_version_missing",
                 "Manifest did not specify schema_version; defaulting to schema_version 1",
-                path=manifest_path,
             )
         )
     if manifest.schema_version != 1:
@@ -1898,7 +1838,6 @@ def _validate_and_load_package(
             _issue(
                 "manifest_schema_version_unsupported",
                 f"Unsupported manifest schema_version {manifest.schema_version}; expected 1",
-                path=manifest_path,
             )
         )
 
@@ -1913,7 +1852,6 @@ def _validate_and_load_package(
         return (
             FamilyPackageValidationOut(
                 valid=False,
-                manifest_path=shown_manifest_path,
                 errors=errors,
                 warnings=warnings,
                 datasets=summaries,
@@ -1921,106 +1859,38 @@ def _validate_and_load_package(
             ),
             None,
         )
-    ped_path = _resolve_package_path(root, manifest.ped)
     ped: ParsedPed | None = None
-    ped_text: str | None = None
-    if ped_path is not None and ped_path.is_file():
-        try:
-            ped_text = ped_path.read_text(encoding="utf-8")
-        except UnicodeDecodeError as exc:
-            errors.append(_issue("ped_decode_failed", f"PED file is not UTF-8 text: {exc}", path=ped_path))
-    elif fallback_ped_text is not None:
-        # No PED on disk: fall back to the pedigree already configured in the
-        # database. This lets an incremental import add data to an existing
-        # family without re-supplying a PED file.
-        ped_text = fallback_ped_text
-        metadata["ped_source"] = "database"
-    elif ped_path is None:
-        if _manifest_added_member_entries(manifest):
-            # No PED: the manifest names every member under family.add_members (the
-            # long-read pipeline writes no PED for a couple screened for carriership).
-            ped_text = ""
-            metadata["ped_source"] = "manifest"
-        else:
-            errors.append(
-                _issue(
-                    "ped_missing_path",
-                    "Manifest must define a PED path, or name the family's members under family.add_members",
-                    path=manifest_path,
-                )
+    if "ped" in manifest_payload:
+        errors.append(
+            _issue(
+                "manifest_names_a_ped",
+                "The manifest names a PED, which the import does not read: name the family's members "
+                "under family.add_members",
             )
+        )
+    elif not _manifest_added_member_entries(manifest):
+        errors.append(_issue("members_missing", "The manifest names no members under family.add_members"))
     else:
-        errors.append(_issue("ped_file_missing", "PED file does not exist", path=ped_path))
+        # The members are the manifest's alone: each one a PED row, so every PED check (duplicate
+        # IDs, parents) is made of them; one without a role gets one from the pedigree, as a PED
+        # row does.
+        added_rows, added_errors = _manifest_added_ped_rows(manifest, family_id=family_id)
+        errors.extend(added_errors)
+        if any(issue.code in IDENTIFIER_ISSUE_CODES for issue in added_errors):
+            # Nothing else is read under an ID that cannot be stored: its rows are not checked.
+            pass
+        elif added_rows:
+            ped, ped_errors = _parse_ped_text_strict("\n".join(added_rows))
+            errors.extend(ped_errors)
+        elif not added_errors:
+            errors.append(_issue("ped_empty", "family.add_members names no member the package can import"))
 
-    if ped_text is not None:
-        if ped_text.strip():
-            ped, ped_errors = _parse_ped_text_strict(ped_text)
-        else:
-            # The members are the manifest's alone: its added rows below are the PED.
-            ped, ped_errors = ParsedPed(family_ids=[], members=[], sample_ids=[], text=""), []
-        if ped is not None:
-            added_rows, added_errors = _manifest_added_ped_rows(
-                manifest,
-                family_id=family_id,
-                ped_sample_ids=set(ped.sample_ids),
-                ped_from_database=metadata.get("ped_source") == "database",
-                # Without a PED the added members are the whole pedigree: one without a role gets
-                # one from it, as a PED row does.
-                default_role=None if metadata.get("ped_source") == "manifest" else "relative",
-            )
-            errors.extend(added_errors)
-            if added_rows:
-                # Re-parsed with the added rows appended to the file's own text, so the
-                # file's rows keep their line numbers and the added members get every
-                # PED check (duplicate ids, parents) the file's members get.
-                ped_rows = [ped_text.rstrip("\n"), *added_rows] if ped_text.strip() else added_rows
-                ped, ped_errors = _parse_ped_text_strict("\n".join(ped_rows))
-                metadata["added_members"] = [row.split()[1] for row in added_rows]
-            elif not ped.members:
-                ped, ped_errors = None, [
-                    _issue("ped_empty", "family.add_members names no member the package can import")
-                ]
-        errors.extend(ped_errors)
+    if ped is not None and any(issue.code in IDENTIFIER_ISSUE_CODES for issue in errors):
+        # Nothing else is read under an ID that cannot be stored: the dataset summaries and the
+        # job's record would carry it.
+        ped = None
 
     if ped is not None:
-        # The PED's own IDs, or the stored pedigree's for an import into an existing family;
-        # family.add_members' were checked as their rows were made.
-        from_database = metadata.get("ped_source") == "database"
-        ped_source = "in the family's stored pedigree" if from_database else "in the PED"
-        ped_issue_path = None if from_database else ped_path
-        for ped_family_id in ped.family_ids:
-            ped_family_issue = (
-                family_id_issue(ped_family_id, source=ped_source, path=ped_issue_path)
-                if ped_family_id != family_id
-                else None
-            )
-            if ped_family_issue is not None:
-                errors.append(ped_family_issue)
-        errors.extend(sample_id_issues(ped.sample_ids, source=ped_source, path=ped_issue_path))
-        if any(issue.code in IDENTIFIER_ISSUE_CODES for issue in errors):
-            # Nothing else is read under an ID that cannot be stored: the dataset summaries
-            # and the job's record would carry it.
-            ped = None
-
-    if ped is not None:
-        if len(ped.family_ids) > 1:
-            errors.append(
-                _issue(
-                    "ped_multiple_families",
-                    f"PED contains multiple family IDs: {', '.join(ped.family_ids)}",
-                    path=ped_path,
-                )
-            )
-        for ped_family_id in ped.family_ids:
-            if ped_family_id != family_id:
-                errors.append(
-                    _issue(
-                        "ped_family_mismatch",
-                        f"PED family ID '{ped_family_id}' does not match package family_id '{family_id}'",
-                        path=ped_path,
-                    )
-                )
-
         errors.extend(_manifest_relationship_issues(manifest, set(ped.sample_ids), ped))
         _derived_statuses, status_errors, status_warnings = _manifest_derived_statuses(manifest, ped)
         errors.extend(status_errors)
@@ -2096,8 +1966,6 @@ def _validate_and_load_package(
     validation = FamilyPackageValidationOut(
         valid=not errors,
         family_id=family_id,
-        manifest_path=shown_manifest_path,
-        ped_path=str(ped_path) if ped_path is not None else None,
         sample_ids=ped.sample_ids if ped is not None else [],
         errors=errors,
         warnings=warnings,
@@ -2108,30 +1976,11 @@ def _validate_and_load_package(
         return validation, None
     return validation, FamilyPackageBundle(
         root=root,
-        manifest_path=manifest_path,
         manifest=manifest,
-        ped_path=ped_path,
         ped=ped,
+        kept_manifest_text=manifest_text,
         remote_only_files=remote_only_files,
         manifest_sha256=manifest_sha256,
-        kept_manifest_text=manifest_text,
     )
 
 
-def validate_family_package(
-    folder_path: str | Path,
-    *,
-    fallback_ped_text: str | None = None,
-    manifest_text: str | None = None,
-) -> FamilyPackageValidationOut:
-    """Validate the package at ``folder_path``, with the folder's manifest or, given
-    ``manifest_text``, the manifest CoGA keeps for an import (``_validate_and_load_package``)."""
-    with staged_package_source(folder_path) as staged:
-        validation, _bundle = load_validated_family_package(
-            staged.root,
-            fallback_ped_text=fallback_ped_text,
-            remote_only_files=staged.remote_only_files,
-            source_uri=staged.source_uri,
-            manifest_text=manifest_text,
-        )
-    return validation

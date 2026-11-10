@@ -33,7 +33,7 @@ Een pakket komt alleen als levering in een import: aangeleverd in een bewaakte i
 **Het manifest dat CoGA bewaart.** Elke import leest het manifest dat CoGA bewaart: het manifest dat het pakket van een goedgekeurde levering maakt (`coga_package_manifest.package_manifest`), met de leden onder `family.add_members`, nooit een bestand in de pakketmap.
 
 - De job bewaart het in `family_import_jobs.manifest_text`, met zijn SHA-256 in `manifest_sha256`. Een worker die de job oppakt, ook opnieuw nadat zijn worker stopte, leest de bewaarde tekst.
-- De paden zijn relatief tot de pakketmap en dezelfde bewakers gelden: een pad uit de map wordt geweigerd. Staat er toch een manifest in de map, dan volgt de waarschuwing dat het niet gelezen wordt (`manifest_in_folder_not_read`).
+- De paden zijn relatief tot de pakketmap en dezelfde bewakers gelden: een pad uit de map wordt geweigerd. Een manifestbestand in de map is gewoon een bestand: geen import leest het.
 - Het validatierapport noemt het gelezen manifest: `manifest_source` (`coga`) en `manifest_sha256`. Het pakketrecord van de familie (`families.metadata.package_import`) bewaart beide, met `manifest_path` leeg. De bestanden van de familie (`raw_import_files`) houden er een beheerde kopie van, als dataset `manifest`, om te downloaden en te verifiëren.
 
 **Ingeladen mappen worden gemarkeerd.** Een pakketmap blijft na de import op de share staan: CoGA verplaatst ze nooit, en toont de alignments en het QC-rapport eruit. De lijst van mappen die met de hand toegevoegd kunnen worden, geeft daarom bij elke map de families waarvan het pakketrecord die map noemt als de map waaruit ze ingeladen werden (`families.metadata.package_import.folder_path`, met of zonder afsluitende `/`). Ze geeft er ook bij wanneer hun laatste import ze registreerde, en of die import niet voltooid is of nog loopt (de familie draagt de vlag *import incomplete*, of de markering van een lopende import). Het formulier markeert zo'n map als *imported*: voeg ze alleen opnieuw toe om data toe te voegen of te vervangen, met update of overwrite. De lijst leest de records van de families, niet de mappen; een map waarvan de familie verwijderd is, is niet meer gemarkeerd. Een map waarvan de laatste import ongedaan gemaakt werd omdat het pakket tijdens het lezen wijzigde, wordt aangeduid (`changed_during_import`). **Waar in de code:** `backend/app/services/imported_package_folders.py`.
@@ -63,11 +63,11 @@ Een pakket komt alleen als levering in een import: aangeleverd in een bewaakte i
 
 De lijst van gevonden pakketten toont alleen mappen die de controle aanvaardt, en leest niets in de andere. Er staan dus niet in: een pakketmap die een symbolische link uit de importmappen is, en een link die in een kring loopt. Een link die binnen de importmappen blijft, wordt gevolgd; de map waar hij naar leidt, staat in de lijst. Ingetypt wordt zo'n map geweigerd, met de reden (`package_folder_not_allowed`).
 
-**Waar in de code:** `backend/app/services/family_package_source.py` (de allowlist; `manifest_link_out_of_package` weigert een manifest dat uit de pakketmap leidt; `_listed_package_folder` controleert elke map van de pakketlijst zoals de import, voordat de lijst erin kijkt).
+**Waar in de code:** `backend/app/services/family_package_source.py` (de allowlist; `_listed_package_folder` controleert elke map van de pakketlijst zoals de import, voordat de lijst erin kijkt).
 
 ## Wat een pakket bevat
 
-Een geldig pakket is een map met een manifest, een PED-bestand of beide. Het manifest kent vijftien soorten datasets:
+Een pakket is een map met de bestanden van de pipeline; het manifest dat CoGA ervoor bewaart, beschrijft ze. Het manifest kent vijftien soorten datasets:
 
 - **Varianten:** `snv` (small variants, met optionele annotatietabel), `sv_needlr` (structurele varianten), `cnv` (CNV-calls met hun signaalbestanden), `mito` (mitochondriale varianten), `repeats_trgt` (repeat-expansies).
 - **Tracks:** `wisecondorx` en `qdnaseq` (CNV-dekking en -segmenten), `coverage`, `apcad` en `pcf` (embryo-analyses), `haplotypes` (een gefaseerde familie-VCF van GLIMPSE2 of SHAPEIT5).
@@ -91,7 +91,7 @@ De ontdekkingsstap zoekt bestanden op de familie- en sample-ID's, en alleen in d
 
 De eigenaar koos voor een waarschuwing, niet voor een weigering (`package_folder_link_issues` in `family_package_source.py`). De bewakers hierboven blijven gelden: een bestand dat het manifest noemt of dat de ontdekkingsstap zoekt via een link uit het pakket, wordt nog altijd niet gelezen.
 
-**CoGA leest geen manifest in de pakketmap.** De import leest het manifest dat CoGA bewaart (hierboven). Een `manifest.yaml` (of `.yml`, `.json`) in de map die een symbolische link uit de map is, of een link in een kring, wordt geweigerd (`manifest_outside_package`): de controle leest niets meer van het pakket.
+**CoGA leest geen manifest in de pakketmap.** De import leest het manifest dat CoGA bewaart (hierboven); een manifestbestand in de map, ook een symbolische link, opent ze niet.
 
 Elk pad in het manifest is relatief tot de pakketmap (of een absoluut pad erin). Een `400` krijgen:
 
@@ -101,12 +101,9 @@ Elk pad in het manifest is relatief tot de pakketmap (of een absoluut pad erin).
 
 Een `~` vooraan is geen thuismap: CoGA leest er geen. Een kring vindt de controle door het opgeloste pad op te zoeken, zodat Python 3.12 (waar `Path.resolve` op een kring een fout geeft) en 3.13 (waar niet) hem gelijk weigeren.
 
-**De PED is de bron van waarheid voor de familie.** Een manifest zonder PED noemt al zijn leden onder `family.add_members` (zie het long-read-koppel hieronder). De controle leest de PED strikt: minstens zes kolommen, precies één familie. Elke dataset per sample moet naar een lid van de familie verwijzen. Het manifest mag toevoegen:
+**De leden van het pakket zijn de stamboom.** De import leest geen PED: het manifest dat CoGA bewaart, noemt elk lid onder `family.add_members`, met zijn geslacht, ouders, rol en klinische status. Elk lid geldt als een PED-rij en doorloopt dezelfde controles; een lid zonder rol krijgt er een uit de stamboom, zoals een PED-rij. Een manifest dat toch een PED noemt, wordt geweigerd (`manifest_names_a_ped`); een manifest zonder leden ook (`members_missing`). Een PED in de map dient alleen de ontdekkingsstap, die er de leden uit voorstelt voor een map die met de hand toegevoegd wordt. Elke dataset per sample moet naar een lid van de familie verwijzen. Het manifest mag daarnaast dragerschap en expliciete relaties geven; een relatie mag alleen leden noemen.
 
-- klinische status, dragerschap en expliciete relaties; een relatie mag alleen leden noemen;
-- onder `family.add_members` een lid dat de PED mist. Dat lid geldt als een extra PED-rij, met zijn `father` en `mother` als die gegeven zijn, en doorloopt dezelfde controles. Een lid dat al in de PED staat, mag er niet opnieuw in.
-
-Bij een import in een *bestaande* familie mag de PED ontbreken; dan geldt de stamboom uit de databank.
+Bij een import in een *bestaande* familie moeten de leden van het pakket die van de familie in CoGA zijn: dezelfde leden, met hetzelfde geslacht en dezelfde ouders. Een pakket dat iets anders zegt, vraagt aandacht bij zijn controle (`package_members_differ_from_family`) en wordt eerst gecorrigeerd; de import weigert het ook zelf.
 
 **De PGT-pipeline (nf-cmgg/copgtm)** schrijft haar uitvoer per tool weg, met de PED in `ped/combined.ped`. Die PED schiet op twee punten tekort:
 
@@ -150,7 +147,7 @@ Eén gecombineerde VCF met een kolom voor de vader en een voor het plasma kan oo
 
 **Een koppel voor dragerschapsscreening op de long-read-pipeline (nf-core/lrsvar)** heeft geen PED en geen gezamenlijke callset. Elke partner heeft eigen bestanden (`snv/<sample>/annotation/<sample>_annot.vcf.gz`, `sv/<sample>/needlr/<sample>_sv_phased.needLR.<versie>.vcf.gz`, `repeats/<sample>/<sample>_tr.vcf.gz`, `paraphase/<sample>/<sample>.paraphase.json`). De importpagina toont zo'n map toch: een map met de mappen per sample van de pipeline geldt als pakket.
 
-- **Leden:** zonder PED neemt de ontdekkingsstap de leden uit die mappen en zet ze onder `family.add_members`. Het manifest heeft dan geen PED nodig.
+- **Leden:** zonder PED neemt de ontdekkingsstap de leden uit die mappen en zet ze onder `family.add_members`.
 - **Geslacht:** het karyotype waarmee TRGT de repeats van het lid genotypeerde (`--karyotype XX` of `XY` in de `##trgtCommand` van de TRGT-VCF). De pipeline neemt dat uit haar samplesheet. Het is dus het geregistreerde geslacht, dat de Sample-QC met de reads vergelijkt.
 - **Koppel:** twee leden van verschillend geslacht worden als koppel voorgesteld (`family.relationships.couples`, context `carrier screening`), de vrouw als moeder en de man als vader. De waarschuwing `ped_proposed_from_folders` zegt wat werd voorgesteld.
 - **SNV's:** de twee SNV-bestanden worden samen gelezen als de primaire callset van de familie (`snv.per_sample` met `source_format: clair3`). Een site die beide partners dragen, wordt één rij met beide calls. Een partner zonder record op de variant van de ander wordt daar als referentie gelezen, zoals een gezamenlijke VCF een gedekte site roept. DeepVariants `RefCall`- en `NoCall`-records blijven alleen bewaard waar de andere partner een variant heeft.
@@ -169,21 +166,20 @@ De dry-run is de veiligheidspoort van de import. Hij voert dezelfde pakketcontro
 De controles, in volgorde:
 
 1. **Pad** — de map moet binnen `FAMILY_IMPORT_ROOTS` liggen, en haar pad moet te volgen zijn: geen symbolische link die in een kring loopt, geen `~` voor een thuismap die de server niet heeft.
-2. **Bestaan** — de map bestaat, en het manifest bestaat als bestand in de map, of de aanvraag geeft het manifest dat CoGA voor de job bewaart. Een manifest dat een symbolische link uit de map is of in een kring loopt, is een fout (`manifest_outside_package`).
+2. **Bestaan** — de map bestaat, en de job heeft het manifest dat CoGA bewaart.
 3. **Manifestversie** — `schema_version` moet `1` zijn (ontbreekt ze, dan volgt een waarschuwing).
-4. **ID's** — de familie-ID (uit het manifest, anders de mapnaam) en elke sample-ID zijn afdrukbare tekst zonder spaties, en geen pad. Sample-ID's komen uit de PED of de opgeslagen stamboom en uit `family.add_members`; bij het ontdekken ook uit de naam van een map per sample van een long-read-pakket, uit de samplesheet van de PGT-pipeline, of van een ouder die de PED noemt maar niet als lid heeft. De witruimte errond valt weg. Een fout (`family_id_invalid`, `sample_id_invalid`) is een ID met:
+4. **ID's** — de familie-ID (uit het manifest, anders de mapnaam) en elke sample-ID zijn afdrukbare tekst zonder spaties, en geen pad. Sample-ID's komen uit `family.add_members`; bij het ontdekken ook uit de naam van een map per sample van een long-read-pakket, uit de samplesheet van de PGT-pipeline, of van een ouder die de PED noemt maar niet als lid heeft. De witruimte errond valt weg. Een fout (`family_id_invalid`, `sample_id_invalid`) is een ID met:
     - een stuurteken (C0, zoals een regeleinde, een tab, een escape of een NUL; DEL; of C1, `\x80`–`\x9f`) of witruimte erin;
     - een ander teken dat een lezer niet ziet: een teken dat de schrijfrichting van de tekst omkeert (U+200E, U+200F, U+202A–U+202E, U+2066–U+2069, U+061C), waardoor `FAM\u202e100` als `FAM001` verschijnt; een teken zonder breedte (U+200B–U+200D, U+2060, en U+FEFF, ook de byte-order mark waarmee een tekstbestand kan beginnen); of een ander teken dat niet afdrukbaar is;
     - een `/` of een `\`, of een ID dat `.` of `..` is. Een map die naar het ID heet, en een padsegment van een URL, lezen zulke tekens als scheidingsteken, als de map zelf of als haar bovenliggende map. `..` binnen een langer ID (`F..1`) hoort bij één naam en blijft toegelaten.
 
     De melding toont het ID met elk onzichtbaar teken als escape (`\n`, `\u200b`), zegt wat er mis is en waar het ID vandaan komt, en noemt de regel. Bij zo'n fout leest de controle niets meer van het pakket, en stelt de ontdekkingsstap geen manifest voor. Een aanvraag die met zo'n ID een bestaande familie noemt, krijgt `400` nog voor de job bestaat. Dezelfde regel weigert zo'n ID met een `400` in de Family Builder, bij een PED-upload en bij het bewerken van leden (hoofdstuk 15). Hoofdletters laat de regel ongemoeid, want de opslag in productie onderscheidt ze. Alleen op een bestandssysteem dat ze niet onderscheidt (een bind mount op macOS, bij ontwikkeling), delen twee familie-ID's die alleen in hoofdletters verschillen elke map die naar een ID heet.
 
-5. **PED**:
-    - minstens zes kolommen, één familie, unieke sample-id's, geldige codes voor geslacht en status, de juiste familie-id;
-    - elke ouder staat in de PED, met het juiste geslacht;
-    - een lid uit `family.add_members` staat niet al in de PED;
+5. **Leden**:
+    - elk lid één keer, met geldige codes voor geslacht en status;
+    - elke ouder is een lid, met het juiste geslacht;
     - elke relatie uit het manifest noemt een lid, en een verwant van onbekende graad (`relatives`) is niet aan zichzelf gekoppeld, noch aan wie al zijn ouder, kind of partner is;
-    - de aangetaste ouder (`metadata.pgt.affected_parents`) is een ouder in de PED, en de index (`metadata.pgt.indexes`) een ander lid.
+    - de aangetaste ouder (`metadata.pgt.affected_parents`) is een ouder in de familie, en de index (`metadata.pgt.indexes`) een ander lid.
 6. **Per dataset**:
     - De bestanden liggen in het pakket en bestaan (een alignment van een pakket uit de cloud: in de bucket). Een pad buiten het pakket, met `~` vooraan of door een kring van links, krijgt een `400` (zie hierboven).
     - Een gecomprimeerde familie-VCF van `snv`, `sv_needlr` of `repeats_trgt` heeft een index (`.tbi`, `.csi` of `.idx`). Een ongecomprimeerde `.vcf` en een bestand per sample mogen zonder. Een index die het manifest noemt, moet bestaan.
@@ -191,7 +187,7 @@ De controles, in volgorde:
     - Een SNV-callset per sample (`snv.per_sample`, zonder `family_vcf`) mag alleen bij `analysis_type: monogenic_nipt`, of als primaire callset van een long-read-koppel met `source_format: clair3`. Anders is ze een fout (`dataset_per_sample_unsupported`), zodat een NIPT-paar nooit als kiembaancalls gelezen wordt. Elk van haar VCF's bevat precies één sample (`dataset_vcf_not_single_sample`) en heeft geen index nodig. Bij een NIPT-paar kan de naam van die ene kolom een **waarschuwing** geven (`nipt_vcf_column_named_otherwise`, zie *De import van een NIPT-paar*).
     - Een dekkingstabel (`target_table`) noemt in haar kopregel de kolommen `chromosome`, `start`, `end`, `attribute` en `mean` (`coverage_target_table_columns`).
     - Sommige bestanden weigert de import als er geen record in staat: een familie-VCF van `snv`, `sv_needlr`, `repeats_trgt` of `apcad`; de SNV-, NeedlR-, TRGT- of chrM-VCF van een sample; het APCAD-bestand van een embryo; de dekkings-BED van een sample. Staat er in zo'n bestand niets na de header, dan volgt een **waarschuwing** (`dataset_file_without_record`), en laat de import die dataset falen, met de opgeslagen data zoals ze waren. De controle leest elk bestand tot de eerste regel na de header. Een regel die de loader niet als record kan lezen (de `track`-regel van een BED, een kolomkop), komt er dus door. Een HiFiCNV-VCF of een chrM-SV-VCF zonder call is een resultaat en krijgt geen waarschuwing. Van een dekkingstabel per target worden de kolommen gecontroleerd.
-7. **Fenotypes (HPO)** — een fenotypetabel moet naar samples uit de PED verwijzen; slechte rijen worden waarschuwingen.
+7. **Fenotypes (HPO)** — een fenotypetabel moet naar leden van de familie verwijzen; slechte rijen worden waarschuwingen.
 
 Elke bevinding heeft een vaste `code`, zodat de UI en een auditor een fout eenduidig kunnen benoemen. Bij één fout stopt de import met "Package validation failed; no data were imported." en wordt er niets weggeschreven.
 

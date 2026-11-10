@@ -1408,7 +1408,7 @@ python docs/handleiding/build_site.py
 <p><strong>Het manifest dat CoGA bewaart.</strong> Elke import leest het manifest dat CoGA bewaart: het manifest dat het pakket van een goedgekeurde levering maakt (<code>coga_package_manifest.package_manifest</code>), met de leden onder <code>family.add_members</code>, nooit een bestand in de pakketmap.</p>
 <ul>
 <li>De job bewaart het in <code>family_import_jobs.manifest_text</code>, met zijn SHA-256 in <code>manifest_sha256</code>. Een worker die de job oppakt, ook opnieuw nadat zijn worker stopte, leest de bewaarde tekst.</li>
-<li>De paden zijn relatief tot de pakketmap en dezelfde bewakers gelden: een pad uit de map wordt geweigerd. Staat er toch een manifest in de map, dan volgt de waarschuwing dat het niet gelezen wordt (<code>manifest_in_folder_not_read</code>).</li>
+<li>De paden zijn relatief tot de pakketmap en dezelfde bewakers gelden: een pad uit de map wordt geweigerd. Een manifestbestand in de map is gewoon een bestand: geen import leest het.</li>
 <li>Het validatierapport noemt het gelezen manifest: <code>manifest_source</code> (<code>coga</code>) en <code>manifest_sha256</code>. Het pakketrecord van de familie (<code>families.metadata.package_import</code>) bewaart beide, met <code>manifest_path</code> leeg. De bestanden van de familie (<code>raw_import_files</code>) houden er een beheerde kopie van, als dataset <code>manifest</code>, om te downloaden en te verifiëren.</li>
 </ul>
 <p><strong>Ingeladen mappen worden gemarkeerd.</strong> Een pakketmap blijft na de import op de share staan: CoGA verplaatst ze nooit, en toont de alignments en het QC-rapport eruit. De lijst van mappen die met de hand toegevoegd kunnen worden, geeft daarom bij elke map de families waarvan het pakketrecord die map noemt als de map waaruit ze ingeladen werden (<code>families.metadata.package_import.folder_path</code>, met of zonder afsluitende <code>/</code>). Ze geeft er ook bij wanneer hun laatste import ze registreerde, en of die import niet voltooid is of nog loopt (de familie draagt de vlag <em>import incomplete</em>, of de markering van een lopende import). Het formulier markeert zo'n map als <em>imported</em>: voeg ze alleen opnieuw toe om data toe te voegen of te vervangen, met update of overwrite. De lijst leest de records van de families, niet de mappen; een map waarvan de familie verwijderd is, is niet meer gemarkeerd. Een map waarvan de laatste import ongedaan gemaakt werd omdat het pakket tijdens het lezen wijzigde, wordt aangeduid (<code>changed_during_import</code>). <strong>Waar in de code:</strong> <code>backend/app/services/imported_package_folders.py</code>.</p>
@@ -1435,9 +1435,9 @@ python docs/handleiding/build_site.py
 </ul>
 <p><code>FAMILY_IMPORT_ROOTS</code> is een <strong>allowlist</strong> van de mappen die gescand mogen worden. Zo kan wie importeert niet zomaar een willekeurig bestand op de server laten inlezen. Een pad buiten die lijst wordt geweigerd: de controle meldt <code>package_folder_not_allowed</code>, en een map buiten de lijst met de hand toevoegen krijgt <code>HTTP 403</code>. Is de lijst leeg, dan staat de controle open voor een lokale map; dat is een bewuste ontwikkelmodus. Een pad dat niet te volgen is, wordt ook geweigerd (<code>package_folder_not_allowed</code>, en <code>HTTP 400</code> bij het met de hand toevoegen): een pad door een symbolische link die in een kring loopt, of een pad dat met <code>~</code> begint voor een thuismap die de server niet heeft.</p>
 <p>De lijst van gevonden pakketten toont alleen mappen die de controle aanvaardt, en leest niets in de andere. Er staan dus niet in: een pakketmap die een symbolische link uit de importmappen is, en een link die in een kring loopt. Een link die binnen de importmappen blijft, wordt gevolgd; de map waar hij naar leidt, staat in de lijst. Ingetypt wordt zo'n map geweigerd, met de reden (<code>package_folder_not_allowed</code>).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_source.py</code> (de allowlist; <code>manifest_link_out_of_package</code> weigert een manifest dat uit de pakketmap leidt; <code>_listed_package_folder</code> controleert elke map van de pakketlijst zoals de import, voordat de lijst erin kijkt).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_source.py</code> (de allowlist; <code>_listed_package_folder</code> controleert elke map van de pakketlijst zoals de import, voordat de lijst erin kijkt).</p>
 <h2>Wat een pakket bevat</h2>
-<p>Een geldig pakket is een map met een manifest, een PED-bestand of beide. Het manifest kent vijftien soorten datasets:</p>
+<p>Een pakket is een map met de bestanden van de pipeline; het manifest dat CoGA ervoor bewaart, beschrijft ze. Het manifest kent vijftien soorten datasets:</p>
 <ul>
 <li><strong>Varianten:</strong> <code>snv</code> (small variants, met optionele annotatietabel), <code>sv_needlr</code> (structurele varianten), <code>cnv</code> (CNV-calls met hun signaalbestanden), <code>mito</code> (mitochondriale varianten), <code>repeats_trgt</code> (repeat-expansies).</li>
 <li><strong>Tracks:</strong> <code>wisecondorx</code> en <code>qdnaseq</code> (CNV-dekking en -segmenten), <code>coverage</code>, <code>apcad</code> en <code>pcf</code> (embryo-analyses), <code>haplotypes</code> (een gefaseerde familie-VCF van GLIMPSE2 of SHAPEIT5).</li>
@@ -1459,7 +1459,7 @@ python docs/handleiding/build_site.py
 <li>onder een link wordt niet verder gekeken, en een link die naar geen map leidt, wordt niet gemeld.</li>
 </ul>
 <p>De eigenaar koos voor een waarschuwing, niet voor een weigering (<code>package_folder_link_issues</code> in <code>family_package_source.py</code>). De bewakers hierboven blijven gelden: een bestand dat het manifest noemt of dat de ontdekkingsstap zoekt via een link uit het pakket, wordt nog altijd niet gelezen.</p>
-<p><strong>CoGA leest geen manifest in de pakketmap.</strong> De import leest het manifest dat CoGA bewaart (hierboven). Een <code>manifest.yaml</code> (of <code>.yml</code>, <code>.json</code>) in de map die een symbolische link uit de map is, of een link in een kring, wordt geweigerd (<code>manifest_outside_package</code>): de controle leest niets meer van het pakket.</p>
+<p><strong>CoGA leest geen manifest in de pakketmap.</strong> De import leest het manifest dat CoGA bewaart (hierboven); een manifestbestand in de map, ook een symbolische link, opent ze niet.</p>
 <p>Elk pad in het manifest is relatief tot de pakketmap (of een absoluut pad erin). Een <code>400</code> krijgen:</p>
 <ul>
 <li>een pad dat het pakket verlaat (een absoluut pad elders, <code>..</code> uit de map, een symbolische link naar buiten);</li>
@@ -1467,12 +1467,8 @@ python docs/handleiding/build_site.py
 <li>een pad door een link die in een kring loopt.</li>
 </ul>
 <p>Een <code>~</code> vooraan is geen thuismap: CoGA leest er geen. Een kring vindt de controle door het opgeloste pad op te zoeken, zodat Python 3.12 (waar <code>Path.resolve</code> op een kring een fout geeft) en 3.13 (waar niet) hem gelijk weigeren.</p>
-<p><strong>De PED is de bron van waarheid voor de familie.</strong> Een manifest zonder PED noemt al zijn leden onder <code>family.add_members</code> (zie het long-read-koppel hieronder). De controle leest de PED strikt: minstens zes kolommen, precies één familie. Elke dataset per sample moet naar een lid van de familie verwijzen. Het manifest mag toevoegen:</p>
-<ul>
-<li>klinische status, dragerschap en expliciete relaties; een relatie mag alleen leden noemen;</li>
-<li>onder <code>family.add_members</code> een lid dat de PED mist. Dat lid geldt als een extra PED-rij, met zijn <code>father</code> en <code>mother</code> als die gegeven zijn, en doorloopt dezelfde controles. Een lid dat al in de PED staat, mag er niet opnieuw in.</li>
-</ul>
-<p>Bij een import in een <em>bestaande</em> familie mag de PED ontbreken; dan geldt de stamboom uit de databank.</p>
+<p><strong>De leden van het pakket zijn de stamboom.</strong> De import leest geen PED: het manifest dat CoGA bewaart, noemt elk lid onder <code>family.add_members</code>, met zijn geslacht, ouders, rol en klinische status. Elk lid geldt als een PED-rij en doorloopt dezelfde controles; een lid zonder rol krijgt er een uit de stamboom, zoals een PED-rij. Een manifest dat toch een PED noemt, wordt geweigerd (<code>manifest_names_a_ped</code>); een manifest zonder leden ook (<code>members_missing</code>). Een PED in de map dient alleen de ontdekkingsstap, die er de leden uit voorstelt voor een map die met de hand toegevoegd wordt. Elke dataset per sample moet naar een lid van de familie verwijzen. Het manifest mag daarnaast dragerschap en expliciete relaties geven; een relatie mag alleen leden noemen.</p>
+<p>Bij een import in een <em>bestaande</em> familie moeten de leden van het pakket die van de familie in CoGA zijn: dezelfde leden, met hetzelfde geslacht en dezelfde ouders. Een pakket dat iets anders zegt, vraagt aandacht bij zijn controle (<code>package_members_differ_from_family</code>) en wordt eerst gecorrigeerd; de import weigert het ook zelf.</p>
 <p><strong>De PGT-pipeline (nf-cmgg/copgtm)</strong> schrijft haar uitvoer per tool weg, met de PED in <code>ped/combined.ped</code>. Die PED schiet op twee punten tekort:</p>
 <ul>
 <li>Ze geeft de embryo's het geslacht dat ngs-bits uit de reads afleidde. Uit de PED alleen herkent CoGA ze dus niet als embryo.</li>
@@ -1530,7 +1526,7 @@ python docs/handleiding/build_site.py
 <p>Eén gecombineerde VCF met een kolom voor de vader en een voor het plasma kan ook, als gewone <code>family_vcf</code>.</p>
 <p><strong>Een koppel voor dragerschapsscreening op de long-read-pipeline (nf-core/lrsvar)</strong> heeft geen PED en geen gezamenlijke callset. Elke partner heeft eigen bestanden (<code>snv/&lt;sample&gt;/annotation/&lt;sample&gt;_annot.vcf.gz</code>, <code>sv/&lt;sample&gt;/needlr/&lt;sample&gt;_sv_phased.needLR.&lt;versie&gt;.vcf.gz</code>, <code>repeats/&lt;sample&gt;/&lt;sample&gt;_tr.vcf.gz</code>, <code>paraphase/&lt;sample&gt;/&lt;sample&gt;.paraphase.json</code>). De importpagina toont zo'n map toch: een map met de mappen per sample van de pipeline geldt als pakket.</p>
 <ul>
-<li><strong>Leden:</strong> zonder PED neemt de ontdekkingsstap de leden uit die mappen en zet ze onder <code>family.add_members</code>. Het manifest heeft dan geen PED nodig.</li>
+<li><strong>Leden:</strong> zonder PED neemt de ontdekkingsstap de leden uit die mappen en zet ze onder <code>family.add_members</code>.</li>
 <li><strong>Geslacht:</strong> het karyotype waarmee TRGT de repeats van het lid genotypeerde (<code>--karyotype XX</code> of <code>XY</code> in de <code>##trgtCommand</code> van de TRGT-VCF). De pipeline neemt dat uit haar samplesheet. Het is dus het geregistreerde geslacht, dat de Sample-QC met de reads vergelijkt.</li>
 <li><strong>Koppel:</strong> twee leden van verschillend geslacht worden als koppel voorgesteld (<code>family.relationships.couples</code>, context <code>carrier screening</code>), de vrouw als moeder en de man als vader. De waarschuwing <code>ped_proposed_from_folders</code> zegt wat werd voorgesteld.</li>
 <li><strong>SNV's:</strong> de twee SNV-bestanden worden samen gelezen als de primaire callset van de familie (<code>snv.per_sample</code> met <code>source_format: clair3</code>). Een site die beide partners dragen, wordt één rij met beide calls. Een partner zonder record op de variant van de ander wordt daar als referentie gelezen, zoals een gezamenlijke VCF een gedekte site roept. DeepVariants <code>RefCall</code>- en <code>NoCall</code>-records blijven alleen bewaard waar de andere partner een variant heeft.</li>
@@ -1547,10 +1543,10 @@ python docs/handleiding/build_site.py
 <p>De controles, in volgorde:</p>
 <ol>
 <li><strong>Pad</strong> — de map moet binnen <code>FAMILY_IMPORT_ROOTS</code> liggen, en haar pad moet te volgen zijn: geen symbolische link die in een kring loopt, geen <code>~</code> voor een thuismap die de server niet heeft.</li>
-<li><strong>Bestaan</strong> — de map bestaat, en het manifest bestaat als bestand in de map, of de aanvraag geeft het manifest dat CoGA voor de job bewaart. Een manifest dat een symbolische link uit de map is of in een kring loopt, is een fout (<code>manifest_outside_package</code>).</li>
+<li><strong>Bestaan</strong> — de map bestaat, en de job heeft het manifest dat CoGA bewaart.</li>
 <li><strong>Manifestversie</strong> — <code>schema_version</code> moet <code>1</code> zijn (ontbreekt ze, dan volgt een waarschuwing).</li>
 <li>
-<p><strong>ID's</strong> — de familie-ID (uit het manifest, anders de mapnaam) en elke sample-ID zijn afdrukbare tekst zonder spaties, en geen pad. Sample-ID's komen uit de PED of de opgeslagen stamboom en uit <code>family.add_members</code>; bij het ontdekken ook uit de naam van een map per sample van een long-read-pakket, uit de samplesheet van de PGT-pipeline, of van een ouder die de PED noemt maar niet als lid heeft. De witruimte errond valt weg. Een fout (<code>family_id_invalid</code>, <code>sample_id_invalid</code>) is een ID met:</p>
+<p><strong>ID's</strong> — de familie-ID (uit het manifest, anders de mapnaam) en elke sample-ID zijn afdrukbare tekst zonder spaties, en geen pad. Sample-ID's komen uit <code>family.add_members</code>; bij het ontdekken ook uit de naam van een map per sample van een long-read-pakket, uit de samplesheet van de PGT-pipeline, of van een ouder die de PED noemt maar niet als lid heeft. De witruimte errond valt weg. Een fout (<code>family_id_invalid</code>, <code>sample_id_invalid</code>) is een ID met:</p>
 <ul>
 <li>een stuurteken (C0, zoals een regeleinde, een tab, een escape of een NUL; DEL; of C1, <code>\x80</code>–<code>\x9f</code>) of witruimte erin;</li>
 <li>een ander teken dat een lezer niet ziet: een teken dat de schrijfrichting van de tekst omkeert (U+200E, U+200F, U+202A–U+202E, U+2066–U+2069, U+061C), waardoor <code>FAM\u202e100</code> als <code>FAM001</code> verschijnt; een teken zonder breedte (U+200B–U+200D, U+2060, en U+FEFF, ook de byte-order mark waarmee een tekstbestand kan beginnen); of een ander teken dat niet afdrukbaar is;</li>
@@ -1559,13 +1555,12 @@ python docs/handleiding/build_site.py
 <p>De melding toont het ID met elk onzichtbaar teken als escape (<code>\n</code>, <code>\u200b</code>), zegt wat er mis is en waar het ID vandaan komt, en noemt de regel. Bij zo'n fout leest de controle niets meer van het pakket, en stelt de ontdekkingsstap geen manifest voor. Een aanvraag die met zo'n ID een bestaande familie noemt, krijgt <code>400</code> nog voor de job bestaat. Dezelfde regel weigert zo'n ID met een <code>400</code> in de Family Builder, bij een PED-upload en bij het bewerken van leden (hoofdstuk 15). Hoofdletters laat de regel ongemoeid, want de opslag in productie onderscheidt ze. Alleen op een bestandssysteem dat ze niet onderscheidt (een bind mount op macOS, bij ontwikkeling), delen twee familie-ID's die alleen in hoofdletters verschillen elke map die naar een ID heet.</p>
 </li>
 <li>
-<p><strong>PED</strong>:</p>
+<p><strong>Leden</strong>:</p>
 <ul>
-<li>minstens zes kolommen, één familie, unieke sample-id's, geldige codes voor geslacht en status, de juiste familie-id;</li>
-<li>elke ouder staat in de PED, met het juiste geslacht;</li>
-<li>een lid uit <code>family.add_members</code> staat niet al in de PED;</li>
+<li>elk lid één keer, met geldige codes voor geslacht en status;</li>
+<li>elke ouder is een lid, met het juiste geslacht;</li>
 <li>elke relatie uit het manifest noemt een lid, en een verwant van onbekende graad (<code>relatives</code>) is niet aan zichzelf gekoppeld, noch aan wie al zijn ouder, kind of partner is;</li>
-<li>de aangetaste ouder (<code>metadata.pgt.affected_parents</code>) is een ouder in de PED, en de index (<code>metadata.pgt.indexes</code>) een ander lid.</li>
+<li>de aangetaste ouder (<code>metadata.pgt.affected_parents</code>) is een ouder in de familie, en de index (<code>metadata.pgt.indexes</code>) een ander lid.</li>
 </ul>
 </li>
 <li><strong>Per dataset</strong>:<ul>
@@ -1577,7 +1572,7 @@ python docs/handleiding/build_site.py
 <li>Sommige bestanden weigert de import als er geen record in staat: een familie-VCF van <code>snv</code>, <code>sv_needlr</code>, <code>repeats_trgt</code> of <code>apcad</code>; de SNV-, NeedlR-, TRGT- of chrM-VCF van een sample; het APCAD-bestand van een embryo; de dekkings-BED van een sample. Staat er in zo'n bestand niets na de header, dan volgt een <strong>waarschuwing</strong> (<code>dataset_file_without_record</code>), en laat de import die dataset falen, met de opgeslagen data zoals ze waren. De controle leest elk bestand tot de eerste regel na de header. Een regel die de loader niet als record kan lezen (de <code>track</code>-regel van een BED, een kolomkop), komt er dus door. Een HiFiCNV-VCF of een chrM-SV-VCF zonder call is een resultaat en krijgt geen waarschuwing. Van een dekkingstabel per target worden de kolommen gecontroleerd.</li>
 </ul>
 </li>
-<li><strong>Fenotypes (HPO)</strong> — een fenotypetabel moet naar samples uit de PED verwijzen; slechte rijen worden waarschuwingen.</li>
+<li><strong>Fenotypes (HPO)</strong> — een fenotypetabel moet naar leden van de familie verwijzen; slechte rijen worden waarschuwingen.</li>
 </ol>
 <p>Elke bevinding heeft een vaste <code>code</code>, zodat de UI en een auditor een fout eenduidig kunnen benoemen. Bij één fout stopt de import met "Package validation failed; no data were imported." en wordt er niets weggeschreven.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_validation.py</code>; de regel voor ID's in <code>family_identifiers.py</code>.</p>

@@ -55,6 +55,7 @@ from backend.app.services.family_package_common import (
 )
 from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
 from backend.tests._family_import_fakes import admin_user, no_variant_copy, two_sample_context
+from backend.tests._kept_manifest import kept_manifest
 
 FAMILY = "FAM001"
 SAMPLES = ("S1", "S2")
@@ -212,14 +213,14 @@ def _job(
     dataset: ManifestDataset,
 ) -> family_package_datasets.DatasetImportJob:
     """An update of ``dataset_type``: the job the import loop hands its importer."""
+    manifest = PackageManifest(family_id=FAMILY, datasets={dataset_type: dataset})
     return family_package_datasets.DatasetImportJob(
         session=_Session(stores),  # type: ignore[arg-type]
         bundle=FamilyPackageBundle(
             root=root,
-            manifest_path=root / "manifest.yaml",
-            manifest=PackageManifest(ped="family.ped", datasets={dataset_type: dataset}),
-            ped_path=root / "family.ped",
+            manifest=manifest,
             ped=ParsedPed(family_ids=[FAMILY], members=[], sample_ids=list(SAMPLES), text=""),
+            kept_manifest_text=manifest.model_dump_json(exclude_none=True),
         ),
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type=dataset_type, status="valid"),
@@ -784,6 +785,7 @@ async def _update(stores: _Stores, root: Path) -> Any:
         user=admin_user(),
         conflict_mode="update",
         job_id="job-2",
+        manifest_text=kept_manifest(root),
     )
 
 

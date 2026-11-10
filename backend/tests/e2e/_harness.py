@@ -26,6 +26,8 @@ from typing import Any, Awaitable, Callable
 
 from sqlalchemy import text
 
+from backend.tests._kept_manifest import kept_manifest
+
 ASSEMBLY = "GRCh38"
 SPECIES = "Homo sapiens"
 PROJECT_NAME = "e2e-golden"
@@ -429,6 +431,7 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
         result = await package_import.execute_family_package_import(
             session,
             folder_path=str(root),
+            manifest_text=kept_manifest(root),
             project_id=project_id,
             dry_run=False,
             user=admin,

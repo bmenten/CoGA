@@ -268,10 +268,9 @@ def _job(stores: _Stores, root: Path, dataset: ManifestDataset) -> family_packag
         session=_Session(stores),  # type: ignore[arg-type]
         bundle=FamilyPackageBundle(
             root=root,
-            manifest_path=root / "manifest.yaml",
-            manifest=PackageManifest(ped="family.ped", datasets={"coverage": dataset}),
-            ped_path=root / "family.ped",
+            manifest=PackageManifest(datasets={"coverage": dataset}),
             ped=ParsedPed(family_ids=[FAMILY], members=[], sample_ids=list(SAMPLES), text=""),
+            kept_manifest_text="{}",
         ),
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type="coverage", status="valid"),

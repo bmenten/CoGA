@@ -171,9 +171,6 @@ class ManifestPhenotypes(BaseModel):
 class PackageManifest(BaseModel):
     schema_version: int = 1
     family_id: str | None = None
-    # The PED file. A package without one names its members under family.add_members
-    # (the long-read pipeline writes no PED for a couple screened for carriership).
-    ped: str | None = None
     # Optional analysis type for the family, e.g. "monogenic_nipt". Promoted to
     # families.metadata["analysis_type"] so the workspace surfaces the NIPT tab
     # and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
@@ -213,25 +210,21 @@ class ParsedPed:
 @dataclass(slots=True)
 class FamilyPackageBundle:
     root: Path
-    # The folder's manifest file; None when the import reads the manifest CoGA keeps for its
-    # job (``kept_manifest_text``) instead.
-    manifest_path: Path | None
+    # The manifest CoGA keeps for the import's job, parsed (``kept_manifest_text``).
     manifest: PackageManifest
-    # None when the manifest names the members itself (family.add_members, no PED file).
-    ped_path: Path | None
+    # The pedigree its members make (family.add_members, one PED row each): the import reads
+    # no PED file.
     ped: ParsedPed
+    # The manifest CoGA keeps for the import's job, as text.
+    kept_manifest_text: str
     # When the package was staged from S3, the original s3:// source so provenance
     # records the durable S3 URI rather than the ephemeral staging path.
     source_uri: str | None = None
     # Package-relative paths of files staging left in the object store (a remote
     # package's alignments): they exist although ``root`` does not hold them.
     remote_only_files: frozenset[str] = frozenset()
-    # The SHA-256 of the manifest the import read (``manifest_text_sha256``): the folder's file
-    # as it was read, or the text CoGA keeps for the job.
+    # The SHA-256 of the manifest the import read (``manifest_text_sha256`` of the kept text).
     manifest_sha256: str | None = None
-    # The manifest CoGA keeps for the import's job, read instead of the folder's own; None when
-    # the import read the folder's manifest file.
-    kept_manifest_text: str | None = None
     # The fingerprint of the local package folder, taken before the validation read it
     # (family_package_fingerprint.py); None for a package staged from a bucket.
     package_fingerprint: str | None = None
@@ -717,7 +710,6 @@ NUL_IN_PATH = "holds a NUL character, which no file or folder name can hold"
 # What the package record and the job record call a manifest CoGA keeps for the import's job,
 # read instead of the package folder's own (``manifest_source``).
 MANIFEST_KEPT_IN_COGA = "coga"
-MANIFEST_IN_FOLDER = "folder"
 
 
 def manifest_text_problem(manifest_text: str) -> str | None:

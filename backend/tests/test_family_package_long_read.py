@@ -133,12 +133,10 @@ def test_multi_sample_family_does_not_present_one_sample_as_the_family_callset(
     # are proposed as one VCF per sample instead, and a sample without one is named.
     _touch(tmp_path / "snv/S1/annotation/S1_annot.vcf.gz")
     _touch(tmp_path / "snv/S1/annotation/S1_annot.vcf.gz.tbi")
-    _touch(tmp_path / "family.ped", "F1 S1 0 0 1 2\nF1 S2 0 0 2 1\n")
 
     payload, availability = _build_manifest_payload(
         root=tmp_path,
         family_id="F1",
-        ped_relative_path="family.ped",
         sample_ids=["S1", "S2"],
     )
 
@@ -1050,16 +1048,9 @@ def _trio_snv_vcf(*, extra_header: str = "") -> str:
 
 
 def _trio_payload(root: Path) -> tuple[dict, list]:
-    _touch(
-        root / "family.ped",
-        f"{TRIO_FAMILY}\tPROBAND\tFATHER1\tMOTHER\t1\t2\n"
-        f"{TRIO_FAMILY}\tMOTHER\t0\t0\t2\t1\n"
-        f"{TRIO_FAMILY}\tFATHER1\t0\t0\t1\t1\n",
-    )
     return _build_manifest_payload(
         root=root,
         family_id=TRIO_FAMILY,
-        ped_relative_path="family.ped",
         sample_ids=list(TRIO),
     )
 

@@ -441,8 +441,9 @@ folder whose permissions refuse the backend's user, imports as any other.
   `manifest_sha256`, which the job's record shows; a worker that takes the job up, also again
   after its worker stopped, reads the kept text.
 - Its paths are relative to the package folder, and the same guards hold: a path out of the
-  folder is refused. A folder that holds a manifest file of its own is warned that it is not read
-  (`manifest_in_folder_not_read`).
+  folder is refused. A manifest file in the folder is just another file: no import reads it.
+- Its members, under `family.add_members`, are the pedigree the import reads: no PED is read,
+  and a manifest that names one (`ped`) is refused (`manifest_names_a_ped`).
 - The validation report names the manifest read in its metadata: `manifest_source` (`coga`) and
   `manifest_sha256`. The family's package record (`families.metadata.package_import`) keeps
   both, with `manifest_path` null, and the family's raw files hold a managed copy of it, as dataset
@@ -727,8 +728,7 @@ that connection is gone.
 **The package file** (format `coga-package/1`, [coga_package.py](../backend/app/services/coga_package.py)):
 its fields, how to write it and the checks of the file itself are in
 [coga-package.md](coga-package.md). It is read as a regular file in the package folder, never
-through a link, at most 20 MB. A `coga-ready.json` or a `manifest.yaml` in the folder is not read
-(the validation warns of a manifest: `manifest_in_folder_not_read`).
+through a link, at most 20 MB. A `coga-ready.json` or a `manifest.yaml` in the folder is not read.
 
 **A run under way.** A package file whose `status` is `running` or `failed` is no delivery: the
 pipeline is writing the folder, or stopped. An open delivery of the folder from before
@@ -940,8 +940,8 @@ A short-read package, with every dataset folder optional:
 
 ```text
 FAM001/
-  manifest.yaml            (or manifest.yml / manifest.json)
-  family.ped
+  coga-package.json        (the pipeline's package file; none in a folder added by hand)
+  family.ped               (read by Discover for a folder added by hand)
   phenotypes.tsv
   snv/family.annotated.vcf.gz (+ .tbi)
   needlr/family.sv.annotated.vcf.gz (+ .tbi)
@@ -958,7 +958,7 @@ A long-read package (nf-core/lrsvar) is laid out per sample:
 
 ```text
 pacbio/
-  manifest.yaml
+  coga-package.json
   pacbio.ped
   bams/HG002.cram (+ .crai)
   snv/HG002/annotation/HG002_annot.vcf.gz (+ .tbi)
@@ -1173,11 +1173,8 @@ package is not read.
 ### The manifest
 
 The manifest is the one CoGA keeps for the import ([above](#a-manifest-kept-in-coga)), made from
-the delivery's package. A package folder that holds a `manifest.yaml`, `.yml` or `.json` that is
-a symlink leading out of the folder, or that loops, is refused (`manifest_outside_package`,
-`manifest_link_out_of_package` in
-[family_package_source.py](../backend/app/services/family_package_source.py)): validation reads
-nothing more of the package.
+the delivery's package (`coga_package_manifest.package_manifest`); Discover drafts one in the same
+form for what a package file leaves out. It is described here as the import reads it.
 
 Every path the manifest names is relative to the package folder, or an absolute path inside it.
 Validation refuses with 400 a path that leads out of the package (an absolute path elsewhere,
@@ -1191,7 +1188,6 @@ loop) and 3.13 (whose does not) refuse it alike.
 ```yaml
 schema_version: 1          # must be 1
 family_id: FAM001          # defaults to the folder name
-ped: family.ped            # optional when family.add_members names every member
 analysis_type: monogenic_nipt   # optional
 roi: CFTR                  # optional region of interest
 
@@ -1297,15 +1293,12 @@ naming `metadata.pgt.indexes`, and validation lists it (`pgt_index_parent_status
 recorded for that parent wins, as above. An index that is not the couple's child says nothing of
 the other parent.
 
-`family.add_members` adds a member the PED lacks as one more PED row, with its `role` (default
-`relative`), `sex` (default unknown), `clinical_status` (default unknown) and, when given, its
-`father` and `mother`. Every check and the stored pedigree treat it like the PED's members. A
-member already in the PED is an error; its states go under `family.members`. Other links go under
-`family.relationships`, which may only name members. A manifest without `ped` names all its
-members under `family.add_members`, whose rows are then the whole PED (the long-read couple's
-manifest, which Discover drafts, and the manifest made from a package file). There, a member
-without a `role` is no `relative` but gets its role from the pedigree, as a PED row does: father
-or mother when it is one, else embryo, proband or sibling.
+`family.add_members` names the family's members: each one PED row, with its `sex` (default
+unknown), `clinical_status` (default unknown), its `role` and, when given, its `father` and
+`mother`. Every check and the stored pedigree treat these rows as a PED's. A member listed twice
+is an error; its carrier states go under `family.members`. Other links go under
+`family.relationships`, which may only name members. A member without a `role` gets one from the
+pedigree, as a PED row does: father or mother when it is one, else embryo, proband or sibling.
 
 `family.relationships.relatives` links a member to the family through another member by an
 unknown degree: a PGT index known only to be on the mother's side, say, or related to both
@@ -1647,7 +1640,7 @@ per-sample folders (`snv/<sample>/`, `sv/<sample>/`, `repeats/<sample>/`, `parap
 `cnv/<sample>/`, `mito/<sample>/`, each holding a file named after the sample).
 
 **Discover without a PED.** The members are those per-sample folders, named under
-`family.add_members`, so the manifest needs no `ped`.
+`family.add_members`.
 
 - A folder whose name cannot be a sample ID (with a space, a control character, a `\` or another
   character the ID rule refuses) is listed too, and Discover refuses it (`sample_id_invalid`)
@@ -1710,8 +1703,8 @@ calls, whatever IDs their files give it ([above](#where-each-dataset-lands)).
 
 Discover, dry run and import check:
 
-- **Folder and manifest**: both exist; the manifest is a file in the folder, not a symlink out of
-  it or one that loops (`manifest_outside_package`); `schema_version` is 1.
+- **Folder and manifest**: the folder exists; the manifest is the one CoGA keeps, its
+  `schema_version` 1.
 - **IDs**: the family ID (the manifest's `family_id`, else the folder name; for Discover, the
   request's `family_id` first) and every sample ID are printable text without spaces, and no
   path. Sample IDs are checked in the PED (for Discover also a parent the PED names but lacks as
@@ -1738,13 +1731,12 @@ Discover, dry run and import check:
   development) two family IDs that differ only in case share every folder named after an ID; the
   rule leaves case alone, since production storage is case-sensitive
   ([development.md](development.md)).
-- **PED**: it parses as six-column PED, holds one family and matches `family_id`; sample IDs are
-  unique and every parent is in the PED. An import into an existing family may lack the PED file:
-  the family's stored pedigree is used. A manifest without `ped` must name its members under
-  `family.add_members` (`ped_missing_path`).
-- **Members**: the manifest's samples and per-sample entries name samples in the PED or in
-  `family.add_members`; an added member is not already in the PED; every `family.relationships`
-  entry names members.
+- **Members**: `family.add_members` names the members (`members_missing` when it names none), each
+  once, every parent among them; the manifest's samples and per-sample entries name members; every
+  `family.relationships` entry names members. A manifest that names a PED is refused
+  (`manifest_names_a_ped`). An import into a family that exists already refuses members that
+  differ from the family in CoGA: a member more or less, another sex, other parents
+  (`package_members_differ_from_family` in the delivery's check).
 - **Phenotypes**: a phenotype file named in the manifest exists and uses `format: hpo_tsv`.
 - **Files**: every file the manifest names lies in the package (a path that leads out of it,
   starts with `~` or runs through a symlink loop is refused with 400, see
@@ -2362,13 +2354,13 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | A folder in the import folder is not in the package list | It holds no manifest, no PED (at its top or in `ped/`) and no long-read per-sample folders, or the import refuses it: a symlink leading out of `FAMILY_IMPORT_ROOTS`, or one that loops. Type its path and validate it to see the reason (`package_folder_not_allowed`). |
 | `family_id_invalid` | The family ID holds a control character, whitespace, a text-direction, zero-width or other non-printable character, a `/` or a `\`, or is `.`, `..` or empty ([Validation](#validation)). The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
 | `sample_id_invalid` | A sample ID breaks the same rule. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
-| `manifest_outside_package` | The folder's `manifest.yaml` (`.yml`, `.json`) is a symlink leading out of the folder, or one that loops. Remove the link: CoGA reads no manifest in the folder. |
+| `manifest_names_a_ped` | The manifest names a PED (`ped`). The import reads no PED: the members go under `family.add_members`. |
+| `members_missing` | The manifest names no members under `family.add_members`. |
+| `package_members_differ_from_family` | The family exists in CoGA, and the package's members differ from it: a member more or less, another sex or other parents. Correct the package (**Correct…**) to the family's members. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
-| `ped_family_mismatch`, `ped_multiple_families` | The PED's family ID differs from `family_id`, or it holds more than one family. |
 | `dataset_vcf_index_missing` | A compressed VCF has no `.tbi`, `.csi` or `.idx`. |
-| `manifest_added_member_in_ped` | A member under `family.add_members` is in the PED already; set its states under `family.members`. |
 | `manifest_relationship_unknown_member` | A `family.relationships` entry names someone in neither the PED nor `family.add_members`. |
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
@@ -2379,7 +2371,6 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | "… VCF has no #CHROM line", "… has a record before its #CHROM line", "… has more than one #CHROM line" | An uploaded Sniffles or Spectre VCF has no header line naming its sample columns before its records, or two files were joined into one: upload the sample's VCF as the caller wrote it. |
 | `nipt_pair_detected` (warning) | Discover took the folder for a monogenic NIPT pair. Check the samples it took for the maternal plasma and for the father. |
 | `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt` and does not say `source_format: clair3`. For the long-read pipeline's per-sample calls set `source_format: clair3`; else give a joint VCF as `snv.family_vcf`. |
-| `ped_missing_path` | The manifest names no PED and no members under `family.add_members`. |
 | `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when of opposite sex). Check them before approving the delivery. |
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
 | `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |

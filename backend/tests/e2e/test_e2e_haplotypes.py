@@ -23,6 +23,7 @@ from uuid import uuid4
 
 import pytest
 
+from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema
 
 pytestmark = pytest.mark.integration
@@ -115,7 +116,8 @@ async def _collect(root: Path, family_id: str) -> dict:
 
     async with sm() as s:
         res = await package_import.execute_family_package_import(
-            s, folder_path=str(root), project_id=project_id, dry_run=False, user=admin, conflict_mode="cancel"
+            s, folder_path=str(root), project_id=project_id, dry_run=False, user=admin, conflict_mode="cancel",
+            manifest_text=kept_manifest(root),
         )
     out: dict = {
         "completed": res.completed,

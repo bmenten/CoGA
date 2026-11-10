@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +20,6 @@ from ..schemas import (
     FamilyImportValidationIssue,
     FamilyPackageValidationOut,
 )
-from .family_identifiers import identifier_problem
 from .ancestry_files import register_declared_files
 from .family_metadata_context import (
     FamilyMetadataContext,
@@ -38,7 +36,6 @@ from .family_variant_write_lock import (
 from .hpo_service import PACKAGE_IMPORT, PhenotypeImport
 from .metadata_service import get_current_user_by_id
 from .access_control import CurrentUser, has_superuser_rights, is_admin_user
-from . import ped_service
 from .bed_service import precompute_family_haplotype_lineage
 from .clickhouse_family_snapshot import (
     FamilyRestoreRefused,
@@ -413,9 +410,8 @@ async def _package_changed_since_validation(
     has no fingerprint, and never changes here."""
     if bundle.package_fingerprint is None:
         return False
-    kept_manifest_sha256 = bundle.manifest_sha256 if bundle.kept_manifest_text is not None else None
     try:
-        now = await asyncio.to_thread(package_fingerprint, bundle.root, kept_manifest_sha256=kept_manifest_sha256)
+        now = await asyncio.to_thread(package_fingerprint, bundle.root, kept_manifest_sha256=bundle.manifest_sha256)
     except (OSError, PackageFolderTooLarge):
         now = None
     if now is not None and now.sha256 == bundle.package_fingerprint:
@@ -447,23 +443,6 @@ def _fail_datasets_of_changed_package(
         datasets[index] = dataset.model_copy(update={"status": "failed", "message": _UNDONE_DATASET_MESSAGE})
 
 
-async def db_pedigree_fallback(
-    session: AsyncSession | None,
-    requested_family_id: str | None,
-) -> str | None:
-    """PED text reconstructed from an existing family's database structure, or
-    ``None`` when there is no existing family to fall back to. Used so imports
-    that target an already-configured family do not require a PED file."""
-    requested_family_id = (requested_family_id or "").strip()
-    if session is None or identifier_problem(requested_family_id) is not None:
-        # No family is stored under such an ID (and a NUL could not even be sent to Postgres).
-        return None
-    try:
-        return await ped_service.build_pedigree_text(session, family_id=requested_family_id)
-    except HTTPException:
-        return None
-
-
 async def execute_family_package_import(
     session: AsyncSession | None,
     *,
@@ -476,7 +455,7 @@ async def execute_family_package_import(
     progress: ProgressCallback | None = None,
     job_id: str | None = None,
     record_family: FamilyRecordCallback | None = None,
-    manifest_text: str | None = None,
+    manifest_text: str,
     queued_package_fingerprint: str | None = None,
     delivery: dict[str, Any] | None = None,
 ) -> PackageExecutionResult:
@@ -487,7 +466,8 @@ async def execute_family_package_import(
     of the family is written; if it raises, the import writes nothing. The job's runner
     records there the family a report sign-out finds the import by. ``progress`` is
     informational: what it fails to record changes nothing a sign-out reads.
-    ``manifest_text`` is the manifest the job keeps, read instead of the folder's own.
+    ``manifest_text`` is the manifest the job keeps, the one an approved delivery's package makes:
+    the import reads no file of the folder as its manifest, and no PED.
     ``queued_package_fingerprint`` is the package fingerprint the job was queued with: the
     import writes nothing when the folder's differs (``_check_queued_package_fingerprint``).
     ``delivery`` is the delivery of a watched import folder the job imports, which the family's
@@ -526,17 +506,15 @@ async def _execute_family_package_import_local(
     job_id: str | None = None,
     remote_only_files: frozenset[str] = frozenset(),
     record_family: FamilyRecordCallback | None = None,
-    manifest_text: str | None = None,
+    manifest_text: str,
     queued_package_fingerprint: str | None = None,
     delivery: dict[str, Any] | None = None,
 ) -> PackageExecutionResult:
     # The existing family the request names, read as every ID is: without the whitespace
     # around it.
     requested_family_id = (requested_family_id or "").strip() or None
-    fallback_ped_text = await db_pedigree_fallback(session, requested_family_id)
     validation, bundle = load_validated_family_package(
         folder_path,
-        fallback_ped_text=fallback_ped_text,
         remote_only_files=remote_only_files,
         source_uri=source_uri,
         manifest_text=manifest_text,
@@ -1532,7 +1510,8 @@ async def run_family_import_job(
                 progress=progress,
                 job_id=job_id,
                 record_family=record_family,
-                manifest_text=job_row.get("manifest_text"),
+                # A job queued without one reads an empty manifest, which validation refuses.
+                manifest_text=str(job_row.get("manifest_text") or ""),
                 queued_package_fingerprint=job_row.get("package_fingerprint"),
                 delivery=job_metadata.get("delivery") if isinstance(job_metadata.get("delivery"), dict) else None,
             )

@@ -42,7 +42,9 @@ from backend.app.services import family_package_import as package_import
 from backend.app.services import family_package_registration as registration
 from backend.app.services import family_project_variants, metadata_service
 from backend.app.services.family_package_common import ImportRefused, PackageExecutionResult
+from backend.app.services.family_package_manifest import _parse_ped_text_strict
 from backend.tests._family_import_fakes import admin_user, two_sample_context
+from backend.tests._kept_manifest import kept_manifest
 
 ASSEMBLY = "GRCh38"
 FAMILY = "00000000-0000-4000-8000-0000000000f1"
@@ -792,6 +794,7 @@ async def _run_import(tmp_path: Path) -> PackageExecutionResult:
     return await package_import.execute_family_package_import(
         object(),  # type: ignore[arg-type]
         folder_path=tmp_path / "FAM001",
+        manifest_text=kept_manifest(tmp_path / "FAM001"),
         project_id=B,
         dry_run=False,
         user=admin_user(),
@@ -847,8 +850,19 @@ async def test_a_failed_copy_fails_the_import_before_its_snapshot(monkeypatch, t
 # --- the import's registration --------------------------------------------------------------
 
 
+_STORED_PEDIGREE = "FAM001 S1 0 0 1 2\nFAM001 S2 0 0 2 1\n"
+
+
+def _bundle(pedigree: str = _STORED_PEDIGREE) -> Any:
+    """A package whose members (``family.add_members``) make ``pedigree``."""
+    ped, errors = _parse_ped_text_strict(pedigree)
+    assert ped is not None, errors
+    return type("Bundle", (), {"ped": ped})()
+
+
 def _registration(monkeypatch, *, refuse: bool) -> list[str]:
-    """Registration of an existing family, recording the import's mark and its link."""
+    """Registration of an existing family whose stored pedigree is ``_STORED_PEDIGREE``,
+    recording the import's mark and its link."""
     steps: list[str] = []
 
     async def resolve(_session, _user, project_id):
@@ -856,6 +870,9 @@ def _registration(monkeypatch, *, refuse: bool) -> list[str]:
 
     async def existing(_session, *, family_id):
         return {"family_uuid": FAMILY, "metadata": {}, "sample_ids": ["S1", "S2"]}
+
+    async def stored_pedigree(_session, *, family_id):
+        return _STORED_PEDIGREE
 
     async def refuse_other_assembly(_session, family_uuid, project_id):
         steps.append(f"check {project_id}")
@@ -867,6 +884,7 @@ def _registration(monkeypatch, *, refuse: bool) -> list[str]:
 
     monkeypatch.setattr(registration.ped_service, "_resolve_accessible_project_id", resolve)
     monkeypatch.setattr(registration, "_fetch_existing_family", existing)
+    monkeypatch.setattr(registration.ped_service, "build_pedigree_text", stored_pedigree)
     monkeypatch.setattr(registration, "_package_family_id", lambda _validation, _bundle: "FAM001")
     monkeypatch.setattr(registration, "refuse_project_on_other_assembly", refuse_other_assembly)
     monkeypatch.setattr(registration, "_mark_family_import_unfinished", mark)
@@ -888,7 +906,7 @@ class _LinkSession:
 @pytest.mark.asyncio
 async def test_an_import_into_a_project_on_another_assembly_is_refused_before_the_family_is_marked(monkeypatch) -> None:
     steps = _registration(monkeypatch, refuse=True)
-    bundle = type("Bundle", (), {"ped": type("Ped", (), {"sample_ids": ["S1", "S2"]})()})()
+    bundle = _bundle()
 
     with pytest.raises(ImportRefused, match="stored on GRCh38"):
         await registration._ensure_family_from_ped(
@@ -905,6 +923,37 @@ async def test_an_import_into_a_project_on_another_assembly_is_refused_before_th
     assert steps == [f"check {C}"]
 
 
+@pytest.mark.asyncio
+async def test_an_import_whose_members_differ_from_the_familys_is_refused_before_the_family_is_marked(
+    monkeypatch,
+) -> None:
+    # The package's members are the pedigree the import reads: S2 is a man in it, a woman in CoGA,
+    # and S3 is no member of the family.
+    steps = _registration(monkeypatch, refuse=False)
+    bundle = _bundle("FAM001 S1 0 0 1 2\nFAM001 S2 0 0 1 1\nFAM001 S3 0 0 2 1\n")
+
+    with pytest.raises(ImportRefused) as refused:
+        await registration._ensure_family_from_ped(
+            _LinkSession(steps),  # type: ignore[arg-type]
+            bundle=bundle,  # type: ignore[arg-type]
+            project_id=B,
+            user=admin_user(),
+            validation=None,  # type: ignore[arg-type]
+            conflict_mode="update",
+            import_mark=object(),  # type: ignore[arg-type]
+        )
+
+    assert str(refused.value) == registration.members_differ_message(
+        "FAM001",
+        [
+            "S2 is male, father none, mother none in the package, female, father none, mother none in CoGA",
+            "S3 is a member of the package, not of the family",
+        ],
+    )
+    # Nothing of the family was written, and its project was not checked.
+    assert steps == []
+
+
 class _Registered(Exception):
     """Stops registration once the family's links have committed."""
 
@@ -912,7 +961,7 @@ class _Registered(Exception):
 @pytest.mark.asyncio
 async def test_an_import_into_a_project_on_the_familys_assembly_is_checked_then_marked_then_linked(monkeypatch) -> None:
     steps = _registration(monkeypatch, refuse=False)
-    bundle = type("Bundle", (), {"ped": type("Ped", (), {"sample_ids": ["S1", "S2"]})()})()
+    bundle = _bundle()
 
     async def context(*_args, **_kwargs):
         raise _Registered

@@ -259,7 +259,7 @@ def test_a_member_without_a_role_gets_one_from_the_pedigree(tmp_path: Path, monk
 
     validation, bundle = _validated(folder, package)
 
-    assert validation.metadata["ped_source"] == "manifest"
+    assert validation.sample_ids == ["FATHER1", "MOTHER", "PROBAND", "SIB1", "FETUS1", "AUNT1"]
     roles = {member["sample_id"]: member["role"] for member in _ped_members_for_import(bundle.ped)}
     assert roles == {
         "FATHER1": "father",
@@ -269,20 +269,6 @@ def test_a_member_without_a_role_gets_one_from_the_pedigree(tmp_path: Path, monk
         "FETUS1": "embryo",
         "AUNT1": "relative",
     }
-
-
-def test_a_member_added_to_a_ped_without_a_role_is_still_a_relative(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
-    folder = tmp_path / "FAM001"
-    folder.mkdir()
-    (folder / "FAM001.ped").write_text("FAM001\tPROBAND\t0\t0\t1\t2\n", encoding="utf-8")
-    manifest = {"schema_version": 1, "ped": "FAM001.ped", "family": {"add_members": [{"sample_id": "INDEX1", "sex": "female"}]}}
-
-    validation, bundle = load_validated_family_package(folder, manifest_text=json.dumps(manifest))
-
-    assert bundle is not None, validation.errors
-    roles = {member["sample_id"]: member["role"] for member in _ped_members_for_import(bundle.ped)}
-    assert roles == {"PROBAND": "proband", "INDEX1": "relative"}
 
 
 class _NoRows:

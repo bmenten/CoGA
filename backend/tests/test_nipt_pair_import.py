@@ -337,10 +337,9 @@ _TRIO = [("FATHER1", "0", "0", "1"), ("CFDNA1", "0", "0", "2"), ("FETUS1", "FATH
 def _bundle(root: Path, samples: Any = None) -> FamilyPackageBundle:
     return FamilyPackageBundle(
         root=root,
-        manifest_path=root / "manifest.yaml",
-        manifest=PackageManifest(ped="nipt_trio.ped", analysis_type="monogenic_nipt", samples=samples),
-        ped_path=root / "nipt_trio.ped",
+        manifest=PackageManifest(analysis_type="monogenic_nipt", samples=samples),
         ped=_ped(_TRIO),
+        kept_manifest_text="{}",
     )
 
 
@@ -360,8 +359,8 @@ def test_the_plasma_sample_is_read_from_a_samples_list_as_registration_reads_it(
     # A tube that is not the PED's mother, so the fall-back to the mother cannot hide a miss.
     samples = [{key: "FATHER1"}, {key: "PLASMA2", "assay": "nipt_cfdna"}]
 
-    # An entry keyed "id", which registration accepts and tags as the plasma, was skipped: the
-    # import filtered the paternal calls by the PED's mother instead (SAFE-6).
+    # An entry keyed "id", which registration accepts and tags as the plasma, names the plasma
+    # the paternal calls are filtered by, not the PED's mother.
     assert nipt_package_cfdna_sample(_bundle(tmp_path, samples)) == "PLASMA2"
     assert _normalize_manifest_samples(samples)["PLASMA2"]["assay"] == "nipt_cfdna"
 

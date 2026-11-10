@@ -63,6 +63,7 @@ def test_a_queued_bucket_import_stores_a_uri_the_worker_can_run(monkeypatch: pyt
             folder_path="gs://coga-phi/imports/F1",
             project_id=None,
             dry_run=True,
+            manifest_text='{"schema_version": 1, "family_id": "F1"}',
             requested_by=CurrentUser(
                 id="00000000-0000-4000-8000-0000000000a1",
                 username="admin",

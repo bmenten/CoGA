@@ -33,6 +33,7 @@ from backend.app.services import family_package_registration as registration
 from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
 from backend.tests._family_import_fakes import admin_user, no_variant_copy, two_sample_context
+from backend.tests._kept_manifest import kept_manifest
 
 FAMILY = "FAM001"
 
@@ -184,6 +185,7 @@ async def _import(family: _Family, *, conflict_mode: str = "update", job_id: str
         user=admin_user(),
         conflict_mode=conflict_mode,
         job_id=job_id,
+        manifest_text=kept_manifest(family.root),  # type: ignore[attr-defined]
     )
 
 

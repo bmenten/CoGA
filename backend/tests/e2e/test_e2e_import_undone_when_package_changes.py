@@ -33,6 +33,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
+from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._import_jobs import one_sample_package, queue_import, run_import_job
 
 pytestmark = pytest.mark.integration
@@ -103,10 +104,10 @@ async def _exercise(base: Path, data_dir: Path, run: str, patch: pytest.MonkeyPa
         # coverage.
         new_id = f"E2E_UNDO_NEW_{run}"
         new = one_sample_package(base / new_id, new_id, variants=_VARIANTS, datasets=("snv", "coverage"))
-        manifest_yaml = (new / "manifest.yaml").read_text(encoding="utf-8")
+        manifest_text = kept_manifest(new)
         (new / "manifest.yaml").unlink()
         change.update(after="snv", folder=new)
-        new_job_id = await queue_import(new, project_id, manifest_text=manifest_yaml)
+        new_job_id = await queue_import(new, project_id, manifest_text=manifest_text)
         worker = f"e2e-undo-{uuid4().hex[:8]}"
         await claim_import_job(new_job_id, worker)
         await package_import.run_family_import_job(job_id=new_job_id, worker_id=worker)

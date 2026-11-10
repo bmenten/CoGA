@@ -105,7 +105,7 @@ async def _require_import_project(session: AsyncSession, project_id: str) -> str
     return project_uuid
 
 
-async def _queued_package_fingerprint(folder_path: str, *, manifest_text: str | None) -> PackageFingerprint | None:
+async def _queued_package_fingerprint(folder_path: str, *, manifest_text: str) -> PackageFingerprint | None:
     """The fingerprint of the local package folder ``folder_path`` as the job is queued, read with
     the kept manifest ``manifest_text``; None for a package in a bucket and a folder that cannot be
     read, whose validation reports why. Taken in a worker thread: it lists the whole folder."""
@@ -124,7 +124,7 @@ async def queue_family_import_job(
     requested_family_id: str | None = None,
     conflict_mode: str = "cancel",
     requested_by: CurrentUser,
-    manifest_text: str | None = None,
+    manifest_text: str,
     delivery: dict[str, Any] | None = None,
     commit: bool = True,
 ) -> FamilyPackageImportJobOut:
@@ -132,10 +132,10 @@ async def queue_family_import_job(
     which the import runs as and the requester's job list reads, and the e-mail address it
     was asked under, which it shows: a Microsoft sign-in may change the address (SEC-32).
 
-    ``manifest_text``, when given, is the manifest the import validates and imports the package
-    with instead of the folder's own. The job keeps it, with its SHA-256
+    ``manifest_text`` is the manifest the import validates and imports the package with, the one
+    the approved delivery's package makes. The job keeps it, with its SHA-256
     (``manifest_text_sha256``), so a worker that takes the job up, also again after its worker
-    stopped, reads the manifest the user gave, and the job's record names it. One that holds a
+    stopped, reads it, and the job's record names it. One that holds a
     NUL or a lone surrogate is refused before the job is written (400,
     ``manifest_text_problem``): the job could not store it.
 
@@ -160,7 +160,7 @@ async def queue_family_import_job(
                 status_code=400,
                 detail=f"family_id '{visible(requested_family_id)}' {problem}. {IDENTIFIER_RULE}",
             )
-    manifest_problem = manifest_text_problem(manifest_text) if manifest_text is not None else None
+    manifest_problem = manifest_text_problem(manifest_text)
     if manifest_problem is not None:
         raise HTTPException(status_code=400, detail=manifest_problem)
     project_uuid = await _require_import_project(session, project_id) if project_id else None
@@ -232,7 +232,7 @@ async def queue_family_import_job(
             "requested_by_id": requested_by.id,
             "requested_at": datetime.now(timezone.utc),
             "manifest_text": manifest_text,
-            "manifest_sha256": manifest_text_sha256(manifest_text) if manifest_text is not None else None,
+            "manifest_sha256": manifest_text_sha256(manifest_text),
             "package_fingerprint": fingerprint.sha256 if fingerprint is not None else None,
         },
     )

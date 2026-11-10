@@ -17,6 +17,8 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
+from backend.tests._kept_manifest import kept_manifest
+
 
 def one_sample_package(
     root: Path,
@@ -66,8 +68,9 @@ async def queue_import(
     manifest_text: str | None = None,
 ) -> str:
     """Queue an import of ``folder`` as the approval of a delivery does
-    (``import_delivery_review.approve_delivery`` calls ``queue_family_import_job`` so), as
-    ``requested_by`` (the e2e administrator when None), and return the job's id."""
+    (``import_delivery_review.approve_delivery`` calls ``queue_family_import_job`` so), with the
+    manifest CoGA keeps for it (``manifest_text``; the test package's, ``kept_manifest``, when
+    None), as ``requested_by`` (the e2e administrator when None), and return the job's id."""
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services.family_package_jobs import queue_family_import_job
     from backend.tests.e2e import _harness
@@ -83,7 +86,7 @@ async def queue_import(
             requested_family_id=family_id,
             conflict_mode=conflict_mode,
             requested_by=requested_by,
-            manifest_text=manifest_text,
+            manifest_text=manifest_text if manifest_text is not None else kept_manifest(folder),
         )
     return str(job.id)
 

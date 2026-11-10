@@ -193,10 +193,9 @@ def test_the_importer_records_the_objects_of_a_bucket_package(tmp_path: Path) ->
     def bundle(source_uri: str | None) -> FamilyPackageBundle:
         return FamilyPackageBundle(
             root=tmp_path,
-            manifest_path=tmp_path / "manifest.yaml",
-            manifest=PackageManifest(schema_version=1, ped="family.ped"),
-            ped_path=tmp_path / "family.ped",
+            manifest=PackageManifest(schema_version=1),
             ped=ParsedPed(family_ids=["pacbio"], members=[], sample_ids=["HG002"], text=""),
+            kept_manifest_text='{"schema_version": 1}',
             source_uri=source_uri,
         )
 
@@ -204,7 +203,7 @@ def test_the_importer_records_the_objects_of_a_bucket_package(tmp_path: Path) ->
         "depth_bigwig": DEPTH,
         "uris": {"depth_bigwig": f"gs://{BUCKET}/{DEPTH_KEY}"},
     }
-    # A local package records the relative path only, as before.
+    # A local package records the relative path only.
     assert family_package_datasets._signal_track_entry(bundle(None), paths) == {"depth_bigwig": DEPTH}
 
 

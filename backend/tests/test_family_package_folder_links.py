@@ -1,4 +1,4 @@
-"""A folder of a package that is a symbolic link is followed, and reported (SEC-27).
+"""A folder of a package that is a symbolic link is followed, and reported.
 
 The package list and Discover read a package's folders by their layout: the PGT pipeline's
 ``ped/`` folder, and the long-read pipeline's dataset folders (``snv/``, ``repeats/``, ...)
@@ -16,6 +16,7 @@ lies in the package. All packages, IDs and files are synthetic.
 from __future__ import annotations
 
 import gzip
+import json
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ from backend.app.services.family_package_discovery import discover_family_packag
 from backend.app.services.family_package_source import scan_family_import_packages
 from backend.app.services.family_package_validation import load_validated_family_package
 from backend.tests._family_import_fakes import authorize_import_root
+from backend.tests._kept_manifest import kept_manifest
 
 MOTHER, FATHER = "HG002", "HG003"
 TRIO_PED = "FAM1 F1 0 0 1 1\nFAM1 M1 0 0 2 1\nFAM1 C1 F1 M1 1 2\n"
@@ -166,8 +168,8 @@ def test_only_a_link_to_a_folder_is_reported_and_nothing_under_one(imports: Path
 
 
 def _package_with_a_linked_ped_folder(imports: Path) -> Path:
-    """FAM1 with its own PED and manifest, and a ped/ folder that is a link to PEDS, a folder
-    in the import root that holds a PED."""
+    """FAM1 with its own PED and a test manifest naming it, and a ped/ folder that is a link to
+    PEDS, a folder in the import root that holds a PED."""
     shared = imports / "PEDS"
     shared.mkdir()
     (shared / "FAM1.ped").write_text(TRIO_PED, encoding="utf-8")
@@ -195,9 +197,9 @@ def test_a_ped_folder_that_is_a_link_is_reported_by_discover(imports: Path) -> N
 def test_a_ped_folder_that_is_a_link_is_reported_by_the_validation(imports: Path) -> None:
     package = _package_with_a_linked_ped_folder(imports)
 
-    validation, bundle = load_validated_family_package(package)
+    validation, bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
 
-    # A warning: the package still validates, and imports.
+    # A warning: the package validates, and imports.
     assert validation.valid, validation.errors
     assert bundle is not None
     assert _links(validation.warnings) == [
@@ -231,18 +233,13 @@ def test_the_validation_reports_a_linked_per_sample_folder_its_manifest_names_no
     _long_read_sample(other, FATHER, "XY")
     (couple / "snv" / FATHER).symlink_to(other / "snv" / FATHER)
     # The manifest Discover drafts for it: both members, the father's files absent.
-    (couple / "manifest.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 1,
-                "family_id": "COUPLE1",
-                "family": {"add_members": [{"sample_id": MOTHER, "sex": "female"}, {"sample_id": FATHER}]},
-            }
-        ),
-        encoding="utf-8",
-    )
+    manifest = {
+        "schema_version": 1,
+        "family_id": "COUPLE1",
+        "family": {"add_members": [{"sample_id": MOTHER, "sex": "female"}, {"sample_id": FATHER}]},
+    }
 
-    validation, bundle = load_validated_family_package(couple)
+    validation, bundle = load_validated_family_package(couple, manifest_text=json.dumps(manifest))
 
     assert validation.valid, validation.errors
     assert bundle is not None
