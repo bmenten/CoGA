@@ -12,6 +12,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { formatTimestamp } from '../../lib/format';
 import ModalDialog from '../../components/ModalDialog';
 import QueryFailure from '../../components/QueryFailure';
+import DeliveryCorrectionDialog from './DeliveryCorrectionDialog';
 
 type Delivery = ImportDeliveryOut;
 type ConflictMode = 'cancel' | 'update' | 'overwrite';
@@ -24,6 +25,8 @@ const OPEN_STATES = new Set([
   'queued',
 ]);
 const REFUSABLE_STATES = new Set(['incomplete', 'ready', 'needs_attention']);
+// The deliveries whose package is corrected before approval: open, and their package read.
+const CORRECTABLE_STATES = new Set(['ready', 'needs_attention']);
 // The issues an approver resolves by choosing update or overwrite: the family exists.
 const RESOLVED_BY_A_CHOICE = new Set(['existing_family', 'existing_samples']);
 
@@ -75,7 +78,8 @@ const IssueList: React.FC<{
 
 type Decision =
   | { kind: 'approve'; deliveries: Delivery[]; dryRun: boolean }
-  | { kind: 'refuse'; delivery: Delivery };
+  | { kind: 'refuse'; delivery: Delivery }
+  | { kind: 'correct'; delivery: Delivery };
 
 interface ApproveDialogProps {
   deliveries: Delivery[];
@@ -514,6 +518,11 @@ const ImportDeliveriesPanel: React.FC = () => {
                   </td>
                   <td>
                     <div>{formatTimestamp(delivery.first_seen_at)}</div>
+                    {delivery.revision ? (
+                      <div className="table-subtle">
+                        Corrected (revision {delivery.revision})
+                      </div>
+                    ) : null}
                     <div className="table-subtle font-mono">
                       {delivery.package_fingerprint.slice(0, 12)}
                     </div>
@@ -549,6 +558,17 @@ const ImportDeliveriesPanel: React.FC = () => {
                             Approve…
                           </button>
                         </>
+                      ) : null}
+                      {CORRECTABLE_STATES.has(delivery.state) ? (
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          onClick={() =>
+                            setDecision({ kind: 'correct', delivery })
+                          }
+                        >
+                          Correct…
+                        </button>
                       ) : null}
                       {REFUSABLE_STATES.has(delivery.state) ? (
                         <button
@@ -592,6 +612,20 @@ const ImportDeliveriesPanel: React.FC = () => {
               acknowledged,
             })
           }
+        />
+      ) : null}
+      {decision?.kind === 'correct' ? (
+        <DeliveryCorrectionDialog
+          delivery={decision.delivery}
+          onCancel={() => setDecision(null)}
+          onSaved={(result) => {
+            setStatusTone('success');
+            setStatusMessage(
+              `Corrected ${result.delivery.folder_name} (revision ${result.package.revision}): ${(STATE_LABELS[result.delivery.state] ?? result.delivery.state).toLowerCase()}.`
+            );
+            setDecision(null);
+            refresh();
+          }}
         />
       ) : null}
       {decision?.kind === 'refuse' ? (

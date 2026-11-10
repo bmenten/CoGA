@@ -20,9 +20,9 @@ owner approved the plan on 2026-11-10, in phases:
    a folder manifest. What a minimal file leaves out, CoGA proposes from the folder, as Discover
    does.
 2. A delivery can be completed and corrected before it is approved, within the limits below,
-   each change with its reason on the record. Done through the API
-   ([data-import.md](data-import.md#correcting-a-delivery)); the forms in **Deliveries**, and the
-   corrections on the family page and in the signed record, are next.
+   each change with its reason on the record. Done, through the API
+   ([data-import.md](data-import.md#correcting-a-delivery)) and **Correct…** in **Deliveries**;
+   the corrections on the family page and in the signed record are next.
 3. Adding a family by hand makes the same file: CoGA drafts it from the folder, a PED if there
    is one, and what the person adds. Such a delivery goes through Deliveries like a pipeline's.
 4. The PED and the manifest are no longer read by the import of a typed folder either.
