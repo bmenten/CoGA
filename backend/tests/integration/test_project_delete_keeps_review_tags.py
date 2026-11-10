@@ -17,8 +17,13 @@ test makes, with synthetic names, project A (deleted), project B and project C, 
   ``a_shared``; family LEFT, now in B alone, whose repeat review holds ``c_held``, its Paraphase
   review ``everywhere`` and its SV review ``b_shared``.
 
-Then it deletes A and checks that:
+A project that a family is linked to is not deleted (409): the family's variants are stored per
+project (the owner's decision, 2026-11-10). So the deletion of A, with DEL linked to it, is
+refused and changes nothing; DEL is then moved to no project, as an administrator's change of
+its projects does, and A is deleted. The test checks that:
 
+* the deletion of A while DEL is linked to it is refused (409, naming 1 family) and leaves A's
+  tags active;
 * ``a_shared`` and ``a_only`` are kept, inactive, project tags without a project; ``a_shared``
   keeps its link to B; ``b_shared`` stays active and loses only its link to A;
 * no list reads them as global or active: the global list, the administration's list, B's
@@ -43,6 +48,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -260,6 +266,20 @@ async def _run() -> dict[str, Any]:
             )
             await session.commit()
 
+        # Refused while DEL is linked to A, with nothing changed; DEL then leaves A for no project.
+        async with sm() as session:
+            try:
+                await delete_project_record(session, project_id=project_a)
+            except HTTPException as refused:
+                out["refused_with_family"] = (refused.status_code, refused.detail)
+            await session.rollback()
+        async with sm() as session:
+            out["while_refused"] = await _stored(session, [keys["a_only"], keys["a_shared"]])
+            await session.execute(
+                text("DELETE FROM family_projects WHERE family_id = CAST(:f AS uuid)"),
+                {"f": family_uuids["DEL"]},
+            )
+            await session.commit()
         async with sm() as session:
             await delete_project_record(session, project_id=project_a)
         async with sm() as session:
@@ -383,6 +403,15 @@ async def _run() -> dict[str, Any]:
 @pytest.fixture(scope="module")
 def deleted() -> dict[str, Any]:
     return asyncio.run(_run())
+
+
+def test_a_project_a_family_is_linked_to_is_refused_and_keeps_its_tags_active(deleted) -> None:
+    status, detail = deleted["refused_with_family"]
+    assert status == 409
+    assert detail.startswith("1 family is linked to this project.")
+    for name in ("a_only", "a_shared"):
+        assert deleted["while_refused"][deleted["keys"][name]]["is_active"] is True
+        assert deleted["while_refused"][deleted["keys"][name]]["project_id"] == deleted["projects"]["A"]
 
 
 def test_the_deleted_projects_tags_are_kept_inactive_without_a_project(deleted) -> None:

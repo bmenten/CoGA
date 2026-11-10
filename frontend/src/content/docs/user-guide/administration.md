@@ -90,10 +90,13 @@ page is an administrator's alone.
   - A case can be assigned to, or reviewed by, an analyst of its projects whose role is not viewer, a
     superuser or an administrator. A case assigned to someone who became a reader or a viewer keeps
     them, marked *(not eligible)*, until it is changed.
-  - Deleting a project asks first and says what it unlinks. Its families and samples stay, but lose
-    their link to it; its members lose the access it gave them; its review tags are deleted as a
-    removed tag is: each stays on the reviews that hold it, marked deleted, and can no longer be
-    added. A family in no other project can then be opened by superusers and administrators only.
+  - A project that families are linked to cannot be deleted: **Delete project** is off and says how
+    many. A family's small and structural variants are stored per project, and would stay behind
+    under the deleted one. First move each family to other projects, or to none, or delete it, in
+    **Admin → Family & sample data**; its variants move with it.
+  - Deleting a project without families asks first and says what goes: its members lose the access
+    it gave them; its review tags are deleted as a removed tag is: each stays on the reviews that
+    hold it, marked deleted, and can no longer be added.
 
 ### Data Management
 

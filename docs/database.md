@@ -867,6 +867,20 @@ A copy whose `INSERT … SELECT` fails deletes what the project then holds of th
 which it held none of before, and raises: ClickHouse writes the insert in blocks, and a part
 left in a linked project would read as the whole callset, which no later copy replaces.
 
+A project that families are linked to is not deleted (`DELETE /api/projects/{project_id}`
+answers 409, naming how many; the owner's decision, 2026-11-10). The deletion drops the
+project's `family_projects` rows (`ON DELETE CASCADE`), and the families' rows would stay
+under the deleted project: a family whose only project it was would have no project, so no
+assembly to read, and its pages would show no small or structural variants; a family with
+other projects would keep a copy no reader looks at. So each family is moved to other
+projects, or to none (its rows then go to `unassigned`), or deleted first, which moves or
+deletes its rows. `delete_project_record` locks the project's row before it counts the
+families: a link being written holds a share lock on that row (its foreign-key check), so it
+commits before the count, and one written after waits and then finds no project. A family
+whose project was deleted before this keeps its rows under the deleted project's id until its
+projects next change: a family in no project gets them copied to the project it is linked to,
+and a family's left-over rows are pruned with the projects it left.
+
 #### Tables with a different row identity
 
 A table's sort key is fixed when ClickHouse creates it. At startup, and before it creates an

@@ -129,35 +129,31 @@ const ProjectMemberPicker: React.FC<{
 );
 
 /**
- * What deleting `project` takes with it, for the confirmation (UI-7). The delete cascades to the
- * project's links: its families and samples stay but lose their link to it, and its members the
- * access it gave them. The review tags defined for it are deleted as a tag delete does it: each
- * stays on the reviews that hold it, marked deleted, and can no longer be added (SAFE-37). A
- * family in no other project is then open to administrators only. `projects` is every project:
- * the page is an administrator's.
+ * Why `project` is not deleted while families are linked to it, as the server says it when it
+ * refuses (409), or null when none is. A family's small and structural variants are stored per
+ * project: the deletion would unlink the family and leave them under the deleted project, where
+ * none of its pages looks. Moving a family to other projects moves its variants, so each family
+ * is moved, or deleted, first (the owner's decision, 2026-11-10). `project.families` holds every
+ * family: the page is an administrator's.
  */
-const projectDeletionEffects = (project: Project, projects: Project[]): string[] => {
+const projectDeletionBlocker = (project: Project): string | null => {
   const families = project.families.length;
-  const elsewhere = new Set(
-    projects
-      .filter((other) => other.id !== project.id)
-      .flatMap((other) => other.families.map((family) => family.family_id)),
-  );
-  const orphans = project.families.filter((family) => !elsewhere.has(family.family_id)).length;
+  if (families === 0) return null;
+  const one = families === 1;
+  return `${one ? '1 family is' : `${families} families are`} linked to this project. Move ${
+    one ? 'it' : 'each'
+  } to other projects, or to none, or delete ${one ? 'it' : 'them'} in Admin → Family & sample data first: a family's small and structural variants are stored per project, and would stay behind under the deleted one.`;
+};
+
+/**
+ * What deleting `project`, which no family is linked to, takes with it, for the confirmation
+ * (UI-7): its members lose the access it gave them, and its review tags are deleted as a tag
+ * delete does it: each stays on the reviews that hold it, marked deleted, and can no longer be
+ * added (SAFE-37).
+ */
+const projectDeletionEffects = (project: Project): string[] => {
   const members = project.user_ids?.length ?? 0;
   return [
-    families === 0
-      ? 'No family is linked to it.'
-      : `${pluralize(families, 'family', 'families')}, with ${pluralize(getProjectSampleCount(project), 'sample')}, ${
-          families === 1 ? 'loses its' : 'lose their'
-        } link to it.`,
-    ...(orphans > 0
-      ? [
-          `${pluralize(orphans, 'family', 'families')} of these ${orphans === 1 ? 'is' : 'are'} in no other project: after the deletion only administrators can open ${
-            orphans === 1 ? 'it' : 'them'
-          }.`,
-        ]
-      : []),
     ...(members > 0
       ? [`${pluralize(members, 'member')} ${members === 1 ? 'loses' : 'lose'} the access the project gave them.`]
       : []),
@@ -265,6 +261,7 @@ const ProjectsPage: React.FC = () => {
     () => filteredProjects.find((project) => project.id === selectedProjectId) ?? null,
     [filteredProjects, selectedProjectId],
   );
+  const deletionBlocker = selectedProject ? projectDeletionBlocker(selectedProject) : null;
 
   const sortedSelectedFamilies = useMemo(() => {
     if (!selectedProject) return [];
@@ -722,12 +719,18 @@ const ProjectsPage: React.FC = () => {
                   <button
                     type="button"
                     className="button-danger"
-                    disabled={busy === `delete:${selectedProject.id}`}
+                    disabled={busy === `delete:${selectedProject.id}` || deletionBlocker !== null}
+                    aria-describedby={deletionBlocker ? 'project-delete-blocked' : undefined}
                     onClick={() => setProjectToDeleteId(selectedProject.id)}
                   >
                     Delete project
                   </button>
                 </div>
+                {deletionBlocker ? (
+                  <p id="project-delete-blocked" className="field-hint project-delete-blocked">
+                    {deletionBlocker}
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
@@ -925,11 +928,11 @@ const ProjectsPage: React.FC = () => {
           onConfirm={() => void handleDeleteProject(projectToDelete.id)}
         >
           <p>
-            This deletes the project <strong>{projectToDelete.name}</strong>. No family or sample is
-            deleted with it.
+            This deletes the project <strong>{projectToDelete.name}</strong>, which no family is linked
+            to.
           </p>
           <ul>
-            {projectDeletionEffects(projectToDelete, projects).map((effect) => (
+            {projectDeletionEffects(projectToDelete).map((effect) => (
               <li key={effect}>{effect}</li>
             ))}
           </ul>

@@ -1886,10 +1886,46 @@ async def get_accessible_sample_mapping(
     return mapping
 
 
+def _project_families_refusal(families: int) -> str:
+    """Why a project linked to ``families`` families is not deleted, for the administrator."""
+    held = "1 family is" if families == 1 else f"{families} families are"
+    each = "it" if families == 1 else "each"
+    return (
+        f"{held} linked to this project. Move {each} to other projects, or to none, or delete "
+        f"{'it' if families == 1 else 'them'} in Admin → Family & sample data first: a family's "
+        "small and structural variants are stored per project, and would stay behind under "
+        "the deleted one."
+    )
+
+
 async def delete_project_record(session: AsyncSession, *, project_id: str) -> None:
+    """Delete an administrator's project that no family is linked to; refused (409) while one is.
+
+    A family's small and structural variants are stored once per project it is linked to, and
+    the deletion would drop the links (``ON DELETE CASCADE``) but leave the rows under the
+    deleted project, where none of the family's reads looks: a family in no other project
+    then showed none (the owner's decision, 2026-11-10). A change of the family's projects
+    moves its rows (``update_family_project_assignments``), so each family is moved, or
+    deleted, first.
+    """
     # Its memberships go with it: not while an account's save gives access to it.
     await _lock_project_memberships(session)
     await _fetch_project_mapping(session, project_id)
+    # The project's row is locked before its families are counted: a link to it being written
+    # holds a share lock on the row (its foreign-key check) and commits before the count, and
+    # one written after waits for the deletion, then finds no project.
+    await session.execute(
+        text("SELECT 1 FROM projects WHERE id = CAST(:project_id AS uuid) FOR UPDATE"),
+        {"project_id": project_id},
+    )
+    families = (
+        await session.execute(
+            text("SELECT count(*) FROM family_projects WHERE project_id = CAST(:project_id AS uuid)"),
+            {"project_id": project_id},
+        )
+    ).scalar_one()
+    if families:
+        raise HTTPException(status_code=409, detail=_project_families_refusal(int(families)))
     # Its review tags stay, deactivated, and the deletion detaches them (SAFE-37): the
     # reviews, signed records and audit events that hold a tag's key keep reading it as
     # that tag, and no new tag takes the key. One transaction, so neither goes alone.

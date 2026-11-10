@@ -498,7 +498,12 @@ describe('ProjectsPage', () => {
     expect(screen.queryByRole('region', { name: 'New project' })).not.toBeInTheDocument();
   });
 
+  /** Project One as served, without its families: a project that can be deleted. */
+  const serveWithoutFamilies = () =>
+    serveProjects((defaults) => defaults.map((project) => ({ ...project, families: [] })));
+
   it('deletes the selected project under its own path and reloads the list', async () => {
+    serveWithoutFamilies();
     renderPage();
     await screen.findByRole('heading', { level: 2, name: 'Project One' });
 
@@ -510,25 +515,49 @@ describe('ProjectsPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  // UI-7: a project was deleted on one click, and its delete unlinks every family and sample
-  // of it. It now asks first, saying what loses its link (a family in no other project is then
-  // open to administrators only), and sends nothing until confirmed: neither on Cancel nor on
-  // Escape. Its review tags are deleted as a tag delete does it, kept on the reviews (SAFE-37).
-  it('asks before deleting a project, saying what loses its link, and sends nothing on cancel', async () => {
-    // F2 is in Project Two as well; F1 only in Project One.
-    serveProjects((defaults) => [
-      ...defaults,
-      { ...PROJECT_TWO, families: [...PROJECT_TWO.families, { family_id: 'F2', members: [] }] },
-    ]);
+  // A family's small and structural variants are stored per project, and a project's deletion
+  // unlinked its families and left their variants under the deleted project, where none of their
+  // pages looked. A project families are linked to is not deleted (the server refuses it, 409):
+  // Delete project is off and says why, naming how many, until each family is moved or deleted.
+  it.each<[string, ProjectRow[], string]>([
+    [
+      'one family',
+      [],
+      "1 family is linked to this project. Move it to other projects, or to none, or delete it in Admin → Family & sample data first: a family's small and structural variants are stored per project, and would stay behind under the deleted one.",
+    ],
+    [
+      'more families',
+      [{ family_id: 'F1', members: [] }, { family_id: 'F2', members: [] }],
+      "2 families are linked to this project. Move each to other projects, or to none, or delete them in Admin → Family & sample data first: a family's small and structural variants are stored per project, and would stay behind under the deleted one.",
+    ],
+  ])('keeps Delete project off for a project with %s, saying why', async (_how, families, reason) => {
+    serveProjects(() => [{ ...PROJECT_TWO, families: families.length ? families : PROJECT_TWO.families }]);
+    renderPage();
+    await screen.findByRole('heading', { level: 2, name: 'Project Two' });
+
+    const button = screen.getByRole('button', { name: 'Delete project' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(reason);
+    fireEvent.click(button);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.delete).not.toHaveBeenCalled();
+  });
+
+  // UI-7: a project was deleted on one click. It now asks first, saying what goes with it (its
+  // members' access; its review tags, kept on the reviews: SAFE-37), and sends nothing until
+  // confirmed: neither on Cancel nor on Escape.
+  it('asks before deleting a project, saying what goes with it, and sends nothing on cancel', async () => {
+    serveWithoutFamilies();
     renderPage();
     await screen.findByRole('heading', { level: 2, name: 'Project One' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
+    const button = screen.getByRole('button', { name: 'Delete project' });
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute('aria-describedby');
+    fireEvent.click(button);
     const dialog = screen.getByRole('dialog', { name: 'Delete project Project One' });
-    expect(dialog).toHaveTextContent('This deletes the project Project One. No family or sample is deleted with it.');
+    expect(dialog).toHaveTextContent('This deletes the project Project One, which no family is linked to.');
     expect(within(dialog).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      '2 families, with 3 samples, lose their link to it.',
-      '1 family of these is in no other project: after the deletion only administrators can open it.',
       '1 member loses the access the project gave them.',
       'Review tags defined for this project are deleted with it: each stays on the reviews that hold it, marked deleted, and can no longer be added.',
     ]);
@@ -544,8 +573,8 @@ describe('ProjectsPage', () => {
     expect(projectRequests()).toBe(1);
   });
 
-  // A project with no family and no member says so, rather than counting zeros.
-  it('says a project to delete links no family', async () => {
+  // A project with no member says only what happens to its tags, rather than counting zeros.
+  it('says a project to delete without members only loses its tags', async () => {
     serveProjects(() => [PROJECT_THREE]);
     renderPage();
     await screen.findByRole('heading', { level: 2, name: 'Project Three' });
@@ -553,7 +582,6 @@ describe('ProjectsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
     const dialog = screen.getByRole('dialog', { name: 'Delete project Project Three' });
     expect(within(dialog).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      'No family is linked to it.',
       'Review tags defined for this project are deleted with it: each stays on the reviews that hold it, marked deleted, and can no longer be added.',
     ]);
   });
@@ -565,10 +593,12 @@ describe('ProjectsPage', () => {
     ['create', 'a fixed sentence without one', undefined, 'Unable to create project.'],
     ['save', 'the server’s reason', 'Assembly does not belong to the organism.', 'Assembly does not belong to the organism.'],
     ['save', 'a fixed sentence without one', undefined, 'Unable to save project.'],
-    ['delete', 'the server’s reason', 'The project still has families.', 'The project still has families.'],
+    // A family linked to the project after the list was read: the server refuses it.
+    ['delete', 'the server’s reason', '1 family is linked to this project.', '1 family is linked to this project.'],
     ['delete', 'a fixed sentence without one', undefined, 'Unable to delete project.'],
   ])('says why a refused %s failed: %s', async (action, _how, detail, message) => {
     const refusal = detail ? { response: { status: 409, data: { detail } } } : {};
+    if (action === 'delete') serveWithoutFamilies();
     renderPage();
     await screen.findByRole('heading', { level: 2, name: 'Project One' });
 
