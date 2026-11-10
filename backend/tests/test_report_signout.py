@@ -72,6 +72,7 @@ _RECORD_SECTIONS = {
     "repeat_expansions": {"catalogue": {"loci": 0, "sources": [], "digest": "0" * 64}, "loci": []},
     "paraphase": {"catalogue": {"regions": 0, "digest": "0" * 64}, "genes": []},
     "coverage_tracks": {"tracks": []},
+    "package_intake": {"delivery": None},
 }
 
 
@@ -3564,6 +3565,8 @@ def test_signout_check_compares_the_sv_evidence_a_record_does_not_hold(monkeypat
         "paraphase",
         # Nor what each coverage track holds, which records hold since 2026-10-20.
         "coverage_tracks",
+        # Nor the delivered package and its corrections at intake, held since 2026-11-10.
+        "package_intake",
     ]
     assert out["not_captured"] == []
 
@@ -3647,6 +3650,7 @@ def test_the_snapshot_freezes_what_the_analysis_looked_at_and_what_the_record_is
         },
         {"repeat_expansions": {"catalogue": {"loci": 1, "sources": [], "digest": "1" * 64}, "loci": []}},
         {"paraphase": {"catalogue": {"regions": 1, "digest": "1" * 64}, "genes": []}},
+        {"package_intake": {"delivery": {"id": "d1", "revision": 1, "corrections": []}}},
         {
             "reference_data": {
                 "gene_reference": {"genes": [], "sources": [], "not_in_reference": []},

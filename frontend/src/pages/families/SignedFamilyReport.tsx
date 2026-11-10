@@ -86,6 +86,7 @@ import {
   reportViewSearch,
   type SignedAcknowledgement,
   type SignedGenotype,
+  type SignedIntakeChange,
   type SignedNipt,
   type SignedRecordSection,
   type SignedReport,
@@ -580,6 +581,72 @@ const CoverageTracksSection: React.FC<{ record: SignedReport; version: number }>
   );
 };
 
+/** A value of a corrected field as the record lists it: "not set", the text, or its JSON. */
+const intakeValue = (value: unknown): string =>
+  value === null || value === undefined ? 'not set' : typeof value === 'string' ? value : JSON.stringify(value);
+
+const IntakeChangeLine: React.FC<{ change: SignedIntakeChange }> = ({ change }) => (
+  <li>
+    <code>{change.path}</code>: {intakeValue(change.before)} → {intakeValue(change.after)}
+    {change.kind === 'pipeline_used' ? <strong> (the pipeline used it)</strong> : null}
+  </li>
+);
+
+/**
+ * The delivered package the family's data came from, and each correction made to it in CoGA
+ * before the import (owner decision of 2026-11-10): what changed, why, by whom and when, a change
+ * to a member's sex or parents (which the pipeline used) marked. Every family's record holds it
+ * since; one whose last import was no delivery's says so.
+ */
+const PackageIntakeSection: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => (
+  <RecordSectionBlock
+    title="Package intake"
+    what="the delivered package and its corrections"
+    section={record.packageIntake}
+    version={version}
+  >
+    {(intake) => {
+      const delivery = intake.delivery;
+      if (!delivery) {
+        return (
+          <p className="report-paragraph">
+            The family’s last package import was not from a delivered package file: nothing was corrected at
+            intake.
+          </p>
+        );
+      }
+      return (
+        <>
+          <p className="report-paragraph">
+            The family’s data came from a delivered package
+            {delivery.runId ? ` of pipeline run ${delivery.runId}` : ''}
+            {delivery.packageFileSha256 ? ` (package file ${delivery.packageFileSha256.slice(0, 12)})` : ''}, imported{' '}
+            {delivery.revision ? `as revision ${delivery.revision}, corrected in CoGA before its import` : 'as delivered'}
+            {delivery.packageSha256 ? ` (package ${delivery.packageSha256.slice(0, 12)})` : ''}. The pipeline’s file
+            itself was never changed.
+          </p>
+          {delivery.corrections.length ? (
+            <ol className="report-signed-list">
+              {delivery.corrections.map((correction, index) => (
+                <li key={`${correction.revision ?? 'r'}-${index}`}>
+                  <strong>Revision {correction.revision ?? '?'}</strong>
+                  {correction.by ? ` by ${correction.by}` : ''}
+                  {correction.at ? `, ${formatReportTime(correction.at)}` : ''}: {correction.reason ?? 'no reason recorded'}
+                  <ul>
+                    {correction.changes.map((change, changeIndex) => (
+                      <IntakeChangeLine key={`${change.path}-${changeIndex}`} change={change} />
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </>
+      );
+    }}
+  </RecordSectionBlock>
+);
+
 // A NIPT check that could not run reads "Not run", as on the NIPT page.
 const niptStatusLabel = (status: string | null): string =>
   qcStatusLabel(status === 'unknown' ? 'skip' : status);
@@ -975,6 +1042,8 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
     </RecordSectionBlock>
 
     <CoverageTracksSection record={record} version={version} />
+
+    <PackageIntakeSection record={record} version={version} />
 
     <RecordSectionBlock
       title="Reference-data releases"

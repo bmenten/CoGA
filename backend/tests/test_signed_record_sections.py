@@ -494,7 +494,7 @@ def test_a_section_that_cannot_be_read_is_frozen_as_unavailable_and_named(monkey
     # The others are read all the same, each in a savepoint of its own.
     assert sections["repeat_expansions"]["loci"][0]["locus_id"] == "HD_HTT"
     assert sections["gene_panels"] == {"applied": []}
-    assert session.savepoints == 7
+    assert session.savepoints == 8
     # The reference data names no gene when no variant could be described.
     assert sections["reference_data"]["gene_reference"]["genes"] == []
 
@@ -588,10 +588,12 @@ def test_a_nipt_family_holds_its_nipt_results_read_for_its_reported_variants(mon
     }
     assert sections["nipt"] == {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
     assert asked == [{"family": "FAM1", "reported": ["1-1001-A-G"]}]
-    # In a savepoint of its own, as every section: seven for a family without one, eight here.
-    assert session.savepoints == 8
+    # In a savepoint of its own, as every section: eight for a family without one, nine here.
+    assert session.savepoints == 9
     # Whether it is a NIPT family is read from its metadata, bound, never spliced in.
-    [(sql, params)] = [(sql, params) for sql, params in session.executed if "FROM families" in sql]
+    [(sql, params)] = [
+        (sql, params) for sql, params in session.executed if "FROM families" in sql and "package_import" not in sql
+    ]
     assert "analysis_type" in sql and params == {"family_uuid": _context().family_uuid}
 
 
@@ -727,7 +729,7 @@ def test_a_pgt_familys_record_freezes_the_analysis_the_family_page_shows(monkeyp
         section.key for section in srs.RECORD_SECTIONS if section.application in (None, "pgt")
     }
     # In a savepoint of its own, like every section.
-    assert session.savepoints == 8
+    assert session.savepoints == 9
 
 
 def test_a_family_without_an_embryo_holds_no_pgt_section(monkeypatch) -> None:
@@ -872,3 +874,87 @@ def test_only_the_pgt_and_nipt_sections_belong_to_one_application() -> None:
     }
     assert srs.PGT_ANALYSIS.application == "pgt"
     assert srs.NIPT_RESULTS.application == "nipt"
+
+
+
+# --- The delivered package and its corrections --------------------------------------
+
+
+def test_the_record_names_the_delivered_package_and_every_correction_made_at_intake() -> None:
+    delivery = {
+        "id": "d1",
+        "run_id": "RUN1",
+        "marker_sha256": "a" * 64,
+        "package_fingerprint": "b" * 64,
+        "revision": 2,
+        "package_sha256": "c" * 64,
+        "corrections": [
+            {
+                "revision": 2,
+                "changes": [{"path": ["members", "PROBAND", "sex"], "kind": "pipeline_used", "before": "male", "after": "female"}],
+                "reason": "The request form gives another sex.",
+                "by": "superuser",
+                "at": "2026-11-10T12:00:00+00:00",
+            },
+            {
+                "revision": 1,
+                "changes": [
+                    {"path": ["members", "PROBAND", "clinical_status"], "kind": "laboratory", "before": None, "after": "affected"},
+                    "not a change",
+                ],
+                "reason": "From the request form.",
+                "by": "superuser",
+                "at": "2026-11-10T11:00:00+00:00",
+            },
+            "not a correction",
+        ],
+    }
+    session = _Session({"package_import": [{"delivery": delivery}]})
+
+    intake = asyncio.run(srs.package_intake(session, _context()))  # type: ignore[arg-type]
+
+    assert intake == {
+        "delivery": {
+            "id": "d1",
+            "run_id": "RUN1",
+            "package_file_sha256": "a" * 64,
+            "package_fingerprint": "b" * 64,
+            "revision": 2,
+            "package_sha256": "c" * 64,
+            "corrections": [
+                {
+                    "revision": 1,
+                    "reason": "From the request form.",
+                    "by": "superuser",
+                    "at": "2026-11-10T11:00:00+00:00",
+                    "changes": [
+                        {"path": "members.PROBAND.clinical_status", "kind": "laboratory", "before": None, "after": "affected"}
+                    ],
+                },
+                {
+                    "revision": 2,
+                    "reason": "The request form gives another sex.",
+                    "by": "superuser",
+                    "at": "2026-11-10T12:00:00+00:00",
+                    "changes": [
+                        {"path": "members.PROBAND.sex", "kind": "pipeline_used", "before": "male", "after": "female"}
+                    ],
+                },
+            ],
+        }
+    }
+    assert session.executed[0][1] == {"family_uuid": _context().family_uuid}
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [[], [{"delivery": None}], [{"delivery": "null"}], [{"delivery": '{"id": "d0", "corrections": "none"}'}]],
+)
+def test_a_family_not_imported_from_a_delivery_holds_none(rows: list[dict[str, Any]]) -> None:
+    intake = asyncio.run(srs.package_intake(_Session({"package_import": rows}), _context()))  # type: ignore[arg-type]
+    if rows and rows[0]["delivery"] not in (None, "null"):
+        # A delivery recorded before corrections were: its record, with none.
+        assert intake["delivery"]["id"] == "d0" and intake["delivery"]["corrections"] == []
+        assert intake["delivery"]["revision"] is None
+    else:
+        assert intake == {"delivery": None}

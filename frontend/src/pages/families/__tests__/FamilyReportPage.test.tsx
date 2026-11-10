@@ -1917,6 +1917,56 @@ describe('FamilyReportPage', () => {
       );
     });
 
+    it('lists the delivered package and each correction made at intake, marking what the pipeline used', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          package_intake: {
+            delivery: {
+              id: 'd1',
+              run_id: 'RUN1',
+              package_file_sha256: 'a'.repeat(64),
+              revision: 2,
+              package_sha256: 'c'.repeat(64),
+              corrections: [
+                {
+                  revision: 1,
+                  reason: 'From the request form.',
+                  by: 'superuser',
+                  at: '2026-11-10T11:00:00+00:00',
+                  changes: [
+                    { path: 'members.PROBAND.hpo', kind: 'laboratory', before: null, after: { present: ['HP:0001250'], absent: [] } },
+                  ],
+                },
+                {
+                  revision: 2,
+                  reason: 'The request form gives another sex.',
+                  by: 'superuser',
+                  at: '2026-11-10T12:00:00+00:00',
+                  changes: [{ path: 'members.PROBAND.sex', kind: 'pipeline_used', before: 'male', after: 'female' }],
+                },
+              ],
+            },
+          },
+        },
+      });
+      const first = renderPage();
+      const intake = (await screen.findByRole('heading', { name: 'Package intake' })).closest('section')!;
+      expect(intake).toHaveTextContent(
+        `The family’s data came from a delivered package of pipeline run RUN1 (package file ${'a'.repeat(12)}), imported as revision 2, corrected in CoGA before its import (package ${'c'.repeat(12)}). The pipeline’s file itself was never changed.`,
+      );
+      expect(intake).toHaveTextContent('Revision 1 by superuser, 2026-11-10 11:00 UTC: From the request form.');
+      expect(intake).toHaveTextContent('members.PROBAND.hpo: not set → {"present":["HP:0001250"],"absent":[]}');
+      expect(intake).toHaveTextContent('members.PROBAND.sex: male → female (the pipeline used it)');
+      first.unmount();
+
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, package_intake: { delivery: null } } });
+      renderPage();
+      const none = (await screen.findByRole('heading', { name: 'Package intake' })).closest('section')!;
+      expect(none).toHaveTextContent('The family’s last package import was not from a delivered package file');
+    });
+
     it('says a family held no coverage track, and what a record could not capture or predates', async () => {
       mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, coverage_tracks: { tracks: [] } } });
       const first = renderPage();

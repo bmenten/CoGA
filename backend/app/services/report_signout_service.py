@@ -2022,8 +2022,9 @@ REPORT_CONTENT_SECTIONS = (
     UNREVIEWED_FINDINGS_SECTION,
     # What the analysis looked at (signed_record_sections): the variant descriptions, the
     # gene panels applied, the reference-data releases, the repeat expansions, the
-    # Paraphase results, the coverage tracks and, in a PGT family, the embryo calls, in a
-    # monogenic NIPT family, the NIPT results.
+    # Paraphase results, the coverage tracks, the delivered package and its corrections at
+    # intake and, in a PGT family, the embryo calls, in a monogenic NIPT family, the NIPT
+    # results.
     *(section.key for section in RECORD_SECTIONS),
 )
 # A section a record does not hold (one CoGA adds after it was signed) cannot be compared

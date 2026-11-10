@@ -515,6 +515,17 @@ in the EPD refers to the signed version by its report code (*The report code* be
     family's per-target coverage tables are another track type (`target_coverage`), which `nipt`
     holds (`inputs.target_tables`); without them `nipt` also holds the coverage check's notes over
     these tracks, word for word (`nipt.coverage_notes`, above; TRACE-17);
+  - `package_intake` (owner decision of 2026-11-10): the delivered package the family's last
+    package import came from, as the family's record names it
+    (`families.metadata.package_import.delivery`): its id, the pipeline's run, the SHA-256 of the
+    pipeline's package file, the revision imported and the SHA-256 of the package imported; and
+    each correction made to that package in CoGA before the import
+    (`import_delivery_revisions`), in revision order: every field changed, by its path
+    (`members.PROBAND.sex`), its kind (`pipeline_used` for a member's sex or parents and the
+    couples, which the pipeline computed with; `laboratory` else) and its value before and after,
+    with the reason, who made it and when. Every family's record holds it: `{"delivery": null}`
+    for one whose last import was no delivery's, so an import after sign-out reads as a change.
+    The family page shows the same corrections (*Corrected at intake*);
 - the signer, the time, and any acknowledgement with its reason.
 
 Each section of what the analysis looked at is read inside a savepoint. One that cannot be read
@@ -863,8 +874,10 @@ version; one never signed out opens on the live report.
   or not, *corrected to TRGT’s count −1*, with the reason, by whom and when; where a record holds a
   correction, one sentence says what the bracketed count is); the Paraphase results; the
   coverage tracks (*Coverage tracks*: per sample and caller, what the track held, read depth, a
-  log2 ratio or unknown, and the file it was loaded from, from where and when); and the
-  reference-data releases;
+  log2 ratio or unknown, and the file it was loaded from, from where and when); the delivered
+  package and its corrections (*Package intake*: the run, the package file and the revision
+  imported, and each correction with what it changed, a change the pipeline used marked, why, by
+  whom and when); and the reference-data releases;
 - the drift, Sample QC, sequencing QC and import state, with the acknowledgements;
 - in the footer, with the report code, the frozen modules and beside them the reference-data
   releases and the coverage tracks (*Coverage tracks as signed: S1 coverage BED (package) — read
