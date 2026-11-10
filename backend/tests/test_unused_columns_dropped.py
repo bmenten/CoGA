@@ -11,9 +11,7 @@ The owner's decision of 2026-10-28 (ENG-6): the schema keeps no column that noth
 - ClickHouse: ``liftedOverChrom``, ``liftedOverPos`` (always null) and ``sample_type`` (always
   ``WGS``) were never read, the annotation index's ``transcript_ids``, ``sift_terms`` and
   ``polyphen_terms`` written and never read, and the SV calls' ``calls.gq`` never written
-  (#868). The tables are created without them, no writer names one, and a table created before
-  loses them the first time this version ensures it; one without them is not altered
-  (``integration/test_unused_columns_dropped_clickhouse.py`` on real ClickHouse).
+  (#868). The tables are created without them, and no writer names one.
 - ``families.metadata.unresolved_roi`` was written when a manifest's ROI could not be resolved,
   never read, and never cleared by a later import that resolved it: the import writes nothing
   to the family's metadata then, and revision 0011 removes the key from the families that hold
@@ -33,7 +31,6 @@ from typing import Any
 import pytest
 
 from backend.app.core.clickhouse import _parse_insert_query
-from backend.app.core.config import settings
 from backend.app.core.postgres import _split_sql_script
 from backend.app.services import clickhouse_variant_storage as cvs
 from backend.app.services import family_package_registration as registration
@@ -220,13 +217,12 @@ def test_an_roi_the_import_resolves_is_the_familys() -> None:
 # --- ClickHouse: the tables and their writers ----------------------------------------------------
 
 
-def _recording(answer=None):
+def _recording():
     statements: list[tuple[str, Any]] = []
 
     async def fake_execute(query: str, params: Any = None, data: Any = None) -> Any:
-        flat = " ".join(query.split())
-        statements.append((flat, data if data is not None else params))
-        return answer(flat, params) if answer else []
+        statements.append((" ".join(query.split()), data if data is not None else params))
+        return []
 
     return statements, fake_execute
 
@@ -335,71 +331,3 @@ def test_the_row_builders_fill_no_dropped_column() -> None:
     assert ["ENST0001"] not in index[0] and ["deleterious"] not in index[0] and ["benign"] not in index[0]
     _details, _lookups, sv_entries = _structural_variant_entry_rows("GRCh38", "fam-1", ["p1"], [_sv_record()])
     assert "WGS" not in sv_entries[0]
-
-
-# --- ClickHouse: a table created before ----------------------------------------------------------
-
-
-def _server_with(columns_by_table: dict[str, tuple[str, ...]]):
-    """A ClickHouse whose tables of the assembly hold ``columns_by_table``'s unused columns."""
-
-    def answer(sql: str, params: Any) -> Any:
-        if sql.startswith("SELECT table, name FROM system.columns"):
-            return [
-                (table, column)
-                for table, columns in columns_by_table.items()
-                if table in params["tables"]
-                for column in columns
-                if column in params["names"]
-            ]
-        return []
-
-    return answer
-
-
-def test_a_table_created_before_loses_the_unused_columns_when_first_ensured(monkeypatch) -> None:
-    statements, fake_execute = _recording(
-        _server_with({f"GRCh38/{table}": columns for table, columns in _DROPPED.items()})
-    )
-    monkeypatch.setattr(cvs, "_execute", fake_execute)
-    monkeypatch.setattr(cvs, "_ensured_variant_table_assemblies", set())
-
-    asyncio.run(cvs.ensure_clickhouse_variant_tables("GRCh38"))
-
-    alters = sorted(sql for sql, _params in statements if sql.startswith("ALTER TABLE"))
-    assert alters == sorted(
-        f"ALTER TABLE {settings.clickhouse_database}.`GRCh38/{table}` "
-        + ", ".join(f"DROP COLUMN IF EXISTS `{column}`" for column in columns)
-        for table, columns in _DROPPED.items()
-    )
-    # After the tables are created (a missing one has nothing to drop) and before the assembly
-    # counts as ensured.
-    order = [sql for sql, _params in statements]
-    assert max(order.index(sql) for sql in order if sql.startswith("CREATE TABLE")) < min(order.index(a) for a in alters)
-    assert "GRCh38" in cvs._ensured_variant_table_assemblies
-
-
-def test_only_the_unused_columns_a_table_still_has_are_dropped(monkeypatch) -> None:
-    statements, fake_execute = _recording(_server_with({"GRCh38/SV/entries": ("calls.gq",)}))
-    monkeypatch.setattr(cvs, "_execute", fake_execute)
-    monkeypatch.setattr(cvs, "_ensured_variant_table_assemblies", set())
-
-    asyncio.run(cvs.ensure_clickhouse_variant_tables("GRCh38"))
-
-    assert [sql for sql, _params in statements if sql.startswith("ALTER TABLE")] == [
-        f"ALTER TABLE {settings.clickhouse_database}.`GRCh38/SV/entries` DROP COLUMN IF EXISTS `calls.gq`"
-    ]
-
-
-def test_a_table_without_them_is_not_altered(monkeypatch) -> None:
-    statements, fake_execute = _recording(_server_with({}))
-    monkeypatch.setattr(cvs, "_execute", fake_execute)
-    monkeypatch.setattr(cvs, "_ensured_variant_table_assemblies", set())
-
-    asyncio.run(cvs.ensure_clickhouse_variant_tables("GRCh38"))
-
-    [lookup] = [(sql, params) for sql, params in statements if sql.startswith("SELECT table, name FROM system.columns")]
-    # One bound query over the assembly's four tables, for the seven column names.
-    assert lookup[1]["tables"] == tuple(sorted(f"GRCh38/{table}" for table in _DROPPED))
-    assert set(lookup[1]["names"]) == {column for columns in _DROPPED.values() for column in columns}
-    assert [sql for sql, _params in statements if sql.startswith("ALTER TABLE")] == []

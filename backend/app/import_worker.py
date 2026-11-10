@@ -26,7 +26,7 @@ process it runs in.
 
 Its start checks what the API's start checks before a worker runs: the database is at this
 version's schema revision (it never migrates: the API or the migration job does that, as the
-tables' owner), and no variant table has an older row identity. It then drops the backup
+tables' owner). It then drops the backup
 tables of overwrite imports that no running import owns, left by an import whose process
 stopped. On SIGTERM or SIGINT it stops its workers as the API's shutdown does: an import that
 is running stops where it is, and once its heartbeat is stale the next worker to look ends its
@@ -47,7 +47,6 @@ from .core.coga_logging import configure_json_logging, install_event_loop_except
 from .core.config import settings
 from .core.postgres import close_postgres_engine, verify_postgres_schema_revision, wait_for_postgres
 from .services.ancestry_service import ancestry_worker, stop_ancestry_worker
-from .services.clickhouse_variant_storage import verify_clickhouse_variant_storage_identity
 from .services.family_package_import import (
     drop_orphaned_import_backups,
     family_package_import_worker,
@@ -72,7 +71,6 @@ async def start_import_worker_process() -> None:
     await verify_postgres_schema_revision()
     await wait_for_clickhouse()
     await init_clickhouse_schema()
-    await verify_clickhouse_variant_storage_identity()
     await drop_orphaned_import_backups()
 
 

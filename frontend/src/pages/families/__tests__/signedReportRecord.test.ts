@@ -733,7 +733,13 @@ describe('parseSignedReport', () => {
   it('reads an incomplete import and QC cut-offs that could not be resolved', () => {
     const record = parseSignedReport({
       ...SNAPSHOT,
-      import_incomplete: { at: '2026-06-01T09:00:00+00:00', failed_datasets: ['sv'], imported_datasets: ['snv'], job_id: 'job-1' },
+      import_incomplete: {
+        at: '2026-06-01T09:00:00+00:00',
+        failed_datasets: ['sv'],
+        imported_datasets: ['snv'],
+        job_id: 'job-1',
+        failed_jobs: { sv: 'job-1' },
+      },
       acknowledged_import_incomplete: true,
       import_incomplete_acknowledgement_reason: 'SVs not requested.',
       sequencing_qc: { thresholds: {}, samples: {}, unavailable: 'QC thresholds could not be resolved' },

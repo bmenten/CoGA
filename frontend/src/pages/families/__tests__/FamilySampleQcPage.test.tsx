@@ -665,19 +665,6 @@ describe('FamilySampleQcPage', () => {
         expect(within(memberRow(sampleId)).getByText('Pass')).toBeInTheDocument();
       }
     });
-
-    it('shows a warning even when the verdict it is given is a pass', async () => {
-      // A verdict rolled up before a check that could not run counted as a warning.
-      mockApi(qc('pass', []));
-      const { container } = renderPage();
-
-      expect(await screen.findByText('Family members & per-sample checks')).toBeInTheDocument();
-      const overall = container.querySelector('.qc-overall') as HTMLElement;
-      expect(overall).toHaveClass('qc-overall--warn');
-      expect(within(overall).getByText('Warning')).toBeInTheDocument();
-      expect(container).not.toHaveTextContent(/All sample-integrity checks passed/);
-      expect(within(memberRow('FATHER')).getByText('Warning')).toBeInTheDocument();
-    });
   });
 
   it('adapts to NIPT: paternity, fetal sex, parent sex + category QC, no relatedness matrix', async () => {

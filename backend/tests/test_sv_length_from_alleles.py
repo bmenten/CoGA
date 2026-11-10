@@ -16,8 +16,7 @@ deletion's SVLEN. The SV list shows that length, the length filters measure it w
 sign, the CSV export and the report sentence read the list's, and the mtDNA page shows it
 too. A call that writes SVLEN keeps it as written; a symbolic allele or a breakend without
 one, or alleles as long as each other, is still measured by END − POS; no call's END or id
-changes. A call stored before this change keeps the SVLEN it was stored with (none) until
-its file is imported again: the read side derives nothing.
+changes. The read side derives nothing: a call stored without SVLEN is measured by END − POS.
 
 The helper tests import the new helpers inside the test; every other test reads the records
 through the readers, the upload, the filters, the list, the export and the mtDNA page as
@@ -363,8 +362,8 @@ def test_the_length_filters_measure_the_alleles_length(filters: dict[str, Any], 
 
 
 def test_a_call_stored_without_svlen_is_measured_as_it_was_stored() -> None:
-    # A call stored before CLIN-41 holds no SVLEN: the read side derives none, so it is
-    # measured by END − POS, as before, until its file is imported again.
+    # A call stored without SVLEN (a symbolic allele that writes none): the read side derives
+    # none, so it is measured by END − POS.
     stored = StructuralVariantRecord(
         variant_key=1,
         variant_id="1-100000-100000-INS---",

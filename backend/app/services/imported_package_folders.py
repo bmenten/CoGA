@@ -7,8 +7,8 @@ like one that waits. Each family a package import registered names the folder it
 from (``families.metadata.package_import.folder_path``: a local folder's real path, or a bucket
 folder's URI), so the list is told, per folder, which families were imported from it, when their
 last import registered them, and whether that import did not complete or is still running
-(``import_incomplete``, ``import_unfinished``). This holds for families imported before the list
-was told, too. Nothing in the folders is read: the record is the family's.
+(``import_incomplete``, ``import_unfinished``). Nothing in the folders is read: the record is the
+family's.
 
 A folder whose last import was undone because the package changed while it was read
 (``package_changed_during_import``, the owner's decision of 2026-11-05) is offered again: the

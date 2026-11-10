@@ -2729,9 +2729,8 @@ def _small_annotation_filter_condition(
         conditions.append("a.lof NOT IN ('', '.', 'na', 'n/a')")
 
     # The population-frequency block. It is one unit because a ClinVar P/LP call can
-    # "rescue" a variant past all of it, on the same transcript row. Before #534 this SQL
-    # applied the ceilings unconditionally, so a recurrent pathogenic allele above the
-    # cut-off was dropped here, before the rescue could keep it.
+    # "rescue" a variant past all of it, on the same transcript row, so a recurrent
+    # pathogenic allele above the cut-off is kept when the search asks for it.
     frequency_conditions: list[str] = []
     max_float_filters = [
         ("detail_max_gnomad_af", filters.max_gnomad_af, "gnomad_af"),
@@ -2760,12 +2759,11 @@ def _small_annotation_filter_condition(
     if frequency_conditions:
         frequency_block = " AND ".join(frequency_conditions)
         if filters.clinvar_overrides_frequency:
-            # clinvar_terms holds the normalised terms (_status_terms) the filter terms read.
-            # Rows stored before "/" was a separator keep ClinVar's aggregate form as
-            # one term, so match that too until the family is re-imported.
-            rescue_terms = list(_status_filter_terms(CLINVAR_FREQUENCY_RESCUE_TERMS))
-            rescue_terms.append("/".join(rescue_terms))
-            params["detail_clinvar_rescue_terms"] = rescue_terms
+            # clinvar_terms holds the normalised terms (_status_terms) the filter terms read;
+            # ClinVar's aggregate form is stored split into its terms.
+            params["detail_clinvar_rescue_terms"] = list(
+                _status_filter_terms(CLINVAR_FREQUENCY_RESCUE_TERMS)
+            )
             conditions.append(
                 f"(({frequency_block}) OR hasAny(a.clinvar_terms, %(detail_clinvar_rescue_terms)s))"
             )

@@ -208,15 +208,19 @@ def _entry(job_id, datasets, finished=(), scopes=None):
     }
 
 
-def _flag(job_id, failed, imported=(), *, jobs=None):
-    """A flag as an import wrote it: each failed dataset with its job and scope."""
+def _flag(job_id, failed, imported=(), *, jobs=None, scopes=None):
+    """A flag as an import writes it (registration._flag_payload): each failed dataset with
+    its job, and its one failure with its scope (``scopes``, else ``_SCOPES``) and job."""
+    dataset_jobs = {name: (jobs or {}).get(name, job_id) for name in sorted(failed)}
     return {
         "at": "2026-10-01T09:00:00+00:00",
         "failed_datasets": sorted(failed),
         "imported_datasets": sorted(imported),
         "job_id": job_id,
-        "failed_jobs": {name: (jobs or {}).get(name, job_id) for name in sorted(failed)},
-        "scopes": {name: _SCOPES[name] for name in sorted(failed)},
+        "failed_jobs": dataset_jobs,
+        "failed_scopes": {
+            name: [{"scope": (scopes or _SCOPES)[name], "job_id": job}] for name, job in dataset_jobs.items()
+        },
     }
 
 
@@ -248,7 +252,7 @@ async def test_flag_family_import_incomplete_records_the_import_job() -> None:
     # texts, which can carry file paths.
     row = _FamilyRow()
     await fpi._flag_family_import_incomplete(
-        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-uuid"
+        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-uuid", scopes=_SCOPES
     )
     assert row.flag["job_id"] == "job-uuid"
     assert row.flag["failed_jobs"] == {"snv": "job-uuid"}
@@ -259,7 +263,7 @@ async def test_flag_family_import_incomplete_records_the_import_job() -> None:
     # An import run outside a job records none.
     row = _FamilyRow()
     await fpi._flag_family_import_incomplete(
-        row, _ctx(), failed_datasets=["snv"], imported_datasets=[]
+        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], scopes=_SCOPES
     )
     assert row.flag["job_id"] is None
 
@@ -269,7 +273,13 @@ async def test_a_failed_import_removes_its_own_unfinished_entry_with_the_flag() 
     # One transaction: the family is never left with neither the flag nor the entry.
     row = _FamilyRow(unfinished={"job-1": _entry("job-1", ["snv"]), "job-0": _entry("job-0", ["coverage"])})
     await fpi._flag_family_import_incomplete(
-        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-1", import_key="job-1"
+        row,
+        _ctx(),
+        failed_datasets=["snv"],
+        imported_datasets=[],
+        job_id="job-1",
+        import_key="job-1",
+        scopes=_SCOPES,
     )
     assert row.flag["failed_datasets"] == ["snv"]
     assert set(row.unfinished) == {"job-0"}
@@ -370,17 +380,6 @@ async def test_an_import_of_less_than_failed_leaves_it_flagged(case, imported) -
     row = _FamilyRow(flag=_flag("job-1", [name]))
     left = await fpi._clear_family_import_incomplete(row, _ctx(), imported=imported)
     assert left.failures.failed == {name: "job-1"}, case
-
-
-@pytest.mark.asyncio
-async def test_a_flag_that_records_no_scope_is_cleared_by_its_dataset() -> None:
-    # Written before flags recorded scopes: the dataset alone is compared.
-    flag = {key: value for key, value in _flag("job-1", ["snv"]).items() if key not in {"scopes", "failed_jobs"}}
-    row = _FamilyRow(flag=flag)
-    await fpi._clear_family_import_incomplete(
-        row, _ctx(), imported={"snv": {"source": "deepvariant", "samples": None}}
-    )
-    assert row.flag is None
 
 
 @pytest.mark.asyncio
@@ -1516,14 +1515,14 @@ async def test_an_auto_import_and_an_upload_bring_each_other_s_callset_again_whe
 
 @pytest.mark.asyncio
 async def test_a_scope_that_still_reads_auto_names_no_callset(uploads) -> None:
-    # Written before imports resolved auto (no backfill: the data is synthetic), or by an
-    # import that could not read its family VCF when it began: the callset may be any.
+    # Recorded by an import that could not read its family VCF when it began: the callset
+    # may be any.
     mark = _mark(datasets=("coverage",))
     entry = registration.whole_family_entry(
         mark, imported={"snv": [_UNRESOLVED]}, unfinished={}, family_samples=["S1", "S2"]
     )
     stopped = {**_entry("job-stopped", ["snv"]), "scopes": {"snv": _UNRESOLVED}}
-    flag = {**_flag("job-1", ["snv"]), "scopes": {"snv": _UNRESOLVED}}
+    flag = _flag("job-1", ["snv"], scopes={"snv": _UNRESOLVED})
     row = _UploadFamily(flag=copy.deepcopy(flag), unfinished={mark.key: entry, "job-stopped": stopped})
 
     # No import completes it, whatever callset it stored; nor one whose own scope reads
@@ -1840,28 +1839,6 @@ async def test_an_upload_brings_again_only_the_scope_it_brought_of_a_dataset_tha
 
 
 @pytest.mark.asyncio
-async def test_a_flag_written_with_one_scope_per_dataset_is_read_as_before() -> None:
-    old = _flag("job-1", ["coverage", "snv"])
-    assert "failed_scopes" not in old and old["scopes"]["snv"] == _CLAIR3
-    # Nothing of it brought again: it stays as it was stored.
-    row = _FamilyRow(flag=copy.deepcopy(old))
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _GLIMPSE2})
-    assert row.flag == old
-    assert left is not None and left.failures.failed == {"coverage": "job-1", "snv": "job-1"}
-
-    # A later failure of snv for the imputed genotypes keeps the direct calls' failure,
-    # each scope with its job (before: replaced).
-    await fpi._flag_family_import_incomplete(
-        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-2", scopes={"snv": _GLIMPSE2}
-    )
-    assert row.flag["failed_scopes"] == {
-        "coverage": [{"scope": _SCOPES["coverage"], "job_id": "job-1"}],
-        "snv": [{"scope": _CLAIR3, "job_id": "job-1"}, {"scope": _GLIMPSE2, "job_id": "job-2"}],
-    }
-    assert "scopes" not in row.flag
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failed_scopes",
     [
@@ -1873,7 +1850,7 @@ async def test_a_flag_written_with_one_scope_per_dataset_is_read_as_before() -> 
     ],
 )
 async def test_a_flag_whose_failed_scopes_are_not_as_written_stays(failed_scopes) -> None:
-    # Nothing shows what would complete it (before: read as the scope `scopes` records).
+    # Nothing shows what would complete it.
     flag = {**_flag("job-1", ["snv"]), "failed_scopes": failed_scopes}
     row = _FamilyRow(flag=copy.deepcopy(flag))
     left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _SCOPES["snv"]})

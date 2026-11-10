@@ -89,7 +89,7 @@ STATE_NOTICES = {
     "import_in_progress": "An import of this family is running; ancestry PCA is calculated once it ends.",
 }
 _RUNS = """
-    SELECT id::text, source_id::text, trigger, reference_sha256, status, error, requested_at, started_at, finished_at
+    SELECT id::text, trigger, reference_sha256, status, error, requested_at, started_at, finished_at
     FROM ancestry_runs WHERE family_uuid = CAST(:family AS uuid) AND project_id = CAST(:project AS uuid)
     ORDER BY requested_at DESC, id DESC
 """
@@ -193,7 +193,7 @@ async def family_ancestry(session: AsyncSession, family_id: str, user: CurrentUs
         selection = "AND r.id = CAST(:run AS uuid)"
     # selection is a fixed SQL fragment; the only caller-supplied value is bound.
     row = (await session.execute(text("""
-        SELECT a.run_id::text, a.source_id::text, a.reference_sha256, a.samples, a.storage_version,
+        SELECT a.run_id::text, a.reference_sha256, a.samples, a.storage_version,
                a.calculation_version, a.assumptions, a.created_at, p.snapshot
         FROM ancestry_results a JOIN ancestry_runs r ON r.id = a.run_id
         JOIN ancestry_reference_panels p ON p.sha256 = a.reference_sha256
@@ -206,9 +206,9 @@ async def family_ancestry(session: AsyncSession, family_id: str, user: CurrentUs
     reference = active
     if row is not None:
         reference = AncestryReferenceOut.model_validate(row["snapshot"])
-        current = row["storage_version"] is not None and row["storage_version"] == await _storage_version(context.family_uuid)
+        current = row["storage_version"] == await _storage_version(context.family_uuid)
         analysis = AncestryAnalysisOut(**{k: row[k] for k in (
-            "run_id", "source_id", "reference_sha256", "samples", "storage_version", "calculation_version",
+            "run_id", "reference_sha256", "samples", "storage_version", "calculation_version",
             "assumptions", "created_at")},
             current_genotypes=current,
             current_reference=active is not None and row["reference_sha256"] == active.sha256)

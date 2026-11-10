@@ -649,7 +649,7 @@ async def test_a_failed_write_keeps_the_entry_of_a_restore_that_did_not_finish(s
         "imported_datasets": [],
         "job_id": "job-1",
         "failed_jobs": {"coverage": "job-1"},
-        "scopes": {"coverage": {"source": None, "samples": ["S1"]}},
+        "failed_scopes": {"coverage": [{"scope": {"source": None, "samples": ["S1"]}, "job_id": "job-1"}]},
     }
     database = _Postgres(flag=copy.deepcopy(earlier), unfinished={"job-1": copy.deepcopy(entry)})
     stores.failing_insert = 1

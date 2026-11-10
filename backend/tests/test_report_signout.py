@@ -1981,7 +1981,9 @@ def test_signout_check_reads_a_section_the_record_does_not_hold_as_changed(monke
 # Incomplete-import gate: a family whose package import partly failed
 # ---------------------------------------------------------------------------
 
-# As family_package_registration._flag_family_import_incomplete records it.
+# The import_incomplete flag as sign-out reads and freezes it
+# (_import_incomplete_state): what family_package_registration._flag_family_import_incomplete
+# records, without each failure's scope.
 _IMPORT_JOB_ID = "3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b"
 _INCOMPLETE = {
     "at": "2026-09-12T10:14:00+00:00",
@@ -1989,9 +1991,18 @@ _INCOMPLETE = {
     "imported_datasets": ["coverage"],
     # The import job that holds each dataset's error.
     "job_id": _IMPORT_JOB_ID,
+    "failed_jobs": {"snv": _IMPORT_JOB_ID, "sv": _IMPORT_JOB_ID},
 }
-# A flag written before the job was recorded: the datasets only.
-_OLD_INCOMPLETE = {key: value for key, value in _INCOMPLETE.items() if key != "job_id"}
+# The flag as the import writes it: with each failure's scope too, which is not frozen.
+_INCOMPLETE_FLAG = {
+    **_INCOMPLETE,
+    "failed_scopes": {
+        "snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": _IMPORT_JOB_ID}],
+        "sv": [{"scope": {"source": None, "samples": None}, "job_id": _IMPORT_JOB_ID}],
+    },
+}
+# Every failure outside an import job (single-file uploads): the flag names no job.
+_UPLOADS_INCOMPLETE = {**_INCOMPLETE, "job_id": None, "failed_jobs": {"snv": None, "sv": None}}
 _IMPORT_ACK_REASON = "SV calls are not part of this referral; SNV re-import is booked."
 
 
@@ -2148,13 +2159,9 @@ class _ScalarSession:
         return types.SimpleNamespace(scalar_one_or_none=lambda: value)
 
 
-# As the reader freezes a flag that names one job: that job holds each dataset's error.
-_INCOMPLETE_READ = {**_INCOMPLETE, "failed_jobs": {"snv": _IMPORT_JOB_ID, "sv": _IMPORT_JOB_ID}}
-
-
 def test_the_import_flag_is_read_from_the_family_metadata() -> None:
-    session = _ScalarSession(dict(_INCOMPLETE))
-    assert asyncio.run(rss._import_incomplete_state(session, "u1")) == _INCOMPLETE_READ
+    session = _ScalarSession(dict(_INCOMPLETE_FLAG))
+    assert asyncio.run(rss._import_incomplete_state(session, "u1")) == _INCOMPLETE
     sql, params = session.executed[0]
     assert "import_incomplete" in sql and "families" in sql
     assert params == {"family_uuid": "u1"}  # bound, never interpolated
@@ -2167,13 +2174,14 @@ def test_the_import_flag_reader_is_deterministic_and_fails_safe() -> None:
     # No flag: a complete import.
     assert read(None) is None
     # A driver that hands jsonb back as text reads the same.
-    assert read(json.dumps(_INCOMPLETE)) == _INCOMPLETE_READ
+    assert read(json.dumps(_INCOMPLETE_FLAG)) == _INCOMPLETE
     # Dataset lists are frozen sorted and de-duplicated, so the hash is stable.
     messy = {"at": _INCOMPLETE["at"], "failed_datasets": ["sv", "snv", "sv"], "imported_datasets": []}
     assert read(messy)["failed_datasets"] == ["snv", "sv"]
-    # Each failed dataset's job: the one the flag names for it, else the flag's own.
+    # Each failed dataset's job: the one the flag names for it; a value that is not a job id
+    # names none, never the flag's own job, which may be another failure's.
     kept = {**_INCOMPLETE, "failed_jobs": {"sv": "job-earlier", "snv": 7}}
-    assert read(kept)["failed_jobs"] == {"snv": _IMPORT_JOB_ID, "sv": "job-earlier"}
+    assert read(kept)["failed_jobs"] == {"snv": None, "sv": "job-earlier"}
     # Set, but not in the shape the import writes: still incomplete — it gates, with
     # nothing to name — rather than being taken for a complete import.
     unknown = {"at": None, "failed_datasets": [], "imported_datasets": [], "job_id": None, "failed_jobs": {}}
@@ -2184,11 +2192,11 @@ def test_the_import_flag_reader_is_deterministic_and_fails_safe() -> None:
     assert read({**_INCOMPLETE, "job_id": 7})["job_id"] is None
 
 
-def test_an_old_flag_without_an_import_job_still_gates(monkeypatch) -> None:
-    # Flags written before the job was recorded carry only the datasets. They read and
-    # gate the same, with no job to point to.
-    state = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_OLD_INCOMPLETE)), "u1"))
-    assert state == {**_OLD_INCOMPLETE, "job_id": None, "failed_jobs": {"snv": None, "sv": None}}
+def test_a_flag_of_failures_outside_any_import_job_still_gates(monkeypatch) -> None:
+    # Single-file uploads that failed (SAFE-25) run in no import job: the flag reads and
+    # gates the same, with no job to point to.
+    state = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_UPLOADS_INCOMPLETE)), "u1"))
+    assert state == _UPLOADS_INCOMPLETE
     assert "import job" not in rss._import_gate_message(state)
 
     _patch_common(monkeypatch, drifted_count=0, import_incomplete=state)
@@ -2367,7 +2375,7 @@ def test_the_gate_message_names_each_failed_datasets_job() -> None:
     )
     # One job for all: the sentence it always had.
     assert f"Each dataset's error is recorded in import job {_IMPORT_JOB_ID}." in rss._import_gate_message(
-        _INCOMPLETE_READ
+        _INCOMPLETE
     )
 
 
@@ -2391,10 +2399,9 @@ def test_a_failure_no_import_job_records_is_never_named_under_another_failures_j
         "Each other dataset's error is recorded in its import job: coverage in import job "
         f"job-earlier; snv in import job {_IMPORT_JOB_ID}."
     ) in rss._import_gate_message(state)
-    # A flag that names no job for any dataset (written before jobs were recorded) says nothing
-    # of jobs, as before.
-    old = asyncio.run(rss._import_incomplete_state(_ScalarSession({**_OLD_INCOMPLETE, "failed_jobs": {}}), "u1"))
-    assert "import job" not in rss._import_gate_message(old)
+    # A flag that names no job for any dataset (each failed outside one) says nothing of jobs.
+    uploads = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_UPLOADS_INCOMPLETE)), "u1"))
+    assert "import job" not in rss._import_gate_message(uploads)
 
 
 def test_a_restore_that_did_not_finish_is_frozen_and_named_as_one() -> None:

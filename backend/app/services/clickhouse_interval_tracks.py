@@ -1006,9 +1006,9 @@ async def interval_track_contents_by_sample(
 ) -> dict[str, dict[str, list[str]]]:
     """Sample name → source → what its ``track_type`` records declare the values are
     (``metadata.content``, TRACE-9): a coverage BED's ``read_depth``, ``log2_ratio`` or
-    ``unknown`` (``coverage_content``). A source whose records declare nothing is left out:
-    a coverage BED stored before BEDs declared what they hold, and every other caller's
-    track. Distinct and sorted, as ``interval_track_normalizations_by_sample``."""
+    ``unknown`` (``coverage_content``). A source whose records declare nothing, every other
+    caller's track, is left out. Distinct and sorted, as
+    ``interval_track_normalizations_by_sample``."""
 
     return await _interval_track_record_values_by_sample(
         session,

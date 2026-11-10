@@ -196,7 +196,7 @@ JSON keys that package import writes into the `metadata` columns:
 | `samples.metadata` | `sv_files` | the file name per structural-variant source |
 | `samples.metadata` | `assay`, `assay_panel` | copied from the manifest's `samples` entry (kept whole under `package_sample_metadata`): `assay: nipt_cfdna` marks the maternal-plasma cfDNA sample of a monogenic NIPT family, and `assay_panel` names its capture panel, which scopes the NIPT artifact list |
 | `sample_interval_track_sources.metadata` | `normalization` | the transform the import applied to a track's values before storing them: `log2_ratio_to_diploid` on a HiFiCNV copy-number track (`segments`: log2 of the copy number over 2); `log2_ratio_to_autosomal_median` on a HiFiCNV depth track (`coverage`: log2 of the depth over the sample's autosomal median, held in `autosomal_median_depth`); or `none` on a depth track whose file gave no usable autosomal median (`autosomal_median_depth` null, or at or below zero), whose depths are stored as read. A track without the key holds its file's values. The track availability serves each coverage track's normalization (`coverage_normalizations`) |
-| `sample_interval_track_sources.metadata` | `content` | what a coverage BED (source `web`) declared it holds when it was loaded: `read_depth` or `log2_ratio`, from the BED upload's `content` or the package manifest's coverage entry, or `unknown` for a manifest entry without it. A coverage BED record without the key reads as `unknown`. Other tracks' records have none. With `normalization` it decides what each coverage track holds (`coverage_read_depth.py::coverage_track_content`): for a coverage BED, what it declared; for another track, what its transform made of its file (read depth after `none` alone, a log2 ratio after a log2-ratio transform, else unknown; without the key, a WisecondorX or QDNAseq file's log2 ratios, any other caller's unknown). The track availability serves it (`coverage_contents`). The viewers draw read depth on a depth axis, a log2 ratio on their log2-ratio axis, and an unknown track on its own range without an axis. The readers that take coverage values as read depth (the mtDNA coverage and its `mtdna.mean_depth` verdict; the NIPT coverage check without a per-target table) read one `coverage` track per sample that holds read depth: a coverage BED declared as read depth, or a track whose records all name `none`; never a log2 ratio, nor a track of unknown kind. Each track they leave out is named with the reason (the mtDNA QC notes, the NIPT check's `coverage_notes`). A sample with two read-depth tracks is read from its BED |
+| `sample_interval_track_sources.metadata` | `content` | what a coverage BED (source `web`) declared it holds when it was loaded: `read_depth` or `log2_ratio`, from the BED upload's `content` or the package manifest's coverage entry, or `unknown` for a manifest entry without it. Other tracks' records have none. With `normalization` it decides what each coverage track holds (`coverage_read_depth.py::coverage_track_content`): for a coverage BED, what it declared; for another track, what its transform made of its file (read depth after `none` alone, a log2 ratio after a log2-ratio transform, else unknown; without the key, a WisecondorX or QDNAseq file's log2 ratios, any other caller's unknown). The track availability serves it (`coverage_contents`). The viewers draw read depth on a depth axis, a log2 ratio on their log2-ratio axis, and an unknown track on its own range without an axis. The readers that take coverage values as read depth (the mtDNA coverage and its `mtdna.mean_depth` verdict; the NIPT coverage check without a per-target table) read one `coverage` track per sample that holds read depth: a coverage BED declared as read depth, or a track whose records all name `none`; never a log2 ratio, nor a track of unknown kind. Each track they leave out is named with the reason (the mtDNA QC notes, the NIPT check's `coverage_notes`). A sample with two read-depth tracks is read from its BED |
 | `sample_interval_track_sources.metadata` | `uploaded_from` | where the track's file came from: `web` for a single-file upload (the BED upload, the imputed-genotype upload's haplotype blocks), `family_package` for a package import's dataset (its WisecondorX, QDNAseq and HiFiCNV tracks, the APCAD tracks of a VCF or of a BED, the PCF tracks, its coverage BEDs and its per-target coverage tables), `demo-script` for the demo quartet loader. The single-file BED upload and a package's coverage BED share the source `web`, so without this key no record says which of the two loaded a sample's coverage BED. The signed record names it for each coverage track (`coverage_tracks` in `report_signouts.snapshot`: `upload`, `package`, or null when the record says nothing) |
 | `families.metadata` | `pipeline` | the Nextflow run parameters (reference build, callers, annotation caches; for the PGT pipeline the affected parent, ROI and QDNAseq bin size, and the callset and phasing panel it started from) |
 | `families.metadata` | `pipeline_qc` | the QC the PGT pipeline reported for the family as a whole: the KING kinship, IBS0 and SNP count of every pair (`kinship`), and the files they came from |
@@ -563,7 +563,7 @@ Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
 
 | Table | Column | Why it exists |
 | --- | --- | --- |
-| `…/SNV_INDEL/entries` | `calls.dp`, `calls.ad` | The call's read depth and allele depths, `UInt32` (up to 4,294,967,295 reads). A mitochondrial or amplicon call reads far more than the 65,535 a `UInt16` holds. A table created with the narrower type is altered to `UInt32` the first time the backend ensures the assembly's tables (`_widen_small_variant_call_columns`). It reads the two columns' types from `system.columns` first, so it alters a table once; every stored value is kept. `calls.gq`, a phred score, stays `UInt16`. |
+| `…/SNV_INDEL/entries` | `calls.dp`, `calls.ad` | The call's read depth and allele depths, `UInt32` (up to 4,294,967,295 reads). A mitochondrial or amplicon call reads far more than the 65,535 a `UInt16` holds. `calls.gq`, a phred score, is `UInt16`. |
 | `…/SNV_INDEL/entries` | `calls.ps` | Phase set, for read-based cis/trans against a phased SV |
 | `…/SNV_INDEL/entries` | `calls.af` | Per-allele fraction; on chrM this *is* the heteroplasmy level the mtDNA workspace reads |
 | `…/SNV_INDEL/entries` | `calls.filters` | The call's own FILTER values (`PASS` kept as is). Filled only when the VCF holds one sample, as each file of a monogenic NIPT pair, or of a primary callset read one file per sample, does: the record's FILTER then describes that one call. A DeepVariant `RefCall` kept as a partner's call says the caller read that partner as reference there. A call from a multi-sample VCF has none, since its record's FILTER describes the site. |
@@ -571,15 +571,6 @@ Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
 | `…/SV/entries` | `calls.ps` | Phase set for a structural call |
 | `…/SV/entries` | `calls.cn` | Copy number from a call's `FORMAT/CN`: a depth-based CNV caller's (HiFiCNV), and an uploaded Sniffles or Spectre call's. `GT=1/1` on a duplication cannot tell CN=3 from CN=6; the ClinGen CNV dosage scoring needs the actual number, and a CNV's gain or loss is read from it (`sv_copy_change`). Null for callers that report none. |
 | `…/INTERVAL/entries` | `value`, `record_id`, `metadata_json` | On a `target_coverage` row (source `coverage_table`), one capture target of a per-target coverage table, at the table's BED coordinates: its mean depth, its gene (the first field of the table's `attribute`), and the table's `attribute`, `median`, `min`, `max`, `proportion_covered` (the percentage of its bases with any coverage) and `zero_coverage_bases`. The NIPT coverage check, the plasma's sex profile and the plasma's depth where it has no call read them ([nipt_target_coverage.py](../backend/app/services/nipt_target_coverage.py)); the track viewers do not draw this track. |
-
-The first time it ensures an assembly's tables, the backend drops columns no code reads, where a
-table has them (`_drop_unused_columns`): `liftedOverChrom` and
-`liftedOverPos` of `SNV_INDEL/variants/details` (always null), `sample_type` of both `entries`
-tables (always `WGS`), `transcript_ids`, `sift_terms` and `polyphen_terms` of
-`SNV_INDEL/variants/annotation_index` (written, never read) and `calls.gq` of `SV/entries`
-(never written). It reads the assembly's columns from `system.columns` first: a table that
-has some gets one `ALTER TABLE … DROP COLUMN IF EXISTS`, once; a table created without
-them gets none. Every other value of every row is kept.
 
 Every value a loader writes is bound to its column first
 ([clickhouse_column_bounds.py](../backend/app/services/clickhouse_column_bounds.py), applied by
@@ -863,35 +854,6 @@ deletes its rows. `delete_project_record` locks the project's row before it coun
 families: a link being written holds a share lock on that row (its foreign-key check), so it
 commits before the count, and one written after waits and then finds no project.
 
-#### Tables with a different row identity
-
-A table's sort key is fixed when ClickHouse creates it. At startup, and before it creates an
-assembly's tables, the backend compares each table's sort key with the one in the list above.
-If a table has another key, the backend refuses to start; the message names the table, its sort
-key and the one it needs. The rows are not copied into a new table: under the other key, merges
-may already have dropped calls, and only a re-import brings them back.
-
-An `SNV_INDEL/entries` table without the per-call columns `calls.filters` and `calls.metrics`
-is refused the same way, at the same two points. The message
-("Refusing to use ClickHouse variant tables created by an earlier version") names the table and
-the columns it lacks. The backend adds no column to a stored table, and a re-import is what
-fills the columns, so the recovery is the same. The one change it makes to a stored table is to
-widen the depth columns `calls.dp` and `calls.ad` to `UInt32` ([above](#clickhouse-tables)).
-
-To recover, for each assembly the message names:
-
-1. Stop the backend.
-2. Drop the assembly's small-variant and SV tables. List them with
-   `SELECT name FROM system.tables WHERE database = 'coga' AND match(name, '^GRCh38/(SNV_INDEL|SV)/')`
-   (with your database and assembly), then drop each one with ``DROP TABLE coga.`<name>` SYNC``.
-   The interval tracks (`INTERVAL/entries`) stay.
-3. Start the backend. It creates the tables with the sort keys above and every column.
-4. Re-import every family of the assembly. Reviews, classifications and signed reports are in
-   Postgres, and attach again by variant id.
-
-Locally, `docker compose down -v` and loading the demo data again does the same
-([development.md](development.md#stop-and-reset)).
-
 ## Identifier Rules
 
 - Metadata rows use UUID primary keys.
@@ -921,11 +883,9 @@ admin user exists. With the restricted runtime role a separate migration step
 on unless the database is at this version's own schema revision
 ([A start that does not migrate](#schema-migrations)).
 
-In ClickHouse, startup creates the database and refuses to go on when an assembly's tables have
-a different row identity, or its `SNV_INDEL/entries` table lacks the per-call columns
-([Row identity](#row-identity)). Each assembly's tables are created at first use; an
-`SNV_INDEL/entries` table created with the narrower depth columns is widened then
-([ClickHouse Tables](#clickhouse-tables)). The full startup order is in
+In ClickHouse, startup creates the database. Each assembly's tables are created at first use,
+with the row identity of [Row identity](#row-identity) and the columns of
+[ClickHouse Tables](#clickhouse-tables). The full startup order is in
 [application-scheme.md](application-scheme.md), "Startup and background work"; the reference
 data it loads is listed in [data-import.md](data-import.md), section 1.
 

@@ -405,12 +405,8 @@ def test_clinvar_rescue_keeps_pathogenic_variants_past_the_frequency_ceilings() 
     # The frequency ceilings sit only inside the rescued block, not also on their own.
     assert transcript.count("a.gnomad_af") == 1
     assert not _index_subqueries(clauses)
-    # The family search's terms, including ClinVar's aggregate form.
-    assert params["detail_clinvar_rescue_terms"] == [
-        "pathogenic",
-        "likely pathogenic",
-        "pathogenic/likely pathogenic",
-    ]
+    # The family search's terms.
+    assert params["detail_clinvar_rescue_terms"] == ["pathogenic", "likely pathogenic"]
     # The query binds (the terms are an array parameter).
     bind_query("SELECT 1 FROM t WHERE " + " AND ".join(clauses), params)
 

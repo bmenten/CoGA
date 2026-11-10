@@ -44,11 +44,10 @@ _ensure_variant_tables_lock = asyncio.Lock()
 
 # The row identity of each family-scoped table whose rows belong to one callset: its sort
 # key, which ends with the callset (``source``). When ClickHouse merges parts, a
-# CollapsingMergeTree or ReplacingMergeTree keeps one row per sort key. Without the source a
-# clair3 call and a GLIMPSE2 imputation of one variant, or a Sniffles and a Spectre call of
-# one SV, became one row, and one callset's calls were lost. The tables are created with
-# these keys; an existing table with any other key is refused, at startup
-# (verify_clickhouse_variant_storage_identity) and before any table is ensured.
+# CollapsingMergeTree or ReplacingMergeTree keeps one row per sort key, so without the source
+# a clair3 call and a GLIMPSE2 imputation of one variant, or a Sniffles and a Spectre call of
+# one SV, would become one row, and one callset's calls would be lost. The tables are created
+# with these keys.
 _SMALL_VARIANT_ENTRY_SORT_KEY: tuple[str, ...] = ("project_guid", "family_guid", "xpos", "key", "source")
 _STRUCTURAL_VARIANT_ENTRY_SORT_KEY: tuple[str, ...] = (
     "project_guid",
@@ -60,38 +59,6 @@ _STRUCTURAL_VARIANT_ENTRY_SORT_KEY: tuple[str, ...] = (
     "source",
 )
 _STRUCTURAL_VARIANT_KEY_LOOKUP_SORT_KEY: tuple[str, ...] = ("family_guid", "variantId", "source")
-# Per-call columns of ``SNV_INDEL/entries`` that a table created by an earlier version
-# lacks: the call's own FILTER values and caller metrics, which a per-sample VCF describes
-# (see ``SmallVariantCall``). Such a table is refused like one with an older row identity
-# (``_storage_column_gaps``); there is no older schema to upgrade in place.
-_SMALL_VARIANT_REQUIRED_CALL_COLUMNS: tuple[str, ...] = ("calls.filters", "calls.metrics")
-# The per-call depth columns of ``SNV_INDEL/entries``, ``(the type a table created by an
-# earlier version has, the type this version stores)``. A mitochondrial or amplicon call
-# reads far more than the 65,535 reads a UInt16 holds, and the insert of a whole upload or
-# import failed on one such depth (SAFE-30). A table with the narrower type is altered to the
-# wider one when this version first ensures it (``_widen_small_variant_call_columns``): no
-# stored value changes, and a table already altered is left as it is.
-_SMALL_VARIANT_WIDENED_CALL_COLUMNS: dict[str, tuple[str, str]] = {
-    "calls.dp": ("Array(Nullable(UInt16))", "Array(Nullable(UInt32))"),
-    "calls.ad": ("Array(Array(Nullable(UInt16)))", "Array(Array(Nullable(UInt32)))"),
-}
-# Columns an earlier version created that no code reads (ENG-6), per table under the
-# assembly: the details' lifted-over position (always null), the entries' sample type (always
-# WGS), the annotation index's transcript ids and SIFT and PolyPhen terms (written, never
-# read), and the SV calls' genotype quality (never written). The tables are created without
-# them; a table created before loses them when this version first ensures it
-# (``_drop_unused_columns``).
-_UNUSED_COLUMNS: dict[str, tuple[str, ...]] = {
-    "SNV_INDEL/variants/details": ("liftedOverChrom", "liftedOverPos"),
-    "SNV_INDEL/variants/annotation_index": ("transcript_ids", "sift_terms", "polyphen_terms"),
-    "SNV_INDEL/entries": ("sample_type",),
-    "SV/entries": ("sample_type", "calls.gq"),
-}
-_CALLSET_SORT_KEYS: dict[str, tuple[str, ...]] = {
-    "SNV_INDEL/entries": _SMALL_VARIANT_ENTRY_SORT_KEY,
-    "SV/entries": _STRUCTURAL_VARIANT_ENTRY_SORT_KEY,
-    "SV/key_lookup": _STRUCTURAL_VARIANT_KEY_LOOKUP_SORT_KEY,
-}
 
 
 async def _execute(query: str, params: dict[str, Any] | None = None, data: Sequence[tuple[Any, ...]] | None = None) -> Any:
@@ -439,200 +406,9 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
     async with _ensure_variant_tables_lock:
         if dataset in _ensured_variant_table_assemblies:
             return
-        # Before anything is created or altered: a table with an older row identity is
-        # refused, and the assembly is not marked ready, so every later call refuses too.
-        mismatches = await _storage_identity_mismatches([dataset])
-        if mismatches:
-            raise _storage_identity_error(mismatches)
-        gaps = await _storage_column_gaps([dataset])
-        if gaps:
-            raise _storage_column_error(gaps)
         for statement in statements:
             await _execute(statement)
-        await _widen_small_variant_call_columns(dataset)
-        await _drop_unused_columns(dataset)
         _ensured_variant_table_assemblies.add(dataset)
-
-
-async def _widen_small_variant_call_columns(dataset: str) -> None:
-    """Alter the assembly's ``SNV_INDEL/entries`` depth columns that still have the type an
-    earlier version created them with to the wider type this version stores
-    (``_SMALL_VARIANT_WIDENED_CALL_COLUMNS``). One bound query over ``system.columns`` reads
-    their types first, so a table created with the wider types, or altered before, is not
-    altered again. Widening an unsigned integer keeps every stored value."""
-    rows = await _execute(
-        """
-        SELECT name, type
-        FROM system.columns
-        WHERE database = %(database)s AND table = %(table)s AND name IN %(names)s
-        """,
-        {
-            "database": settings.clickhouse_database,
-            "table": f"{dataset}/SNV_INDEL/entries",
-            "names": tuple(_SMALL_VARIANT_WIDENED_CALL_COLUMNS),
-        },
-    )
-    narrow = sorted(
-        str(name)
-        for name, column_type in rows or []
-        if str(name) in _SMALL_VARIANT_WIDENED_CALL_COLUMNS
-        and str(column_type) == _SMALL_VARIANT_WIDENED_CALL_COLUMNS[str(name)][0]
-    )
-    if not narrow:
-        return
-    changes = ", ".join(
-        f"MODIFY COLUMN `{name}` {_SMALL_VARIANT_WIDENED_CALL_COLUMNS[name][1]}" for name in narrow
-    )
-    await _execute(f"ALTER TABLE {_small_table_name(dataset, 'entries')} {changes}")
-
-
-async def _drop_unused_columns(dataset: str) -> None:
-    """Drop the columns of ``_UNUSED_COLUMNS`` from the assembly's tables that still have them.
-
-    One bound query over ``system.columns`` finds them first, so a table created without them,
-    or altered before, is not altered; each table that has any gets one ALTER. ``DROP COLUMN IF
-    EXISTS`` leaves a second process that found them before the first dropped them with nothing
-    to do. Every other column of every row stays as stored."""
-    tables = {f"{dataset}/{suffix}": suffix for suffix in _UNUSED_COLUMNS}
-    rows = await _execute(
-        """
-        SELECT table, name
-        FROM system.columns
-        WHERE database = %(database)s AND table IN %(tables)s AND name IN %(names)s
-        """,
-        {
-            "database": settings.clickhouse_database,
-            "tables": tuple(sorted(tables)),
-            "names": tuple(sorted({name for names in _UNUSED_COLUMNS.values() for name in names})),
-        },
-    )
-    present: dict[str, set[str]] = {}
-    for table, name in rows or []:
-        suffix = tables.get(str(table))
-        if suffix is not None and str(name) in _UNUSED_COLUMNS[suffix]:
-            present.setdefault(suffix, set()).add(str(name))
-    for suffix in sorted(present):
-        drops = ", ".join(
-            f"DROP COLUMN IF EXISTS `{name}`" for name in _UNUSED_COLUMNS[suffix] if name in present[suffix]
-        )
-        await _execute(f"ALTER TABLE {settings.clickhouse_database}.`{dataset}/{suffix}` {drops}")
-
-
-class ClickHouseStorageIdentityError(RuntimeError):
-    """A variant table on the ClickHouse server identifies its rows without their callset."""
-
-
-def _sort_key_columns(sorting_key: Any) -> tuple[str, ...]:
-    """The columns of a ``system.tables.sorting_key`` value (``a, b, c``; names may be quoted)."""
-    return tuple(
-        column.strip().strip("`")
-        for column in str(sorting_key or "").split(",")
-        if column.strip()
-    )
-
-
-async def _storage_identity_mismatches(datasets: Sequence[str]) -> list[tuple[str, str, str]]:
-    """``(table, its sort key, the sort key it needs)`` for every existing family-scoped
-    table of these assemblies whose sort key is not the one ``_CALLSET_SORT_KEYS`` gives.
-
-    One bound query over ``system.tables``. A table that does not exist yet is created with
-    the right key, and an import's backup copy (``<assembly>/SNAPSHOT/…``) is never served,
-    so neither is listed.
-    """
-    expected = {
-        f"{dataset}/{suffix}": sort_key
-        for dataset in datasets
-        for suffix, sort_key in _CALLSET_SORT_KEYS.items()
-    }
-    if not expected:
-        return []
-    rows = await _execute(
-        """
-        SELECT name, sorting_key
-        FROM system.tables
-        WHERE database = %(database)s AND name IN %(names)s
-        """,
-        {"database": settings.clickhouse_database, "names": tuple(sorted(expected))},
-    )
-    mismatches: list[tuple[str, str, str]] = []
-    for name, sorting_key in rows or []:
-        wanted = expected.get(str(name))
-        actual = _sort_key_columns(sorting_key)
-        if wanted is not None and actual != wanted:
-            mismatches.append((str(name), ", ".join(actual), ", ".join(wanted)))
-    return sorted(mismatches)
-
-
-def _storage_identity_error(
-    mismatches: Sequence[tuple[str, str, str]],
-) -> ClickHouseStorageIdentityError:
-    tables = "; ".join(
-        f"{settings.clickhouse_database}.`{name}` is sorted by ({actual}), "
-        f"this version needs ({wanted})"
-        for name, actual, wanted in mismatches
-    )
-    return ClickHouseStorageIdentityError(
-        "Refusing to use ClickHouse variant tables whose rows are not identified by their "
-        f"callset: {tables}. Under that key a part merge keeps one of two callsets' rows of a "
-        "variant and the other callset's calls are lost. Drop the assembly's SNV_INDEL and SV "
-        "tables, start again and re-import its families: see docs/database.md, "
-        '"Row identity".'
-    )
-
-
-async def _storage_column_gaps(datasets: Sequence[str]) -> list[tuple[str, str]]:
-    """``(table, the columns it lacks)`` for every existing ``SNV_INDEL/entries`` table of
-    these assemblies created before a column of ``_SMALL_VARIANT_REQUIRED_CALL_COLUMNS``
-    existed. One bound query over ``system.columns``; a table not created yet is not listed."""
-    names = tuple(sorted(f"{dataset}/SNV_INDEL/entries" for dataset in datasets))
-    if not names:
-        return []
-    rows = await _execute(
-        """
-        SELECT table, groupArray(name)
-        FROM system.columns
-        WHERE database = %(database)s AND table IN %(names)s
-        GROUP BY table
-        """,
-        {"database": settings.clickhouse_database, "names": names},
-    )
-    gaps: list[tuple[str, str]] = []
-    for table, columns in rows or []:
-        present = {str(column) for column in columns or []}
-        missing = [column for column in _SMALL_VARIANT_REQUIRED_CALL_COLUMNS if column not in present]
-        if missing:
-            gaps.append((str(table), ", ".join(missing)))
-    return sorted(gaps)
-
-
-def _storage_column_error(gaps: Sequence[tuple[str, str]]) -> ClickHouseStorageIdentityError:
-    tables = "; ".join(
-        f"{settings.clickhouse_database}.`{name}` has no {missing}" for name, missing in gaps
-    )
-    return ClickHouseStorageIdentityError(
-        f"Refusing to use ClickHouse variant tables created by an earlier version: {tables}. "
-        "Drop the assembly's SNV_INDEL and SV tables, start again and re-import its families: "
-        'see docs/database.md, "Row identity".'
-    )
-
-
-async def verify_clickhouse_variant_storage_identity() -> None:
-    """Refuse to start on variant tables created with an older row identity.
-
-    Startup calls this once ClickHouse is reachable, before the API serves or a worker
-    writes; it checks every assembly's family-scoped tables in one query. Such a table
-    cannot be changed in place, because a MergeTree's sort key is fixed when the table is
-    created. It is not copied into a new table either: its merges may already have dropped
-    calls, which only a re-import brings back. So it is refused, and the message says to
-    recreate the tables and re-import (docs/database.md, "Row identity").
-    """
-    assemblies = await list_clickhouse_variant_assemblies()
-    mismatches = await _storage_identity_mismatches(assemblies)
-    if mismatches:
-        raise _storage_identity_error(mismatches)
-    gaps = await _storage_column_gaps(assemblies)
-    if gaps:
-        raise _storage_column_error(gaps)
 
 
 async def _bump_family_data_version(version_table: str, family_uuid: str) -> None:
@@ -673,8 +449,8 @@ async def get_family_small_variant_data_version(assembly_name: str, family_uuid:
     """A fingerprint that changes whenever the family's small-variant data changes.
 
     The token count and sum over the family's rows in ``family_data_version``: each bump
-    appends a random token, so both move on every write. A family written before this
-    table existed reads ``0:0`` until its next write.
+    appends a random token, so both move on every write. A family never written reads
+    ``0:0``.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
     return await _family_data_version(
@@ -701,7 +477,7 @@ async def get_family_structural_variant_data_version(assembly_name: str, family_
     """A fingerprint that changes whenever the family's structural variants change.
 
     Read like :func:`get_family_small_variant_data_version`: ``0:0`` for a family whose
-    SVs were last written before this table existed, until their next write.
+    SVs were never written.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
     return await _family_data_version(

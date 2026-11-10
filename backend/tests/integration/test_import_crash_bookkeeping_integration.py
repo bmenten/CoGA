@@ -147,6 +147,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
                 imported_datasets=["snv"],
                 job_id=first.job_id,
                 import_key=first.key,
+                scopes=first.scopes,
             )
             metadata = await _metadata(s, family_uuid)
         assert metadata["import_incomplete"]["failed_datasets"] == ["coverage"]
@@ -156,7 +157,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         # entry changes nothing.
         async with sm() as s:
             await _flag_family_import_incomplete(
-                s, context, failed_datasets=["coverage"], imported_datasets=[]
+                s, context, failed_datasets=["coverage"], imported_datasets=[], scopes=first.scopes
             )
             await _end_family_import_unfinished(s, context, import_key="no-such-import")
             metadata = await _metadata(s, family_uuid)

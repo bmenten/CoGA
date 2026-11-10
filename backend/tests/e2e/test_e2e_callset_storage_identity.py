@@ -21,8 +21,7 @@ then forces the part merges (``OPTIMIZE … FINAL``) and asserts that every row 
 stored; that the diagnostic list, the de novo and the compound-het views show the direct
 calls and still hide the imputed-only site; that a compound-het review, which needs both
 variants heterozygous in the proband, reads the direct calls; and that the SV page shows the
-deletion once per caller, each with its own call. A second test creates a table with the
-older sort key and asserts that startup and the table ensure refuse it.
+deletion once per caller, each with its own call.
 
 Afterwards the added rows and reviews are removed and the golden trio re-imported, so later
 modules see the usual state. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py).
@@ -445,56 +444,3 @@ def test_golden_trio_is_restored_for_later_modules(run) -> None:
     assert run["small_restored"] == run["small_before"]
     assert run["sv_restored"] == run["sv_before"]
 
-
-async def _refusal_checks() -> dict:
-    from backend.app.core.clickhouse import execute_clickhouse, init_clickhouse_schema
-    from backend.app.core.config import settings
-    from backend.app.services import clickhouse_variant_storage as cvs
-
-    await init_clickhouse_schema()
-    database = settings.clickhouse_database
-    table = f"{database}.`E2E_OLDKEY/SNV_INDEL/entries`"
-    out: dict = {}
-    await execute_clickhouse(f"DROP TABLE IF EXISTS {table} SYNC")
-    # The sort key a table created before the callset joined the row identity has.
-    await execute_clickhouse(
-        f"CREATE TABLE {table} (`key` UInt64, `project_guid` LowCardinality(String), "
-        "`family_guid` String, `xpos` UInt64, `source` LowCardinality(String), `sign` Int8) "
-        "ENGINE = CollapsingMergeTree(sign) PARTITION BY project_guid "
-        "ORDER BY (project_guid, family_guid, xpos, key)"
-    )
-    try:
-        for name, check in (
-            ("startup", cvs.verify_clickhouse_variant_storage_identity),
-            ("ensure", lambda: cvs.ensure_clickhouse_variant_tables("E2E_OLDKEY")),
-        ):
-            try:
-                await check()
-                out[name] = None
-            except cvs.ClickHouseStorageIdentityError as exc:
-                out[name] = str(exc)
-        rows = await execute_clickhouse(
-            "SELECT name FROM system.tables WHERE database = %(database)s AND startsWith(name, %(prefix)s)",
-            {"database": database, "prefix": "E2E_OLDKEY/"},
-        )
-        out["tables"] = sorted(str(name) for (name,) in rows)
-    finally:
-        await execute_clickhouse(f"DROP TABLE IF EXISTS {table} SYNC")
-    await cvs.verify_clickhouse_variant_storage_identity()
-    out["after_drop"] = "ok"
-    return out
-
-
-def test_startup_and_the_table_ensure_refuse_an_older_row_identity() -> None:
-    from backend.tests.e2e import _harness
-
-    out = _harness.run_async(_refusal_checks)
-    for name in ("startup", "ensure"):
-        message = out[name]
-        assert message is not None, f"{name} accepted the older table"
-        assert "`E2E_OLDKEY/SNV_INDEL/entries`" in message
-        assert "(project_guid, family_guid, xpos, key)" in message
-        assert "(project_guid, family_guid, xpos, key, source)" in message
-    # The refused ensure created nothing next to the older table.
-    assert out["tables"] == ["E2E_OLDKEY/SNV_INDEL/entries"]
-    assert out["after_drop"] == "ok"

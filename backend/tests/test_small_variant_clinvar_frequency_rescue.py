@@ -46,12 +46,7 @@ def test_sql_frequency_block_is_rescued_by_clinvar_when_enabled() -> None:
     assert "ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)" in sql
     assert "ifNull(a.gnomad_popmax_af, 0) <= toFloat32(%(detail_max_gnomad_popmax_af)s)" in sql
     assert ") OR hasAny(a.clinvar_terms, %(detail_clinvar_rescue_terms)s))" in sql
-    assert params["detail_clinvar_rescue_terms"] == [
-        "pathogenic",
-        "likely pathogenic",
-        # rows stored before "/" split ClinVar's aggregate form keep it as one term
-        "pathogenic/likely pathogenic",
-    ]
+    assert params["detail_clinvar_rescue_terms"] == ["pathogenic", "likely pathogenic"]
 
 
 def test_sql_frequency_block_is_strict_without_rescue() -> None:

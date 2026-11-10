@@ -40,13 +40,12 @@ export interface AlignmentManifestEntryOut {
 
 export interface AncestryAnalysisOut {
   run_id: string;
-  source_id: string | null;
   reference_sha256: string;
   samples: AncestrySampleOut[];
   calculation_version: string;
   assumptions: Record<string, string | boolean | number>;
   created_at: string;
-  storage_version: string | null;
+  storage_version: string;
   current_genotypes: boolean;
   current_reference: boolean;
 }
@@ -121,7 +120,6 @@ export interface AncestryRegionsOut {
 
 export interface AncestryRunOut {
   id: string;
-  source_id: string | null;
   trigger: "user" | "automatic";
   reference_sha256: string;
   status: "queued" | "running" | "completed" | "failed" | "interrupted";

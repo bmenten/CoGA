@@ -414,9 +414,7 @@ async def test_a_mother_with_only_a_log2_ratio_track_on_chrm_is_not_taken_as_seq
 @pytest.mark.parametrize(
     ("declared", "reason"),
     [
-        # A BED loaded without a declaration: a package entry without `content`, or a track
-        # stored before BEDs declared what they hold.
-        ([], "the coverage BED does not declare whether it holds read depth or a log2 ratio"),
+        # A BED loaded without a declaration: a package entry without `content`.
         (["unknown"], "the coverage BED does not declare whether it holds read depth or a log2 ratio"),
         ([LOG2_RATIO_CONTENT], "the coverage BED holds log2 ratios, not read depth"),
     ],

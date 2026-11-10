@@ -85,28 +85,17 @@ Een databank met een leeg grootboek krijgt bij de volgende start alle revisies. 
 
 Het voorstel voor QA is dat de release candidate de baselines bevriest (`docs/database.md`, *Freezing the baselines at the release candidate*). Vanaf dan voert de migratiestap ze niet meer opnieuw uit, past revisie `0001` ze alleen nog toe op een nieuwe databank, en is elke schemawijziging een eigen revisie.
 
-De backend maakt de ClickHouse-tabellen aan met `CREATE TABLE IF NOT EXISTS`, meteen in hun definitieve vorm. Een bestaande tabel met een ander schema wordt niet bijgewerkt, op twee uitzonderingen na (hieronder); een lokale databank wordt dan opnieuw aangemaakt (`docker compose down -v`).
+De backend maakt de ClickHouse-tabellen aan met `CREATE TABLE IF NOT EXISTS`, meteen in hun definitieve vorm. Elke databank wordt van nul aangemaakt; een lokale databank met tabellen van een andere versie wordt opnieuw aangemaakt (`docker compose down -v`).
 
-De sorteersleutel van een tabel ligt vast zodra ClickHouse de tabel aanmaakt. Daarom vergelijkt de backend bij het opstarten, en telkens voor hij de tabellen van een assembly aanmaakt, de sorteersleutel van `SNV_INDEL/entries`, `SV/entries` en `SV/key_lookup` met de verwachte. Heeft een tabel een andere sleutel, dan weigert de backend te starten. De melding noemt de tabel, haar sleutel en de sleutel die nodig is. De rijen worden niet naar een nieuwe tabel gekopieerd: onder de andere sleutel kunnen samenvoegingen al calls hebben laten vallen, en alleen een nieuwe import brengt ze terug. Het herstel staat in `docs/database.md`, onder "Row identity": de small-variant- en SV-tabellen van die assembly verwijderen, opnieuw starten en elke familie van de assembly opnieuw importeren.
+De sorteersleutel van `SNV_INDEL/entries`, `SV/entries` en `SV/key_lookup` eindigt op de callset (`source`). ClickHouse houdt bij het samenvoegen van delen één rij per sorteersleutel over, dus zo blijven een directe en een geïmputeerde call van één variant, of de calls van twee SV-callers, elk een eigen rij. De sleutels staan in `docs/database.md`, onder "Row identity".
 
-Op dezelfde twee momenten weigert de backend een tabel `SNV_INDEL/entries` zonder de kolommen per call `calls.filters` en `calls.metrics`. De melding noemt de tabel en de ontbrekende kolommen. De backend voegt geen kolom toe aan een bestaande tabel, en alleen een nieuwe import vult ze; het herstel is dus hetzelfde.
-
-De eerste uitzondering zijn de dieptekolommen van `SNV_INDEL/entries`: de leesdiepte (`calls.dp`) en de dieptes per allel (`calls.ad`). Ze zijn `UInt32`, tot 4.294.967.295: een mitochondriale of amplicon-call leest er veel meer dan 65.535. Een tabel waarin ze `UInt16` zijn, verbreedt de backend de eerste keer dat hij de tabellen van de assembly verzekert (`_widen_small_variant_call_columns`, een `ALTER TABLE … MODIFY COLUMN`). Hij leest eerst de types uit `system.columns`, zodat hij een tabel maar één keer wijzigt; de opgeslagen waarden blijven. De genotypekwaliteit (`calls.gq`), een phred-score, blijft `UInt16`.
-
-De tweede uitzondering zijn kolommen die geen code leest:
-
-- de *lifted-over* positie van `SNV_INDEL/variants/details` (`liftedOverChrom`, `liftedOverPos`, altijd leeg);
-- het sampletype van beide `entries`-tabellen (`sample_type`, altijd `WGS`);
-- de transcript-id's en de SIFT- en PolyPhen-termen van `SNV_INDEL/variants/annotation_index` (`transcript_ids`, `sift_terms`, `polyphen_terms`);
-- de genotypekwaliteit van de SV-calls (`calls.gq` van `SV/entries`).
-
-De tabellen worden zonder die kolommen aangemaakt. Een tabel die ze heeft, verliest ze de eerste keer dat de backend de tabellen van de assembly verzekert (`_drop_unused_columns`, één `ALTER TABLE … DROP COLUMN IF EXISTS` per tabel). Ook hier leest hij eerst `system.columns`, zodat hij een tabel maar één keer wijzigt; de andere waarden van elke rij blijven.
+De dieptekolommen van `SNV_INDEL/entries`, de leesdiepte (`calls.dp`) en de dieptes per allel (`calls.ad`), zijn `UInt32`, tot 4.294.967.295 reads: een mitochondriale of amplicon-call leest er veel meer dan de 65.535 van een `UInt16`. De genotypekwaliteit (`calls.gq`), een phred-score, is `UInt16`.
 
 Elke waarde die een lader schrijft, wordt eerst aan haar kolom gebonden (`clickhouse_column_bounds.py`, toegepast in `clickhouse_variant_rows.py` en `clickhouse_interval_tracks.py`). De ClickHouse-client weigert namelijk een hele insert zodra één waarde niet in haar kolom past. Een waarde die haar kolom niet kan bevatten, of die geen eindig getal is, wordt als ontbrekend opgeslagen: een GQ boven 65.535 of `inf`, een negatieve phase set, een QUAL, allelfractie, callermetriek of annotatiescore voorbij de grootste `Float32`, een SVLEN buiten `Int32`. Een allelfractie die zo ontbreekt, valt uit de lijst van de call. Een alleldiepte die zo ontbreekt, wordt 0, zoals een ontbrekende of onleesbare, zodat de andere allelen hun plaats houden. Een record waarvan geen kolom de positie kan bevatten (een negatieve POS, een END voorbij 4.294.967.295, een negatieve start van een trackrij), kan niet geplaatst worden. Zijn lader slaat het over als misvormd, net als een POS die geen getal is, en telt het waar hij die telt. De volledige regel per kolom staat in `docs/database.md`.
 
 Wie het schema toepast (de app zelf als eigenaar, of een aparte migratiestap) en in welke volgorde de backend opstart, staat in [hoofdstuk 4](04-deployment-en-seeding.md).
 
-**Waar in de code:** `init_postgres_schema` in `backend/app/core/postgres.py`, `init_clickhouse_schema` in `backend/app/core/clickhouse.py` en `verify_clickhouse_variant_storage_identity` in `backend/app/services/clickhouse_variant_storage.py`.
+**Waar in de code:** `init_postgres_schema` in `backend/app/core/postgres.py`, `init_clickhouse_schema` in `backend/app/core/clickhouse.py` en `ensure_clickhouse_variant_tables` in `backend/app/services/clickhouse_variant_storage.py`.
 
 ## Garanties in de databanklaag
 

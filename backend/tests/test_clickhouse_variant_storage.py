@@ -132,14 +132,14 @@ def _record(variant_id: str, *, source: str = "clair3", **fields: Any) -> SmallV
 
 @pytest.mark.asyncio
 async def test_ensure_variant_tables_only_creates_tables(clickhouse_tables: _ClickHouse) -> None:
-    """There is no older schema to upgrade (the data is synthetic), so ensuring an
-    assembly's tables issues only the identity check and CREATE TABLE statements: no
-    ALTER, DROP or materialized view (#679)."""
+    """Every database is created from zero, so ensuring an assembly's tables issues only
+    CREATE TABLE statements: no read of the tables already there, no ALTER, DROP or
+    materialized view."""
     clickhouse_tables.answer = lambda _query: None
 
     await cvs.ensure_clickhouse_variant_tables("GRCh38")
 
-    ddl = [q for q in clickhouse_tables.statements() if not q.startswith("SELECT")]
+    ddl = clickhouse_tables.statements()
     assert ddl and all(q.startswith("CREATE TABLE IF NOT EXISTS") for q in ddl)
     created = {q.split("`")[1] for q in ddl}
     expected = {name for _vt, _kind, name in cvs._expected_clickhouse_variant_tables("GRCh38")}
@@ -191,20 +191,6 @@ async def test_two_setups_of_one_assembly_at_once_create_its_tables_once(
     sent = len(clickhouse_tables.sent)
     await cvs.ensure_clickhouse_variant_tables("GRCh38")
     assert len(clickhouse_tables.sent) == sent
-
-
-@pytest.mark.asyncio
-async def test_an_entries_table_without_the_per_call_columns_is_refused(clickhouse_tables: _ClickHouse) -> None:
-    # A table an earlier version created has no per-call FILTER and metrics columns. It is
-    # refused, as a table with an older row identity is, rather than failing later on
-    # every read: there is no older schema to upgrade in place.
-    clickhouse_tables.answer = lambda query: (
-        [("GRCh38/SNV_INDEL/entries", ["key", "calls.sampleId", "calls.ps"])] if "system.columns" in query else []
-    )
-
-    with pytest.raises(cvs.ClickHouseStorageIdentityError, match="calls.filters, calls.metrics"):
-        await cvs.ensure_clickhouse_variant_tables("GRCh38")
-    assert "GRCh38" not in cvs._ensured_variant_table_assemblies
 
 
 # --- the storage's state and maintenance ------------------------------------------------

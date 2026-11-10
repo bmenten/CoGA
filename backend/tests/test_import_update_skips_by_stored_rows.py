@@ -698,14 +698,16 @@ def test_a_skip_is_not_counted_as_importing_a_dataset_again() -> None:
         # Every sample skipped, or a family-level dataset that skipped one: not imported again.
     }
     # The flag's coverage failure, for S1 and S2, is not completed by it; one for S2 is.
-    flag = {
-        "failed_datasets": ["coverage"],
-        "job_id": "job-1",
-        "scopes": {"coverage": {"source": None, "samples": ["S1", "S2"]}},
-    }
-    assert registration.failures_left_after(flag, imported).failed == {"coverage": "job-1"}
-    flag["scopes"] = {"coverage": {"source": None, "samples": ["S2"]}}
-    assert registration.failures_left_after(flag, imported).flag is None
+    def flag(samples: list[str]) -> dict:
+        return {
+            "failed_datasets": ["coverage"],
+            "job_id": "job-1",
+            "failed_jobs": {"coverage": "job-1"},
+            "failed_scopes": {"coverage": [{"scope": {"source": None, "samples": samples}, "job_id": "job-1"}]},
+        }
+
+    assert registration.failures_left_after(flag(["S1", "S2"]), imported).failed == {"coverage": "job-1"}
+    assert registration.failures_left_after(flag(["S2"]), imported).flag is None
 
 
 # --- through the import: the family's import-incomplete flag ----------------------------------
@@ -732,7 +734,10 @@ def package(stores: _Stores, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         "imported_datasets": [],
         "job_id": "job-1",
         "failed_jobs": {"coverage": "job-1", "snv": "job-1"},
-        "scopes": {"coverage": coverage_scope, "snv": {"source": "auto", "samples": None}},
+        "failed_scopes": {
+            "coverage": [{"scope": coverage_scope, "job_id": "job-1"}],
+            "snv": [{"scope": {"source": "auto", "samples": None}, "job_id": "job-1"}],
+        },
     }
     stores.unfinished = {
         "job-1": {

@@ -34,8 +34,6 @@ class AncestryReferenceOut(BaseModel):
 
 class AncestryRunOut(BaseModel):
     id: str
-    # The WGS file source of a calculation from before the callsets were read (legacy).
-    source_id: str | None = None
     trigger: Literal["user", "automatic"] = "user"
     reference_sha256: str
     status: Literal["queued", "running", "completed", "failed", "interrupted"]
@@ -130,14 +128,13 @@ class AncestrySampleOut(BaseModel):
 
 class AncestryAnalysisOut(BaseModel):
     run_id: str
-    source_id: str | None = None
     reference_sha256: str
     samples: list[AncestrySampleOut]
     calculation_version: str
     assumptions: dict[str, str | bool | float | int]
     created_at: datetime
-    # The family's small-variant data version the projection read (none for a legacy one).
-    storage_version: str | None = None
+    # The family's small-variant data version the projection read.
+    storage_version: str
     current_genotypes: bool = False
     current_reference: bool = False
 
