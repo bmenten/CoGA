@@ -301,9 +301,10 @@ CREATE INDEX IF NOT EXISTS idx_family_import_jobs_status ON family_import_jobs U
 -- A package a pipeline delivered into a watched import folder (FAMILY_IMPORT_WATCH_ROOTS): one row
 -- per package folder and package fingerprint (family_package_fingerprint.py), so a folder that
 -- changes is a new delivery. The import watcher (import_watcher.py) writes it from the folder's
--- ready marker (coga-ready.json: marker, its text's SHA-256 and the run it names) and its checks:
--- state is where the delivery stands, issues why it needs attention, warnings what an approver
--- should see. manifest_text is the manifest Discover drafted for a folder without one, with its
+-- package file (coga-package.json: marker holds it, marker_sha256 its bytes' SHA-256, run_id the
+-- run it names) and its checks: state is where the delivery stands, issues why it needs
+-- attention, warnings what an approver should see. manifest_text is the manifest the import
+-- reads, made from the package file (with what it leaves out proposed by Discover), with its
 -- SHA-256. Mutable state: each change of state is an event on the clinical audit chain
 -- system:import-inbox, which is the record.
 CREATE TABLE IF NOT EXISTS import_deliveries (

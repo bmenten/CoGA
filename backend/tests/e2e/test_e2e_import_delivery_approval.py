@@ -4,9 +4,10 @@ The watcher checks each package a pipeline delivers; nothing is imported until a
 (``import_delivery_review``). Through the app over HTTP, as the e2e administrator:
 
 - a ready delivery with warnings is refused approval until they are acknowledged; approved, its
-  import job is queued as the approver, into the marker's project, the delivery ``queued``; the
-  job runs, and the next watch round makes the delivery ``imported``; the family's package
-  record names the delivery, its run and its marker;
+  import job is queued as the approver, into the package file's project, the delivery ``queued``;
+  the job runs (reading the manifest made from the package file), and the next watch round makes
+  the delivery ``imported``; the family's package record names the delivery, its run and its
+  package file;
 - a dry run of another delivery queues a dry-run job and leaves the delivery as it was;
 - a delivery whose folder changed after it was checked is not approved (409), and nothing queued;
 - a refusal needs a reason; refused, the delivery is decided: neither refused nor approved again;
@@ -30,7 +31,7 @@ from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
 from backend.tests.e2e._import_jobs import claim_import_job, job_outcome, one_sample_package
-from backend.tests.e2e.test_e2e_import_watcher import write_marker
+from backend.tests.e2e.test_e2e_import_watcher import write_package
 
 pytestmark = pytest.mark.integration
 
@@ -58,7 +59,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     names = {key: f"E2E_APPROVE_{key}_{run}" for key in ("NEW", "DRY", "REFUSE", "CHANGED")}
     folders = {key: one_sample_package(base / name, name, variants=2, datasets=("snv",)) for key, name in names.items()}
     for key, folder in folders.items():
-        write_marker(folder, project=project, family_id=names[key])
+        write_package(folder, project=project, family_id=names[key])
     roots = [base.resolve()]
     await import_watcher.run_watch_round(sessionmaker, roots)
 
@@ -140,7 +141,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
 
         # The imported folder changes: a new delivery of a family that exists.
         (folders["NEW"] / "notes.txt").write_text("a later output\n", encoding="utf-8")
-        write_marker(folders["NEW"], project=project, family_id=names["NEW"])
+        write_package(folders["NEW"], project=project, family_id=names["NEW"])
         await import_watcher.run_watch_round(sessionmaker, roots)
         out["existing"] = await delivery_of(names["NEW"])
         async with sessionmaker() as session:

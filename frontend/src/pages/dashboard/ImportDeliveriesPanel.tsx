@@ -393,8 +393,9 @@ const ImportDeliveriesPanel: React.FC = () => {
         </span>
       </div>
       <p className="table-subtle">
-        Packages pipelines delivered with a ready marker (coga-ready.json),
-        checked by CoGA. Nothing is imported until you approve it.
+        Packages pipelines delivered with their package file
+        (coga-package.json), checked by CoGA. Nothing is imported until you
+        approve it.
       </p>
 
       {deliveriesQuery.isError ? (
@@ -569,9 +570,9 @@ const ImportDeliveriesPanel: React.FC = () => {
         <p className="table-subtle">Loading the deliveries…</p>
       ) : (
         <p className="table-subtle">
-          No delivery is waiting. A pipeline delivers a package by writing it,
-          with its ready marker coga-ready.json last, into a folder
-          FAMILY_IMPORT_WATCH_ROOTS names.
+          No delivery is waiting. A pipeline delivers a package by writing it
+          into a folder FAMILY_IMPORT_WATCH_ROOTS names, with its package file
+          coga-package.json, which says when the package is complete.
         </p>
       )}
 

@@ -1,30 +1,35 @@
 """The import watcher: the packages pipelines deliver into the watched import folders.
 
 A pipeline, or the step that copies its output onto the share, writes a package folder into a
-watched import folder (``FAMILY_IMPORT_WATCH_ROOTS``) and, last, its ready marker
-``coga-ready.json`` (``import_ready_marker``). Every ``FAMILY_IMPORT_WATCH_INTERVAL_SECONDS``
-the watcher looks into each watched folder. A folder without a marker is no delivery yet. A
-folder with one is a delivery per package fingerprint (``family_package_fingerprint``): a folder
-that changes is a new delivery, and an open one before it of the same folder is superseded. A
-new delivery is checked once, and its state stored (``import_deliveries``):
+watched import folder (``FAMILY_IMPORT_WATCH_ROOTS``) with its package file ``coga-package.json``
+(``coga_package``, docs/coga-package.md), which says what the package is and, by its ``status``,
+whether it is complete. Every ``FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`` the watcher looks into
+each watched folder. A folder without a package file is no delivery. One whose file says the run
+is under way, or failed, is no delivery either, and an open delivery of that folder before it is
+superseded: the pipeline is writing the folder again. A folder whose file says it is complete is
+a delivery per package fingerprint (``family_package_fingerprint``): a folder that changes is a
+new delivery, and an open one before it of the same folder is superseded. A new delivery is
+checked once, and its state stored (``import_deliveries``, whose ``marker`` columns hold the
+package file):
 
-- ``incomplete``: a file the marker lists is missing or of another size: the copy runs still
-  (its folder's fingerprint changes once it has finished, which is a new delivery);
-- ``needs_attention``: the marker, a checksum, the project, the assembly, the analysis type, the
-  manifest, the package's validation, the family or its samples stand in the way, each an issue;
-- ``ready``: it can be approved for import (an approval queue the import page will offer).
+- ``incomplete``: a file the package file lists is missing or of another size: the copy runs
+  still (its folder's fingerprint changes once it has finished, which is a new delivery);
+- ``needs_attention``: the package file, a checksum, the project, the assembly, the manifest
+  made from the file (``coga_package_manifest``), the package's validation, the family or its
+  samples stand in the way, each an issue;
+- ``ready``: it can be approved for import (``import_delivery_review``).
 
-Some of those issues come from what CoGA holds, not from the folder: a project the marker names
-that CoGA lacks, or of another assembly, and a family or samples that already exist. An open
+Some of those issues come from what CoGA holds, not from the folder: a project the package file
+names that CoGA lacks, or of another assembly, and a family or samples that already exist. An open
 delivery (``ready``, ``needs_attention``) seen again is checked again, as a whole, when that has
 changed since its check (a project added, a family imported or deleted): its row then holds what
 the new check found, and the chain the change.
 
-A delivery still open whose folder, or marker, has been missing for ``GONE_AFTER_ROUNDS`` rounds
+A delivery still open whose folder, or package file, has been missing for ``GONE_AFTER_ROUNDS`` rounds
 while its watched folder could be read is ``gone``. A watched folder that cannot be read, or that
 lists nothing but hidden entries while it had open deliveries (a share not mounted reads as an
 empty folder), is skipped for the round: nothing is decided on it. One that lists anything else,
-even folders without a marker, is mounted and watched. Each change of a delivery's state is an event on the
+even folders without a package file, is mounted and watched. Each change of a delivery's state is an event on the
 clinical audit chain ``system:import-inbox``, by ``system:import-watcher``. Logs name counts,
 never a folder or a family.
 
@@ -51,6 +56,9 @@ from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.object_storage import is_remote_uri
 from ..core.postgres import get_postgres_engine, get_postgres_sessionmaker
+from pydantic import BaseModel
+import yaml
+
 from ..schemas import (
     ApiId,
     FamilyPackageManifestBuildRequest,
@@ -59,21 +67,23 @@ from ..schemas import (
     ImportDeliveryOut,
 )
 from .clinical_audit_service import record_clinical_event
+from .coga_package import (
+    PACKAGE_FILE_NAME,
+    CogaPackage,
+    PackageIssue,
+    PackageRead,
+    check_package_files,
+    read_package_file,
+)
+from .coga_package_manifest import package_manifest, proposed_sections
 from .family_identifiers import identifier_problem
 from .family_package_common import _json_list, manifest_text_sha256
-from .family_package_discovery import discover_family_package_manifest
+from .family_package_discovery import _detect_ped_path, discover_family_package_manifest
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
+from .family_package_manifest import _parse_ped_text_strict
 from .family_package_registration import _existing_package_entity_warnings, manifest_roi_issue
-from .family_package_source import _authorized_local_roots, _find_manifest, _listed_package_folder
+from .family_package_source import _authorized_local_roots, _listed_package_folder
 from .family_package_validation import load_validated_family_package
-from .import_ready_marker import (
-    MARKER_FILE_NAME,
-    MarkerIssue,
-    MarkerRead,
-    ReadyMarker,
-    check_marker_files,
-    read_ready_marker,
-)
 from .worker_tasks import stop_worker
 
 logger = logging.getLogger(__name__)
@@ -88,15 +98,24 @@ OPEN_STATES = ("incomplete", "ready", "needs_attention")
 # The open deliveries checked again when what CoGA holds changes (an incomplete one's folder
 # changes once its copy has finished, which is a new delivery).
 _CHECKED_AGAIN_STATES = ("ready", "needs_attention")
-# The issues a check takes from what CoGA holds, not from the folder: the project the marker
-# names, and the family and samples the package holds.
-_PROJECT_ISSUES = frozenset({"marker_project_unknown", "marker_assembly_differs"})
+# The issues a check takes from what CoGA holds, not from the folder: the project the package
+# file names, and the family and samples the package holds.
+_PROJECT_ISSUES = frozenset({"package_project_unknown", "package_assembly_differs"})
 _EXISTING_ISSUES = frozenset({"existing_family", "existing_samples"})
 GONE_AFTER_ROUNDS = 2
-# How many unlisted files a warning names.
+# How many unlisted files, or members, a warning names.
 _UNLISTED_NAMED = 5
 
 _PED_SEX = {"1": "male", "2": "female"}
+
+
+class DeliveryIssue(BaseModel):
+    """Why a delivery needs attention, or what an approver should see: a code and a fixed
+    sentence; ``path`` a path in the package when it is about one file."""
+
+    code: str
+    message: str
+    path: str | None = None
 
 
 def watch_roots() -> list[Path]:
@@ -128,7 +147,7 @@ def watch_roots() -> list[Path]:
 @dataclass(slots=True)
 class WatchedFolderListing:
     """A watched folder as a round lists it: ``folders``, the package folders in it that hold a
-    ready marker; ``empty``, whether it lists nothing but hidden entries (a share that is not
+    package file; ``empty``, whether it lists nothing but hidden entries (a share that is not
     mounted reads as an empty folder; one that lists any other entry is mounted)."""
 
     folders: list[Path]
@@ -136,7 +155,7 @@ class WatchedFolderListing:
 
 
 def marked_folders(root: Path) -> WatchedFolderListing | None:
-    """The package folders directly in the watched folder ``root`` that hold a ready marker, as
+    """The package folders directly in the watched folder ``root`` that hold a package file, as
     selection takes them (``_listed_package_folder``: links resolved, none out of the import
     roots), and whether ``root`` lists nothing but hidden entries; None when ``root`` cannot be
     read."""
@@ -153,7 +172,7 @@ def marked_folders(root: Path) -> WatchedFolderListing | None:
         if folder is None or not folder.is_dir():
             continue
         try:
-            os.lstat(folder / MARKER_FILE_NAME)
+            os.lstat(folder / PACKAGE_FILE_NAME)
         except OSError:
             continue
         if folder not in folders:
@@ -163,11 +182,12 @@ def marked_folders(root: Path) -> WatchedFolderListing | None:
 
 @dataclass(slots=True)
 class DeliveryAssessment:
-    """A new delivery as checked: its state, issues and warnings, and what the row keeps."""
+    """A new delivery as checked: its state, issues and warnings, and what the row keeps (``marker``
+    and ``marker_sha256``: the package file as written, and its bytes' SHA-256)."""
 
     state: str
-    issues: list[MarkerIssue] = field(default_factory=list)
-    warnings: list[MarkerIssue] = field(default_factory=list)
+    issues: list[DeliveryIssue] = field(default_factory=list)
+    warnings: list[DeliveryIssue] = field(default_factory=list)
     marker_sha256: str | None = None
     marker: dict[str, Any] | None = None
     run_id: str | None = None
@@ -177,13 +197,24 @@ class DeliveryAssessment:
     manifest_text: str | None = None
 
 
-def _issue(code: str, message: str, path: str | None = None) -> MarkerIssue:
-    return MarkerIssue(code=code, message=message, path=path)
+def _issue(code: str, message: str, path: str | None = None) -> DeliveryIssue:
+    return DeliveryIssue(code=code, message=message, path=path)
 
 
-def _as_issue(issue: Any) -> MarkerIssue:
+def _as_issue(issue: Any) -> DeliveryIssue:
     """A validation or Discover issue as a delivery keeps it: its code and message."""
-    return MarkerIssue(code=str(issue.code), message=str(issue.message), path=None)
+    return DeliveryIssue(code=str(issue.code), message=str(issue.message), path=None)
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    """``value`` when it is a JSON object, else an empty one."""
+    return value if isinstance(value, dict) else {}
+
+
+def _package_issue(issue: PackageIssue) -> DeliveryIssue:
+    """An issue of the package file: one about a listed file names its path."""
+    path = issue.location if issue.code.startswith("file_") else None
+    return DeliveryIssue(code=issue.code, message=issue.message, path=path)
 
 
 async def _project(session: AsyncSession, name: str) -> tuple[str, str | None] | None:
@@ -205,24 +236,24 @@ async def _project(session: AsyncSession, name: str) -> tuple[str, str | None] |
 
 async def _project_issues(
     session: AsyncSession, name: str | None, assembly: str | None
-) -> tuple[str | None, list[MarkerIssue]]:
-    """The project the marker names (``name``, with its ``assembly``) as CoGA holds it now: the
-    project's id, None when CoGA has no such project, and the issues: a project CoGA lacks, or one
-    of another assembly."""
+) -> tuple[str | None, list[DeliveryIssue]]:
+    """The project the package file names (``name``, with its ``assembly``) as CoGA holds it now:
+    the project's id, None when CoGA has no such project, and the issues: a project CoGA lacks, or
+    one of another assembly."""
     if not name:
         return None, []
     project = await _project(session, name)
     if project is None:
         return None, [
             _issue(
-                "marker_project_unknown",
-                f"coga-ready.json names the project '{name}', which CoGA does not have. Once it does, "
+                "package_project_unknown",
+                f"{PACKAGE_FILE_NAME} names the project '{name}', which CoGA does not have. Once it does, "
                 "CoGA checks the delivery again.",
             )
         ]
     if assembly and project[1] and assembly != project[1]:
         return project[0], [
-            _issue("marker_assembly_differs", f"coga-ready.json gives the assembly {assembly}; the project's is {project[1]}.")
+            _issue("package_assembly_differs", f"{PACKAGE_FILE_NAME} gives the assembly {assembly}; the project's is {project[1]}.")
         ]
     return project[0], []
 
@@ -237,8 +268,8 @@ def _relative(root: Path, path: str | None) -> str | None:
 
 
 def _files_the_import_reads(folder: Path, validation: FamilyPackageValidationOut) -> list[str]:
-    """The files the import reads, as paths in the package: the PED and each file an enabled
-    dataset names (a folder it names, every file in it)."""
+    """The files the import reads, as paths in the package: the PED, when the import reads one,
+    and each file an enabled dataset names (a folder it names, every file in it)."""
     paths: set[str] = set()
     ped = _relative(folder, validation.ped_path)
     if ped:
@@ -257,89 +288,132 @@ def _files_the_import_reads(folder: Path, validation: FamilyPackageValidationOut
     return sorted(paths)
 
 
-def _sample_issues(marker: ReadyMarker, sexes: dict[str, str]) -> tuple[list[MarkerIssue], list[MarkerIssue]]:
-    """The marker's samples against the package's members (``sexes``: each member's PED sex):
-    each must be a member, of the sex the PED gives; a member it does not name is a warning (a
-    fetus has no data of its own)."""
-    issues: list[MarkerIssue] = []
-    warnings: list[MarkerIssue] = []
-    named = {sample.sample_id for sample in marker.samples or []}
-    for sample in marker.samples or []:
-        if sample.sample_id not in sexes:
-            issues.append(
-                _issue("marker_sample_not_in_package", f"coga-ready.json names sample '{sample.sample_id}', which the package does not hold.")
-            )
-        elif sample.sex in ("male", "female") and sexes[sample.sample_id] in ("male", "female") and sample.sex != sexes[sample.sample_id]:
-            issues.append(
-                _issue(
-                    "marker_sample_sex_differs",
-                    f"coga-ready.json gives sample '{sample.sample_id}' another sex than the PED.",
-                )
-            )
-    missing = sorted(set(sexes) - named)
-    if marker.samples is not None and missing:
-        warnings.append(
-            _issue(
-                "marker_sample_not_named",
-                "coga-ready.json does not name the package's member(s) " + ", ".join(missing) + ".",
-            )
-        )
-    return issues, warnings
+def _folder_ped_differences(folder: Path, package: CogaPackage) -> DeliveryIssue | None:
+    """A warning when the folder holds a PED, which the pipeline's own tools may have read (to
+    phase, to filter trios), that says otherwise than the package file's members: a member of the
+    PED the file does not name, or one whose sex or parents differ. The import reads the file's
+    members, never the PED. None when there is no PED, or it agrees."""
+    if package.members is None or package.family is None:
+        return None
+    ped_path, _errors, _warnings = _detect_ped_path(folder, requested_ped_path=None, family_id=package.family.family_id)
+    if ped_path is None:
+        return None
+    try:
+        ped, _ped_errors = _parse_ped_text_strict(ped_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        ped = None
+    if ped is None:
+        return None
+    members = {member.sample_id: member for member in package.members}
+    differing: list[str] = []
+    for row in ped.members:
+        member = members.get(row.iid)
+        if member is None:
+            differing.append(row.iid)
+            continue
+        ped_sex = _PED_SEX.get(row.sex)
+        sex_differs = ped_sex is not None and member.sex != "unknown" and ped_sex != member.sex
+        parents = (row.pid if row.pid not in {"", "0"} else None, row.mid if row.mid not in {"", "0"} else None)
+        if sex_differs or parents != (member.father, member.mother):
+            differing.append(row.iid)
+    if not differing:
+        return None
+    named = ", ".join(sorted(differing)[:_UNLISTED_NAMED])
+    more = len(differing) - _UNLISTED_NAMED
+    return _issue(
+        "package_ped_differs",
+        f"The folder's PED ({_relative(folder, str(ped_path)) or ped_path.name}) says otherwise than "
+        f"{PACKAGE_FILE_NAME} of {named}" + (f", and {more} more" if more > 0 else "") + ": a member it "
+        "does not name, or another sex or parents. The import reads the package file's members; a "
+        "dataset the pipeline computed with the PED may not match them.",
+    )
 
 
-async def assess_delivery(session_factory: async_sessionmaker[AsyncSession], folder: Path) -> DeliveryAssessment:
-    """Check the new delivery in the package folder ``folder`` (see the module's docstring)."""
-    read: MarkerRead = await asyncio.to_thread(read_ready_marker, folder)
+async def assess_delivery(
+    session_factory: async_sessionmaker[AsyncSession], folder: Path, read: PackageRead | None = None
+) -> DeliveryAssessment:
+    """Check the new delivery in the package folder ``folder`` (see the module's docstring),
+    with its package file as ``read`` read it (read here when not given)."""
+    if read is None:
+        read = await asyncio.to_thread(read_package_file, folder)
     assessment = DeliveryAssessment(state="needs_attention", marker_sha256=read.sha256, marker=read.payload)
-    if read.marker is None:
-        assessment.issues = list(read.issues)
+    payload = read.payload or {}
+    assessment.run_id = _text(_mapping(payload.get("pipeline")).get("run_id"))
+    family_id = _text(_mapping(payload.get("family")).get("family_id"))
+    # A family ID no family can be stored under is not kept with the delivery.
+    assessment.family_id = family_id if family_id and identifier_problem(family_id) is None else None
+    if read.package is None:
+        assessment.issues = [_package_issue(issue) for issue in read.issues]
         return assessment
-    marker = read.marker
-    assessment.run_id = marker.run.id if marker.run else None
-    assessment.family_id = marker.family_id
-    sizes = await asyncio.to_thread(check_marker_files, folder, marker.files or [], checksums=False)
+    package = read.package
+    files = package.files or []
+    sizes = await asyncio.to_thread(check_package_files, folder, files, checksums=False)
     if sizes.incomplete:
         assessment.state = "incomplete"
-        assessment.issues = [issue for issue in sizes.issues if issue.code in ("file_missing", "file_size_differs")]
+        assessment.issues = [
+            _package_issue(issue) for issue in sizes.issues if issue.code in ("file_missing", "file_size_differs")
+        ]
         return assessment
-    issues: list[MarkerIssue] = list(read.issues)
-    warnings: list[MarkerIssue] = []
-    checked = await asyncio.to_thread(check_marker_files, folder, marker.files or [], checksums=True)
-    issues.extend(checked.issues)
+    issues: list[DeliveryIssue] = [_package_issue(issue) for issue in read.issues]
+    warnings: list[DeliveryIssue] = []
+    checked = await asyncio.to_thread(check_package_files, folder, files, checksums=True)
+    issues.extend(_package_issue(issue) for issue in checked.issues)
     if checked.unlisted:
         named = ", ".join(checked.unlisted[:_UNLISTED_NAMED])
         more = len(checked.unlisted) - _UNLISTED_NAMED
         warnings.append(
             _issue(
-                "file_not_in_marker",
-                f"The folder holds {len(checked.unlisted)} file(s) coga-ready.json does not list: {named}"
+                "file_not_in_package",
+                f"The folder holds {len(checked.unlisted)} file(s) {PACKAGE_FILE_NAME} does not list: {named}"
                 + (f", and {more} more." if more > 0 else "."),
             )
         )
-    if marker.family_id and identifier_problem(marker.family_id) is not None:
-        issues.append(_issue("marker_family_id_invalid", "coga-ready.json names a family ID no family can be stored under."))
-    if marker.qc is not None and marker.qc.status == "fail":
-        issues.append(_issue("marker_qc_failed", "The pipeline's QC failed (coga-ready.json, qc.status)."))
-    elif marker.qc is not None and marker.qc.status == "warn":
-        warnings.append(_issue("marker_qc_warned", "The pipeline's QC warned (coga-ready.json, qc.status)."))
+    if package.qc is not None and package.qc.status == "fail":
+        issues.append(_issue("package_qc_failed", f"The pipeline's QC failed ({PACKAGE_FILE_NAME}, qc.status)."))
+    elif package.qc is not None and package.qc.status == "warn":
+        warnings.append(_issue("package_qc_warned", f"The pipeline's QC warned ({PACKAGE_FILE_NAME}, qc.status)."))
 
     async with session_factory() as session:
-        project_id, project_issues = await _project_issues(session, marker.project, marker.assembly)
+        project_id, project_issues = await _project_issues(session, package.project, package.assembly)
     assessment.project_id = project_id
     issues.extend(project_issues)
+    if package.family is None:
+        # A complete file names its family (package_issues): nothing more is read without one.
+        assessment.issues, assessment.warnings = issues, warnings
+        return assessment
 
-    # The manifest: the folder's own, or the one Discover drafts, which the delivery keeps.
-    if await asyncio.to_thread(_find_manifest, folder) is None:
+    # The manifest the import reads: the package file's, with what it leaves out taken from the
+    # draft Discover makes of the folder; the delivery keeps it.
+    proposed = proposed_sections(package)
+    draft_manifest: dict[str, Any] | None = None
+    if proposed:
         draft = await asyncio.to_thread(
-            discover_family_package_manifest, FamilyPackageManifestBuildRequest(folder_path=str(folder))
+            discover_family_package_manifest,
+            # The family is the one the package file names, not the folder's name.
+            FamilyPackageManifestBuildRequest(folder_path=str(folder), family_id=package.family.family_id),
         )
         if draft.errors or not draft.manifest_yaml:
-            issues.append(_issue("discover_failed", "Discover could not draft a manifest for the folder."))
+            issues.append(_issue("discover_failed", "Discover could not propose what the package file leaves out."))
             issues.extend(_as_issue(issue) for issue in draft.errors)
             assessment.issues, assessment.warnings = issues, warnings
             return assessment
-        assessment.manifest_text = draft.manifest_yaml
+        loaded = yaml.safe_load(draft.manifest_yaml)
+        draft_manifest = loaded if isinstance(loaded, dict) else {}
         warnings.extend(_as_issue(issue) for issue in draft.warnings if issue.code != "dataset_not_detected")
+        for section in proposed:
+            warnings.append(
+                _issue(
+                    f"package_{section}_proposed",
+                    f"{PACKAGE_FILE_NAME} names no {section}: CoGA proposed them from the folder"
+                    + (", from its PED or its per-sample folders" if section == "members" else ", from its layout")
+                    + ". Check them before approving.",
+                )
+            )
+    # JSON, read as YAML: every ID stays text.
+    assessment.manifest_text = json.dumps(package_manifest(package, draft_manifest), indent=2, ensure_ascii=False)
+    ped_differs = await asyncio.to_thread(_folder_ped_differences, folder, package)
+    if ped_differs is not None:
+        warnings.append(ped_differs)
 
     validation, bundle = await asyncio.to_thread(load_validated_family_package, folder, manifest_text=assessment.manifest_text)
     assessment.validation = {
@@ -355,22 +429,17 @@ async def assess_delivery(session_factory: async_sessionmaker[AsyncSession], fol
     }
     issues.extend(_as_issue(issue) for issue in validation.errors)
     warnings.extend(_as_issue(issue) for issue in validation.warnings)
-    if validation.family_id and marker.family_id and validation.family_id != marker.family_id:
-        issues.append(
-            _issue("marker_family_differs", f"coga-ready.json names the family '{marker.family_id}'; the package is '{validation.family_id}'.")
-        )
     if bundle is not None:
         not_listed = [path for path in _files_the_import_reads(folder, validation) if path not in checked.sha256]
         issues.extend(
-            _issue("manifest_file_not_in_marker", "The import reads a file coga-ready.json does not list, or whose checksum differs.", path)
+            _issue(
+                "package_file_not_listed",
+                f"The import reads a file {PACKAGE_FILE_NAME} does not list, or whose checksum differs.",
+                path,
+            )
             for path in not_listed
-            if not any(issue.path == path for issue in checked.issues)
+            if not any(issue.path == path for issue in issues)
         )
-        sample_issues, sample_warnings = _sample_issues(
-            marker, {member.iid: _PED_SEX.get(member.sex, "unknown") for member in bundle.ped.members}
-        )
-        issues.extend(sample_issues)
-        warnings.extend(sample_warnings)
     async with session_factory() as session:
         # A family or samples that already exist: an approver chooses update or overwrite.
         issues.extend(
@@ -405,7 +474,7 @@ async def _record(session: AsyncSession, *, action: str, delivery_id: str, after
     )
 
 
-def _issues_json(issues: list[MarkerIssue]) -> str:
+def _issues_json(issues: list[DeliveryIssue]) -> str:
     return json.dumps([issue.model_dump() for issue in issues])
 
 
@@ -427,16 +496,16 @@ def _json_object(value: Any) -> dict[str, Any] | None:
 
 async def _coga_side_changed(session: AsyncSession, delivery: Mapping[Any, Any]) -> bool:
     """Whether what CoGA holds has changed, since the open delivery ``delivery`` was checked, in what
-    its check read there: the project its marker names (added, deleted, or of another assembly),
-    and the family and samples its package holds (imported, or deleted). It compares only what the
-    check read: the project when the marker could be read (the check named it unknown, kept its id,
-    or went on to validate the package), the family and samples when it validated the package. So
-    a check that could not run, or a marker that could not be read, is never checked again: what
-    it found holds until the folder changes."""
+    its check read there: the project its package file names (added, deleted, or of another
+    assembly), and the family and samples its package holds (imported, or deleted). It compares
+    only what the check read: the project when the package file could be read (the check named it
+    unknown, kept its id, or went on to validate the package), the family and samples when it
+    validated the package. So a check that could not run, or a package file that could not be
+    read, is never checked again: what it found holds until the folder changes."""
     codes = {str(item.get("code")) for item in _json_list(delivery["issues"]) if isinstance(item, dict)}
     marker = _json_object(delivery["marker"])
     validation = _json_object(delivery["validation"])
-    project_read = "marker_project_unknown" in codes or delivery["project_id"] is not None or validation is not None
+    project_read = "package_project_unknown" in codes or delivery["project_id"] is not None or validation is not None
     if marker is not None and project_read:
         project_id, project_issues = await _project_issues(session, _text(marker.get("project")), _text(marker.get("assembly")))
         if project_id != delivery["project_id"] or {issue.code for issue in project_issues} != codes & _PROJECT_ISSUES:
@@ -452,10 +521,12 @@ async def _coga_side_changed(session: AsyncSession, delivery: Mapping[Any, Any])
     return False
 
 
-async def _assess(session_factory: async_sessionmaker[AsyncSession], folder: Path) -> DeliveryAssessment:
+async def _assess(
+    session_factory: async_sessionmaker[AsyncSession], folder: Path, read: PackageRead | None = None
+) -> DeliveryAssessment:
     """``assess_delivery``, or, when the check fails, the delivery as one that needs attention for it."""
     try:
-        return await assess_delivery(session_factory, folder)
+        return await assess_delivery(session_factory, folder, read)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - one folder's failure never stops the round
@@ -469,12 +540,18 @@ async def _assess(session_factory: async_sessionmaker[AsyncSession], folder: Pat
 async def look_at_folder(
     session_factory: async_sessionmaker[AsyncSession], root: Path, folder: Path
 ) -> tuple[str, str] | None:
-    """Look at one marked package folder: a new delivery is checked and stored, and an open one
+    """Look at one package folder: one whose package file says its run is under way, or failed, is
+    no delivery, and the open deliveries of the folder before it are superseded
+    (``_supersede_for_run``). Otherwise a new delivery is checked and stored, and an open one
     before it of the folder superseded; a delivery seen before is seen again, and checked again
     when it is open (``ready`` or ``needs_attention``) and what CoGA holds has changed in what its
-    check read (``_coga_side_changed``). Returns ``("new", state)`` or ``("checked_again",
-    state)``, or None when the delivery was only seen again or the folder changed while it was
-    checked (the next round takes it)."""
+    check read (``_coga_side_changed``). Returns ``("new", state)``, ``("checked_again", state)``
+    or ``("superseded", count)`` with the number superseded for a run, or None when the delivery
+    was only seen again or the folder changed while it was checked (the next round takes it)."""
+    read = await asyncio.to_thread(read_package_file, folder)
+    if not read.offered:
+        superseded = await _supersede_for_run(session_factory, folder, read)
+        return ("superseded", str(superseded)) if superseded else None
     fingerprint = await _fingerprint(folder)
     if fingerprint is None:
         return None
@@ -503,12 +580,52 @@ async def look_at_folder(
             return None
         state = await _store_check_again(session_factory, folder, str(seen["id"]), fingerprint, assessment)
         return ("checked_again", state) if state is not None else None
-    assessment = await _assess(session_factory, folder)
+    # The package file as read before the fingerprint: a folder changed since then is left below.
+    assessment = await _assess(session_factory, folder, read)
     # Changed while it was checked: what was checked is not what is there.
     if await _fingerprint(folder) != fingerprint:
         return None
     stored = await _store_new_delivery(session_factory, root, folder, fingerprint, assessment)
     return ("new", stored) if stored is not None else None
+
+
+async def _supersede_for_run(
+    session_factory: async_sessionmaker[AsyncSession], folder: Path, read: PackageRead
+) -> int:
+    """Supersede the open deliveries of ``folder``, whose package file says a run is under way in
+    it or failed (``read.status``): the pipeline is writing the folder again, so nothing checked
+    before is what it will deliver. Each is recorded on the chain with the run. Returns how many."""
+    run_id = _text(_mapping((read.payload or {}).get("pipeline")).get("run_id"))
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                text(
+                    """
+                    UPDATE import_deliveries
+                    SET state = 'superseded', state_changed_at = now()
+                    WHERE folder_path = :folder AND state = ANY(CAST(:open AS text[]))
+                    RETURNING id::text, package_fingerprint
+                    """
+                ),
+                {"folder": str(folder), "open": list(OPEN_STATES)},
+            )
+        ).all()
+        for delivery_id, old_fingerprint in rows:
+            await _record(
+                session,
+                action="import_delivery_superseded",
+                delivery_id=str(delivery_id),
+                after={
+                    "folder": folder.name,
+                    "package_fingerprint": old_fingerprint,
+                    "package_status": read.status,
+                    "run_id": run_id,
+                    "package_sha256": read.sha256,
+                },
+                summary=f"Delivery {folder.name}: superseded, a pipeline run in its folder is {read.status}",
+            )
+        await session.commit()
+    return len(rows)
 
 
 async def _store_new_delivery(
@@ -667,7 +784,7 @@ async def _update_checked_again(
 ) -> str | None:
     """Store what checking the delivery ``delivery_id`` again found, in its row, and record it on
     the chain with what it replaced, in one transaction. The row is locked first: a delivery
-    decided meanwhile (approved, refused) is left as it is. What the marker said is kept when the
+    decided meanwhile (approved, refused) is left as it is. What the package file said is kept when the
     check could not read it (the folder is the same). Returns its state, or None when it was left."""
     async with session_factory() as session:
         before = (
@@ -745,7 +862,7 @@ async def _update_checked_again(
 
 async def mark_missing(session_factory: async_sessionmaker[AsyncSession], root: Path, seen: set[str]) -> int:
     """Count a round against each open delivery of the watched folder ``root`` whose folder, or
-    marker, was not seen; one missing for ``GONE_AFTER_ROUNDS`` rounds is gone. Returns how many
+    package file, was not seen; one missing for ``GONE_AFTER_ROUNDS`` rounds is gone. Returns how many
     went."""
     gone = 0
     async with session_factory() as session:
@@ -775,7 +892,7 @@ async def mark_missing(session_factory: async_sessionmaker[AsyncSession], root: 
                 action="import_delivery_gone",
                 delivery_id=str(delivery_id),
                 after={"folder": name, "package_fingerprint": fingerprint},
-                summary=f"Delivery {name}: gone, its folder or ready marker is no longer there",
+                summary=f"Delivery {name}: gone, its folder or package file is no longer there",
             )
             gone += 1
         await session.commit()
@@ -790,6 +907,8 @@ class WatchRound:
     roots_skipped: int = 0
     deliveries: dict[str, int] = field(default_factory=dict)
     checked_again: dict[str, int] = field(default_factory=dict)
+    # Open deliveries superseded because a run is under way in their folder, or failed.
+    superseded_for_run: int = 0
     gone: int = 0
     jobs_ended: int = 0
 
@@ -820,7 +939,7 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
         listing = await asyncio.to_thread(marked_folders, root)
         # Nothing is decided on a folder that cannot be read, or that lists nothing while it had
         # open deliveries: a share that is not mounted. A folder that lists anything else is
-        # mounted, so a delivery whose folder or marker is not in it is missing.
+        # mounted, so a delivery whose folder or package file is not in it is missing.
         if listing is None or (listing.empty and await _open_deliveries(session_factory, root)):
             result.roots_skipped += 1
             continue
@@ -830,6 +949,9 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
             looked = await look_at_folder(session_factory, root, folder)
             if looked is not None:
                 kind, state = looked
+                if kind == "superseded":
+                    result.superseded_for_run += int(state)
+                    continue
                 counts = result.deliveries if kind == "new" else result.checked_again
                 counts[state] = counts.get(state, 0) + 1
         result.gone += await mark_missing(session_factory, root, {str(folder) for folder in folders})
@@ -901,12 +1023,20 @@ async def import_watcher(stop: asyncio.Event) -> None:
             try:
                 if await leadership.hold():
                     done = await run_watch_round(get_postgres_sessionmaker(), roots)
-                    if done.deliveries or done.checked_again or done.gone or done.roots_skipped or done.jobs_ended:
+                    if (
+                        done.deliveries
+                        or done.checked_again
+                        or done.superseded_for_run
+                        or done.gone
+                        or done.roots_skipped
+                        or done.jobs_ended
+                    ):
                         logger.info(
-                            "Import watch round: new deliveries %s, checked again %s, %d gone, "
-                            "%d import job(s) ended, %d of %d import folder(s) skipped",
+                            "Import watch round: new deliveries %s, checked again %s, %d superseded by a "
+                            "run, %d gone, %d import job(s) ended, %d of %d import folder(s) skipped",
                             dict(sorted(done.deliveries.items())),
                             dict(sorted(done.checked_again.items())),
+                            done.superseded_for_run,
                             done.gone,
                             done.jobs_ended,
                             done.roots_skipped,

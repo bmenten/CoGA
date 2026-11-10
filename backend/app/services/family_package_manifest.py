@@ -621,6 +621,7 @@ def _manifest_added_ped_rows(
     family_id: str,
     ped_sample_ids: set[str],
     ped_from_database: bool = False,
+    default_role: str | None = "relative",
 ) -> tuple[list[str], list[FamilyImportValidationIssue]]:
     """PED rows for the members ``family.add_members`` adds to the PED's.
 
@@ -631,6 +632,12 @@ def _manifest_added_ped_rows(
     written as a ``role=`` column. Its ``father`` and ``mother``, when given, go into the
     row, so a child of the couple is one in the PED too; the PED checks then see that
     they are members of the right sex. Other links go under ``family.relationships``.
+
+    A member added to a PED without a role is a ``relative`` (``default_role``). Where the added
+    members are the whole pedigree (no PED: a package file's members, a long-read couple),
+    ``default_role`` is None and a member without a role gets one as a PED row does, from the
+    pedigree (``_ped_members_for_import``): a parent's from its children, then embryo, proband
+    or sibling.
 
     A member already in the PED is an error, except when the PED is the stored pedigree
     of an existing family, which holds the members an earlier import added. So is an ID,
@@ -681,8 +688,8 @@ def _manifest_added_ped_rows(
             )
             continue
         role_value = _lookup_normalized_key(payload, "role")
-        role = str(role_value).strip().lower() if role_value is not None else "relative"
-        if role not in _PED_ROLE_VALUES:
+        role = str(role_value).strip().lower() if role_value is not None else default_role
+        if role is not None and role not in _PED_ROLE_VALUES:
             errors.append(
                 _issue(
                     "manifest_added_member_invalid",
@@ -716,7 +723,8 @@ def _manifest_added_ped_rows(
         if parent_issues:
             errors.extend(parent_issues)
             continue
-        rows.append(f"{family_id} {sample_id} {parents[0]} {parents[1]} {sex} {phenotype} role={role}")
+        row = f"{family_id} {sample_id} {parents[0]} {parents[1]} {sex} {phenotype}"
+        rows.append(f"{row} role={role}" if role is not None else row)
     return rows, errors
 
 
