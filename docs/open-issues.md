@@ -1,7 +1,7 @@
 # Open issues
 
 What still has to be done: P1 blocks the release candidate (RC), P2 is due before the RC, P3 after it.
-Status 2026-11-09, `origin/main` at `9d11b912`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
+Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
 A closed ID the technical file cites is in [closed-issues.md](closed-issues.md): what it was and what closed it.
 
 | ID | Pri | What has to happen | Who | Blocks |
@@ -41,25 +41,24 @@ A closed ID the technical file cites is in [closed-issues.md](closed-issues.md):
 | OPS-22 | P3 | Keep PRs that pass alone from failing together: a merge queue needs an organisation-owned repository | owner | |
 | SEC-19 | P3 | Accept in TF-13: best-effort ClickHouse shutdown, bucket-wide grants, VM restart after a certificate reissue | QA | |
 | SEC-23 | P3 | Close the HSTS gaps | QA, owner, developer | |
-| SEC-37 | P3 | Quote no raw value: the IDs two refusals echo, the gene-reference job's stored error, a sample ID in a log line | developer | |
-| SEC-38 | P3 | Check the admin raw-file download and *Verify* against the family's own package, not the whole import area | developer | |
-| SAFE-37 | P3 | Deactivate a project's review tags when the project is deleted: the cascade deletes them outright | developer | |
+| SEC-40 | P3 | Keep an error's text out of the last stored job errors, HTTP answers and log lines | developer | |
+| UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
 | DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
-| CLIN-71 | P3 | Variant Explorer: show the class of a review classified by tag alone; read the reviews in a fixed order | developer | |
 | CLIN-14 | P3 | Settle the repeat catalogue's open points; move to STRchive v2.28.0 | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
 | CLIN-39 | P3 | Decide whether one SV in two siblings' per-sample records gets one second-hit verdict | owner | |
 | CLIN-50 | P3 | Decide whether carrier screening reads Ensembl-only genes | owner | |
 | CLIN-73 | P3 | Decide whether CoGA splits a multi-allelic record: filters read its alleles together, and a `Number=A` value reads as none | owner, developer | |
 | CLIN-74 | P3 | Decide whether the family search lists a variant that only taken-out members carry | owner, developer | |
+| CLIN-78 | P3 | Decide which class an Explorer row shows under a class filter: the most severe across families, or the one that matched | owner | |
 | CLIN-72 | P3 | Decide whether every reader keeps a VCF's INFO flags: uploads drop them, package imports keep them | owner, developer | |
 | TRACE-10 | P3 | Decide how a segments-only BED is drawn and what a segments or APCAD read without `source` returns | owner, developer | |
 | TRACE-21 | P3 | Decide whether a family that loses a project link gets a clinical audit event | owner | |
 | OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
 | OPS-17 | P3 | Rebuild the clinical CNV knowledgebase for both assemblies on each database built before its sources failed closed; a start builds it only where an assembly has none | ops | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
-| ENG-23 | P3 | Remove the leftovers found on 2026-11-04 | developer | |
 | ENG-24 | P3 | Make the end-to-end modules independent of their order: the review-audit module leaves a variant tagged for the report | developer | |
+| ENG-25 | P3 | Settle the copies that differ: two ROI region parsers, two Mendelian-consistency rules, two `_coerce_int`; drop the unused tag `family_id` column | developer | |
 
 ## Waiting for a decision
 
@@ -67,7 +66,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **Owner:** REG-1 (wording, REQ-TRACE-007), OPS-2, OPS-3 (separate validation environment?),
   OPS-12 (builder, Terraform lock), OPS-22, SEC-6 (with the DPO), REG-14, CLIN-10,
-  CLIN-39, CLIN-50, CLIN-68, CLIN-72, CLIN-73, CLIN-74, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), OPS-15
+  CLIN-39, CLIN-50, CLIN-68, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), OPS-15
   (role mailbox), OPS-24 (pre-migration backup retention).
 - **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, REG-16, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
   CLIN-70, OPS-7, SEC-19; with RA, REG-11.
@@ -161,6 +160,12 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - The package file `coga-package.json`'s choices, to confirm with the pipeline owners ([coga-package.md](coga-package.md)): MD5 accepted beside SHA-256, a minimal file accepted (CoGA proposes the members and datasets), `request_id` kept, a pipeline QC `fail` needs attention, an unknown field refused.
     - A review's classification text is audited as stored, trimmed but case-sensitive (#1199).
     - The register of closed IDs the technical file cites, `closed-issues.md`: its wording (#1200).
+- 2026-11-10:
+    - Raw files are read only in the latest import's package folder and CoGA's upload folder, as IGV reads them (the owner's decision): the files an earlier package of the same family recorded show as not read (#1204).
+    - An error of a class CoGA defines keeps its text where an import or a gene source stores its failure (`own_error_message`); any other is named by its kind. The sign-out tamper alarm's log field is now `family_uuid` (#1213). A refused raw-file path is logged by its kind (the owner's decision, #1215).
+    - The import-job service refuses a user below superuser itself, as its routes already did (#1206).
+    - A stored bare class word ("Pathogenic") shows as its label in the Explorer, and a class tag outranks a class label in the text (#1205).
+    - A deleted project's tags are kept inactive and detached; a family lists the tags its reviews hold (the owner's decision, #1210). A held tag of a project the family only left reads "(deleted)" (UI-8).
 - A point that asks only for a TF-10 §8 phrase lapses where a TF-10 §8 area covers it.
 - Approve the drafts merged for it: TF-09a REQ-SEC-001 and TF-13 §2 (#1037); the APCAD definition and contamination wording (#1038).
 - Done when: one QA record marks each choice confirmed or to change.
@@ -178,6 +183,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - the annotation read since 2026-11-06: ClinVar from the annotated ClinVar file before VEP's cache, a multi-allelic record's annotation tied to its ALT, a field listing several values read as none, VEP's `MAX_AF` kept apart from gnomAD's popmax, and the owner's ACMG rules of 2026-11-06 (no criterion applied on a missing value; BA1/BS1 on gnomAD's FAF95; PP5/BP6 always to consider; PVS1 to consider on a LOFTEE flag or an NMD-escaping variant; the mtDNA frequencies);
     - imports from a watched folder: the package file and its checksums, the manifest made from it, the approval queue, the manifest kept in CoGA, and an import refused or undone when its package changed;
     - a new instance's references: HPO's newest release, recorded with its SHA-256, and Monarch's newest release, recorded in the annotation manifest.
+- The review-classification filters now keep a variant by the class its review shows (Major; the owner signed off its before/after table on 2026-11-10, #1214). That change added its own TF-10 §8 line; its follow-up validation joins this list.
 - The developer drafts the lines, after checking each against the code; QA confirms them with the list at the RC (REG-3).
 
 ### REG-15 · The variant summary's figures (PROD-1)
@@ -219,11 +225,18 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - The frontend's `/api` fallback reaches the backend only through VPC egress (owner).
 - Express's default 500 and Node's own 400 carry no headers.
 
-### SEC-37 · Raw values in messages and logs
+### SEC-40 · Error text still stored, answered or logged
 
-- "Family member '…' not found" (`family_structure_service.py`, two places) and "Sample '…' not found in family" (`per_sample_small_variants.py`) quote a request's ID raw, not through `visible()`.
-- A failed gene-reference refresh stores the exception's text as the job's error, shown on the admin page (`gene_info_jobs_pg.py`): a fixed sentence and `describe_error` instead.
-- `routers/cram.py`: a warning line names the sample.
+- SEC-39 kept an error's text out of the import's and the gene sources' records; the same pattern remains in:
+    - stored job errors: `dgv_load_jobs.py` (~678, ~681), `clinical_cnv_kb_jobs.py` (~677), `hpo_service.py` (~1646);
+    - CoGA error classes that wrap another error's text, which `own_error_message` would keep: `monarch_ingest.py` (~114), `monarch_semsim.py` (~113), `hpo_release_download.py` (~151, ~177), `hpo_service.py` (~682), `reference_source_service.py` (~696), `postgres_migrations.py` (~166, ~212);
+    - HTTP answers that quote an exception's text: `routers/admin.py` (~943, ~945, ~1012, ~1018), `routers/families.py` (~298), `routers/auth.py` (~627), and `family_package_discovery.py` (~2303, a YAML error quoting the manifest);
+    - log lines with an exception's text: `dependencies.py` (~130), `routers/auth.py` (~372, ~626), `account_notifications.py` (~205), `monarch_ingest.py` (~124, ~532), `monarch_semsim.py` (~112), `hpo_service.py` (~759, ~825, ~847), `reference_metadata_service.py` (~640), `reference_source_service.py` (~691).
+
+### UI-8 · Held tags and detached tags
+
+- A family lists, inactive, the tags its own reviews hold. Every inactive tag reads "Label (deleted)" (`frontend/src/lib/reviewTags.ts`), which is exact for a deleted project's tag and not for a tag of a project the family only left, still active there. A marker of its own needs a flag in the tag list and the interface (owner).
+- The cross-family Variant Explorer shows a non-superuser a bare key for a deleted project's tag that was not shared with their projects (`routers/variant_explorer.py` ~96); the family's own list shows its label.
 
 ### CLIN-14 · Repeat catalogue
 
@@ -240,14 +253,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - Commit `.terraform.lock.hcl`, generated with Terraform for linux_amd64 and darwin_arm64 (remove its `.gitignore` line).
 - `gcr.io/cloud-builders/docker` is frozen at Docker 20.10.24: move the Cloud Build configs to `docker:<version>-cli` by digest.
 
-### ENG-23 · Leftovers found on 2026-11-04
-
-- Read shims for rows written before a format change (the ClinVar `/` rescue in `clickhouse_variant_queries.py`, the old-shape `import_incomplete` readers, structure versions without `row_hash`, coverage tracks from before BEDs declared their content): remove them when the RC database is created fresh.
-- The non-admin branches of `family_package_jobs.py` that no route reaches; code only tests use (`clickhouse_variant_rows._small_annotation_row`, `repeat_expansion_pg.load_strchive_repeat_loci`, `wholeFamilyImportKeys`, `parentalOriginChartHeight`).
-- The request audit's `updateFields` lists body keys a model ignores (`audit_log_pg.py`).
-- Copies still to fold: the gene look-up SQL (`family_service.py`, `family_package_registration.py`), `_family_sample_contexts`, `_coerce_int`, the worker `stop_*` functions, `_execute` of the two ClickHouse writers, `_finite`, `_shares_allele`, the audit-actor helper.
-- `PaternityCheck.status` allows `skip`, which `evaluate_paternity` never returns; the GCS integration test's fixed container name collides in parallel runs.
-
 ### DATA-13 · Package files that pass validation unread
 
 - Discover on a package whose SNV family VCF is damaged answers 500: `family_package_discovery.py::_vcf_meta_lines` catches `OSError`, `EOFError` and `UnicodeError`, not `zlib.error`.
@@ -259,6 +264,10 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - A multi-allelic record (ALT `G,T`) is stored as one variant. Each annotation entry names its ALT, but the filters read the record's entries together: one allele's value keeps the record. A `Number=A` INFO value differs per allele, so it reads as no value.
 - `data-import.md` asks the pipeline to split such records (`bcftools norm -m -any`). The owner decides whether that stays a pipeline requirement, checked at import, or CoGA splits them; either is a change of its own.
 
+### CLIN-78 · An Explorer row's class under a class filter
+
+- The Explorer's class filter keeps a variant when any family's review shows the class, but its row shows the most severe class across families: a filter on class 3 can list a row shown as class 5. This was so before the filters followed the shown class; the user guide and handleiding chapter 14 now say so. The owner decides whether the row shows the class that matched.
+
 ### CLIN-74 · Variants of taken-out members
 
 - A structure edit that takes a member out keeps their calls in the family's rows unless it clears them. The Variant Explorer counts only the members a family shows (the owner's decision of 2026-11-06), but the family page still lists a variant only taken-out members carry, with 0/0 for each member it shows.
@@ -267,4 +276,12 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ### ENG-24 · End-to-end modules depend on their order
 
+- The end-to-end suite run on a database the integration suite has just used fails in `clickhouse_integrity`, the Explorer's counts and panel match, the family panel-region join, the ranking cache and ancestry; each passes on fresh containers, as CI runs it. Integration tests leave rows behind that these modules read.
 - Run on their own, `test_e2e_review_audit.py` then `test_e2e_signout_acknowledges_what_was_shown.py` fail the latter's `test_the_module_leaves_nothing_tagged_for_the_report`: the review-audit module leaves a variant of the shared family tagged for the report, and the sign-out module checks that the family's report list ends empty. The full suite, with other modules run in between, passes. Each module should leave the family as it found it, or check only its own tags.
+
+### ENG-25 · Copies that differ
+
+- The region of interest is parsed twice: `family_service._parse_region_of_interest` uses `GENOMIC_REGION_PATTERN` and answers 400 on negative coordinates; `family_package_registration._ROI_REGION_PATTERN` is a pattern of its own.
+- One Mendelian-consistency rule is written twice: `sample_integrity_qc._mendelian_consistent` and `phased_marker_service._is_mendelian_consistent`.
+- `clickhouse_variant_records._coerce_int` and `family_package_common._coerce_int` read `b"1.5"` differently (1 against none), and both differ from `vcf_fields.field_int` on a bool: decide one reading before folding them.
+- `small_variant_tag_definitions.family_id` is a column no code writes (`03_assay.sql`): drop it with a revision.
