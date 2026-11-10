@@ -21,9 +21,12 @@ from fastapi import HTTPException
 from backend.app.services import family_metadata_context
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_metadata_context import (
+    FamilyMetadataContext,
+    SampleMetadataContext,
     _resolve_family_assembly,
     build_family_metadata_context,
     build_sample_metadata_context,
+    family_sample_contexts,
 )
 
 PROJECT = "11111111-1111-1111-1111-111111111111"
@@ -400,3 +403,35 @@ async def test_a_samples_context_holds_the_projects_the_user_sees_and_their_asse
     )
     assert context.project_ids == [PROJECT, OTHER_PROJECT]
     assert [str(value) for value in several.calls[-1][1]["project_ids"]] == [PROJECT, OTHER_PROJECT]
+
+
+def test_each_member_is_a_samples_context_of_the_family() -> None:
+    # ENG-23: the upload route and the package import each built these with a copy of their own.
+    family = FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM1",
+        project_ids=[PROJECT],
+        sample_rows=[
+            {"sample_uuid": "proband-uuid", "sample_id": "PROBAND", "sex": "female"},
+            {"sample_uuid": "father-uuid", "sample_id": "FATHER1", "sex": "male"},
+        ],
+        sample_uuid_to_name={},
+        sample_name_to_uuid={},
+        affected_sample_names=[],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+
+    contexts = family_sample_contexts(family)
+
+    assert list(contexts) == ["PROBAND", "FATHER1"]
+    assert contexts["FATHER1"] == SampleMetadataContext(
+        sample_uuid="father-uuid",
+        sample_id="FATHER1",
+        family_uuid="family-uuid",
+        family_id="FAM1",
+        sex="male",
+        project_ids=[PROJECT],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )

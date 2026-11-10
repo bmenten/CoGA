@@ -18,6 +18,7 @@ import {
   hasLocationProblems,
   heldTagOptions,
   niptAppliesFilterChip,
+  normalizeReviewClassification,
   resolveSampleFiltersFromPreset,
   serializePresetFilters,
   smallVariantAppliesFilterChip,
@@ -33,6 +34,7 @@ import {
   type SmallVariantTagDefinition,
 } from '../smallVariantSearch';
 import { tagDefinition } from '../../../test/tagDefinitions';
+import reviewClassCases from './fixtures/review-class-cases.json';
 
 const members: FamilyMember[] = [
   { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
@@ -615,6 +617,15 @@ describe('class labels in sentence case', () => {
     await waitFor(() =>
       expect(result.current.filters.classification).toBe('Pathogenic - class 5, Likely pathogenic - class 4'),
     );
+  });
+});
+
+// The class a review shows, from its text and its tags. The Variant Explorer reads it on the server
+// (review_class_label in review_pg_utils.py), which reads these same cases in
+// test_acmg_frontend_parity.py, so a review shows one class on both pages (CLIN-71).
+describe('the class a review shows', () => {
+  it.each(reviewClassCases.cases)('$why', ({ classification, tags, shown }) => {
+    expect(normalizeReviewClassification(classification, tags)).toBe(shown);
   });
 });
 

@@ -37,11 +37,10 @@ from fastapi import UploadFile
 from backend.app.routers import bed as bed_router
 from backend.app.schemas import FamilyImportDatasetSummary
 from backend.app.services import bed_service, family_package_datasets
-from backend.app.services import family_package_registration as registration
 from backend.app.services import report_signout_service as rss
 from backend.app.services import signed_record_sections as srs
 from backend.app.services.coverage_read_depth import coverage_track_content
-from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.app.services.family_metadata_context import FamilyMetadataContext, family_sample_contexts
 from backend.app.services.family_package_common import (
     FamilyPackageBundle,
     ManifestDataset,
@@ -531,7 +530,7 @@ def stores(monkeypatch: pytest.MonkeyPatch) -> _Stores:
 async def test_a_bed_loader_keeps_where_the_file_came_from_in_the_tracks_record(
     stores: _Stores, uploaded_from: str
 ) -> None:
-    sample = registration._family_sample_contexts(_context())["S1"]
+    sample = family_sample_contexts(_context())["S1"]
     await bed_service.upload_bed_data(
         _StoreSession(stores),  # type: ignore[arg-type]
         sample_context=sample,
@@ -549,7 +548,7 @@ async def test_a_bed_loader_keeps_where_the_file_came_from_in_the_tracks_record(
 
 @pytest.mark.asyncio
 async def test_a_bed_loader_that_names_no_origin_records_none(stores: _Stores) -> None:
-    sample = registration._family_sample_contexts(_context())["S1"]
+    sample = family_sample_contexts(_context())["S1"]
     await bed_service.upload_bed_data(
         _StoreSession(stores),  # type: ignore[arg-type]
         sample_context=sample,
@@ -564,7 +563,7 @@ async def test_a_bed_loader_that_names_no_origin_records_none(stores: _Stores) -
 @pytest.mark.asyncio
 async def test_the_bed_upload_route_records_a_single_file_upload(monkeypatch) -> None:
     asked: dict[str, Any] = {}
-    sample = registration._family_sample_contexts(_context())["S1"]
+    sample = family_sample_contexts(_context())["S1"]
 
     async def _sample_context(session, *, sample_identifier, user):
         return sample
@@ -614,7 +613,7 @@ async def test_a_package_coverage_bed_records_that_a_package_loaded_it(stores: _
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type="coverage", status="valid"),
         family_context=family,
-        sample_contexts=registration._family_sample_contexts(family),
+        sample_contexts=family_sample_contexts(family),
         conflict_mode="overwrite",
     )
 
@@ -640,7 +639,7 @@ def _package_job(tmp_path: Path, stores: _Stores, name: str, dataset: ManifestDa
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type=name, status="valid"),
         family_context=family,
-        sample_contexts=registration._family_sample_contexts(family),
+        sample_contexts=family_sample_contexts(family),
         conflict_mode="overwrite",
     )
 

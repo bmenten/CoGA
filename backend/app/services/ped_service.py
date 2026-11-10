@@ -9,12 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedFamilyResult, PedUploadResult
+from .clinical_audit_service import audit_actor
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_structure_audit import (
     FAMILY_CREATED,
     PEDIGREE_REPLACED,
     PedigreeChange,
-    audit_actor,
     record_family_deleted,
     record_structure_version,
 )

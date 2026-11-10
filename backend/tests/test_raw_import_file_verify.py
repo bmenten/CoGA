@@ -19,11 +19,13 @@ from app.services import raw_import_files_pg as rif
 
 
 @pytest.fixture(autouse=True)
-def _files_under_an_import_root(monkeypatch, tmp_path) -> None:
-    """The local files verified here lie in ``tmp_path``, made an import root: Verify and
-    the list read a recorded path only inside the folders CoGA reads source files from
-    (SEC-29). A test of a file in an object store sets the bucket's root instead."""
-    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+def _files_in_the_familys_package(monkeypatch, tmp_path) -> None:
+    """The local files verified here lie in ``tmp_path``, the family's package folder below an
+    import root (its parent): Verify and the list read a recorded path only inside the package
+    folder the family's import read, or the upload folder (SEC-29, SEC-38). Each record names
+    that folder, as the admin page reads it with the row. A test of a file in an object store
+    sets the bucket's root instead."""
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path.parent)])
 
 
 def _sha256_of(path: Path) -> str:
@@ -37,7 +39,7 @@ def test_verify_reports_verified_when_checksum_matches(tmp_path):
 
     result = asyncio.run(
         rif.verify_raw_import_file(
-            {"id": "rec-1", "storage_path": str(f), "sha256": expected}
+            {"id": "rec-1", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": expected}
         )
     )
 
@@ -52,7 +54,7 @@ def test_verify_detects_a_corrupted_or_altered_file(tmp_path):
 
     result = asyncio.run(
         rif.verify_raw_import_file(
-            {"id": "rec-2", "storage_path": str(f), "sha256": "0" * 64}
+            {"id": "rec-2", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": "0" * 64}
         )
     )
 
@@ -64,7 +66,7 @@ def test_verify_detects_a_corrupted_or_altered_file(tmp_path):
 def test_verify_reports_missing_when_file_is_absent(tmp_path):
     result = asyncio.run(
         rif.verify_raw_import_file(
-            {"id": "rec-3", "storage_path": str(tmp_path / "gone.vcf.gz"), "sha256": "abc"}
+            {"id": "rec-3", "package_folder": str(tmp_path), "storage_path": str(tmp_path / "gone.vcf.gz"), "sha256": "abc"}
         )
     )
 
@@ -78,7 +80,7 @@ def test_verify_reports_unverifiable_without_a_recorded_checksum(tmp_path):
 
     result = asyncio.run(
         rif.verify_raw_import_file(
-            {"id": "rec-4", "storage_path": str(f), "sha256": None}
+            {"id": "rec-4", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": None}
         )
     )
 
@@ -104,7 +106,7 @@ def test_verify_hashes_a_local_file_only_under_the_size_cap(monkeypatch, tmp_pat
     f.write_bytes(b"0123456789")  # 10 bytes
     expected = _sha256_of(f)
 
-    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-5", "storage_path": str(f), "sha256": expected}))
+    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-5", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": expected}))
 
     assert result["status"] == status
     # Over the cap the file was never hashed.
@@ -122,7 +124,7 @@ def test_a_hash_that_runs_out_of_time_is_not_a_verdict(monkeypatch, tmp_path):
     monkeypatch.setattr(rif, "_hash_and_size", slow)
     monkeypatch.setattr(rif, "_VERIFY_TIMEOUT_SECONDS", 0.02)
 
-    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-6", "storage_path": str(f), "sha256": _sha256_of(f)}))
+    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-6", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": _sha256_of(f)}))
 
     assert (result["status"], result["computed_sha256"]) == ("too_large", None)
     assert "timed out" in result["message"]
@@ -144,7 +146,7 @@ def test_a_file_whose_size_cannot_be_read_is_still_hashed(monkeypatch, tmp_path)
 
     monkeypatch.setattr(rif, "Path", _SizeUnreadable)
 
-    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-7", "storage_path": str(f), "sha256": _sha256_of(f)}))
+    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-7", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": _sha256_of(f)}))
 
     assert stat_calls[0] == str(f.resolve())
     assert (result["status"], result["computed_sha256"]) == ("verified", _sha256_of(f))
@@ -171,7 +173,7 @@ def test_a_recorded_path_holding_a_nul_is_read_nowhere(tmp_path):
     assert rif.readable_local_path(recorded) is None
     assert rif.readable_local_path(recorded, folders=[str(tmp_path)]) is None
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(rif.verify_raw_import_file({"id": "rec-8", "storage_path": recorded, "sha256": "abc"}))
+        asyncio.run(rif.verify_raw_import_file({"id": "rec-8", "package_folder": str(tmp_path), "storage_path": recorded, "sha256": "abc"}))
     assert (exc.value.status_code, exc.value.detail) == (403, rif.OUTSIDE_FOLDERS_DETAIL)
 
 
@@ -192,6 +194,8 @@ CRAM_URI = f"gs://{BUCKET}/imports/F1/bams/S1.cram"
 def _remote_record(uri=CRAM_URI, *, size=4, sha256=None, **store_object):
     return {
         "id": "rec-remote",
+        # The family's package folder in the bucket, as its import recorded it (SEC-38).
+        "package_folder": uri.split("/imports/F1/")[0] + "/imports/F1",
         "storage_path": uri,
         "sha256": sha256,
         "file_size": size,
@@ -305,9 +309,10 @@ def test_the_admin_list_does_not_call_a_file_in_an_object_store_missing(tmp_path
     local = tmp_path / "F1.vcf.gz"
     local.write_bytes(b"vcf")
 
-    remote_row = rif._row_to_dict({"storage_path": CRAM_URI, "created_at": None})
-    local_row = rif._row_to_dict({"storage_path": str(local), "created_at": None})
-    gone_row = rif._row_to_dict({"storage_path": str(tmp_path / "gone.vcf.gz"), "created_at": None})
+    package = {"package_folder": str(tmp_path)}
+    remote_row = rif._row_to_dict({"storage_path": CRAM_URI, "created_at": None, **package})
+    local_row = rif._row_to_dict({"storage_path": str(local), "created_at": None, **package})
+    gone_row = rif._row_to_dict({"storage_path": str(tmp_path / "gone.vcf.gz"), "created_at": None, **package})
 
     # Not checked when listing -- Verify asks the store -- and not downloaded through CoGA.
     assert (remote_row["in_object_store"], remote_row["exists"], remote_row["download_available"]) == (True, None, False)

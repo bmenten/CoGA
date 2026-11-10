@@ -58,6 +58,7 @@ from .haplotype_block_builder import (
     is_one_copy_x_site,
 )
 from .pgt_embryo_calls import normalize_sex
+from .sample_integrity_qc import shares_allele
 from .sex_chromosomes import pseudoautosomal_regions, sex_chromosome
 
 # Fetch ceiling — covers a whole (largest) chromosome of family-scoped imputed
@@ -83,12 +84,6 @@ def _is_mendelian_consistent(
             if tuple(sorted((paternal_allele, maternal_allele))) == child_state:
                 return True
     return False
-
-
-def _shares_allele(a: tuple[str, str], b: tuple[str, str]) -> bool:
-    """Do two genotypes share at least one allele? A true parent and child always do;
-    sharing none is a single-parent Mendelian inconsistency."""
-    return bool({a[0], a[1]} & {b[0], b[1]})
 
 
 def hemizygous_x_ranges(assembly_name: str | None, chrom: str | None, start: int, end: int) -> list[list[int]]:
@@ -255,7 +250,7 @@ def compute_phased_markers(
                 name, shade, side = present_parents[0]
                 parent = parent_alleles[name]
                 child_qc["informative_sites"] += 1
-                if not _shares_allele(parent, child_alleles):
+                if not shares_allele(parent, child_alleles):
                     child_qc["mendel_errors"] += 1
                 transmitted = _transmitted_single_parent_haplotype(parent, child_alleles)
                 if transmitted is None:

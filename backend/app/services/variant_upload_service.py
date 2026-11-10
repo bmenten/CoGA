@@ -18,7 +18,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.coga_logging import scrub_log
-from .annotation_table_parser import VepAnnotationLookup, _coerce_int, _parse_vep_tsv_annotation_lines
+from .annotation_table_parser import VepAnnotationLookup, _parse_vep_tsv_annotation_lines
 from .bed_service import get_track_presence_by_sample
 from .clickhouse_column_bounds import UINT32, column_float32, column_int
 from .bounded_download import TruncatedBgzfError, require_bgzf_file_end
@@ -53,6 +53,7 @@ from .clickhouse_interval_tracks import (
     upsert_interval_track_source,
 )
 from .data_scope import normalize_chromosome
+from .family_identifiers import visible
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .family_package_common import (
     DatasetLeftMissing,
@@ -94,7 +95,7 @@ from .variant_annotation_parser import (
 from .clickhouse_variant_queries import NIPT_SMALL_VARIANT_SOURCE as _NIPT_SOURCE
 from .vcf_call_metrics import record_filter_values, single_sample_call_metrics
 # Under the names this module's readers, per_sample_small_variants and the tests use.
-from .vcf_fields import parse_format as _parse_format, parse_info as _parse_info
+from .vcf_fields import field_int, parse_format as _parse_format, parse_info as _parse_info
 from .vcf_header_provenance import (
     extract_header_provenance,
     extract_info_description_provenance,
@@ -276,7 +277,7 @@ def _parse_int_list(value: str | None) -> list[int]:
     for item in value.split(","):
         if not item:
             continue
-        parsed.append(_coerce_int(item) or 0)
+        parsed.append(field_int(item) or 0)
     return parsed
 
 
@@ -990,7 +991,7 @@ async def upload_family_small_variant_file(
                         if sample_column not in header_columns:
                             raise HTTPException(
                                 status_code=400,
-                                detail=f"The VCF has no sample column '{sample_column}'",
+                                detail=f"The VCF has no sample column '{visible(sample_column)}'",
                             )
                         selected_column = header_columns.index(sample_column)
                         header_columns = [sample_column]
@@ -1001,7 +1002,7 @@ async def upload_family_small_variant_file(
                     unique_names = list(dict.fromkeys(read.sample_names))
                     for name in unique_names:
                         if name not in sample_contexts:
-                            raise HTTPException(status_code=400, detail=f"Sample '{name}' not found in family")
+                            raise HTTPException(status_code=400, detail=f"Sample '{visible(name)}' not found in family")
                         if haplotype_blocks is not None:
                             haplotype_blocks.add_sample(name)
                     if samples_scope:

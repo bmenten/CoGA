@@ -251,7 +251,7 @@ async def _mito_upload(admin, sample: str, *positions: int) -> dict:
 
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services.family_metadata_context import build_family_metadata_context
-    from backend.app.services.family_package_registration import _family_sample_contexts
+    from backend.app.services.family_metadata_context import family_sample_contexts
     from backend.app.services.variant_upload_service import upload_family_small_variant_file
 
     async with get_postgres_sessionmaker()() as session:
@@ -259,7 +259,7 @@ async def _mito_upload(admin, sample: str, *positions: int) -> dict:
         return await upload_family_small_variant_file(
             session,
             context=context,
-            sample_contexts=_family_sample_contexts(context),
+            sample_contexts=family_sample_contexts(context),
             file=UploadFile(file=BytesIO(_mito_vcf(sample, *positions)), filename=f"{sample}.mito.vcf"),
             overwrite=True,
             format_hint="mito",

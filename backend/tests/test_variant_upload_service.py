@@ -14,7 +14,8 @@ from backend.app.services.clickhouse_variant_ids import build_small_variant_id
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services import clickhouse_variant_storage, haplotype_block_builder, variant_upload_service
 from backend.tests._event_loop_probe import LoopProbe
-from backend.app.services.annotation_table_parser import _coerce_int, _vep_location_allele_key
+from backend.app.services.annotation_table_parser import _vep_location_allele_key
+from backend.app.services.vcf_fields import field_int
 from backend.app.services.haplotype_block_builder import (
     _haplotype_state_end,
     _haplotype_state_matches_block,
@@ -44,12 +45,16 @@ def _no_family_write_lock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_coerce_int_tolerates_floats_and_junk() -> None:
-    assert _coerce_int("42") == 42
-    assert _coerce_int("42.0") == 42
-    assert _coerce_int(".") is None
-    assert _coerce_int("") is None
-    assert _coerce_int(None) is None
-    assert _coerce_int("not-a-number") is None
+    # One reader for the VEP table and the SV uploads (ENG-23: each kept a copy).
+    assert field_int("42") == 42
+    assert field_int(" 42.7 ") == 42
+    assert field_int(".") is None
+    assert field_int(" . ") is None
+    assert field_int("") is None
+    assert field_int(None) is None
+    assert field_int("not-a-number") is None
+    assert field_int("nan") is None
+    assert field_int(True) is None
 
 
 def test_parse_float_list_keeps_every_allele_fraction_or_none_without_raising() -> None:
@@ -1147,8 +1152,9 @@ _TRIO_VCF = (
 )
 
 
-async def _upload_trio_vcf(monkeypatch: pytest.MonkeyPatch, text: str) -> tuple[dict, list]:
-    """Upload ``text`` as the trio's family VCF; returns the result and the records stored."""
+async def _upload_trio_vcf(monkeypatch: pytest.MonkeyPatch, text: str, **upload: object) -> tuple[dict, list]:
+    """Upload ``text`` as the trio's family VCF, with the options ``upload`` gives; returns the
+    result and the records stored."""
     stored: list = []
 
     async def no_rows(*_args, **_kwargs):
@@ -1202,6 +1208,7 @@ async def _upload_trio_vcf(monkeypatch: pytest.MonkeyPatch, text: str) -> tuple[
         file=UploadFile(file=BytesIO(text.encode()), filename="family.vcf"),
         overwrite=False,
         format_hint="clair3",
+        **upload,  # type: ignore[arg-type]
     )
     return result, stored
 
@@ -1267,6 +1274,39 @@ async def test_a_multi_sample_vcf_gives_each_sample_its_own_call_and_the_site_it
         "MOTHER": ("./.", None, 30, [30, 0], [], None),
         "FATHER": ("./.", None, 27, [27, 0], [], None),
     }
+
+
+# A sample column that names no member, or a column asked for that the file lacks, holding
+# characters a reader cannot see: an escape sequence that clears a terminal, a text-direction
+# override. The refusal quoted it raw, so they reached the page and the job's record as they
+# were (SEC-37); each is shown as its escape.
+_UNSEEN = "SIB\x1b[2J‮1"
+_UNSEEN_SHOWN = "SIB\\x1b[2J\\u202e1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("column", "upload", "detail"),
+    [
+        pytest.param(_UNSEEN, {}, f"Sample '{_UNSEEN_SHOWN}' not found in family", id="a-column-of-no-member"),
+        pytest.param(
+            "FATHER",
+            {"sample_column": _UNSEEN},
+            f"The VCF has no sample column '{_UNSEEN_SHOWN}'",
+            id="a-column-the-file-lacks",
+        ),
+    ],
+)
+async def test_a_sample_column_the_upload_cannot_read_is_refused_showing_it_as_written(
+    monkeypatch: pytest.MonkeyPatch, column: str, upload: dict[str, object], detail: str
+) -> None:
+    text = _TRIO_VCF.replace("\tMOTHER\tFATHER\n", f"\tMOTHER\t{column}\n", 1)
+
+    with pytest.raises(HTTPException) as refused:
+        await _upload_trio_vcf(monkeypatch, text, **upload)
+
+    assert (refused.value.status_code, refused.value.detail) == (400, detail)
+    assert "\x1b" not in refused.value.detail and "‮" not in refused.value.detail
 
 
 @pytest.mark.asyncio

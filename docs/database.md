@@ -146,7 +146,7 @@ reference file is recorded under its file name.
 | `sample_paraphase_results` | Paraphase copy-number and haplotype results per sample |
 | `nipt_artifact_variants` | the recurrent-artifact list for monogenic NIPT, per assembly and assay: entries added one by one, imported from the NIPT-M pipeline's recurrent table (as `curated`) or seeded from the cohort (`auto`) (see [monogenic-nipt.md](monogenic-nipt.md) and [data-import.md](data-import.md#the-nipt-artifact-list)) |
 | `sample_interval_track_sources` | one row per sample, track type (`coverage`, `segments`, `apcad`, `apcad_pcf`, `apcad_segregation`, `haplotype`, `target_coverage`), source and file, with its row count; the rows themselves are in ClickHouse. A `haplotype` row's `metadata.pedigree_basis` holds what its blocks were built for besides the genotypes (the index couple, the couple's children in the file and the samples' sexes), which the PGT analysis compares with the pedigree (CLIN-66) |
-| `small_variant_reviews` | the classification, ACMG criteria, tags, notes and evidence snapshot of a small variant in a family. The classification is free text: the dialogs write the class label ("Likely pathogenic - class 4"), in sentence case since revision `0013`, and a save stores a class label sent in another case as the label is now; the filters, the Variant Explorer and the check against the latest sign-out read a class label whatever its case |
+| `small_variant_reviews` | the classification, ACMG criteria, tags, notes and evidence snapshot of a small variant in a family. The classification is free text: the dialogs write the class label ("Likely pathogenic - class 4"), in sentence case since revision `0013`, and a save stores a class label sent in another case as the label is now; the filters, the Variant Explorer and the check against the latest sign-out read a class label whatever its case. A review may hold its class as a class tag (`acmg_class_4`) without the text; the family page and the Variant Explorer then show the tag's class (`review_pg_utils.py::review_class_label`), the classification filters read the text alone |
 | `structural_variant_reviews` | the same for a structural variant or CNV, with the CNV ACMG points and the evidence snapshot of the CNV classification |
 | `repeat_expansion_reviews`, `paraphase_reviews` | the analyst's review of a repeat locus (`locus_id`, the catalogue's TRGT TRID) and of a Paraphase region (`gene_symbol`, Paraphase's region key), one per family and assembly (`UNIQUE (family_id, assembly_id, key)`). It holds tags from the review-tag catalogue, a note, and a classification on the type's scale (`classification`, checked: for a repeat `pathogenic_expansion`, `reduced_penetrance`, `premutation`, `intermediate`, `normal`, `uncertain`; for a Paraphase region `affected`, `carrier`, `risk_allele`, `normal`, `uncertain`), beside CoGA's automatic status, which it never changes. `evidence_snapshot` holds the calls a classification or the Report tag rests on (`captured_at`, `evidence`: the locus's or region's entry as the signed record freezes it), frozen when a save sets or changes the classification or adds the Report tag; the sign-out compares it with the calls then. A save that says nothing deletes the review. Each change is a clinical audit event (`variant_id` `repeat:<locus_id>` or `paraphase:<gene_symbol>`); see [docs/repeat-paraphase-review-design.md](repeat-paraphase-review-design.md) |
 | `small_variant_filter_presets`, `structural_variant_filter_presets` | saved filter sets, per user. A small-variant one is reusable in every family; a structural-variant one is for one family or all. The owner is the account (`owner_id`, SEC-32), so a preset stays its owner's when a Microsoft sign-in changes the account's user name, and is deleted with the account. One name per owner (for a structural-variant preset, per owner, family and scope). `owner` is the user name the preset was last saved under, shown with it |
@@ -257,17 +257,29 @@ id (an unversioned S3 object is compared by ETag). It reports a vanished object 
 and a replaced one as `mismatch`. The file is not downloaded through CoGA.
 
 **Where a recorded file is read.** `storage_path` is read back as data, so an edited row could
-name any file. The admin page lists, downloads and verifies a file only where an import puts
-one. Its real path (symlinks resolved) must lie inside a local `FAMILY_IMPORT_ROOTS` folder,
-the temporary folder a bucket package is staged in, or the upload folder `data/raw_imports`
-(`services/raw_import_files_pg.py`); the file is read by that real path.
+name any file. The admin page lists, downloads and verifies a file only where an import of its
+family puts one. Its real path (symlinks resolved) must lie inside the package folder the
+family's import read (`families.metadata.package_import.folder_path`, read with the row, when it
+lies below a local `FAMILY_IMPORT_ROOTS` entry and is not the root itself, as for the files IGV
+reads), or the upload folder `data/raw_imports`, which holds every managed copy: an upload, a
+manifest kept for an import's job (`services/raw_import_files_pg.py`). The file is read by that
+real path. Every file a local package import records lies in its package folder, so the two
+folders hold every file of the family; another family's package in the import area is not read
+(SEC-38).
 
 - A row naming any other path is listed as unavailable without being looked up; its download
-  and **Verify** answer 403. Verify asks the store only about an object below a remote
-  `FAMILY_IMPORT_ROOTS` entry. The list marks a row of either kind `outside_read_folders`, and
-  the admin page says it is not read and why a Verify was refused (SEC-27).
-- With `FAMILY_IMPORT_ROOTS` empty (the import then takes a package folder anywhere), only the
-  upload and staging folders are read.
+  and **Verify** answer 403. Verify asks the store only about an object in the family's bucket
+  package folder (`within_family_package`). The list marks a row of either kind
+  `outside_read_folders`, and the admin page says it is not read and why a Verify was refused
+  (SEC-27).
+- A family without a usable package folder (none recorded, the import root itself, outside the
+  roots) and, with `FAMILY_IMPORT_ROOTS` empty (the import then takes a package folder
+  anywhere), every family has only its upload folder read. The staging folder of a bucket
+  package is not read: such an import records the objects' URIs, and its staged copy is deleted
+  after it.
+- The package folder is the one the family's latest import read. A file recorded by an earlier
+  import of the family from another folder is listed as not read, as IGV no longer reads that
+  folder either.
 - Deleting a family or a sample unlinks its `managed` copies only inside the upload folder. A
   managed row naming any other path is skipped with a log line, and nothing is deleted for it.
   A package folder need not be named after its family, nor an upload folder after the family's

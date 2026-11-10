@@ -112,9 +112,9 @@ page is an administrator's alone.
     files.
   - A file kept in a storage bucket is not downloaded here; **Verify** checks it against the bucket's
     record of it instead of its SHA-256.
-  - A file recorded outside the import folders (`FAMILY_IMPORT_ROOTS`, a bucket's among them) and
-    CoGA's upload folder is marked as not read, and is neither downloaded nor verified. A refused
-    **Verify** says why.
+  - A file recorded outside the family's own package folder (the folder its latest import read,
+    on disk or in a bucket) and CoGA's upload folder is marked as not read, and is neither
+    downloaded nor verified. A refused **Verify** says why.
 - **Family statuses** — the workflow statuses analysts give a case.
 - **Sequencing QC thresholds** — the warning and error cut-offs per assay behind the **Seq. QC** chip.
   None ship by default. A metric without a cut-off reads as *not assessed*, and a sample with no

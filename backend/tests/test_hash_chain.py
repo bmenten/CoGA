@@ -15,8 +15,19 @@ from backend.app.services.hash_chain import (
     GENESIS,
     canonical_json,
     chain_row_hash,
+    jsonb_float,
     verify_chain,
 )
+
+
+def test_a_snapshot_float_is_one_jsonb_holds_and_hashes_alike_after_its_round_trip() -> None:
+    # ENG-23: the small-variant and the CNV evidence snapshots kept a copy each.
+    assert jsonb_float(0.25) == 0.25
+    assert jsonb_float(None) is None
+    for not_stored in (float("nan"), float("inf"), float("-inf")):
+        assert jsonb_float(not_stored) is None
+    zero = jsonb_float(-0.0)
+    assert zero == 0.0 and canonical_json(zero) == "0.0"
 
 
 def test_canonical_json_is_order_independent_and_value_sensitive() -> None:

@@ -26,7 +26,7 @@ from ..services.clickhouse_family_variants import (
     export_family_small_variants,
     get_family_small_variants_page as get_family_small_variants_clickhouse,
 )
-from ..services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext, build_family_metadata_context
+from ..services.family_metadata_context import build_family_metadata_context, family_sample_contexts
 from ..services.family_variant_statistics import get_family_small_variant_statistics
 from ..services.signed_record_nipt import is_nipt_family, nipt_trio_of
 from ..services.access_control import CurrentUser, changes_only_own_data
@@ -51,22 +51,6 @@ from .query_params import FiniteThreshold
 
 
 router = APIRouter()
-
-
-def _family_sample_contexts(context: FamilyMetadataContext) -> dict[str, SampleMetadataContext]:
-    return {
-        row["sample_id"]: SampleMetadataContext(
-            sample_uuid=row["sample_uuid"],
-            sample_id=row["sample_id"],
-            family_uuid=context.family_uuid,
-            family_id=context.family_id,
-            sex=row["sex"],
-            project_ids=context.project_ids,
-            assembly_id=context.assembly_id,
-            assembly_name=context.assembly_name,
-        )
-        for row in context.sample_rows
-    }
 
 
 @router.get(
@@ -109,7 +93,7 @@ async def upload_family_small_variants(
     result = await upload_family_small_variant_file(
         session,
         context=context,
-        sample_contexts=_family_sample_contexts(context),
+        sample_contexts=family_sample_contexts(context),
         file=file,
         overwrite=overwrite,
         format_hint=source_format,

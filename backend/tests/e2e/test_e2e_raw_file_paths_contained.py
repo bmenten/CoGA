@@ -1,4 +1,4 @@
-"""Raw-file download, Verify, the list and the deletes keep to CoGA's own folders (E2E, SEC-29).
+"""Raw-file download, Verify, the list and the deletes keep to the family's own folders (E2E, SEC-29, SEC-38).
 
 The admin page lists a family's ``raw_import_files`` rows, downloads a file and verifies its
 SHA-256 at the recorded ``storage_path``, and deleting a sample or the family unlinks the
@@ -8,16 +8,19 @@ turned a sample or family delete into deleting any file the backend may write.
 
 Over the real API (an in-process ``httpx.ASGITransport`` client, one event loop, see
 test_e2e_api_contract.py) and Postgres and ClickHouse, with the seeded admin signed in, a
-family of two samples made through the Family Builder, and its ``raw_import_files`` rows
-written as the import writes them and as an edited row would hold them. The files lie in the
-test's own folders: ``imports`` (FAMILY_IMPORT_ROOTS), ``data`` (the data directory, whose
-``raw_imports`` is the upload folder) and ``elsewhere``, which is neither.
+family of two samples made through the Family Builder, its package folder recorded as its
+import records it (``families.metadata.package_import.folder_path``), and its
+``raw_import_files`` rows written as the import writes them and as an edited row would hold
+them. The files lie in the test's own folders: ``imports`` (FAMILY_IMPORT_ROOTS), holding the
+family's package and another family's, ``data`` (the data directory, whose ``raw_imports`` is
+the upload folder) and ``elsewhere``, which is neither.
 
 * a package file, in a package folder not named after the family, and an upload are listed,
   downloaded and verified; a row naming a file elsewhere, a path that climbs out of the import
   root with ``..`` or a link in the package that leads out is listed unavailable (before:
   present and downloadable), and its download and Verify answer 403 (before: 200 with the
-  file's bytes, and its checksum);
+  file's bytes, and its checksum); so does one naming a file of another family's package in
+  the import area, or a link in the package to it (SEC-38; before: 200);
 * deleting the second sample unlinks its upload and leaves the file elsewhere that another of
   its managed rows names (before: deleted); deleting the family unlinks its upload, also one
   in the folder of a former ID, and leaves the package file and the file elsewhere that its
@@ -42,8 +45,8 @@ from backend.tests.e2e._harness import ensure_postgres_schema, place_file
 pytestmark = pytest.mark.integration
 
 OUTSIDE = (
-    "The file's recorded storage path lies outside the folders CoGA reads source files from "
-    "(FAMILY_IMPORT_ROOTS and its upload folder), so the file is not read."
+    "The file's recorded storage path lies outside its family's package folder (below "
+    "FAMILY_IMPORT_ROOTS) and CoGA's upload folder, so the file is not read."
 )
 
 
@@ -62,6 +65,7 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
     package_folder = imports / f"run-{run}"
     files = {
         "package": place_file(package_folder / "trio.vcf.gz", b"package file"),
+        "other_package": place_file(imports / f"run-other-{run}" / "trio.vcf.gz", b"another family's package"),
         "upload": place_file(data / "raw_imports" / family / "0a1b2c__trio.vcf", b"family upload"),
         "former_upload": place_file(data / "raw_imports" / f"FORMER_{run}" / "3d4e5f__trio.vcf", b"upload under a former ID"),
         "sample_upload": place_file(data / "raw_imports" / family / "6a7b8c__s2.vcf", b"sample upload"),
@@ -70,6 +74,7 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
         "victim_sample": place_file(elsewhere / "victim-sample.txt", b"named by a managed row of the sample"),
     }
     (package_folder / "linked-out.txt").symlink_to(files["secret"])
+    (package_folder / "linked-across.vcf.gz").symlink_to(files["other_package"])
 
     # name: (sample, managed, recorded path, the file it reaches)
     rows: dict[str, tuple[str | None, bool, str, str]] = {
@@ -79,6 +84,8 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
         "elsewhere": (None, False, str(files["secret"]), "secret"),
         "climbing": (None, False, str(package_folder / ".." / ".." / "elsewhere" / "secret.txt"), "secret"),
         "linked_out": (None, False, str(package_folder / "linked-out.txt"), "secret"),
+        "other_package": (None, False, str(files["other_package"]), "other_package"),
+        "linked_across": (None, False, str(package_folder / "linked-across.vcf.gz"), "other_package"),
         "managed_package": (s1, True, str(files["package"]), "package"),
         "managed_elsewhere": (None, True, str(files["victim_family"]), "victim_family"),
         "former_upload": (None, True, str(files["former_upload"]), "former_upload"),
@@ -116,6 +123,16 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
                 family_uuid = (
                     await session.execute(text("SELECT id::text FROM families WHERE family_id = :f"), {"f": family})
                 ).scalar_one()
+                # The package folder the family's import read, as the import's registration
+                # records it: its files are read only there and in the upload folder (SEC-38).
+                await session.execute(
+                    text(
+                        "UPDATE families SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object("
+                        "'package_import', jsonb_build_object('folder_path', CAST(:folder AS text))) "
+                        "WHERE id = CAST(:f AS uuid)"
+                    ),
+                    {"folder": str(package_folder), "f": family_uuid},
+                )
                 sample_uuids = {
                     row["sample_id"]: row["id"]
                     for row in (
@@ -165,7 +182,7 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
             }
 
             out["downloads"], out["verified"] = {}, {}
-            for name in ("package", "upload", "elsewhere", "climbing", "linked_out"):
+            for name in ("package", "upload", "elsewhere", "climbing", "linked_out", "other_package", "linked_across"):
                 download = await admin.get(f"/api/admin/data/files/{ids[name]}/download")
                 out["downloads"][name] = (
                     download.status_code,
@@ -224,7 +241,10 @@ def test_the_list_shows_a_file_outside_the_folders_unavailable(exercised: dict[s
         "elsewhere": unavailable,
         "climbing": unavailable,
         "linked_out": unavailable,
-        # Read where it lies (the import root); not deleted for it, below.
+        # Before (SEC-38): present and downloadable, as files below the import root.
+        "other_package": unavailable,
+        "linked_across": unavailable,
+        # Read where it lies (the family's package); not deleted for it, below.
         "managed_package": available,
         "managed_elsewhere": unavailable,
         "former_upload": available,
@@ -235,12 +255,15 @@ def test_the_list_shows_a_file_outside_the_folders_unavailable(exercised: dict[s
 
 def test_a_file_outside_the_folders_is_neither_downloaded_nor_verified(exercised: dict[str, Any]) -> None:
     # Before: 200 with the secret's bytes, and Verify hashed it ("verified").
+    # Before (SEC-38): 200 with the other package's bytes, and "verified".
     assert exercised["downloads"] == {
         "package": (200, b"package file"),
         "upload": (200, b"family upload"),
         "elsewhere": (403, OUTSIDE),
         "climbing": (403, OUTSIDE),
         "linked_out": (403, OUTSIDE),
+        "other_package": (403, OUTSIDE),
+        "linked_across": (403, OUTSIDE),
     }
     assert exercised["verified"] == {
         "package": (200, "verified"),
@@ -248,6 +271,8 @@ def test_a_file_outside_the_folders_is_neither_downloaded_nor_verified(exercised
         "elsewhere": (403, OUTSIDE),
         "climbing": (403, OUTSIDE),
         "linked_out": (403, OUTSIDE),
+        "other_package": (403, OUTSIDE),
+        "linked_across": (403, OUTSIDE),
     }
 
 
@@ -264,6 +289,7 @@ def test_a_family_delete_unlinks_only_its_uploads(exercised: dict[str, Any]) -> 
     assert exercised["family_delete"] == (200, 2)
     assert exercised["after_family_delete"] == {
         "package": True,
+        "other_package": True,
         "upload": False,
         "former_upload": False,
         "sample_upload": False,
@@ -273,6 +299,7 @@ def test_a_family_delete_unlinks_only_its_uploads(exercised: dict[str, Any]) -> 
     }
     assert exercised["contents"] == {
         "package": b"package file",
+        "other_package": b"another family's package",
         "secret": b"secret",
         "victim_family": b"named by a managed row of the family",
         "victim_sample": b"named by a managed row of the sample",

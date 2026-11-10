@@ -33,6 +33,7 @@ from backend.app.services.sample_integrity_qc import (
     mendelian_stats,
     profile_for,
     resolve_application,
+    shares_allele,
 )
 
 _WGS = profile_for("wgs")
@@ -152,6 +153,16 @@ def test_mendelian_single_parent_flags_no_shared_allele() -> None:
     parent_alt = [(1, 1)] * 100
     informative, errors = mendelian_stats(child_bad, parent_alt, None)
     assert (informative, errors) == (100, 100)
+
+
+def test_one_shared_allele_rule_for_allele_indices_and_alleles() -> None:
+    # ENG-23: the Sample QC (allele indices) and the phased markers (the alleles) kept a copy
+    # each of the single-parent rule.
+    from backend.app.services import phased_marker_service
+
+    assert shares_allele((0, 1), (1, 1)) and not shares_allele((0, 0), (1, 1))
+    assert shares_allele(("A", "G"), ("G", "G")) and not shares_allele(("A", "A"), ("G", "G"))
+    assert phased_marker_service.shares_allele is shares_allele
 
 
 # --- Orchestration ----------------------------------------------------------

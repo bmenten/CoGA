@@ -709,16 +709,22 @@ async def test_a_refresh_taken_up_by_another_worker_while_it_loads_stops_and_wri
     assert [sql for sql, _params in job.updates if not sql.startswith(_HEARTBEAT)] == []
 
 
+# An error's text as a failed source or statement writes it: the address it read, with a value
+# holding characters a reader cannot see (an escape sequence, a text-direction override).
+FAILURE_TEXT = "GET https://source.example/genes?symbol=GENE1\x1b[2J‮ failed"
+
+
 @pytest.mark.asyncio
 async def test_a_failed_refresh_ends_the_job_only_while_it_is_this_workers(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level(logging.DEBUG)
     job = _RefreshJob(
         monkeypatch,
         requested_by="startup-bootstrap",
         requested_by_id=None,
         accounts={},
-        fail=RuntimeError("a source could not be read"),
+        fail=RuntimeError(FAILURE_TEXT),
     )
 
     with pytest.raises(RuntimeError):
@@ -728,7 +734,16 @@ async def test_a_failed_refresh_ends_the_job_only_while_it_is_this_workers(
     assert sql.startswith("UPDATE gene_info_refresh_jobs SET status = 'failed', active_slot = NULL, worker_id = NULL,")
     # Before, it ended the job whichever worker's it was by then.
     assert sql.endswith("WHERE id = CAST(:job_id AS uuid) AND worker_id = :worker_id")
-    assert (params["job_id"], params["worker_id"], params["error"]) == (JOB, WORKER, "a source could not be read")
+    assert (params["job_id"], params["worker_id"]) == (JOB, WORKER)
+    # The job's error, which the admin page shows, is a fixed sentence naming the error by its
+    # kind; it was the error's text, the address and the value with it (SEC-37). The log line
+    # names the job and the kind.
+    assert params["error"] == (
+        "The gene reference refresh failed (RuntimeError). The genes it had saved keep their new "
+        "records, the others the ones from before; the server log shows where it failed."
+    )
+    assert "source.example" not in caplog.text and "GENE1" not in caplog.text
+    assert f"Gene reference refresh job {JOB} failed (RuntimeError)" in caplog.messages
     # What the run wrote since its last commit is dropped first: after a failed statement the
     # transaction takes nothing more until it is rolled back, so the failure was not written.
     assert job.ran == ["sources loaded", "genes chosen", "rolled back"]

@@ -241,10 +241,10 @@ async def _recorded_alignments(
         if alignment is not None:
             recorded[str(sample_id)] = alignment
         elif isinstance(value, dict) and value.get("uri"):
+            # The line names no sample: logs carry no values (SEC-37).
             logger.warning(
-                "Ignoring the recorded alignment location of sample %s: it is not an "
-                "object in the configured bucket in its family's package folder",
-                sample_id,
+                "Ignoring a sample's recorded alignment location: it is not an object in the "
+                "configured bucket in its family's package folder"
             )
     return recorded
 

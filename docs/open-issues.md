@@ -44,7 +44,7 @@ A closed ID the technical file cites is in [closed-issues.md](closed-issues.md):
 | SEC-37 | P3 | Quote no raw value: the IDs two refusals echo, the gene-reference job's stored error, a sample ID in a log line | developer | |
 | SEC-38 | P3 | Check the admin raw-file download and *Verify* against the family's own package, not the whole import area | developer | |
 | SAFE-37 | P3 | Deactivate a project's review tags when the project is deleted: the cascade deletes them outright | developer | |
-| DATA-12 | P3 | Refuse a corrupt APCAD per-sample VCF or haplotypes family VCF at validation: today it fails only at import | developer | |
+| DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
 | CLIN-71 | P3 | Variant Explorer: show the class of a review classified by tag alone; read the reviews in a fixed order | developer | |
 | CLIN-14 | P3 | Settle the repeat catalogue's open points; move to STRchive v2.28.0 | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
@@ -247,6 +247,12 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - The request audit's `updateFields` lists body keys a model ignores (`audit_log_pg.py`).
 - Copies still to fold: the gene look-up SQL (`family_service.py`, `family_package_registration.py`), `_family_sample_contexts`, `_coerce_int`, the worker `stop_*` functions, `_execute` of the two ClickHouse writers, `_finite`, `_shares_allele`, the audit-actor helper.
 - `PaternityCheck.status` allows `skip`, which `evaluate_paternity` never returns; the GCS integration test's fixed container name collides in parallel runs.
+
+### DATA-13 · Package files that pass validation unread
+
+- Discover on a package whose SNV family VCF is damaged answers 500: `family_package_discovery.py::_vcf_meta_lines` catches `OSError`, `EOFError` and `UnicodeError`, not `zlib.error`.
+- The validation still accepts without a word a SNV, NeedlR, TRGT or mito VCF (family or per sample) it cannot read (`family_package_validation.py::_warn_file_without_a_record`), and the per-sample SNV check does not check a BGZF file's end, so one cut in its records passes. The APCAD fix's `read_whole_vcf_sample_columns` reads them as the import does.
+- An APCAD per-sample `.csv.gz` or `.bed.gz` table is not read at validation (`_check_table_names_sample` reads only `.csv`, and passes a read error).
 
 ### CLIN-73 · Multi-allelic records
 

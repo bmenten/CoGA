@@ -43,6 +43,25 @@ class SampleMetadataContext:
     assembly_name: str | None
 
 
+def family_sample_contexts(context: FamilyMetadataContext) -> dict[str, SampleMetadataContext]:
+    """Each member of the family as a sample's context, by sample ID: the family's projects and
+    assembly, the member's own UUID and sex. What a writer of one sample's data (an upload, a
+    package import's per-sample dataset) is given."""
+    return {
+        row["sample_id"]: SampleMetadataContext(
+            sample_uuid=row["sample_uuid"],
+            sample_id=row["sample_id"],
+            family_uuid=context.family_uuid,
+            family_id=context.family_id,
+            sex=row["sex"],
+            project_ids=context.project_ids,
+            assembly_id=context.assembly_id,
+            assembly_name=context.assembly_name,
+        )
+        for row in context.sample_rows
+    }
+
+
 async def _resolve_family_assembly(
     session: AsyncSession,
     *,

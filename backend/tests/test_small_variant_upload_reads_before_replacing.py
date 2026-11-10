@@ -32,7 +32,7 @@ import pytest
 
 from app.routers import families_small_variants as snv_router
 from app.services import annotation_manifest_service, family_package_registration, variant_upload_service
-from app.services.family_metadata_context import FamilyMetadataContext
+from app.services.family_metadata_context import FamilyMetadataContext, family_sample_contexts
 from backend.tests._bgzf import bgzip_cut_after
 from backend.tests._family_import_state_fakes import FamilyImportState
 
@@ -324,7 +324,7 @@ async def test_a_bgzf_file_cut_where_a_block_ends_is_refused_before_a_package_im
         await variant_upload_service.upload_family_small_variant_file(
             _Postgres(),  # type: ignore[arg-type]
             context=_FAMILY,
-            sample_contexts=snv_router._family_sample_contexts(_FAMILY),
+            sample_contexts=family_sample_contexts(_FAMILY),
             file=UploadFile(file=BytesIO(body), filename="family.vcf.gz"),
             overwrite=True,
             format_hint="clair3",
@@ -480,7 +480,7 @@ async def test_a_caller_that_puts_the_family_back_itself_reads_the_file_once(sto
     await variant_upload_service.upload_family_small_variant_file(
         database,  # type: ignore[arg-type]
         context=_FAMILY,
-        sample_contexts=snv_router._family_sample_contexts(_FAMILY),
+        sample_contexts=family_sample_contexts(_FAMILY),
         file=UploadFile(file=BytesIO((_HEADER + _calls(2)).encode()), filename="family.vcf"),
         overwrite=True,
         format_hint="clair3",
@@ -508,7 +508,7 @@ async def test_a_caller_is_told_whether_the_load_began_writing(stores) -> None:
         await variant_upload_service.upload_family_small_variant_file(
             database,  # type: ignore[arg-type]
             context=_FAMILY,
-            sample_contexts=snv_router._family_sample_contexts(_FAMILY),
+            sample_contexts=family_sample_contexts(_FAMILY),
             file=UploadFile(file=BytesIO((_HEADER + _calls(2)).encode()), filename="family.vcf"),
             annotation_file=UploadFile(file=BytesIO(b"## ENSEMBL VARIANT EFFECT PREDICTOR\n"), filename="vep.tsv"),
             overwrite=True,
@@ -524,7 +524,7 @@ async def test_a_caller_is_told_whether_the_load_began_writing(stores) -> None:
     await variant_upload_service.upload_family_small_variant_file(
         database,  # type: ignore[arg-type]
         context=_FAMILY,
-        sample_contexts=snv_router._family_sample_contexts(_FAMILY),
+        sample_contexts=family_sample_contexts(_FAMILY),
         file=UploadFile(file=BytesIO((_HEADER + _calls(2)).encode()), filename="family.vcf"),
         overwrite=True,
         format_hint="clair3",

@@ -132,7 +132,7 @@ def test_the_raw_file_list_looks_up_each_file_off_the_event_loop(monkeypatch: py
     ]
     lookups: list[int] = []
 
-    def folders() -> list[str]:
+    def folders(_package_folder: object = None) -> list[str]:
         lookups.append(threading.get_ident())
         return []
 
