@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import describe_error, own_error_message
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import (
     FamilyImportDatasetSummary,
@@ -56,6 +57,7 @@ from .family_package_common import (
     DatasetLeftMissing,
     FamilyPackageBundle,
     FamilyRecordCallback,
+    ImportRefused,
     PackageExecutionResult,
     ProgressCallback,
     _issue,
@@ -171,6 +173,19 @@ IMPORT_BACKUP_GRACE = timedelta(days=1)
 class FamilyImportNotRecorded(RuntimeError):
     """The import job could not record the family it imports, so the import stopped
     before writing anything of it."""
+
+
+def _failure_text(exc: BaseException, *, failed: str) -> str:
+    """What a failed dataset (``failed``: "The dataset") or import ("The import") says on its
+    job's record, which the import pages show: CoGA's own refusal as it is written (an
+    ``ImportRefused``, an ``HTTPException`` of a loader, any error of a class CoGA defines;
+    ``own_error_message``), any other error by its kind. Such an error's text is not CoGA's
+    sentence and can quote what was being read: a failed statement's parameters, a line of a
+    package file (SEC-39). The server log has the error's frames."""
+    return own_error_message(exc) or (
+        f"{failed} failed on an unexpected error ({describe_error(exc)}); the server log shows "
+        "where it failed."
+    )
 
 
 def _still_unfinished_message(family_id: str, remaining: Mapping[str, Any]) -> str:
@@ -820,7 +835,7 @@ async def _import_family_datasets(
             logger.warning(
                 "Failed to snapshot family %s before overwrite; a failed import will fall "
                 "back to the import-incomplete flag",
-                family_context.family_id,
+                family_context.family_uuid,
                 exc_info=True,
             )
             clickhouse_snapshot = None
@@ -869,20 +884,31 @@ async def _import_family_datasets(
             )
             datasets[index] = imported.model_copy(update={"progress": timer.finish()})
             logs.append(f"Dataset {summary.dataset_type}: {datasets[index].status}.")
-        except Exception as exc:  # noqa: BLE001 - the dataset is recorded as failed and fails the import
+        except Exception as exc:  # the dataset is recorded as failed and fails the import
             await session.rollback()
             if isinstance(exc, DatasetLeftMissing):
                 failed_scopes[summary.dataset_type] = scope_with_samples(
                     mark_scopes.get(summary.dataset_type), exc.samples
                 )
+            # The dataset's message and the job's log line are CoGA's own refusal, or else
+            # name the error by its kind, its frames in the server log (SEC-39).
+            message = _failure_text(exc, failed="The dataset")
+            if own_error_message(exc) is None:
+                logger.error(
+                    "Dataset %s of import job %s failed on an unexpected error (%s)",
+                    summary.dataset_type,
+                    job_id,
+                    describe_error(exc),
+                    exc_info=exc,
+                )
             datasets[index] = summary.model_copy(
                 update={
                     "status": "failed",
-                    "message": str(exc),
+                    "message": message,
                     "progress": timer.finish(),
                 }
             )
-            logs.append(f"Dataset {summary.dataset_type} failed: {exc}")
+            logs.append(f"Dataset {summary.dataset_type} failed: {message}")
             if progress is not None:
                 await progress(validation, datasets, logs, family_context.family_id)
             continue
@@ -1035,7 +1061,7 @@ async def _import_family_datasets(
             logger.warning(
                 "Failed to restore family %s after a failed overwrite (%s); flagging "
                 "import-incomplete",
-                family_context.family_id,
+                family_context.family_uuid,
                 "nothing was deleted" if untouched else "rows may have been deleted",
                 exc_info=True,
             )
@@ -1189,7 +1215,7 @@ async def _import_family_datasets(
         except Exception:  # best-effort cache invalidation
             logger.warning(
                 "Failed to clear caches after import for family %s",
-                family_context.family_id,
+                family_context.family_uuid,
                 exc_info=True,
             )
 
@@ -1465,11 +1491,11 @@ async def run_family_import_job(
             requester = job_row.get("requested_by_id")
             user = await get_current_user_by_id(session, str(requester)) if requester else None
             if user is None:
-                raise RuntimeError(REQUESTER_GONE_ERROR)
+                raise ImportRefused(REQUESTER_GONE_ERROR)
             if not user.is_active:
-                raise RuntimeError(REQUESTER_INACTIVE_ERROR)
+                raise ImportRefused(REQUESTER_INACTIVE_ERROR)
             if not has_superuser_rights(user):
-                raise RuntimeError(REQUESTER_NOT_ADMIN_ERROR)
+                raise ImportRefused(REQUESTER_NOT_ADMIN_ERROR)
             job_metadata = json_object(job_row.get("metadata"))
             # Overwriting an existing family replaces its data: an admin's, as every
             # replacement and deletion of a family's data is (REQ-SEC-002). A superuser imports
@@ -1480,7 +1506,7 @@ async def run_family_import_job(
                 and not bool(job_row["dry_run"])
                 and not is_admin_user(user)
             ):
-                raise RuntimeError(REQUESTER_CANNOT_OVERWRITE_ERROR)
+                raise ImportRefused(REQUESTER_CANNOT_OVERWRITE_ERROR)
             result = await execute_family_package_import(
                 session,
                 folder_path=str(job_row["submitted_path"]),
@@ -1517,15 +1543,16 @@ async def run_family_import_job(
                     )
                     stored_blocks = await precompute_family_haplotype_lineage(lineage_context)
                     logger.info(
-                        "Precomputed genome-wide haplotype lineage for family %s: %s blocks",
-                        result.family_id,
+                        "Precomputed genome-wide haplotype lineage for the family of import "
+                        "job %s: %s blocks",
+                        job_id,
                         stored_blocks,
                     )
                 except Exception:  # pragma: no cover - precompute is best-effort
                     logger.exception(
-                        "Haplotype lineage precompute failed for family %s; genome "
-                        "overview will use the fast grey-relatives fallback",
-                        result.family_id,
+                        "Haplotype lineage precompute failed for the family of import job %s; "
+                        "genome overview will use the fast grey-relatives fallback",
+                        job_id,
                     )
             await record_end(
                 "completed",
@@ -1573,15 +1600,16 @@ async def run_family_import_job(
                 return
             raise
         except Exception as exc:
-            logger.exception("Family package import job failed")
+            logger.exception("Family package import job %s failed", job_id)
             await session.rollback()
-            # Ends the job only while it is this worker's: the update names the worker.
+            # Ends the job only while it is this worker's: the update names the worker. Its
+            # error is CoGA's own refusal, or names the error by its kind (SEC-39).
             if not await _update_job_progress(
                 session,
                 job_id=job_id,
                 worker_id=worker_id,
                 status="failed",
-                error=str(exc),
+                error=_failure_text(exc, failed="The import"),
                 completed=True,
             ):
                 _log_unrecorded_job_end(job_id, "failed")

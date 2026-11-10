@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import describe_error, scrub_log
+from ..core.coga_logging import describe_error
 from .clickhouse_family_variants import (
     GenotypeSampleScope,
     fetch_family_variant_sources,
@@ -273,7 +273,7 @@ async def _nipt_parent_sex_checks(
         # checks are frozen into the signed report, so they are fixed sentences.
         logger.warning(
             "NIPT parents' sex could not be checked for family %s: %s",
-            scrub_log(context.family_id),
+            context.family_uuid,
             describe_error(exc),
         )
         notes.append("The NIPT parents' sex could not be checked.")
@@ -401,7 +401,7 @@ async def get_family_sample_integrity_qc(
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
             # Named, not quoted: a failed query's text holds its parameters.
             logger.warning(
-                "NIPT cfDNA QC could not run for family %s: %s", scrub_log(family_id), describe_error(exc)
+                "NIPT cfDNA QC could not run for family %s: %s", context.family_uuid, describe_error(exc)
             )
             service_notes.append("NIPT cfDNA analysis could not run.")
 
@@ -437,7 +437,7 @@ async def get_family_sample_integrity_qc(
                     service_notes.append(note)
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
             logger.warning(
-                "Genotypes could not be loaded for family %s: %s", scrub_log(family_id), describe_error(exc)
+                "Genotypes could not be loaded for family %s: %s", context.family_uuid, describe_error(exc)
             )
             service_notes.append("Genotypes could not be loaded.")
             autosomal = {sample: [] for sample in samples}

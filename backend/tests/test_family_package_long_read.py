@@ -777,6 +777,46 @@ def test_per_sample_vcf_column_refuses_a_file_without_one_column_for_the_entrys_
         )
 
 
+# A manifest's vcf_sample and a file's column names are the package's values, not IDs CoGA
+# stored: one can hold an escape sequence or a text-direction override.
+_UNSEEN = "TUBE\x1b[2J\u202e"
+
+
+@pytest.mark.parametrize(
+    ("columns", "declared", "message"),
+    [
+        (
+            ["Sample0"],
+            _UNSEEN,
+            "CNV VCF of CHILD: vcf_sample 'TUBE\\x1b[2J\\u202e' is neither a column of the file "
+            "['Sample0'] nor CHILD",
+        ),
+        (
+            [_UNSEEN, "Sample1"],
+            None,
+            "CNV VCF of CHILD has no sample column for CHILD: its columns ['TUBE\\x1b[2J\\u202e', "
+            "'Sample1'] name no known sample.",
+        ),
+    ],
+    ids=["vcf_sample", "columns"],
+)
+def test_a_refusal_quotes_the_packages_column_names_with_their_unseen_characters_escaped(
+    columns: list[str], declared: str | None, message: str
+) -> None:
+    # SEC-39: the refusal, which the import page shows and the job's record keeps, quoted the
+    # manifest's vcf_sample as it was given; it shows each character a reader cannot see as
+    # its escape now, as the ID rule's own refusals do (family_identifiers.visible), and so
+    # does the list of the file's columns.
+    from app.services.family_package_common import VcfSampleColumnError, per_sample_vcf_column
+
+    with pytest.raises(VcfSampleColumnError) as refused:
+        per_sample_vcf_column(
+            columns, target_sample_id="CHILD", known_sample_ids=_FAMILY, declared=declared, label="CNV VCF of CHILD"
+        )
+    assert str(refused.value) == message
+    assert "\x1b" not in str(refused.value) and "\u202e" not in str(refused.value)
+
+
 @pytest.mark.asyncio
 async def test_known_vcf_sample_ids_never_look_a_caller_slot_up_as_a_sample() -> None:
     from types import SimpleNamespace

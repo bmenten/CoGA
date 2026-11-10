@@ -13,6 +13,8 @@ import traceback
 from datetime import datetime, timezone
 from typing import Any, cast
 
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 # C0 control characters + DEL. CR/LF here are what let an attacker forge extra log
 # lines (CWE-117); tab/other control chars can corrupt log parsing too.
 _LOG_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -66,6 +68,29 @@ def describe_error(exc: BaseException) -> str:
         if parts:
             return f"{name} (ClickHouse {' '.join(parts)})"
     return name
+
+
+def own_error_message(exc: BaseException) -> str | None:
+    """The message of an error CoGA raised in its own words, for a record or a page to show as
+    it is: an ``HTTPException`` (its status and detail, as ``str()`` writes them) or an
+    exception of a class CoGA defines. None for any other error -- Python's, a library's, a
+    database driver's, or a plain ``RuntimeError``/``ValueError`` -- whose text CoGA did not
+    write and can quote what was being read: a failed statement's parameters, a line of a
+    file, the address a source was fetched from. Such an error is stored and shown by its kind
+    (``describe_error``) instead (SEC-39).
+
+    A CoGA error class carries CoGA's own sentence: one that wraps another error names that
+    error by its kind, never by its text."""
+    if isinstance(exc, StarletteHTTPException) or _defined_by_coga(type(exc)):
+        return str(exc)
+    return None
+
+
+def _defined_by_coga(cls: type) -> bool:
+    # The backend's package is ``app`` as the server runs it, and also ``backend.app`` where a
+    # test imports it from the repository root.
+    module = getattr(cls, "__module__", None) or ""
+    return module.startswith(("app.", "backend.app."))
 
 
 def describe_traceback(exc: BaseException) -> str:

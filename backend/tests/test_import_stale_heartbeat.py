@@ -58,6 +58,7 @@ from backend.app.services import family_package_jobs as jobs
 from backend.app.services import family_package_registration as registration
 from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
+from backend.app.services.family_package_common import ImportRefused
 from backend.tests._family_import_fakes import admin_user, two_sample_context
 
 FAMILY = "FAM001"
@@ -864,7 +865,7 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
     outcomes = {
         "snv": _overwrite(clickhouse),
         "sv_needlr": "registered",
-        "coverage": RuntimeError("bad BED"),
+        "coverage": ImportRefused("bad BED"),  # a loader's refusal, shown as it is written
         "paraphase": "imported",
     }
     _datasets(monkeypatch, job, outcomes)

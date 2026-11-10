@@ -8,10 +8,12 @@ import gzip
 import hashlib
 import io
 import json
+import logging
 from pathlib import Path
 import re
 from typing import Any, Iterable, TextIO
 
+from ..core.coga_logging import describe_error, own_error_message
 from ..core.config import settings
 from .bounded_download import download_text
 
@@ -27,6 +29,18 @@ ACMG_SF_LIST_PATH = (
     Path(__file__).resolve().parents[3] / "data" / "ref-data" / "acmg-sf" / "acmg-sf-genes.json"
 )
 _MISSING_CELL_VALUES = {"", ".", "-", "na", "n/a", "none", "null"}
+
+logger = logging.getLogger(__name__)
+
+
+def source_error_message(name: str, exc: BaseException) -> str:
+    """The error status of a gene reference source (``name``) that could not be read, which
+    each gene's record keeps and the gene and admin pages show: CoGA's own refusal as it is
+    written (``own_error_message``), any other error by its kind. Such an error's text is not
+    CoGA's sentence and can quote the address it fetched or a line of the file (SEC-39). The
+    log names the source and the kind."""
+    logger.warning("Gene reference source %s could not be read (%s)", name, describe_error(exc))
+    return own_error_message(exc) or f"{name} could not be read ({describe_error(exc)})."
 
 
 def _clean_cell(value: Any) -> str:
@@ -1277,7 +1291,7 @@ async def _load_csv_dataset(
             name=name,
             source_url=url,
             status="error",
-            message=str(exc),
+            message=source_error_message(name, exc),
         )
 
 
@@ -1397,7 +1411,7 @@ def _load_dbnsfp_gene_dataset(
             name="dbNSFP gene",
             source_url=str(existing_path),
             status="error",
-            message=str(exc),
+            message=source_error_message("dbNSFP gene", exc),
         )
 
 
@@ -1487,11 +1501,17 @@ def _load_acmg_sf_dataset(path: Path | None = None) -> GeneBulkSourceDataset:
         raw = source_path.read_bytes()
         version, entries = parse_acmg_sf_list(raw.decode("utf-8"))
     except (OSError, ValueError) as exc:
+        # The list's own refusal (AcmgSfListError) as it is written; any other error, a
+        # file that cannot be read or decoded, by its kind (SEC-39).
+        logger.warning("Gene reference source ACMG SF list could not be read (%s)", describe_error(exc))
         return GeneBulkSourceDataset(
             name="ACMG SF list",
             source_url=str(source_path),
             status="error",
-            message=f"The ACMG SF list at {source_path} could not be read: {exc}",
+            message=(
+                f"The ACMG SF list at {source_path} could not be read: "
+                f"{own_error_message(exc) or describe_error(exc)}"
+            ),
         )
     return GeneBulkSourceDataset(
         name="ACMG SF list",

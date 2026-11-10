@@ -446,6 +446,13 @@ class VcfSampleColumnError(ValueError):
     """A per-sample VCF has no column for its sample, or its column names another sample."""
 
 
+class ImportRefused(RuntimeError):
+    """An import's refusal in CoGA's own words: a dataset whose package file it will not
+    store, an account no longer allowed to run it. The job's record shows the message as it
+    is written (``own_error_message``); any other error, which is not CoGA's sentence and can
+    quote what was being read, is shown there by its kind (SEC-39)."""
+
+
 class DatasetLeftMissing(RuntimeError):
     """A dataset failed after its write had deleted rows of samples beyond those it names,
     which it could not put back (SAFE-28): ``samples`` (sample ids) are those whose data of
@@ -482,6 +489,13 @@ async def known_vcf_sample_ids(
     return {str(row["sample_id"]) for row in result.mappings().all() if row.get("sample_id")}
 
 
+def _quoted_columns(columns: Iterable[str]) -> str:
+    """A file's column names as a refusal quotes them, ``['S1', 'S1_sort']``: each in quotes
+    with every character a reader cannot see shown as its escape (``visible``), as the ID
+    rule's refusals show an ID (SEC-39)."""
+    return "[" + ", ".join(f"'{visible(column)}'" for column in columns) + "]"
+
+
 def per_sample_vcf_column(
     header_samples: list[str],
     *,
@@ -515,8 +529,8 @@ def per_sample_vcf_column(
             return 0
         if declared != target_sample_id:
             raise VcfSampleColumnError(
-                f"{label}: vcf_sample '{declared}' is neither a column of the file "
-                f"{header_samples} nor {target_sample_id}"
+                f"{label}: vcf_sample '{visible(declared)}' is neither a column of the file "
+                f"{_quoted_columns(header_samples)} nor {target_sample_id}"
             )
     resolved = [
         resolve_vcf_sample_id(column, known_sample_ids | {target_sample_id})
@@ -528,18 +542,18 @@ def per_sample_vcf_column(
     if len(target_columns) > 1:
         raise VcfSampleColumnError(
             f"{label} has more than one sample column for {target_sample_id}: "
-            f"{[header_samples[index] for index in target_columns]}"
+            f"{_quoted_columns(header_samples[index] for index in target_columns)}"
         )
     if len(header_samples) == 1 and resolved[0] is None:
         return 0
     named = {column: sample for column, sample in zip(header_samples, resolved) if sample is not None}
     if named:
-        described = ", ".join(f"'{column}' is {sample}" for column, sample in named.items())
+        described = ", ".join(f"'{visible(column)}' is {sample}" for column, sample in named.items())
         message = f"{label} has no sample column for {target_sample_id}: {described}."
     else:
         message = (
             f"{label} has no sample column for {target_sample_id}: its columns "
-            f"{header_samples} name no known sample."
+            f"{_quoted_columns(header_samples)} name no known sample."
         )
     raise VcfSampleColumnError(f"{message} {remedy}".strip())
 

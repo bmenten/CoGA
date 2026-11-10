@@ -31,7 +31,6 @@ from typing import Any
 from fastapi import HTTPException
 import pysam
 
-from ..core.coga_logging import scrub_log
 from ..schemas import FamilyImportValidationIssue
 from .data_scope import normalize_chromosome
 from .family_package_common import ParsedPed, _issue, _resolve_package_path, package_path_within
@@ -67,8 +66,10 @@ def _read_package_file(root: Path, relative_path: str, *, kind: str) -> str | No
     try:
         return read_path_text_bounded(path, kind=kind)
     except (HTTPException, OSError, UnicodeDecodeError):
-        # The path can hold the family ID the Discover request names (the KING table's).
-        logger.warning("Could not read %s from the package", scrub_log(relative_path))
+        # Named by its kind, not its path: the path can hold the family ID the Discover
+        # request names (the KING table's) or a sample's (ngs-bits), which a log line never
+        # carries (SEC-39).
+        logger.warning("Could not read the package's %s file", kind)
         return None
 
 

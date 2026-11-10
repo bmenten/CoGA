@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import gzip
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -1290,6 +1291,86 @@ async def test_package_import_continues_after_dataset_failure(
     assert statuses["snv"] == "failed"
     assert statuses["repeats_trgt"] == "imported"
     assert any("failed for dataset(s): snv" in line for line in result.logs)
+
+
+@pytest.mark.asyncio
+async def test_a_dataset_failure_shows_cogas_own_refusal_and_names_any_other_error_by_its_kind(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # SEC-39. The dataset's message and the job's log line, which the import page shows, held
+    # the error's text: for a failed statement, its SQL and the values it was given. CoGA's own
+    # refusal (a loader's HTTPException, an ImportRefused) is still shown as it is written.
+    from sqlalchemy.exc import OperationalError
+
+    from backend.app.services.family_package_common import ImportRefused
+
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    failures: dict[str, Exception] = {
+        "snv": OperationalError(
+            "INSERT INTO samples (sample_id) VALUES (%(sample_id)s)",
+            {"sample_id": "PROBAND-VALUE"},
+            ConnectionResetError(),
+        ),
+        "coverage": KeyError("PROBAND-VALUE"),
+        "repeats_trgt": ImportRefused("The TRGT VCF of S1 (trgt/S1.vcf.gz) holds no record"),
+        "sv_needlr": HTTPException(status_code=400, detail="No valid NeedlR records found"),
+    }
+
+    async def fake_ensure_family_from_ped(session, **_kwargs):
+        return _single_sample_context(), True
+
+    async def fake_import_dataset(session, *, summary, **_kwargs):
+        if summary.dataset_type == "paraphase":  # one imports: the family stays
+            return summary.model_copy(update={"status": "imported", "message": "ok"})
+        raise failures[summary.dataset_type]
+
+    class FakeSession:
+        async def rollback(self) -> None:
+            return None
+
+    monkeypatch.setattr(package_import, "_ensure_family_from_ped", fake_ensure_family_from_ped)
+    monkeypatch.setattr(
+        package_import,
+        "_enabled_dataset_summaries",
+        lambda _validation: [
+            FamilyImportDatasetSummary(dataset_type=name, status="valid") for name in [*failures, "paraphase"]
+        ],
+    )
+    monkeypatch.setattr(package_import, "_import_dataset", fake_import_dataset)
+    caplog.set_level(logging.ERROR, logger=package_import.logger.name)
+
+    result = await package_import.execute_family_package_import(
+        FakeSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id="project-uuid",
+        dry_run=False,
+        user=admin_user(),
+        job_id="job-1",
+    )
+
+    ran = {"snv", "coverage", "repeats_trgt", "sv_needlr", "paraphase"}
+    messages = {dataset.dataset_type: dataset.message for dataset in result.datasets if dataset.dataset_type in ran}
+    assert messages == {
+        "snv": (
+            "The dataset failed on an unexpected error (OperationalError (ConnectionResetError)); "
+            "the server log shows where it failed."
+        ),
+        "coverage": "The dataset failed on an unexpected error (KeyError); the server log shows where it failed.",
+        "repeats_trgt": "The TRGT VCF of S1 (trgt/S1.vcf.gz) holds no record",
+        "sv_needlr": "400: No valid NeedlR records found",
+        "paraphase": "ok",
+    }
+    assert f"Dataset snv failed: {messages['snv']}" in result.logs
+    assert not [line for line in result.logs if "PROBAND-VALUE" in line or "INSERT" in line]
+    # The server log names the dataset, the job and the error's kind, its frames with them:
+    # only the errors that are not CoGA's own.
+    lines = [record for record in caplog.records if record.name == package_import.logger.name]
+    assert [record.getMessage() for record in lines] == [
+        "Dataset snv of import job job-1 failed on an unexpected error (OperationalError (ConnectionResetError))",
+        "Dataset coverage of import job job-1 failed on an unexpected error (KeyError)",
+    ]
+    assert all(record.exc_info is not None for record in lines)
 
 
 def _single_sample_context(*, family_id: str = "FAM001") -> FamilyMetadataContext:

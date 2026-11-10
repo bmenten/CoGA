@@ -42,6 +42,7 @@ from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
 )
+from .family_identifiers import visible
 from .family_variant_write_lock import STRUCTURAL_VARIANTS, lock_family_variant_writes
 from .hpo_service import (
     PhenotypeImport,
@@ -63,7 +64,7 @@ from .variant_upload_service import (
 )
 
 from .family_package_bigwig import autosomal_median, open_bigwig
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetLeftMissing, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_holds_a_data_line, vcf_sample_alias_map
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetLeftMissing, DatasetProgressCallback, FamilyPackageBundle, ImportRefused, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_holds_a_data_line, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
 from .family_package_mito_table import mito_sample_calls, read_mito_table
 from .family_package_nipt import (
@@ -191,7 +192,7 @@ def _refusal_naming(file_of: str) -> Iterator[None]:
     except HTTPException as exc:
         if not 400 <= exc.status_code < 500:
             raise
-        raise RuntimeError(f"{file_of}: {exc.detail}") from exc
+        raise ImportRefused(f"{file_of}: {exc.detail}") from exc
 
 
 async def _stored_track_rows(
@@ -533,7 +534,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         declared=extra.get("vcf_sample") or extra.get("sample_name"),
     )
     if unresolved_samples:
-        raise RuntimeError(
+        raise ImportRefused(
             f"SNV VCF sample column(s) {unresolved_samples} match no sample in the family"
         )
 
@@ -958,7 +959,7 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
             skipped=skipped,
         )
     if not records:
-        raise RuntimeError(
+        raise ImportRefused(
             "No Needlr structural variants with PED sample calls were found" + _without_extent_clause(skipped)
         )
     # Held until the commit that records the SV file (the import holds it for its whole run).
@@ -1081,7 +1082,7 @@ async def _needlr_sample_files(job: DatasetImportJob) -> list[tuple[str, Path, s
         if not _iter_needlr_per_sample_records(
             [(sample_id, text_value)], ped=bundle.ped, sample_contexts=job.sample_contexts, skipped=skipped
         ):
-            raise RuntimeError(
+            raise ImportRefused(
                 f"The NeedlR file of {sample_id} ({path.name}) holds no structural variant"
                 + _without_extent_clause(skipped)
                 + "; no NeedlR call was replaced"
@@ -1093,9 +1094,9 @@ async def _needlr_sample_files(job: DatasetImportJob) -> list[tuple[str, Path, s
         for query in queries:
             named = resolve_vcf_sample_id(query, known | {sample_id})
             if named is not None and named != sample_id:
-                raise RuntimeError(
+                raise ImportRefused(
                     f"The NeedlR file of {sample_id} holds another sample's calls: its query "
-                    f"'{query}' is {named}. {_PER_SAMPLE_COLUMN_REMEDY}"
+                    f"'{visible(query)}' is {named}. {_PER_SAMPLE_COLUMN_REMEDY}"
                 )
         files.append((sample_id, path, text_value))
     return files
@@ -1354,11 +1355,11 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
         require_bgzf_path_end(vcf_path, label=f"The NIPT SNV file of {sample_id} ({vcf_path.name})")
         vcf_columns = read_vcf_sample_columns(vcf_path, label=f"The NIPT SNV file of {sample_id}")
         if len(vcf_columns) != 1:
-            raise RuntimeError(
+            raise ImportRefused(
                 f"The NIPT SNV file of {sample_id} must hold one sample; it has {len(vcf_columns)}"
             )
         if not vcf_holds_a_data_line(vcf_path, label=f"The NIPT SNV file of {sample_id}"):
-            raise RuntimeError(
+            raise ImportRefused(
                 f"The NIPT SNV file of {sample_id} ({vcf_path.name}) holds no record; "
                 "no NIPT call was replaced"
             )
@@ -1458,7 +1459,7 @@ async def _import_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSu
             continue
         header = read_vcf_sample_columns(vcf_path, label=f"The SNV file of {sample_id}")
         if len(header) != 1:
-            raise RuntimeError(f"The SNV file of {sample_id} must hold one sample; it has {len(header)}")
+            raise ImportRefused(f"The SNV file of {sample_id} must hold one sample; it has {len(header)}")
         column = per_sample_vcf_column(
             header,
             target_sample_id=sample_id,
@@ -1539,9 +1540,9 @@ async def _import_target_coverage_table(
     try:
         targets = parse_target_coverage_table(text_value.splitlines())
     except TargetCoverageFormatError as exc:
-        raise RuntimeError(f"{file_of}: {exc}") from exc
+        raise ImportRefused(f"{file_of}: {exc}") from exc
     if not targets:
-        raise RuntimeError(f"{file_of} holds no target")
+        raise ImportRefused(f"{file_of} holds no target")
     if check_only:
         return {}
     await _delete_sample_interval_source(
@@ -1903,7 +1904,7 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
             continue
         payload = json.loads(json_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
-            raise RuntimeError(f"Paraphase JSON for {sample_id} must contain an object")
+            raise ImportRefused(f"Paraphase JSON for {sample_id} must contain an object")
         try:
             rows = _paraphase_rows_for_sample(
                 sample_context=sample_context,
@@ -1914,14 +1915,14 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
             # Refused as a TRGT value that cannot be read as a number is (#985): a copy number
             # its integer column cannot hold failed the insert with a database error, after the
             # sample's results were deleted (DATA-7).
-            raise RuntimeError(
+            raise ImportRefused(
                 f"Paraphase JSON for {sample_id} holds a value that cannot be read where a number "
                 f"is expected ({exc}); nothing was stored"
             ) from exc
         if not rows:
             # Paraphase reports every region it analysed: a JSON without one is no result.
             # It used to replace the sample's results with none (SAFE-29).
-            raise RuntimeError(
+            raise ImportRefused(
                 f"Paraphase JSON for {sample_id} holds no gene result; its results were not replaced"
             )
         checked.append((sample_id, sample_context, json_path, rows))
@@ -2228,7 +2229,7 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         if not sample_records and skipped.without_extent:
             # Records were called, none of them readable: no answer that no CNV was called,
             # which would remove the sample's earlier calls.
-            raise RuntimeError(
+            raise ImportRefused(
                 f"No HiFiCNV call was replaced: the CNV VCF of {sample_id} ({vcf_path.name}) "
                 f"holds no call it can read{_without_extent_clause(skipped)}"
             )
@@ -2578,7 +2579,7 @@ async def _import_mito_calls(
     # any sample's calls are replaced (SAFE-29).
     empty = _mito_files_without_a_record(job, columns, table_calls)
     if empty:
-        raise RuntimeError(
+        raise ImportRefused(
             "No mitochondrial call was replaced: "
             + "; ".join(
                 f"the chrM VCF of {sample_id} ({name}) holds no variant record" for sample_id, name in empty
@@ -2820,7 +2821,7 @@ def _read_mito_structural_variants(
         text_value = _read_package_text(sv_path)
         elsewhere = _records_off_chrM(text_value)
         if elsewhere:
-            raise RuntimeError(
+            raise ImportRefused(
                 f"No mitochondrial call was replaced: the chrM SV VCF of {sample_id} ({sv_path.name}) "
                 f"holds {elsewhere} record(s), none on chrM, so it is no chrM SV callset"
             )
@@ -2831,7 +2832,7 @@ def _read_mito_structural_variants(
         if not sample_records and skipped.without_extent:
             # Records were called, none of them readable: no answer that the sample carries no
             # chrM SV, which would remove its earlier ones.
-            raise RuntimeError(
+            raise ImportRefused(
                 f"No mitochondrial call was replaced: the chrM SV VCF of {sample_id} ({sv_path.name}) "
                 f"holds no call it can read{_without_extent_clause(skipped)}"
             )
@@ -3349,7 +3350,7 @@ async def _import_dataset(
         # A validated, enabled dataset with no importer would otherwise report success
         # while importing nothing. Fail loudly instead: adding a dataset type to
         # SUPPORTED_DATASETS without an importer is a bug, not a runtime condition.
-        raise RuntimeError(
+        raise ImportRefused(
             f"No importer is registered for dataset type '{summary.dataset_type}'"
         )
     return await importer(

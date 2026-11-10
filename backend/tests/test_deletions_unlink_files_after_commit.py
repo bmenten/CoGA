@@ -40,13 +40,14 @@ def _place(path: Path, content: str) -> Path:
 @pytest.fixture()
 def copies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """The family's kept copies: one of a family-level upload and one of sample S2's, in the
-    family's upload folder under the data directory."""
+    family's upload folder under the data directory, named as ``store_managed_file`` names a
+    copy (a random 12-hex prefix, then the uploaded file's name)."""
     data = Path(os.path.realpath(tmp_path)) / "data"
     monkeypatch.setattr(rif, "DATA_DIR", data)
     uploads = data / "raw_imports" / "F1"
     return SimpleNamespace(
-        family=_place(uploads / "0a1b2c__family.vcf", "family upload"),
-        sample=_place(uploads / "6a7b8c__s2.vcf", "S2 upload"),
+        family=_place(uploads / "0a1b2c3d4e5f__family.vcf", "family upload"),
+        sample=_place(uploads / "6a7b8c9d0e1f__s2.vcf", "S2 upload"),
     )
 
 
@@ -211,15 +212,18 @@ async def test_a_file_that_cannot_be_unlinked_after_the_commit_is_left_and_logge
         result = await _delete_family(session)
 
     # The deletion stands: committed, counting the one file it unlinked. The other is left, a
-    # file without a record, and said in the log by its record, its path and the error's kind,
-    # never the error's text (before: skipped without a word).
+    # file without a record, and said in the log by its record, the error's kind and the random
+    # prefix of its name, which finds it in the upload folder: never the error's text (before:
+    # skipped without a word), nor its path, which holds the family's ID and the uploaded
+    # file's name (SEC-39; before, the line gave the path).
     assert session.commits == 1 and result["deleted"]["raw_files"] == 1
     assert not copies.family.exists() and copies.sample.read_text() == "S2 upload"
     messages = [record.getMessage() for record in caplog.records if record.name == rif.__name__]
     assert messages == [
-        f"The file of deleted raw-file record rec-s2 could not be unlinked (PermissionError) and is "
-        f"left at {refused}"
+        "The file of deleted raw-file record rec-s2 could not be unlinked (PermissionError) and is "
+        "left in the upload folder as 6a7b8c9d0e1f__…"
     ]
+    assert "F1" not in messages[0] and "s2.vcf" not in messages[0]
     assert "Permission denied" not in messages[0]
 
 

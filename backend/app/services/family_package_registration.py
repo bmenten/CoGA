@@ -62,7 +62,7 @@ from . import ped_service
 from .raw_import_files_pg import family_managed_files, record_raw_import_file, store_managed_file
 from .roi_gene_lookup import roi_gene_region
 
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_IN_FOLDER, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ImportRefused, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
 from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
 
 
@@ -292,9 +292,11 @@ async def _record_package_raw_files(
                 try:
                     identity = await asyncio.to_thread(remote_object_identity, storage_path)
                 except Exception:
+                    # Named by its dataset: the object's path holds the family's folder
+                    # name, often its ID, and a file name that can hold a sample's (SEC-39).
                     logger.warning(
-                        "Could not read the object store's record of %s for provenance",
-                        storage_path,
+                        "Could not read the object store's record of a %s file for provenance",
+                        dataset_type,
                         exc_info=True,
                     )
                     identity = None
@@ -1627,7 +1629,7 @@ async def _record_family_import_finished(
     except Exception:  # an unrecorded dataset stays pending: the safe side
         logger.warning(
             "Failed to record the finished datasets of the import of family %s",
-            family_context.family_id,
+            family_context.family_uuid,
             exc_info=True,
         )
         try:
@@ -1783,9 +1785,8 @@ async def _end_import_failed_before_datasets(
         )
         return written is not None
     except Exception:  # the entry stays: the family stays marked
-        logger.warning(
-            "Failed to record the failed import of family %s", family_id, exc_info=True
-        )
+        # Named by the import (its job, or its own run), not the family's ID (SEC-39).
+        logger.warning("Failed to record the failed import %s on its family", mark.key, exc_info=True)
         try:
             await session.rollback()
         except Exception:  # noqa: BLE001 - best-effort; nothing else to do
@@ -1814,7 +1815,7 @@ async def _end_family_import_unfinished(
     except Exception:  # the entry stays: the family stays marked
         logger.warning(
             "Failed to remove the unfinished-import entry of family %s",
-            family_context.family_id,
+            family_context.family_uuid,
             exc_info=True,
         )
         try:
@@ -1894,13 +1895,13 @@ async def _ensure_family_from_ped(
         await session.commit()
     else:
         if conflict_mode == "cancel":
-            raise RuntimeError(
+            raise ImportRefused(
                 f"Family '{family_id}' already exists; choose update or overwrite to import data."
             )
         existing_samples = set(str(sample_id) for sample_id in existing.get("sample_ids", []) if sample_id)
         requested_samples = set(bundle.ped.sample_ids)
         if existing_samples != requested_samples:
-            raise RuntimeError(
+            raise ImportRefused(
                 "Existing family has different sample IDs; refusing to attach package import "
                 f"to {family_id}"
             )
@@ -2004,8 +2005,8 @@ async def _delete_family_shell(
             await delete_interval_tracks(assembly_name, family_uuid=family_uuid)
         except Exception:  # best-effort store cleanup
             logger.warning(
-                "Failed to clear ClickHouse rows during import compensation for %s",
-                family_context.family_id,
+                "Failed to clear ClickHouse rows during import compensation for family %s",
+                family_uuid,
                 exc_info=True,
             )
     managed_files = await family_managed_files(session, family_uuid)
@@ -2073,7 +2074,7 @@ async def _flag_family_import_incomplete(
     except Exception:  # flag write must not mask the import failure
         logger.warning(
             "Failed to flag family %s as import-incomplete",
-            family_context.family_id,
+            family_context.family_uuid,
             exc_info=True,
         )
         try:
@@ -2122,7 +2123,7 @@ async def _mark_family_import_restoring(
     except Exception:  # every dataset of the import pending instead: as before
         logger.warning(
             "Failed to mark the restore of family %s as rewriting all of its data",
-            family_context.family_id,
+            family_context.family_uuid,
             exc_info=True,
         )
         try:
@@ -2169,7 +2170,7 @@ async def _flag_family_restore_failed(
     except Exception:  # the flag write must not mask the import failure
         logger.warning(
             "Failed to flag family %s as import-incomplete after its restore failed",
-            family_context.family_id,
+            family_context.family_uuid,
             exc_info=True,
         )
         try:
@@ -2307,7 +2308,7 @@ async def _clear_family_import_incomplete(
     except Exception:  # best-effort flag clear
         logger.warning(
             "Failed to clear import-incomplete flag for family %s",
-            family_context.family_id,
+            family_context.family_uuid,
             exc_info=True,
         )
         try:
@@ -2497,7 +2498,7 @@ async def _write_mark(family_uuid: str, mark: FamilyWriteMark) -> None:
 
 
 async def end_family_write_mark(
-    session: AsyncSession, *, family_uuid: str, family_id: str, mark: FamilyWriteMark
+    session: AsyncSession, *, family_uuid: str, mark: FamilyWriteMark
 ) -> None:
     """Remove the mark of a write that failed leaving nothing missing: what it deleted was
     put back, or it deleted nothing and what it wrote was removed again, or it failed before
@@ -2518,7 +2519,7 @@ async def end_family_write_mark(
         await session.commit()
     except Exception:  # the mark stays: the family stays marked
         logger.warning(
-            "Failed to remove the mark of a failed write of family %s", family_id, exc_info=True
+            "Failed to remove the mark of a failed write of family %s", family_uuid, exc_info=True
         )
         try:
             await session.rollback()
@@ -2899,7 +2900,7 @@ class FamilyDeletion:
         except Exception:  # the mark stays as written: the family stays marked
             logger.warning(
                 "Failed to narrow the mark of a failed deletion of family %s's data",
-                self.family_id,
+                self.family_uuid,
                 exc_info=True,
             )
             try:
@@ -3044,7 +3045,6 @@ async def record_family_upload_failure(
     session: AsyncSession,
     *,
     family_uuid: str,
-    family_id: str,
     dataset: str,
     scope: Mapping[str, Any],
     mark: FamilyWriteMark | None = None,
@@ -3078,7 +3078,7 @@ async def record_family_upload_failure(
     except Exception:  # the upload's own error is what the caller raises
         logger.warning(
             "Failed to flag family %s as import-incomplete after a failed upload",
-            family_id,
+            family_uuid,
             exc_info=True,
         )
         try:

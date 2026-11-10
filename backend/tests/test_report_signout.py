@@ -2813,6 +2813,8 @@ def test_a_signed_version_whose_record_was_changed_is_served_unverified(monkeypa
     [record] = [r for r in caplog.records if "content hash mismatch" in r.getMessage()]
     assert record.signout_version == 1 and record.stored_content_hash == _PRE_GATE_CONTENT_HASH
     assert record.recomputed_content_hash == rss._canonical_hash(row["snapshot"])
+    # The family by its UUID, never its ID (SEC-39; before, ``family_id`` FAM1).
+    assert record.family_uuid == "u1" and not hasattr(record, "family_id")
 
 
 def test_a_signed_version_the_family_does_not_have_is_404(monkeypatch) -> None:

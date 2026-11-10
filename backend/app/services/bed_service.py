@@ -378,7 +378,6 @@ async def upload_bed_data(
             await end_family_write_mark(
                 session,
                 family_uuid=sample_context.family_uuid,
-                family_id=sample_context.family_id,
                 mark=upload_mark,
             )
             raise
@@ -1051,7 +1050,7 @@ async def _compute_genomewide_lineage(
             logger.info(
                 "Family %s: a relative of unknown degree shares a haplotype with the member it is "
                 "linked to along %d of %d autosomes; %s",
-                context.family_id,
+                context.family_uuid,
                 sharing,
                 tested,
                 "coloured as that member's parent or child" if link in parent_or_child else "left grey",
@@ -1181,23 +1180,27 @@ async def precompute_family_lineage_safe(family_identifier: str, user: Any) -> N
     from ..core.postgres import get_postgres_engine, get_postgres_sessionmaker
     from .family_metadata_context import build_family_metadata_context
 
+    # The log names the family by its UUID once it is known, never by the ID the request
+    # gave (SEC-39).
+    family_uuid: str | None = None
     try:
         get_postgres_engine()
         async with get_postgres_sessionmaker()() as session:
             context = await build_family_metadata_context(
                 session, family_identifier=family_identifier, user=user
             )
+            family_uuid = context.family_uuid
             stored = await precompute_family_haplotype_lineage(context)
             logger.info(
                 "Re-precomputed genome-wide haplotype lineage for family %s: %s blocks",
-                family_identifier,
+                family_uuid,
                 stored,
             )
     except Exception:  # pragma: no cover - background best-effort
         logger.exception(
             "Background haplotype lineage precompute failed for family %s; genome "
             "overview will use the fast grey-relatives fallback",
-            family_identifier,
+            family_uuid or "(not found)",
         )
 
 

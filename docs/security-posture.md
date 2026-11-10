@@ -643,6 +643,35 @@ directory who could sign in without being assigned to the lab's group (deploymen
     it quotes (a message it does not know is not written), the task by its name and coroutine,
     other objects by their type, and the exception by its kind and frames. asyncio's debug
     mode, which writes reprs in lines of its own, is never turned on.
+- ✅ **No family or sample ID in the application log (SEC-39).** The family and sample IDs are
+  the lab's identifiers of a patient's samples, and a log line never carries them (the owner,
+  2026-11-10). A line names a family by its UUID (`families.id`) or by the import job that
+  writes it, and a sample by its UUID or not at all.
+  - About thirty lines named the family by its ID: the import's bookkeeping when a write of it
+    failed, the uploads' clean-ups, Sample QC's warnings, the lineage and ranking warm-ups, and
+    the sign-out's tamper alarm, which now gives `family_uuid` in its fields. An ambiguous
+    pedigree's warning named its couples and their children; it gives the counts.
+  - A path that holds an ID is not logged either. A package file that cannot be read is
+    named by its kind (the PGT reader's KING table is named after the family ID), a remote
+    package file by its dataset, and a raw-file provenance record that was not written by its
+    family's UUID and dataset, without the file's name. A managed copy left behind is named
+    by the random prefix of its name, which finds it in the upload folder.
+  - Left as they are: the two lines that refuse a recorded storage path outside the folders
+    CoGA reads or deletes a raw file in name that path as it is recorded, as the trace an
+    edited row leaves (`raw_import_files_pg.py`). Such a path is not CoGA's own value, but it
+    can name another family's package folder.
+  - A unit test reads every logging call in `backend/app` and refuses one that reads a value
+    held under a family's or a sample's ID name (`test_logs_name_no_family_or_sample.py`).
+- ✅ **A stored or shown error is CoGA's sentence or the error's kind (SEC-39).** The message
+  of a failed dataset and its line in the job's log, the import job's error, and the status of
+  a gene reference source that could not be read (which each gene's record keeps and the gene
+  and admin pages show) held the error's text: a failed statement's SQL and the values it was
+  given, a line of a package file, the address a source was read from. Each now holds CoGA's
+  own refusal as it is written, and any other error by its kind (`describe_error`), its
+  frames in the server log. CoGA's own refusal is an `HTTPException` or an error of a class
+  CoGA defines (`own_error_message` in `core/coga_logging.py`); the import's refusals raise
+  `ImportRefused`. A refusal that quotes a manifest's `vcf_sample` or a file's column names
+  shows each character a reader cannot see as its escape (`visible`).
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the

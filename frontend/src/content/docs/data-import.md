@@ -419,7 +419,10 @@ ends. The decided and superseded deliveries are listed on request.
 7. **Follow the job** under *Recent family imports*: status, log, validation errors, warnings and a
    summary per dataset. While a dataset imports, the page shows how much of its files has been read and
    about how long it should still take, at the pace so far. A finished dataset shows how long it took.
-   The estimate covers the running dataset only; the page says how many datasets follow.
+   The estimate covers the running dataset only; the page says how many datasets follow. A dataset
+   or a job that failed says why in CoGA's own words. One that failed on an unexpected error (a
+   database or file error) says only the error's kind: its text can quote the values it was
+   reading, and the server log shows where it failed.
 
 | Existing data policy | What happens when the family or a sample already exists |
 | --- | --- |
