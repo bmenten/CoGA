@@ -134,13 +134,13 @@ from the first release candidate also in `CHANGELOG.md` and the change log
 periodic review cadence and storage of the controlled master copy (ISO 15189 clause 8.3
 document control).
 
-The documents say what a change did: the behaviour, the decision with its date and the role
+The documents state the behaviour, the decision with its date and the role
 that took it, or the test that verifies it, never only a pull-request or issue number. A unit
 test refuses such a number
 ([test_regulatory_docs_cite_no_pr_numbers.py](../../backend/tests/test_regulatory_docs_cite_no_pr_numbers.py));
 an issue that tracks an open action may be cited as a full link the test lists.
 
-An ID such as `CLIN-57` or `SAFE-15` names an item of CoGA's issue list. An open one is in
+An ID such as `CLIN-57` names an item of CoGA's issue list. An open one is in
 [open-issues.md](../open-issues.md) or [ROADMAP.md](../ROADMAP.md). A closed one that these
 documents cite is in [closed-issues.md](../closed-issues.md), with what it was and the commit
 that closed it. The same unit test refuses an ID that is in none of them.
