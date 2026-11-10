@@ -656,10 +656,11 @@ directory who could sign in without being assigned to the lab's group (deploymen
     package file by its dataset, and a raw-file provenance record that was not written by its
     family's UUID and dataset, without the file's name. A managed copy left behind is named
     by the random prefix of its name, which finds it in the upload folder.
-  - Left as they are: the two lines that refuse a recorded storage path outside the folders
-    CoGA reads or deletes a raw file in name that path as it is recorded, as the trace an
-    edited row leaves (`raw_import_files_pg.py`). Such a path is not CoGA's own value, but it
-    can name another family's package folder.
+  - The two lines that refuse a recorded storage path outside the folders CoGA reads or
+    deletes a raw file in name the record by its ID and the kind of place the path names (an
+    absolute or relative local path, an object-store URI), never the path: it can name another
+    family's package folder (the owner, 2026-11-10). The record, by its ID, still holds the
+    path, so an edited row leaves its trace (`raw_import_files_pg.py`).
   - A unit test reads every logging call in `backend/app` and refuses one that reads a value
     held under a family's or a sample's ID name (`test_logs_name_no_family_or_sample.py`).
 - ✅ **A stored or shown error is CoGA's sentence or the error's kind (SEC-39).** The message
