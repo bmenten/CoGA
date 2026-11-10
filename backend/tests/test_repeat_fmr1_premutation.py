@@ -31,10 +31,8 @@ from backend.tests._repeat_fakes import (
     RecordingSession,
     RowsSession,
     allele_statuses,
-    catalogue_after_a_start,
     family_context,
     import_lookup,
-    seed_a_start,
     shipped_strchive_loci,
     trgt_insert_params,
 )
@@ -122,7 +120,8 @@ def test_a_males_premutation_is_one_too() -> None:
 
 @pytest.mark.asyncio
 async def test_the_family_table_reads_the_premutation_from_the_catalogue() -> None:
-    # Stored as intermediate, not as a premutation: the table reclassifies.
+    # The premutation threshold rides in the catalogue row's metadata, not on the stored call:
+    # the table reads it from there.
     stored = {
         "sample_uuid": "00000000-0000-4000-8000-000000000001",
         "locus_id": "FXS_FMR1",
@@ -138,11 +137,11 @@ async def test_the_family_table_reads_the_premutation_from_the_catalogue() -> No
         "allele_count": 2,
         "alleles": [
             {"repeat_count": 30, "status": "normal"},
-            {"repeat_count": 60, "status": "intermediate"},
+            {"repeat_count": 60, "status": "premutation"},
         ],
         **FMR1,
         "premutation_min": 55,
-        "status": "intermediate",
+        "status": "premutation",
     }
     context = family_context(
         ("00000000-0000-4000-8000-000000000001", "MOTHER1", "mother", False, "female"), family_id="COUPLE1"
@@ -238,57 +237,3 @@ def test_the_built_in_fmr1_row_and_strchive_start_the_full_mutation_at_201() -> 
     assert strchive["metadata"]["intermediate_max"] == 200
     assert (strchive["warning_min"], strchive["pathogenic_min"]) == (45, 201)
     assert (builtin["warning_min"], builtin["pathogenic_min"]) == (45, 201)
-
-
-@pytest.mark.asyncio
-async def test_each_start_rewrites_the_thresholds_an_earlier_start_stored(monkeypatch) -> None:
-    """A database seeded with the old built-in row (200) gets 201 on its next start."""
-    session = await seed_a_start(monkeypatch)
-
-    [(upsert, params)] = [(sql, params) for sql, params in session.statements if params.get("locus_id") == "FMR1"]
-    assert "ON CONFLICT (locus_id) DO UPDATE" in upsert
-    for column in ("warning_min", "pathogenic_min", "metadata"):
-        assert f"{column} = EXCLUDED.{column}" in upsert
-    assert params["pathogenic_min"] == 201
-    assert session.committed
-
-
-@pytest.mark.asyncio
-async def test_a_call_stored_as_a_full_mutation_at_200_reads_premutation_in_the_family_table(monkeypatch) -> None:
-    """The family table classifies a stored call again against the catalogue, so a male's
-    200-repeat allele imported under the old built-in row reads as a premutation once a start
-    has rewritten the row. (The genome tracks show the status stored at import; importing the
-    calls again corrects that.)"""
-    builtin = (await catalogue_after_a_start(monkeypatch))["FMR1"]
-    # Stored with the old threshold; the query reads the thresholds from the catalogue.
-    stored = {
-        "sample_uuid": "00000000-0000-4000-8000-000000000002",
-        "locus_id": "FMR1",
-        "gene": "FMR1",
-        "display_name": "FMR1",
-        "disease": "Fragile X syndrome",
-        "inheritance": "X-linked",
-        "chr": "X",
-        "start": 147912049,
-        "end": 147912111,
-        "motif": "CGG",
-        "genotype": "1",
-        "allele_count": 1,
-        "alleles": [{"repeat_count": 200, "status": "pathogenic"}],
-        "warning_min": builtin["warning_min"],
-        "pathogenic_min": builtin["pathogenic_min"],
-        "benign_min": builtin["metadata"].get("benign_min"),
-        "benign_max": builtin["metadata"].get("benign_max"),
-        "pathogenic_max": builtin["metadata"].get("pathogenic_max"),
-        "premutation_min": builtin["metadata"].get("premutation_min"),
-        "status": "pathogenic",
-    }
-    context = family_context(("00000000-0000-4000-8000-000000000002", "SON1", "proband", False, "male"), family_id="TRIO1")
-
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession([stored]), context=context)
-
-    [locus] = table.loci
-    assert locus.pathogenic_min == 201
-    call = locus.calls["SON1"]
-    assert [allele.status for allele in call.alleles] == ["premutation"]
-    assert call.status == locus.status == "premutation"

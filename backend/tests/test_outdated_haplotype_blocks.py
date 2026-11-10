@@ -4,9 +4,9 @@ The haplotype blocks are built when the phased genotypes are imported, from the 
 couple's children and each member's recorded sex, and the embryo calls read them. A later edit of
 the pedigree or of a sex does not rebuild them, so the loader keeps, beside each
 member's blocks, what they were built for (``pedigree_basis``); the PGT analysis compares it with
-the family's pedigree, and blocks built for another, or without the record, are outdated: every
-embryo is then uninformative, which the family page and the signed record say, until the phased
-genotypes are imported again (the owner's choice of 2026-10-27). An affected status is not part
+the family's pedigree, and blocks built for another, or whose record cannot be read, are
+outdated: every embryo is then uninformative, which the family page and the signed record say,
+until the phased genotypes are imported again (the owner's choice of 2026-10-27). An affected status is not part
 of it: the calls read the statuses when they are made. A single-file re-upload rewrites the blocks
 but not the genome overview's lineage precompute, so the precompute's fingerprint covers a digest
 of the stored blocks.
@@ -59,7 +59,7 @@ def _context(members: list[dict[str, Any]] | None = None, children: tuple[str, .
 
 def _sources(basis: Any) -> list[dict[str, Any]]:
     """What Postgres records of each member's blocks, with ``basis`` as the loader kept it."""
-    kept = basis if basis is None or isinstance(basis, str) else json.dumps(basis)
+    kept = basis if isinstance(basis, str) else json.dumps(basis)
     return [
         {"sample": name, "source": "glimpse2", "filename": "family.vcf.gz", "row_count": 4, "uploaded_at": None,
          "pedigree_basis": kept}
@@ -158,9 +158,10 @@ def test_blocks_built_for_another_pedigree_are_outdated(now: FamilyMetadataConte
     assert pgt_analysis.blocks_outdated(now, _sources(haplotype_block_basis(_context(), _CALLSET))) is True
 
 
-@pytest.mark.parametrize("kept", [None, "not json", json.dumps({"father": "FATHER"}), json.dumps(["x"])])
-def test_blocks_without_their_record_count_as_outdated(kept: Any) -> None:
-    # Without the record, or with one that does not say: not trusted.
+@pytest.mark.parametrize("kept", ["not json", json.dumps({"father": "FATHER"}), json.dumps(["x"])])
+def test_blocks_whose_record_cannot_be_read_count_as_outdated(kept: Any) -> None:
+    # A record that cannot be read, or that does not say what the blocks were built for: not
+    # trusted.
     assert pgt_analysis.blocks_outdated(_context(), _sources(kept)) is True
 
 

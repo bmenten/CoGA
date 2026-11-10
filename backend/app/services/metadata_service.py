@@ -1904,7 +1904,7 @@ async def delete_project_record(session: AsyncSession, *, project_id: str) -> No
     A family's small and structural variants are stored once per project it is linked to, and
     the deletion would drop the links (``ON DELETE CASCADE``) but leave the rows under the
     deleted project, where none of the family's reads looks: a family in no other project
-    then showed none (the owner's decision, 2026-11-10). A change of the family's projects
+    would show none (the owner's decision, 2026-11-10). A change of the family's projects
     moves its rows (``update_family_project_assignments``), so each family is moved, or
     deleted, first.
     """

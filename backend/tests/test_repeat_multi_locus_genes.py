@@ -361,11 +361,10 @@ async def test_the_family_table_shows_why_a_call_is_not_assessed() -> None:
 
 @pytest.mark.asyncio
 async def test_the_family_table_lets_a_name_of_several_strchive_loci_choose_none_of_them() -> None:
-    """The query matched a stored call to the first catalogue row its gene names, so a call
-    stored as not assessed under TRID ARX was read against EIEE1_ARX's thresholds again. Where
-    the call's names reach several STRchive loci, only the locus it was stored under matches;
-    the stored reason is read while no row matches. (integration/test_repeat_multi_locus_storage.py
-    runs the query.)"""
+    """A call stored as not assessed under TRID ARX must not be read against the first tract
+    its gene names (EIEE1_ARX). Where the call's names reach several STRchive loci, only the
+    locus it was stored under matches; the stored reason is read while no row matches.
+    (integration/test_repeat_multi_locus_storage.py runs the query.)"""
     session = RowsSession([])
 
     await repeat_expansion_pg.get_family_repeat_expansion_table_response(session, context=_context())

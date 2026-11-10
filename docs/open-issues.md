@@ -148,7 +148,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - The 2026-11-04 round (#1112–#1138):
     - The five decision dates and roles written into the technical file in place of PR numbers (#1113).
     - `security-posture.md` says the device owner confirmed the sign-up password policy; the change that set it says the lab director.
-    - Class labels in sentence case: migration 0013 without a clinical audit event, a sign-out check blind to a label's case, saves that store an old-case label in the new case (owner's decisions, #1123).
+    - Class labels in sentence case: migration 0013 without a clinical audit event (owner's decision, #1123).
     - An unresolved manifest ROI clears the family's (owner's decision, #1126).
     - Review saves refuse a field they do not take (owner's decision for the SV save, #1119).
     - An in-package `manifest.yaml` link is replaced, not written through (#1122).

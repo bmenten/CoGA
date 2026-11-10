@@ -87,12 +87,13 @@ class TestExpansionLociUnchanged:
 
 
 class TestReclassification:
-    def test_stored_alleles_are_re_read_against_the_ranges(self) -> None:
-        # A stored row's status may differ from what the ranges give; the read path
-        # recomputes it.
+    def test_stored_alleles_are_read_against_the_ranges(self) -> None:
+        # Stored as the import read TRGT's counts (3 pathogenic, 4 outside every range); a
+        # correction of -1 QA records since makes them 2 and 3, and the read path classifies
+        # those against the ranges, whatever status the alleles were stored with.
         alleles = [
-            {"repeat_count": 2, "status": "pathogenic"},
             {"repeat_count": 3, "status": "pathogenic"},
+            {"repeat_count": 4, "status": "review"},
         ]
         result = _reclassify_repeat_alleles(
             alleles,
@@ -101,19 +102,19 @@ class TestReclassification:
             benign_min=2,
             benign_max=2,
             pathogenic_max=3,
+            count_offset=-1,
         )
         assert [allele["status"] for allele in result] == ["normal", "pathogenic"]
 
     def test_a_benign_range_alone_classifies_only_the_counts_inside_it(self) -> None:
         # Without an intermediate or pathogenic threshold nothing says where harm starts, so
         # a count outside a benign range alone (STRchive's POLG states 10) stays not assessed
-        # (CLIN-26), and a count inside it is normal (CLIN-36). The stored status is replaced
-        # all the same.
+        # (CLIN-26), and a count inside it is normal (CLIN-36).
         result = _reclassify_repeat_alleles(
             [
-                {"repeat_count": 3, "status": "normal"},
-                {"repeat_count": 4, "status": "not_assessed"},
-                {"repeat_count": 5, "status": "normal"},
+                {"repeat_count": 3, "status": "not_assessed"},
+                {"repeat_count": 4, "status": "normal"},
+                {"repeat_count": 5, "status": "not_assessed"},
             ],
             warning_min=None,
             pathogenic_min=None,

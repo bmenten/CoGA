@@ -1,15 +1,15 @@
 """A project still linked to families is not deleted (409, naming how many).
 
 ClickHouse stores a family's small and structural variant rows once per project it is linked
-to, and the family's reads look under its projects only. Deleting a project dropped its
-families' links (``ON DELETE CASCADE``) and left their rows under the deleted project: a family
-in no other project showed none, and one with other projects kept rows no reader looks at. The
-owner chose (2026-11-10) to refuse the deletion while a family is linked: a change of the
-family's projects moves its rows, so each family is moved, or deleted, first.
+to, and the family's reads look under its projects only. Deleting a project would drop its
+families' links (``ON DELETE CASCADE``) and leave their rows under the deleted project: a family
+in no other project would show none, and one with other projects would keep rows no reader
+looks at. The owner chose (2026-11-10) to refuse the deletion while a family is linked: a
+change of the family's projects moves its rows, so each family is moved, or deleted, first.
 
 Over a fake session: the refusal comes before the review tags are deactivated and the project
 deleted, with nothing committed; the project's row is locked before its families are counted;
-a project without families is deleted as before. Real Postgres and ClickHouse:
+a project without families is deleted. Real Postgres and ClickHouse:
 ``e2e/test_e2e_project_delete_variants.py``. The IDs are synthetic.
 """
 

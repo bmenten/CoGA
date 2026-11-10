@@ -5,7 +5,7 @@ array (DATA-3); the summary counts a review that holds only an ACMG record; clea
 and a re-classification that changes only a criterion's strength, are on the clinical audit
 trail in the save's transaction; a tag the review holds is kept whatever became of its
 definition, and only a tag the save adds is checked. A classification filter, here and on the
-structural-variant page, matches a review's label whatever its case (ENG-6); the small-variant
+structural-variant page, matches a review's text whatever its case; the small-variant
 one keeps a review, or its pair review, by the class it shows: its class tag, a bare class word
 or its text (CLIN-75).
 """
@@ -59,8 +59,8 @@ class _RecordingSession:
     ids=["small", "structural"],
 )
 def test_a_classification_filter_matches_a_review_whatever_the_case_of_its_label(lister) -> None:
-    # ENG-6: the class labels are in sentence case ("Likely pathogenic - class 4"). A review or a
-    # link that holds "Likely Pathogenic - class 4" and one that holds the label find each other.
+    # The classification is free text, compared whatever its case: a review or a filter that
+    # holds "Likely Pathogenic - class 4" and one that holds the label find each other.
     session = _RecordingSession(
         [
             {"variant_id": "1-100-A-G", "classification": "Likely Pathogenic - class 4", "tags": [], "note": None},
@@ -628,26 +628,6 @@ def test_a_save_removing_a_tag_whose_definition_is_gone_goes_ahead(monkeypatch) 
 
     assert (writes, reads) == (["update"], [])
     assert audits[0]["new_state"]["tags"] == ["report"]
-
-
-def test_a_class_label_saved_in_another_case_is_stored_as_the_label_is_now(monkeypatch) -> None:
-    # ENG-6: a client may send "Likely Pathogenic - class 4" back with a save that leaves the
-    # class alone. It is stored as the label is, so the review keeps the label's sentence case;
-    # text that names no class label is stored as sent.
-    from backend.app.services.review_pg_utils import _stored_classification
-
-    existing = _stored_review(classification="Likely pathogenic - class 4", tags=["acmg_class_4", "report"])
-    payload = SmallVariantReviewUpdate(
-        classification=" Likely Pathogenic - class 4 ", tags=["acmg_class_4", "report"], note="reported"
-    )
-    _audits, writes, session = _clear(monkeypatch, existing, payload)
-
-    assert writes == ["update"]
-    assert session.written["classification"] == "Likely pathogenic - class 4"
-
-    assert _stored_classification("vus - CLASS 3") == "VUS - class 3"
-    assert _stored_classification("Likely pathogenic, see note") == "Likely pathogenic, see note"
-    assert _stored_classification("   ") is None and _stored_classification(None) is None
 
 
 def test_a_save_may_add_a_usable_tag_beside_one_whose_definition_is_gone(monkeypatch) -> None:

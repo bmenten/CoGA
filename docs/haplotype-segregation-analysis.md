@@ -239,7 +239,7 @@ both.
   and each sample's recorded sex (`haplotype_block_builder.haplotype_block_basis`, kept as
   `pedigree_basis` in the haplotype track's `sample_interval_track_sources.metadata`). The PGT
   analysis compares it with the family's pedigree (`pgt_analysis.blocks_outdated`). Blocks built for
-  another couple, other children or other sexes, or without the record,
+  another couple, other children or other sexes, or whose record cannot be read,
   are outdated. The analysis then still reads them for the inputs' digest, but calls every embryo
   *Uninformative* and says why (`inputs.blocks_outdated`), as the family page and the signed record
   do, until the phased genotypes are imported again (the owner's choice of 2026-10-27). The

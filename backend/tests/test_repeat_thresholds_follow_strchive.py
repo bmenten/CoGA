@@ -9,14 +9,11 @@ first count of its range (the classifier tests ``>=``), as STRchive's inclusive 
 ``warning_min`` starts the intermediate range, ``pathogenic_min`` the pathogenic one.
 
 - The guard: every built-in row has exactly one STRchive row, with the same two thresholds.
-- Each side of every threshold at fifteen loci, STRchive's and another a row could state, run
-  through the catalogue a start seeds and the import's TRID lookup, under the gene name and
-  under the STRchive ID.
-- Every start writes the thresholds over those an earlier start stored, BEAN1's missing
-  intermediate threshold as NULL.
-- The family table classifies a call stored under other thresholds again against the catalogue
-  row's thresholds, NULL included. (The genome tracks show the status stored at import until the
-  calls are imported again; integration/test_repeat_status_storage.py runs this on Postgres.)
+- Each side of every threshold at fifteen loci, run through the catalogue a start seeds and the
+  import's TRID lookup, under the gene name and under the STRchive ID.
+- Every start writes each built-in row with STRchive's thresholds, BEAN1's missing intermediate
+  threshold as NULL.
+(integration/test_repeat_status_storage.py stores and reads such calls on Postgres.)
 All samples and values are synthetic.
 """
 
@@ -26,13 +23,9 @@ from dataclasses import dataclass
 
 import pytest
 
-from backend.app.services import repeat_expansion_pg
 from backend.app.services.repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
 from backend.tests._repeat_fakes import (
-    RowsSession,
     allele_statuses,
-    catalogue_after_a_start,
-    family_context,
     import_lookup,
     seed_a_start,
     shipped_strchive_loci,
@@ -48,39 +41,35 @@ BUILT_IN_LOCI_STRCHIVE_LACKS: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
-class ChangedLocus:
-    """A built-in locus that carries STRchive's thresholds, checked against other ones (CLIN-22)."""
+class ThresholdLocus:
+    """A built-in locus that carries STRchive's thresholds (CLIN-22), with counts on each side."""
 
     gene_trid: str  # the built-in row's locus_id, the TRID of the demo data
     strchive_trid: str  # STRchive's locus ID
-    now: tuple[int | None, int]  # (warning_min, pathogenic_min): STRchive's, the built-in row's
-    before: tuple[int, int]  # other thresholds a stored row or call may carry
-    # The status of an allele of each count, on each side of every threshold in ``now`` and
-    # ``before``, under either row.
+    thresholds: tuple[int | None, int]  # (warning_min, pathogenic_min): STRchive's, the built-in row's
+    # The status of an allele of each count, on each side of every threshold, under either row.
     statuses: dict[int, str]
-    # A count whose status differs under ``before``, and the status ``before`` gives it.
-    flip: tuple[int, str]
 
 
-CHANGED_LOCI = [
-    ChangedLocus("ATXN1", "SCA1_ATXN1", (36, 39), (39, 45), {35: N, 36: I, 38: I, 39: P, 44: P, 45: P}, (39, I)),
-    ChangedLocus("ATXN2", "SCA2_ATXN2", (29, 35), (32, 34), {28: N, 29: I, 31: I, 32: I, 33: I, 34: I, 35: P}, (34, P)),
-    ChangedLocus("CACNA1A", "SCA6_CACNA1A", (19, 21), (19, 20), {18: N, 19: I, 20: I, 21: P}, (20, P)),
-    ChangedLocus("ATXN7", "SCA7_ATXN7", (28, 37), (20, 36), {19: N, 20: N, 27: N, 28: I, 35: I, 36: I, 37: P}, (36, P)),
-    ChangedLocus("TBP", "SCA17_TBP", (41, 49), (42, 49), {40: N, 41: I, 42: I, 48: I, 49: P}, (41, N)),
-    ChangedLocus("ATXN8OS", "SCA8_ATXN8OS", (50, 71), (50, 80), {49: N, 50: I, 70: I, 71: P, 79: P, 80: P}, (71, I)),
-    ChangedLocus("CNBP", "DM2_CNBP", (27, 75), (55, 75), {26: N, 27: I, 54: I, 55: I, 74: I, 75: P}, (27, N)),
-    ChangedLocus("FXN", "FRDA_FXN", (34, 56), (34, 66), {33: N, 34: I, 55: I, 56: P, 65: P, 66: P}, (56, I)),
-    ChangedLocus("C9orf72", "FTDALS1_C9orf72", (24, 31), (24, 30), {23: N, 24: I, 29: I, 30: I, 31: P}, (30, P)),
-    ChangedLocus("ATXN10", "SCA10_ATXN10", (33, 800), (280, 800), {32: N, 33: I, 279: I, 280: I, 799: I, 800: P}, (33, N)),
+THRESHOLD_LOCI = [
+    ThresholdLocus("ATXN1", "SCA1_ATXN1", (36, 39), {35: N, 36: I, 38: I, 39: P, 44: P, 45: P}),
+    ThresholdLocus("ATXN2", "SCA2_ATXN2", (29, 35), {28: N, 29: I, 31: I, 32: I, 33: I, 34: I, 35: P}),
+    ThresholdLocus("CACNA1A", "SCA6_CACNA1A", (19, 21), {18: N, 19: I, 20: I, 21: P}),
+    ThresholdLocus("ATXN7", "SCA7_ATXN7", (28, 37), {19: N, 20: N, 27: N, 28: I, 35: I, 36: I, 37: P}),
+    ThresholdLocus("TBP", "SCA17_TBP", (41, 49), {40: N, 41: I, 42: I, 48: I, 49: P}),
+    ThresholdLocus("ATXN8OS", "SCA8_ATXN8OS", (50, 71), {49: N, 50: I, 70: I, 71: P, 79: P, 80: P}),
+    ThresholdLocus("CNBP", "DM2_CNBP", (27, 75), {26: N, 27: I, 54: I, 55: I, 74: I, 75: P}),
+    ThresholdLocus("FXN", "FRDA_FXN", (34, 56), {33: N, 34: I, 55: I, 56: P, 65: P, 66: P}),
+    ThresholdLocus("C9orf72", "FTDALS1_C9orf72", (24, 31), {23: N, 24: I, 29: I, 30: I, 31: P}),
+    ThresholdLocus("ATXN10", "SCA10_ATXN10", (33, 800), {32: N, 33: I, 279: I, 280: I, 799: I, 800: P}),
     # STRchive gives SCA31 no intermediate range: below 110 is normal.
-    ChangedLocus("BEAN1", "SCA31_BEAN1", (None, 110), (300, 500), {109: N, 110: P, 299: P, 300: P, 499: P, 500: P}, (300, I)),
-    ChangedLocus("PPP2R2B", "SCA12_PPP2R2B", (40, 51), (44, 51), {39: N, 40: I, 43: I, 44: I, 50: I, 51: P}, (40, N)),
-    ChangedLocus("NOP56", "SCA36_NOP56", (15, 650), (31, 650), {14: N, 15: I, 30: I, 31: I, 649: I, 650: P}, (15, N)),
-    ChangedLocus("JPH3", "HDL2_JPH3", (29, 40), (36, 41), {28: N, 29: I, 35: I, 36: I, 39: I, 40: P, 41: P}, (40, I)),
-    ChangedLocus("PABPN1", "OPMD_PABPN1", (11, 12), (11, 13), {10: N, 11: I, 12: P, 13: P}, (12, I)),
+    ThresholdLocus("BEAN1", "SCA31_BEAN1", (None, 110), {109: N, 110: P, 299: P, 300: P, 499: P, 500: P}),
+    ThresholdLocus("PPP2R2B", "SCA12_PPP2R2B", (40, 51), {39: N, 40: I, 43: I, 44: I, 50: I, 51: P}),
+    ThresholdLocus("NOP56", "SCA36_NOP56", (15, 650), {14: N, 15: I, 30: I, 31: I, 649: I, 650: P}),
+    ThresholdLocus("JPH3", "HDL2_JPH3", (29, 40), {28: N, 29: I, 35: I, 36: I, 39: I, 40: P, 41: P}),
+    ThresholdLocus("PABPN1", "OPMD_PABPN1", (11, 12), {10: N, 11: I, 12: P, 13: P}),
 ]
-LOCUS_IDS = [locus.gene_trid for locus in CHANGED_LOCI]
+LOCUS_IDS = [locus.gene_trid for locus in THRESHOLD_LOCI]
 
 
 def _strchive_rows_of(builtin: dict, strchive_rows: list[dict]) -> list[dict]:
@@ -118,17 +107,13 @@ def test_every_built_in_row_has_one_strchive_row_with_the_same_thresholds() -> N
     assert differ == {}
 
 
-def test_the_cases_below_are_the_built_in_rows_whose_thresholds_changed() -> None:
-    """Each case pairs a built-in row with its STRchive row and STRchive's thresholds; the six
-    built-in rows without a case agree with STRchive."""
+def test_each_case_below_pairs_a_built_in_row_with_its_strchive_row_and_its_thresholds() -> None:
     strchive_by_id = {row["locus_id"]: row for row in shipped_strchive_loci()}
     builtin_by_id = {locus["locus_id"]: locus for locus in BUILTIN_REPEAT_LOCI}
-    for locus in CHANGED_LOCI:
+    for locus in THRESHOLD_LOCI:
         strchive = strchive_by_id[locus.strchive_trid]
         assert strchive["gene"].lower() == builtin_by_id[locus.gene_trid]["gene"].lower()
-        assert (strchive["warning_min"], strchive["pathogenic_min"]) == locus.now != locus.before
-    unchanged = sorted(set(builtin_by_id) - set(LOCUS_IDS))
-    assert unchanged == ["AR", "ATN1", "ATXN3", "DMPK", "FMR1", "HTT"]
+        assert (strchive["warning_min"], strchive["pathogenic_min"]) == locus.thresholds
 
 
 # ---- Through the catalogue a start seeds and the import's TRID lookup ---------------------------
@@ -151,10 +136,10 @@ def _call(lookup: dict[str, dict], *, trid: str, strchive: dict, count: int) -> 
 
 
 @pytest.mark.parametrize("trid_kind", ["gene name", "STRchive ID"])
-@pytest.mark.parametrize("locus", CHANGED_LOCI, ids=LOCUS_IDS)
+@pytest.mark.parametrize("locus", THRESHOLD_LOCI, ids=LOCUS_IDS)
 @pytest.mark.asyncio
-async def test_each_side_of_every_changed_threshold_reads_the_same_under_either_trid(
-    monkeypatch, locus: ChangedLocus, trid_kind: str
+async def test_each_side_of_every_threshold_reads_the_same_under_either_trid(
+    monkeypatch, locus: ThresholdLocus, trid_kind: str
 ) -> None:
     lookup = await import_lookup(monkeypatch)
     strchive = lookup[locus.strchive_trid.lower()]
@@ -171,95 +156,23 @@ async def test_each_side_of_every_changed_threshold_reads_the_same_under_either_
 
     assert statuses == locus.statuses
     # The call is stored with the thresholds that classified it.
-    assert stored_thresholds == {locus.now}
+    assert stored_thresholds == {locus.thresholds}
 
 
 @pytest.mark.asyncio
-async def test_each_start_writes_strchives_thresholds_over_those_an_earlier_start_stored(monkeypatch) -> None:
-    """A database seeded with other thresholds gets STRchive's on its next start:
-    the upsert by locus_id sets both columns from the row, so BEAN1's NULL replaces a stored 300."""
+async def test_each_start_writes_every_built_in_row_whole_with_strchives_thresholds(monkeypatch) -> None:
+    """The seed upserts each row by locus_id, both thresholds and the metadata from the row, so
+    BEAN1's missing intermediate threshold is written as NULL."""
     session = await seed_a_start(monkeypatch)
     upserted = {params["locus_id"]: (sql, params) for sql, params in upserts(session)}
 
-    for locus in CHANGED_LOCI:
+    for locus in THRESHOLD_LOCI:
         sql, params = upserted[locus.gene_trid]
         assert "ON CONFLICT (locus_id) DO UPDATE" in sql
-        assert "warning_min = EXCLUDED.warning_min" in sql
-        assert "pathogenic_min = EXCLUDED.pathogenic_min" in sql
+        for column in ("warning_min", "pathogenic_min", "metadata"):
+            assert f"{column} = EXCLUDED.{column}" in sql
         strchive = upserted[locus.strchive_trid][1]
-        assert (params["warning_min"], params["pathogenic_min"]) == locus.now
-        assert (strchive["warning_min"], strchive["pathogenic_min"]) == locus.now
+        assert (params["warning_min"], params["pathogenic_min"]) == locus.thresholds
+        assert (strchive["warning_min"], strchive["pathogenic_min"]) == locus.thresholds
     assert upserted["BEAN1"][1]["warning_min"] is None
     assert session.committed
-
-
-# ---- The family table ---------------------------------------------------------------------------
-
-
-def _context():
-    return family_context(("00000000-0000-4000-8000-000000000003", "WOMAN1", "proband", False, "female"))
-
-
-@pytest.mark.parametrize("locus", CHANGED_LOCI, ids=LOCUS_IDS)
-@pytest.mark.asyncio
-async def test_the_family_table_reads_a_call_stored_under_the_old_row_with_strchives_thresholds(
-    monkeypatch, locus: ChangedLocus
-) -> None:
-    """A call imported under other thresholds keeps its stored status (the genome tracks show
-    it until the calls are imported again); the family table classifies it again against the row
-    a start leaves."""
-    builtin = (await catalogue_after_a_start(monkeypatch))[locus.gene_trid]
-    count, status_before = locus.flip
-    # The query takes the thresholds from the catalogue row it matched.
-    stored = {
-        "sample_uuid": "00000000-0000-4000-8000-000000000003",
-        "locus_id": locus.gene_trid,
-        "gene": builtin["gene"],
-        "display_name": builtin["display_name"],
-        "disease": builtin["disease"],
-        "inheritance": builtin["inheritance"],
-        "chr": "1",
-        "start": 1000,
-        "end": 1100,
-        "motif": builtin["motif"],
-        "genotype": "1/2",
-        "allele_count": 2,
-        "alleles": [
-            {"repeat_count": 5, "status": N},
-            {"repeat_count": count, "status": status_before},
-        ],
-        "warning_min": builtin["warning_min"],
-        "pathogenic_min": builtin["pathogenic_min"],
-        "benign_min": builtin["metadata"].get("benign_min"),
-        "benign_max": builtin["metadata"].get("benign_max"),
-        "pathogenic_max": builtin["metadata"].get("pathogenic_max"),
-        "premutation_min": builtin["metadata"].get("premutation_min"),
-        "status": status_before,
-    }
-
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession([stored]), context=_context())
-
-    [row] = table.loci
-    assert (row.warning_min, row.pathogenic_min) == locus.now
-    call = row.calls["WOMAN1"]
-    assert [allele.status for allele in call.alleles] == [N, locus.statuses[count]]
-    assert call.status == row.status == locus.statuses[count] != status_before
-
-
-@pytest.mark.asyncio
-async def test_the_family_table_takes_both_thresholds_from_the_catalogue_row_it_matched() -> None:
-    """A call keeps the thresholds it was imported with, but the table reads the matched
-    catalogue row's, NULL included: BEAN1's intermediate threshold is gone, and a call stored
-    with the old 300 must not bring it back. Only a call no catalogue row matches falls back to
-    its stored thresholds. (integration/test_repeat_status_storage.py runs the query.)"""
-    session = RowsSession([])
-
-    await repeat_expansion_pg.get_family_repeat_expansion_table_response(session, context=_context())
-
-    [sql] = session.statements
-    for column in ("warning_min", "pathogenic_min"):
-        assert (
-            f"CASE WHEN catalog.locus_id IS NULL THEN repeat_expansions.{column} "
-            f"ELSE catalog.{column} END AS {column}"
-        ) in sql
-        assert f"COALESCE(catalog.{column}" not in sql

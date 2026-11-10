@@ -674,9 +674,8 @@ def test_review_filter_reads_one_id_past_its_cap_in_variant_id_order() -> None:
 
 
 def test_the_classification_filter_matches_a_review_whatever_the_case_of_its_label() -> None:
-    # ENG-6: the class labels are in sentence case ("Likely pathogenic - class 4"); a review or
-    # a filter may hold "Likely Pathogenic - class 4". Both sides are lowercased, as
-    # the family page compares them.
+    # The classification is free text: a review or a filter may hold "Likely Pathogenic - class
+    # 4". Both sides are lowercased, as the family page compares them.
     from backend.app.services.variant_explorer_service import _variant_ids_matching_reviews
 
     session = _RecordingSession(rows=[("1-100-A-G",)])
@@ -717,10 +716,10 @@ def test_review_display_map_binds_any_number_of_variant_ids_as_one_parameter() -
     [
         # The labels the review dialog writes, ACMG and CNV alike.
         (
-            ["Likely benign - class 2", "VUS - class 3", "Pathogenic - class 5", "Likely Pathogenic - class 4"],
+            ["Likely benign - class 2", "VUS - class 3", "Pathogenic - class 5", "Likely pathogenic - class 4"],
             "Pathogenic - class 5",
         ),
-        # The same labels in sentence case, and in any other case.
+        # The same labels in any case.
         (["likely benign - class 2", "Likely pathogenic - class 4", "VUS - class 3"], "Likely pathogenic - class 4"),
         (["BENIGN - CLASS 1", "likely benign - class 2"], "likely benign - class 2"),
         # The ACMG and CNV class keys.
@@ -736,10 +735,9 @@ def test_review_display_map_binds_any_number_of_variant_ids_as_one_parameter() -
 def test_the_explorer_shows_the_most_severe_classification_whatever_form_it_is_stored_in(
     monkeypatch, stored, shown
 ) -> None:
-    # CLIN-69: the rank read the stored label lowercased ("likely pathogenic - class 4"),
-    # which no rank key matched, so every label ranked 0 and the first review read won: a
-    # variant classified pathogenic in one family and likely benign in another could show
-    # "Likely benign - class 2".
+    # CLIN-69: each stored form ranks by the class it names. Were a label to rank 0, the first
+    # review read would win, and a variant classified pathogenic in one family and likely benign
+    # in another could show "Likely benign - class 2".
     # One review row per family; the labels alternate between the variant's own
     # classification and its compound-het pair's.
     review_rows = [

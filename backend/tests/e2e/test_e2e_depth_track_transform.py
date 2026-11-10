@@ -2,10 +2,9 @@
 
 The package import stores a HiFiCNV depth bigWig on the ``coverage`` track as log2(depth / the
 sample's autosomal median), the scale of the coverage chart's axis. A file without autosomal
-depth gives no median, and its depths are stored as read. Its track's record said
-``log2_ratio_to_autosomal_median`` all the same, with a null median, and the viewers, which
-assumed every coverage track a log2 ratio, drew the raw depths on that axis: clamped at its top
-and coloured as a gain across the genome.
+depth gives no median, and its depths are stored as read; its track's record names ``none``, so
+the viewers do not draw the raw depths on the log2-ratio axis, where they would clamp at its top
+and colour as a gain across the genome.
 
 Here a trio's package (a family of its own, a new id each run) goes through the package import
 into real Postgres and ClickHouse. The proband's depth file has autosomal depth (median 20); the
@@ -13,7 +12,7 @@ mother's has depth on chrX only, with zero bins on chr1; the father has a covera
 whose values are stored as the file holds them. Then:
 
 * the proband's depths are stored as log2 ratios, and her track's record names
-  ``log2_ratio_to_autosomal_median`` with the median, as before;
+  ``log2_ratio_to_autosomal_median`` with the median;
 * the mother's depths are stored as read, and her record names ``none``, with a null median;
 * ``GET /families/{family_id}/track-availability`` serves each offered coverage track's recorded
   transform (``coverage_normalizations``), which the viewers read before drawing a track on

@@ -571,8 +571,7 @@ describe('preset filter (de)serialisation', () => {
 });
 
 // ENG-6 (the owner's decision of 2026-10-28): the classification tags and the VUS tiers in
-// sentence case. A link or a preset saved before holds "Likely Pathogenic - class 4"; read, it
-// ticks the box the options write in sentence case, and any other value stays as written.
+// sentence case.
 describe('class labels in sentence case', () => {
   it('names the classification tags and the VUS tiers in sentence case', () => {
     expect(ACMG_CLASSIFICATION_TAGS.map((tag) => tag.label)).toEqual([
@@ -586,8 +585,6 @@ describe('class labels in sentence case', () => {
     expect(ACMG_CLASS_LABELS).toEqual(Object.fromEntries(ACMG_CLASSIFICATION_TAGS.map((tag) => [tag.key, tag.label])));
     expect(Object.values(CNV_CLASS_LABELS)).toEqual(ACMG_CLASSIFICATION_TAGS.map((tag) => tag.label));
   });
-
-
 });
 
 // The class a review shows, from its text and its tags. The Variant Explorer reads it on the server

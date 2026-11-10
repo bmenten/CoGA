@@ -404,8 +404,9 @@ describe('the class a reported variant shows on the report', () => {
     });
   });
 
-  it('reads a score in another case as the class shown', () => {
-    expect(scoreBesideClass('Likely pathogenic - class 4', 'Likely Pathogenic - class 4')).toBeNull();
+  it('reads a class shown in another case as the score', () => {
+    // The classification is free text: it may hold the score's label in another case.
+    expect(scoreBesideClass('Likely Pathogenic - class 4', 'Likely pathogenic - class 4')).toBeNull();
     expect(scoreBesideClass('VUS - class 3', ' Likely pathogenic - class 4 ')).toBe('Likely pathogenic - class 4');
     expect(scoreBesideClass(null, 'Benign - class 1')).toBe('Benign - class 1');
     expect(scoreBesideClass('Benign - class 1', null)).toBeNull();

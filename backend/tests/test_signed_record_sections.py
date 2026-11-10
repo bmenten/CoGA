@@ -936,15 +936,7 @@ def test_the_record_names_the_delivered_package_and_every_correction_made_at_int
     assert session.executed[0][1] == {"family_uuid": _context().family_uuid}
 
 
-@pytest.mark.parametrize(
-    "rows",
-    [[], [{"delivery": None}], [{"delivery": "null"}], [{"delivery": '{"id": "d0", "corrections": "none"}'}]],
-)
+@pytest.mark.parametrize("rows", [[], [{"delivery": None}], [{"delivery": "null"}]])
 def test_a_family_not_imported_from_a_delivery_holds_none(rows: list[dict[str, Any]]) -> None:
     intake = asyncio.run(srs.package_intake(_Session({"package_import": rows}), _context()))  # type: ignore[arg-type]
-    if rows and rows[0]["delivery"] not in (None, "null"):
-        # A delivery record without a list of corrections: its record, with none.
-        assert intake["delivery"]["id"] == "d0" and intake["delivery"]["corrections"] == []
-        assert intake["delivery"]["revision"] is None
-    else:
-        assert intake == {"delivery": None}
+    assert intake == {"delivery": None}

@@ -813,9 +813,9 @@ async def _ensure_family_sv_gene_index(
 
     The index records the storage-level SV data version it was built from, which every SV
     insert, delete and snapshot restore moves (``clickhouse_variant_storage``), whatever
-    code path made the write. Only the package import used to clear the index, so a
-    per-sample SV upload or an admin SV delete left the second-hit badge describing SVs
-    the family no longer had.
+    code path made the write: after a per-sample SV upload or an admin SV delete, as after
+    a package import, the next read rebuilds it, so the second-hit badge never describes
+    SVs the family no longer has.
 
     The version is read before the scan: a write that lands while the index is being
     built leaves it stamped with a version that has already moved on, so the next read
@@ -2150,7 +2150,8 @@ async def _serve_ranking_from_cache(
 
 
 def _recorded_panel_members(candidate: dict[str, Any]) -> str | None:
-    """What a cached ranking recorded of its panel's genes and regions, if anything."""
+    """What a cached ranking recorded of its panel's genes and regions
+    (``panel_members_digest``): None for a panel that held none."""
     provenance = candidate.get("provenance")
     if isinstance(provenance, str):
         try:
@@ -2172,14 +2173,11 @@ async def _superset_panel_if_unchanged(
 
     The ranking can serve another panel only as a superset: the narrowing can drop its
     variants, never add any. A ranking computed before its panel gained a gene holds none
-    of that gene's variants, whatever the panel holds now (CLIN-27). A row that records no
-    panel cannot show its panel unchanged, and a panel deleted
-    since has nothing to compare (its lookup answers 404, which must not fail a request
-    for another panel).
+    of that gene's variants, whatever the panel holds now (CLIN-27). A panel deleted since
+    has nothing to compare (its lookup answers 404, which must not fail a request for
+    another panel).
     """
     recorded = _recorded_panel_members(candidate)
-    if recorded is None:
-        return None
     try:
         constraints = await _fetch_panel_constraints(
             session, str(candidate["panel_id"]), assembly_id=assembly_id
@@ -2287,9 +2285,7 @@ async def _serve_subpanel_from_superset(
       variant the requested panel reaches by a gene or a gene's locus. It can still lack
       one the requested panel reaches by a region of its own only: coordinates PanelApp
       gave for a gene, or a locus stored when the panel was made, that the broader panel
-      does not hold. (Until the owner's decision of 2026-10-14 a panel of more than 1,000
-      regions was matched on gene symbols alone, and its ranking lacked every variant a
-      smaller panel reaches by position only: CLIN-34.) A compound-het pair whose partner
+      does not hold (CLIN-34). A compound-het pair whose partner
       the panel leaves out is no pair within the panel, so the variant loses that mode, and
       with it, unless another mode is as strong, segregation weight and score (CLIN-35).
     """
@@ -2547,9 +2543,9 @@ async def _prioritized_small_variants_page(
     lower bound.
     """
     # The gene filter keeps the variants annotated with the gene, as the unranked search
-    # keeps them: it adds none of the gene's loci to the regions. The ranked search kept
-    # only those inside the loci the gene reference gives, and lost a variant VEP assigns to
-    # the gene outside them, an upstream or downstream one (ENG-1).
+    # keeps them: it adds none of the gene's loci to the regions. Keeping only those inside
+    # the loci the gene reference gives would lose a variant VEP assigns to the gene outside
+    # them, an upstream or downstream one (ENG-1).
     scope = _SmallVariantScope(
         panel_constraints=panel_constraints,
         review_variant_ids=review_variant_ids,
@@ -2564,7 +2560,7 @@ async def _prioritized_small_variants_page(
 
     # The phenotype-prioritised ranking is expensive (~10s); serve a cached ranking
     # when its inputs are unchanged — filters, HPO, pedigree, panel, reference releases and
-    # the family's variant data (the storage-level data version, see #509) — and the genes
+    # the family's variant data (the storage-level data version) — and the genes
     # and regions this query applies, read here from the panel and the gene reference. The
     # filters include the inheritance mode and expanded carrier screening, and the pedigree
     # the couple and each member's sex: every input of what the search keeps.

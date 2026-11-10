@@ -18,27 +18,11 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 
 from ..core.coga_logging import scrub_log
-from . import acmg_points, cnv_acmg_points
+from . import acmg_points
 
 logger = logging.getLogger(__name__)
 
 _ClassificationT = TypeVar("_ClassificationT", bound=BaseModel)
-
-# The class labels the review dialogs write, ACMG and CNV alike, by their lowercased text.
-_CLASS_LABELS_BY_LOWERED = {
-    label.lower(): label
-    for label in (*acmg_points.CLASS_LABELS.values(), *cnv_acmg_points.CLASS_LABELS.values())
-}
-
-
-def current_class_label(value: str) -> str:
-    """``value`` written as the class label it names, when it names one in another case.
-
-    The class labels are in sentence case (ENG-6): "Likely Pathogenic - class 4", as a client
-    of the review API may send it, is stored as "Likely pathogenic - class 4". Any other text
-    is returned as it is.
-    """
-    return _CLASS_LABELS_BY_LOWERED.get(value.strip().lower(), value)
 
 
 # The bare class words a review's classification text may hold instead of the class label (the
@@ -79,8 +63,9 @@ def review_class_filter(values: Iterable[Any] | None) -> list[str]:
     """The classes a review-classification filter asks for, each once, in the order given.
 
     Each value is read as a review's text is (:func:`review_class_label`): a bare class word
-    ("VUS") asks for its class label, any other value for itself, trimmed. Lowercased: a filter
-    compares whatever the case (ENG-6). A blank value asks for nothing.
+    ("VUS") asks for its class label, any other value for itself, trimmed. Lowercased: the
+    classification is free text, and a filter compares it whatever its case. A blank value asks
+    for nothing.
     """
     requested = (review_class_label(str(value)) for value in values or [] if str(value).strip())
     return list(dict.fromkeys(label.lower() for label in requested if label))
@@ -149,10 +134,8 @@ def review_class_label_sql(classification_column: str, tags_column: str) -> tupl
 
 
 def _stored_classification(value: str | None) -> str | None:
-    """A review's classification as a save stores it: trimmed, None when empty, and a class
-    label in another case written as the label is now (:func:`current_class_label`)."""
-    text_value = (value or "").strip()
-    return current_class_label(text_value) if text_value else None
+    """A review's classification as a save stores it: the text sent, trimmed; None when empty."""
+    return (value or "").strip() or None
 
 
 def _normalize_tags(tags: Iterable[str]) -> list[str]:

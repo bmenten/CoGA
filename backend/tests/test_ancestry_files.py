@@ -108,9 +108,6 @@ def test_a_manifest_declares_files_by_path_with_an_optional_label():
     many = SimpleNamespace(manifest=SimpleNamespace(metadata={"ancestry": {"vcfs": [f"{i}.vcf" for i in range(20)]}}))
     assert len(files.declared_files(many)) == files.MAX_DECLARED
     assert files.declared_files(SimpleNamespace(manifest=SimpleNamespace(metadata={}))) == []
-    # The declaration of a whole-genome source from before is not read.
-    old = SimpleNamespace(manifest=SimpleNamespace(metadata={"ancestry": {"full_wgs": True}}))
-    assert files.declared_files(old) == []
 
 
 def test_a_declared_file_comes_after_direct_calls_and_before_the_others():

@@ -24,10 +24,8 @@ logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
-# bcrypt reads at most the first 72 bytes of a password. passlib, which made the stored
-# hashes, passed longer passwords through and bcrypt truncated them silently; bcrypt 5
-# refuses them instead. Truncating here keeps every stored hash verifiable and makes new
-# hashes the same way (#525).
+# bcrypt reads at most the first 72 bytes of a password and refuses a longer one. A password
+# is hashed and checked on its first 72 bytes (in UTF-8), so a longer one still signs in.
 _BCRYPT_MAX_PASSWORD_BYTES = 72
 
 

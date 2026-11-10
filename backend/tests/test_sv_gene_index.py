@@ -909,13 +909,6 @@ def test_index_built_from_the_current_svs_is_reused(monkeypatch) -> None:
     assert session.genes["u1"] == {"STALE"}  # untouched
 
 
-def test_index_built_before_versions_were_recorded_is_rebuilt(monkeypatch) -> None:
-    session = _IndexSession(built_from={"u1": None})
-    scans = _ensure_index(monkeypatch, session, current_version="0:0")
-    assert scans["count"] == 1
-    assert session.built_from["u1"] == "0:0"
-
-
 def test_missing_index_is_built_and_stamped_with_the_version(monkeypatch) -> None:
     session = _IndexSession()
     scans = _ensure_index(monkeypatch, session, current_version="3:9")

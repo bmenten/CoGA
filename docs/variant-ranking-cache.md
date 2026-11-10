@@ -353,8 +353,8 @@ variants. The row:
 2. has no panel, or a panel that still holds the genes and regions the row was computed on. Each
    row records them in its `provenance` (`panel_members`, the same digest as in the key). CoGA
    compares that record with the panel as it resolves now: its kept resolution while the token is
-   unchanged (see [Resolving a panel](#resolving-a-panel)), else the panel read again. A row that
-   records nothing, or whose panel has been deleted, is not used;
+   unchanged (see [Resolving a panel](#resolving-a-panel)), else the panel read again. A row whose
+   panel has been deleted is not used;
 3. covers the requested panel's genes (a row without a panel covers every gene);
 4. holds every variant the requested panel reaches; and
 5. recorded for each of them the segregation modes they have among themselves.

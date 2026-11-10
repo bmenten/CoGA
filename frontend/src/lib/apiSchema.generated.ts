@@ -1206,11 +1206,7 @@ export interface GeneExternalLinkOut {
   href: string;
 }
 
-/**
- * A model-organism ortholog, as dbNSFP names it (a mouse and a zebrafish gene symbol). A
- * homolog cached with fields no source sets any more (an Ensembl gene id, percent identity or
- * coverage, an "in the platform" flag that was always false) loads without them (ENG-4).
- */
+/** A model-organism ortholog, as dbNSFP names it (a mouse and a zebrafish gene symbol). */
 export interface GeneHomologOut {
   species_name: string;
   common_name: string | null;

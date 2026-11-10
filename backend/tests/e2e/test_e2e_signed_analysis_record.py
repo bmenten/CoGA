@@ -360,8 +360,3 @@ def test_an_unknown_code_and_one_outside_the_callers_projects_answer_alike(signe
     hidden_unknown = signed["responses"]["lookup_hidden_unknown"]
     assert unknown["status"] == hidden["status"] == hidden_unknown["status"] == 404
     assert unknown["text"] == hidden["text"] == hidden_unknown["text"]
-
-
-# ------------------------------------------------- a record from before these sections
-
-

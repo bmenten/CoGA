@@ -1,12 +1,12 @@
 """The Variant Explorer CSV export against real ClickHouse and Postgres (DATA-2).
 
-The export stopped at 50,000 rows without saying so, searched at most 200,000 ids of its
-tag / classification filter without saying so either, and failed outright past 32,767 rows:
-the review lookup for its rows bound one parameter per variant, more than asyncpg takes.
+The export stops at 50,000 rows and its tag / classification filter searches at most 200,000
+ids; each says so when it is reached. The review lookup for its rows binds the variant ids as
+one parameter, as asyncpg takes at most 32,767.
 Against the real engines this checks that the export reads one row past its cap and says
 when it was cut, that the tag / classification filter takes its first ids in variant_id
 order and says when more matched, and that the review lookup takes any number of ids. It also
-checks that the classification filter finds a review's class label whatever its case (ENG-6), and
+checks that the classification filter finds a review's class label whatever its case, and
 that a variant reviewed in two families shows the more severe classification (CLIN-69): each
 review's class as the family page reads it, a review classified by its class tag alone too, of one
 class twice the review saved last (CLIN-71). The classification filters, the family search's and
@@ -182,9 +182,9 @@ def test_explorer_export_says_when_it_was_cut(monkeypatch) -> None:
 
 
 def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_label(monkeypatch) -> None:
-    # ENG-6: the class labels are in sentence case. A review holding "Likely Pathogenic -
-    # class 4" is found by the classification filter, lowercased on both sides in Postgres, by
-    # either spelling. CLIN-69: a variant reviewed in two families shows the more
+    # The classification is free text: a review holding "Likely Pathogenic - class 4" is found
+    # by the classification filter, lowercased on both sides in Postgres, by either spelling.
+    # CLIN-69: a variant reviewed in two families shows the more
     # severe classification, as stored, whichever review Postgres reads first.
     import backend.app.services.variant_explorer_service as svc
     from sqlalchemy import text

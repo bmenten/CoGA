@@ -619,9 +619,11 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
             "created_at": datetime(2026, 10, 14, tzinfo=timezone.utc),
             "actor": "qa-admin",
             "action": "repeat_count_units_validated",
-            "summary": "TRGT's counting units at HD_HTT (HTT): not validated → validated",
+            "summary": "TRGT's counting units at HD_HTT (HTT): not validated → validated; correction no correction → TRGT's count −1",
             "before": None,
-            "after": json.dumps({"locus_id": "HD_HTT", "gene": "HTT", "validated": True, "reason": "checked"}),
+            "after": json.dumps(
+                {"locus_id": "HD_HTT", "gene": "HTT", "validated": True, "count_offset": -1, "reason": "checked"}
+            ),
         },
         # An event whose recorded state does not read: listed by its summary, validating nothing.
         {
@@ -655,11 +657,11 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
     assert htt["known_difference"] == KNOWN_COUNT_UNIT_DIFFERENCES["HTT"]
     assert htt["offset_note"] is None
     change, unreadable = listed["changes"]
-    # An event recorded before corrections existed holds none: listed as no correction.
+    # Each change as its event recorded the record after it.
     assert (change["locus_id"], change["validated"], change["count_offset"], change["reason"], change["changed_by"]) == (
         "HD_HTT",
         True,
-        0,
+        -1,
         "checked",
         "qa-admin",
     )

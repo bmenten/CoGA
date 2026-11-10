@@ -6,7 +6,7 @@ variants. That can only drop variants from the cached ranking, never add any, so
 ranking computed before its panel gained a gene would serve the panel afterwards without that
 gene's variants. Each cached ranking records the genes and regions its panel filter
 applied (``panel_members_digest``): a broader ranking is used only while its panel holds
-exactly those, and one that recorded none is not used.
+exactly those.
 
 The keys also cover the regions the query applied: a gene's loci are read from the gene
 reference when the query runs, so a reload that moves a gene changes a panel's reach
@@ -415,19 +415,6 @@ def test_a_narrower_panel_is_served_from_a_ranking_without_a_panel(world) -> Non
     narrow = _open(NARROW)
     assert narrow.ranking_cached is True
     assert _ids(narrow) == [GENE3_A.variant_id]
-
-
-def test_a_ranking_cached_without_a_record_of_its_panel_is_not_used(world) -> None:
-    # A row without a record of its panel's genes and regions cannot show that the panel is
-    # unchanged since.
-    world.set_panel(BROAD, "GENE1", "GENE2")
-    world.set_panel(NARROW, "GENE2")
-    _open(BROAD)
-    world.row_for(BROAD)["provenance"].pop("panel_members", None)
-
-    narrow = _open(NARROW)
-    assert narrow.ranking_cached is False
-    assert _ids(narrow) == [GENE2_A.variant_id]
 
 
 def test_a_ranking_whose_panel_was_deleted_is_passed_over(world) -> None:

@@ -730,10 +730,11 @@ def test_sign_out_proceeds_with_acknowledged_drift(monkeypatch) -> None:
 
 
 def test_reported_variant_without_snapshot_gates_sign_out(monkeypatch) -> None:
-    # A reported classification with no frozen evidence snapshot can't be drift-verified,
-    # so it must trip the drift gate rather than sign out unchallenged.
+    # A reported variant with no frozen evidence snapshot (reported without an ACMG
+    # classification) can't be drift-verified, so it must trip the drift gate rather than
+    # sign out unchallenged.
     async def _reviews_no_snapshot(session, family_uuid):
-        return [{"variant_id": "9-9-A-G", "acmg_class": "acmg_class_4"}]  # no snapshot
+        return [{"variant_id": "9-9-A-G", "acmg_class": None}]  # no snapshot
 
     _patch_common(monkeypatch, drifted_count=0)
     monkeypatch.setattr(rss, "_reported_reviews", _reviews_no_snapshot)
@@ -743,7 +744,7 @@ def test_reported_variant_without_snapshot_gates_sign_out(monkeypatch) -> None:
     assert excinfo.value.detail["gate"] == "evidence_drift"
     assert "cannot be verified" in excinfo.value.detail["message"]
     assert excinfo.value.detail["drifted"] == [
-        {"variant_id": "9-9-A-G", "acmg_class": "acmg_class_4", "status": "no_snapshot"}
+        {"variant_id": "9-9-A-G", "acmg_class": None, "status": "no_snapshot"}
     ]
 
     # Acknowledging the drift lets it proceed, and the no_snapshot entry is counted.
@@ -755,7 +756,7 @@ def test_reported_variant_without_snapshot_gates_sign_out(monkeypatch) -> None:
             family_id="FAM1",
             user=_user(),
             acknowledge_drift=True,
-            drift_acknowledgement_reason="Legacy classification re-read.",
+            drift_acknowledgement_reason="Classification re-read.",
         )
     )
     assert out["snapshot"]["drift"]["drifted_count"] == 1
