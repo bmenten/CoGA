@@ -43,6 +43,7 @@ from .access_control import (
     visible_metadata_project_ids,
 )
 from .assembly_scope import is_validated_assembly
+from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .pedigree_text import PedMember, pedigree_text
 from .small_variant_review_tags import deactivate_project_tag_definitions
 
@@ -1747,11 +1748,40 @@ async def update_family_project_assignments(
     family_identifier: str,
     project_ids: list[str],
 ) -> dict[str, Any]:
+    """Link the family, and every sample of it, to exactly ``project_ids``.
+
+    Its small and structural variants move with it (``family_project_variants``): before the
+    new links commit, each project it is added to gets a copy of them, and once they have,
+    the rows under the projects it left go. A family moved to another project used to keep
+    its variants under the old one, where no reader of it looked: its pages showed none.
+
+    The change waits for a write of the family's variants that is running (an import holds the
+    locks for its whole run) and keeps the next one out until it has committed. A project on
+    another assembly than the family's stored variants is refused (409).
+    """
+    # Here, not at the top: the ClickHouse storage modules import this one.
+    from .family_project_variants import (
+        copy_variants_to_projects,
+        family_variant_assemblies,
+        linked_project_ids,
+        prune_left_project_variants,
+    )
+
     family_rows = await _fetch_family_rows(session, family_identifiers=[family_identifier])
     if not family_rows:
         raise HTTPException(status_code=404, detail="Family not found")
     family_row = family_rows[0]
     validated_project_ids = await _validate_project_ids(session, project_ids)
+    # Before the family's projects are read, so no import or other change of them falls in
+    # between; a family deleted while this waited answers 404.
+    await lock_family_variant_writes(session, family_row["id"], VARIANT_TYPES, samples=())
+    linked = await linked_project_ids(session, family_row["id"]) or []
+    assemblies = await family_variant_assemblies(
+        session,
+        family_row["id"],
+        linked=linked,
+        project_ids=validated_project_ids,
+    )
     sample_rows = await _family_sample_uuid_rows(session, family_row["id"])
 
     await session.execute(
@@ -1796,7 +1826,11 @@ async def update_family_project_assignments(
                 sample_project_rows,
             )
 
+    await copy_variants_to_projects(
+        family_row["id"], assemblies, linked=linked, project_ids=validated_project_ids
+    )
     await session.commit()
+    await prune_left_project_variants(session, family_row["id"], assemblies)
     return {
         "family_id": family_identifier,
         "project_ids": validated_project_ids,

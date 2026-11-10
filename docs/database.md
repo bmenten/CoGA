@@ -721,6 +721,7 @@ process. Readers take no lock. A write that needs both locks takes the small-var
 | admin SV delete of a sample (`DELETE /admin/data/samples/{sample_id}/structural_variants`) | SVs |
 | admin small-variant delete (`DELETE /admin/data/families/{family_id}/small_variants`) | small variants |
 | admin sample and family deletes (`DELETE /admin/samples/{sample_id}`, `DELETE /admin/families/{family_id}`) | both |
+| a change of the family's projects (`PUT /admin/families/{family_id}/projects`), in each of its two steps ("A family's rows follow its projects") | both |
 | PED overwrite of an existing family; a structure change that clears the family's data | both |
 | package import, from before its snapshot until it has finished or restored the family | both |
 | per-sample repeat-expansion and interval-track uploads (`POST /repeat-expansions/upload/{sample_id}`, `POST /bed/upload/{sample_id}/{bed_type}`): the import's restore rewrites those rows too | both |
@@ -772,7 +773,8 @@ batch had waited for that timer:
 The rows stored are the same either way, and so are the parts: a single client's insert that
 waited for the buffer was flushed in a part of its own. Two kinds of insert never used the
 buffer: one whose rows exceed `async_insert_max_data_size` (10 MiB), and an `INSERT … SELECT`
-(an import's snapshot and its restore, the gene-index rebuild).
+(an import's snapshot and its restore, the gene-index rebuild, the copy of a family's rows
+to a project it is added to).
 
 A writer's own `settings` override the default. `{"async_insert": 1}` would suit tiny inserts
 sent by many requests at once, which ClickHouse can gather into one part. No writer passes it:
@@ -821,6 +823,30 @@ When several callsets hold one small variant, the diagnostic lists show the dire
 imputed callset shows only when it is asked for. Reviews and the drift check read the direct
 call, and among several direct callsets the one first in name order. The SV list shows an SV
 once per caller, each row with that caller's calls.
+
+#### A family's rows follow its projects
+
+A family's `entries` rows, small and structural, are stored once per project it is linked to:
+every writer writes each row under each of the family's projects, or under `unassigned` when it
+has none, and every reader of the family reads the rows of its projects only. The small-variant
+summaries are counted per project from them. So a change of the family's projects
+(`PUT /admin/families/{family_id}/projects`) moves its rows with it, in two steps, each under
+the family's variant-write locks (both types)
+([family_project_variants.py](../backend/app/services/family_project_variants.py)):
+
+1. Before the new links commit, each project the family is added to gets, per callset, a copy
+   of the rows of a project it is linked to (`copy_family_variants_to_projects`). Rows a new
+   project held already are replaced: no write kept them current. A linked project's rows are
+   never deleted in this step, but one that holds none of a callset gets it.
+2. Once the links have committed, the rows under the projects the family left are deleted
+   (`prune_family_variant_projects`). A failure there leaves only rows no reader looks at; it is
+   logged, and the next change of the family's projects removes them.
+
+A project on another assembly than the family's stored variants is refused (409): the
+family's reads look in the tables of its projects' assembly. Before this, a change of the
+family's projects touched Postgres only, and a family moved to another project showed no small
+or structural variants. Such a family's rows reach its projects at the next change of
+them, or when the same projects are saved again through the API.
 
 #### Tables with a different row identity
 
