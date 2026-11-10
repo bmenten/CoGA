@@ -307,6 +307,8 @@ const ImportDeliveriesPanel: React.FC = () => {
           const response = await api.post(
             apiPath`/family-imports/deliveries/${delivery._id}/approve`,
             {
+              // The revision of the package shown: one corrected since is refused.
+              revision: delivery.revision ?? 0,
               dry_run: input.dryRun,
               conflict_mode: input.conflictMode,
               acknowledge_warnings: input.acknowledged,

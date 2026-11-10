@@ -13,8 +13,8 @@ In a watched folder of synthetic packages, as rounds go:
 - round 1: a full package of the e2e project (its members and datasets in the package file) is
   ``ready``, its manifest the file's; one whose PED differs from its checksum, and one of a
   project CoGA lacks, ``needs_attention``; one whose package file lists a file not copied yet
-  ``incomplete``; a minimal one (no members, no datasets) has them proposed by Discover, which the
-  delivery keeps; a folder without a package file is no delivery;
+  ``incomplete``; a minimal one (no members, no datasets) has them proposed by Discover and
+  written into the package the delivery keeps; a folder without a package file is no delivery;
 - round 2, nothing changed: no new delivery, each seen again;
 - the ready package changes (a file added, its package file rewritten): a new delivery, the one
   before ``superseded``; another's pipeline runs again in its folder (``status: running``): its
@@ -325,8 +325,13 @@ def test_the_first_round_checks_each_folder_with_a_package_file_once(ran) -> Non
     [minimal] = rows["MINIMAL"]
     assert (minimal["state"], minimal["kept_manifest"]) == ("ready", True)
     assert {"package_members_proposed", "package_datasets_proposed"} <= set(_codes(minimal, "warnings"))
-    # Discover proposed the members from the folder's PED.
-    assert json.loads(minimal["manifest_text"])["ped"] == "family.ped"
+    # Discover proposed the members from the folder's PED, written into the package: the import
+    # reads them from it, as it reads a pipeline's.
+    manifest = json.loads(minimal["manifest_text"])
+    assert "ped" not in manifest
+    assert manifest["family"]["add_members"] == [
+        {"sample_id": f"{ran['names']['MINIMAL']}_S1", "sex": "male", "role": "proband", "clinical_status": "affected"}
+    ]
     assert ran["round1"].deliveries == {"ready": 3, "needs_attention": 2, "incomplete": 1}
 
 

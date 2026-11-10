@@ -326,8 +326,18 @@ async def test_a_minimal_file_has_its_members_and_datasets_proposed(tmp_path: Pa
     codes = [issue.code for issue in assessment.warnings]
     assert "package_members_proposed" in codes and "package_datasets_proposed" in codes
     assert [issue.code for issue in assessment.issues] == ["package_project_unknown"]
+    # Discover's draft is written into the package: the folder's PED as members (the embryos'
+    # role, the index it adds from the samplesheet, linked to the mother), the datasets and the
+    # PGT details, so they can be corrected like the pipeline's.
+    package = assessment.package or {}
+    roles = {member["sample_id"]: member.get("role") for member in package["members"]}
+    assert roles == {FATHER: "father", MOTHER: "mother", "EMB1": "embryo", "EMB2": "embryo", INDEX: "relative"}
+    index = next(member for member in package["members"] if member["sample_id"] == INDEX)
+    assert index["related_to"] == [MOTHER]
+    assert {"apcad", "qdnaseq", "alignments", "qc"} <= set(package["datasets"])
+    assert package["family"]["pgt"]["affected_parents"] == [MOTHER]
+    assert (assessment.package_check or {})["proposed"] == ["members", "datasets"]
     manifest = json.loads(assessment.manifest_text or "")
-    # Discover's draft: the folder's PED, with the index it adds from the samplesheet.
-    assert manifest["ped"] == "ped/combined.ped"
+    assert "ped" not in manifest
     assert manifest["analysis_type"] == "pgt_m"
     assert INDEX in assessment.validation["sample_ids"]

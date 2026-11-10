@@ -63,6 +63,7 @@ SUPERUSER_READS_EXPECTED = {
     ("GET", "/api/family-imports"),
     ("GET", "/api/family-imports/packages"),
     ("GET", "/api/family-imports/deliveries"),
+    ("GET", "/api/family-imports/deliveries/{delivery_id}/package"),
     ("GET", "/api/family-imports/{job_id}"),
 }
 

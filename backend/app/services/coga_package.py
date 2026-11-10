@@ -572,6 +572,19 @@ def coga_package_json_schema() -> dict[str, Any]:
     return schema
 
 
+def package_document(package: CogaPackage) -> dict[str, Any]:
+    """The package as CoGA keeps it: JSON, its fields by their names in the format, none that is
+    unset."""
+    return package.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
+def package_document_sha256(document: dict[str, Any]) -> str:
+    """The SHA-256 of a kept package: of its JSON with sorted keys and no spaces, so the same
+    package always has the same digest."""
+    text = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def coga_package_json_schema_text() -> str:
     """The JSON Schema as docs/schemas/coga-package-1.schema.json holds it."""
     return json.dumps(coga_package_json_schema(), indent=2, ensure_ascii=False) + "\n"

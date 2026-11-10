@@ -154,7 +154,7 @@
 | REQ-DATA-002 | Preserve genotype phasing (PS phase blocks) through ingestion. | C | H5 |
 | REQ-DATA-003 | Ingest structural-variant VCFs (BND/DEL/DUP/INV). | C | — |
 | REQ-DATA-004 | Record uploaded-file metadata and verify file integrity (checksum). | B | H4 |
-| REQ-DATA-005 | Discover and validate family packages (manifest/PED), normalize samples, and preserve analysis-type tags. | C | H4, H12 |
+| REQ-DATA-005 | Discover and validate family packages (a delivered package file, or manifest/PED), normalize samples, and preserve analysis-type tags; keep each correction of a delivered package made before its import, with its reason, append-only, and keep a correction of the pedigree the pipeline used from approval while a dataset computed with it is imported. | C | H4, H12 |
 | REQ-DATA-006 | Provision/maintain ClickHouse variant tables and surface mutation/health status. | B | H9 |
 | REQ-DATA-007 | Resolve a VCF sample column to the family sample it belongs to (declared override, tool suffix, or a per-sample dataset binding), and fail the import when it resolves to none. | C | H4 |
 | REQ-DATA-008 | Ingest depth-based CNV calls (copy number and overlapping genes) as reviewable structural variants, kept separate from alignment-based SV calls. | C | H1 |

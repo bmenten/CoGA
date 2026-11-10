@@ -2,8 +2,9 @@
 
 A delivery is approved when it is ready, or when it needs attention only because its family
 exists and the approver chooses update or overwrite; a new family is imported with cancel; its
-warnings must be acknowledged; its folder must be as it was checked. The import job is queued as
-the approver, with the delivery's manifest, project and record, and in the same transaction the
+warnings must be acknowledged; its folder must be as it was checked; the approval names the
+revision of the package it saw, and one corrected since is refused. The import job is queued as
+the approver, with the delivery's manifest, project and record (its corrections included), and in the same transaction the
 delivery is queued (a dry run leaves it as it was) and the decision recorded. An open delivery is
 refused with a reason in plain text. Overwrite stays an administrator's. The paths through the
 real stores are in e2e/test_e2e_import_delivery_approval.py.
@@ -41,6 +42,7 @@ def _delivery(**fields: Any) -> dict[str, Any]:
         "issues": [],
         "warnings": [],
         "manifest_text": None,
+        "package": None,
     }
     row.update(fields)
     return row
@@ -87,12 +89,16 @@ def queued(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     monkeypatch.setattr(review, "queue_family_import_job", queue)
     monkeypatch.setattr(review, "record_clinical_event", record)
     monkeypatch.setattr(review, "_folder_fingerprint", fingerprint)
+    async def no_revision(_session: Any, _delivery_id: str) -> tuple[int, None]:
+        return 0, None
+
     monkeypatch.setattr(review, "get_import_delivery", delivery)
+    monkeypatch.setattr(review, "latest_revision", no_revision)
     return calls
 
 
 async def _approve(session: _Session, **kwargs: Any) -> Any:
-    options = {"dry_run": False, "conflict_mode": "cancel", "acknowledge_warnings": False, **kwargs}
+    options = {"revision": 0, "dry_run": False, "conflict_mode": "cancel", "acknowledge_warnings": False, **kwargs}
     return await review.approve_delivery(session, delivery_id=_ID, user=_USER, **options)  # type: ignore[arg-type]
 
 
@@ -111,7 +117,15 @@ async def test_a_ready_delivery_is_queued_as_the_approver_in_one_transaction(que
         "conflict_mode": "cancel",
         "requested_by": _USER,
         "manifest_text": "schema_version: 1\n",
-        "delivery": {"id": _ID, "run_id": "run-1", "marker_sha256": "b" * 64, "package_fingerprint": _FINGERPRINT},
+        "delivery": {
+            "id": _ID,
+            "run_id": "run-1",
+            "marker_sha256": "b" * 64,
+            "package_fingerprint": _FINGERPRINT,
+            "revision": 0,
+            "package_sha256": None,
+            "corrections": [],
+        },
         "commit": False,
     }
     assert "FOR UPDATE" in session.statements[0][0]
@@ -186,6 +200,63 @@ async def test_a_delivery_whose_folder_changed_is_not_approved(queued: list[dict
 
 
 @pytest.mark.asyncio
+async def test_a_delivery_corrected_since_the_approver_looked_is_not_approved(
+    queued: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def revised(_session: Any, _delivery_id: str) -> tuple[int, dict[str, Any]]:
+        return 2, {"schema": "coga-package/1"}
+
+    monkeypatch.setattr(review, "latest_revision", revised)
+
+    with pytest.raises(HTTPException) as refused:
+        await _approve(_Session(_delivery()), revision=1)
+
+    assert refused.value.status_code == 409 and refused.value.detail == review.DELIVERY_REVISED_SINCE
+    assert queued == []
+
+
+@pytest.mark.asyncio
+async def test_a_corrected_delivery_is_queued_with_its_package_and_corrections(
+    queued: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = {"schema": "coga-package/1", "members": [{"sample_id": "PROBAND", "sex": "male"}]}
+    when = __import__("datetime").datetime(2026, 11, 10, 12, 0, tzinfo=__import__("datetime").timezone.utc)
+    correction = {
+        "revision": 1,
+        "changes": [{"path": ["members", "PROBAND", "clinical_status"], "kind": "laboratory", "before": None, "after": "affected"}],
+        "reason": "Clinical status from the request form.",
+        "created_by_name": "superuser",
+        "created_at": when,
+    }
+
+    class _Corrected(_Session):
+        async def execute(self, statement: Any, params: Any = None) -> Any:
+            if "FROM import_delivery_revisions" in str(statement):
+                return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [correction]))
+            return await super().execute(statement, params)
+
+    async def revised(_session: Any, _delivery_id: str) -> tuple[int, dict[str, Any]]:
+        return 1, package
+
+    monkeypatch.setattr(review, "latest_revision", revised)
+
+    await _approve(_Corrected(_delivery()), revision=1)
+
+    delivery = queued[0]["queue"]["delivery"]
+    assert (delivery["revision"], delivery["package_sha256"]) == (1, review.package_document_sha256(package))
+    assert delivery["corrections"] == [
+        {
+            "revision": 1,
+            "changes": correction["changes"],
+            "reason": "Clinical status from the request form.",
+            "by": "superuser",
+            "at": "2026-11-10T12:00:00+00:00",
+        }
+    ]
+    assert queued[1]["event"]["after"]["revision"] == 1
+
+
+@pytest.mark.asyncio
 async def test_a_delivery_that_is_not_there_answers_404(queued: list[dict[str, Any]]) -> None:
     with pytest.raises(HTTPException) as refused:
         await _approve(_Session(None))
@@ -196,6 +267,7 @@ async def test_a_delivery_that_is_not_there_answers_404(queued: list[dict[str, A
             _Session(None),  # type: ignore[arg-type]
             delivery_id="nope",
             user=_USER,  # type: ignore[arg-type]
+            revision=0,
             dry_run=False,
             conflict_mode="cancel",
             acknowledge_warnings=False,
@@ -231,7 +303,9 @@ async def test_a_folder_that_cannot_be_fingerprinted_has_none(tmp_path) -> None:
 
 def test_overwrite_stays_an_administrators_and_a_refusal_needs_a_reason_in_plain_text() -> None:
     with signed_in_client("superuser") as client:
-        overwrite = client.post(f"/api/family-imports/deliveries/{_ID}/approve", json={"conflict_mode": "overwrite"})
+        overwrite = client.post(
+            f"/api/family-imports/deliveries/{_ID}/approve", json={"revision": 0, "conflict_mode": "overwrite"}
+        )
         blank = client.post(f"/api/family-imports/deliveries/{_ID}/refuse", json={"reason": "   "})
         nul = client.post(f"/api/family-imports/deliveries/{_ID}/refuse", json={"reason": "a\u0000b"})
         empty = client.post(f"/api/family-imports/deliveries/{_ID}/refuse", json={"reason": ""})

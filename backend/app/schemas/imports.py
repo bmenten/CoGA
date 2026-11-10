@@ -258,6 +258,9 @@ class ImportDeliveryOut(ApiDocumentModel):
     issues: List[ImportDeliveryIssue] = Field(default_factory=list)
     warnings: List[ImportDeliveryIssue] = Field(default_factory=list)
     manifest_sha256: Optional[str] = None
+    # How many corrections were made to its package in CoGA (import_delivery_revisions.py): the
+    # revision an approval names.
+    revision: int = 0
     # The last import job the delivery was approved for (a dry run, or the import), and where it
     # stands.
     job_id: Optional[ApiId] = None
@@ -271,8 +274,10 @@ class ImportDeliveryOut(ApiDocumentModel):
 class ImportDeliveryApprove(BaseModel):
     """A delivery approved for import: as a dry run or for real; ``cancel`` for a new family,
     ``update`` or ``overwrite`` (an administrator's) for one whose family exists; its warnings
-    acknowledged when it has any."""
+    acknowledged when it has any. ``revision`` is the revision of its package the approver saw (0
+    when it was not corrected): an approval of another is refused."""
 
+    revision: int = Field(ge=0)
     dry_run: bool = False
     conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
     acknowledge_warnings: bool = False
@@ -287,6 +292,66 @@ class ImportDeliveryRefuse(BaseModel):
 class ImportDeliveryApproveOut(BaseModel):
     delivery: ImportDeliveryOut
     job: FamilyPackageImportJobOut
+
+
+class ImportDeliveryChange(BaseModel):
+    """One field of a delivery's package set to a value, or removed (``value`` null). ``path``
+    names it: ``["project"]``, ``["analysis_type"]``, ``["family", "roi"]``, ``["family", "pgt"]``
+    or one of its fields, ``["members", <sample ID>, <field>]``, ``["couples"]``, or
+    ``["datasets", <dataset>]`` (import_delivery_revisions.py says which may change)."""
+
+    path: List[str] = Field(min_length=1, max_length=3)
+    value: Any = None
+
+
+class ImportDeliveryRevise(BaseModel):
+    """A correction of a delivery's package: made on ``revision`` (the latest the person saw, 0
+    when there is none), with its reason."""
+
+    revision: int = Field(ge=0)
+    reason: str = Field(min_length=1, max_length=2000)
+    changes: List[ImportDeliveryChange] = Field(min_length=1, max_length=200)
+
+
+class ImportDeliveryRevisionChange(BaseModel):
+    """A field a correction changed: its path, its kind (the laboratory's, or one the pipeline
+    used), and its value before and after (null: not set)."""
+
+    path: List[str]
+    kind: Literal["laboratory", "pipeline_used"]
+    before: Any = None
+    after: Any = None
+
+
+class ImportDeliveryRevisionOut(BaseModel):
+    """A correction of a delivery's package, as kept: its number, what it changed, why, by whom
+    and when, and the SHA-256 of the package it ends with."""
+
+    revision: int
+    changes: List[ImportDeliveryRevisionChange]
+    reason: str
+    created_by_name: str
+    created_at: datetime
+    package_sha256: str
+
+
+class ImportDeliveryPackageOut(BaseModel):
+    """A delivery's package as its import would read it now: the latest revision's (``revision``,
+    0 for none), or the package as checked; the pipeline's file as written (``original``); the
+    sections CoGA proposed from the folder; and every correction."""
+
+    delivery_id: str
+    revision: int
+    package: Optional[Dict[str, Any]] = None
+    package_sha256: Optional[str] = None
+    original: Optional[Dict[str, Any]] = None
+    proposed: List[str] = Field(default_factory=list)
+    revisions: List[ImportDeliveryRevisionOut] = Field(default_factory=list)
+
+
+class ImportDeliveryRevisedOut(BaseModel):
+    delivery: ImportDeliveryOut
+    package: ImportDeliveryPackageOut
 
 
 class ManualPedMemberCreate(BaseModel):

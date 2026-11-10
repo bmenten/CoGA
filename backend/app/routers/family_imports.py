@@ -1,5 +1,6 @@
 import asyncio
 from functools import partial
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +19,10 @@ from ..schemas import (
     ImportDeliveryApprove,
     ImportDeliveryApproveOut,
     ImportDeliveryOut,
+    ImportDeliveryPackageOut,
     ImportDeliveryRefuse,
+    ImportDeliveryRevise,
+    ImportDeliveryRevisedOut,
 )
 from ..schemas.imports import ImportDeliveryState
 from ..services.family_package_import import db_pedigree_fallback
@@ -36,6 +40,7 @@ from ..services.family_package_source import scan_family_import_packages
 from ..services.family_package_validation import validate_family_package
 from ..services.family_package_common import manifest_text_problem
 from ..services.import_delivery_review import approve_delivery, refuse_delivery
+from ..services.import_delivery_revisions import delivery_package, revise_delivery
 from ..services.import_watcher import list_import_deliveries
 from ..services.imported_package_folders import folders_changed_during_import, imported_package_folders
 from ..services.access_control import CurrentUser, is_admin_user
@@ -195,11 +200,43 @@ async def approve_family_package_delivery(
         session,
         delivery_id=delivery_id,
         user=user,
+        revision=payload.revision,
         dry_run=payload.dry_run,
         conflict_mode=payload.conflict_mode,
         acknowledge_warnings=payload.acknowledge_warnings,
     )
     return ImportDeliveryApproveOut(delivery=delivery, job=job)
+
+
+@router.get("/deliveries/{delivery_id}/package", response_model=ImportDeliveryPackageOut)
+async def get_family_package_delivery_package(
+    delivery_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_superuser),
+) -> ImportDeliveryPackageOut:
+    """A delivery's package as its import would read it now, the pipeline's file, what CoGA
+    proposed, and every correction made in CoGA (import_delivery_revisions.py)."""
+    del user
+    return await delivery_package(session, delivery_id)
+
+
+@router.post("/deliveries/{delivery_id}/revisions", response_model=ImportDeliveryRevisedOut)
+async def revise_family_package_delivery(
+    delivery_id: str,
+    payload: ImportDeliveryRevise,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_superuser),
+) -> ImportDeliveryRevisedOut:
+    """Correct the package of a delivery that is ready or needs attention, with a reason the audit
+    trail keeps; the delivery is checked again at once (import_delivery_revisions.py)."""
+    reason = payload.reason.strip()
+    if not reason or manifest_text_problem(reason) is not None:
+        raise HTTPException(status_code=400, detail="Give a reason in plain text to correct the delivery.")
+    if manifest_text_problem(json.dumps([change.model_dump() for change in payload.changes], ensure_ascii=False)) is not None:
+        raise HTTPException(status_code=400, detail="A correction holds a NUL or a lone surrogate, which CoGA cannot keep.")
+    return await revise_delivery(
+        session, delivery_id=delivery_id, user=user, revision=payload.revision, changes=payload.changes, reason=reason
+    )
 
 
 @router.post("/deliveries/{delivery_id}/refuse", response_model=ImportDeliveryOut)

@@ -146,6 +146,24 @@ def test_revision_0022_gives_the_tag_definitions_the_baselines_one_check_and_for
     assert "DROP CONSTRAINT IF EXISTS small_variant_tag_definitions_check, " in source
 
 
+def test_revision_0023_adds_the_baselines_two_delivery_columns(monkeypatch) -> None:
+    kept_package = migration_script().get_revision("0023").module
+    assay = (_SCHEMA_DIR / "03_assay.sql").read_text()
+    deliveries = assay[assay.index("CREATE TABLE IF NOT EXISTS import_deliveries (") :]
+    deliveries = deliveries[: deliveries.index(");")]
+    statements: list[str] = []
+    monkeypatch.setattr(
+        kept_package.op, "get_bind", lambda: type("Bind", (), {"exec_driver_sql": lambda _self, sql: statements.append(sql)})()
+    )
+
+    kept_package.upgrade()
+
+    assert "    package jsonb,\n    package_check jsonb,\n" in deliveries
+    assert statements == [
+        "ALTER TABLE import_deliveries ADD COLUMN IF NOT EXISTS package jsonb, ADD COLUMN IF NOT EXISTS package_check jsonb"
+    ]
+
+
 def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versions_and_the_ui_event_log() -> None:
     # SEC-7: the structure versions' chain and both tables' append-only guards, brought to a
     # database the baselines created before them by the baselines' own statements.

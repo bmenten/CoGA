@@ -456,7 +456,9 @@ The API behind the page:
 | --- | --- |
 | `GET /family-imports/packages` | lists the packages under `FAMILY_IMPORT_ROOTS`, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) and whether its latest import was undone because the package changed (`changed_during_import`) |
 | `GET /family-imports/deliveries` | lists the packages pipelines delivered into the watched import folders, with their state ([below](#watched-import-folders)) |
-| `POST /family-imports/deliveries/{id}/approve` | queues the import, or a dry run, of a delivery that is ready or whose family exists (`dry_run`, `conflict_mode`, `acknowledge_warnings`) |
+| `GET /family-imports/deliveries/{id}/package` | a delivery's package as its import would read it now, the pipeline's file, what CoGA proposed, and every correction ([below](#correcting-a-delivery)) |
+| `POST /family-imports/deliveries/{id}/revisions` | corrects a delivery's package before it is approved (`revision`, `reason`, `changes`) |
+| `POST /family-imports/deliveries/{id}/approve` | queues the import, or a dry run, of a delivery that is ready or whose family exists (`revision`, `dry_run`, `conflict_mode`, `acknowledge_warnings`) |
 | `POST /family-imports/deliveries/{id}/refuse` | refuses an open delivery, with a `reason` |
 | `POST /family-imports/manifest/discover` | reads the PED, looks for the expected files and returns a draft manifest |
 | `POST /family-imports/manifest/write` | saves the manifest into the folder |
@@ -793,6 +795,12 @@ file, as JSON so that every ID stays text:
   `package_datasets_proposed` say so, with Discover's own notes: check them before approving.
 - What the file gives wins over Discover's draft: the family ID, the analysis, the region of
   interest and the PGT details.
+- What Discover proposes is written into the package the delivery keeps (`import_deliveries.package`):
+  the members as the import reads Discover's draft (from the PED, with Discover's roles and carrier
+  fields, never the statuses the import derives from the PGT model, which it derives again), the
+  couples and relatives, assays, HPO terms, the PGT details and the datasets it found. The package
+  then says everything, and a person corrects what was proposed as they correct what the pipeline
+  gave ([below](#correcting-a-delivery)).
 - A folder that holds a PED which says otherwise than the file's members (a member it does not
   name, or another sex or parents) is warned of (`package_ped_differs`): the pipeline's own tools
   may have read that PED, so a dataset computed with it may not match the members the import
@@ -860,21 +868,64 @@ pipeline, run, request) and the last import job it was approved for (`job_id`, `
 many. The Package Import page shows them under **Deliveries**, the open ones first (the decided
 and superseded ones on request), with how many wait.
 
+#### Correcting a delivery
+
+A pipeline's package file says what the pipeline knows; the laboratory completes or corrects the
+rest before the import ([import_delivery_revisions.py](../backend/app/services/import_delivery_revisions.py);
+the owner's decisions of 2026-11-10, [coga-package.md](coga-package.md#what-can-be-changed-in-coga-phase-2)).
+The pipeline's file is never changed: each correction is a **revision**, numbered from 1, in the
+append-only table `import_delivery_revisions`, which keeps what it changed (each field, its value
+before and after, and its kind), the reason, who made it and when, and the whole package after it
+with its SHA-256. The import reads the latest.
+
+- `GET /family-imports/deliveries/{id}/package` (superuser) gives the package as the import would
+  read it now (`revision` 0 when it was not corrected), the pipeline's file as written
+  (`original`), the sections CoGA proposed, and every revision.
+- `POST /family-imports/deliveries/{id}/revisions` (superuser) with `revision` (the latest the
+  person saw), `reason` (plain text, at most 2,000 characters) and `changes`: each a `path` and a
+  `value`, null to remove a field (a list is emptied). A path is `["project"]`,
+  `["analysis_type"]`, `["family", "roi"]`, `["family", "pgt"]` or one of its fields,
+  `["members", <sample ID>, <field>]`, `["couples"]` or `["datasets", <dataset>]`.
+- **Which fields change.** The laboratory's: the project, the analysis type, a member's role,
+  clinical status, carrier fields, HPO terms, `related_to`, assay and panel, the family's region of
+  interest and PGT details, and each dataset's entry (in or out of the import, its options,
+  another file the package lists). Those the pipeline used: a member's sex and parents, and the
+  couples; while a dataset the pipeline computed with them (`pipeline_used_pedigree`) is in the
+  import, the delivery needs attention (`package_pedigree_changed`) and is not approved: leave
+  those datasets out, or put the value back. Every other field is the pipeline's and is refused
+  (400): the format, status and run, the assembly, the family ID, every sample ID (no member is
+  added or removed), the files, the QC, the request, the reference, the notes and `extra`.
+- Refused too: a correction made on another revision than the latest (409), of a delivery that is
+  not ready or needing attention, whose package CoGA could not read, or whose folder changed (409),
+  a correction that changes nothing or names a field twice, and a package the format refuses (400).
+- The delivery is checked again at once with the corrected package, as the watcher checks it,
+  without reading the folder's files again: what reading them found is kept with the delivery
+  (`import_deliveries.package_check`). A check again after a change in CoGA (below) reads the
+  corrected package too.
+- Each revision is the event `import_delivery_revised` on the `system:import-inbox` chain, by
+  the person who made it: what it changed, the reason, the package's SHA-256, and the state and
+  issues before and after.
+- A correction belongs to its delivery: a folder that changes is a new delivery, checked from its
+  package file, without the corrections of the one before.
+
 **Approving a delivery** ([import_delivery_review.py](../backend/app/services/import_delivery_review.py)).
 Nothing is imported until a superuser decides, on the Package Import page or through the API:
 
-- `POST /family-imports/deliveries/{id}/approve` with `dry_run`, `conflict_mode` and
-  `acknowledge_warnings`. A delivery that is `ready` is a new family, approved with `cancel`. One
+- `POST /family-imports/deliveries/{id}/approve` with `revision` (the revision of the package
+  the approver saw, 0 when it was not corrected: one corrected since answers 409), `dry_run`,
+  `conflict_mode` and `acknowledge_warnings`. A delivery that is `ready` is a new family, approved with `cancel`. One
   that needs attention only because its family exists (`existing_family`, with
   `existing_samples`) is approved with `update` (add the missing datasets) or `overwrite` (an
   administrator's, as every overwrite). A project CoGA lacks is resolved in CoGA, after which the
-  watcher checks the delivery again; any other issue is resolved in the package, which makes a
+  watcher checks the delivery again; an issue in what the package says is corrected in CoGA
+  ([above](#correcting-a-delivery)); any other issue is resolved in the package, which makes a
   new delivery. A delivery with warnings is approved only once they are acknowledged. Its folder
   must be as it was checked (the same package fingerprint), or the approval answers 409 and the
   watcher checks it again as a new delivery.
 - The import job is queued as the approver, into the project the package file names, with the
-  manifest the delivery keeps, and names the delivery (its id, run, package file's SHA-256 and
-  fingerprint) in
+  manifest the delivery keeps (made from the package as last corrected), and names the delivery
+  (its id, run, package file's SHA-256 and fingerprint, the revision, the SHA-256 of the package
+  it imports, and every correction: what it changed, why, by whom and when) in
   its metadata; the family's package record keeps it (`families.metadata.package_import.delivery`).
   The job's own checks (its fingerprint as it starts, the undo of a package that changes while it
   is read) hold as for any import. A real approval makes the delivery `queued`; a dry run leaves

@@ -1034,7 +1034,8 @@ the section itself or, for a record signed before it, from `sample_qc.applicatio
 
 - **Append-only tables.** Database triggers refuse UPDATE and DELETE on `audit_log_events`,
   `ui_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`,
-  `qc_threshold_changes` and `family_structure_versions` (see [database.md](database.md)). The
+  `qc_threshold_changes`, `family_structure_versions` and `import_delivery_revisions` (the
+  corrections of a delivered package before its import; see [database.md](database.md)). The
   restricted runtime role `coga_app` also lacks those rights, but only once the deployment has
   switched to it ([db-runtime-role-runbook.md](db-runtime-role-runbook.md)). Until then the
   application connects as the table owner, who can disable a trigger.
