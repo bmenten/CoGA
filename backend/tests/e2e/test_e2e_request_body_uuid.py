@@ -545,6 +545,12 @@ async def _collect(run: str) -> dict[str, Any]:
             await session.execute(
                 text("DELETE FROM family_import_jobs WHERE submitted_path LIKE :folder"), {"folder": f"{folder}/%"}
             )
+            # A deleted tag is kept, inactive, through its project's deletion (SAFE-37): the
+            # test's own goes here.
+            if "tag_key" in records:
+                await session.execute(
+                    text("DELETE FROM small_variant_tag_definitions WHERE key = :key"), {"key": records["tag_key"]}
+                )
             await session.execute(
                 text("DELETE FROM projects WHERE name LIKE :name"), {"name": f"e2e-body-uuid-{run}-%"}
             )

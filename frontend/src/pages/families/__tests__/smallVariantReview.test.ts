@@ -1,10 +1,48 @@
-// A compound-het pair save sends its partner's review version as the loaded lists hold it.
+// A compound-het pair save sends its partner's review version as the loaded lists hold it. The
+// family's tag list is read with the inactive tags, so a review shows each tag it holds by its label.
 
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { reviewTagLabel } from '../../../lib/reviewTags';
+import { tagDefinition } from '../../../test/tagDefinitions';
 import { review, smallVariant, smallVariantGroup } from '../../../test/variants';
-import { findLoadedVariantReview } from '../smallVariantReview';
+import { fetchFamilyReviewTags, findLoadedVariantReview } from '../smallVariantReview';
 import type { SmallVariantPage } from '../smallVariantSearch';
+
+const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock('../../../lib/api', () => ({ default: apiMock }));
+
+describe('fetchFamilyReviewTags', () => {
+  beforeEach(() => apiMock.get.mockReset());
+
+  // SAFE-37: the server lists, inactive, the tags of a deleted project, or of a project the family
+  // left, that the family's reviews hold, only with the inactive tags. Each then reads by its label,
+  // marked, never as a bare key, and is never offered as active.
+  it('asks for the inactive tags too, so a held tag of a deleted project reads by its label', async () => {
+    const held = tagDefinition({
+      key: 'probe_old_project',
+      label: 'Probe old project',
+      group: 'custom',
+      color: '#aa0022',
+      sort_order: 500,
+      scope: 'project',
+      is_custom: true,
+      is_active: false,
+    });
+    apiMock.get.mockResolvedValue({ data: [held] });
+
+    const tags = await fetchFamilyReviewTags('FAM1', 'p1');
+
+    expect(apiMock.get).toHaveBeenCalledWith('/families/FAM1/small-variant-tags', {
+      params: { include_inactive: true, project_id: 'p1' },
+    });
+    await fetchFamilyReviewTags('FAM1');
+    expect(apiMock.get).toHaveBeenLastCalledWith('/families/FAM1/small-variant-tags', {
+      params: { include_inactive: true },
+    });
+    expect(reviewTagLabel(tags[0], tags[0].key)).toBe('Probe old project (deleted)');
+  });
+});
 
 const variant = (id: string, reviewed: boolean) =>
   smallVariant({

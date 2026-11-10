@@ -340,15 +340,96 @@ async def list_small_variant_tag_definitions(
     project_id: str | None = None,
     include_all_project_tags: bool = False,
     include_inactive: bool = False,
+    include_held_by_family: bool = False,
 ) -> list[SmallVariantTagDefinitionOut]:
     """The built-in tags, then the custom tags the given projects may use.
 
     ``include_inactive`` adds the deleted custom tags of the same scope, flagged inactive, so
     the reviews that still hold one can show it by its label. A review save checks the tags
     it adds against the active tags only: a deleted tag is never added again.
+
+    ``include_held_by_family`` (with ``include_inactive``; the family's own tag list) adds,
+    after them, each custom tag the family's own reviews hold that the scope does not list,
+    flagged inactive whatever its state, without the projects it belongs to: a tag of a
+    project the family left, or of a deleted project, so the reviews show its label and
+    colour, never its bare key. No tag the family's reviews do not hold is added.
     """
-    del family_uuid
     activity = {"include_inactive": include_inactive}
+    listed = await _list_scoped_tag_definitions(
+        session,
+        project_ids=project_ids,
+        project_id=project_id,
+        include_all_project_tags=include_all_project_tags,
+        activity=activity,
+    )
+    if include_inactive and include_held_by_family and family_uuid:
+        listed_keys = {tag.key for tag in listed}
+        listed += [
+            tag
+            for tag in await _tag_definitions_held_by_family(session, family_uuid=family_uuid)
+            if tag.key not in listed_keys
+        ]
+    return listed
+
+
+# Each custom tag a family's reviews hold: the small-variant reviews' own and compound-het pair
+# tags, the SV reviews' and the repeat and Paraphase reviews'. A value that is no list adds none.
+_FAMILY_HELD_TAG_DEFINITIONS = """
+    WITH held(tags) AS (
+        SELECT r.tags FROM small_variant_reviews r WHERE r.family_id = CAST(:family_uuid AS uuid)
+        UNION ALL
+        SELECT r.compound_het_tags FROM small_variant_reviews r WHERE r.family_id = CAST(:family_uuid AS uuid)
+        UNION ALL
+        SELECT r.tags FROM structural_variant_reviews r WHERE r.family_id = CAST(:family_uuid AS uuid)
+        UNION ALL
+        SELECT r.tags FROM repeat_expansion_reviews r WHERE r.family_id = CAST(:family_uuid AS uuid)
+        UNION ALL
+        SELECT r.tags FROM paraphase_reviews r WHERE r.family_id = CAST(:family_uuid AS uuid)
+    )
+    SELECT
+        d.key,
+        d.label,
+        d.description,
+        d.scope,
+        d."group",
+        d.color,
+        d.sort_order
+    FROM small_variant_tag_definitions d
+    WHERE d.key IN (
+        SELECT jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(held.tags) = 'array' THEN held.tags ELSE '[]'::jsonb END
+        )
+        FROM held
+    )
+    ORDER BY d."group", d.sort_order, lower(d.label)
+"""
+
+
+async def _tag_definitions_held_by_family(
+    session: AsyncSession, *, family_uuid: str
+) -> list[SmallVariantTagDefinitionOut]:
+    """The custom tags the family's own reviews hold, each flagged inactive, without projects."""
+    result = await session.execute(
+        text(_FAMILY_HELD_TAG_DEFINITIONS),
+        {"family_uuid": require_uuid(family_uuid, "Invalid family id")},
+    )
+    # The projects a tag belongs to are other projects' business: only the tag is shown.
+    return [
+        _serialize_custom_tag_definition_row(
+            {**dict(row), "project_id": None, "shared_project_ids": [], "is_active": False}
+        )
+        for row in result.mappings().all()
+    ]
+
+
+async def _list_scoped_tag_definitions(
+    session: AsyncSession,
+    *,
+    project_ids: list[str],
+    project_id: str | None,
+    include_all_project_tags: bool,
+    activity: dict[str, bool],
+) -> list[SmallVariantTagDefinitionOut]:
     if include_all_project_tags:
         result = await session.execute(
             text(
@@ -767,7 +848,8 @@ async def delete_small_variant_tag_definition(
 
     # Deactivated, not removed, and its project links kept: the reviews that hold the tag
     # keep it and still show it by its label, in every project it was shared with. It can
-    # no longer be added to a review.
+    # no longer be added to a review. A project's deletion deactivates its tags the same way
+    # (deactivate_project_tag_definitions).
     await session.execute(
         text(
             """
@@ -779,3 +861,29 @@ async def delete_small_variant_tag_definition(
         {"tag_id": row_data["id"], "updated_at": datetime.now(timezone.utc)},
     )
     await session.commit()
+
+
+async def deactivate_project_tag_definitions(session: AsyncSession, *, project_id: str) -> None:
+    """Deactivate the tags defined for a project, in the transaction that deletes it (SAFE-37).
+
+    The project's deletion then detaches them (``ON DELETE SET NULL``), and its links go with
+    it; a tag's links to other projects stay. Each tag is kept as a delete keeps it: inactive,
+    a project tag without a project, so no list offers it again or reads it as global, and its
+    key stays taken, so a new tag with its label gets a key of its own and the reviews, signed
+    records and audit events that hold the old key never read it as the new tag. The caller
+    commits. The definitions lock keeps a create or an edit from moving a tag onto the project
+    between this and the deletion; the check of ``small_variant_tag_definitions`` refuses the
+    deletion if an active tag were still on it.
+    """
+    await _lock_tag_definitions(session)
+    await session.execute(
+        text(
+            """
+            UPDATE small_variant_tag_definitions
+            SET is_active = FALSE, updated_at = :updated_at
+            WHERE project_id = CAST(:project_id AS uuid)
+              AND is_active = TRUE
+            """
+        ),
+        {"project_id": project_id, "updated_at": datetime.now(timezone.utc)},
+    )

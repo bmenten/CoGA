@@ -44,6 +44,7 @@ from .access_control import (
 )
 from .assembly_scope import is_validated_assembly
 from .pedigree_text import PedMember, pedigree_text
+from .small_variant_review_tags import deactivate_project_tag_definitions
 
 logger = logging.getLogger(__name__)
 
@@ -1855,6 +1856,10 @@ async def delete_project_record(session: AsyncSession, *, project_id: str) -> No
     # Its memberships go with it: not while an account's save gives access to it.
     await _lock_project_memberships(session)
     await _fetch_project_mapping(session, project_id)
+    # Its review tags stay, deactivated, and the deletion detaches them (SAFE-37): the
+    # reviews, signed records and audit events that hold a tag's key keep reading it as
+    # that tag, and no new tag takes the key. One transaction, so neither goes alone.
+    await deactivate_project_tag_definitions(session, project_id=project_id)
     await session.execute(
         text("DELETE FROM projects WHERE id = CAST(:project_id AS uuid)"),
         {"project_id": project_id},

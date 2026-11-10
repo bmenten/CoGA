@@ -91,8 +91,9 @@ page is an administrator's alone.
     superuser or an administrator. A case assigned to someone who became a reader or a viewer keeps
     them, marked *(not eligible)*, until it is changed.
   - Deleting a project asks first and says what it unlinks. Its families and samples stay, but lose
-    their link to it; its members lose the access it gave them; its review tags are deleted. A family
-    in no other project can then be opened by superusers and administrators only.
+    their link to it; its members lose the access it gave them; its review tags are deleted as a
+    removed tag is: each stays on the reviews that hold it, marked deleted, and can no longer be
+    added. A family in no other project can then be opened by superusers and administrators only.
 
 ### Data Management
 

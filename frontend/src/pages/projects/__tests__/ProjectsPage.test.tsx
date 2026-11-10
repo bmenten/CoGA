@@ -513,7 +513,7 @@ describe('ProjectsPage', () => {
   // UI-7: a project was deleted on one click, and its delete unlinks every family and sample
   // of it. It now asks first, saying what loses its link (a family in no other project is then
   // open to administrators only), and sends nothing until confirmed: neither on Cancel nor on
-  // Escape.
+  // Escape. Its review tags are deleted as a tag delete does it, kept on the reviews (SAFE-37).
   it('asks before deleting a project, saying what loses its link, and sends nothing on cancel', async () => {
     // F2 is in Project Two as well; F1 only in Project One.
     serveProjects((defaults) => [
@@ -530,7 +530,7 @@ describe('ProjectsPage', () => {
       '2 families, with 3 samples, lose their link to it.',
       '1 family of these is in no other project: after the deletion only administrators can open it.',
       '1 member loses the access the project gave them.',
-      'Review tags defined for this project are deleted with it.',
+      'Review tags defined for this project are deleted with it: each stays on the reviews that hold it, marked deleted, and can no longer be added.',
     ]);
     expect(dialog).toHaveTextContent('This cannot be undone.');
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
@@ -554,7 +554,7 @@ describe('ProjectsPage', () => {
     const dialog = screen.getByRole('dialog', { name: 'Delete project Project Three' });
     expect(within(dialog).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       'No family is linked to it.',
-      'Review tags defined for this project are deleted with it.',
+      'Review tags defined for this project are deleted with it: each stays on the reviews that hold it, marked deleted, and can no longer be added.',
     ]);
   });
 

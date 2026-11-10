@@ -130,9 +130,11 @@ const ProjectMemberPicker: React.FC<{
 
 /**
  * What deleting `project` takes with it, for the confirmation (UI-7). The delete cascades to the
- * project's links: its families and samples stay but lose their link to it, its members the
- * access it gave them, and the review tags defined for it go. A family in no other project is
- * then open to administrators only. `projects` is every project: the page is an administrator's.
+ * project's links: its families and samples stay but lose their link to it, and its members the
+ * access it gave them. The review tags defined for it are deleted as a tag delete does it: each
+ * stays on the reviews that hold it, marked deleted, and can no longer be added (SAFE-37). A
+ * family in no other project is then open to administrators only. `projects` is every project:
+ * the page is an administrator's.
  */
 const projectDeletionEffects = (project: Project, projects: Project[]): string[] => {
   const families = project.families.length;
@@ -159,7 +161,7 @@ const projectDeletionEffects = (project: Project, projects: Project[]): string[]
     ...(members > 0
       ? [`${pluralize(members, 'member')} ${members === 1 ? 'loses' : 'lose'} the access the project gave them.`]
       : []),
-    'Review tags defined for this project are deleted with it.',
+    'Review tags defined for this project are deleted with it: each stays on the reviews that hold it, marked deleted, and can no longer be added.',
   ];
 };
 

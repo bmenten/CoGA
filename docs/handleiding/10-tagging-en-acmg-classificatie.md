@@ -44,6 +44,8 @@ Reviews, bewaarde filterpresets en de audit trail noemen een tag bij zijn **sleu
 
 Alleen een superuser of een beheerder (`get_current_superuser`, hoofdstuk 2) maakt eigen tags aan, wijzigt of verwijdert ze, op de beheerpagina en op de routes van een familie; een ander krijgt `403 Superuser access required`. Verwijderen wist een tag niet, maar zet hem op inactief. Reviews die hem dragen, tonen hem nog met zijn label, gemarkeerd als *(deleted)*. Hij kan er weggehaald worden, maar aan geen enkele review meer toegevoegd. Het beheerscherm staat onder Administratie (`frontend/src/pages/admin/AdminVariantTagsPage.tsx`).
 
+Wordt een project verwijderd, dan gaat het met zijn tags net zo. `delete_project_record` zet ze eerst op inactief en verwijdert het project in dezelfde transactie; de tags blijven bestaan, zonder project (`project_id` wordt `NULL`). Ze blijven projecttags, dus geen lijst toont ze als globale tag, en ze houden hun sleutel: een nieuwe tag met hetzelfde label krijgt een genummerde sleutel en neemt geen reviews, ondertekende records of auditregels over. De taglijst van een familie toont bovendien, als inactief, elke tag die haar eigen reviews dragen maar die haar projecten niet (meer) kennen, zoals een tag van een verwijderd project of van een project dat de familie verliet. Een tag van een ander project die geen van haar reviews draagt, blijft onzichtbaar.
+
 **Waar in de code:** `backend/app/services/small_variant_review_tags.py`; de tabellen `small_variant_tag_definitions` en `small_variant_tag_definition_project_links` in `03_assay.sql`.
 
 ### Filterpresets en de lichte reviewdialoog

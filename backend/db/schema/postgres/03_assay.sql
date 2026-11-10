@@ -578,6 +578,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique ON sma
 -- ---------------------------------------------------------------------------
 -- small_variant_tag_definitions (folds scope/project cols from 006)
 -- ---------------------------------------------------------------------------
+-- A tag is never removed: its key stays on the reviews, signed records and audit events that
+-- hold it. A delete deactivates it. A project's deletion deactivates the project's tags, then
+-- detaches them (project_id SET NULL): such a tag stays a project tag, inactive, so no reader
+-- lists it as global, and its key stays taken (revision 0022).
 CREATE TABLE IF NOT EXISTS small_variant_tag_definitions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     family_id uuid,
@@ -595,12 +599,11 @@ CREATE TABLE IF NOT EXISTS small_variant_tag_definitions (
     is_active boolean DEFAULT true NOT NULL,
     CONSTRAINT small_variant_tag_definitions_pkey PRIMARY KEY (id),
     CONSTRAINT small_variant_tag_definitions_key_key UNIQUE (key),
-    CONSTRAINT small_variant_tag_definitions_check CHECK ((((scope = 'global'::text) AND (project_id IS NULL)) OR ((scope = 'project'::text) AND (project_id IS NOT NULL)))),
     CONSTRAINT small_variant_tag_definitions_group_check CHECK (("group" = ANY (ARRAY['collaboration'::text, 'classification'::text, 'custom'::text]))),
     CONSTRAINT small_variant_tag_definitions_scope_check CHECK ((scope = ANY (ARRAY['global'::text, 'project'::text]))),
-    CONSTRAINT small_variant_tag_definitions_scope_project_check CHECK ((((scope = 'global'::text) AND (project_id IS NULL)) OR ((scope = 'project'::text) AND (project_id IS NOT NULL)))),
+    CONSTRAINT small_variant_tag_definitions_scope_project_check CHECK ((((scope = 'global'::text) AND (project_id IS NULL)) OR ((scope = 'project'::text) AND ((project_id IS NOT NULL) OR (NOT is_active))))),
     CONSTRAINT small_variant_tag_definitions_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
-    CONSTRAINT small_variant_tag_definitions_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    CONSTRAINT small_variant_tag_definitions_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
 );
 
 -- ---------------------------------------------------------------------------

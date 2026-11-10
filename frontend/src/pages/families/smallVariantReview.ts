@@ -16,8 +16,9 @@ import {
 
 /**
  * The family's review tags, deleted ones too (flagged inactive): a review that still holds a
- * deleted tag shows it, marked. Structural and small variants share one tag store, so every
- * family page reads this list.
+ * deleted tag shows it, marked. So does one that holds a tag of a project the family left, or of
+ * a deleted project, which the server lists inactive too (SAFE-37). Structural and small variants
+ * share one tag store, so every family page reads this list.
  */
 export const fetchFamilyReviewTags = async (
   familyId: string | undefined,
