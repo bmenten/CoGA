@@ -17,7 +17,9 @@ therefore runs in two steps, each under the family's variant-write locks:
    (:func:`prune_left_project_variants`).
 
 A project on another assembly than the family's stored variants is refused: its reads look in
-that assembly's tables, so the family's variants would show in none of its projects.
+that assembly's tables, so the family's variants would show in none of its projects. A family
+in no project (its projects saved as none, or its only one deleted before that was refused)
+has no project that names its assembly, so every assembly is searched for its rows.
 
 A package import into an existing family links it to the import's project as well, before it
 takes the family's variant-write locks, and writes only the callsets it imports, under each of
@@ -88,6 +90,13 @@ async def _project_assembly_names(session: AsyncSession, project_ids: list[str])
     return {str(name) for name in result.scalars().all()}
 
 
+async def _all_assembly_names(session: AsyncSession) -> set[str]:
+    """Every assembly, by name. CoGA deletes none, so the one a family's rows were imported on
+    is among them."""
+    result = await session.execute(text("SELECT DISTINCT assembly_name FROM assemblies"))
+    return {str(name) for name in result.scalars().all() if str(name or "").strip()}
+
+
 async def family_variant_assemblies(
     session: AsyncSession,
     family_uuid: str,
@@ -97,9 +106,16 @@ async def family_variant_assemblies(
 ) -> list[str]:
     """The assemblies the family's small and structural variants are stored on, among those of
     its projects before (``linked``) and after the change (``project_ids``). Refused (409) when
-    the family is to be linked to a project on another assembly."""
+    the family is to be linked to a project on another assembly.
+
+    A family in no project keeps its rows under ``unassigned``, or under the id of its only
+    project when that was deleted before a project with families was refused, on the assembly
+    they were imported on, which no project of the family names any more. So its rows are
+    looked for on every assembly: a project on another one is refused, and the copy and the
+    prune run where the rows are."""
     target_assemblies = await _project_assembly_names(session, project_ids)
-    candidates = sorted(await _project_assembly_names(session, linked) | target_assemblies)
+    searched = await _project_assembly_names(session, linked) if linked else await _all_assembly_names(session)
+    candidates = sorted(searched | target_assemblies)
     stored = [name for name in candidates if await family_has_project_scoped_variants(name, family_uuid)]
     if target_assemblies and any(target_assemblies != {name} for name in stored):
         raise HTTPException(

@@ -850,6 +850,14 @@ family's projects touched Postgres only, and a family moved to another project s
 or structural variants. Such a family's rows reach its projects at the next change of
 them, or when the same projects are saved again through the API.
 
+The family's rows are looked for on the assemblies of its projects before and after the
+change. A family in no project (its projects saved as none, or its only project deleted before
+that was refused) has no project that names the assembly its rows are on, so for it every
+assembly in `assemblies` is searched: a project on another one is refused, and the copy and the
+prune run where the rows are. Until 2026-11-10 such a family could be linked to a project on
+another assembly, and its rows stayed in the old assembly's tables, where none of its pages
+look; saving it in a project on that assembly brings them back.
+
 A package import into an existing family links it to the import's project too, when
 registering the family, and then writes only the datasets it imports, under each of the
 family's projects; an update leaves out those stored. So once the import holds the family's
@@ -879,7 +887,8 @@ families: a link being written holds a share lock on that row (its foreign-key c
 commits before the count, and one written after waits and then finds no project. A family
 whose project was deleted before this keeps its rows under the deleted project's id until its
 projects next change: a family in no project gets them copied to the project it is linked to,
-and a family's left-over rows are pruned with the projects it left.
+and is refused one on another assembly (409), and a family's left-over rows are pruned with
+the projects it left.
 
 #### Tables with a different row identity
 
