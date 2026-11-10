@@ -15,6 +15,7 @@ import {
   type CnvVariantInput,
 } from '../../lib/cnvAcmg';
 import CnvScaleBar from './CnvScaleBar';
+import { ACMG_CLASSIFICATION_TAG_KEYS } from './smallVariantSearch';
 import type {
   StructuralVariant,
   StructuralVariantReviewSavePayload,
@@ -103,9 +104,14 @@ export default function CnvAcmgClassificationModal({
   const hideTip = () => setTip(null);
 
   const handleSave = async () => {
+    // The class this dialog sets replaces every ACMG class tag the review holds, as the review
+    // dialog's chosen class does (CLIN-76): a class tag outranks a class label in the class a
+    // review shows (`normalizeReviewClassification`), so one kept beside the CNV class would show
+    // instead of it. The review's other tags go back as they are.
+    const classTags: readonly string[] = ACMG_CLASSIFICATION_TAG_KEYS;
     const payload: StructuralVariantReviewSavePayload = {
       classification: classification.classLabel,
-      tags: variant.review?.tags ?? [],
+      tags: (variant.review?.tags ?? []).filter((tag) => !classTags.includes(tag)),
       note: variant.review?.note ?? undefined,
       cnv_acmg: {
         kind,
