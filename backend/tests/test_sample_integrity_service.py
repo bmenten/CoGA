@@ -375,7 +375,8 @@ def test_service_logs_a_failed_check_by_its_kind_not_its_text(monkeypatch, caplo
             session=_Session(), family_id="FAM1", user=None
         )
     )
-    assert _warnings(caplog) == ["NIPT cfDNA QC could not run for family FAM1: RuntimeError"]
+    # The family by its UUID, never its ID (SEC-39).
+    assert _warnings(caplog) == ["NIPT cfDNA QC could not run for family fam-uuid: RuntimeError"]
 
     caplog.clear()
     _patch(monkeypatch, swap_child=False)
@@ -385,7 +386,7 @@ def test_service_logs_a_failed_check_by_its_kind_not_its_text(monkeypatch, caplo
             session=_Session(), family_id="FAM1", user=None
         )
     )
-    assert _warnings(caplog) == ["Genotypes could not be loaded for family FAM1: RuntimeError"]
+    assert _warnings(caplog) == ["Genotypes could not be loaded for family fam-uuid: RuntimeError"]
 
 
 def _patch_passing_nipt(monkeypatch, *, de_novo: int = 0) -> None:
@@ -444,7 +445,7 @@ def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out
         ("FATHER", "male", "indeterminate", 0, "skip", not_checked),
         ("MOTHER", "female", "indeterminate", 0, "skip", not_checked),
     ]
-    assert _warnings(caplog) == ["NIPT parents' sex could not be checked for family FAM1: DatabaseError"]
+    assert _warnings(caplog) == ["NIPT parents' sex could not be checked for family fam-uuid: DatabaseError"]
     assert _QUOTED_VALUE not in _frozen(report)
     assert "DB::Exception" not in _frozen(report)
     # The gate holds each parent by name: the same sentence twice named neither (CLIN-8),

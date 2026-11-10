@@ -22,7 +22,7 @@ from .family_metadata_context import (
     SampleMetadataContext,
 )
 
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SEGREGATION_TRACK_TYPE, APCAD_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, whole_package_text_handle
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SEGREGATION_TRACK_TYPE, APCAD_SOURCE, ImportRefused, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, whole_package_text_handle
 from .clickhouse_column_bounds import UINT64, column_int
 from .import_progress import bytes_read_on_disk, file_size, read_stats
 from .vcf_fields import parse_format, parse_info
@@ -70,7 +70,7 @@ async def _delete_sample_interval_source(
     no other (SAFE-22). The admin deletes of a sample's or a family's data remove every
     source."""
     if not sample_context.assembly_name:
-        raise RuntimeError("Cannot delete interval tracks without an assembly name")
+        raise ImportRefused("Cannot delete interval tracks without an assembly name")
     await delete_interval_tracks(
         sample_context.assembly_name,
         sample_uuid=sample_context.sample_uuid,
@@ -423,7 +423,7 @@ async def _import_wisecondorx_track(
     ``check_only`` stops there, deleting and storing nothing: the check of the file before
     its track is replaced (``_import_interval_track_unless_present``)."""
     if not sample_context.assembly_name:
-        raise RuntimeError("Cannot import WisecondorX interval tracks without an assembly name")
+        raise ImportRefused("Cannot import WisecondorX interval tracks without an assembly name")
     with path.open("r", encoding="utf-8") as handle:
         rows = _wisecondorx_rows(handle, sample_context=sample_context, track_type=track_type, path=path)
         first, left_out = _first_stored_row(rows)
@@ -521,7 +521,7 @@ async def _import_copy_number_track(
     """
 
     if not sample_context.assembly_name:
-        raise RuntimeError("Cannot import copy-number interval tracks without an assembly name")
+        raise ImportRefused("Cannot import copy-number interval tracks without an assembly name")
     async with _open_package_text(path) as handle:
         rows = _copy_number_rows(
             handle, sample_context=sample_context, track_type=track_type, source=source, path=path
@@ -634,7 +634,7 @@ async def _import_bigwig_interval_track(
     """
 
     if not sample_context.assembly_name:
-        raise RuntimeError("Cannot import bigWig interval tracks without an assembly name")
+        raise ImportRefused("Cannot import bigWig interval tracks without an assembly name")
     reader = open_bigwig(path)
     try:
         rows = _bigwig_rows(
@@ -954,7 +954,7 @@ async def _import_apcad_interval_file(
     path: Path,
 ) -> dict[str, int]:
     if not sample_context.assembly_name:
-        raise RuntimeError("Cannot import APCAD interval tracks without an assembly name")
+        raise ImportRefused("Cannot import APCAD interval tracks without an assembly name")
     async with _open_package_text(path) as handle:
         return await _store_track_rows(
             session, _apcad_interval_rows(handle, sample_context=sample_context, path=path)
@@ -1389,7 +1389,7 @@ async def _import_pcf_segment_file(
     refused (``EmptyTrackFileError``, SAFE-29): the dataset reads each of a sample's tables
     with ``check_only``, up to its first segment, before it deletes the track."""
     if not sample_context.assembly_name:
-        raise RuntimeError("Cannot import PCF segment tracks without an assembly name")
+        raise ImportRefused("Cannot import PCF segment tracks without an assembly name")
     async with _open_package_text(path) as handle:
         rows = _pcf_segment_rows(handle, sample_context=sample_context, path=path, origin=origin)
         first, left_out = _first_stored_row(rows)
@@ -1502,7 +1502,7 @@ async def _import_segregation_table(
     ``check_only`` it is read up to its first site and nothing is deleted or stored, as the
     ``apcad`` dataset reads every table before it replaces any track."""
     if not sample_context.assembly_name:
-        raise RuntimeError("Cannot import a segregation table without an assembly name")
+        raise ImportRefused("Cannot import a segregation table without an assembly name")
     async with _open_package_text(path) as handle:
         rows = _segregation_rows(handle, sample_context=sample_context, path=path)
         first, left_out = _first_stored_row(rows)

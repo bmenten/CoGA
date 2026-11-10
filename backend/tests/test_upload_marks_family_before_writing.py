@@ -360,7 +360,8 @@ async def test_a_small_variant_upload_whose_clean_up_fails_stays_marked_and_answ
     assert key.startswith("upload-")
     assert mark["whole_family"] == [{"dataset": "snv", "scope": _CLAIR3}]
     assert database.committed["flag"] is None
-    assert "Failed to clean up partial small-variant rows for family F1 after an upload error" in caplog.text
+    # The family by its UUID, never its ID (SEC-39).
+    assert "Failed to clean up partial small-variant rows for family family-uuid after an upload error" in caplog.text
 
 
 # --- the interval-track (BED) upload ------------------------------------------------------

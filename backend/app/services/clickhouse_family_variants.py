@@ -897,7 +897,7 @@ async def _attach_sv_second_hits(
                     }
                 )
     except Exception:  # the second-hit overlay must never break the page
-        logger.warning("SV second-hit overlay failed for family %s", context.family_id, exc_info=True)
+        logger.warning("SV second-hit overlay failed for family %s", context.family_uuid, exc_info=True)
 
 
 async def _hydrate_small_variant_outs(
@@ -2790,12 +2790,16 @@ async def precompute_family_ranking_safe(
     from ..core.postgres import get_postgres_engine, get_postgres_sessionmaker
     from .family_metadata_context import build_family_metadata_context
 
+    # The log names the family by its UUID once it is known, never by the ID the request
+    # gave (SEC-39).
+    family_uuid: str | None = None
     try:
         get_postgres_engine()
         async with get_postgres_sessionmaker()() as session:
             context = await build_family_metadata_context(
                 session, family_identifier=family_identifier, user=user, project_id=project_id
             )
+            family_uuid = context.family_uuid
             row = (
                 await session.execute(
                     text(
@@ -2856,10 +2860,10 @@ async def precompute_family_ranking_safe(
                 exclude_gene_terms=scope.exclude_gene_terms,
                 small_variant_summary=None,
             )
-            logger.info("Warmed prioritised-ranking cache for family %s", family_identifier)
+            logger.info("Warmed prioritised-ranking cache for family %s", family_uuid)
     except Exception:  # pragma: no cover - background best-effort
         logger.exception(
-            "Background ranking-cache warm failed for family %s", family_identifier
+            "Background ranking-cache warm failed for family %s", family_uuid or "(not found)"
         )
 
 

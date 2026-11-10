@@ -1,6 +1,8 @@
 """A raw-file provenance record that could not be written (#686). Recording stays
-best-effort, so the import stands, but the loss is logged with the family, dataset and
-file. Before, the error was swallowed and the missing record left no trace."""
+best-effort, so the import stands, but the loss is logged with the family and the dataset.
+Before, the error was swallowed and the missing record left no trace. The family is named by
+its UUID, and the file not at all: its ID and the uploaded file's name, which can hold a
+sample's ID, stay out of the log (SEC-39)."""
 
 from __future__ import annotations
 
@@ -42,9 +44,7 @@ def test_a_failed_provenance_write_is_logged_and_does_not_raise(monkeypatch, cap
 
     assert session.rolled_back
     [record] = [r for r in caplog.records if r.name == rif.__name__]
-    assert record.getMessage() == (
-        "Raw-file provenance for family FAM1 (small_variants, trio.vcf.gz) was not recorded"
-    )
+    assert record.getMessage() == "Raw-file provenance for family fam-uuid (small_variants) was not recorded"
     assert record.exc_info is not None and "disk full" in str(record.exc_info[1])
 
 
@@ -71,6 +71,6 @@ def test_an_upload_that_cannot_be_re_read_is_logged(caplog) -> None:
 
     [record] = [r for r in caplog.records if r.name == rif.__name__]
     assert record.getMessage() == (
-        "Raw-file provenance for family FAM1 (small_variants, trio.vcf.gz) was not recorded: "
+        "Raw-file provenance for family fam-uuid (small_variants) was not recorded: "
         "the upload could not be re-read"
     )

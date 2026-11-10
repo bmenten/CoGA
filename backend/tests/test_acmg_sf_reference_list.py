@@ -231,15 +231,30 @@ def test_a_list_that_is_not_whole_is_an_error_for_every_gene_never_not_listed(
     dataset = gene_info_bulk_sources._load_acmg_sf_dataset(path)
 
     assert dataset.status == "error"
+    # The list's own refusal (AcmgSfListError) is CoGA's sentence, and is shown as it is.
+    refusal = None
+    try:
+        gene_info_bulk_sources.parse_acmg_sf_list(path.read_text(encoding="utf-8"))
+    except gene_info_bulk_sources.AcmgSfListError as exc:
+        refusal = str(exc)
+    assert refusal and dataset.message == f"The ACMG SF list at {path} could not be read: {refusal}"
     for symbol in ("BRCA1", "CFTR"):
         bundle = _bundle(symbol, dataset)
         assert bundle["source_status"]["acmg_sf"]["status"] == "error"
         assert "acmg_secondary_finding" not in bundle["extra"]
 
 
-@pytest.mark.parametrize("content", [None, b"", b"{not json", b"\xff\xfe"])
+@pytest.mark.parametrize(
+    ("content", "kind"),
+    [
+        (None, "FileNotFoundError"),
+        (b"", "JSONDecodeError"),
+        (b"{not json", "JSONDecodeError"),
+        (b"\xff\xfe", "UnicodeDecodeError"),
+    ],
+)
 def test_a_missing_or_unreadable_list_is_an_error_for_every_gene(
-    tmp_path: Path, content: bytes | None
+    tmp_path: Path, content: bytes | None, kind: str
 ) -> None:
     path = tmp_path / "acmg-sf-genes.json"
     if content is not None:
@@ -248,7 +263,9 @@ def test_a_missing_or_unreadable_list_is_an_error_for_every_gene(
     dataset = gene_info_bulk_sources._load_acmg_sf_dataset(path)
 
     assert dataset.status == "error"
-    assert str(path) in (dataset.message or "")
+    # The error by its kind, not its text, which is not CoGA's sentence (SEC-39; before, for
+    # instance "'utf-8' codec can't decode byte 0xff in position 0: invalid start byte").
+    assert dataset.message == f"The ACMG SF list at {path} could not be read: {kind}"
     status = _bundle("BRCA1", dataset)["source_status"]["acmg_sf"]
     assert status["status"] == "error"
     assert status["release"] is None

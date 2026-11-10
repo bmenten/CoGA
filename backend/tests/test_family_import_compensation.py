@@ -398,7 +398,7 @@ async def test_a_later_failure_keeps_a_flag_not_in_the_shape_an_import_writes(fl
     assert row.flag == flag
     # So does an upload's failure.
     await registration.record_family_upload_failure(
-        row, family_uuid="uuid-1", family_id="F1", dataset="snv", scope=_SCOPES["snv"]
+        row, family_uuid="uuid-1", dataset="snv", scope=_SCOPES["snv"]
     )
     assert row.flag == flag
     left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"coverage": _SCOPES["coverage"]})
@@ -505,10 +505,11 @@ async def test_a_clear_that_fails_leaves_the_marks_and_says_so(caplog) -> None:
     caplog.set_level("WARNING", logger=registration.logger.name)
 
     assert await fpi._clear_family_import_incomplete(session, _ctx(), import_key="job-1") is None
-    # Nothing is written: the flag and the entry stay, the safe side; the log names the family.
+    # Nothing is written: the flag and the entry stay, the safe side; the log names the
+    # family by its UUID, never its ID (SEC-39).
     assert (session.committed, session.rolled_back) == (False, True)
     assert [record.getMessage() for record in caplog.records] == [
-        "Failed to clear import-incomplete flag for family F1"
+        "Failed to clear import-incomplete flag for family uuid-1"
     ]
 
 
@@ -1818,7 +1819,7 @@ async def test_an_upload_brings_again_only_the_scope_it_brought_of_a_dataset_tha
         row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-1", scopes=imputed
     )
     await registration.record_family_upload_failure(
-        row, family_uuid="uuid-1", family_id="F1", dataset="snv", scope=_CLAIR3
+        row, family_uuid="uuid-1", dataset="snv", scope=_CLAIR3
     )
     assert row.flag["failed_scopes"] == {
         "snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}, {"scope": _CLAIR3, "job_id": None}]

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+import httpx
 import pytest
 
 from backend.app.services import gene_info_bulk_sources, gene_info_external
@@ -725,3 +727,70 @@ def test_a_merged_gene_counts_the_curations_its_sources_combine() -> None:
     assert gene_info_bulk_sources.merge_gene_extra(dbnsfp, dbnsfp)["clingen_curation_counts"] == {
         "dosage_sensitivity": 1
     }
+
+
+# --- a source that cannot be read is an error named by its kind (SEC-39) --------------------
+
+# An HTTP error's text quotes the address it read, with a value holding characters a reader
+# cannot see: an escape sequence, a text-direction override.
+_SOURCE_URL = "https://source.example/genes?symbol=GENE1\x1b[2J\u202e"
+
+
+@pytest.mark.asyncio
+async def test_a_source_that_cannot_be_downloaded_is_an_error_named_by_its_kind(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from backend.app.services.bounded_download import InvalidGzipError
+
+    failures: list[Exception] = [
+        httpx.HTTPStatusError(
+            f"Client error '404 Not Found' for url '{_SOURCE_URL}'",
+            request=httpx.Request("GET", "https://source.example/genes"),
+            response=httpx.Response(404),
+        ),
+        InvalidGzipError("ClinGen gene validity download is not valid gzip"),
+    ]
+
+    async def download_text(_url: str, *, http_timeout: float) -> str:
+        raise failures.pop(0)
+
+    monkeypatch.setattr(gene_info_bulk_sources, "download_text", download_text)
+    caplog.set_level(logging.WARNING, logger=gene_info_bulk_sources.__name__)
+
+    async def load() -> GeneBulkSourceDataset:
+        return await gene_info_bulk_sources._load_csv_dataset(
+            name="ClinGen gene validity", url="https://source.example/genes", parser=lambda *_a, **_k: {}
+        )
+
+    unreachable, refused = await load(), await load()
+
+    # The source's status, which each gene's record keeps and the gene and admin pages show,
+    # was the error's text, the address and the value with it. Now its kind; CoGA's own
+    # refusal is shown as it is written.
+    assert (unreachable.status, unreachable.message) == (
+        "error",
+        "ClinGen gene validity could not be read (HTTPStatusError).",
+    )
+    assert refused.message == "ClinGen gene validity download is not valid gzip"
+    assert caplog.messages == [
+        "Gene reference source ClinGen gene validity could not be read (HTTPStatusError)",
+        "Gene reference source ClinGen gene validity could not be read (InvalidGzipError)",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_ncbi_lookup_that_fails_is_an_error_named_by_its_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def failing_fetch(*_args: object, **_kwargs: object) -> dict:
+        raise httpx.ConnectError(f"could not reach {_SOURCE_URL}")
+
+    monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", failing_fetch)
+
+    result = await gene_info_external.fetch_external_gene_bundle(
+        symbol="BRCA1",
+        species_document={"name": "Homo sapiens"},
+        bulk_context=HumanGeneBulkContext(datasets={}),
+    )
+
+    status = result["source_status"]["ncbi"]
+    # Before: the error's text, the address and the value with it.
+    assert (status["status"], status["message"]) == ("error", "NCBI Gene could not be read (ConnectError).")

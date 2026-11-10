@@ -264,15 +264,14 @@ def identify_core(pedigree: Pedigree) -> NuclearCore:
             elif len(shared) == best[0]:
                 tied.append((father, mother))
     if best is not None and len(tied) > 1:
+        # Counts only: the couples and their children are named by their sample IDs, which
+        # a log line never carries (SEC-39).
         logger.warning(
             "identify_core: ambiguous nuclear core — %d couples each share %d "
-            "child(ren) %s; picking %s/%s. Lineage colouring may be grounded on the "
+            "child(ren); picking the first found. Lineage colouring may be grounded on the "
             "wrong couple.",
             len(tied),
             best[0],
-            tied,
-            best[1],
-            best[2],
         )
     if best is None:
         # No couple shares a child (single-parent data); fall back to the first

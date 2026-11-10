@@ -8,7 +8,12 @@ from typing import Any, Dict, List
 import httpx
 
 from ..core.http_resilience import resilient_request
-from .gene_info_bulk_sources import HumanGeneBulkContext, build_bulk_gene_bundle, merge_gene_extra
+from .gene_info_bulk_sources import (
+    HumanGeneBulkContext,
+    build_bulk_gene_bundle,
+    merge_gene_extra,
+    source_error_message,
+)
 
 
 def as_list(value: Any) -> List[str]:
@@ -189,10 +194,11 @@ async def fetch_external_gene_bundle(
             message=None if ncbi_payload else "No NCBI Gene record returned",
         )
     except Exception as error:  # noqa: BLE001 - recorded as the source's error status  # pragma: no cover
+        # By its kind, unless CoGA's own: an HTTP error's text quotes the address it read.
         source_status_map["ncbi"] = source_status(
             status="error",
             source_url="https://www.ncbi.nlm.nih.gov/home/develop/api/",
-            message=str(error),
+            message=source_error_message("NCBI Gene", error),
         )
 
     # Everything the per-gene HGNC call used to supply comes off the bulk complete set:

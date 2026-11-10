@@ -605,7 +605,7 @@ async def _rewrite_with_sample_calls(
             logger.warning(
                 "Failed to restore the %s small-variant rows of family %s after a failed rewrite",
                 scrub_log(source),
-                scrub_log(context.family_id),
+                context.family_uuid,
                 exc_info=True,
             )
             raise DatasetLeftMissing(
@@ -1296,7 +1296,7 @@ async def upload_family_small_variant_file(
                 "Skipped %d malformed small-variant row(s) (unparseable or out-of-range POS) "
                 "during upload for family %s",
                 read.skipped_malformed,
-                context.family_id,
+                context.family_uuid,
             )
         result = {
             "inserted": read.inserted,
@@ -1339,7 +1339,7 @@ async def upload_family_small_variant_file(
                 logger.warning(
                     "Failed to clean up partial small-variant rows for family %s "
                     "after an upload error",
-                    context.family_id,
+                    context.family_uuid,
                     exc_info=True,
                 )
         if replacing and record_upload and resolved_format is not None:
@@ -1352,7 +1352,6 @@ async def upload_family_small_variant_file(
             await record_family_upload_failure(
                 session,
                 family_uuid=context.family_uuid,
-                family_id=context.family_id,
                 dataset=dataset,
                 scope=scope,
                 mark=upload_mark,
@@ -1364,7 +1363,6 @@ async def upload_family_small_variant_file(
             await end_family_write_mark(
                 session,
                 family_uuid=context.family_uuid,
-                family_id=context.family_id,
                 mark=upload_mark,
             )
         raise
@@ -1823,7 +1821,6 @@ async def upload_structural_variant_file(
             await end_family_write_mark(
                 session,
                 family_uuid=family_context.family_uuid,
-                family_id=family_context.family_id,
                 mark=upload_mark,
             )
         raise

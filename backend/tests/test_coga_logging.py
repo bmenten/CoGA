@@ -1,6 +1,7 @@
 """scrub_log control-character neutralization (CWE-117 log forging); describe_error and
 describe_traceback, which name an exception and give its frames without quoting the values in
-its text; the JSON formatter, which writes every log line that carries an exception that way;
+its text; own_error_message, which keeps only the words of an error CoGA raised itself for a
+record or a page to show (SEC-39); the JSON formatter, which writes every log line that carries an exception that way;
 the filter that does the same for uvicorn's traceback of an unhandled error; and the event loop
 exception handler, which logs what asyncio reports without the values its reprs quote."""
 from __future__ import annotations
@@ -36,6 +37,7 @@ from backend.app.core.coga_logging import (
     install_event_loop_exception_handler,
     install_server_error_redaction,
     log_event_loop_exception,
+    own_error_message,
     scrub_log,
 )
 
@@ -131,6 +133,38 @@ def test_describe_error_reads_a_code_and_name_only_from_the_clickhouse_driver() 
 
     assert describe_error(_ErrorWithCode("Jane Doe")) == "_ErrorWithCode"
     assert describe_error(SystemExit(2)) == "SystemExit"
+
+
+def test_own_error_message_keeps_the_words_of_an_error_coga_raised() -> None:
+    # SEC-39. A record or a page shows CoGA's own refusal as it is written: an HTTPException
+    # (as str() writes it, status first) and an error of a class CoGA defines.
+    from fastapi import HTTPException
+
+    from backend.app.services.family_package_common import ImportRefused, VcfSampleColumnError
+
+    assert own_error_message(HTTPException(400, "No valid BED records found")) == "400: No valid BED records found"
+    assert own_error_message(ImportRefused("The NeedlR file of S2 holds no structural variant")) == (
+        "The NeedlR file of S2 holds no structural variant"
+    )
+    assert own_error_message(VcfSampleColumnError("SV VCF has no sample column")) == "SV VCF has no sample column"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        _failed_insert(),  # quotes the statement's parameters
+        ClickHouseOperationalError("Network Error: url='http://ch:8123/?param_note=Jane Doe'"),
+        ValueError("invalid literal for int() with base 10: 'Jane Doe'"),  # int() on a file's value
+        KeyError("Jane Doe"),
+        RuntimeError("Symlink loop from '/imports/Jane Doe/x'"),  # pathlib's, on Python 3.12
+        OSError(2, "No such file or directory", "/imports/Jane Doe/trio.vcf.gz"),
+        _AsyncpgError("Jane Doe"),  # a class this test defines is no class of CoGA's
+    ],
+    ids=["statement", "clickhouse", "int", "key", "runtime", "os", "foreign class"],
+)
+def test_own_error_message_is_none_for_any_error_whose_text_coga_did_not_write(error: BaseException) -> None:
+    assert "Jane Doe" in str(error)
+    assert own_error_message(error) is None
 
 
 # The value a request carried. Never written in a raising line: a frame's source line is

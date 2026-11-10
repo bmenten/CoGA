@@ -92,6 +92,8 @@ _FILE_TYPE_RULES: tuple[tuple[str, str], ...] = (
 )
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+# The random prefix of a managed copy's name (store_managed_file).
+_MANAGED_COPY_PREFIX = re.compile(r"[0-9a-f]{12}")
 
 
 def infer_file_type(file_name: str) -> str:
@@ -392,11 +394,11 @@ async def record_uploaded_file(
         await session.commit()
     except Exception:
         # Provenance must not fail the import, but a missing record must leave a trace (#686).
+        # The family by its UUID, and no file name, which can hold a sample's ID (SEC-39).
         logger.warning(
-            "Raw-file provenance for family %s (%s, %s) was not recorded",
-            scrub_log(family_id),
+            "Raw-file provenance for family %s (%s) was not recorded",
+            family_uuid,
             scrub_log(dataset),
-            scrub_log(file_name),
             exc_info=True,
         )
         try:
@@ -425,10 +427,9 @@ async def record_upload_file_obj(
         content = await file.read()
     except Exception:
         logger.warning(
-            "Raw-file provenance for family %s (%s, %s) was not recorded: the upload could not be re-read",
-            scrub_log(family_id),
+            "Raw-file provenance for family %s (%s) was not recorded: the upload could not be re-read",
+            family_uuid,
             scrub_log(dataset),
-            scrub_log(file.filename or "upload"),
             exc_info=True,
         )
         content = b""
@@ -744,6 +745,16 @@ def _managed_file_to_unlink(storage_path: str, managed_root: str) -> str | None:
     return None
 
 
+def _managed_copy_handle(path: str | os.PathLike[str]) -> str:
+    """How a log line names a managed copy: by the random prefix ``store_managed_file`` gives
+    its name (``<12 hex>__…``), never by the rest of the name or by its folder, which hold the
+    uploaded file's name and the family's ID. A name without that prefix is not named."""
+    prefix, separator, _rest = os.path.basename(os.fspath(path)).partition("__")
+    if separator and _MANAGED_COPY_PREFIX.fullmatch(prefix):
+        return f"{prefix}__…"
+    return "a file not named as CoGA names a copy"
+
+
 def _unlink_managed_files(rows: Iterable[tuple[str, str]]) -> int:
     """Unlink the managed copy each ``(storage_path, record id)`` names, where it is a file
     inside the upload folder; returns the number unlinked. A row naming any other place is
@@ -769,11 +780,15 @@ def _unlink_managed_files(rows: Iterable[tuple[str, str]]) -> int:
         except FileNotFoundError:  # gone meanwhile: nothing is left
             continue
         except OSError as exc:
+            # Not by its path, which holds the family's ID and the uploaded file's name: by the
+            # random prefix CoGA gave the copy's name, which finds it in the upload folder
+            # (SEC-39).
             logger.warning(
-                "The file of deleted raw-file record %s could not be unlinked (%s) and is left at %s",
+                "The file of deleted raw-file record %s could not be unlinked (%s) and is left "
+                "in the upload folder as %s",
                 scrub_log(record_id),
                 describe_error(exc),
-                scrub_log(target),
+                _managed_copy_handle(target),
             )
     return removed
 

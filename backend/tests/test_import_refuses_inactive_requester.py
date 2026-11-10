@@ -18,6 +18,10 @@ has the import run, and one demoted while the import runs has it run to its end.
 existing family is an admin's (REQ-SEC-002): an overwrite whose requester is no longer an admin
 ends failed the same way; a superuser's update or dry run runs.
 
+These refusals are stored as they are written. A job that fails on any other error, one CoGA
+did not raise in its own words, ends with a fixed sentence naming the error's kind, never its
+text, which can quote a statement's values (SEC-39).
+
 The job's row and the import are stand-ins: what this tests is whether the import runs, as
 whom, and how the job ends.
 """
@@ -260,6 +264,44 @@ async def test_an_import_already_running_when_its_requester_is_deactivated_or_de
     assert job.looked_up == [REQUESTER_ID]
     assert job.ran_as == [active]
     assert job.ends == [{"status": "completed", "completed": True}]
+
+
+@pytest.mark.asyncio
+async def test_a_job_that_fails_on_an_unexpected_error_ends_naming_the_error_by_its_kind(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # SEC-39. A job's error, which the import pages show, was the error's text: for a failed
+    # statement, its SQL and the values it was given. It is now a fixed sentence naming the
+    # error's kind, and the log names the job; a refusal in CoGA's own words, as those above,
+    # is stored as it is written.
+    from sqlalchemy.exc import OperationalError
+
+    job = _Job(monkeypatch, requester_id=REQUESTER_ID, accounts={REQUESTER_ID: _requester(is_active=True)})
+    failure = OperationalError(
+        "UPDATE families SET family_id = %(family_id)s", {"family_id": "FAMILY-VALUE"}, ConnectionResetError()
+    )
+
+    def fail() -> None:
+        raise failure
+
+    job.during_import.append(fail)
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(OperationalError):
+        await job.run()
+
+    assert job.ends == [
+        {
+            "status": "failed",
+            "error": (
+                "The import failed on an unexpected error (OperationalError (ConnectionResetError)); "
+                "the server log shows where it failed."
+            ),
+            "completed": True,
+        }
+    ]
+    assert f"Family package import job {JOB} failed" in caplog.messages
+    assert "FAMILY-VALUE" not in "".join(caplog.messages)
 
 
 # --------------------------------------------------------------------------- #
