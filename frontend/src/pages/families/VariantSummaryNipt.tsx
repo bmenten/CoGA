@@ -250,8 +250,10 @@ const PLOT_VIEWS: [PlotView, string][] = [
 const HOM_HOM = '6';
 // The hom/hom peak is cut when it is more than this many times the tallest other bin.
 const CUT_RATIO = 1.5;
-const CHART = { width: 760, height: 280, left: 56, right: 16, top: 30, bottom: 46 };
-const ROWS = { width: 760, labels: 200, right: 16, top: 8, row: 40, gap: 8, bottom: 46 };
+// Sizes in CSS pixels: the plot is drawn at this width (smaller only on a narrow screen), so its
+// text keeps the page's own sizes instead of growing with the window.
+const CHART = { width: 760, height: 280, left: 56, right: 16, top: 30, bottom: 40 };
+const ROWS = { width: 760, labels: 200, right: 16, top: 8, row: 40, gap: 8, bottom: 40 };
 
 const binRange = (bin: number, width: number): string =>
   `${(bin * width).toFixed(2)}–${((bin + 1) * width).toFixed(2)}`;
@@ -291,7 +293,7 @@ const FractionAxis: React.FC<{ x: d3.ScaleLinear<number, number>; at: number; he
       return (
         <g key={`x-${step}`}>
           <line className="nipt-vaf-axis" x1={x(tick)} x2={x(tick)} y1={at} y2={at + 4} />
-          <text x={x(tick)} y={at + 17} textAnchor="middle">
+          <text x={x(tick)} y={at + 16} textAnchor="middle">
             {tick.toFixed(1)}
           </text>
         </g>
@@ -322,6 +324,8 @@ const GroupRows: React.FC<{
   return (
     <svg
       className="nipt-vaf-chart"
+      width={width}
+      height={height}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label={`Plasma allele fractions in bins of ${binWidth}, one row per group, each scaled to its own tallest bin, with the fraction its category expects at the fetal fraction`}
@@ -442,6 +446,8 @@ const AllSites: React.FC<{
     <>
       <svg
         className="nipt-vaf-chart"
+        width={width}
+        height={height}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={`Plasma allele fractions of ${formatCount(sites)} sites in bins of ${binWidth}, stacked by group, with the expected fraction of each category at the fetal fraction`}
@@ -504,7 +510,7 @@ const AllSites: React.FC<{
         <FractionAxis x={x} at={height - bottom} height={height} />
         <text
           className="nipt-vaf-axis-title"
-          transform={`translate(14 ${top + (height - bottom - top) / 2}) rotate(-90)`}
+          transform={`translate(13 ${top + (height - bottom - top) / 2}) rotate(-90)`}
           textAnchor="middle"
         >
           {logScale ? 'Sites (log scale)' : 'Sites'}
@@ -522,7 +528,7 @@ const AllSites: React.FC<{
         ))}
       </svg>
       {tallest >= 0 ? (
-        <p className="analysis-count" role="note">
+        <p className="analysis-count nipt-vaf-note" role="note">
           The hom/hom peak is cut at {formatCount(ceiling)} sites so that the other bins can be read: its
           tallest bin, {binRange(tallest, binWidth)}, holds {formatCount(totals[tallest])}. The log scale
           shows it whole.
@@ -545,7 +551,7 @@ export const AlleleFractionPlot: React.FC<{ stats: NiptVariantStatisticsOut }> =
   const inBin = hover ? hovered.filter((group) => group.vaf_histogram[hover.bin]) : [];
   const binTotal = hover ? inBin.reduce((sum, group) => sum + group.vaf_histogram[hover.bin], 0) : 0;
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 nipt-vaf-plot">
       <div className="analysis-graph-toolbar">
         <span className="stat-label">Show</span>
         {PLOT_VIEWS.map(([key, label]) => (

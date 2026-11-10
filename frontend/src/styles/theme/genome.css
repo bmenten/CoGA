@@ -90,25 +90,39 @@
   text-align: right;
 }
 
+/* The allele-fraction plot with its toolbar and legend, as wide as the plot: the plot is drawn at
+   its own width (its width attribute) and shrinks only on a narrow screen, so its text stays at
+   the page's sizes. The legend and the note wrap at that width instead of widening it. */
+.nipt-vaf-plot {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.nipt-vaf-plot .nipt-legend,
+.nipt-vaf-plot .nipt-vaf-note {
+  contain: inline-size;
+}
+
 .nipt-vaf-scroll {
   overflow-x: auto;
 }
 
 .nipt-vaf-chart {
   display: block;
-  width: 100%;
+  max-width: 100%;
+  height: auto;
   min-width: 640px;
   background: var(--color-surface);
 }
 
 .nipt-vaf-chart text {
   fill: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
 }
 
 .nipt-vaf-chart .nipt-vaf-axis-title {
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .nipt-vaf-grid {
@@ -1058,18 +1072,26 @@
   display: block;
   max-width: 28rem;
 }
+/* Drawn at its own width (its width attribute), shrinking only on a narrow screen, so its text
+   stays at the page's sizes. */
 .ancestry-chart {
   display: block;
-  width: 100%;
+  max-width: 100%;
+  height: auto;
   min-width: 640px;
   background: var(--color-surface);
 }
 .ancestry-chart text {
   fill: var(--color-text-muted);
-  font-size: 13px;
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.ancestry-chart .ancestry-axis-title {
+  font-size: var(--fs-xs);
 }
 .ancestry-chart .ancestry-exploratory-mark {
   fill: var(--color-text);
+  font-size: var(--fs-xs);
   font-weight: 600;
 }
 .ancestry-grid {
