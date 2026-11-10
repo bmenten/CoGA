@@ -38,7 +38,6 @@ const reference = {
 };
 const run = {
   id: 'run1',
-  source_id: null,
   trigger: 'automatic',
   reference_sha256: reference.sha256,
   status: 'completed',
@@ -75,7 +74,6 @@ const data = {
   runs: [run],
   analysis: {
     run_id: run.id,
-    source_id: null,
     reference_sha256: reference.sha256,
     storage_version: '4:123',
     current_genotypes: true,

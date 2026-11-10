@@ -196,13 +196,6 @@ model without one reads no callset as an exome. A missing or invalid model block
 calculations. Every earlier projection keeps the reference snapshot it was calculated with
 (`ancestry_reference_panels`) and stays readable on its own axes.
 
-## Earlier projections
-
-Until revision 0016 a projection read a registered WGS file (`wgs_sources`): a retained upload or
-a package's family VCF declared in its manifest (`metadata.ancestry`). Those runs and results keep
-their `source_id` and stay readable; the section marks them as earlier projections. Nothing
-registers a file any more, and a manifest's `metadata.ancestry` is not read.
-
 ## Access
 
 A project reader can view the section; calculating by hand and choosing need permission to change the project

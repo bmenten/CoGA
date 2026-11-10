@@ -57,12 +57,6 @@ const ASSUMPTION_LABELS: Record<string, string> = {
   min_call_rate: 'Minimum share of covered markers usable',
   excluded: 'Left out',
   projection: 'Projection',
-  // A projection from before the callsets were read, of a registered WGS file.
-  absent_record_is_hom_ref: 'Absent records taken as homozygous reference',
-  allow_unfiltered: 'Unfiltered calls (FILTER=.) accepted',
-  min_observed_fraction: 'Minimum share of observed calls',
-  missing_calls: 'Missing calls',
-  source_limitations: 'Source limitations',
 };
 
 const formatAssumption = (value: unknown) =>
@@ -390,9 +384,7 @@ const FamilyAncestryPanel: React.FC<Props> = ({
               <p role="status" className="status-note status-note--warning">
                 Earlier projection:{' '}
                 {!analysis.current_genotypes
-                  ? analysis.storage_version
-                    ? 'the family’s genotypes changed since it was calculated. '
-                    : 'it read a registered WGS file, before the stored callsets were read. '
+                  ? 'the family’s genotypes changed since it was calculated. '
                   : ''}
                 {!analysis.current_reference
                   ? 'It was calculated with an earlier reference model. '
@@ -481,12 +473,6 @@ const FamilyAncestryPanel: React.FC<Props> = ({
                       ? 'current genotypes'
                       : 'earlier genotypes'}{' '}
                     · calculation <code>{analysis.calculation_version}</code>
-                    {analysis.source_id ? (
-                      <>
-                        {' '}
-                        · WGS source record <code>{analysis.source_id}</code>
-                      </>
-                    ) : null}
                   </p>
                   <dl className="ancestry-assumptions">
                     {Object.entries(ASSUMPTION_LABELS)

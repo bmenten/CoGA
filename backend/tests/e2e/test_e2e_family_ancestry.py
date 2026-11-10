@@ -150,7 +150,7 @@ async def exercise(root: Path, monkeypatch):
             first_run = completed["runs"][0]["id"]
             analysis = completed["analysis"]
             assert analysis["current_genotypes"] and analysis["current_reference"]
-            assert analysis["calculation_version"] == "coga-ancestry-pca-v2" and analysis["source_id"] is None
+            assert analysis["calculation_version"] == "coga-ancestry-pca-v2" and "source_id" not in analysis
             samples = {r["sample_id"]: r for r in analysis["samples"]}
             assert samples[proband]["pcs"] == [-1, 0, 1, -1]
             assert samples[mother]["pcs"] == [1, 1, 1, 1]
