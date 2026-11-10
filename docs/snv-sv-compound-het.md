@@ -46,8 +46,8 @@ implementation.
   - cis only when every one is.
 
   The copy-loss rule is `sv_copy_change.copy_change`, which the SV ranking reads too
-  (`variant_prioritization.structural_pathogenicity_score`, CLIN-47); the SV list serves it with each
-  SV (`copy_change`) for the genome, chromosome and Circos views to draw (CLIN-54).
+  (`variant_prioritization.structural_pathogenicity_score`); the SV list serves it with each
+  SV (`copy_change`) for the genome, chromosome and Circos views to draw.
   SNV + SNV pairs go through the same `segregation_phase` after read phasing, in
   `_compound_het_pair_verdict` (`clickhouse_variant_queries.py`), which also sets `phase_evidence`
   (`read` or `segregation`); a pair traced to one parent is dropped. The in-app reference describes

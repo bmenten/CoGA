@@ -93,8 +93,7 @@ A signed version is rendered from its frozen record alone:
 
 The record holds none of the other prose inputs above (population frequency, in silico
 predictions, segregation, gene and phenotype context), so a signed version says what its record
-does not hold. A version signed before CoGA froze the variant description names each variant by
-its ID alone. Both views download the signed version as JSON.
+does not hold. Both views download the signed version as JSON.
 
 ## Printing
 

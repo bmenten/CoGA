@@ -19,7 +19,7 @@ A projection reads the family's **stored small variants** in ClickHouse at the r
 (`ancestry_callsets.read_marker_rows`): the rows of the family's project in `entries` whose
 `xpos` is a marker's, of the callsets `clair3` (direct calls), `nipt` (a NIPT family's per-sample
 calls) and `glimpse2` (imputed genotypes); never `mito`. About ten thousand positions, asked in
-bound chunks of 5,000; it takes well under a second, where reading the VCF took minutes. Nothing
+bound chunks of 5,000; it takes well under a second. Nothing
 is registered: there is no file to point at, no checksum to keep and no declaration to make.
 
 Each individual is read from each callset that holds it (`read_callsets`), marker by marker:
@@ -119,7 +119,7 @@ reference, so no absence has to be assumed:
 The PCs are the **least-squares fit** of the reference loadings to the usable markers'
 standardized dosages `(dosage − mean) / scale` (`ancestry_projection.project_least_squares`). With
 every marker usable this is the plain projection (the loadings are orthonormal); with markers left
-out it does not shrink the point towards the centre, as filling them with the reference mean did.
+out it does not shrink the point towards the centre, as filling them with the reference mean would.
 A set of usable markers that cannot determine four components (fewer than four, or an
 ill-conditioned fit) gives no coordinates.
 
@@ -195,13 +195,6 @@ its mask, next to it as `<model>.exome.json`, is checked against the model's che
 model without one reads no callset as an exome. A missing or invalid model blocks new
 calculations. Every earlier projection keeps the reference snapshot it was calculated with
 (`ancestry_reference_panels`) and stays readable on its own axes.
-
-## Earlier projections
-
-Until revision 0016 a projection read a registered WGS file (`wgs_sources`): a retained upload or
-a package's family VCF declared in its manifest (`metadata.ancestry`). Those runs and results keep
-their `source_id` and stay readable; the section marks them as earlier projections. Nothing
-registers a file any more, and a manifest's `metadata.ancestry` is not read.
 
 ## Access
 

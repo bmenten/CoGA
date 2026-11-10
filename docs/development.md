@@ -55,8 +55,8 @@ backend container.
 
 On macOS a bind mount is case-insensitive by default. Two family IDs that differ only in case
 (`FAM1`, `fam1`) then share every folder named after an ID, such as a family's data folders
-under `data/`. The ID rule leaves case alone, since production storage is case-sensitive
-(SEC-15). To test with such families locally, give them IDs that differ in more than case.
+under `data/`. The ID rule leaves case alone, since production storage is case-sensitive.
+To test with such families locally, give them IDs that differ in more than case.
 
 Without the second file, `docker compose up --build -d` runs the production images instead:
 no reload, and the built frontend served by `frontend/server.mjs`. That frontend takes the
@@ -165,10 +165,9 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
   (`docker compose down -v`). An older local database needs nothing: the next start brings it
   to the current schema and logs `Postgres schema migrated from revision … to …`
   ([database.md](database.md#schema-migrations)).
-- **"report_signouts holds … family ID(s) with a sign-out version taken twice"** — a family in
-  your local Postgres was deleted, made again under its ID and signed out in both, before
-  sign-out versions were numbered per family ID (TRACE-13). Its sign-out chain holds two
-  records under one version and does not verify reliably. The database cannot take the index
+- **"report_signouts holds … family ID(s) with a sign-out version taken twice"** — a family ID in
+  your local Postgres holds two sign-out records under one version, so its sign-out chain
+  does not verify reliably. The database cannot take the index
   that keeps a family ID's versions unique, so the migration stops and changes nothing. The
   local data is synthetic: reset (`docker compose down -v`) and load it again
   ([database.md](database.md#04_traceabilitysql-provenance-audit-and-integrity)).

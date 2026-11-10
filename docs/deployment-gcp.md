@@ -304,7 +304,7 @@ Notes:
   owner's password, and keeps only the number of the version it read, not the value.
 - `coga-admin-password` is the first login password of the admin user **`coga-admin`**, who
   signs in with the email `admin@<app_domain>` (Section 9). Once Microsoft sign-in is on,
-  `coga-admin` is the emergency administrator, and this secret stays its password (12.12).
+  `coga-admin` is the emergency administrator, and this secret stays its password (12.11).
 
 ### 5.6 (CI only) Workload Identity Federation
 
@@ -351,15 +351,15 @@ The variables you will most likely set:
 | `storage_backend` | `local` or `gcs` | `local` (flip to `gcs` later — Section 11) |
 | `enable_cloud_armor` | Edge WAF/DDoS | `true` |
 | `cloud_armor_waf_enforce` | Block (vs log-only) WAF matches | `false` (log-only first) |
-| `azure_ad_tenant_id` / `azure_ad_client_id` | Microsoft sign-in (12.12): the directory (tenant) ID and the application (client) ID IT gives you; both or neither | empty (password sign-in) |
-| `azure_ad_api_scope` / `azure_admin_override` | CoGA's API scope, and the emergency administrator's password sign-in beside Microsoft sign-in (12.12) | empty (`api://<client id>/access_as_user`) / `false` |
+| `azure_ad_tenant_id` / `azure_ad_client_id` | Microsoft sign-in (12.11): the directory (tenant) ID and the application (client) ID IT gives you; both or neither | empty (password sign-in) |
+| `azure_ad_api_scope` / `azure_admin_override` | CoGA's API scope, and the emergency administrator's password sign-in beside Microsoft sign-in (12.11) | empty (`api://<client id>/access_as_user`) / `false` |
 | `alert_notification_emails` | Who the alert policies email (12.6) | `[]` — set it, or nobody is told (Terraform warns) |
 | `metrics_collection_enabled` | Run the metrics collector beside the backend, and the metric alerts | `true` |
 | `uptime_check_enabled` | Check `https://<app_domain>/api/health` every minute and alert when it fails | `true` (see 12.6 with `allowed_ingress_cidrs`) |
 
 The go-live switches (`cloud_armor_waf_enforce`, `db_runtime_role`,
 `allowed_ingress_cidrs`, `clickhouse_restrict_egress`) are in 12.7–12.10, and Microsoft
-sign-in (`azure_ad_*`) in 12.12. Every variable, with its default, is in
+sign-in (`azure_ad_*`) in 12.11. Every variable, with its default, is in
 `terraform/variables.tf`.
 
 For **production**, consider `db_availability_type = "REGIONAL"` and a larger
@@ -479,7 +479,7 @@ Then open `https://coga.cmgg.be` in a browser and log in with:
 - **Password:** the `coga-admin-password` value you set in 5.5
 
 If the page loads and you can log in, the deployment is live. **Rotate the admin password**
-(12.2) and **set up Microsoft sign-in** (12.12): users then sign in with their hospital or
+(12.2) and **set up Microsoft sign-in** (12.11): users then sign in with their hospital or
 university Microsoft account, and `coga-admin` becomes the emergency administrator.
 
 The footer of every page names the same version and commit as `/api/version`, and its
@@ -700,7 +700,7 @@ database connections, so do it at a quiet time. For `coga_app`'s password, see
 [db-runtime-role-runbook.md](db-runtime-role-runbook.md), "Google Cloud".
 
 For **`coga-admin-password`**, the password of `coga-admin` (the emergency administrator,
-12.12): add the new version, then let the admin seed run. In owner mode it runs when the
+12.11): add the new version, then let the admin seed run. In owner mode it runs when the
 backend starts, so roll the backend as above; with the restricted role (12.8), re-run the
 migration job (`gcloud run jobs execute coga-db-migrate --region "$REGION" --wait`). The seed
 replaces the stored password hash when it no longer matches the secret, so the secret is the
@@ -797,8 +797,7 @@ has **no SSH ingress** (TF-13 S-8), so a restart, not a shell, makes it reload.
 
 Terraform stores the new key and certificate in Secret Manager before it destroys their old
 versions, so a VM that boots during the apply still finds a key and a certificate to load.
-When it destroyed the old versions first, a VM that booted in between found none and did not
-start ClickHouse (SEC-19). A VM that boots between the new key and the new certificate may
+A VM that boots between the new key and the new certificate may
 load one new and one old; the restart after the apply loads the new pair.
 
 If an apply fails with `x509: provided PrivateKey doesn't match parent's PublicKey`, a change
@@ -817,7 +816,7 @@ change, apply, and restart the VM.
   tcp/22, target tag `clickhouse`) and remove it afterwards (`terraform/network.tf`). Plan
   capacity ahead.
 - **ClickHouse memory per query:** the VM runs ClickHouse with the memory guards Docker
-  Compose uses, from the same file, `clickhouse/users.d/memory-guards.xml` (OPS-14). Each
+  Compose uses, from the same file, `clickhouse/users.d/memory-guards.xml`. Each
   query is capped at 4 GB, and spills GROUP BY and ORDER BY state to disk past 2 GB. A
   larger machine therefore runs more such queries at once, not larger ones. The backend's
   `CLICKHOUSE_MAX_MEMORY_USAGE`, when set, overrides the cap for the app's queries. The
@@ -919,65 +918,9 @@ connection is denied. Before switching it on:
 With the lockdown on, Container-Optimized OS can no longer update itself in place. Patch it
 by recreating the VM on a current image; the data disk is separate and is kept.
 
-### 12.11 Once: clear the secrets out of a state written before OPS-10
+### 12.11 Microsoft sign-in (Azure AD / Microsoft Entra ID)
 
-Until the change that closed OPS-10, Terraform kept the database owner's password and the
-ClickHouse TLS private keys (the CA's and the server's) in its state. Now the configuration
-needs Terraform 1.11 or later and version 8 of the google provider, and passes those values
-only through write-only arguments. An environment applied before that change still holds
-them, in the current state file and in every older version the versioned state bucket keeps.
-**Skip this section if no environment was applied before the change** (none had been when it
-was made). Otherwise, once per environment:
-
-1. **Plan a quiet hour.** Step 3 leaves ClickHouse unreachable from the app for a few
-   minutes, and step 4 briefly stops the backend from opening new database connections.
-2. **Deploy the change as usual** (merge, then approve the `gcp-deploy` job; or by hand
-   with Terraform 1.11 or later, Section 7). No `terraform state rm` or import is needed:
-   the apply itself drops the old values from the current state. Read the plan before you
-   approve it. Expect:
-   - `google_sql_user.coga` updated in place: the password moves to the write-only
-     argument. Terraform sets the same password again, so the backend notices nothing.
-   - `tls_private_key.ca` and `tls_private_key.clickhouse` destroyed. They existed only in
-     the state.
-   - `tls_self_signed_cert.ca`, `tls_cert_request.clickhouse`,
-     `tls_locally_signed_cert.clickhouse` and the versions of `coga-clickhouse-tls-key` and
-     `coga-clickhouse-tls-cert` replaced: new keys, a new CA and a new server certificate.
-     The old secret versions, with the old server key, are destroyed.
-   - `google_cloud_run_v2_service.backend` updated (the new CA in `CLICKHOUSE_CA_CERT`), and
-     the ClickHouse VM's metadata updated in place (a comment in its certificate-refresh
-     script). With the restricted database role (12.8), `google_cloud_run_v2_job.db_migrate`
-     updated as well (`deletion_protection = false`).
-
-   An in-place update that only records a default of the newer provider (for example
-   `send_age_if_zero` in a bucket's lifecycle rule) is harmless. Any other replacement or
-   destruction is not part of this change: stop and find out why before approving.
-3. **Restart the ClickHouse VM right after the apply** (12.4), so it loads the new key and
-   certificate; the backend's new revision trusts only the new CA. Then check that the
-   health check is green and that a variant search answers.
-4. **Rotate the owner's password**, because the older state versions still hold the old
-   one. Add a new version to `coga-postgres-password` (5.5), apply again so that Terraform
-   sets it on the database user, then roll the backend (both in 12.2). Once the app works
-   on the new password, disable the old version:
-   `gcloud secrets versions disable <old version> --secret=coga-postgres-password`.
-   The old ClickHouse keys need no such step: step 2 replaced them, and nothing trusts the
-   old CA any more.
-5. **Delete the older versions of the state file**, which still hold the old values, if your
-   retention rules allow deleting state history. After steps 3 and 4 those values open
-   nothing, so this only tidies up. Keep the live version:
-
-   ```bash
-   gcloud storage ls --all-versions "gs://${STATE_BUCKET}/coga/dev/default.tfstate"
-   # Delete each generation older than the live one (the live one has the highest number):
-   gcloud storage rm "gs://${STATE_BUCKET}/coga/dev/default.tfstate#<generation>"
-   ```
-
-6. **Delete any local copies** of the state or of plan files (`tfplan`) made before the
-   change, for example from a manual run (Section 7); they hold the same values. CI keeps
-   none: its plan file lives only on the runner.
-
-### 12.12 Microsoft sign-in (Azure AD / Microsoft Entra ID)
-
-At go-live users sign in with their hospital or university Microsoft account (SEC-4).
+At go-live users sign in with their hospital or university Microsoft account.
 Microsoft Entra ID (formerly Azure AD) checks the password and MFA; IT handles password
 resets and leavers. The browser signs the user in with the authorization code flow with PKCE
 (MSAL), and sends the access token Microsoft issues for CoGA's API scope with every request.
@@ -1052,10 +995,10 @@ role or deactivate it, and its password is the `coga-admin-password` secret (12.
 - For an immediate stop, deactivate the account on the *Users* page. The jobs it queued as
   an administrator are then refused too (an import or a gene-reference refresh not yet
   started, a knowledgebase rebuild not yet loaded), as after a change of its role away from
-  administrator (SEC-35).
+  administrator.
 - A changed name or e-mail address follows at the next sign-in. The account is bound to the
   user's object ID in Entra ID, never to an e-mail address, and the user's import jobs and
-  filter presets are kept by the account, so they stay theirs (SEC-32).
+  filter presets are kept by the account, so they stay theirs.
 - A first sign-in whose e-mail address belongs to another CoGA account is refused rather than
   linked; an administrator resolves it in the database.
 
@@ -1071,16 +1014,16 @@ This deployment closes the deployment-level security items tracked in
 |------|----------------------|
 | **S-1** encryption at rest | CMEK on Cloud SQL, both disks, and both GCS buckets |
 | **S-2** TLS to datastores | Postgres via the Cloud SQL Connector (mTLS, verify-full grade); ClickHouse over HTTPS:8443 with a private CA the backend verifies |
-| **S-3** secrets management | Secret Manager; values injected at runtime, not baked into images; no password or private key in the Terraform state or plan (write-only arguments, 12.4, 12.11) |
+| **S-3** secrets management | Secret Manager; values injected at runtime, not baked into images; no password or private key in the Terraform state or plan (write-only arguments, 12.4) |
 | **S-4** byte-level PHI audit | GCS Data Access audit logs (set in the central infra repo) |
 | **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist (12.9) and ClickHouse egress lockdown (12.10) |
 | DB privilege separation | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
-| Sign-in (SEC-4) | Microsoft Entra ID (12.12): MFA, password policy and leavers by IT, the app assigned to the lab's group; one local emergency administrator, whose password sign-in is off unless `azure_admin_override` is switched on |
+| Sign-in | Microsoft Entra ID (12.11): MFA, password policy and leavers by IT, the app assigned to the lab's group; one local emergency administrator, whose password sign-in is off unless `azure_admin_override` is switched on |
 | Backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots (**do a restore drill**) |
 | edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist; the HTTPS load balancer accepts TLS 1.2+ with the `MODERN` profile; the app page and the API send HSTS (`max-age=63072000; includeSubDomains`), and the load balancer sets it on every answer it relays |
 
 **Still your responsibility (process, not code):** IVDR **change control** (TF-18) for each
-switch in 12.7–12.10 and 12.12 and for the first production deployment, and the IFU (TF-15)
+switch in 12.7–12.11 and for the first production deployment, and the IFU (TF-15)
 minimum IT requirements. Google Cloud is the chosen host. The DPIA and the data processing
 agreement with Google are tracked in TF-14 and TF-02 §10.
 

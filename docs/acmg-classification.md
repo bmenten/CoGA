@@ -59,7 +59,7 @@ differs.
     frequencies and counts the filters read, CADD, REVEL, SpliceAI, SIFT, PolyPhen and
     AlphaMissense;
   - for a missense variant only, the gene's gnomAD missense Z that PP2 reads, with its source
-    (`gene_missense_z_source`: `gene_profile` or `vcf`; `pp2_gene_missense_z`, TRACE-15). It comes
+    (`gene_missense_z_source`: `gene_profile` or `vcf`; `pp2_gene_missense_z`). It comes
     from the gene's profile through the variant list's own lookup (`evidence_gene_missense_z`),
     else from the VCF's own `MISSENSE_Z`. `reads_gene_missense_z` tells a missense variant as the
     dialog's `isMissense` does.
@@ -78,8 +78,8 @@ differs.
   under one id share its review, and the frozen evidence is that caller's row. A save that names no
   caller takes the SV's one row; it is refused (`422`) when several callers call the SV. The route
   takes no `acmg` or `compound_het` (a small variant's fields; `StructuralVariantReviewUpdate`); a
-  client that still sends them is answered as before, without them.
-- Only a save is checked: a classification stored before these checks is served as written, and a
+  client that sends them is answered without them.
+- Only a save is checked: a stored classification is served as written, and a
   save that leaves `acmg` or `cnv_acmg` out keeps it.
 - Every list of small variants serves each review with the columns of a single-review read
   (`_fetch_review_rows_for_variants` in `small_variant_review_repository.py`), the ACMG record
@@ -117,7 +117,7 @@ Some pre-evaluation rules repeat a backend rule. Change both sides together:
 - **The missense Z PP2 reads.** `pp2MissenseZ` in `evaluate.ts` reads the served `gene_missense_z`
   (the gene profile's) first, else `annotation_extra.gene_missense_z` (the VCF's own `MISSENSE_Z`);
   only a finite number counts. `pp2_gene_missense_z` in `small_variant_review_acmg.py` freezes the
-  same value and its source with the classification (TRACE-15, the owner's decision of 2026-10-28);
+  same value and its source with the classification (the owner's decision of 2026-10-28);
   `test_acmg_frontend_parity.py` checks the source names and their order. PP2 is offered as
   Consider at a Z of 3.09 or more (`PP2_MISSENSE_Z`) and never applied: whether missense variants
   are a common mechanism of disease in the gene is the analyst's judgement.
