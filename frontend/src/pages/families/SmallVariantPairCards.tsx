@@ -5,7 +5,6 @@ import {
   type SmallVariant,
   type SmallVariantGroup,
   type SmallVariantTagDefinition,
-  normalizeReviewClassification,
 } from './smallVariantSearch';
 import {
   buildSmallVariantGeneInfoHref,
@@ -15,7 +14,7 @@ import {
   formatLocus,
   formatTokenLabel,
   getImpactTone,
-  getReviewClassificationTone,
+  reviewClassChips,
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
@@ -76,7 +75,14 @@ export default function SmallVariantPairCards({
               projectId,
             )
           : null;
-        const pairReviewTags = sortReviewTagKeys(group.review?.tags || [], tagMap);
+        // The pair review's class once, by the one rule (CLIN-76): a class tag that is not the
+        // class shown is no chip.
+        const pairClass = reviewClassChips(
+          group.review?.classification,
+          group.review?.tags,
+          sortReviewTagKeys(group.review?.tags || [], tagMap),
+        );
+        const pairReviewTags = pairClass.tagKeys;
 
         return (
           <article key={group.group_key} className="variant-card">
@@ -134,14 +140,10 @@ export default function SmallVariantPairCards({
                       )}
                     </div>
                   </div>
-                  {/* The word as the SV pages show it, not as typed (ENG-10). */}
-                  {normalizeReviewClassification(group.review?.classification) ? (
-                    <span
-                      className={`variant-card-chip variant-card-chip--${getReviewClassificationTone(
-                        group.review?.classification,
-                      )}`}
-                    >
-                      {normalizeReviewClassification(group.review?.classification)}
+                  {/* The class the pair review shows: a class word as its label, not as typed (ENG-10). */}
+                  {pairClass.label ? (
+                    <span className={`variant-card-chip variant-card-chip--${pairClass.tone}`}>
+                      {pairClass.label}
                     </span>
                   ) : null}
                   {pairReviewTags.length ? (

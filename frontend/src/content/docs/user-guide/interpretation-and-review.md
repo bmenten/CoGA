@@ -13,6 +13,14 @@ its row is dimmed.
   *Secondary finding*. A superuser or an administrator can add custom tags for one project or for
   everyone. A renamed custom tag stays on every review that holds it. A deleted one stays too, marked
   *(deleted)*: untick it to remove it from a review. It can no longer be added.
+- **Class.** A row or card shows the review's class once. A class word typed as the classification
+  (*VUS*) gives its class; otherwise the review's class tag gives it, the most severe of two;
+  otherwise the classification as typed. A class tag of another class is not shown beside it. The VUS
+  tiers and *Secondary finding* are tags, never the class. The filters, the Variant Explorer and
+  **Download CSV** read the class the same way.
+- **Review**, **Exclude** and **Report** change the tags only: the classification stays as stored.
+  **Tags & notes** opens on the class shown. Choosing another class there, or none, replaces the
+  classification and every class tag; left alone, the save keeps both as they are.
 - **Notes** keep your reasoning with the variant.
 - **Report** puts the variant in the family report.
 

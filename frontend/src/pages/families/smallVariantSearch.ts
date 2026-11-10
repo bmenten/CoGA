@@ -2069,16 +2069,24 @@ export const getClassificationTagKeyFromTags = (tags: Iterable<string>) =>
 export const getClassificationLabelFromTagKey = (tagKey?: string | null) =>
   (tagKey ? ACMG_CLASSIFICATION_LABELS[tagKey] : '') || '';
 
-export const normalizeReviewClassification = (value?: string | null, tags?: Iterable<string>) => {
-  const explicitTagKey = getClassificationTagKeyFromClassification(value);
-  if (explicitTagKey) {
-    return getClassificationLabelFromTagKey(explicitTagKey);
-  }
-  const derivedTagKey = tags ? getClassificationTagKeyFromTags(tags) : '';
-  if (derivedTagKey) {
-    return getClassificationLabelFromTagKey(derivedTagKey);
-  }
-  return value?.trim() || '';
+/**
+ * The ACMG class tag of the class a review shows (normalizeReviewClassification): the class a
+ * bare class word in its text names, else its most severe class tag. '' when it shows its text
+ * as stored, or nothing. A VUS tier or *Secondary finding* is no class tag.
+ */
+export const getReviewClassTagKey = (value?: string | null, tags?: Iterable<string> | null) =>
+  getClassificationTagKeyFromClassification(value) || (tags ? getClassificationTagKeyFromTags(tags) : '');
+
+/**
+ * The class a review shows, the one rule of every page that shows a small-variant review's
+ * class (CLIN-76) and of both classification filters (CLIN-75): a bare class word in the text
+ * ("VUS") as that class's label, else the most severe ACMG class tag's label, else the text as
+ * stored, trimmed. The server's review_class_label (review_pg_utils.py) reads a review alike;
+ * both read the cases of __tests__/fixtures/review-class-cases.json.
+ */
+export const normalizeReviewClassification = (value?: string | null, tags?: Iterable<string> | null) => {
+  const tagKey = getReviewClassTagKey(value, tags);
+  return tagKey ? getClassificationLabelFromTagKey(tagKey) : value?.trim() || '';
 };
 
 export const mergePresetSampleFilter = (

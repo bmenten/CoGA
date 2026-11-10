@@ -4,8 +4,11 @@ import { omimGeneHref } from '../../lib/omim';
 import { humanAssemblyOf } from '../../lib/reference';
 import type { StructuralVariant } from './structuralVariantSearch';
 import {
+  ACMG_CLASSIFICATION_TAG_KEYS,
   COLLABORATION_QUICK_TAGS,
   COMPOUND_HET_PHASE_STATUS_LABELS,
+  getReviewClassTagKey,
+  normalizeReviewClassification,
   tagDefinitionLabel,
   type SmallVariant,
   type SmallVariantReviewTagMetadata,
@@ -396,6 +399,38 @@ export const visibleReviewTagKeys = (tagKeys: string[]): string[] =>
       tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
       tagKey !== COLLABORATION_QUICK_TAGS.report,
   );
+
+/**
+ * How a small-variant review, or a compound-het pair review, shows its class beside its tag
+ * chips (CLIN-76): once, by the one rule (normalizeReviewClassification: a bare class word in the
+ * text, else the most severe class tag, else the text as stored).
+ *
+ * - `label`: the class it shows, '' for none; `tone`: that class's chip tone.
+ * - `tagKeys`: `chipTagKeys` without the ACMG class tags that are not the class shown, so a
+ *   review never shows a second class (text "VUS" beside the tag *Likely pathogenic - class 4*
+ *   shows *VUS - class 3* alone). The class shown keeps its tag chip when the review holds it.
+ *   The VUS tiers and *Secondary finding* are tags, never the class, and stay chips.
+ * - `chipLabel`: the class as a chip of its own, for a list that shows the class among the tag
+ *   chips: the label when the class shown has no tag chip there (a class word, or text with no
+ *   class tag), else ''.
+ */
+export const reviewClassChips = (
+  classification: string | null | undefined,
+  tags: Iterable<string> | null | undefined,
+  chipTagKeys: string[],
+): { label: string; tone: string; tagKeys: string[]; chipLabel: string } => {
+  const held = Array.from(tags ?? []);
+  const label = normalizeReviewClassification(classification, held);
+  const classTagKey = getReviewClassTagKey(classification, held);
+  const classTagKeys: readonly string[] = ACMG_CLASSIFICATION_TAG_KEYS;
+  const tagKeys = chipTagKeys.filter((tagKey) => !classTagKeys.includes(tagKey) || tagKey === classTagKey);
+  return {
+    label,
+    tone: getReviewClassificationTone(label),
+    tagKeys,
+    chipLabel: label && !(classTagKey && tagKeys.includes(classTagKey)) ? label : '',
+  };
+};
 
 export const buildReviewTagTooltip = ({
   tagKey,

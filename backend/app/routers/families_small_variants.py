@@ -32,6 +32,7 @@ from ..services.signed_record_nipt import is_nipt_family, nipt_trio_of
 from ..services.access_control import CurrentUser, changes_only_own_data
 from ..services.panel_use_audit import record_family_panel_use
 from ..services.raw_import_files_pg import record_upload_file_obj
+from ..services.review_pg_utils import review_class_label
 from ..services.small_variant_review_pg import (
     get_small_variant_review_summary,
     upsert_small_variant_review as upsert_small_variant_review_record,
@@ -336,7 +337,12 @@ def _family_export_cell(variant: VariantOut, field: str) -> str:
     if field == "priority_rank":
         return str(variant.priority.rank) if variant.priority and variant.priority.rank else ""
     if field == "classification":
-        return variant.review.classification or "" if variant.review else ""
+        # The class the review shows on the family page, as the Variant Explorer's export
+        # writes it (review_class_label: a class word in the text, else the most severe class
+        # tag, else the text; CLIN-76); the review's tags are in their own column.
+        if variant.review is None:
+            return ""
+        return review_class_label(variant.review.classification, variant.review.tags) or ""
     if field == "tags":
         return "; ".join(variant.review.tags) if variant.review else ""
     if field == "genotypes":

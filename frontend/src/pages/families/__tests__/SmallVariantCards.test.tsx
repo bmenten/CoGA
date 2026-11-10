@@ -5,10 +5,12 @@ import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SmallVariantCards from '../SmallVariantCards';
-import type { SmallVariant } from '../smallVariantSearch';
+import { ACMG_CLASSIFICATION_LABELS, type SmallVariant, type SmallVariantReview } from '../smallVariantSearch';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
 import { genotype, review, smallVariant, svSecondHit, transcript } from '../../../test/variants';
+import reviewClassCases from './fixtures/review-class-cases.json';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
@@ -1106,5 +1108,70 @@ describe('SmallVariantCards excluded variant', () => {
 
     await userEvent.click(within(card).getByRole('button', { name: /undo the exclusion of PKD1/i }));
     expect(onToggleReviewTag).toHaveBeenCalledWith(excluded, 'excluded');
+  });
+});
+
+// CLIN-76 (the owner's decision of 2026-11-10): a card shows its review's class by the one rule
+// of the family page. Its heading showed the classification text (a class word as its label)
+// whatever the tags said, and its tag row every class tag beside it: text "VUS" beside the tag of
+// class 4 showed *VUS - class 3* and *Likely pathogenic - class 4* on one card.
+describe('SmallVariantCards review class', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockGeneProfile([]);
+  });
+
+  const renderReview = (fields: Partial<SmallVariantReview>) =>
+    renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: '1-100-A-G',
+            chr: '1',
+            start: 100,
+            end: 100,
+            type: 'SNV',
+            gene: 'GENE1',
+            review: review({ variant_id: '1-100-A-G', ...fields }),
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        locationSearch=""
+        tags={BUILT_IN_REVIEW_TAGS}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+  const classLabels = Object.values(ACMG_CLASSIFICATION_LABELS).map((label) => label.toLowerCase());
+  // The classes a card shows, each once: its heading's and its tag row's chips that read as a
+  // class, or as the text shown.
+  const classesOn = (card: HTMLElement, shown: string) => [
+    ...new Set(
+      Array.from(card.querySelectorAll('.variant-card-headtags .variant-card-chip, .variant-card-tag-row .variant-card-chip'))
+        .map((chip) => chip.textContent ?? '')
+        .filter((text) => classLabels.includes(text.toLowerCase()) || (shown !== '' && text === shown)),
+    ),
+  ];
+
+  it.each(reviewClassCases.cases)('shows the class the rule gives, once: $why', ({ classification, tags, shown }) => {
+    const { container } = renderReview({ classification, tags });
+    const card = container.querySelector('article') as HTMLElement;
+    expect(classesOn(card, shown)).toEqual(shown ? [shown] : []);
+    if (shown) {
+      // In the heading, a class shown from its class tag alone too.
+      expect(within(card.querySelector('.variant-card-headtags') as HTMLElement).getByText(shown)).toBeInTheDocument();
+    }
+  });
+
+  it('keeps a VUS tier and Secondary finding as tags beside the class word', () => {
+    const { container } = renderReview({ classification: 'VUS', tags: ['acmg_vus_warm', 'secondary_finding'] });
+    const card = container.querySelector('article') as HTMLElement;
+    const tagRow = card.querySelector('.variant-card-tag-row') as HTMLElement;
+    expect(within(tagRow).getByText('VUS — warm')).toBeInTheDocument();
+    expect(within(tagRow).getByText('Secondary finding')).toBeInTheDocument();
+    expect(classesOn(card, 'VUS - class 3')).toEqual(['VUS - class 3']);
   });
 });

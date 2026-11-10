@@ -19,11 +19,17 @@ import {
   getUcscDb,
   isDeletedReviewTag,
   parseVariantIds,
+  reviewClassChips,
   visibleReviewTagKeys,
 } from '../smallVariantResultUtils';
-import type { SmallVariantTagDefinition, SvSecondHit } from '../smallVariantSearch';
+import {
+  ACMG_CLASSIFICATION_LABELS,
+  type SmallVariantTagDefinition,
+  type SvSecondHit,
+} from '../smallVariantSearch';
 import { tagDefinition } from '../../../test/tagDefinitions';
 import { smallVariant, svSecondHit } from '../../../test/variants';
+import reviewClassCases from './fixtures/review-class-cases.json';
 
 const variant = (chr: string, start: number, ref: string, alt: string) =>
   ({ chr, start, ref, alt }) as Parameters<typeof formatGenomicChange>[0];
@@ -529,6 +535,60 @@ describe('visibleReviewTagKeys', () => {
       'not_excluded',
     ]);
     expect(visibleReviewTagKeys([])).toEqual([]);
+  });
+});
+
+// CLIN-76 (the owner's decision of 2026-11-10): the family page shows a small-variant review's
+// class by one rule. The table hid the class word whenever a tag of the classification group was
+// a chip (a VUS tier or *Secondary finding* too), so text "VUS" beside the tag of class 4 showed
+// class 4; the cards showed the word beside every class tag, two classes. Over the shared cases,
+// the chips show the class the rule gives, once, and no other class.
+describe('reviewClassChips', () => {
+  const classLabels = new Set(Object.values(ACMG_CLASSIFICATION_LABELS));
+  // The classes a cell shows: the class tags among the chips, by their label, and the class chip.
+  const classesShown = (chips: ReturnType<typeof reviewClassChips>) => [
+    ...chips.tagKeys.map((key) => ACMG_CLASSIFICATION_LABELS[key]).filter((label) => classLabels.has(label)),
+    ...(chips.chipLabel ? [chips.chipLabel] : []),
+  ];
+
+  it.each(reviewClassCases.cases)('shows the class the rule gives, once: $why', ({ classification, tags, shown }) => {
+    const chips = reviewClassChips(classification, tags, tags);
+    expect(chips.label).toBe(shown);
+    expect(classesShown(chips)).toEqual(shown ? [shown] : []);
+  });
+
+  it('shows a class word beside the tag of another class as that word’s class alone', () => {
+    const chips = reviewClassChips('VUS', ['acmg_class_4', 'needs_sanger'], ['acmg_class_4', 'needs_sanger']);
+    expect(chips).toEqual({ label: 'VUS - class 3', tone: 'warning', tagKeys: ['needs_sanger'], chipLabel: 'VUS - class 3' });
+  });
+
+  it('shows the class tag’s chip, not the text, when the tag is the class shown', () => {
+    const chips = reviewClassChips('VUS - class 3', ['acmg_class_4'], ['acmg_class_4']);
+    expect(chips).toEqual({
+      label: 'Likely pathogenic - class 4',
+      tone: 'critical',
+      tagKeys: ['acmg_class_4'],
+      chipLabel: '',
+    });
+  });
+
+  it('keeps a VUS tier and Secondary finding as tag chips, never taken for the class', () => {
+    const tags = ['acmg_vus_hot', 'secondary_finding'];
+    expect(reviewClassChips('My own words', tags, tags)).toMatchObject({
+      label: 'My own words',
+      tagKeys: tags,
+      chipLabel: 'My own words',
+    });
+    expect(reviewClassChips(null, tags, tags)).toMatchObject({ label: '', tagKeys: tags, chipLabel: '' });
+  });
+
+  it('reads the class from every tag the review holds, the quick tags too, not only from the chips', () => {
+    // The chips leave the quick tags out; the class is read from the review's own tags.
+    expect(reviewClassChips(null, ['acmg_class_2', 'report'], ['acmg_class_2'])).toMatchObject({
+      label: 'Likely benign - class 2',
+      tagKeys: ['acmg_class_2'],
+      chipLabel: '',
+    });
   });
 });
 

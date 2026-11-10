@@ -544,6 +544,48 @@ def test_a_re_save_with_the_same_classification_text_audits_nothing(monkeypatch)
     assert clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"]) == []
 
 
+# --- a quick tag toggle changes the tags alone (CLIN-76) -------------------------------------------
+# The quick tag toggle (quickTagTogglePayload in smallVariantReview.ts) sent the class the review
+# shows, read from its class tag, in place of its classification text: toggling Report on a review
+# of text "VUS - class 3" beside the tag of class 4 stored "Likely pathogenic - class 4", and the
+# trail recorded a change of classification text no one made (TRACE-20). It now sends the text back
+# as stored, as these saves do: a tags event alone.
+
+
+@pytest.mark.parametrize(
+    ("classification", "tags", "shown"),
+    [
+        ("VUS - class 3", ["acmg_class_4"], "Likely pathogenic - class 4"),
+        ("VUS", ["acmg_class_4"], "VUS - class 3"),
+        (None, ["acmg_class_4"], "Likely pathogenic - class 4"),
+        ("Some free text", ["acmg_class_1", "acmg_vus_hot"], "Benign - class 1"),
+    ],
+)
+def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(
+    monkeypatch, classification, tags, shown
+) -> None:
+    existing = _stored_review(classification=classification, tags=tags)
+    toggled = sorted([*tags, "report"])
+
+    # The toggle as it is sent now: the classification text as stored.
+    payload = SmallVariantReviewUpdate(classification=classification, tags=toggled, note="reported")
+    audits, writes, _reads = _save_tags(monkeypatch, existing, payload, allowed=["report"])
+
+    assert writes == ["update"]
+    [audit] = audits
+    assert audit["new_state"]["classification"] == classification
+    events = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
+    assert [(event["action"], event["summary"]) for event in events] == [("tags", "Tags added report")]
+
+    # As it was sent before: the class shown, recorded as a classification change.
+    payload = SmallVariantReviewUpdate(classification=shown, tags=toggled, note="reported")
+    audits, _writes, _reads = _save_tags(monkeypatch, existing, payload, allowed=["report"])
+    [audit] = audits
+    events = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
+    assert [event["action"] for event in events] == ["classification", "tags"]
+    assert events[0]["summary"] == f"Classification text {classification or 'none'} → {shown}"
+
+
 # --- a tag the review holds is kept, whatever became of its definition ----------------------------
 # The quick tag toggle and the review dialog send the stored tags back with every save. A
 # tag deleted since (or one outside the family's projects) used to refuse every later save

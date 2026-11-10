@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from backend.app.routers.families_small_variants import (
@@ -45,8 +48,9 @@ def test_family_export_cell_scalars_review_and_genotypes() -> None:
     assert _family_export_cell(row, "start") == "100"
     assert _family_export_cell(row, "gnomad_af") == "0.0001"
     assert _family_export_cell(row, "rsid") == ""  # None -> empty
-    # Review fields are pulled from the nested review object.
-    assert _family_export_cell(row, "classification") == "pathogenic"
+    # Review fields are pulled from the nested review object; the classification as the class
+    # the review shows, a class word as its label (CLIN-76).
+    assert _family_export_cell(row, "classification") == "Pathogenic - class 5"
     assert _family_export_cell(row, "tags") == "candidate; confirmed"
     # Genotypes are flattened to "sample=gt" pairs.
     assert _family_export_cell(row, "genotypes") == "proband=0/1; mother=0/0"
@@ -172,3 +176,26 @@ async def test_a_variant_in_two_compound_het_pairs_is_one_row_of_the_export(monk
     )
 
     assert [str(row.id) for row in export.rows] == ["1-100-A-T", "1-200-A-T", "1-300-A-T"]
+
+
+_REVIEW_CLASS_CASES = (
+    Path(__file__).resolve().parents[2]
+    / "frontend/src/pages/families/__tests__/fixtures/review-class-cases.json"
+)
+
+
+def test_the_export_writes_the_class_each_review_shows_on_the_family_page() -> None:
+    # CLIN-76: the Classification column held the classification text as stored, where the family
+    # page and the Variant Explorer's export show the class by one rule (review_class_label): text
+    # "VUS" beside the tag of class 4 exported as "VUS", a review classified by its class tag alone
+    # as nothing, and "VUS - class 3" beside the tag of class 4 as class 3 where the page shows 4.
+    cases = json.loads(_REVIEW_CLASS_CASES.read_text(encoding="utf-8"))["cases"]
+    assert len(cases) >= 10
+    for case in cases:
+        row = _variant()
+        assert row.review is not None
+        row.review.classification = case["classification"]
+        row.review.tags = case["tags"]
+        assert _family_export_cell(row, "classification") == case["shown"], case["why"]
+        # The tags stay as the review holds them.
+        assert _family_export_cell(row, "tags") == "; ".join(case["tags"]), case["why"]
