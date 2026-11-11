@@ -93,6 +93,9 @@ MODULE_FLOORS: dict[str, float] = {
     # (100.0 measured locally: the variant summary's NIPT-M statistics, read
     # from the NIPT analysis run; descriptive, the signed record does not hold them)
     "backend/app/services/nipt_variant_statistics.py": 97.0,
+    # (99.5 measured locally: a package folder that changes, or goes, after its
+    # import; the e2e tests run its rounds against a database)
+    "backend/app/services/package_changed_after_import.py": 96.0,
     # (100.0 measured locally: the signed analysis record, the gene-panel
     # versions a family's searches applied)
     "backend/app/services/panel_use_audit.py": 97.0,

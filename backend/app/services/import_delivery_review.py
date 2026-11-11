@@ -22,6 +22,9 @@ route's check, as for every overwrite).
   is. The delivery is locked while it is decided, and the job, the delivery's change and its
   audit event are one transaction.
 - **Refuse.** An open delivery (``incomplete``, ``ready``, ``needs_attention``), with a reason.
+  Refusing the new delivery of a folder that changed after its import refuses that change: the
+  imported delivery whose change is to the refused fingerprint is ``imported`` again, and the
+  watcher never raises that folder state again (``package_changed_after_import.resolve_refused``).
 - **The job's end.** A queued delivery whose import job has ended is ``imported`` or ``failed``
   (``sync_delivery_jobs``, at the start of each watch round).
 
@@ -268,7 +271,12 @@ async def approve_delivery(
 
 async def refuse_delivery(session: AsyncSession, *, delivery_id: str, user: CurrentUser, reason: str) -> ImportDeliveryOut:
     """Refuse the open delivery ``delivery_id`` with ``reason``: it is ``refused``, and the watcher
-    leaves its folder as it is until it changes. 404 for no such delivery, 409 for one decided."""
+    leaves its folder as it is until it changes. The change after its import of an imported
+    delivery of the folder to this folder state ends with it (``resolve_refused``). 404 for no
+    such delivery, 409 for one decided."""
+    # Imported here: it reads the watcher's chain, as this module does.
+    from .package_changed_after_import import resolve_refused
+
     delivery = await _locked_delivery(session, delivery_id)
     if delivery["state"] not in OPEN_STATES:
         raise HTTPException(
@@ -287,6 +295,7 @@ async def refuse_delivery(session: AsyncSession, *, delivery_id: str, user: Curr
         summary=f"Delivery {delivery['folder_name']}: refused",
         after={"state": "refused", "reason": reason, "family_id": delivery["family_id"], "run_id": delivery["run_id"]},
     )
+    await resolve_refused(session, refused=delivery, user=user, reason=reason)
     await session.commit()
     return await _delivery(session, delivery["id"])
 

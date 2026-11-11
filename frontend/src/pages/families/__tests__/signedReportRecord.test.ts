@@ -752,6 +752,56 @@ describe('parseSignedReport', () => {
     expect(record.sequencingQc?.unavailable).toBe('QC thresholds could not be resolved');
   });
 
+  it('reads a package folder that had changed or gone after its import, with its acknowledgement', () => {
+    const change = {
+      delivery_id: 'd1',
+      folder: 'FAM1',
+      kind: 'changed',
+      imported_fingerprint: 'a'.repeat(64),
+      fingerprint: 'b'.repeat(64),
+      listed: true,
+      added: ['qc/report.html'],
+      removed: [],
+      changed: ['alignments/PROBAND.cram', 7],
+      added_count: 1,
+      removed_count: 0,
+      changed_count: 1,
+      detected_at: '2026-11-11T10:00:00+00:00',
+    };
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      package_source_change: change,
+      acknowledged_package_source_change: true,
+      package_source_change_acknowledgement_reason: 'CRAM re-aligned from the same reads.',
+    })!;
+
+    expect(record.packageSourceChange).toEqual({
+      deliveryId: 'd1',
+      folder: 'FAM1',
+      kind: 'changed',
+      importedFingerprint: 'a'.repeat(64),
+      fingerprint: 'b'.repeat(64),
+      listed: true,
+      added: ['qc/report.html'],
+      removed: [],
+      // A path that is no text is not read.
+      changed: ['alignments/PROBAND.cram'],
+      addedCount: 1,
+      removedCount: 0,
+      changedCount: 1,
+      detectedAt: '2026-11-11T10:00:00+00:00',
+    });
+    expect(record.packageSourceAcknowledgement).toEqual({
+      acknowledged: true,
+      reason: 'CRAM re-aligned from the same reads.',
+    });
+    const gone = parseSignedReport({ ...SNAPSHOT, package_source_change: { kind: 'gone', listed: false } })!;
+    expect(gone.packageSourceChange).toMatchObject({ kind: 'gone', fingerprint: null, added: [], addedCount: null });
+    // Recorded as none (as imported), and not in a record at all, read apart.
+    expect(parseSignedReport({ ...SNAPSHOT, package_source_change: null })!.packageSourceChange).toBeNull();
+    expect(parseSignedReport(SNAPSHOT)!.packageSourceChange).toBe('absent');
+  });
+
   it('reads an import that had not finished when the version was signed', () => {
     const record = parseSignedReport({
       ...SNAPSHOT,

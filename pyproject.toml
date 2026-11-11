@@ -79,6 +79,7 @@ files = [
     "backend/app/services/nipt_target_coverage.py",
     "backend/app/services/nipt_triage.py",
     "backend/app/services/nipt_variant_statistics.py",
+    "backend/app/services/package_changed_after_import.py",
     "backend/app/services/panel_use_audit.py",
     "backend/app/services/pgt_analysis.py",
     "backend/app/services/pgt_embryo_calls.py",

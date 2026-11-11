@@ -66,6 +66,7 @@ const delivery: ImportDeliveryOut = {
   first_seen_at: '2026-11-10T10:00:00Z',
   last_seen_at: '2026-11-10T10:05:00Z',
   state_changed_at: '2026-11-10T10:00:00Z',
+  source_change: null,
 };
 
 const packageOut = {

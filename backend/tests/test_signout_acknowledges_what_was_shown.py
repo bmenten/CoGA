@@ -104,6 +104,8 @@ class _Family:
         self.qc = SampleIntegrityReport(overall_status="pass")
         self.import_incomplete: dict | None = None
         self.import_unfinished: dict = {}
+        # The change after its import of the package folder the family came from (None: as imported).
+        self.package_source_change: dict | None = None
         self.audited: list[dict] = []
 
 
@@ -148,6 +150,9 @@ def family(monkeypatch) -> _Family:
     async def _import_unfinished(session, family_uuid):
         return copy.deepcopy(state.import_unfinished)
 
+    async def _package_source_change(session, family_uuid):
+        return copy.deepcopy(state.package_source_change)
+
     async def _no_import_job(session, family_identifier):
         return None
 
@@ -172,6 +177,7 @@ def family(monkeypatch) -> _Family:
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
     monkeypatch.setattr(rss, "_import_incomplete_state", _import_incomplete)
     monkeypatch.setattr(rss, "_import_unfinished_state", _import_unfinished)
+    monkeypatch.setattr(rss, "_package_source_change_state", _package_source_change)
     monkeypatch.setattr(rss, "_active_import_job", _no_import_job)
     monkeypatch.setattr(rss, "try_share_family_variant_writes", _writes_shared)
     monkeypatch.setattr(rss, "build_record_sections", _sections)
@@ -415,6 +421,62 @@ def test_an_import_failure_that_arose_after_the_dialog_is_refused_with_the_new_c
     assert after["acknowledged_import_incomplete"] is True
 
 
+# The change after its import of the package folder the family came from, as the watcher records it.
+_SOURCE_CHANGED = {
+    "delivery_id": "00000000-0000-4000-8000-0000000000d1",
+    "folder": "FAM1",
+    "kind": "changed",
+    "imported_fingerprint": "a" * 64,
+    "fingerprint": "b" * 64,
+    "listed": True,
+    "added": [],
+    "removed": [],
+    "changed": ["alignments/PROBAND.cram"],
+    "added_count": 0,
+    "removed_count": 0,
+    "changed_count": 1,
+    "detected_at": "2026-11-11T10:00:00+00:00",
+}
+_SOURCE_REASON = "The CRAM was re-aligned with the same reads."
+
+
+def test_a_package_folder_that_changed_again_after_the_dialog_is_refused_with_the_new_change(family) -> None:
+    family.package_source_change = _SOURCE_CHANGED
+    _status, shown = _refusal()
+    assert shown["gate"] == "package_source_change"
+
+    # The folder changes again while the dialog is open: refused with the change as it is now.
+    family.package_source_change = {
+        **_SOURCE_CHANGED,
+        "fingerprint": "c" * 64,
+        "added": ["qc/report.html"],
+        "added_count": 1,
+        "detected_at": "2026-11-11T11:00:00+00:00",
+    }
+    session = _Session()
+    status, refused = _refusal(
+        session,
+        acknowledge_package_source_change=True,
+        package_source_change_acknowledgement_reason=_SOURCE_REASON,
+        package_source_change_concerns_fingerprint=_shown(shown),
+    )
+    assert (status, refused["gate"], refused["concerns_changed"]) == (409, "package_source_change", True)
+    assert refused["package_source_change"]["added"] == ["qc/report.html"]
+    assert _wrote_nothing(session, family)
+
+    # Found again later, as it was: when the watcher found it is no concern, so the
+    # acknowledgement covers it.
+    family.package_source_change = {**family.package_source_change, "detected_at": "2026-11-11T12:00:00+00:00"}
+    _sign_out(
+        acknowledge_package_source_change=True,
+        package_source_change_acknowledgement_reason=_SOURCE_REASON,
+        package_source_change_concerns_fingerprint=refused["concerns_fingerprint"],
+    )
+    after = family.audited[-1]["after"]
+    assert after["package_source_change_concerns_fingerprint"] == refused["concerns_fingerprint"]
+    assert after["acknowledged_package_source_change"] is True
+
+
 def test_an_earlier_gate_whose_concerns_changed_is_refused_before_a_later_one_is_read(family) -> None:
     # The drift dialog was acknowledged; the QC dialog is open when another classification
     # drifts. Confirming the QC acknowledgement is refused at the drift gate, with the drift
@@ -553,8 +615,13 @@ def test_concerns_resolved_after_the_dialog_leave_nothing_to_acknowledge(family)
             {"acknowledge_import_incomplete": True, "import_incomplete_acknowledgement_reason": _IMPORT_REASON},
             "import_incomplete_concerns_fingerprint",
         ),
+        (
+            lambda family: setattr(family, "package_source_change", _SOURCE_CHANGED),
+            {"acknowledge_package_source_change": True, "package_source_change_acknowledgement_reason": _SOURCE_REASON},
+            "package_source_change_concerns_fingerprint",
+        ),
     ],
-    ids=["evidence_drift", "sample_qc", "import_incomplete"],
+    ids=["evidence_drift", "sample_qc", "import_incomplete", "package_source_change"],
 )
 def test_an_acknowledgement_without_its_fingerprint_is_refused(family, setup, acknowledgement, field) -> None:
     # It does not say which concerns it was shown, so it covers none: the SPA, the only

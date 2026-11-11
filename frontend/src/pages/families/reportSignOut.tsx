@@ -16,6 +16,10 @@ import {
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import { apiErrorMessage } from './reportSignoutQueries';
+import {
+  PackageSourceChangePaths,
+  type PackageSourceChange,
+} from '../../components/PackageSourceChangedBanner';
 
 
 import {
@@ -163,7 +167,8 @@ export const useReportSignOut = (
 
   // Override dialogs. Each gate is acknowledged with a reason that is frozen into the
   // signed record: evidence drift first, then a failing / unverifiable Sample QC, then an
-  // incomplete import. Each dialog keeps the attempt its gate refused (`vars`), so the
+  // incomplete import, then a package folder changed or gone after its import, then findings
+  // without a review. Each dialog keeps the attempt its gate refused (`vars`), so the
   // acknowledgements already given travel on with the next one. Each acknowledgement carries
   // the fingerprint of the concerns its dialog showed (`fingerprint`): it covers
   // those, and a sign-out whose concerns are no longer those is refused with them as they are
@@ -178,6 +183,9 @@ export const useReportSignOut = (
     acknowledgeImportIncomplete?: boolean;
     importReason?: string;
     importFingerprint?: string;
+    acknowledgePackageSource?: boolean;
+    packageSourceReason?: string;
+    packageSourceFingerprint?: string;
     acknowledgeUnreviewed?: boolean;
     unreviewedReason?: string;
     unreviewedFingerprint?: string;
@@ -209,6 +217,12 @@ export const useReportSignOut = (
     unfinished: FamilyImportUnfinished[];
   }) | null>(null);
   const [importReason, setImportReason] = useState('');
+  // The package folder the family came from changed, or went, after its import.
+  const [packageSourceGate, setPackageSourceGate] = useState<(ShownConcerns & {
+    message: string;
+    change: PackageSourceChange | null;
+  }) | null>(null);
+  const [packageSourceReason, setPackageSourceReason] = useState('');
   const [unreviewedGate, setUnreviewedGate] = useState<(ShownConcerns & {
     message: string;
     findings: UnreviewedFinding[];
@@ -220,6 +234,7 @@ export const useReportSignOut = (
     setDriftGate(null);
     setQcGate(null);
     setImportGate(null);
+    setPackageSourceGate(null);
     setUnreviewedGate(null);
   };
 
@@ -236,6 +251,9 @@ export const useReportSignOut = (
         acknowledge_import_incomplete: vars.acknowledgeImportIncomplete ?? false,
         import_incomplete_acknowledgement_reason: vars.importReason,
         import_incomplete_concerns_fingerprint: vars.importFingerprint,
+        acknowledge_package_source_change: vars.acknowledgePackageSource ?? false,
+        package_source_change_acknowledgement_reason: vars.packageSourceReason,
+        package_source_change_concerns_fingerprint: vars.packageSourceFingerprint,
         acknowledge_unreviewed_findings: vars.acknowledgeUnreviewed ?? false,
         unreviewed_findings_acknowledgement_reason: vars.unreviewedReason,
         unreviewed_findings_concerns_fingerprint: vars.unreviewedFingerprint,
@@ -257,6 +275,7 @@ export const useReportSignOut = (
       setDriftReason('');
       setQcReason('');
       setImportReason('');
+      setPackageSourceReason('');
       setUnreviewedReason('');
       // Show the signer what was signed: the new version, rendered from its record, with the
       // report code the EPD report quotes (the signed view confirms it once).
@@ -377,6 +396,21 @@ export const useReportSignOut = (
         });
         return;
       }
+      // The package folder the family came from changed, or went, after its import: a warning
+      // that lists what changed, acknowledged with a reason like the gates above.
+      if (gate === 'package_source_change') {
+        const source = detail as { message?: string; package_source_change?: PackageSourceChange | null };
+        const shown = shownConcerns(detail);
+        if (shown.changed) setPackageSourceReason('');
+        setPackageSourceGate({
+          message:
+            source.message || 'The package folder this family was imported from changed after its import.',
+          change: source.package_source_change ?? null,
+          ...shown,
+          vars,
+        });
+        return;
+      }
       // An abnormal repeat or Paraphase call without a review (REQ-TRACE-016): listed, and
       // acknowledged with a reason like the gates above.
       if (gate === 'unreviewed_findings') {
@@ -408,6 +442,7 @@ export const useReportSignOut = (
       acknowledgeDrift: false,
       acknowledgeQc: false,
       acknowledgeImportIncomplete: false,
+      acknowledgePackageSource: false,
       acknowledgeUnreviewed: false,
     });
   };
@@ -448,6 +483,19 @@ export const useReportSignOut = (
       acknowledgeImportIncomplete: true,
       importReason: reason,
       importFingerprint: importGate.fingerprint,
+    });
+  };
+
+  const submitPackageSourceAcknowledgement = async () => {
+    const reason = packageSourceReason.trim();
+    if (!reason || !packageSourceGate) {
+      return;
+    }
+    await attemptSignOut({
+      ...packageSourceGate.vars,
+      acknowledgePackageSource: true,
+      packageSourceReason: reason,
+      packageSourceFingerprint: packageSourceGate.fingerprint,
     });
   };
 
@@ -722,6 +770,60 @@ export const useReportSignOut = (
                   className="form-button"
                   disabled={!importReason.trim() || signOut.isPending}
                   onClick={submitImportAcknowledgement}
+                >
+                  Sign out anyway
+                </button>
+              </div>
+          </ModalDialog>
+        ) : null}
+        {packageSourceGate ? (
+          <ModalDialog
+            label="Changed package folder: acknowledgement required"
+            className="modal-surface surface-card report-qc-ack-modal"
+            closeOnBackdrop={false}
+            discardMessage="Discard the reason you have typed?"
+            onClose={() => {
+              setPackageSourceGate(null);
+              setPackageSourceReason('');
+            }}
+          >
+              <h2 className="report-paragraph">
+                <strong>Package folder changed after import — acknowledgement required</strong>
+              </h2>
+              <ConcernsChanged changed={packageSourceGate.changed} />
+              {/* The backend message says what changed, or that the folder is gone. Render it
+                  verbatim so the signer attests to the right thing. */}
+              <p className="report-paragraph">{packageSourceGate.message}</p>
+              <p className="report-paragraph">
+                To sign out anyway you must record a reason — it is frozen into the signed record, with the change.
+              </p>
+              {packageSourceGate.change ? <PackageSourceChangePaths change={packageSourceGate.change} /> : null}
+              <label className="report-footer-label" htmlFor="package-source-ack-reason">
+                Reason for signing out despite the changed package folder (required)
+              </label>
+              <textarea
+                id="package-source-ack-reason"
+                className="variant-review-textarea"
+                rows={3}
+                value={packageSourceReason}
+                onChange={(event) => setPackageSourceReason(event.target.value)}
+              />
+              <div className="inline-actions modal-actions">
+                <button
+                  type="button"
+                  className="form-button"
+                  onClick={() => {
+                    setPackageSourceGate(null);
+                    setPackageSourceReason('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="form-button"
+                  disabled={!packageSourceReason.trim() || signOut.isPending}
+                  onClick={submitPackageSourceAcknowledgement}
                 >
                   Sign out anyway
                 </button>

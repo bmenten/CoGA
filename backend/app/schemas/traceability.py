@@ -140,8 +140,9 @@ class ReportSignoutRequest(BaseModel):
     """Sign out the current report.
 
     Evidence drift, a failing sample-integrity QC, an incomplete import (a family
-    package import that partly failed) and an abnormal repeat or Paraphase call without a
-    review must each be explicitly acknowledged, and each
+    package import that partly failed), a package folder that changed or went after its import
+    and an abnormal repeat or Paraphase call without a review must each be explicitly
+    acknowledged, and each
     acknowledgement requires a reason and the fingerprint of the concerns it covers: the
     ``concerns_fingerprint`` of the 409 that listed them. A sign-out whose
     concerns are no longer those is refused with them as they are now.
@@ -156,6 +157,13 @@ class ReportSignoutRequest(BaseModel):
     acknowledge_import_incomplete: bool = False
     import_incomplete_acknowledgement_reason: Optional[str] = None
     import_incomplete_concerns_fingerprint: Optional[str] = Field(
+        default=None, pattern=_CONCERNS_FINGERPRINT
+    )
+    # The package folder the family's data came from changed, or went, after its import
+    # (package_changed_after_import.py).
+    acknowledge_package_source_change: bool = False
+    package_source_change_acknowledgement_reason: Optional[str] = None
+    package_source_change_concerns_fingerprint: Optional[str] = Field(
         default=None, pattern=_CONCERNS_FINGERPRINT
     )
     # An abnormal repeat or Paraphase call without a review (REQ-TRACE-016).

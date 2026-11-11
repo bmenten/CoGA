@@ -354,7 +354,7 @@ in the EPD refers to the signed version by its report code (*The report code* be
   REQ-TRACE-017): each with its key, classification and label, tags, whether reported, note, who
   saved it last and when, the calls it froze, and whether they still are the family's (`drift`);
   those whose calls are not (`finding_review_drift`); and each repeat locus and Paraphase region
-  with an abnormal call and no review (`unreviewed_findings`, gate 6). The `repeat_expansions`
+  with an abnormal call and no review (`unreviewed_findings`, gate 7). The `repeat_expansions`
   and `paraphase` sections below still freeze every call: a review marks a finding, it removes
   none;
 - the drift state (`drift` for the small variants, `structural_drift` for the SVs and CNVs), the
@@ -366,6 +366,15 @@ in the EPD refers to the signed version by its report code (*The report code* be
   overwrite whose restore did not finish, that is every dataset of the family still to import
   again, none finished; for a single-file upload or a deletion that did not finish, no job, under
   its `upload-…` or `deletion-…` key;
+- the package folder after its import (`package_source_change`, gate 6; owner decision of
+  2026-11-11): null when the folder the family's data came from is as it was imported, or the
+  family was not imported from a delivery; otherwise the delivery the family's record names (its
+  id and folder's name), the fingerprint it was imported with and the folder's now, and what the
+  watcher found: `changed`, with the paths added, removed and changed in size or modification time
+  (each list to 50 paths, with its count; none named when `listed` is false), or `gone`, the
+  source files no longer available; and when it was found
+  ([data-import.md](data-import.md#after-the-import-a-package-folder-that-changes)). It is read
+  outside any savepoint: a read that fails stops the sign-out, never lets the gate pass;
 - what the analysis looked at (`services/signed_record_sections.py`, one section each):
   - `variant_descriptions` (REQ-TRACE-007): each reported variant as the analyst reviewed it,
     read from the family's variant lists as the report page reads them (`review_tag=report`),
@@ -576,7 +585,7 @@ application that neither holds (the NIPT results of a family that is not a NIPT 
 compared. The live report, the signed version and the NIPT pages say whether the family's data
 still matches the latest version, and name the sections that changed.
 
-Six gates run first, in this order:
+Seven gates run first, in this order:
 
 1. **Assembly scope.** A family whose assembly is not in `VALIDATED_ASSEMBLIES` (default
    GRCh38), or that has none, gets 409 (`gate: "assembly_scope"`). This cannot be acknowledged.
@@ -705,7 +714,18 @@ Six gates run first, in this order:
      removes from it what it brought again. Deleting a sample removes that sample's items, and
      the sample from the import-incomplete flag's failures and from a stopped import's entry;
      each goes once it names nothing else.
-6. **Findings without a review** (REQ-TRACE-016). A repeat locus or Paraphase region with an
+6. **Package folder changed after its import** (REQ-TRACE-018; owner decision of 2026-11-11).
+   CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder its
+   import read. When the watcher found that folder changed, or gone, since its import (the
+   delivery the family's record names is `changed_after_import`), the sign-out gets 409
+   (`gate: "package_source_change"`, with `package_source_change` and a message saying what
+   changed, or that the source files are no longer available), unless the request sets
+   `acknowledge_package_source_change` with a `package_source_change_acknowledgement_reason`
+   (422 without). A warning: the sign-out stays possible. Every family page shows *Package folder
+   changed after import* (or *gone*) while it holds. It ends only when the folder is as it was
+   imported again, or its new delivery is imported or refused with a reason. The sign-out reads
+   what the watcher last found (each `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`), not the folder.
+7. **Findings without a review** (REQ-TRACE-016). A repeat locus or Paraphase region with an
    abnormal call and no review gets 409 (`gate: "unreviewed_findings"`), unless the request sets
    `acknowledge_unreviewed_findings` with an `unreviewed_findings_acknowledgement_reason` (422
    without). A repeat call is abnormal when its status is `pathogenic`, `premutation`, `review`
@@ -720,17 +740,19 @@ Six gates run first, in this order:
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 
 **An acknowledgement covers the concerns its dialog showed.** Each 409 of gates 3 to
-6 carries `concerns_fingerprint`: a SHA-256 over the canonical JSON (sorted keys) of the gate and
+7 carries `concerns_fingerprint`: a SHA-256 over the canonical JSON (sorted keys) of the gate and
 its concerns as the 409 lists them, each list sorted (`concerns_fingerprint` in
 `report_signout_service.py`). The concerns are: for evidence drift, `drifted`,
 `structural_drifted` and `finding_drifted`; for the Sample QC, its four groups
 (`failed_checks`, `unverifiable_checks`, `nipt_failed_checks`, `warning_checks`); for an
 incomplete import, `import_incomplete` and `import_unfinished`, each without its `at` (the
-message names the time; the jobs and datasets say which failure it is); for findings without a
-review, `unreviewed_findings`. It holds no time and nothing that changes while the concerns do
+message names the time; the jobs and datasets say which failure it is); for a changed package
+folder, `package_source_change` without `detected_at` (a change found again, as it was, is the
+same concern); for findings without a review, `unreviewed_findings`. It holds no time and nothing that changes while the concerns do
 not, so the same concerns give the same fingerprint. The dialog sends it back with the
 acknowledgement (`drift_concerns_fingerprint`, `qc_concerns_fingerprint`,
-`import_incomplete_concerns_fingerprint`, `unreviewed_findings_concerns_fingerprint`). The
+`import_incomplete_concerns_fingerprint`, `package_source_change_concerns_fingerprint`,
+`unreviewed_findings_concerns_fingerprint`). The
 sign-out reads the gate again and compares:
 
 - the fingerprint of the concerns now: the acknowledgement covers them;
@@ -745,8 +767,8 @@ A gate without a concern needs no fingerprint, and an acknowledgement of
 concerns that went meanwhile acknowledges nothing. The gates are read in order, so a
 change at an earlier gate is refused there first; the acknowledgements already given travel on to
 the next attempt. The sign-out's audit event records the fingerprint each acknowledgement carried
-(the four fields above; None for a gate without concerns). The snapshot freezes the concerns
-themselves (the drift sections, `sample_qc`, the import state) and the audit event the Sample-QC
+(the five fields above; None for a gate without concerns). The snapshot freezes the concerns
+themselves (the drift sections, `sample_qc`, the import state, `package_source_change`) and the audit event the Sample-QC
 groups, so each fingerprint can be recomputed from the record. The snapshot holds no
 fingerprint: the concerns it freezes are those the sign-out checked the fingerprint against.
 

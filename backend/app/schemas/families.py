@@ -86,6 +86,38 @@ class FamilyStatusRef(BaseModel):
     color: str
 
 
+class PackageSourceChangeOut(BaseModel):
+    """What changed of an imported delivery's package folder after its import
+    (package_changed_after_import.py): ``changed``, its fingerprint now (None for a folder too large
+    to fingerprint) and the paths added, removed and changed (in size or modification time), each
+    list to 50 paths with its count (None, with ``listed`` false, when the folder holds more
+    entries than a listing keeps); or ``gone``, its folder gone or unreadable, so the source files
+    (read files, signal tracks, QC report) are no longer available. ``detected_at`` is when the
+    watcher found it."""
+
+    kind: Literal["changed", "gone"]
+    fingerprint: Optional[str] = None
+    listed: bool = False
+    added: List[str] = Field(default_factory=list)
+    removed: List[str] = Field(default_factory=list)
+    changed: List[str] = Field(default_factory=list)
+    added_count: Optional[int] = None
+    removed_count: Optional[int] = None
+    changed_count: Optional[int] = None
+    detected_at: Optional[str] = None
+
+
+class FamilyPackageSourceChangeOut(PackageSourceChangeOut):
+    """The change after its import of the package folder a family's data came from: the delivery
+    its record names (its id and folder's name, and the fingerprint it was imported with), which
+    is ``changed_after_import``. The change ends only when the folder is as imported again, or its
+    new delivery is imported or refused."""
+
+    delivery_id: str
+    folder: str
+    imported_fingerprint: Optional[str] = None
+
+
 class FamilyOut(ApiDocumentModel):
     """Schema for families returned by the API."""
 
@@ -107,6 +139,10 @@ class FamilyOut(ApiDocumentModel):
     # Whether the caller may sign the family's analysis out: they may change the family, and
     # their role is supervisor or higher (TF-06 H15).
     can_sign_out: bool = False
+    # The package folder the family's data came from changed, or went, after its import: the family
+    # page says so, and a sign-out warns of it (package_changed_after_import.py). None: as imported,
+    # or the family was not imported from a delivery.
+    package_source_change: Optional[FamilyPackageSourceChangeOut] = None
 
 
 class FamilyMetadataUpdate(BaseModel):

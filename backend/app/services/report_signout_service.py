@@ -22,8 +22,9 @@ Sign-out is gated on evidence drift: if any classification's backing annotation 
 changed since it was made — a small variant's ACMG classification, or a structural
 variant's / CNV's ClinGen classification — the caller must explicitly acknowledge the
 drift. It is also
-gated on the Sample-integrity QC and on an incomplete import (a family-package import
-that partly failed, or that stopped part-way); each gate is acknowledged separately, with
+gated on the Sample-integrity QC, on an incomplete import (a family-package import
+that partly failed, or that stopped part-way) and on a package folder that changed, or went,
+after its import (``package_changed_after_import``); each gate is acknowledged separately, with
 a reason that is frozen into the snapshot and recorded in the audit event. An
 acknowledgement covers the concerns its dialog showed, no more: it carries the fingerprint
 of the concerns the gate's refusal listed (:func:`concerns_fingerprint`), and a sign-out
@@ -69,6 +70,7 @@ from .family_variant_write_lock import try_share_family_variant_writes
 from .hash_chain import ChainVerification, canonical_hash, canonical_json, chain_row_hash, verify_chain
 from .access_control import CurrentUser, RecordNotVisible, require_sign_out_authority
 from .nipt_service import SharedNiptAnalysis
+from .package_changed_after_import import family_package_source_change
 from .report_code import (
     ReportCodeError,
     content_hash_prefix,
@@ -722,16 +724,78 @@ def _import_gate_message(
     )
 
 
+async def _package_source_change_state(
+    session: AsyncSession, family_uuid: str
+) -> dict[str, Any] | None:
+    """The change after its import of the package folder the family's data came from, or None
+    when the folder is as it was imported (or the family was not imported from a delivery).
+
+    CoGA serves the family's read files (IGV), signal tracks and QC report from that folder, where
+    it lies. The import watcher follows it after the import and marks the delivery the family's
+    record names ``changed_after_import`` when its fingerprint differs (the files added, removed
+    and changed) or it is gone (``package_changed_after_import``). Frozen into the snapshot and
+    gating sign-out, so a record is never signed over source files that are no longer those
+    imported without a warning (the owner's decision of 2026-11-11). Read outside any savepoint:
+    a read that fails stops the sign-out, never lets the gate pass."""
+    return await family_package_source_change(session, family_uuid)
+
+
+def _count_phrase(count: Any, noun: str) -> str | None:
+    return f"{count} {noun}" if isinstance(count, int) and count else None
+
+
+def _package_source_gate_message(change: Mapping[str, Any]) -> str:
+    folder = f" ({change['folder']})" if change.get("folder") else ""
+    if change.get("kind") == "gone":
+        return (
+            f"The package folder this family's data was imported from{folder} is gone, or cannot "
+            "be read, since its import: the source files CoGA serves from it (the read files IGV "
+            "shows, the signal tracks and the QC report) are no longer available. Put the folder "
+            "back as it was imported, or acknowledge with a reason to sign out anyway."
+        )
+    if change.get("listed"):
+        parts = [
+            part
+            for part in (
+                _count_phrase(change.get("added_count"), "file(s) added"),
+                _count_phrase(change.get("removed_count"), "removed"),
+                _count_phrase(change.get("changed_count"), "changed in size or time"),
+            )
+            if part
+        ]
+        what = f": {', '.join(parts)}" if parts else ""
+    else:
+        what = ", in more files than CoGA lists"
+    return (
+        f"The package folder this family's data was imported from{folder} has changed since its "
+        f"import{what}. CoGA serves the family's read files (IGV), signal tracks and QC report "
+        "from that folder, so they may no longer be the ones imported and analysed. Import the "
+        "folder's new delivery (update or overwrite), or refuse it with a reason, or acknowledge "
+        "with a reason to sign out anyway."
+    )
+
+
+def _package_source_concerns(change: Mapping[str, Any] | None) -> dict[str, Any]:
+    """What the gate of a changed package folder lists: the change without when it was found."""
+    return {
+        "package_source_change": (
+            None if change is None else {key: value for key, value in change.items() if key != "detected_at"}
+        )
+    }
+
+
 # The gates an analyst acknowledges, each in its own dialog (reportSignOut.tsx), and the
 # request field that carries the fingerprint of the concerns that dialog showed.
 DRIFT_GATE = "evidence_drift"
 QC_GATE = "sample_qc"
 IMPORT_GATE = "import_incomplete"
+PACKAGE_SOURCE_GATE = "package_source_change"
 UNREVIEWED_GATE = "unreviewed_findings"
 _FINGERPRINT_FIELDS = {
     DRIFT_GATE: "drift_concerns_fingerprint",
     QC_GATE: "qc_concerns_fingerprint",
     IMPORT_GATE: "import_incomplete_concerns_fingerprint",
+    PACKAGE_SOURCE_GATE: "package_source_change_concerns_fingerprint",
     UNREVIEWED_GATE: "unreviewed_findings_concerns_fingerprint",
 }
 
@@ -1155,6 +1219,7 @@ async def build_report_snapshot(
     sequencing_qc = await _canonical_sequencing_qc(session, context)
     import_incomplete = await _import_incomplete_state(session, context.family_uuid)
     import_unfinished = await _import_unfinished_state(session, context.family_uuid)
+    package_source_change = await _package_source_change_state(session, context.family_uuid)
     # A reported classification with no frozen evidence snapshot cannot be drift-verified
     # (evaluate_classification_drift only checks reviews that HAVE a snapshot), so it would
     # otherwise clear the sign-out drift gate unchallenged. Surface each as a "no_snapshot"
@@ -1253,6 +1318,10 @@ async def build_report_snapshot(
         # The imports that began writing the family and stopped part-way ({}: none), with
         # the datasets each had not finished, which may be partly written or missing.
         "import_unfinished": import_unfinished,
+        # The package folder the family's data came from, changed or gone since its import
+        # (None: as imported, or no delivery's): the files added, removed and changed, or that
+        # the source files are no longer available.
+        "package_source_change": package_source_change,
         REPORTED_VARIANTS_SECTION: reported,
         REPORTED_STRUCTURAL_SECTION: reported_structural,
         **sections,
@@ -1375,6 +1444,9 @@ async def sign_out_report(
     acknowledge_import_incomplete: bool = False,
     import_incomplete_acknowledgement_reason: str | None = None,
     import_incomplete_concerns_fingerprint: str | None = None,
+    acknowledge_package_source_change: bool = False,
+    package_source_change_acknowledgement_reason: str | None = None,
+    package_source_change_concerns_fingerprint: str | None = None,
     acknowledge_unreviewed_findings: bool = False,
     unreviewed_findings_acknowledgement_reason: str | None = None,
     unreviewed_findings_concerns_fingerprint: str | None = None,
@@ -1382,8 +1454,9 @@ async def sign_out_report(
 ) -> dict[str, Any]:
     """Sign the family out: freeze, hash and append its report snapshot, past its gates.
 
-    Each gate the signer may acknowledge (evidence drift, Sample QC, an incomplete import, an
-    abnormal repeat or Paraphase call without a review)
+    Each gate the signer may acknowledge (evidence drift, Sample QC, an incomplete import, a
+    package folder that changed or went after its import, an abnormal repeat or Paraphase call
+    without a review)
     is acknowledged with a reason and the fingerprint of the concerns its refusal listed
     (``*_concerns_fingerprint``, :func:`concerns_fingerprint`): the acknowledgement covers
     those concerns, and a sign-out whose concerns are no longer those is refused with them as
@@ -1536,6 +1609,37 @@ async def sign_out_report(
         _refuse_unless_shown(
             IMPORT_GATE, import_incomplete_concerns_fingerprint, import_refusal, import_concerns
         )
+    # Package-folder gate (the owner's decision of 2026-11-11): the folder the family's data was
+    # imported from changed, or went, after its import, so the read files, signal tracks and QC
+    # report CoGA serves from it may not be those imported. A warning to acknowledge with a
+    # reason, frozen into the content hash; the sign-out stays possible.
+    package_source_change: Mapping[str, Any] | None = snapshot_body.get("package_source_change")
+    package_source_gated = package_source_change is not None
+    package_source_concerns = _package_source_concerns(package_source_change)
+    package_source_refusal = {
+        "message": (
+            _package_source_gate_message(package_source_change)
+            if package_source_change is not None
+            else ""
+        ),
+        "package_source_change": package_source_change,
+    }
+    if package_source_gated and not acknowledge_package_source_change:
+        raise _gate_refusal(PACKAGE_SOURCE_GATE, package_source_refusal, package_source_concerns)
+    package_source_acknowledged = package_source_gated and acknowledge_package_source_change
+    package_source_reason = (package_source_change_acknowledgement_reason or "").strip()
+    if package_source_acknowledged and not package_source_reason:
+        raise HTTPException(
+            status_code=422,
+            detail="A reason is required to acknowledge a package folder that changed after its import.",
+        )
+    if package_source_gated:
+        _refuse_unless_shown(
+            PACKAGE_SOURCE_GATE,
+            package_source_change_concerns_fingerprint,
+            package_source_refusal,
+            package_source_concerns,
+        )
     # Unreviewed-findings gate (REQ-TRACE-016, TF-06 H1): each repeat locus and Paraphase region
     # with an abnormal call and no review, which the analyst acknowledges with a reason. Its
     # concerns are the record's own list, which holds no time.
@@ -1609,6 +1713,10 @@ async def sign_out_report(
             "acknowledged_import_incomplete": import_acknowledged,
             "import_incomplete_acknowledgement_reason": (
                 import_reason if import_acknowledged else None
+            ),
+            "acknowledged_package_source_change": package_source_acknowledged,
+            "package_source_change_acknowledgement_reason": (
+                package_source_reason if package_source_acknowledged else None
             ),
             "acknowledged_unreviewed_findings": unreviewed_acknowledged,
             "unreviewed_findings_acknowledgement_reason": (
@@ -1690,6 +1798,7 @@ async def sign_out_report(
             f"variant(s){', drift acknowledged' if snapshot['acknowledged_drift'] else ''}"
             f"{', QC override acknowledged' if snapshot['acknowledged_qc'] else ''}"
             f"{', incomplete import acknowledged' if import_acknowledged else ''}"
+            f"{', changed package folder acknowledged' if package_source_acknowledged else ''}"
             f"{', findings without a review acknowledged' if unreviewed_acknowledged else ''}"
             f"{f', {len(gaps)} part(s) not captured' if gaps else ''}"
         ),
@@ -1732,6 +1841,13 @@ async def sign_out_report(
             "import_incomplete_acknowledgement_reason": snapshot[
                 "import_incomplete_acknowledgement_reason"
             ],
+            # The change after its import of the package folder the family's data came from
+            # (None: as imported), and the override of that gate.
+            "package_source_change": package_source_change,
+            "acknowledged_package_source_change": package_source_acknowledged,
+            "package_source_change_acknowledgement_reason": snapshot[
+                "package_source_change_acknowledgement_reason"
+            ],
             # The abnormal repeat and Paraphase calls without a review, as the gate listed them,
             # and its override.
             "unreviewed_findings": unreviewed,
@@ -1750,6 +1866,11 @@ async def sign_out_report(
             ),
             "import_incomplete_concerns_fingerprint": (
                 concerns_fingerprint(IMPORT_GATE, import_concerns) if import_acknowledged else None
+            ),
+            "package_source_change_concerns_fingerprint": (
+                concerns_fingerprint(PACKAGE_SOURCE_GATE, package_source_concerns)
+                if package_source_acknowledged
+                else None
             ),
             "unreviewed_findings_concerns_fingerprint": (
                 concerns_fingerprint(UNREVIEWED_GATE, unreviewed_concerns)
@@ -1981,6 +2102,7 @@ REPORT_CONTENT_SECTIONS = (
     "sequencing_qc",
     "import_incomplete",
     "import_unfinished",
+    "package_source_change",
     # The repeat and Paraphase reviews, their drift, and the abnormal calls without a review
     # (finding_review_pg).
     REPEAT_REVIEWS_SECTION,

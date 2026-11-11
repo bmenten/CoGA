@@ -20,6 +20,7 @@ import Ideogram from '../../components/visualizations/Ideogram';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
 import QueryFailure from '../../components/QueryFailure';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
+import type { FamilyPackageSourceChangeOut } from '../../lib/apiSchema.generated';
 import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
@@ -78,6 +79,8 @@ interface GenomeOverviewWorkspaceProps {
   assemblyValidated?: boolean;
   /** The family record's metadata, where an import records what it left incomplete. */
   familyMetadata?: unknown;
+  /** The family record's `package_source_change` (FamilyPageBanners). */
+  familyPackageSourceChange?: FamilyPackageSourceChangeOut | null;
   projectId?: string;
   trackAreaRef: React.Ref<HTMLElement>;
   backDest: string;
@@ -259,6 +262,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   assembly,
   assemblyValidated,
   familyMetadata,
+  familyPackageSourceChange,
   projectId,
   trackAreaRef,
   backDest,
@@ -335,6 +339,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
         )}
         <FamilyPageBanners
           metadata={familyMetadata}
+          packageSourceChange={familyPackageSourceChange}
           assemblyScope={{ name: assembly, validated: assemblyValidated }}
         />
       </section>

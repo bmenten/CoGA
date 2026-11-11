@@ -11,6 +11,7 @@ from .common import (
 )
 from .families import (
     FamilyStructureCoupleUpdate,
+    PackageSourceChangeOut,
 )
 
 
@@ -235,6 +236,9 @@ class ImportDeliveryOut(ApiDocumentModel):
     first_seen_at: datetime
     last_seen_at: datetime
     state_changed_at: datetime
+    # An imported delivery whose folder changed, or went, after its import (``changed_after_import``):
+    # what changed. None in every other state.
+    source_change: Optional[PackageSourceChangeOut] = None
 
 
 class ImportDeliveryApprove(BaseModel):

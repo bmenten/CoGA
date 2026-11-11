@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router';
 import FamilyPageBanners, { type FamilyAssemblyScope } from '../../components/FamilyPageBanners';
+import type { FamilyPackageSourceChangeOut } from '../../lib/apiSchema.generated';
 import Pedigree from '../../components/visualizations/Pedigree';
 import { parsePedigree } from '../../lib/pedigree';
 import { READ_ONLY_HINT } from '../../lib/familyAccess';
@@ -28,6 +29,8 @@ export interface FamilyPageHeaderFamily {
   metadata?: Record<string, unknown> | null | unknown;
   /** The caller is a reader in the family's projects. */
   read_only?: boolean;
+  /** Its package folder changed, or went, after its import (FamilyPageBanners). */
+  package_source_change?: FamilyPackageSourceChangeOut | null;
 }
 
 const FamilyPageHeader: React.FC<{
@@ -100,7 +103,11 @@ const FamilyPageHeader: React.FC<{
           {children ? <div className="page-top-card-body">{children}</div> : null}
           {/* An assembly off the validated scope, and an import that partly failed or has
               not finished: on every family page, so the data is never read as complete. */}
-          <FamilyPageBanners metadata={family?.metadata} assemblyScope={assemblyScope} />
+          <FamilyPageBanners
+            metadata={family?.metadata}
+            packageSourceChange={family?.package_source_change}
+            assemblyScope={assemblyScope}
+          />
         </div>
         {hasPedigree && (
           <div className="page-top-card-visual">

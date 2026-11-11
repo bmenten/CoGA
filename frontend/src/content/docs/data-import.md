@@ -405,6 +405,13 @@ with the delivery.
   the import records each file it reads. A folder that holds its own `coga-package.json` is delivered
   through a watched folder instead, and a folder whose delivery waits already is not added twice.
 - **Refuse…** sets a delivery aside, with a reason: CoGA leaves the folder alone until it changes.
+- After the import CoGA keeps watching the folder, also one added by hand: the family's read files
+  (IGV), signal tracks and QC report are shown from it. A folder that changes (a file added, removed,
+  or changed in size or time), or is gone for two looks while the folder around it can be read, is
+  listed as *Changed after import*, with the files that changed, and every page of the family shows
+  *Package folder changed after import* (or *Package folder gone*); signing out its report asks for a
+  reason. It ends when the folder is as it was imported again, or when its new delivery is imported
+  (update or overwrite) or refused with a reason: a refused folder state is not raised again.
 - A delivery whose folder is moved out of the watched folder leaves the list after two looks at the
   folders (it is *gone*). A watched folder that holds nothing at all is taken for a share that is not
   mounted: its deliveries stay listed until something is back in it.

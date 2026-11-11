@@ -33,6 +33,8 @@ import pytest
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageValidationOut
 from backend.app.services import import_watcher as watcher
+from backend.app.services import package_changed_after_import
+from backend.app.services.family_package_fingerprint import PackageFingerprint, PackageListing
 from backend.app.services.coga_package import PACKAGE_FILE_NAME, CogaPackage
 
 
@@ -260,6 +262,24 @@ def _factory(store: list[str]) -> Any:
     return lambda: _Session(store)
 
 
+def _patch_fingerprints(monkeypatch: pytest.MonkeyPatch, fingerprint: Any) -> None:
+    """Take the folder's fingerprints from ``fingerprint``, an async function of the folder: the
+    first one, which ``look_at_folder`` takes with the folder's listing (``_listing``), and each
+    one after it (``_fingerprint``)."""
+
+    async def listing(folder: Path) -> Any:
+        sha256 = await fingerprint(folder)
+        return None if sha256 is None else PackageListing(PackageFingerprint(sha256=sha256, files=0), {})
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "_listing", listing)
+
+
+async def _follow_nothing(*_args: Any, **_kwargs: Any) -> Any:
+    """A round's following of imported deliveries, with no family imported from a delivery."""
+    return package_changed_after_import.FollowRound()
+
+
 @pytest.mark.asyncio
 async def test_a_package_file_that_cannot_be_read_needs_attention(tmp_path: Path) -> None:
     folder = _package(tmp_path, "FAM1")
@@ -376,7 +396,7 @@ async def test_a_check_that_fails_is_recorded_with_a_fixed_sentence(tmp_path: Pa
     async def fail(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError("a value of FAM1")
 
-    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    _patch_fingerprints(monkeypatch, fingerprint)
     monkeypatch.setattr(watcher, "assess_delivery", fail)
     caplog.set_level(logging.WARNING, logger=watcher.logger.name)
 
@@ -399,7 +419,7 @@ async def test_a_folder_that_changed_while_it_was_checked_is_left_to_the_next_ro
     async def assess(*_args: Any) -> Any:
         return watcher.DeliveryAssessment(state="ready")
 
-    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    _patch_fingerprints(monkeypatch, fingerprint)
     monkeypatch.setattr(watcher, "assess_delivery", assess)
 
     assert await watcher.look_at_folder(_factory(store), tmp_path, folder) is None
@@ -425,7 +445,7 @@ async def test_a_delivery_that_cannot_be_stored_is_kept_without_what_it_found(
             raise RuntimeError("a value of FAM1")
         return assessment.state
 
-    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    _patch_fingerprints(monkeypatch, fingerprint)
     monkeypatch.setattr(watcher, "assess_delivery", assess)
     monkeypatch.setattr(watcher, "_store_delivery", store)
     caplog.set_level(logging.WARNING, logger=watcher.logger.name)
@@ -449,7 +469,7 @@ async def test_a_delivery_that_cannot_be_stored_at_all_stops_no_round(tmp_path: 
     async def store(*_args: Any) -> str:
         raise RuntimeError("the database is gone")
 
-    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    _patch_fingerprints(monkeypatch, fingerprint)
     monkeypatch.setattr(watcher, "assess_delivery", assess)
     monkeypatch.setattr(watcher, "_store_delivery", store)
 
@@ -463,7 +483,7 @@ async def test_a_folder_without_a_fingerprint_is_left_alone(tmp_path: Path, monk
     async def none(_folder: Path) -> None:
         return None
 
-    monkeypatch.setattr(watcher, "_fingerprint", none)
+    _patch_fingerprints(monkeypatch, none)
 
     assert await watcher.look_at_folder(_factory(store), tmp_path, tmp_path / "FAM1") is None
     assert store == []
@@ -509,7 +529,7 @@ async def test_a_run_under_way_or_failed_is_no_delivery_and_supersedes_the_open_
         raise AssertionError("a run under way is no delivery: its folder is not fingerprinted")
 
     monkeypatch.setattr(watcher, "_record", record)
-    monkeypatch.setattr(watcher, "_fingerprint", no_fingerprint)
+    _patch_fingerprints(monkeypatch, no_fingerprint)
     store: list[str] = []
 
     assert await watcher.look_at_folder(lambda: _OpenDeliveriesSession(store), tmp_path, folder) == ("superseded", "1")
@@ -544,6 +564,7 @@ async def test_a_round_counts_the_deliveries_superseded_by_a_run(tmp_path: Path,
     monkeypatch.setattr(import_delivery_review, "sync_delivery_jobs", no_jobs)
     monkeypatch.setattr(watcher, "look_at_folder", look)
     monkeypatch.setattr(watcher, "mark_missing", mark_missing)
+    monkeypatch.setattr(package_changed_after_import, "follow_imported_deliveries", _follow_nothing)
 
     done = await watcher.run_watch_round(None, [tmp_path])  # type: ignore[arg-type]
 
@@ -670,7 +691,7 @@ async def test_an_open_delivery_seen_again_is_checked_again_only_when_coga_chang
         updated.append((delivery_id, assessment.state))
         return assessment.state
 
-    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    _patch_fingerprints(monkeypatch, fingerprint)
     monkeypatch.setattr(watcher, "_coga_side_changed", coga_side_changed)
     monkeypatch.setattr(watcher, "assess_delivery", assess)
     monkeypatch.setattr(watcher, "_update_checked_again", update)
@@ -715,7 +736,7 @@ async def test_a_check_again_that_cannot_be_stored_is_kept_without_what_it_found
             raise RuntimeError("a value of FAM1")
         return assessment.state
 
-    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    _patch_fingerprints(monkeypatch, fingerprint)
     monkeypatch.setattr(watcher, "_coga_side_changed", changed)
     monkeypatch.setattr(watcher, "assess_delivery", assess)
     monkeypatch.setattr(watcher, "_update_checked_again", update)
@@ -750,7 +771,7 @@ async def test_a_folder_that_changed_while_it_was_checked_again_is_left_to_the_n
         updated.append(args)
         return "ready"
 
-    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    _patch_fingerprints(monkeypatch, fingerprint)
     monkeypatch.setattr(watcher, "_coga_side_changed", changed)
     monkeypatch.setattr(watcher, "assess_delivery", assess)
     monkeypatch.setattr(watcher, "_update_checked_again", update)
@@ -789,12 +810,21 @@ async def test_a_round_skips_only_a_watched_folder_that_lists_nothing_while_deli
     monkeypatch.setattr(import_delivery_review, "sync_delivery_jobs", no_jobs)
     monkeypatch.setattr(watcher, "_open_deliveries", open_deliveries)
     monkeypatch.setattr(watcher, "mark_missing", mark_missing)
+    followed: list[set[str]] = []
+
+    async def follow(_factory: Any, *, skipped_roots: set[str], seen_fingerprints: dict[str, str]) -> Any:
+        followed.append(set(skipped_roots))
+        return package_changed_after_import.FollowRound()
+
+    monkeypatch.setattr(package_changed_after_import, "follow_imported_deliveries", follow)
 
     done = await watcher.run_watch_round(None, [mounted, unmounted])  # type: ignore[arg-type]
 
     # The mounted folder is watched, so its missing delivery counts a round; the empty one is not.
     assert (done.roots_watched, done.roots_skipped) == (1, 1)
     assert counted == [(mounted, set())]
+    # Nothing is decided on an imported delivery of the skipped folder either.
+    assert followed == [{str(unmounted)}]
 
 
 @pytest.mark.asyncio

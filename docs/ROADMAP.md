@@ -23,8 +23,8 @@ brackets.
   - A restore that fails part-way may have removed rows of any dataset, whichever import wrote them. Its flag names every dataset of its import as failed, those it imported too. Its import's entry stays, naming every dataset the family's imports and single-file uploads recorded (another small-variant source, another package's SV calls, a caller's SV calls an upload loaded). So the family stays marked until the whole family has been imported again with overwrite, and what an upload brought uploaded again with overwrite.
   - An import whose heartbeat has not reached the database for five minutes stops itself where it is, before a worker can take it for stopped. One whose variant-write locks' connection is lost is stopped where it is: nothing restored, its job ended failed.
   - An import whose job cannot record the family it imports writes nothing of it.
-  - Watched import folders: a pipeline's package with its package file `coga-package.json` is checked and waits for a person to approve it ([data-import.md](data-import.md#watched-import-folders)). Still to come:
-    - Watching the packages already imported: a change after the import is noticed, shown with what changed and noted on the family page (the delivery states `approved` and `changed_after_import` are reserved for it).
+  - Watched import folders: a pipeline's package with its package file `coga-package.json` is checked and waits for a person to approve it, and its folder is followed after the import ([data-import.md](data-import.md#watched-import-folders)). Still to come:
+    - The sign-out reads what the watcher last found of a family's package folder, not the folder itself: a change in the last watch interval before a sign-out is not yet seen.
     - Optionally, a mail to the administrators when a delivery is ready.
     - An import without a person's approval, only by a separate decision of the owner.
     - The format's open points, to settle with the pipeline owners (REG-12).

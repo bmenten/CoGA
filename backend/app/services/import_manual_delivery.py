@@ -16,8 +16,11 @@ What differs from a pipeline's delivery:
 - No file list with checksums is made (the owner's decision of 2026-11-10): the folder's
   fingerprint (each file's size and time) guards it from now until the import, which records each
   file it reads with its SHA-256 (``raw_import_files``), as an import of a typed folder does.
-- No watcher looks at it: what CoGA holds changing (a project added, a family imported) does not
-  check it again; a correction does.
+- No watcher looks at it before its import: what CoGA holds changing (a project added, a family
+  imported) does not check it again; a correction does. After its import the watcher follows its
+  folder as it does a watched delivery's (``package_changed_after_import``): the listing its
+  fingerprint was taken over is kept with it (``file_listing``), so a change says which files
+  changed. A changed folder is added again by hand, and that delivery imported or refused.
 
 Refused: a folder outside the import roots or that cannot be read, a folder that holds its own ``coga-package.json`` (deliver it through a watched
 import folder), a family ID no family can be stored under, a project CoGA does not have, and a
@@ -48,7 +51,7 @@ from .coga_package import PACKAGE_FILE_NAME, CogaPackage, package_document
 from .coga_package_manifest import proposed_sections
 from .family_identifiers import identifier_problem
 from .family_package_common import manifest_text_sha256
-from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
+from .family_package_fingerprint import PackageFolderTooLarge, package_listing
 from .family_package_source import _authorized_local_roots, _ensure_authorized_package_path
 from .import_delivery_review import _delivery, _record
 from .import_watcher import OPEN_STATES, DeliveryAssessment, _issue, _proposal, assess_content
@@ -140,9 +143,10 @@ async def add_manual_delivery(
             detail=f"The folder is a delivery waiting for a decision already ({open_one[0]}): correct, approve or refuse that one.",
         )
     try:
-        fingerprint = (await asyncio.to_thread(package_fingerprint, folder, kept_manifest_sha256=None)).sha256
+        listing = await asyncio.to_thread(package_listing, folder)
     except (OSError, PackageFolderTooLarge) as exc:
         raise HTTPException(status_code=400, detail="The folder could not be read whole.") from exc
+    fingerprint = listing.fingerprint.sha256
 
     run_id = f"manual-{uuid4().hex[:12]}"
     document: dict[str, Any] = {
@@ -183,12 +187,13 @@ async def add_manual_delivery(
                 INSERT INTO import_deliveries (
                     watch_root, folder_path, folder_name, package_fingerprint, run_id, family_id,
                     project_id, state, issues, warnings, validation, manifest_text, manifest_sha256,
-                    package, package_check, origin
+                    package, package_check, file_listing, origin
                 )
                 VALUES (
                     :root, :folder, :name, :fingerprint, :run_id, :family_id, CAST(:project_id AS uuid),
                     :state, CAST(:issues AS jsonb), CAST(:warnings AS jsonb), CAST(:validation AS jsonb),
-                    :manifest_text, :manifest_sha256, CAST(:package AS jsonb), CAST(:package_check AS jsonb), 'manual'
+                    :manifest_text, :manifest_sha256, CAST(:package AS jsonb), CAST(:package_check AS jsonb),
+                    CAST(:file_listing AS jsonb), 'manual'
                 )
                 RETURNING id::text
                 """
@@ -211,6 +216,7 @@ async def add_manual_delivery(
                 ),
                 "package": json.dumps(assessment.package),
                 "package_check": json.dumps(assessment.package_check),
+                "file_listing": json.dumps(listing.entries) if listing.entries is not None else None,
             },
         )
     ).scalar_one()

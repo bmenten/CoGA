@@ -255,7 +255,13 @@ CREATE INDEX IF NOT EXISTS idx_family_import_jobs_status ON family_import_jobs U
 -- folder found (the file checks, the files whose checksum was verified, what was proposed), which
 -- a check again after a change in CoGA or a correction reuses. manifest_text is the manifest the
 -- import reads, made from the package as last corrected (import_delivery_revisions), with its
--- SHA-256. Mutable state: each change of state is an event on the clinical audit chain
+-- SHA-256. file_listing is the listing the package fingerprint was taken over, by path in the
+-- package: each file's size and modification time (family_package_fingerprint.package_listing),
+-- NULL for a folder of more than 5,000 entries. After its import the watcher follows the folder of
+-- the delivery a family's record names (package_changed_after_import.py): one whose fingerprint
+-- differs, or that is gone, is changed_after_import, and source_change says what changed (the
+-- files added, removed and changed, from file_listing) or that it is gone; it is set only then.
+-- Mutable state: each change of state is an event on the clinical audit chain
 -- system:import-inbox, which is the record.
 CREATE TABLE IF NOT EXISTS import_deliveries (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -276,6 +282,8 @@ CREATE TABLE IF NOT EXISTS import_deliveries (
     manifest_sha256 text,
     package jsonb,
     package_check jsonb,
+    file_listing jsonb,
+    source_change jsonb,
     origin text DEFAULT 'watched'::text NOT NULL,
     job_id uuid,
     missing_rounds integer DEFAULT 0 NOT NULL,
@@ -288,6 +296,7 @@ CREATE TABLE IF NOT EXISTS import_deliveries (
     CONSTRAINT import_deliveries_marker_sha256_check CHECK (((marker_sha256 IS NULL) OR (marker_sha256 ~ '^[0-9a-f]{64}$'::text))),
     CONSTRAINT import_deliveries_manifest_check CHECK (((manifest_text IS NULL) = (manifest_sha256 IS NULL))),
     CONSTRAINT import_deliveries_state_check CHECK ((state = ANY (ARRAY['incomplete'::text, 'ready'::text, 'needs_attention'::text, 'approved'::text, 'queued'::text, 'imported'::text, 'failed'::text, 'refused'::text, 'superseded'::text, 'changed_after_import'::text, 'gone'::text]))),
+    CONSTRAINT import_deliveries_source_change_check CHECK (((source_change IS NOT NULL) = (state = 'changed_after_import'::text))),
     CONSTRAINT import_deliveries_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
     CONSTRAINT import_deliveries_job_id_fkey FOREIGN KEY (job_id) REFERENCES family_import_jobs(id) ON DELETE SET NULL
 );

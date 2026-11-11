@@ -850,6 +850,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", sequencing_qc)
     monkeypatch.setattr(rss, "_import_incomplete_state", complete)
     monkeypatch.setattr(rss, "_import_unfinished_state", unfinished)
+    monkeypatch.setattr(rss, "_package_source_change_state", complete)
     for name in ("variant_descriptions", "_gene_panels", "reference_data", "repeat_expansion_calls",
                  "paraphase_results", "coverage_tracks"):
         monkeypatch.setattr(srs, name, section)

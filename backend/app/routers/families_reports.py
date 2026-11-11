@@ -158,6 +158,15 @@ async def sign_out_family_report_endpoint(
             import_incomplete_concerns_fingerprint=(
                 payload.import_incomplete_concerns_fingerprint if payload else None
             ),
+            acknowledge_package_source_change=bool(
+                payload and payload.acknowledge_package_source_change
+            ),
+            package_source_change_acknowledgement_reason=(
+                payload.package_source_change_acknowledgement_reason if payload else None
+            ),
+            package_source_change_concerns_fingerprint=(
+                payload.package_source_change_concerns_fingerprint if payload else None
+            ),
             acknowledge_unreviewed_findings=bool(
                 payload and payload.acknowledge_unreviewed_findings
             ),
