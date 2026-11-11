@@ -24,8 +24,7 @@ goes through Deliveries like a pipeline's
 ([data-import.md](data-import.md#adding-a-folder-by-hand)). CoGA computes no checksums for it: the
 import records each file's SHA-256 (the owner's decision of 2026-11-10).
 
-**Still to do** (the owner's decisions of 2026-11-10): the demo data as package files; a bucket
-mounted as a local folder.
+**Still to do** (the owner's decisions of 2026-11-10): a bucket mounted as a local folder.
 
 ## Writing the file
 
@@ -211,6 +210,10 @@ All synthetic, with checksums of nothing real:
   plasma, the father and the fetus, with each parent's callset and coverage table.
 - [long-read-couple.json](schemas/examples/long-read-couple.json): a couple screened for
   carriership on the long-read pipeline, with each partner's own callsets.
+
+A whole package folder to deliver is the synthetic demo NIPT family,
+[demo/nipt_family](../demo/nipt_family/README.md): a full file for the project `Demo` on GRCh38,
+with the checksums of the folder's own files (`scripts/generate_nipt_demo.py` writes it).
 
 After a change to the format's model, write the schema again with
 `python scripts/generate-coga-package-schema.py`; the unit test

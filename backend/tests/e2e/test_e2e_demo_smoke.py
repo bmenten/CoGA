@@ -4,8 +4,10 @@ The golden trio is tiny and hand-curated; this runs the two committed *realistic
 demo bundles through their real ingestion paths to catch integration breakage the
 golden trio is too small to surface:
 
-* ``demo/nipt_family`` — a real package (``analysis_type: monogenic_nipt``).
-  Imported via ``execute_family_package_import``, then the family NIPT analysis is
+* ``demo/nipt_family`` — a package folder with its package file ``coga-package.json``
+  (``analysis_type: monogenic_nipt``). A copy is checked as the import watcher checks a
+  delivery (``assess_delivery``): ready, with the manifest the import reads. Imported via
+  ``execute_family_package_import`` with that manifest, then the family NIPT analysis is
   run over the imported data and checked against the bundle's documented ground
   truth (fetal fraction ~12%, 40 paternal-transmitted sites, all 8 categories).
 * ``demo/quartet_family`` — a full multi-data-type family loaded via the real
@@ -18,38 +20,19 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets 
 from __future__ import annotations
 
 import importlib.util
-import shutil
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
 from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema
+from backend.tests.e2e._nipt_demo import DEMO as _NIPT_BUNDLE
+from backend.tests.e2e._nipt_demo import prepare_copy
 
 pytestmark = pytest.mark.integration
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_NIPT_BUNDLE = _REPO_ROOT / "demo" / "nipt_family"
 _QUARTET_BUNDLE = _REPO_ROOT / "demo" / "quartet_family"
-# The committed NIPT bundle hardcodes these ids; the dev DB may already hold them
-# (sample ids are globally unique), so each run imports a uniquely-suffixed copy.
-_NIPT_TOKENS = ("FAM_NIPT_DEMO", "FATHER_NIPT", "CFDNA_NIPT", "FETUS_NIPT")
-
-
-def _prepare_nipt_copy(dest: Path) -> str:
-    """Copy demo/nipt_family into dest with every hardcoded id suffixed uniquely.
-    Returns the new family id."""
-    suffix = uuid4().hex[:8]
-    rename = {tok: f"{tok}_{suffix}" for tok in _NIPT_TOKENS}
-    shutil.copytree(_NIPT_BUNDLE, dest)
-    for name in ("manifest.yaml", "nipt_trio.ped", "nipt_combined.vcf"):
-        path = dest / name
-        text_value = path.read_text(encoding="utf-8")
-        for old, new in rename.items():
-            text_value = text_value.replace(old, new)
-        path.write_text(text_value, encoding="utf-8")
-    return rename["FAM_NIPT_DEMO"]
 
 
 def _load_quartet_module():
@@ -80,6 +63,7 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
         ensure_clickhouse_variant_tables,
     )
     from backend.app.services.clickhouse_interval_tracks import count_interval_track_source_rows
+    from backend.app.services.import_watcher import assess_delivery
     from backend.app.services.nipt_artifact_pg import add_nipt_artifact
     from backend.app.services.nipt_service import run_family_nipt_analysis
     from backend.tests.e2e import _harness
@@ -94,7 +78,14 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
 
     out: dict = {}
 
-    # ---- NIPT bundle: real package import + family NIPT analysis recovery ----
+    # ---- NIPT bundle: checked as a delivery, real package import + NIPT analysis recovery ----
+    delivery = await assess_delivery(sm, nipt_root)
+    out["nipt_delivery"] = {
+        "state": delivery.state,
+        "issues": [issue.code for issue in delivery.issues],
+        "warnings": [issue.code for issue in delivery.warnings],
+        "manifest_is_kept_manifest": delivery.manifest_text == kept_manifest(nipt_root),
+    }
     async with sm() as s:
         res = await package_import.execute_family_package_import(
             s,
@@ -208,22 +199,34 @@ def smoke(tmp_path_factory, request) -> dict:
     from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
-    if not (_NIPT_BUNDLE / "manifest.yaml").exists() or not (_QUARTET_BUNDLE / "metadata").exists():
+    if not (_NIPT_BUNDLE / "coga-package.json").exists() or not (_QUARTET_BUNDLE / "metadata").exists():
         pytest.fail("demo bundles missing: they are committed under demo/, so restore them")
 
     base = tmp_path_factory.mktemp("demo_smoke")
-    nipt_root = base / "nipt_family"
-    nipt_family_id = _prepare_nipt_copy(nipt_root)
+    # The dev DB may already hold the demo's ids (sample ids are unique across families), so the
+    # run imports a copy with every id suffixed. Its plasma on no panel of its own: the artifact
+    # below is listed for the assay. Its package names the run's project, which CoGA has.
+    copy = prepare_copy(base, own_panel=False, project=_harness.PROJECT_NAME)
+    nipt_root = Path(copy["root"])
 
     # Authorize the temp NIPT copy for package import.
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(base)])
     request.addfinalizer(mp.undo)
 
-    return _harness.run_async(lambda: _collect(nipt_root, nipt_family_id))
+    return _harness.run_async(lambda: _collect(nipt_root, copy["FAM_NIPT_DEMO"]))
 
 
 # ------------------------------------------------------------------------------- NIPT
+
+
+def test_nipt_bundle_is_a_ready_delivery(smoke):
+    # Delivered as a pipeline delivers a package, the demo is ready to approve, and its delivery
+    # keeps the manifest the import below reads.
+    delivery = smoke["nipt_delivery"]
+    assert delivery["state"] == "ready", delivery
+    assert delivery["issues"] == [], delivery
+    assert delivery["manifest_is_kept_manifest"] is True, delivery
 
 
 def test_nipt_bundle_imports(smoke):

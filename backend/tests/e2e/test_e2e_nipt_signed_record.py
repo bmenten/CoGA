@@ -25,7 +25,7 @@ API, this:
   out (the NIPT page and the report) disable the sign-out by, and the server refuses theirs
   with 403, signing nothing.
 
-A second copy gives the fetus the status a NIPT PED usually has, unknown. The import
+A second copy gives the fetus the status a NIPT package usually gives it, unknown. The import
 reads it as an embryo, and the run:
 
 * tags the demo's compound heterozygote in GENE_RECESS (a paternal and a maternal allele) for
@@ -257,7 +257,7 @@ def signed(tmp_path_factory, request) -> dict:
     from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
-    if not (DEMO / "manifest.yaml").exists():
+    if not (DEMO / "coga-package.json").exists():
         pytest.fail("the demo NIPT package is missing: it is committed (scripts/generate_nipt_demo.py rebuilds it)")
     # A region of interest for the coverage check, and a coverage BED that declares nothing: the
     # check names it as not read as depth, the note the record freezes.
@@ -555,8 +555,8 @@ def pair_signed(tmp_path_factory, request) -> dict:
     from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
-    # As a NIPT PED usually has it: the fetus's sex and status unknown.
-    copy = prepare_copy(tmp_path_factory.mktemp("nipt_pair_record"), fetus_status="0")
+    # As a NIPT package usually gives it: the fetus's sex and status unknown.
+    copy = prepare_copy(tmp_path_factory.mktemp("nipt_pair_record"), fetus_status="unknown")
     root = Path(copy["root"])
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(root.parent)])

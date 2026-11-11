@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the synthetic monogenic NIPT demo family.
 
-Writes a deterministic, ground-truthed dataset into ``demo/nipt_family/``:
+Writes a deterministic, ground-truthed package folder into ``demo/nipt_family/``:
 
 - ``nipt_combined.vcf`` -- one combined two-sample VCF (father + maternal-plasma
   cfDNA columns) with variants spanning all eight maternal/fetal categories at a
@@ -9,22 +9,43 @@ Writes a deterministic, ground-truthed dataset into ``demo/nipt_family/``:
   candidate. Each line records its ground-truth category in the INFO field
   (``EXP_CAT``) and gene (``GENE``), which the end-to-end test reads back.
 - ``nipt_coverage.bed`` -- cfDNA coverage over the family ROI.
-- ``nipt_trio.ped`` -- the father / mother(cfDNA) / fetus trio.
+- ``coga-package.json`` -- the package file a pipeline writes (``coga-package/1``,
+  docs/coga-package.md): the project and assembly the package belongs to, the
+  analysis, the trio (the father, the mother whose sample is the cfDNA, the
+  fetus), the datasets, and every file of the folder with its size and SHA-256,
+  the hand-written ``README.md`` included.
 
 Run: ``python scripts/generate_nipt_demo.py``. The committed files are the source
 of truth for ``backend/tests/test_nipt_end_to_end.py``; regenerate them if you
-change the scenario.
+change the scenario, and after editing the README, whose checksum the package
+file lists.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
+from typing import Any
 
 FETAL_FRACTION = 0.12  # FF; FF/2 = 0.06
 FATHER_SAMPLE = "FATHER_NIPT"
 CFDNA_SAMPLE = "CFDNA_NIPT"
 FETUS_SAMPLE = "FETUS_NIPT"
 FAMILY_ID = "FAM_NIPT_DEMO"
+
+# Where the package belongs in CoGA: a project of this name on this assembly. The folder is
+# delivered in the project's folder of a watched import folder (``<watched folder>/Demo/``).
+PROJECT = "Demo"
+ASSEMBLY = "GRCh38"
+# The package file's time and run: fixed, so that regenerating writes the same file.
+WRITTEN_AT = "2026-11-11T12:00:00+01:00"
+PIPELINE = {"name": "generate_nipt_demo", "version": "1", "run_id": "NIPT_DEMO_1"}
+PACKAGE_FILE = "coga-package.json"
+VCF_FILE = "nipt_combined.vcf"
+COVERAGE_FILE = "nipt_coverage.bed"
+# Every file of the folder, as the package file lists it.
+PACKAGE_FILES = ("README.md", COVERAGE_FILE, VCF_FILE)
 
 # Family ROI covering the demo variants (chr1) -- the coverage target.
 ROI_CHROM = "1"
@@ -169,52 +190,64 @@ def render_coverage_bed() -> str:
     return "\n".join(f"{chrom}\t{start}\t{end}\t{value}" for chrom, start, end, value in rows) + "\n"
 
 
-def render_manifest() -> str:
-    """A package manifest so the demo imports as a NIPT family in one step.
-
-    Declares the analysis type and the cfDNA sample's assay (so Package Import
-    tags the family for NIPT) plus the datasets: the combined father+cfDNA VCF
-    (snv) and the cfDNA coverage BED. The VCF is uncompressed and unindexed,
-    which the family-VCF importer accepts.
-    """
-    return (
-        "schema_version: 1\n"
-        f"family_id: {FAMILY_ID}\n"
-        "analysis_type: monogenic_nipt\n"
-        "ped: nipt_trio.ped\n"
-        "samples:\n"
-        f"  {CFDNA_SAMPLE}:\n"
-        "    assay: nipt_cfdna\n"
-        "datasets:\n"
-        "  snv:\n"
-        "    family_vcf: nipt_combined.vcf\n"
-        "  coverage:\n"
-        "    per_sample:\n"
-        f"      {CFDNA_SAMPLE}:\n"
-        "        bed: nipt_coverage.bed\n"
-        # What the coverage BED holds: its values are read depths.
-        "        content: read_depth\n"
-        "metadata:\n"
-        "  description: Synthetic monogenic NIPT demo (fetal fraction 12%)\n"
-    )
-
-
-def render_ped() -> str:
-    # FID IID PID MID SEX PHEN  (sex: 1 male, 2 female; phen: 1 unaffected, 2 affected)
-    rows = [
-        (FAMILY_ID, FATHER_SAMPLE, "0", "0", "1", "1"),
-        (FAMILY_ID, CFDNA_SAMPLE, "0", "0", "2", "1"),
-        (FAMILY_ID, FETUS_SAMPLE, FATHER_SAMPLE, CFDNA_SAMPLE, "0", "2"),
+def package_members() -> list[dict[str, Any]]:
+    """The trio: the father, the mother (her sample is the maternal plasma, assay ``nipt_cfdna``,
+    which tags it for the NIPT analysis) and the affected fetus, without a sample of its own."""
+    return [
+        {"sample_id": FATHER_SAMPLE, "sex": "male", "clinical_status": "unaffected"},
+        {"sample_id": CFDNA_SAMPLE, "sex": "female", "clinical_status": "unaffected", "assay": "nipt_cfdna"},
+        {
+            "sample_id": FETUS_SAMPLE,
+            "sex": "unknown",
+            "father": FATHER_SAMPLE,
+            "mother": CFDNA_SAMPLE,
+            "clinical_status": "affected",
+        },
     ]
-    return "\n".join("\t".join(row) for row in rows) + "\n"
+
+
+def package_datasets() -> dict[str, Any]:
+    """The datasets: the combined father+cfDNA VCF (``snv``; uncompressed and unindexed, which the
+    family-VCF importer accepts) and the plasma's coverage BED, which declares that it holds read
+    depths: the NIPT coverage check reads a coverage BED as depth only when it says so."""
+    return {
+        "snv": {"family_vcf": VCF_FILE},
+        "coverage": {"per_sample": {CFDNA_SAMPLE: {"bed": COVERAGE_FILE, "content": "read_depth"}}},
+    }
+
+
+def file_entry(folder: Path, path: str) -> dict[str, Any]:
+    """A file of the package as the package file lists it: its path, size and SHA-256."""
+    content = (folder / path).read_bytes()
+    return {"path": path, "size": len(content), "sha256": hashlib.sha256(content).hexdigest()}
+
+
+def render_package(folder: Path) -> str:
+    """The package file of the folder ``folder``, whose other files are written: complete, with
+    each file's size and checksum as the folder holds it."""
+    package = {
+        "schema": "coga-package/1",
+        "status": "complete",
+        "written_at": WRITTEN_AT,
+        "pipeline": PIPELINE,
+        "project": PROJECT,
+        "assembly": ASSEMBLY,
+        "analysis_type": "monogenic_nipt",
+        "family": {"family_id": FAMILY_ID},
+        "members": package_members(),
+        "datasets": package_datasets(),
+        "files": [file_entry(folder, path) for path in PACKAGE_FILES],
+        "notes": "Synthetic monogenic NIPT demo (fetal fraction 12%).",
+    }
+    return json.dumps(package, indent=2, ensure_ascii=False) + "\n"
 
 
 def main() -> None:
     _DEMO_DIR.mkdir(parents=True, exist_ok=True)
-    (_DEMO_DIR / "nipt_combined.vcf").write_text(render_vcf())
-    (_DEMO_DIR / "nipt_coverage.bed").write_text(render_coverage_bed())
-    (_DEMO_DIR / "nipt_trio.ped").write_text(render_ped())
-    (_DEMO_DIR / "manifest.yaml").write_text(render_manifest())
+    (_DEMO_DIR / VCF_FILE).write_text(render_vcf())
+    (_DEMO_DIR / COVERAGE_FILE).write_text(render_coverage_bed())
+    # Last: it lists the other files with their checksums.
+    (_DEMO_DIR / PACKAGE_FILE).write_text(render_package(_DEMO_DIR))
     print(f"Wrote demo NIPT family to {_DEMO_DIR}")
 
 

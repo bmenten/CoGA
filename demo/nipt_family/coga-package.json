@@ -1,0 +1,67 @@
+{
+  "schema": "coga-package/1",
+  "status": "complete",
+  "written_at": "2026-11-11T12:00:00+01:00",
+  "pipeline": {
+    "name": "generate_nipt_demo",
+    "version": "1",
+    "run_id": "NIPT_DEMO_1"
+  },
+  "project": "Demo",
+  "assembly": "GRCh38",
+  "analysis_type": "monogenic_nipt",
+  "family": {
+    "family_id": "FAM_NIPT_DEMO"
+  },
+  "members": [
+    {
+      "sample_id": "FATHER_NIPT",
+      "sex": "male",
+      "clinical_status": "unaffected"
+    },
+    {
+      "sample_id": "CFDNA_NIPT",
+      "sex": "female",
+      "clinical_status": "unaffected",
+      "assay": "nipt_cfdna"
+    },
+    {
+      "sample_id": "FETUS_NIPT",
+      "sex": "unknown",
+      "father": "FATHER_NIPT",
+      "mother": "CFDNA_NIPT",
+      "clinical_status": "affected"
+    }
+  ],
+  "datasets": {
+    "snv": {
+      "family_vcf": "nipt_combined.vcf"
+    },
+    "coverage": {
+      "per_sample": {
+        "CFDNA_NIPT": {
+          "bed": "nipt_coverage.bed",
+          "content": "read_depth"
+        }
+      }
+    }
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "size": 9291,
+      "sha256": "26763c8d5b5cfa8991636a8cbdae412c5c550f81b60c47c68251aabd1e94a380"
+    },
+    {
+      "path": "nipt_coverage.bed",
+      "size": 48,
+      "sha256": "d1065ac884f63deafc273cd6ad19401aacf73acb953879dc8e514580bbfde0a8"
+    },
+    {
+      "path": "nipt_combined.vcf",
+      "size": 5069,
+      "sha256": "26c4f6cdd3b52e47b331018faf1e527c3d6d193238bf198724d68610962c03d6"
+    }
+  ],
+  "notes": "Synthetic monogenic NIPT demo (fetal fraction 12%)."
+}
