@@ -356,6 +356,34 @@ async def test_the_pipelines_qc_and_the_files_it_does_not_list_are_told(
 
 
 @pytest.mark.asyncio
+async def test_files_listed_without_a_checksum_are_warned_of_and_their_sha256_kept(tmp_path: Path) -> None:
+    # The owner's decision of 2026-11-11: a checksum per file is optional. The delivery warns that
+    # the copy is unchecked, and keeps the SHA-256 CoGA computed, which the import records.
+    folder = _package(tmp_path, "FAM1")
+    _complete_file(folder)
+    body = json.loads((folder / PACKAGE_FILE_NAME).read_text())
+    for entry in body["files"]:
+        entry.pop("sha256")
+    (folder / PACKAGE_FILE_NAME).write_text(json.dumps(body), encoding="utf-8")
+
+    assessment = await watcher.assess_delivery(_factory([]), folder)
+
+    assert "package_files_without_checksum" in [item.code for item in assessment.warnings]
+    warned = next(item for item in assessment.warnings if item.code == "package_files_without_checksum")
+    assert warned.message == (
+        "coga-package.json gives no checksum for 2 file(s): family.ped, snv/family.vcf. CoGA computed "
+        "their SHA-256, but cannot check that the copy is what the pipeline made."
+    )
+    assert assessment.package_check is not None
+    assert assessment.package_check["without_checksum"] == ["family.ped", "snv/family.vcf"]
+    assert assessment.package_check["sha256"] == {
+        "family.ped": hashlib.sha256((folder / "family.ped").read_bytes()).hexdigest(),
+        "snv/family.vcf": hashlib.sha256((folder / "snv" / "family.vcf").read_bytes()).hexdigest(),
+    }
+    assert "file_checksum_differs" not in [item.code for item in assessment.issues]
+
+
+@pytest.mark.asyncio
 async def test_a_folder_discover_cannot_draft_for_needs_attention(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "family_import_roots", [])
     folder = _package(tmp_path, "FAM1")

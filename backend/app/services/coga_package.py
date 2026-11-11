@@ -2,7 +2,7 @@
 
 One file describes a delivered package: the run that made it, where it belongs (the project, the
 assembly, the analysis), the family and its members (the pedigree), the datasets the import reads,
-every file with its checksum, and the pipeline's QC (format ``coga-package/1``,
+every file with its size (and, optionally, its checksum), and the pipeline's QC (format ``coga-package/1``,
 docs/coga-package.md).
 
 The pipeline writes the file whole each time, under a temporary name renamed over it, and may write
@@ -26,8 +26,9 @@ information goes under ``extra``, which CoGA keeps and never reads.
 - ``package_issues`` checks what the schema cannot say: the fields a complete file needs, and that
   every member, file and dataset named is the one meant.
 - ``check_package_files`` checks the folder against the file's ``files``: each listed file there,
-  of its size (else the copy runs still) and its checksum (else the copy is not what the pipeline
-  made), and the files the folder holds that it does not list.
+  of its size (else the copy runs still) and, when the file gives one, its checksum (else the copy
+  is not what the pipeline made; without one CoGA computes the SHA-256 and the copy is unchecked),
+  and the files the folder holds that it does not list.
 
 What the package says against CoGA (the project, the family) is checked by the import watcher
 (``import_watcher``).
@@ -46,7 +47,7 @@ from pathlib import Path, PurePosixPath
 import stat
 from typing import Annotated, Any, Literal, get_args
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 
 from .family_identifiers import identifier_problem
 from .family_package_common import manifest_text_problem
@@ -197,29 +198,18 @@ class PackageCouple(_Strict):
 
 
 class PackageFile(_Strict):
-    """A file of the package: its path in the folder, its size in bytes and its checksum, as the
-    pipeline made it. SHA-256 is preferred; MD5 is read where a pipeline has only that."""
+    """A file of the package: its path in the folder, its size in bytes and, optionally, its
+    checksum as the pipeline made it (SHA-256 preferred; MD5 read where a pipeline has only that).
+    A file without one is still checked by its size, and CoGA computes its SHA-256 at the
+    delivery's check, but the copy is then not checked against what the pipeline made (the owner's
+    decision of 2026-11-11: optional, with a warning)."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "anyOf": [
-                {"required": ["sha256"], "properties": {"sha256": {"type": "string"}}},
-                {"required": ["md5"], "properties": {"md5": {"type": "string"}}},
-            ]
-        },
-    )
+    model_config = ConfigDict(extra="forbid")
 
     path: PackagePath
     size: int = Field(ge=0)
     sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     md5: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
-
-    @model_validator(mode="after")
-    def _a_checksum(self) -> PackageFile:
-        if self.sha256 is None and self.md5 is None:
-            raise ValueError("a file needs its sha256 or its md5")
-        return self
 
 
 class PackageQc(_Strict):
@@ -605,13 +595,15 @@ _IGNORED_PREFIXES = ("._", f".{PACKAGE_FILE_NAME}")
 class FileCheck:
     """A folder checked against its package file's ``files``: the issues that keep it from import
     (``location``: the file's path), whether the copy is still running (``incomplete``: a file
-    missing or of another size), the files present that the package file does not list, and each
-    listed file's SHA-256 as computed."""
+    missing or of another size), the files present that the package file does not list, each
+    listed file's SHA-256 as computed, and the listed files the package file gives no checksum
+    for (``without_checksum``: their SHA-256 is CoGA's alone, not checked against the pipeline's)."""
 
     issues: list[PackageIssue] = field(default_factory=list)
     incomplete: bool = False
     unlisted: list[str] = field(default_factory=list)
     sha256: dict[str, str] = field(default_factory=dict)
+    without_checksum: list[str] = field(default_factory=list)
 
 
 def _path_in_folder(folder: Path, written: str) -> bool:
@@ -665,10 +657,11 @@ def _folder_files(folder: Path) -> list[str]:
 
 def check_package_files(folder: Path, files: Iterable[PackageFile], *, checksums: bool) -> FileCheck:
     """Check the package folder ``folder`` against the files its package file lists (paths the
-    format allows, each listed once: ``package_issues``); with ``checksums`` each file is read to
-    compare its SHA-256, or its MD5 when the file gives only that, and every file's SHA-256 is
-    kept. Without, only paths and sizes are compared (a cheap look whether the copy has
-    finished)."""
+    format allows, each listed once: ``package_issues``); with ``checksums`` each file is read once:
+    its SHA-256 is compared with the package file's, or its MD5 when the file gives only that, and
+    kept; a file the package file gives no checksum for has its SHA-256 computed and kept, and is
+    named in ``without_checksum``. Without ``checksums``, only paths and sizes are compared (a
+    cheap look whether the copy has finished)."""
     check = FileCheck()
     listed: dict[str, PackageFile] = {}
     for entry in files:
@@ -699,11 +692,13 @@ def check_package_files(folder: Path, files: Iterable[PackageFile], *, checksums
         if not checksums:
             continue
         try:
-            sha256, md5 = _checksums(folder / path, md5=entry.sha256 is None)
+            sha256, md5 = _checksums(folder / path, md5=entry.sha256 is None and entry.md5 is not None)
         except OSError:
             check.issues.append(PackageIssue("file_unreadable", f"A file {PACKAGE_FILE_NAME} lists could not be read.", path))
             continue
-        if (entry.sha256 is not None and sha256 != entry.sha256) or (entry.sha256 is None and md5 != entry.md5):
+        if entry.sha256 is None and entry.md5 is None:
+            check.without_checksum.append(path)
+        elif (entry.sha256 is not None and sha256 != entry.sha256) or (entry.sha256 is None and md5 != entry.md5):
             check.issues.append(
                 PackageIssue(
                     "file_checksum_differs",

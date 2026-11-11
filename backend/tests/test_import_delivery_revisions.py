@@ -234,7 +234,7 @@ def _delivery(**fields: Any) -> dict[str, Any]:
         "issues": [],
         "warnings": [],
         "package": _document(),
-        "package_check": {"issues": [], "warnings": [], "verified": {}, "proposed": [], "proposal_issues": []},
+        "package_check": {"issues": [], "warnings": [], "sha256": {}, "proposed": [], "proposal_issues": []},
     }
     row.update(fields)
     return row

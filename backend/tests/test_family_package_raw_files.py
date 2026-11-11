@@ -9,7 +9,9 @@ other key would be validated and imported without a row. A monogenic NIPT pair's
 coverage tables (``target_table``), which give the NIPT analysis its depths, and a PCF entry's
 segment tables under each of their names (``maternal``, ``mat``, ``maternal_file``,
 ``mat_file`` and the paternal ones) have their rows. The guard explores every key validation
-reads as a file, so a new kind of file cannot be left out.
+reads as a file, so a new kind of file cannot be left out. A file the check of the delivery the
+import came from read is recorded with the SHA-256 that check computed, when the folder is as it
+read it (the same package fingerprint), not read again; otherwise it is hashed where it lies.
 
 All samples and values here are synthetic.
 """
@@ -48,13 +50,19 @@ class _RawFileSession:
     """Answers the family's sample lookup and keeps each raw_import_files row written,
     by the path it names."""
 
-    def __init__(self, sample_ids: list[str]) -> None:
+    def __init__(self, sample_ids: list[str], checked: dict[str, str] | None = None) -> None:
         self.samples = [{"sample_uuid": f"uuid-{sample_id}", "sample_id": sample_id} for sample_id in sample_ids]
         self.rows: dict[str, dict[str, Any]] = {}
+        # The SHA-256 by path the delivery's check computed (import_deliveries.package_check).
+        self.checked = checked
+        self.checked_asked: list[dict[str, Any]] = []
 
     async def execute(self, statement: Any, params: Any = None) -> Any:
         if "INSERT INTO raw_import_files" in str(statement):
             self.rows[params["storage_path"]] = params
+        if "package_check -> 'sha256'" in str(statement):
+            self.checked_asked.append(params)
+            return SimpleNamespace(scalar_one_or_none=lambda: self.checked)
         return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: self.samples))
 
 
@@ -158,6 +166,60 @@ async def test_a_nipt_pairs_coverage_tables_are_recorded_with_their_checksums(
     # The sample's own package record names its table too.
     package_record = family_package_registration._sample_provenance(bundle)
     assert package_record["CFDNA1"]["coverage"] == {"target_table": "coverage_CFDNA1.txt"}
+
+
+# --------------------------------------------------------------------------- #
+# A delivery's checked SHA-256, recorded without reading the files again
+# --------------------------------------------------------------------------- #
+
+_DELIVERY_ID = "2b6f0d38-6c2e-4b8e-9a3f-5d1c7e9a0b42"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("folder_as_checked", [True, False])
+async def test_the_import_records_the_sha256_its_deliverys_check_computed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, folder_as_checked: bool
+) -> None:
+    # The delivery's check read every file once (verifying the pipeline's checksum, or computing
+    # the SHA-256 of one listed without). The import, of the folder as that check read it, records
+    # those SHA-256 and reads no file again; of a folder that differs, it hashes each file itself.
+    monkeypatch.setattr(settings, "family_import_roots", [])
+    package = _write_nipt_pair(tmp_path / "NIPTPAIR")
+    validation, bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
+    assert validation.valid, validation.errors
+    assert bundle is not None and bundle.package_fingerprint
+    bundle.delivery = {
+        "id": _DELIVERY_ID,
+        "package_fingerprint": bundle.package_fingerprint if folder_as_checked else "0" * 64,
+    }
+    checked = {
+        name: hashlib.sha256((package / name).read_bytes()).hexdigest()
+        for name in ("CFDNA1.mutect2.vcf.gz", "FATHER1.mutect2.vcf.gz", "coverage_CFDNA1.txt", "coverage_FATHER1.txt")
+    }
+    hashed: list[Path] = []
+    real_hash = raw_import_files_pg._hash_and_size
+
+    def counting(path: Path) -> tuple[str, int]:
+        hashed.append(path)
+        return real_hash(path)
+
+    monkeypatch.setattr(raw_import_files_pg, "_hash_and_size", counting)
+    session = _RawFileSession(bundle.ped.sample_ids, checked=checked)
+
+    await family_package_registration._record_package_raw_files(
+        session, bundle=bundle, family_uuid="family-uuid", family_identifier="NIPTPAIR"  # type: ignore[arg-type]
+    )
+
+    for sample_id in ("CFDNA1", "FATHER1"):
+        _assert_recorded(session.rows, bundle, f"coverage_{sample_id}.txt", dataset="coverage", sample_id=sample_id)
+        _assert_recorded(session.rows, bundle, f"{sample_id}.mutect2.vcf.gz", dataset="snv", sample_id=sample_id)
+    if folder_as_checked:
+        assert session.checked_asked == [{"delivery_id": _DELIVERY_ID, "fingerprint": bundle.package_fingerprint}]
+        assert hashed == []
+    else:
+        # A folder that is not as the check read it: the check is not asked, every file is hashed.
+        assert session.checked_asked == []
+        assert sorted(path.name for path in hashed) == sorted(checked)
 
 
 # --------------------------------------------------------------------------- #

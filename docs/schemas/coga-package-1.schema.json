@@ -78,29 +78,7 @@
     },
     "PackageFile": {
       "additionalProperties": false,
-      "anyOf": [
-        {
-          "properties": {
-            "sha256": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "sha256"
-          ]
-        },
-        {
-          "properties": {
-            "md5": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "md5"
-          ]
-        }
-      ],
-      "description": "A file of the package: its path in the folder, its size in bytes and its checksum, as the\npipeline made it. SHA-256 is preferred; MD5 is read where a pipeline has only that.",
+      "description": "A file of the package: its path in the folder, its size in bytes and, optionally, its\nchecksum as the pipeline made it (SHA-256 preferred; MD5 read where a pipeline has only that).\nA file without one is still checked by its size, and CoGA computes its SHA-256 at the\ndelivery's check, but the copy is then not checked against what the pipeline made (the owner's\ndecision of 2026-11-11: optional, with a warning).",
       "properties": {
         "path": {
           "minLength": 1,

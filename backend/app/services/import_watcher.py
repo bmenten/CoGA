@@ -505,8 +505,8 @@ async def assess_content(
     issues.extend(_as_issue(issue) for issue in validation.errors)
     warnings.extend(_as_issue(issue) for issue in validation.warnings)
     if bundle is not None and not by_hand:
-        verified = check.get("verified") or {}
-        not_listed = [path for path in _files_the_import_reads(folder, validation) if path not in verified]
+        read_files = check.get("sha256") or {}
+        not_listed = [path for path in _files_the_import_reads(folder, validation) if path not in read_files]
         issues.extend(
             _issue(
                 "package_file_not_listed",
@@ -641,12 +641,27 @@ async def assess_delivery(
                 + (f", and {more} more." if more > 0 else "."),
             )
         )
+    if checked.without_checksum:
+        # The owner's decision of 2026-11-11: a checksum in the package file is optional. CoGA
+        # computed these files' SHA-256 (the import records it), but cannot tell whether the copy
+        # is what the pipeline made: the approver acknowledges it.
+        named = ", ".join(checked.without_checksum[:_UNLISTED_NAMED])
+        more = len(checked.without_checksum) - _UNLISTED_NAMED
+        folder_warnings.append(
+            _issue(
+                "package_files_without_checksum",
+                f"{PACKAGE_FILE_NAME} gives no checksum for {len(checked.without_checksum)} file(s): {named}"
+                + (f", and {more} more" if more > 0 else "")
+                + ". CoGA computed their SHA-256, but cannot check that the copy is what the pipeline made.",
+            )
+        )
     package, proposal_warnings, proposal_issues = await _proposal(folder, read.package)
     assessment.package = package_document(package)
     assessment.package_check = {
         "issues": [_package_issue(issue).model_dump() for issue in checked.issues],
         "warnings": [issue.model_dump() for issue in [*folder_warnings, *proposal_warnings]],
-        "verified": checked.sha256,
+        "sha256": checked.sha256,
+        "without_checksum": checked.without_checksum,
         "proposed": proposed_sections(read.package),
         "proposal_issues": [issue.model_dump() for issue in proposal_issues],
     }

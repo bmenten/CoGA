@@ -58,18 +58,20 @@ def write_package(
     full: bool = True,
     status: str = "complete",
     extra_files: tuple[dict[str, Any], ...] = (),
+    checksums: bool = True,
     **fields: Any,
 ) -> None:
-    """The package file of ``folder``, listing every file in it as it is now. A ``full`` one names
-    the member and the dataset; a minimal one leaves them to Discover. Written under a temporary
-    name and renamed, as a pipeline writes it."""
+    """The package file of ``folder``, listing every file in it as it is now, with its SHA-256
+    unless ``checksums`` is off. A ``full`` one names the member and the dataset; a minimal one
+    leaves them to Discover. Written under a temporary name and renamed, as a pipeline writes it."""
     files = []
     for path in sorted(folder.rglob("*")):
         if path.is_file() and path.name != "coga-package.json":
             content = path.read_bytes()
-            files.append(
-                {"path": path.relative_to(folder).as_posix(), "size": len(content), "sha256": hashlib.sha256(content).hexdigest()}
-            )
+            entry: dict[str, Any] = {"path": path.relative_to(folder).as_posix(), "size": len(content)}
+            if checksums:
+                entry["sha256"] = hashlib.sha256(content).hexdigest()
+            files.append(entry)
     body: dict[str, Any] = {
         "schema": "coga-package/1",
         "status": status,

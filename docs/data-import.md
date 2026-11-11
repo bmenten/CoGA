@@ -804,15 +804,18 @@ holds has changed (below). A new one is checked:
 1. the package file is read and checked ([coga-package.md](coga-package.md#what-coga-checks));
 2. every listed file is there with its listed size; if not, the delivery is `incomplete` (the copy
    runs still; its fingerprint changes once it has finished, which makes a new delivery);
-3. every file's SHA-256, or MD5, is the listed one: a file that differs is a copy that is not what
-   the pipeline made. A file in the folder that the package file does not list is a warning (a
+3. every file is read once: its SHA-256, or MD5, is the listed one, where the package file gives
+   one (a file that differs is a copy that is not what the pipeline made); a file listed without a
+   checksum has its SHA-256 computed, and the delivery warns that the copy is unchecked
+   (`package_files_without_checksum`). The import records the SHA-256 this check computed, for
+   the folder as it read it, rather than read each file again. A file in the folder that the package file does not list is a warning (a
    file browser's own files are not counted);
 4. the pipeline's QC (`fail` needs attention, `warn` is a warning), and the project and its
    assembly;
 5. the manifest made from the package file (above), and the folder's PED against the members;
 6. the package's validation, as **Validate package** runs it, and the region of interest;
 7. every file the import reads (each file an enabled dataset names, and the PED when Discover
-   proposed the members from it) is listed with a matching checksum;
+   proposed the members from it) is listed, with a matching checksum where it has one;
 8. a family or samples that already exist: an existing family needs an approver's choice of update
    or overwrite, never a new family.
 
@@ -2433,6 +2436,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `package_project_folder_differs` | The delivery lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
 | `package_members_differ_from_family` | The family exists in CoGA, and the package changes or lacks one of its members (another sex, other parents). An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the family's pedigree. |
 | `package_adds_members` (warning) | The package adds members to a family that exists in CoGA. Update and overwrite add them to the family's pedigree: check that they belong to it. |
+| `package_files_without_checksum` (warning) | `coga-package.json` lists files without a `sha256` or `md5`. CoGA computed their SHA-256 (the import records it), but cannot check that the copy on the share is what the pipeline made. Acknowledge it to approve, or have the pipeline or its copy step write the checksums. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |

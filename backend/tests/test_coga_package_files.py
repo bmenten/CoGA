@@ -198,6 +198,26 @@ def test_a_file_missing_or_of_another_size_means_the_copy_runs_still(package: Pa
     assert check.sha256 == {}
 
 
+def test_a_file_listed_without_a_checksum_has_its_sha256_computed_and_is_named(package: Path) -> None:
+    # The owner's decision of 2026-11-11: a checksum per file is optional. CoGA computes the
+    # SHA-256 of a file listed without one, and names it, since the copy is then unchecked.
+    with_one = _entry(package, "family.ped")
+    without = {key: value for key, value in _entry(package, "snv/family.vcf").items() if key != "sha256"}
+
+    check = check_package_files(package, _files([with_one, without]), checksums=True)
+
+    assert check.issues == []
+    assert check.sha256 == {
+        "family.ped": hashlib.sha256((package / "family.ped").read_bytes()).hexdigest(),
+        "snv/family.vcf": hashlib.sha256((package / "snv" / "family.vcf").read_bytes()).hexdigest(),
+    }
+    assert check.without_checksum == ["snv/family.vcf"]
+    # Its size is still checked: a copy still running is told without reading a file.
+    short = {**without, "size": without["size"] + 1}
+    sizes = check_package_files(package, _files([short]), checksums=False)
+    assert (sizes.incomplete, [issue.code for issue in sizes.issues]) == (True, ["file_size_differs"])
+
+
 @pytest.mark.parametrize("md5", [False, True])
 def test_a_checksum_that_differs_is_a_copy_the_pipeline_did_not_make(package: Path, md5: bool) -> None:
     entries = [_entry(package, "family.ped", md5=md5)]
