@@ -13,17 +13,13 @@ Two kinds of records exist:
   has committed: a deletion that fails keeps every file its records name.
 * referenced files live at their original on-disk location (e.g. a family package
   import directory). We never move or delete those; we only record where they are.
-  For a package imported from a bucket, that location is the object's gs:// or s3://
-  URI: such a file is verified against the store's record of the object
-  (``metadata.store_object``) rather than re-hashed, and is not downloaded here.
 
 The recorded ``storage_path`` is read back as data: an edited row can name any path. So a
 file is read (downloaded, verified, or checked for in the list) only where an import of its
 family put it: in the package folder the family's import read
 (``families.metadata.package_import.folder_path``, below a local FAMILY_IMPORT_ROOTS entry,
 ``local_family_package_folder``), or in the managed upload folder (``data/raw_imports``),
-which holds every managed copy; its real path, symlinks resolved, inside one of them. An
-object only in the family's bucket package folder (``within_family_package``). The IGV
+which holds every managed copy; its real path, symlinks resolved, inside one of them. The IGV
 endpoints serve a sample's recorded files by the same rule. So an edited row can point at
 most at another file of its family's own package, never at another family's package in the
 import area. The upload folder is not split by family: a managed folder need not be named
@@ -48,11 +44,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.coga_logging import describe_error, scrub_log
-from ..core.object_storage import is_remote_uri, parse_remote_uri, remote_object_identity
 from ..core.sql import canonical_uuid
 # The import's folder rules, read through their module (a test that moves them moves them here).
 from . import family_package_source
-from .stored_values import json_object as _json_object
 
 # Repo-level data directory (matches routers/cram.py DATA_DIR resolution).
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -121,10 +115,6 @@ OUTSIDE_FOLDERS_DETAIL = (
     "The file's recorded storage path lies outside its family's package folder (below "
     "FAMILY_IMPORT_ROOTS) and CoGA's upload folder, so the file is not read."
 )
-OUTSIDE_PACKAGE_OBJECT_DETAIL = (
-    "The file's recorded storage path names no object in its family's package folder below "
-    "FAMILY_IMPORT_ROOTS, so the object store is not asked about it."
-)
 
 
 def _managed_root() -> str:
@@ -139,19 +129,17 @@ def _inside(path: str, folder: str) -> bool:
 
 
 def readable_folders(package_folder: object = None) -> tuple[str, ...]:
-    """The real paths of the local folders a family's recorded file is read from: the managed
+    """The real paths of the folders a family's recorded file is read from: the managed
     upload folder, and the family's package folder ``package_folder`` (the folder its import
-    read, ``families.metadata.package_import.folder_path``) when it lies below a local
+    read, ``families.metadata.package_import.folder_path``) when it lies below a
     FAMILY_IMPORT_ROOTS entry (``local_family_package_folder``).
 
     Every managed copy CoGA writes (an upload, a manifest kept for an import's job) is in the
-    upload folder, and every file a local package import records is in its package folder: a
-    file of the family lies in one of the two, wherever the row says it is. Not the rest of
-    the import area (another family's package there), and not the staging folder of a bucket
-    package: such an import records the objects' URIs, and its staged copy is deleted after
-    it. Without a usable package folder (none recorded, a bucket's URI, the import
-    root itself, outside the roots, FAMILY_IMPORT_ROOTS empty as in development) it is the
-    upload folder alone. Blocking (file-system look-ups).
+    upload folder, and every file a package import records is in its package folder: a file
+    of the family lies in one of the two, wherever the row says it is. Not the rest of the
+    import area: another family's package there. Without a usable package folder (none
+    recorded, the import root itself, outside the roots, FAMILY_IMPORT_ROOTS empty as in
+    development) it is the upload folder alone. Blocking (file-system look-ups).
     """
     folders = [_managed_root()]
     package = family_package_source.local_family_package_folder(package_folder)
@@ -180,22 +168,6 @@ def readable_local_path(storage_path: str, folders: Iterable[str] | None = None)
     return real if any(_inside(real, folder) for folder in allowed) else None
 
 
-def readable_remote_uri(uri: str, package_folder: object = None) -> bool:
-    """Whether the object store may be asked about the object ``uri`` names: one in the
-    family's own package folder ``package_folder`` (the bucket folder its import read), below a
-    remote FAMILY_IMPORT_ROOTS entry (``within_family_package``), written as nothing but
-    scheme, bucket and key, with no empty, ``.`` or ``..`` segment in its key (the rules the
-    CRAM endpoint signs a recorded location by, without its configured bucket: a package may
-    come from any bucket the roots name). Never without such a folder."""
-    try:
-        location = parse_remote_uri(uri)
-    except ValueError:
-        return False
-    if location.uri != uri or any(segment in {"", ".", ".."} for segment in location.key.split("/")):
-        return False
-    return family_package_source.within_family_package(uri, package_folder)
-
-
 def _storage_path_kind(storage_path: Any) -> str:
     """What kind of place a refused storage path names, for its log line: never the path
     itself, which can name a family's folder, and so its ID (the owner's decision of
@@ -203,8 +175,6 @@ def _storage_path_kind(storage_path: Any) -> str:
     value = str(storage_path or "").strip()
     if not value:
         return "no path"
-    if is_remote_uri(value):
-        return "an object-store URI"
     return "an absolute local path" if os.path.isabs(value) else "a relative local path"
 
 
@@ -224,18 +194,11 @@ def _refuse_outside_folders(record: dict[str, Any], detail: str) -> HTTPExceptio
 def local_file_to_download(record: dict[str, Any]) -> str:
     """The real path of the file to serve for a download of ``record``.
 
-    409 for a file kept in an object store (it is not downloaded through CoGA), 403 for a
-    recorded path outside the folders its family's files are read from
+    403 for a recorded path outside the folders its family's files are read from
     (``readable_folders``, with the family's ``package_folder`` the record was read with),
     410 when the file is no longer there. Blocking.
     """
     storage_path = record.get("storage_path") or ""
-    if is_remote_uri(storage_path):
-        # Not gone: it is in the bucket the package was imported from.
-        raise HTTPException(
-            status_code=409,
-            detail="The file is kept in an object store at its gs:// or s3:// URI; it is not downloaded through CoGA.",
-        )
     folders = readable_folders(record.get("package_folder"))
     path = readable_local_path(storage_path, folders) if storage_path else None
     if storage_path and path is None:
@@ -299,20 +262,15 @@ async def record_raw_import_file(
     compute_checksum: bool = True,
     file_type: str | None = None,
     metadata: dict[str, Any] | None = None,
-    checksum_path: Path | None = None,
 ) -> None:
     """Upsert a single provenance row.
 
     When ``compute_checksum`` is set and the checksum/size are not supplied, the
-    file at ``storage_path`` is streamed to derive them -- or ``checksum_path``, a
-    local copy of it, when ``storage_path`` is not a local file (the staged copy of an
-    object in a bucket). Insertion is idempotent on (family, sample, storage_path) so
-    re-imports refresh rather than duplicate.
+    file at ``storage_path`` is streamed to derive them. Insertion is idempotent on
+    (family, sample, storage_path) so re-imports refresh rather than duplicate.
     """
     if (sha256 is None or file_size is None) and compute_checksum:
-        computed_sha, computed_size = await asyncio.to_thread(
-            _hash_and_size, checksum_path or Path(storage_path)
-        )
+        computed_sha, computed_size = await asyncio.to_thread(_hash_and_size, Path(storage_path))
         if sha256 is None:
             sha256 = computed_sha
         if file_size is None:
@@ -468,25 +426,13 @@ def _row_to_dict(row: Any, folders: Iterable[str] | None = None) -> dict[str, An
     caller already has them."""
     record = dict(row)
     storage_path = record.get("storage_path") or ""
-    package_folder = record.get("package_folder")
-    # A file kept in an object store is not a local path: it is not checked when the
-    # list is built (that would cost a store request per row) -- Verify asks the store
-    # -- and it is not downloaded through CoGA.
-    in_object_store = is_remote_uri(storage_path)
-    exists: bool | None = None
-    # A recorded location CoGA does not read from: a local path outside its family's folders,
-    # or an object outside its family's bucket package, which Verify refuses too.
-    outside = in_object_store and not readable_remote_uri(storage_path, package_folder)
-    if not in_object_store:
-        # A recorded path outside the folders its family's files are read from is shown
-        # unavailable, whether or not a file lies there: it is not looked up.
-        if folders is None:
-            folders = readable_folders(package_folder)
-        path = readable_local_path(storage_path, folders) if storage_path else None
-        exists = path is not None and os.path.isfile(path)
-        outside = bool(storage_path) and path is None
-    record["in_object_store"] = in_object_store
-    record["outside_read_folders"] = outside
+    # A recorded path outside the folders its family's files are read from is shown
+    # unavailable, whether or not a file lies there: it is not looked up.
+    if folders is None:
+        folders = readable_folders(record.get("package_folder"))
+    path = readable_local_path(storage_path, folders) if storage_path else None
+    exists = path is not None and os.path.isfile(path)
+    record["outside_read_folders"] = bool(storage_path) and path is None
     record["exists"] = exists
     record["download_available"] = bool(exists)
     created = record.get("created_at")
@@ -590,19 +536,13 @@ _VERIFY_TIMEOUT_SECONDS = 30
 
 
 async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
-    """Recompute the SHA-256 of the stored file and compare to the recorded value; for a
-    file kept in an object store, compare the object with the store's record of it.
+    """Recompute the SHA-256 of the stored file and compare to the recorded value.
 
-    A recorded location CoGA does not read from is refused (403) before anything is read or
-    the store is asked: a local path outside its family's package folder and the upload folder
-    (``readable_folders``, with the record's ``package_folder``), an object outside its
-    family's bucket package folder (``readable_remote_uri``)."""
+    A recorded location CoGA does not read from is refused (403) before anything is read: a
+    path outside its family's package folder and the upload folder (``readable_folders``, with
+    the record's ``package_folder``)."""
     storage_path = record.get("storage_path") or ""
     package_folder = record.get("package_folder")
-    if is_remote_uri(storage_path):
-        if not readable_remote_uri(storage_path, package_folder):
-            raise _refuse_outside_folders(record, OUTSIDE_PACKAGE_OBJECT_DETAIL)
-        return await asyncio.to_thread(_verify_object_in_store, record)
     expected = record.get("sha256")
 
     def readable() -> str | None:
@@ -674,63 +614,6 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
         "expected_sha256": expected,
         "computed_sha256": computed_sha,
         "message": "Checksum does NOT match the recorded value. The file may be corrupted or altered.",
-    }
-
-
-def _verify_object_in_store(record: dict[str, Any]) -> dict[str, Any]:
-    """Check a file kept in an object store against what was recorded at import.
-
-    The object must still exist, with the recorded size and, where recorded, the same
-    generation (GCS) or version id (S3); an S3 object without a version id is compared
-    by ETag, which changes when it is rewritten. The bytes are not re-hashed: a staged
-    file was hashed at import, and an alignment is tens of GB. Blocking (store request).
-    """
-    base = {
-        "file_id": record["id"],
-        "expected_sha256": record.get("sha256"),
-        "computed_sha256": None,
-    }
-    try:
-        current = remote_object_identity(record["storage_path"])
-    except Exception as exc:
-        # Not a verdict on the file: the store did not answer.
-        raise HTTPException(
-            status_code=502, detail="The object store could not be reached to verify this file."
-        ) from exc
-    if current is None:
-        return {
-            **base,
-            "status": "missing",
-            "message": "The object is no longer in the store at its recorded location.",
-        }
-    recorded = _json_object(_json_object(record.get("metadata")).get("store_object"))
-    checks: list[tuple[str, Any, Any]] = []  # (what, recorded, found now)
-    if record.get("file_size") is not None:
-        checks.append(("size", record["file_size"], current.get("size")))
-    if recorded.get("generation") is not None:
-        checks.append(("generation", recorded["generation"], current.get("generation")))
-    if recorded.get("version_id") is not None:
-        checks.append(("version id", recorded["version_id"], current.get("version_id")))
-    elif current.get("store") == "s3" and recorded.get("etag") is not None:
-        checks.append(("ETag", recorded["etag"], current.get("etag")))
-    if not checks:
-        return {
-            **base,
-            "status": "unverifiable",
-            "message": "Nothing was recorded about this object at import; there is nothing to compare it with.",
-        }
-    differences = [f"its {what} is {now!r}, recorded {then!r}" for what, then, now in checks if then != now]
-    if differences:
-        return {
-            **base,
-            "status": "mismatch",
-            "message": "The object in the store is not the one imported: " + "; ".join(differences) + ".",
-        }
-    compared = " and ".join(what for what, _then, _now in checks)
-    return {
-        **base,
-        "status": "verified",
-        "message": f"The object is in the store with the recorded {compared}. Its content is not re-hashed here.",
     }
 
 

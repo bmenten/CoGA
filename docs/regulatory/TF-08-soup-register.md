@@ -57,8 +57,6 @@ release, not maintained by hand. **Reconciled with the lockfile on 2026-11-05.**
 | pandas / numpy | 3.1.0 / 2.5.4 | CNV knowledgebase build, analysis; numpy also the exploratory ancestry PCA (outside the intended purpose, TF-01 §4) | M | Changelog |
 | requests / httpx / beautifulsoup4 | 2.34.2 / 0.28.1 / 4.15.0 | External fetches, parsing | M | CVE watch |
 | intervaltree | 3.2.1 | Interval ops | M | — |
-| boto3 | 1.43.123 | S3 object store: presigned access (`STORAGE_BACKEND=s3`) | M | CVE |
-| google-cloud-storage | 3.17.1 | GCS object store: IAM-signed URLs, package staging (`STORAGE_BACKEND=gcs`) | M | CVE |
 | cloud-sql-python-connector[asyncpg] | 1.23.0 | mTLS to Cloud SQL Postgres (`POSTGRES_USE_CLOUD_SQL_CONNECTOR=true`) | H (security) | CVE |
 | PyYAML, python-dotenv, python-multipart, tqdm, greenlet | 6.0.3, 1.2.4, 0.0.33, 4.70.1, 3.5.6 | Support utilities | L–M | CVE watch |
 

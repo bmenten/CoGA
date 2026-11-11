@@ -16,7 +16,7 @@ before anything is looked up when it leaves that folder; one that stays must als
 real path, symlinks resolved, inside one of the family's own folders, ``<data>/<family>`` and
 ``<data>/families/<family>``; a family ID that is no single folder name has no folder
 (``core/family_folders.py``, shared with the alignment lookup). Through the app (``httpx`` on
-the ASGI app, local storage, a data directory in ``tmp_path``) the manifest, GET and HEAD
+the ASGI app, a data directory in ``tmp_path``) the manifest, GET and HEAD
 answer the same way. The remote-mode layout probe is tested in
 ``test_signal_track_router.py``. All IDs and files are synthetic.
 """
@@ -30,7 +30,6 @@ from typing import Any
 import httpx
 import pytest
 
-from backend.app.core.config import settings
 from backend.app.core.url_path import url_path
 from backend.app.routers import signal_tracks
 from backend.tests._family_folder_app import ORIGIN, asgi_client, sign_in_a_viewer_who_reads
@@ -67,12 +66,11 @@ def _found(family_id: str, relative_path: str) -> bytes | None:
 
 @pytest.fixture()
 def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An empty data directory in ``tmp_path`` that the lookup reads, in local storage mode.
+    """An empty data directory in ``tmp_path`` that the lookup reads.
     Returned as its real path, the one the lookup builds its paths from."""
     root = tmp_path / "data"
     root.mkdir()
     monkeypatch.setattr(signal_tracks, "DATA_DIR", root)
-    monkeypatch.setattr(settings, "storage_backend", "local")
     return Path(os.path.realpath(root))
 
 

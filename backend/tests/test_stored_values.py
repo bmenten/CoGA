@@ -10,7 +10,6 @@ from backend.app.services import (
     mitochondrial_analysis,
     panel_metadata_service,
     paraphase_pg,
-    raw_import_files_pg,
     reference_metadata_service,
     repeat_count_units,
     repeat_expansion_pg,
@@ -91,7 +90,6 @@ def test_every_service_reads_through_the_shared_readers() -> None:
         annotation_manifest_service._as_dict,
         panel_metadata_service._jsonb_dict,
         paraphase_pg._json_object,
-        raw_import_files_pg._json_object,
         reference_metadata_service._json_dict,
         repeat_count_units._json_field,
     ):

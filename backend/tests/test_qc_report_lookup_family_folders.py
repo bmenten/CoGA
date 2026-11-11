@@ -12,7 +12,7 @@ The folders are the family's own, as for the alignments and the signal tracks
 string, and dropped before anything is looked up when it leaves it; one that stays must also
 have its real path inside that folder; a family ID that is no single folder name has no
 folder; the folder must still lie under the import roots. A report found nowhere is answered
-404. Through the app (``httpx`` on the ASGI app, local storage, a data directory
+404. Through the app (``httpx`` on the ASGI app, a data directory
 in ``tmp_path``, its packages folder the import root as deployed) the link and the report
 answer the same way. All IDs and files are synthetic.
 """
@@ -61,13 +61,12 @@ def _refused(family_id: str, relative_path: str) -> int | None:
 
 @pytest.fixture()
 def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An empty data directory in ``tmp_path`` that the lookup reads, in local storage mode,
+    """An empty data directory in ``tmp_path`` that the lookup reads,
     its packages folder the import root (as deployed: ``/data/families``). Returned as its
     real path, the one the lookup builds its paths from."""
     root = tmp_path / "data"
     (root / "families").mkdir(parents=True)
     monkeypatch.setattr(family_qc_reports, "DATA_DIR", root)
-    monkeypatch.setattr(settings, "storage_backend", "local")
     monkeypatch.setattr(settings, "family_import_roots", [str(root / "families")])
     monkeypatch.setattr(settings, "secret_key", "x" * 40)
     return Path(os.path.realpath(root))

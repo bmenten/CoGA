@@ -142,9 +142,8 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
             return { data: [] as SignalTrackManifestEntryOut[] };
           }),
         ]);
-        // In S3 mode the manifest returns absolute presigned URLs (auth is baked
-        // into the URL); IGV must fetch those directly without our bearer header.
-        // In local mode the URLs are backend-relative and need the API base + auth.
+        // The manifests hand out backend-relative URLs, which need the API base and the
+        // session's token. An absolute URL is fetched as given, and never gets the token.
         const alignmentTracks = (manifestResponse.data as AlignmentManifestEntryOut[]).map((entry) => ({
           name: entry.sample_id,
           type: 'alignment',

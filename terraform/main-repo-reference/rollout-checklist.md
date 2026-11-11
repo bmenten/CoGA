@@ -48,7 +48,7 @@ CoGA refers to them, so a failed apply is safe to retry.
 
 ```bash
 gcloud services list --enabled --project PROJECT_ID \
-  | grep -E 'run|sqladmin|cloudkms|secretmanager|storage|iamcredentials|dns'
+  | grep -E 'run|sqladmin|cloudkms|secretmanager|storage|dns'
 gcloud iam service-accounts list --project PROJECT_ID \
   | grep -E 'coga-backend-run|coga-frontend-run|coga-clickhouse-vm|coga-db-migrate'
 gcloud projects get-iam-policy PROJECT_ID --flatten='bindings[].members' \

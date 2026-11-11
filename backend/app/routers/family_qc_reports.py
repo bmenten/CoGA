@@ -30,13 +30,12 @@ from urllib.parse import urlencode
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import LOCAL_TOKEN_ALGORITHM, settings
 from ..core.family_folders import PACKAGES_FOLDER, family_folders, path_in_family_folder
-from ..core.object_storage import object_exists, object_key, presigned_get_url, storage_is_remote
 from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
@@ -144,21 +143,11 @@ async def _recorded_report_path(
     return _RecordedReport(report.path.strip(), report.package_folder)
 
 
-def _stored_report_url(family_id: str, relative_path: str) -> str:
-    """Remote mode: a short-lived URL of the report's object under the storage prefix; 404
-    when the object is gone. Both are requests to the object store, so the routes run this in
-    a worker thread, off the event loop."""
-    key = object_key(family_id, relative_path)
-    if not object_exists(key):
-        raise HTTPException(status_code=404, detail="QC report file is no longer available")
-    return presigned_get_url(key, filename=Path(relative_path).name)
-
-
 def _resolve_report_file(family_id: str, relative_path: str, package_folder: object = None) -> Path:
     """The file the recorded relative path names in the package folder the family's import
-    read, ``package_folder``, when that lies below a local import root
-    (``local_family_package_folder``: a package on a share mounted as a second root is read
-    where it lies), else in the family's package folder ``<data>/families/<family>``, else
+    read, ``package_folder``, when that lies below an import root
+    (``local_family_package_folder``: a package on a mounted share or bucket is read where it
+    lies), else in the family's package folder ``<data>/families/<family>``, else
     in its flat folder ``<data>/<family>``; 404 when none holds it.
 
     The path comes back from ``samples.metadata`` as data: an edited row can hold ``..``
@@ -203,12 +192,6 @@ async def get_family_qc_report_link(
     report = await _recorded_report_path(session, family_id=family_id, sample_id=sample_id, user=user)
     relative_path = report.path
     expires_at = datetime.now(timezone.utc) + QC_REPORT_LINK_TTL
-    if storage_is_remote():
-        return FamilyQcReportLinkOut(
-            url=await asyncio.to_thread(_stored_report_url, family_id, relative_path),
-            expires_at=expires_at,
-            filename=Path(relative_path).name,
-        )
     # Confirm the file is there before handing out a link that would 404 on click; the file
     # system is read in a worker thread.
     await asyncio.to_thread(_resolve_report_file, family_id, relative_path, report.package_folder)
@@ -238,11 +221,6 @@ async def get_family_qc_report(
     _verify_qc_report_token(token, family_id, sample_id)
     report = await _recorded_report(session, family_id=family_id, sample_id=sample_id)
     relative_path = report.path.strip()
-    if storage_is_remote():
-        return RedirectResponse(
-            await asyncio.to_thread(_stored_report_url, family_id, relative_path),
-            status_code=302,
-        )
     path = await asyncio.to_thread(_resolve_report_file, family_id, relative_path, report.package_folder)
     return FileResponse(
         path,

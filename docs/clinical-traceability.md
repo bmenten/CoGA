@@ -140,7 +140,7 @@ stays, inactive. Before and after hold the member and the annotations the change
 (`{"sample_id": …, "phenotypes": […]}`, each as an edit's event holds it): before, those altered
 or removed, as they were; after, those added or altered, as they are; as for an edit, none before
 when it only added and none after when it only removed. The summary names five changes at most;
-the metadata names the package (its folder or bucket) or uploaded file, the phenotype files and
+the metadata names the package (its folder) or uploaded file, the phenotype files and
 the import job. An import that changes no phenotype writes none.
 
 The actions are `classification`, `tags`, `note`, `compound_het_pair`, `pedigree`, `phenotype`,

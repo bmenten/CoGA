@@ -1,6 +1,6 @@
 """Signal tracks and QC reports are served only from their own family's folders (E2E).
 
-With local storage the CNV caller's signal files and the sequencing-QC report are served from
+The CNV caller's signal files and the sequencing-QC report are served from
 the path the import recorded on the sample (``samples.metadata``: ``signal_tracks``,
 ``sequencing_qc.report``), relative to the family's package folder ``<data>/families/<family>``.
 A check only that the path stays inside the data directory would let an edited row holding
@@ -91,9 +91,9 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
 
     out: dict[str, Any] = {}
-    saved = signal_tracks.DATA_DIR, family_qc_reports.DATA_DIR, settings.storage_backend, settings.family_import_roots
+    saved = signal_tracks.DATA_DIR, family_qc_reports.DATA_DIR, settings.family_import_roots
     signal_tracks.DATA_DIR = family_qc_reports.DATA_DIR = data
-    settings.storage_backend, settings.family_import_roots = "local", [str(data / "families")]
+    settings.family_import_roots = [str(data / "families")]
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
         async with AsyncClient(transport=transport, base_url="http://e2e") as admin:
@@ -146,7 +146,7 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
 
             out["reports"] = {sample_id: await report(family_id, sample_id) for family_id, sample_id in ((f1, s1), (f1, s3), (f3, s6), (f2, s2))}
     finally:
-        signal_tracks.DATA_DIR, family_qc_reports.DATA_DIR, settings.storage_backend, settings.family_import_roots = saved
+        signal_tracks.DATA_DIR, family_qc_reports.DATA_DIR, settings.family_import_roots = saved
         async with sessionmaker() as session:
             await session.execute(
                 text("DELETE FROM families WHERE family_id IN (:f1, :f2, :f3)"), {"f1": f1, "f2": f2, "f3": f3}

@@ -496,7 +496,7 @@ async def download_raw_import_file(
 ) -> FileResponse:
     record = await get_raw_import_file_record(session, file_id=file_id)
     # The recorded path is data: only a file inside the folders CoGA reads source files from
-    # is served, by its real path (409 object store, 403 elsewhere, 410 gone).
+    # is served, by its real path (403 elsewhere, 410 gone).
     path = await asyncio.to_thread(local_file_to_download, record)
     return FileResponse(
         path=path,

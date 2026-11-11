@@ -2,7 +2,7 @@
 
 On a VM a network share is mounted read-only as a second import root
 (``FAMILY_IMPORT_ROOTS=/data/families,/data/share``, docs/deployment-vm.md), and its packages
-are imported in place. With local storage the genome browser finds a sample's reads, and its
+are imported in place. The genome browser finds a sample's reads, and its
 QC report, where the package lies, not only in the family's folders (``<data>/<family>`` and
 ``<data>/families/<family>``), so a package on the share shows its reads in IGV and opens its
 report.
@@ -80,10 +80,9 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
 
     out: dict[str, Any] = {"files": files, "family": family, "sample": sample}
     routers = (cram, signal_tracks, family_qc_reports)
-    saved = [router.DATA_DIR for router in routers], settings.storage_backend, settings.family_import_roots
+    saved = [router.DATA_DIR for router in routers], settings.family_import_roots
     for router in routers:
         router.DATA_DIR = data
-    settings.storage_backend = "local"
     settings.family_import_roots = [str(data / "families"), str(data / "share")]
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
@@ -107,7 +106,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
             report = (await admin.get(f"/api{link.json()['url']}")).content if link.status_code == 200 else None
             out["report"] = (link.status_code, report)
     finally:
-        directories, settings.storage_backend, settings.family_import_roots = saved
+        directories, settings.family_import_roots = saved
         for router, directory in zip(routers, directories):
             router.DATA_DIR = directory
     return out

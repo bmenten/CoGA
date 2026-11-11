@@ -3234,9 +3234,8 @@ export interface RawImportFileOut {
   sha256: string | null;
   source: string;
   created_at: string | null;
-  exists: boolean | null;
+  exists: boolean;
   download_available: boolean;
-  in_object_store: boolean;
   outside_read_folders: boolean;
 }
 

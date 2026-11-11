@@ -60,7 +60,6 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionm
 
 from ..core.coga_logging import describe_error
 from ..core.config import settings
-from ..core.object_storage import is_remote_uri
 from ..core.postgres import get_postgres_engine, get_postgres_sessionmaker
 from ..schemas import (
     ApiId,
@@ -137,15 +136,12 @@ class DeliveryIssue(BaseModel):
 
 def watch_roots() -> list[Path]:
     """The watched import folders: each local folder of FAMILY_IMPORT_WATCH_ROOTS that lies under
-    FAMILY_IMPORT_ROOTS (any folder, in development with no roots configured), resolved. One that
-    is a bucket, or outside the import roots, is left out, and the log says how many."""
+    FAMILY_IMPORT_ROOTS (any folder, in development with no roots configured), resolved. One
+    outside the import roots is left out, and the log says how many."""
     roots: list[Path] = []
     import_roots = _authorized_local_roots()
     left_out = 0
     for written in settings.family_import_watch_roots:
-        if is_remote_uri(written):
-            left_out += 1
-            continue
         path = Path(written).expanduser().resolve()
         if settings.family_import_roots and not any(path == root or root in path.parents for root in import_roots):
             left_out += 1
@@ -154,8 +150,7 @@ def watch_roots() -> list[Path]:
             roots.append(path)
     if left_out:
         logger.warning(
-            "%d of FAMILY_IMPORT_WATCH_ROOTS is not watched: a bucket, or a folder outside "
-            "FAMILY_IMPORT_ROOTS",
+            "%d of FAMILY_IMPORT_WATCH_ROOTS is not watched: a folder outside FAMILY_IMPORT_ROOTS",
             left_out,
         )
     return roots

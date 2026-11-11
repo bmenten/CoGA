@@ -8,7 +8,7 @@ no package file and no manifest, lying in a watched import folder:
   (the members and the dataset Discover proposes, written into it), checked it without a file list
   (a warning says so), and it is ready; the addition is on the ``system:import-inbox`` chain;
 - the folder is not added twice while its delivery is open (409); a folder that holds its own
-  package file, a bucket package and a project CoGA does not have are refused;
+  package file and a project CoGA does not have are refused;
 - the watcher's rounds over the watched folder leave it as it is: never superseded, never gone;
 - corrected (a clinical status) and approved on that revision, its import runs, the family's
   member has the corrected status, and the family's record names the delivery as added by hand;
@@ -76,7 +76,6 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         url = f"/api/family-imports/deliveries/{delivery_id}"
         out["added_again"] = await add(folder_path=str(folder))
         out["with_file"] = await add(folder_path=str(with_file))
-        out["bucket"] = await add(folder_path="gs://bucket/imports/FAM1")
         out["unknown_project"] = await add(folder_path=str(folder), project_id=str(uuid4()))
         out["package"] = capture(await client.get(f"{url}/package"))
 
@@ -173,7 +172,6 @@ def test_a_folder_added_by_hand_is_a_delivery_whose_package_coga_made(ran) -> No
 def test_what_is_not_added_by_hand(ran) -> None:
     assert ran["added_again"]["status"] == 409
     assert ran["with_file"]["status"] == 409 and "watched import folder" in ran["with_file"]["json"]["detail"]
-    assert ran["bucket"]["status"] == 400
     assert ran["unknown_project"]["status"] == 404
 
 

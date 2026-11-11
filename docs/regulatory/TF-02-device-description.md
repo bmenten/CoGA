@@ -158,7 +158,7 @@ which the clinical report in the EPD quotes by its report code (§3; the owner's
   ([application-scheme.md](../application-scheme.md#import-worker-processes)).
 - **Postgres:** authoritative for metadata, users/projects, review state, ACMG blobs, audit logs, repeat/Paraphase results, gene/HPO/panel cache, version manifest, sign-out snapshots.
 - **ClickHouse:** authoritative for variant payloads and interval tracks per assembly, plus cross-project genotype aggregates.
-- **Filesystem / object store:** reference FASTA and BAM/CRAM for visualization (presigned, access-checked).
+- **Filesystem (local folders, a share or a bucket mounted as one):** reference FASTA, and the import packages, read where they lie; the backend serves their BAM/CRAM for visualization (access-checked).
 
 The [TF-08 SOUP Register](TF-08-soup-register.md) holds the complete component list, with
 versions and the risk classification of third-party components.

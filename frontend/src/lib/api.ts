@@ -47,9 +47,8 @@ const api = axios.create({
  * Resolve a URL the API handed back for the browser to fetch directly.
  *
  * Some endpoints return a *location* instead of the bytes (alignments for IGV, the
- * pipeline QC report). In object-storage mode those are absolute presigned URLs and
- * must be used as-is; otherwise they are **backend-relative** and need the API base
- * prefixed. Handing such a path straight to `window.open` makes the browser resolve it
+ * pipeline QC report). Those are **backend-relative** and need the API base prefixed; an
+ * absolute URL is used as it is. Handing such a path straight to `window.open` makes the browser resolve it
  * against the SPA origin, where the client router claims it and renders "page not
  * found" instead of the request ever reaching the backend.
  */

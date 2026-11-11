@@ -573,46 +573,9 @@ class Settings(BaseSettings):
     # its PURL. Off (an air-gapped deployment), the start downloads nothing and imports the
     # backup file. Which release is the newest, and where it comes from, is not a setting.
     hpo_download_latest_on_startup: bool = Field(default=True, alias="HPO_DOWNLOAD_LATEST_ON_STARTUP")
-    # Storage backend for raw family data (IGV alignments + family-package sources).
-    # "local" reads from the local filesystem (dev); "s3"/"gcs" read from a cloud
-    # object store (production) via presigned/signed URLs for IGV and temp staging
-    # for package import.
-    storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")
-    s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
-    s3_region: str | None = Field(default=None, alias="S3_REGION")
-    # Optional override for S3-compatible endpoints (e.g. MinIO) and local testing.
-    s3_endpoint_url: str | None = Field(default=None, alias="S3_ENDPOINT_URL")
-    # Optional key prefix prepended to every object key (e.g. "families").
-    s3_prefix: str = Field(default="", alias="S3_PREFIX")
-    s3_presign_expiry_seconds: int = Field(
-        default=3600,
-        ge=60,
-        le=604_800,
-        alias="S3_PRESIGN_EXPIRY_SECONDS",
-    )
-    # S3 client resilience (botocore Config): bounded connect/read timeouts + adaptive
-    # retries, so a slow/throttling object store cannot hang or fail a request unbounded.
-    s3_connect_timeout_seconds: float = Field(
-        default=5.0, gt=0, alias="S3_CONNECT_TIMEOUT_SECONDS"
-    )
-    s3_read_timeout_seconds: float = Field(
-        default=60.0, gt=0, alias="S3_READ_TIMEOUT_SECONDS"
-    )
-    s3_max_attempts: int = Field(default=5, ge=1, le=10, alias="S3_MAX_ATTEMPTS")
-    # Google Cloud Storage backend (STORAGE_BACKEND=gcs). Credentials come from
-    # Application Default Credentials (Workload Identity on Cloud Run); signed URLs
-    # use IAM SignBlob, so no key file is needed. The presign TTL reuses
-    # S3_PRESIGN_EXPIRY_SECONDS.
-    gcs_bucket: str | None = Field(default=None, alias="GCS_BUCKET")
-    gcs_prefix: str = Field(default="", alias="GCS_PREFIX")
-    # Optional GCS project (mainly for emulators where it can't be inferred from ADC).
-    gcs_project: str | None = Field(default=None, alias="GCS_PROJECT")
-    # Optional override for a GCS-compatible endpoint (e.g. fake-gcs-server in tests,
-    # or a self-hosted store). When set, the client uses anonymous credentials.
-    gcs_endpoint_url: str | None = Field(default=None, alias="GCS_ENDPOINT_URL")
-    # Roots that Package Import may read family folders from. Defaults to the
-    # local /data/families; cloud deployments (Terraform, etc.) override this
-    # with an s3:// bucket prefix via FAMILY_IMPORT_ROOTS.
+    # The folders package import may read family folders from, comma-separated or a JSON list:
+    # local paths only. A bucket is read through a folder it is mounted on (on Cloud Run, a Cloud
+    # Storage volume), never by its gs:// or s3:// URI. Defaults to /data/families.
     family_import_roots: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["/data/families"], alias="FAMILY_IMPORT_ROOTS"
     )
@@ -819,13 +782,6 @@ class Settings(BaseSettings):
         # release it names: only a release build stamps APP_VERSION with that.
         return value.strip() or _unstamped_app_version()
 
-    @field_validator("storage_backend", mode="before")
-    @classmethod
-    def normalize_storage_backend(cls, value: object) -> object:
-        if isinstance(value, str):
-            return value.strip().lower() or "local"
-        return value
-
     @field_validator("audit_log_mode", mode="before")
     @classmethod
     def normalize_audit_log_mode(cls, value: object) -> object:
@@ -960,12 +916,15 @@ class Settings(BaseSettings):
                 "POSTGRES_USE_CLOUD_SQL_CONNECTOR=true requires "
                 "POSTGRES_INSTANCE_CONNECTION_NAME (project:region:instance)."
             )
-        if self.storage_backend not in {"local", "s3", "gcs"}:
-            raise ValueError("STORAGE_BACKEND must be one of: local, s3, gcs")
-        if self.storage_backend == "s3" and not self.s3_bucket:
-            raise ValueError("STORAGE_BACKEND=s3 requires S3_BUCKET to be set")
-        if self.storage_backend == "gcs" and not self.gcs_bucket:
-            raise ValueError("STORAGE_BACKEND=gcs requires GCS_BUCKET to be set")
+        for name, entries in (
+            ("FAMILY_IMPORT_ROOTS", self.family_import_roots),
+            ("FAMILY_IMPORT_WATCH_ROOTS", self.family_import_watch_roots),
+        ):
+            if any("://" in entry for entry in entries):
+                raise ValueError(
+                    f"{name} names local folders only: mount a bucket (gs://, s3://) as a folder "
+                    "and name that folder."
+                )
         if self.login_rate_limit_base_backoff_seconds > self.login_rate_limit_max_backoff_seconds:
             raise ValueError(
                 "LOGIN_RATE_LIMIT_BASE_BACKOFF_SECONDS must be less than or equal to LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS"

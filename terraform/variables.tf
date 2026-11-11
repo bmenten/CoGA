@@ -276,27 +276,6 @@ variable "trusted_proxy_hops" {
   }
 }
 
-variable "family_import_roots" {
-  description = "Locations Package Import may read family folders from (FAMILY_IMPORT_ROOTS). Empty = 'gs://<phi bucket>/imports' when storage_backend is gcs, otherwise the application default. Upload packages under that prefix."
-  type        = list(string)
-  default     = []
-}
-
-# ---------------------------------------------------------------------------
-# Object storage backend
-# ---------------------------------------------------------------------------
-
-variable "storage_backend" {
-  description = "Backend for raw family data: local or gcs. Flip to gcs once the PHI bucket is populated; the backend then serves IGV via IAM-signed URLs and stages imports from gs://. The backend's s3 is not offered: nothing here creates an S3 bucket or sets S3_BUCKET, without which the API refuses to start."
-  type        = string
-  default     = "local"
-
-  validation {
-    condition     = contains(["local", "gcs"], var.storage_backend)
-    error_message = "storage_backend must be local or gcs."
-  }
-}
-
 # ---------------------------------------------------------------------------
 # Monitoring and alerting (monitoring.tf, docs/monitoring.md)
 # ---------------------------------------------------------------------------

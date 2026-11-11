@@ -63,7 +63,7 @@ async def list_available_family_packages(
     # A superuser and an administrator see every project's families, so the families imported
     # from a folder tell the caller nothing they may not know.
     del user
-    # Offloaded: scanning an s3:// root makes blocking network calls.
+    # Offloaded: it lists the import folders, which may be a network share or a mounted bucket.
     packages = await asyncio.to_thread(scan_family_import_packages)
     folders = [str(package["folder_path"]) for package in packages]
     imported = await imported_package_folders(session, folders)

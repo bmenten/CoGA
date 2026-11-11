@@ -1,14 +1,11 @@
-"""Async offloading and caching:
-- cram manifest resolves samples concurrently while preserving order + dedup,
-- object_storage.download_prefix downloads every object under a prefix.
+"""The CRAM manifest resolves samples concurrently, off the event loop, while preserving order
+and dropping duplicates.
 """
 import threading
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from app.core import object_storage as s
 from app.routers import cram
 
 
@@ -90,64 +87,3 @@ async def test_get_cram_header_offloads_blocking_read(monkeypatch):
     # The blocking pysam read is offloaded off the event loop via asyncio.to_thread,
     # not awaited inline (the offloaded callable is the patched _read_alignment_header).
     assert offloaded == ["fake_read"]
-
-
-# --------------------------------------------------------------------------- #
-# object_storage.download_prefix                                              #
-# --------------------------------------------------------------------------- #
-class _FakePaginator:
-    def __init__(self, pages):
-        self._pages = pages
-
-    def paginate(self, Bucket, Prefix):
-        return list(self._pages)
-
-
-class _FakeClient:
-    def __init__(self, pages):
-        self._pages = pages
-        self.downloaded: list[tuple[str, str]] = []
-        self._lock = threading.Lock()
-
-    def get_paginator(self, name):
-        return _FakePaginator(self._pages)
-
-    def download_file(self, bucket, key, target):
-        with self._lock:
-            self.downloaded.append((key, target))
-        Path(target).write_text("x")
-
-
-def test_download_prefix_downloads_all_objects(monkeypatch, tmp_path):
-    pages = [
-        {
-            "Contents": [
-                {"Key": "fam/F1/a.vcf.gz"},
-                {"Key": "fam/F1/sub/b.cram"},
-                {"Key": "fam/F1/"},  # directory marker -> skipped
-            ]
-        },
-        {"Contents": [{"Key": "fam/F1/c.bam"}]},
-    ]
-    client = _FakeClient(pages)
-    monkeypatch.setattr(s, "_s3_client", lambda: client)
-
-    count = s.download_prefix("s3://bucket/fam/F1", tmp_path)
-
-    assert count == 3
-    assert (tmp_path / "a.vcf.gz").read_text() == "x"
-    assert (tmp_path / "sub" / "b.cram").read_text() == "x"
-    assert (tmp_path / "c.bam").read_text() == "x"
-    assert {key for key, _ in client.downloaded} == {
-        "fam/F1/a.vcf.gz",
-        "fam/F1/sub/b.cram",
-        "fam/F1/c.bam",
-    }
-
-
-def test_download_prefix_empty_returns_zero(monkeypatch, tmp_path):
-    client = _FakeClient([{"Contents": []}])
-    monkeypatch.setattr(s, "_s3_client", lambda: client)
-
-    assert s.download_prefix("s3://bucket/fam/F1", tmp_path) == 0
-    assert client.downloaded == []

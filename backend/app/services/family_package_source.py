@@ -1,28 +1,15 @@
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager, contextmanager
-from contextvars import ContextVar
-from dataclasses import dataclass
 import errno
 import json
 import os
 from pathlib import Path
-import shutil
-import stat
-import tempfile
 from typing import Any
 
 from fastapi import HTTPException
 import yaml
 
 from ..core.config import settings
-from ..core.object_storage import (
-    download_prefix,
-    is_remote_uri,
-    parse_remote_uri,
-    remote_uri_within,
-)
 from ..schemas import FamilyImportValidationIssue
 
 from .family_identifiers import visible
@@ -38,132 +25,36 @@ from .family_package_long_read import LONG_READ_SAMPLE_DATASET_FOLDERS, long_rea
 from .coga_package import PACKAGE_FILE_NAME
 
 
-# Aligned reads and their indexes. Staging a remote package leaves these in the store:
-# a whole-genome CRAM is tens of GB, /tmp on Cloud Run is memory, and nothing in the
-# import reads them -- the alignments importer records where they lie and the genome
-# browser streams them from the store through signed URLs. `.csi` alone is ambiguous:
-# it also indexes VCF/BCF files, which the importers do read, so a CSI stays in the
-# store only when it names the alignment it indexes (`<sample>.bam.csi`).
-_ALIGNMENT_SUFFIXES = (".cram", ".crai", ".bam", ".bai", ".bam.csi", ".cram.csi")
-
-
-def is_alignment_file(name: str) -> bool:
-    """Whether a package file is aligned reads or an index of them, by its name."""
-    return name.lower().endswith(_ALIGNMENT_SUFFIXES)
-
-
-@dataclass(frozen=True, slots=True)
-class StagedPackage:
-    """A family package ready for the path-based import code.
-
-    ``root`` is the local folder to read; ``source_uri`` the ``gs://``/``s3://`` folder
-    it was staged from (``None`` for a local package, used in place). A remote package's
-    alignments stay in the store: ``remote_only_files`` holds their package-relative
-    paths, so validation and provenance know the files exist although ``root`` lacks
-    them.
-    """
-
-    root: str
-    source_uri: str | None = None
-    remote_only_files: frozenset[str] = frozenset()
-
-
 def package_folder_path(folder_path: str | Path) -> str:
-    """The package folder as it should be stored and shown: a remote URI unchanged, a local
-    path with ``~`` expanded.
-
-    Passing a ``gs://`` or ``s3://`` URI through ``Path`` collapses the scheme's double slash
-    (``gs:/bucket/...``), and ``is_remote_uri`` no longer recognises the result. A queued
-    import is later run from the stored value, so it would look for a local folder.
-    """
-    if is_remote_uri(folder_path):
-        return str(folder_path).strip()
+    """The package folder as it should be stored and shown: the path with ``~`` expanded,
+    normalised."""
     # String operations only: nothing is read here. The import checks the folder against
     # FAMILY_IMPORT_ROOTS before it touches the file system.
     return os.path.normpath(os.path.expanduser(str(folder_path)))
 
 
-# The staged copy of the package the running import or validation downloaded from a bucket:
-# the one place under the staging root the folder guard admits. A typed path into the
-# staging root, or a root entry linked there, would read another import's staged copy.
-_CURRENT_STAGED_ROOT: ContextVar[Path | None] = ContextVar("coga_current_staged_package", default=None)
-
-
-def _staging_root() -> Path:
-    """Local scratch dir under which s3:// packages are staged for an import.
-
-    It must be this process's own folder. One planted on a shared temp dir, a symlink or
-    another user's folder, would put what it leads to under the staging root, so it is
-    refused (PermissionError, an OSError) rather than followed."""
-    root = Path(tempfile.gettempdir()) / "coga-family-imports"
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    info = os.lstat(root)
-    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
-        raise PermissionError(f"The staging folder {root} is not this process's own folder")
-    return root.resolve()
-
-
 def _authorized_local_roots() -> list[Path]:
-    return [
-        Path(root).expanduser().resolve()
-        for root in settings.family_import_roots
-        if not is_remote_uri(root)
-    ]
-
-
-def _authorized_s3_roots() -> list[str]:
-    return [root.strip() for root in settings.family_import_roots if is_remote_uri(root)]
-
-
-def within_remote_import_roots(uri: str) -> bool:
-    """Whether a remote URI names an object below one of the remote FAMILY_IMPORT_ROOTS:
-    the only folders package files are read from, so the only place a location the
-    import recorded may point."""
-    return any(remote_uri_within(uri, root) for root in _authorized_s3_roots())
-
-
-def within_family_package(uri: str, package_folder: object) -> bool:
-    """Whether the remote URI ``uri`` names an object in a family's own package folder,
-    ``package_folder``: the bucket folder its import read
-    (``families.metadata.package_import.folder_path``), below a remote FAMILY_IMPORT_ROOTS
-    entry. A location the import recorded on a sample (its aligned reads, its signal files)
-    is served only from there: a changed row can point at most at another of the
-    family's own files, never at another family's package in the import area.
-
-    False for a family without such a folder (never imported from a bucket), and for a folder
-    that is a bucket's root, holds an empty, ``.`` or ``..`` segment, or lies outside the
-    import roots. The URI is checked against the import roots too."""
-    if not isinstance(package_folder, str) or not within_remote_import_roots(package_folder):
-        return False
-    try:
-        folder = parse_remote_uri(package_folder)
-    except ValueError:
-        return False
-    if any(segment in {"", ".", ".."} for segment in folder.key.strip("/").split("/")):
-        return False
-    return remote_uri_within(uri, package_folder) and within_remote_import_roots(uri)
+    """The FAMILY_IMPORT_ROOTS folders, ``~`` expanded and symlinks resolved."""
+    return [Path(root).expanduser().resolve() for root in settings.family_import_roots]
 
 
 def local_family_package_folder(package_folder: object) -> str | None:
-    """The local folder a family's import read (``families.metadata.package_import.folder_path``),
-    as its real path, when it lies below a local FAMILY_IMPORT_ROOTS entry; ``None`` otherwise.
+    """The folder a family's import read (``families.metadata.package_import.folder_path``),
+    as its real path, when it lies below a FAMILY_IMPORT_ROOTS entry; ``None`` otherwise.
 
-    A file the import of a local package recorded on a sample, relative to the package (its
-    aligned reads, its signal files, its QC report), is looked up in this folder first
-    (``routers/cram.py``, ``routers/signal_tracks.py``, ``routers/family_qc_reports.py``). A
-    package is read where it lies, so one on a share mounted as a second import root
-    (``/data/share``) keeps its files there; they used to be looked up only under
-    ``<data>/families/<family>``, and the genome browser found none of them.
+    A file the import recorded on a sample, relative to the package (its aligned reads, its
+    signal files, its QC report), is looked up in this folder first (``routers/cram.py``,
+    ``routers/signal_tracks.py``, ``routers/family_qc_reports.py``). A package is read where it
+    lies, so one on a mounted share or bucket keeps its files there.
 
     The folder comes back from the database as data, so it is checked as the import checks a
-    folder it reads: ``None`` for no folder, a ``gs://`` or ``s3://`` URI (a package imported
-    from a bucket, ``within_family_package``), a relative path or one holding NUL, the import
-    root itself, and a folder that lies, symlinks resolved, outside every local import root.
-    Also ``None`` for any folder when no local import root is configured: the empty
+    folder it reads: ``None`` for no folder, a relative path or one holding NUL, the import
+    root itself, and a folder that lies, symlinks resolved, outside every import root.
+    Also ``None`` for any folder when no import root is configured: the empty
     FAMILY_IMPORT_ROOTS of development admits any folder to import from, but nothing is served
     from a folder no root lists. Blocking: the folder's symlinks are resolved on disk.
     """
-    if not isinstance(package_folder, str) or not package_folder or is_remote_uri(package_folder):
+    if not isinstance(package_folder, str) or not package_folder:
         return None
     if NUL in package_folder or not os.path.isabs(package_folder):
         return None
@@ -178,16 +69,12 @@ def local_family_package_folder(package_folder: object) -> str | None:
 
 
 def _listed_package_folder(entry: Path) -> Path | None:
-    """The folder ``entry``, a name in a local import root, leads to, as selection takes it
+    """The folder ``entry``, a name in an import root, leads to, as selection takes it
     (``_ensure_authorized_package_path``: its symlinks resolved); None when the package list
     leaves it out.
 
     Left out: a folder selection refuses, a symlink that leads out of FAMILY_IMPORT_ROOTS
-    (403) or one that loops (400), and one in the staging root, which is no import root
-    (selection takes there only the package the running import staged). Nothing in a
-    folder left out is looked up. The list read the manifest of a folder linked out of the
-    root, showed the package under that manifest's family and analysis type, and named its
-    path outside the roots, which selection then refused.
+    (403) or one that loops (400). Nothing in a folder left out is looked up.
     """
     try:
         folder = _ensure_authorized_package_path(entry)
@@ -213,7 +100,7 @@ def _addable_package(folder: Path) -> bool | None:
 
 
 def scan_family_import_packages() -> list[dict[str, Any]]:
-    """The package folders under each local import root that can be added to Deliveries by hand
+    """The package folders under each import root that can be added to Deliveries by hand
     (import_manual_delivery.py): each one holding a ``*.ped`` file, at its top or in its ``ped/``
     folder (where the PGT pipeline writes it), or laid out per sample as the long-read pipeline
     writes its output (which has no PED for a couple screened for carriership), directly in a root
@@ -309,105 +196,21 @@ def _ensure_authorized_package_path(path: Path) -> Path:
 
 
 def _authorized_package_folder(path: Path) -> Path:
-    """``path`` resolved, when it lies under FAMILY_IMPORT_ROOTS or in the package the running
-    import staged; 403 otherwise. Callers go through ``_ensure_authorized_package_path``."""
+    """``path`` resolved, when it lies under FAMILY_IMPORT_ROOTS; 403 otherwise. Callers go
+    through ``_ensure_authorized_package_path``."""
     resolved = path.expanduser().resolve()
-    # The package this import or validation staged from a bucket (its s3:// or gs:// source
-    # was checked before the download), and nothing else under the staging root.
-    staged = _CURRENT_STAGED_ROOT.get()
-    if staged is not None and (resolved == staged or staged in resolved.parents):
-        return resolved
     allowed_roots = _authorized_local_roots()
     if any(resolved == root or root in resolved.parents for root in allowed_roots):
         return resolved
-    # Fail open ONLY when nothing is configured at all — the explicit "unrestricted" dev
-    # default (family_import_roots=[]). When roots ARE configured, a local path outside
-    # them is unauthorized: previously the guard fell open whenever no *local* root
-    # matched, so an S3-only (remote-only) FAMILY_IMPORT_ROOTS silently allowed any
-    # admin-supplied local path — an out-of-allowlist file read/write primitive.
-    if not settings.family_import_roots:
+    # Open only when no root is configured at all: the explicit "unrestricted" development
+    # default (family_import_roots=[]).
+    if not allowed_roots:
         return resolved
-    roots = ", ".join(str(root) for root in allowed_roots) or "(remote-only FAMILY_IMPORT_ROOTS)"
+    roots = ", ".join(str(root) for root in allowed_roots)
     raise HTTPException(
         status_code=403,
         detail=f"Family import path is outside configured FAMILY_IMPORT_ROOTS: {roots}",
     )
-
-
-def _ensure_authorized_s3_source(uri: str) -> str:
-    normalized = str(uri).strip()
-    allowed = _authorized_s3_roots()
-    if not allowed:
-        raise HTTPException(
-            status_code=403,
-            detail="S3 family import sources require an s3:// entry in FAMILY_IMPORT_ROOTS",
-        )
-    for root in allowed:
-        prefix = root.rstrip("/")
-        if normalized == prefix or normalized.startswith(prefix + "/"):
-            return normalized
-    raise HTTPException(
-        status_code=403,
-        detail=f"S3 source is outside configured FAMILY_IMPORT_ROOTS: {', '.join(allowed)}",
-    )
-
-
-def _stage_s3_package(uri: str) -> StagedPackage:
-    """Download a gs:// or s3:// package prefix into a fresh temp dir under the staging
-    root, leaving its alignments in the store (see ``is_alignment_file``)."""
-    _ensure_authorized_s3_source(uri)
-    dest = Path(tempfile.mkdtemp(prefix="pkg-", dir=_staging_root()))
-    left_in_store: set[str] = set()
-
-    def leave_in_store(relative_path: str) -> bool:
-        if not is_alignment_file(relative_path):
-            return False
-        left_in_store.add(relative_path)
-        return True
-
-    try:
-        downloaded = download_prefix(uri, dest, skip=leave_in_store)
-    except Exception:
-        shutil.rmtree(dest, ignore_errors=True)
-        raise
-    if downloaded == 0 and not left_in_store:
-        shutil.rmtree(dest, ignore_errors=True)
-        raise HTTPException(status_code=404, detail=f"No objects found at S3 family package source: {uri}")
-    return StagedPackage(root=str(dest), source_uri=uri, remote_only_files=frozenset(left_in_store))
-
-
-@contextmanager
-def staged_package_source(folder_path: str | Path):
-    """Yield a ``StagedPackage``. A gs:// or s3:// source is downloaded to a temp dir
-    (cleaned up on exit), all but its alignments; a local path is yielded unchanged."""
-    if is_remote_uri(folder_path):
-        staged = _stage_s3_package(str(folder_path).strip())
-        # Already resolved: mkdtemp made it in the resolved staging root.
-        token = _CURRENT_STAGED_ROOT.set(Path(staged.root))
-        try:
-            yield staged
-        finally:
-            _CURRENT_STAGED_ROOT.reset(token)
-            shutil.rmtree(staged.root, ignore_errors=True)
-    else:
-        yield StagedPackage(root=str(folder_path))
-
-
-@asynccontextmanager
-async def staged_package_source_async(folder_path: str | Path):
-    """Async variant: the download (and cleanup) run in a worker thread so the event
-    loop is not blocked during a large package transfer."""
-    if is_remote_uri(folder_path):
-        staged = await asyncio.to_thread(_stage_s3_package, str(folder_path).strip())
-        # Already resolved: mkdtemp made it in the resolved staging root.
-        token = _CURRENT_STAGED_ROOT.set(Path(staged.root))
-        try:
-            yield staged
-        finally:
-            _CURRENT_STAGED_ROOT.reset(token)
-            await asyncio.to_thread(shutil.rmtree, staged.root, True)
-    else:
-        yield StagedPackage(root=str(folder_path))
 
 
 def package_folder_link_issues(root: Path) -> list[FamilyImportValidationIssue]:

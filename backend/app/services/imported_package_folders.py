@@ -4,8 +4,7 @@ A package folder stays on the share it was delivered to: CoGA never moves it, an
 alignments and the QC report from it after the import. The import page's list of the folders in
 the import roots therefore keeps every folder ever imported, and a folder that was imported reads
 like one that waits. Each family a package import registered names the folder it was imported
-from (``families.metadata.package_import.folder_path``: a local folder's real path, or a bucket
-folder's URI), so the list is told, per folder, which families were imported from it, when their
+from (``families.metadata.package_import.folder_path``: the folder's real path), so the list is told, per folder, which families were imported from it, when their
 last import registered them, and whether that import did not complete or is still running
 (``import_incomplete``, ``import_unfinished``). Nothing in the folders is read: the record is the
 family's.
@@ -42,8 +41,8 @@ _IMPORTED_FROM = text(
 
 
 def folder_key(folder_path: str) -> str:
-    """A folder as the list and a package record are compared by: a bucket folder's URI without
-    the ``/`` it may end with (a local folder's real path ends with none)."""
+    """A folder as the list and a package record are compared by: its path without a ``/`` it
+    may end with."""
     return folder_path.rstrip("/") or folder_path
 
 

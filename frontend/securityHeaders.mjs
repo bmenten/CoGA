@@ -5,17 +5,17 @@
 // The CSP is enforcing, widened only where the app genuinely needs it:
 //   - 'wasm-unsafe-eval'      IGV compiles WebAssembly (e.g. CRAM decoding)
 //   - img-src/worker-src blob: IGV/canvas render via blob URLs and web workers
-//   - connect-src https:       presigned-S3 host (config-driven) + remote IGV tracks
+//   - connect-src https:       remote IGV genomes and tracks (config-driven)
 //   - Google Fonts            style/font from fonts.googleapis.com / fonts.gstatic.com
 //   - frame-ancestors 'none'   blocks clickjacking (no view is meant to be embedded)
 // If an unforeseen origin is blocked in staging, switch the header name to
 // `Content-Security-Policy-Report-Only` to observe before enforcing.
 //
 // connect-src defaults to any HTTPS host: IGV loads its hosted genomes from a
-// changing set of hosts (igv.org, several S3 buckets, UCSC) and a presigned CRAM URL
-// points at whichever object store the backend uses, so a fixed list would break the
-// genome browser. A deployment that knows its hosts should narrow it with
-// CSP_CONNECT_SRC, e.g. "'self' https://storage.googleapis.com https://*.igv.org".
+// changing set of hosts (igv.org, several S3 buckets, UCSC), so a fixed list would break the
+// genome browser. A family's reads, tracks and QC report come from the backend ('self'). A
+// deployment that knows its hosts should narrow it with CSP_CONNECT_SRC, e.g.
+// "'self' https://*.igv.org".
 // 'unsafe-inline' stays in style-src because IGV injects inline styles.
 export const DEFAULT_CONNECT_SRC = "'self' https:";
 

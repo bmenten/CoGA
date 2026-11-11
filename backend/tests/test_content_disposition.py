@@ -1,7 +1,6 @@
 """A download named after a family or sample ID keeps its name in Content-Disposition.
 
-The PED download, the variant CSV exports and the signed URLs of a CRAM, a signal track or a
-QC report name the file after a family or sample ID. Such an ID is printable text without
+The PED download and the variant CSV exports name the file after a family ID. Such an ID is printable text without
 spaces, so it may hold a ``"``, a ``\\``, a ``%`` or a character outside ASCII. Put into the
 header as it is, the name would be cut at the quote or misread, and Starlette encodes a header
 as Latin-1. Such a name goes percent-encoded as UTF-8 in ``filename*``, with an ASCII stand-in
@@ -18,7 +17,6 @@ from typing import Any
 
 import pytest
 
-from backend.app.core import object_storage
 from backend.app.core.content_disposition import content_disposition
 from backend.app.core.csv_export import export_response_headers
 from backend.app.routers import admin
@@ -88,35 +86,3 @@ def test_an_export_names_the_file_after_any_family_id() -> None:
         cut = export_response_headers(f"family-{family_id}-small-variants", rows=10, truncated=True, limit=10)
         assert _read(full["Content-Disposition"]) == f"family-{family_id}-small-variants.csv"
         assert _read(cut["Content-Disposition"]) == f"family-{family_id}-small-variants-TRUNCATED-first-10.csv"
-
-
-def test_a_signed_url_names_the_file_after_any_sample_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
-
-    class _Blob:
-        def generate_signed_url(self, **kwargs: Any) -> str:
-            captured["gcs"] = kwargs["response_disposition"]
-            return "https://signed.example/x"
-
-    class _Client:
-        def bucket(self, _name: str) -> Any:
-            return type("_Bucket", (), {"blob": lambda self, _key: _Blob()})()
-
-    class _S3:
-        def generate_presigned_url(self, _operation: str, *, Params: dict[str, str], ExpiresIn: int) -> str:
-            captured["s3"] = Params["ResponseContentDisposition"]
-            return "https://signed.example/y"
-
-    monkeypatch.setattr(object_storage, "_gcs_client", lambda: _Client())
-    monkeypatch.setattr(object_storage, "_gcs_signing_credentials", lambda: ("sa@example.iam", "t"))
-    monkeypatch.setattr(object_storage, "_s3_client", lambda: _S3())
-    monkeypatch.setattr(object_storage.settings, "gcs_bucket", "phi-bucket")
-    monkeypatch.setattr(object_storage.settings, "s3_bucket", "phi-bucket")
-
-    for sample_id in AWKWARD:
-        for backend in ("gcs", "s3"):
-            monkeypatch.setattr(object_storage.settings, "storage_backend", backend)
-            object_storage.presigned_get_url("F1/S1.cram", filename=f"{sample_id}.cram", expires=60)
-            # Read back whole from the header.
-            assert captured[backend].startswith("inline; ")
-            assert _read(captured[backend]) == f"{sample_id}.cram"

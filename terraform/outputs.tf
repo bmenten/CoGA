@@ -29,7 +29,7 @@ output "clickhouse_internal_ip" {
 }
 
 output "phi_bucket" {
-  description = "GCS bucket for PHI family data, which the backend reads when storage_backend = \"gcs\"."
+  description = "GCS bucket for the import packages: its imports/ folder is mounted read-only into the backend at /data/imports, one folder per project."
   value       = google_storage_bucket.phi.name
 }
 

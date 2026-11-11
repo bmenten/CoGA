@@ -142,7 +142,7 @@
 | REQ-SEC-004 | Record an append-only HTTP audit log of who-accessed-what-when, with PII minimization. | C | H11 |
 | REQ-SEC-005 | Throttle/track failed logins. | B | H11 |
 | REQ-SEC-006 | Refuse to start in production with default secrets; mask secret-like fields in logs. | C | H11 |
-| REQ-SEC-007 | Issue PHI file (CRAM/BAM) access only after family+sample access checks (presigned URL). | C | H11 |
+| REQ-SEC-007 | Serve PHI files (CRAM/BAM) only after family+sample access checks, through the backend. | C | H11 |
 | REQ-SEC-008 | Grant rights by global role, lowest first, each role with the rights of the ones below it: a viewer only reads the records of their projects; an analyst also changes them where their project access level is analyst; a supervisor also signs an analysis out; a superuser also has every project and the gene panels, variant tags, filter presets, sequencing QC thresholds and package import (not the overwrite of an existing family); an admin, the whole administration. Refuse a sign-out below supervisor before any sign-out gate, writing nothing. | C | H11, H15 |
 
 ### 3.8 Ingestion & storage (REQ-DATA)

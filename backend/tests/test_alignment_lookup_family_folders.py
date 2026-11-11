@@ -1,6 +1,6 @@
 """The alignment lookup finds a sample's reads only in its own family's folders.
 
-In local storage mode the CRAM endpoints look for ``<sample>.cram`` (``.crai``, ``.bam``,
+The CRAM endpoints look for ``<sample>.cram`` (``.crai``, ``.bam``,
 ``.bai``) under five layouts in the family's two folders, ``<data>/<family>`` and
 ``<data>/families/<family>``. The family and sample IDs come from the request, and may hold
 ``/`` and ``..`` (the ID rule, refuses both in a stored ID, but a request is not held
@@ -12,7 +12,7 @@ F2's reads; a family ID that is no single folder name, such as ``families/F2``, 
 path that stays must also have its real path, symlinks resolved, inside one of the family's
 folders, so a symlinked folder leads into no other family's folder; and nothing outside the
 layouts is looked at, even when every layout is refused. Through the app (``httpx`` on the ASGI
-app, local storage, a data directory in ``tmp_path``) the manifest, GET and HEAD answer the same
+app, a data directory in ``tmp_path``) the manifest, GET and HEAD answer the same
 way. All IDs and files are synthetic.
 """
 
@@ -27,7 +27,6 @@ from fastapi import HTTPException
 import httpx
 import pytest
 
-from backend.app.core.config import settings
 from backend.app.core.url_path import url_path
 from backend.app.routers import cram
 from backend.tests._family_folder_app import ORIGIN, asgi_client, sign_in_a_viewer_who_reads
@@ -83,12 +82,11 @@ def _finds_nothing(family: str, sample: str) -> bool:
 
 @pytest.fixture()
 def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An empty data directory in ``tmp_path`` that the lookup reads, in local storage mode.
+    """An empty data directory in ``tmp_path`` that the lookup reads.
     Returned as its real path, the one the lookup builds its paths from."""
     root = tmp_path / "data"
     root.mkdir()
     monkeypatch.setattr(cram, "DATA_DIR", root)
-    monkeypatch.setattr(settings, "storage_backend", "local")
     return Path(os.path.realpath(root))
 
 
@@ -281,7 +279,6 @@ def test_no_fallback_when_an_id_climbs_out_of_every_layout(tmp_path: Path, monke
     data = tmp_path / "a" / "b" / "data"
     (data / "F1").mkdir(parents=True)
     monkeypatch.setattr(cram, "DATA_DIR", data)
-    monkeypatch.setattr(settings, "storage_backend", "local")
     _write(tmp_path / "x" / "S9.cram", b"outside")
 
     assert cram._alignment_candidate_paths("F1", "../../../../x/S9", "cram") == []

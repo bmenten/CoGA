@@ -58,15 +58,6 @@ beautifulsoup4
 intervaltree
 tqdm
 
-# AWS S3 access for production storage backend (STORAGE_BACKEND=s3): presigned URLs
-# for IGV alignments and staging of family-package sources.
-boto3
-
-# Google Cloud Storage access for production storage backend (STORAGE_BACKEND=gcs):
-# IAM-signed (SignBlob, keyless) URLs for IGV alignments and staging of
-# family-package sources. See app/core/object_storage.py.
-google-cloud-storage
-
 # Cloud SQL Python Connector for verify-full-grade TLS (mTLS) to Postgres over
 # private IP (POSTGRES_USE_CLOUD_SQL_CONNECTOR=true). See app/core/postgres.py.
 cloud-sql-python-connector[asyncpg]

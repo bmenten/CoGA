@@ -19,8 +19,7 @@ What differs from a pipeline's delivery:
 - No watcher looks at it: what CoGA holds changing (a project added, a family imported) does not
   check it again; a correction does.
 
-Refused: a bucket package (it keeps its own manifest), a folder outside the import roots or that
-cannot be read, a folder that holds its own ``coga-package.json`` (deliver it through a watched
+Refused: a folder outside the import roots or that cannot be read, a folder that holds its own ``coga-package.json`` (deliver it through a watched
 import folder), a family ID no family can be stored under, a project CoGA does not have, and a
 second open delivery of the same folder (409, naming it). The addition is an event on the clinical
 audit chain ``system:import-inbox``, by the person who made it.
@@ -41,7 +40,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from ..core.object_storage import is_remote_uri
 from ..core.postgres import get_postgres_sessionmaker
 from ..core.sql import require_uuid
 from ..schemas import ImportDeliveryOut
@@ -104,11 +102,6 @@ async def add_manual_delivery(
     for the project ``project_id``, as the family ``family_id`` (the folder's name when None), with
     the analysis ``analysis_type`` when given: make its package, check it, and record it as
     ``user``. Returns the delivery."""
-    if is_remote_uri(folder_path):
-        raise HTTPException(
-            status_code=400,
-            detail="A package in a bucket keeps its own manifest: only a local folder is added by hand.",
-        )
     # The project first: an ID that names none is refused as unknown, whatever the folder.
     project_uuid, project_name, assembly = await _project(session, project_id)
     folder = await asyncio.to_thread(_ensure_authorized_package_path, Path(folder_path))

@@ -1,15 +1,12 @@
-"""A local package's files are served from the folder its import read (STORAGE_BACKEND=local).
+"""A package's files are served from the folder its import read.
 
-A package is imported where it lies: one on a network share mounted read-only as a second
-import root (``FAMILY_IMPORT_ROOTS=/data/families,/data/share``, docs/deployment-vm.md) stays
-there. The imports record each file relative to the package (``samples.metadata``:
+A package is imported where it lies: one on a network share or a bucket mounted read-only as a
+second import root (``FAMILY_IMPORT_ROOTS=/data/families,/data/share``, docs/deployment-vm.md)
+stays there. The imports record each file relative to the package (``samples.metadata``:
 ``alignment``, ``signal_tracks``, ``sequencing_qc.report``), and the family the folder it read
-(``families.metadata.package_import.folder_path``). With local storage the genome browser's
-reads, the CNV caller's signal tracks and the QC report are looked up beyond the family's
-folders, ``<data>/<family>`` and ``<data>/families/<family>``, so a package on the share, or one
-under ``<data>/families`` in a folder not named after the family, shows its reads in IGV.
-
-The recorded file comes first, in the folder the family's import read, as in remote mode:
+(``families.metadata.package_import.folder_path``). The genome browser's reads, the CNV caller's
+signal tracks and the QC report are served from that folder, whatever it is called. The recorded
+file comes first, in the folder the family's import read:
 
 * the reads are served at ``/cram/<family>/<sample>.cram`` whatever the file is called, with the
   recorded index or the one beside them, never an index a layout probe found elsewhere;
@@ -17,9 +14,9 @@ The recorded file comes first, in the folder the family's import read, as in rem
   recorded file is gone;
 * a recorded path is data: one that leaves the package (``..``, an absolute path, a symlink into
   another package) or lacks its file's extension names no file;
-* the package folder is data too: it is used only when it lies, symlinks resolved, below a local
-  import root, and not when it is the root itself, a URI, a relative path, or when no local root
-  is configured.
+* the package folder is data too: it is used only when it lies, symlinks resolved, below an
+  import root, and not when it is the root itself, a relative path, or when no root is
+  configured.
 
 All IDs and files are synthetic.
 """
@@ -74,7 +71,6 @@ def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     _write(root / "share" / "PKG2", OTHER_PACKAGE_FILES)
     for module in (cram, signal_tracks, family_qc_reports):
         monkeypatch.setattr(module, "DATA_DIR", root)
-    monkeypatch.setattr(settings, "storage_backend", "local")
     monkeypatch.setattr(settings, "family_import_roots", [str(root / "families"), str(root / "share")])
     monkeypatch.setattr(settings, "secret_key", "k" * 64)
     return root
@@ -312,7 +308,6 @@ async def test_a_recorded_path_out_of_the_package_serves_nothing(
 # keeps them from being served.
 UNUSABLE_PACKAGE_FOLDERS = {
     "none recorded": lambda data: None,
-    "a bucket's URI": lambda data: "gs://phi/imports/PKG1",
     "a relative path": lambda data: "share/PKG1",
     "a NUL": lambda data: f"{data}/share/PKG1\x00",
     "outside the import roots": lambda data: str(data.parent / "outside" / "PKG1"),
@@ -349,13 +344,12 @@ async def test_no_file_is_served_from_an_import_root_itself(data: Path, monkeypa
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("roots", [[], ["gs://phi/imports"]], ids=["no roots", "remote roots only"])
-async def test_no_file_is_served_from_a_package_folder_without_a_local_import_root(
-    data: Path, monkeypatch: pytest.MonkeyPatch, roots: list[str]
+async def test_no_file_is_served_from_a_package_folder_without_an_import_root(
+    data: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # An empty FAMILY_IMPORT_ROOTS lets an import read any folder (development), but nothing
     # is served from a folder no root lists.
-    monkeypatch.setattr(settings, "family_import_roots", roots)
+    monkeypatch.setattr(settings, "family_import_roots", [])
     _members(monkeypatch, "F1", "S1")
     session = _Session({"S1": _alignment()}, _package(data))
 

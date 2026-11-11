@@ -1,9 +1,9 @@
-"""Outbound HTTP resilience (timeouts + capped retry/backoff) and S3 Config.
+"""Outbound HTTP resilience (timeouts + capped retry/backoff).
 
 The retry behaviour is exercised with ``httpx.MockTransport`` (no network) and backoff
 zeroed so the tests are fast: idempotent requests retry transient failures (transport
 errors + 429/5xx), non-idempotent requests and 4xx never retry, and the worst case is
-bounded. The S3 client is asserted to carry bounded timeouts + adaptive retries.
+bounded.
 """
 
 from __future__ import annotations
@@ -123,19 +123,3 @@ def test_default_timeout_reflects_settings(monkeypatch):
     monkeypatch.setattr(settings, "external_http_read_timeout_seconds", 7.0)
     timeout = default_timeout()
     assert timeout.connect == 3.0 and timeout.read == 7.0
-
-
-def test_s3_client_has_bounded_timeouts_and_retries():
-    pytest.importorskip("boto3")
-    from backend.app.core import object_storage
-
-    object_storage._s3_client.cache_clear()
-    config = object_storage._s3_client().meta.config
-    assert config.connect_timeout == settings.s3_connect_timeout_seconds
-    assert config.read_timeout == settings.s3_read_timeout_seconds
-    # botocore resolves max_attempts -> total_max_attempts (counting the initial attempt,
-    # so total == setting or setting+1 depending on version); assert adaptive + bounded.
-    retries = config.retries
-    assert retries["mode"] == "adaptive"
-    total = retries.get("total_max_attempts", retries.get("max_attempts"))
-    assert settings.s3_max_attempts <= total <= settings.s3_max_attempts + 1

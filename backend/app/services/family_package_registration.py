@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator, Collection, Iterable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
@@ -16,10 +15,6 @@ from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.object_storage import (
-    join_remote_uri,
-    remote_object_identity,
-)
 from ..core.postgres import get_postgres_sessionmaker
 from ..core.sql import canonical_uuid
 from ..schemas import (
@@ -218,13 +213,7 @@ async def _record_package_raw_files(
     The copy is written before the registration commits, so a commit that fails leaves it
     without a record.
 
-    Each row identifies its file's content. A local file is hashed where it lies. For a
-    package staged from a bucket the row names the object's URI -- the staging copy is
-    deleted after the import -- and carries the store's own record of the object
-    (``remote_object_identity``) under ``metadata.store_object``, which Verify compares
-    with the object later. A staged file is also hashed from its staged copy; a file
-    staging left in the store (an alignment) is not: its checksums are the store's, not
-    a SHA-256, so ``sha256`` stays empty."""
+    Each row names its file where it lies in the package folder, and is hashed there."""
     try:
         result = await session.execute(
             text(
@@ -237,60 +226,13 @@ async def _record_package_raw_files(
             str(row["sample_id"]): str(row["sample_uuid"]) for row in result.mappings().all()
         }
 
-        def _provenance_path(resolved: Path) -> str:
-            # For an S3-staged package, record the durable s3:// URI (the staging
-            # temp dir is deleted after the import); otherwise the local path.
-            if bundle.source_uri:
-                try:
-                    relative = resolved.relative_to(bundle.root)
-                except ValueError:
-                    return str(resolved)
-                return join_remote_uri(bundle.source_uri, str(relative))
-            return str(resolved)
-
-        def _held_where(resolved: Path) -> str | None:
-            # "staged" (a file in the package folder), "store" (one staging left in the
-            # object store -- a remote package's alignment, which the traceability
-            # record must still name) or None (not part of the package).
-            if resolved.is_file():
-                return "staged"
-            if _display_path(bundle.root, resolved) in bundle.remote_only_files:
-                return "store"
-            return None
-
         async def _record(
             resolved: Path,
-            held: str,
             *,
             scope: str,
             dataset_type: str,
             sample_uuid: str | None,
         ) -> None:
-            storage_path = _provenance_path(resolved)
-            content: dict[str, Any] = {}  # how the row identifies the file's content
-            if bundle.source_uri:
-                # The store's record of the object, for Verify to compare with later
-                # without re-hashing. A store error costs this row its identity, not
-                # the package its record.
-                try:
-                    identity = await asyncio.to_thread(remote_object_identity, storage_path)
-                except Exception:
-                    # Named by its dataset: the object's path holds the family's folder
-                    # name, often its ID, and a file name that can hold a sample's.
-                    logger.warning(
-                        "Could not read the object store's record of a %s file for provenance",
-                        dataset_type,
-                        exc_info=True,
-                    )
-                    identity = None
-                content["metadata"] = {"store_object": identity} if identity else None
-                if held == "staged":
-                    # The URI is not a local file: hash the staged copy.
-                    content["checksum_path"] = resolved
-                else:
-                    # Left in the store: its checksums are the store's, never a SHA-256.
-                    content["compute_checksum"] = False
-                    content["file_size"] = identity.get("size") if identity else None
             await record_raw_import_file(
                 session,
                 family_uuid=family_uuid,
@@ -298,10 +240,9 @@ async def _record_package_raw_files(
                 scope=scope,
                 dataset=dataset_type,
                 file_name=resolved.name,
-                storage_path=storage_path,
+                storage_path=str(resolved),
                 managed=False,
                 source="family_package",
-                **content,
             )
 
         for dataset_type, dataset in bundle.manifest.datasets.items():
@@ -309,12 +250,9 @@ async def _record_package_raw_files(
                 continue
             for value in _dataset_top_level_files(dataset).values():
                 resolved = _resolve_package_path(bundle.root, value)
-                held = _held_where(resolved) if resolved is not None else None
-                if resolved is None or held is None:
+                if resolved is None or not resolved.is_file():
                     continue
-                await _record(
-                    resolved, held, scope="family", dataset_type=dataset_type, sample_uuid=None
-                )
+                await _record(resolved, scope="family", dataset_type=dataset_type, sample_uuid=None)
             for sample_id, raw_entry in dataset.per_sample.items():
                 if not isinstance(raw_entry, dict):
                     continue
@@ -327,12 +265,10 @@ async def _record_package_raw_files(
                     ):
                         continue
                     resolved = _resolve_package_path(bundle.root, value)
-                    held = _held_where(resolved) if resolved is not None else None
-                    if resolved is None or held is None:
+                    if resolved is None or not resolved.is_file():
                         continue
                     await _record(
                         resolved,
-                        held,
                         scope="individual",
                         dataset_type=dataset_type,
                         sample_uuid=sample_uuid,
@@ -429,15 +365,14 @@ async def _register_package_provenance(
     pgt_metadata = _manifest_pgt_metadata(bundle.manifest)
     family_metadata["package_import"] = {
         "source": "family_package",
-        # The folder the package was imported from: for a bucket, its gs:// or s3://
-        # URI, since the staging copy is deleted after the import.
-        "folder_path": bundle.source_uri or str(bundle.root),
+        # The folder the package was imported from.
+        "folder_path": str(bundle.root),
         # The manifest the import read, the text CoGA kept for the import's job (the family's
         # raw files hold its copy), with its SHA-256.
         "manifest_source": MANIFEST_KEPT_IN_COGA,
         "manifest_sha256": bundle.manifest_sha256,
         # The fingerprint of the package folder the import read, taken before it read the folder
-        # (family_package_fingerprint.py); None for a package staged from a bucket.
+        # (family_package_fingerprint.py).
         "package_fingerprint": bundle.package_fingerprint,
         "schema_version": bundle.manifest.schema_version,
         "family_id": validation.family_id,

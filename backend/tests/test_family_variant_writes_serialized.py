@@ -817,7 +817,7 @@ async def test_the_package_sv_datasets_hold_the_lock_until_their_sv_files_are_re
     monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", _nothing)
     job = DatasetImportJob(
         session=postgres.session("import"),  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=Path("/package"), ped=None, source_uri=None),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=Path("/package"), ped=None),  # type: ignore[arg-type]
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type="sv", status="valid"),
         family_context=_family_context(),

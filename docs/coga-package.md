@@ -24,7 +24,8 @@ goes through Deliveries like a pipeline's
 ([data-import.md](data-import.md#adding-a-folder-by-hand)). CoGA computes no checksums for it: the
 import records each file's SHA-256 (the owner's decision of 2026-11-10).
 
-**Still to do** (the owner's decisions of 2026-11-10): a bucket mounted as a local folder.
+**Where the packages lie.** CoGA reads a package from a local folder only; a bucket is mounted as
+one ([deployment-gcp.md](deployment-gcp.md#11-import-packages-and-reference-data)).
 
 ## Writing the file
 

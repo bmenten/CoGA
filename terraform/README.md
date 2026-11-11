@@ -37,9 +37,13 @@ configuration addresses are tracked in [TF-13 §3](../docs/regulatory/TF-13-cybe
   and the google provider 8.x (`versions.tf`).
 - **Storage.** A PHI bucket and a reference-data bucket, both CMEK-encrypted, with uniform
   bucket-level access and public access prevention. The backend's account reads both
-  (`roles/storage.objectViewer`) and writes neither; the reference-data bucket is mounted
-  read-only at `/data/ref-data`. The PHI bucket's CORS policy admits the app's origin for
-  reads only, so IGV can fetch reads through signed URLs.
+  (`roles/storage.objectViewer`) and writes neither, and the backend mounts each as a
+  read-only Cloud Storage volume: the reference data at `/data/ref-data`, and the PHI
+  bucket's `imports/` folder (`only-dir=imports`) at `/data/imports`, which is
+  `FAMILY_IMPORT_ROOTS` and `FAMILY_IMPORT_WATCH_ROOTS`. The packages lie there as
+  `imports/<project>/<package>`; package import reads them, and IGV's reads and tracks are
+  served from them, through the backend. The backend never reads a bucket by its `gs://`
+  URI, and no browser reads a bucket.
 - **Encryption.** One customer-managed key (`cmek_key_self_link`, required, no fallback)
   covers Cloud SQL, both disks and both buckets.
 
@@ -118,6 +122,6 @@ deployment-gcp.md §12.7 and §12.9.
   certificate before it destroys the old ones, so a VM that boots during that apply still
   finds both, though not always a matching pair until that restart.
 - **Bucket grants are bucket-wide.** The backend's read access covers each whole bucket, not
-  a prefix.
+  a prefix: the PHI bucket's volume mounts only `imports/`, but the account could read the rest.
 - **No secret rotation automation.** Rotating a secret is a manual step
   (deployment-gcp.md §12.2).

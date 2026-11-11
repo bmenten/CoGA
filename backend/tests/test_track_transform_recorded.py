@@ -127,7 +127,7 @@ async def _import(
         monkeypatch.setattr(module, name, fake)
     job = family_package_datasets.DatasetImportJob(
         session=session,  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=root, source_uri=None),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=root),  # type: ignore[arg-type]
         dataset=ManifestDataset(per_sample={SAMPLE: entry}),
         summary=FamilyImportDatasetSummary(dataset_type=dataset_type, status="valid"),
         family_context=FamilyMetadataContext(

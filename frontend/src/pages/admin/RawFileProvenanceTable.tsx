@@ -33,24 +33,17 @@ const verifyToneClass = (status: string): string => {
 };
 
 // A recorded location CoGA does not read from is neither downloaded nor verified: it is not
-// a file kept in the object store, nor one that is gone.
+// a file that is gone.
 const OUTSIDE_READ_FOLDERS =
-  'Its recorded location lies outside the folders and stores CoGA reads source files from, so it is not read';
+  'Its recorded location lies outside the folders CoGA reads source files from, so it is not read';
 
-// A file kept in the bucket a package was imported from is not downloaded here, and it
-// is not missing either.
 const downloadTitle = (file: RawImportFileOut): string => {
   if (file.outside_read_folders) return OUTSIDE_READ_FOLDERS;
-  if (file.in_object_store) return 'Kept in the object store at its storage path; download it from there';
   return file.download_available ? `Download ${file.file_name}` : 'Source file is no longer available';
 };
 
-const verifyTitle = (file: RawImportFileOut): string => {
-  if (file.outside_read_folders) return OUTSIDE_READ_FOLDERS;
-  return file.in_object_store
-    ? 'Compare the object in the store with what was recorded about it at import'
-    : 'Recompute SHA-256 and compare to the stored checksum';
-};
+const verifyTitle = (file: RawImportFileOut): string =>
+  file.outside_read_folders ? OUTSIDE_READ_FOLDERS : 'Recompute SHA-256 and compare to the stored checksum';
 
 const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyId }) => {
   const [verifyResults, setVerifyResults] = useState<Record<string, RawImportFileVerifyOut>>({});
@@ -159,8 +152,7 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
             </button>
           </div>
           {file.outside_read_folders && <p className="admin-raw-file-verify-message">{OUTSIDE_READ_FOLDERS}.</p>}
-          {/* A file in the object store is not re-hashed: say what was compared. */}
-          {verify && (verify.status !== 'verified' || file.in_object_store) && (
+          {verify && verify.status !== 'verified' && (
             <p className="admin-raw-file-verify-message">{verify.message}</p>
           )}
         </td>
@@ -207,8 +199,7 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
           <p className="catalog-card-copy">
             Complete traceability of every raw file used to import data for this
             family. Download the original source files and verify their integrity
-            against the stored SHA-256 checksum. A file kept in an object store is
-            verified against the store&apos;s record of the object instead.
+            against the stored SHA-256 checksum.
           </p>
         </div>
       </div>

@@ -53,9 +53,10 @@ services:
   backend:
     restart: unless-stopped
     # The production image runs as a non-root user (see backend/Dockerfile). Locally we
-    # bind-mount a host-owned ./data that the app writes to under the default
-    # storage_backend, so override back to root here to keep that writable. Cloud Run
-    # uses the image default (non-root) with read-only refdata + GCS-API PHI storage.
+    # bind-mount a host-owned ./data that the app writes to (its upload folder,
+    # data/raw_imports), so override back to root here to keep that writable. Cloud Run
+    # uses the image default (non-root) with the reference data and the import packages
+    # mounted read-only from their buckets.
     user: root
     build: &backend-build
       context: .

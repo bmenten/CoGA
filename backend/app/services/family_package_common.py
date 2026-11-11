@@ -217,16 +217,10 @@ class FamilyPackageBundle:
     ped: ParsedPed
     # The manifest CoGA keeps for the import's job, as text.
     kept_manifest_text: str
-    # When the package was staged from S3, the original s3:// source so provenance
-    # records the durable S3 URI rather than the ephemeral staging path.
-    source_uri: str | None = None
-    # Package-relative paths of files staging left in the object store (a remote
-    # package's alignments): they exist although ``root`` does not hold them.
-    remote_only_files: frozenset[str] = frozenset()
     # The SHA-256 of the manifest the import read (``manifest_text_sha256`` of the kept text).
     manifest_sha256: str | None = None
-    # The fingerprint of the local package folder, taken before the validation read it
-    # (family_package_fingerprint.py); None for a package staged from a bucket.
+    # The fingerprint of the package folder, taken before the validation read it
+    # (family_package_fingerprint.py).
     package_fingerprint: str | None = None
     # The delivery of a watched import folder the import's job imports (its id, run, marker's
     # SHA-256 and package fingerprint; import_delivery_review.py); None for a package a user chose.
