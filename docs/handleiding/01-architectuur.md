@@ -73,7 +73,7 @@ De repository bevat twee applicatiemappen (`backend/`, `frontend/`), de document
 
 De routering gebruikt `react-router`. Alleen de aanmeldpagina's (`/login` en `/login/emergency`) en `/signup` zijn publiek. Alle andere schermen zitten achter de bewaker `RequireAuth`. De beheerschermen (o.a. `/admin/...`, met de projecten onder `/admin/access/projects`) zitten daarbovenop achter `RequireAdmin`; het beheerdashboard `/admin` en de werkruimtes van een superuser (o.a. `/package-import`) achter `<RequireAdmin superuser />`, die ook een superuser doorlaat. Die bewakers zijn gebruiksgemak, geen beveiliging (hoofdstuk 2).
 
-Er is geen navigatiebalk. De hoofdonderdelen (*Projects*, *Variant explorer*, *Gene explorer*, *CNV explorer*, *Panels*, *Report codes*, voor een superuser of beheerder *Admin*, en *User guide*) staan in een menu achter een pijltje rechts in de kopbalk. Onder de kopbalk volgt een kruimelpad de route.
+Er is geen navigatiebalk. De hoofdonderdelen (*Projects*, *Variant explorer*, *Gene explorer*, *CNV explorer*, *Panels*, *Report codes*, voor een superuser of beheerder *Admin*, en *User guide*) staan in een menu achter een pijltje rechts in de kopbalk. Onder de kopbalk volgt een kruimelpad de route. Op een familie staat het project waarin de werkruimte werkt tussen *Families* en de familie; het leidt naar het dashboard met dat project opengeklapt.
 
 **Waar in de code:** de routeboom in `frontend/src/index.tsx`; het menu in `frontend/src/components/HeaderMenu.tsx` en het kruimelpad in `Breadcrumbs.tsx`.
 

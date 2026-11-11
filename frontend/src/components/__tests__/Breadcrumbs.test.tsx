@@ -1,10 +1,41 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { beforeEach, vi } from 'vitest';
 import Breadcrumbs from '../Breadcrumbs';
 
+const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock('../../lib/api', () => ({ default: apiMock }));
+
+// The project catalog a family workspace's crumb reads: PROBAND_FAM is linked to both
+// projects, the second one first; TRIO_FAM to one.
+const PROJECTS = [
+  {
+    _id: 'p-first-listed',
+    name: 'Cardiogenetics',
+    families: [{ family_id: 'PROBAND_FAM', projects: ['p-linked-first', 'p-first-listed'] }],
+  },
+  {
+    _id: 'p-linked-first',
+    name: 'Rare disease WGS',
+    families: [
+      { family_id: 'PROBAND_FAM', projects: ['p-linked-first', 'p-first-listed'] },
+      { family_id: 'TRIO_FAM', projects: ['p-linked-first'] },
+    ],
+  },
+];
+
+beforeEach(() => {
+  apiMock.get.mockReset();
+  apiMock.get.mockImplementation((url: string) =>
+    url === '/projects'
+      ? Promise.resolve({ data: PROJECTS })
+      : Promise.reject(new Error(`unexpected request ${url}`)),
+  );
+});
+
 const renderAt = (entry: string) => {
-  const queryClient = new QueryClient();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[entry]}>
@@ -13,6 +44,12 @@ const renderAt = (entry: string) => {
     </QueryClientProvider>,
   );
 };
+
+/** The crumbs' text, in order, separators left out. */
+const crumbTexts = () =>
+  Array.from(
+    screen.getByRole('navigation').querySelectorAll('.breadcrumb-link, .breadcrumb-current'),
+  ).map((crumb) => crumb.textContent);
 
 test('preserves variant filters when navigating from chromosome to genome', () => {
   renderAt('/families/123/chromosome/1?af=0.5&start=1&end=2');
@@ -111,6 +148,53 @@ test('the families crumb leads to the dashboard, where the families are listed',
 
   expect(screen.getByText('Families').closest('a')).toHaveAttribute('href', '/dashboard');
   expect(screen.getByText('FAM_TRIO').closest('a')).toHaveAttribute('href', '/families/FAM_TRIO');
+});
+
+test('a family workspace shows its project between Families and the family, leading to the dashboard with it open', async () => {
+  renderAt('/families/TRIO_FAM/small-variants');
+
+  const projectLink = (await screen.findByText('Rare disease WGS')).closest('a');
+  expect(projectLink).toHaveAttribute('href', '/dashboard?project_id=p-linked-first');
+  expect(crumbTexts()).toEqual(['Dashboard', 'Families', 'Rare disease WGS', 'TRIO_FAM', 'Small variants']);
+  expect(apiMock.get).toHaveBeenCalledWith('/projects');
+});
+
+test('the project crumb is the one the workspace works in: its project_id, else the family’s first linked project', async () => {
+  const { unmount } = renderAt('/families/PROBAND_FAM?project_id=p-first-listed');
+  expect((await screen.findByText('Cardiogenetics')).closest('a')).toHaveAttribute(
+    'href',
+    '/dashboard?project_id=p-first-listed',
+  );
+  expect(screen.queryByText('Rare disease WGS')).not.toBeInTheDocument();
+  unmount();
+
+  // Without one, the family's first linked project, not the first the catalog lists.
+  renderAt('/families/PROBAND_FAM');
+  expect(await screen.findByText('Rare disease WGS')).toBeInTheDocument();
+  expect(screen.queryByText('Cardiogenetics')).not.toBeInTheDocument();
+});
+
+test('a project_id the family is not linked to does not name a project', async () => {
+  renderAt('/families/TRIO_FAM?project_id=p-first-listed');
+
+  expect(await screen.findByText('Rare disease WGS')).toBeInTheDocument();
+  expect(screen.queryByText('Cardiogenetics')).not.toBeInTheDocument();
+});
+
+test('a family under no project has no project crumb', async () => {
+  renderAt('/families/UNLINKED_FAM/small-variants');
+
+  await vi.waitFor(() => expect(apiMock.get).toHaveBeenCalledWith('/projects'));
+  // Once the catalog has come, still no project between Families and the family.
+  await act(async () => {});
+  expect(crumbTexts()).toEqual(['Dashboard', 'Families', 'UNLINKED_FAM', 'Small variants']);
+});
+
+test('only a family workspace reads the project catalog', () => {
+  renderAt('/admin/data/families/TRIO_FAM/structure');
+  renderAt('/panels');
+
+  expect(apiMock.get).not.toHaveBeenCalled();
 });
 
 test('the admin families crumb stays on the admin families page', () => {
