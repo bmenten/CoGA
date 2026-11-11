@@ -65,11 +65,11 @@ vi.mock('../../../lib/api', () => ({
   },
 }));
 
-const renderDashboard = () => {
+const renderDashboard = (entry = '/dashboard') => {
   const queryClient = createTestQueryClient();
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[entry]}>
         <Dashboard />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -212,6 +212,42 @@ describe('Dashboard', () => {
 
     await waitFor(() => expect(screen.getByRole('link', { name: 'F1' })).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /project one/i })).toBeInTheDocument();
+  });
+
+  // A family workspace's project crumb leads here with ?project_id=: that project is open.
+  it('opens the project a family breadcrumb leads back to, and only that one', async () => {
+    localStorage.setItem('role', 'viewer');
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      renderDashboard('/dashboard?project_id=p1');
+
+      const projectButton = await screen.findByRole('button', { name: /project one/i });
+      expect(projectButton).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('link', { name: 'F1' })).toHaveAttribute('href', '/families/F1');
+      // Its families are brought into view, once.
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+
+      // It closes and opens as any project does, without scrolling again.
+      fireEvent.click(projectButton);
+      expect(projectButton).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('link', { name: 'F1' })).not.toBeInTheDocument();
+      fireEvent.click(projectButton);
+      expect(screen.getByRole('link', { name: 'F1' })).toBeInTheDocument();
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it('shows every project closed without a project_id', async () => {
+    localStorage.setItem('role', 'viewer');
+    renderDashboard();
+
+    const projectButton = await screen.findByRole('button', { name: /project one/i });
+    expect(projectButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('link', { name: 'F1' })).not.toBeInTheDocument();
   });
 
   it('uses a consistent nested family table column layout for project details', async () => {
