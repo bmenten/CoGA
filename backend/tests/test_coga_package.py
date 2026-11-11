@@ -100,7 +100,7 @@ def _named_paths(value: Any) -> set[str]:
     return {value} if isinstance(value, str) else set()
 
 
-def test_every_file_a_complete_examples_datasets_name_is_listed_with_its_checksum() -> None:
+def test_every_file_a_complete_examples_datasets_name_is_listed() -> None:
     for example in EXAMPLES:
         payload = json.loads(example.read_text())
         if payload["status"] != "complete" or "datasets" not in payload:
@@ -116,7 +116,7 @@ def test_the_committed_json_schema_is_the_models() -> None:
     )
 
 
-def test_the_json_schema_asks_a_complete_file_where_it_belongs_and_a_checksum_per_file() -> None:
+def test_the_json_schema_asks_a_complete_file_where_it_belongs_and_each_files_size() -> None:
     schema = coga_package_json_schema()
     assert schema["required"] == ["schema", "status", "written_at", "pipeline"]
     assert schema["additionalProperties"] is False
@@ -124,8 +124,10 @@ def test_the_json_schema_asks_a_complete_file_where_it_belongs_and_a_checksum_pe
     assert complete["if"]["properties"]["status"] == {"const": "complete"}
     assert complete["then"]["required"] == ["project", "assembly", "analysis_type", "family", "files"]
     assert complete["then"]["properties"]["files"] == {"type": "array", "minItems": 1}
+    # A checksum per file is optional (the owner's decision of 2026-11-11); the size is not.
     file_schema = schema["$defs"]["PackageFile"]
-    assert [option["required"] for option in file_schema["anyOf"]] == [["sha256"], ["md5"]]
+    assert file_schema["required"] == ["path", "size"]
+    assert "anyOf" not in file_schema
     assert all(definition["additionalProperties"] is False for definition in schema["$defs"].values())
 
 
@@ -292,9 +294,10 @@ def test_ids_and_paths_follow_the_rules() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_a_file_needs_a_checksum_is_listed_once_and_never_lists_the_package_file() -> None:
-    assert _codes(_complete(files=[{"path": "a.vcf.gz", "size": 1}])) == [("package_field_invalid", "files[0]")]
+def test_a_file_needs_no_checksum_is_listed_once_and_never_lists_the_package_file() -> None:
+    assert _codes(_complete(files=[{"path": "a.vcf.gz", "size": 1}])) == []
     assert _codes(_complete(files=[{"path": "a.vcf.gz", "size": 1, "md5": "0" * 32}])) == []
+    assert _codes(_complete(files=[{"path": "a.vcf.gz"}])) == [("package_field_missing", "files[0].size")]
     twice = [{"path": "a.vcf.gz", "size": 1, "sha256": SHA}] * 2
     itself = [{"path": PACKAGE_FILE_NAME, "size": 1, "sha256": SHA}]
     assert _codes(_complete(files=twice)) == [("package_file_listed_twice", "files")]

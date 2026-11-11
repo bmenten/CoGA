@@ -4,8 +4,10 @@ from collections.abc import AsyncIterator, Collection, Iterable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -196,6 +198,47 @@ def _dataset_top_level_files(dataset: ManifestDataset) -> dict[str, str]:
     }
 
 
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _package_relative_path(root: Path, resolved: Path) -> str | None:
+    """``resolved`` as a path in the package folder ``root``, as the package file names it."""
+    try:
+        return resolved.relative_to(Path(root).resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+async def _delivery_checked_sha256(session: AsyncSession, bundle: FamilyPackageBundle) -> dict[str, str]:
+    """The SHA-256 the check of the delivery the import came from computed for each file of the
+    package folder (``import_deliveries.package_check.sha256``, by the path the package file
+    names), when the folder is as that check read it: the delivery's package fingerprint is the
+    one this import took before it read the folder. Empty otherwise (a folder added by hand, whose
+    check reads no file, or one that changed)."""
+    delivery = bundle.delivery
+    if not isinstance(delivery, dict) or not bundle.package_fingerprint:
+        return {}
+    delivery_id = canonical_uuid(delivery.get("id"))
+    if delivery_id is None or delivery.get("package_fingerprint") != bundle.package_fingerprint:
+        return {}
+    checked = (
+        await session.execute(
+            text(
+                "SELECT package_check -> 'sha256' FROM import_deliveries "
+                "WHERE id = CAST(:delivery_id AS uuid) AND package_fingerprint = :fingerprint"
+            ),
+            {"delivery_id": delivery_id, "fingerprint": bundle.package_fingerprint},
+        )
+    ).scalar_one_or_none()
+    if isinstance(checked, str):
+        checked = json.loads(checked)
+    if not isinstance(checked, dict):
+        return {}
+    return {
+        str(path): value for path, value in checked.items() if isinstance(value, str) and _SHA256_HEX.match(value)
+    }
+
+
 async def _record_package_raw_files(
     session: AsyncSession,
     *,
@@ -213,8 +256,12 @@ async def _record_package_raw_files(
     The copy is written before the registration commits, so a commit that fails leaves it
     without a record.
 
-    Each row names its file where it lies in the package folder, and is hashed there."""
+    Each row names its file where it lies in the package folder, with its SHA-256: the one the
+    check of the delivery the import came from computed, when the folder is as that check read it
+    (``_delivery_checked_sha256``), else hashed where it lies. So a file is read once, by the
+    check, not again by the import."""
     try:
+        checked_sha256 = await _delivery_checked_sha256(session, bundle)
         result = await session.execute(
             text(
                 "SELECT id::text AS sample_uuid, sample_id "
@@ -233,6 +280,8 @@ async def _record_package_raw_files(
             dataset_type: str,
             sample_uuid: str | None,
         ) -> None:
+            sha256 = checked_sha256.get(_package_relative_path(bundle.root, resolved) or "")
+            file_size = (await asyncio.to_thread(os.path.getsize, resolved)) if sha256 else None
             await record_raw_import_file(
                 session,
                 family_uuid=family_uuid,
@@ -243,6 +292,8 @@ async def _record_package_raw_files(
                 storage_path=str(resolved),
                 managed=False,
                 source="family_package",
+                sha256=sha256,
+                file_size=file_size,
             )
 
         for dataset_type, dataset in bundle.manifest.datasets.items():

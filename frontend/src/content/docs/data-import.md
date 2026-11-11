@@ -295,7 +295,7 @@ or runs through a link that loops.
 
 A pipeline can deliver a package by itself: it copies the family folder into a **watched import
 folder**, with its **package file** `coga-package.json`. That one file describes the package: the
-run, the project, the family and its members, the data, every file with its checksum. It takes the
+run, the project, the family and its members, the data, every file with its size (and, optionally, its checksum). It takes the
 place of the PED and the manifest. CoGA looks into the watched folders every
 few minutes (5 by default), checks each new delivery once and lists it under **Deliveries** at the
 top of the page, with how many wait. Nothing is imported until a superuser approves it.
@@ -362,7 +362,9 @@ the repository (`docs/coga-package.md`, `docs/schemas/`). A short one:
 - A field the format does not know is refused, so a misspelt one is never ignored.
 
 **What CoGA checks.** The package file follows the format. Every listed file is there at its size,
-with its checksum. Every file the import reads is listed; a file in the folder the package file
+with its checksum where the package file gives one; a file listed without one has its SHA-256
+computed by CoGA, and the delivery warns that the copy was not checked against what the pipeline
+made (acknowledge it to approve). Every file the import reads is listed; a file in the folder the package file
 does not list is a warning. The project exists with the package file's assembly, and the package
 passes validation as a dry run runs it. A PED in the folder that says otherwise than the
 package file's members is a warning: the pipeline may have used it. Each check that fails is listed

@@ -173,7 +173,7 @@ async def add_manual_delivery(
             "origin": "manual",
             "issues": [],
             "warnings": [issue.model_dump() for issue in [_issue("added_by_hand", ADDED_BY_HAND_WARNING), *proposal_warnings]],
-            "verified": {},
+            "sha256": {},
             "proposed": proposed_sections(made),
             "proposal_issues": [issue.model_dump() for issue in proposal_issues],
         },

@@ -3,7 +3,7 @@
 A pipeline that delivers a package to CoGA describes it in one file, `coga-package.json`, at the
 top of the package folder. The file says which run made the package, where it belongs (the
 project, the assembly, the analysis), who is in the family, which datasets the import reads, and
-every file with its checksum. It holds what a PED and a manifest (`manifest.yaml`) give the import
+every file with its size and, optionally, its checksum. It holds what a PED and a manifest (`manifest.yaml`) give the import
 of a typed folder, and says itself when the package is complete.
 
 This page is for the people who maintain the pipelines. It defines the format `coga-package/1`.
@@ -48,6 +48,11 @@ one ([deployment-gcp.md](deployment-gcp.md#11-import-packages-and-reference-data
     `files` listing them. In Nextflow, write it from `workflow.onComplete` or after the step that
     copies the outputs, not from a process whose outputs `publishDir` still copies in the
     background.
+  - A checksum per file is optional. With one (`sha256`, or `md5` where the pipeline has only
+    that), CoGA checks that the copy is what the pipeline made. Without, CoGA computes each file's
+    SHA-256 itself, and the delivery warns that the copy is unchecked
+    (`package_files_without_checksum`). A copy step that computes one anyway (`rsync --checksum`,
+    `gcloud storage cp`, a tool's `.md5`) can write it at no extra cost.
   - `failed`: the run stopped. CoGA offers nothing, and supersedes an undecided delivery of the
     folder as for `running`.
 - **Copy the outputs, do not link them** (`publishDir mode: 'copy'`): CoGA reads no file through
@@ -80,7 +85,7 @@ member's status unset without a word. Information of your own goes under `extra`
 | `couples` | no | each couple: `partners` (two members) and `context` (`reproductive`, `carrier screening`) | pipeline |
 | `datasets` | no | what the import reads (below) | pipeline |
 | `pipeline_used_pedigree` | no | the datasets the pipeline computed with the pedigree or the members' sex (below) | pipeline |
-| `files` | complete | every file of the package: `path` (in the folder, with `/`), `size` in bytes, and `sha256` or `md5` | pipeline |
+| `files` | complete | every file of the package: `path` (in the folder, with `/`), `size` in bytes, and optionally `sha256` or `md5` | pipeline |
 | `qc` | no | the pipeline's QC: `status` (`pass`, `warn`, `fail`) and its `report`, a file of the package | pipeline |
 | `request_id` | no | the laboratory's request | samplesheet |
 | `reference` | no | the reference genome the run used (its FASTA's name) | pipeline |
@@ -152,8 +157,8 @@ Reading the file ([coga_package.py](../backend/app/services/coga_package.py)):
 - every field is one the format knows, of the right kind; `written_at` has its time zone;
 - an ID follows the ID rule, and a path stays in the folder (relative, `/` between its parts, no
   `..`, no leading `~`);
-- a complete file says where the package belongs and lists its files, each once, each with a
-  checksum, and not `coga-package.json` itself;
+- a complete file says where the package belongs and lists its files, each once, each with its
+  size, and not `coga-package.json` itself;
 - every member the file names (a parent, a partner, a relative, an affected parent, an index, a
   dataset's per-sample entry) is one of its `members`, listed once; a parent is another member,
   of the parent's sex where it is known;
@@ -161,7 +166,8 @@ Reading the file ([coga_package.py](../backend/app/services/coga_package.py)):
 
 Against the folder and CoGA, when the import watcher reads the file
 ([data-import.md](data-import.md#watched-import-folders)): every listed file is there with its
-size and checksum, the pipeline's QC, the project and its assembly, a PED in the folder against
+size and, where the file gives one, its checksum (without one, CoGA computes the SHA-256 and warns
+that the copy is unchecked), the pipeline's QC, the project and its assembly, a PED in the folder against
 the members (a warning when it says otherwise: the pipeline's tools may have read it), the
 package's validation with the manifest made from the file, every file the import reads listed,
 and the family and samples CoGA already holds.
