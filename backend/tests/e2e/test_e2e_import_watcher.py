@@ -79,7 +79,7 @@ def write_package(
         "pipeline": {"name": "nf-core/example", "version": "1.0.0", "run_id": f"run-{uuid4().hex[:8]}"},
         "project": project,
         "assembly": "GRCh38",
-        "analysis_type": "wgs",
+        "analysis_type": "long_read_wgs",
         "family": {"family_id": family_id},
         "files": [*files, *extra_files],
         **fields,
@@ -446,7 +446,7 @@ def test_the_list_shows_the_deliveries_by_state_when_asked(ran) -> None:
     )
     ready = next(item for item in mine if item["state"] == "ready" and item["folder_name"] == ran["names"]["READY"])
     assert (ready["analysis_type"], ready["pipeline_name"], ready["pipeline_version"], ready["project_id"]) == (
-        "wgs",
+        "long_read_wgs",
         "nf-core/example",
         "1.0.0",
         ran["project_id"],

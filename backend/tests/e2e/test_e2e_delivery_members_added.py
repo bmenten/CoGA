@@ -79,7 +79,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         project=project,
         family_id=family,
         full=False,
-        analysis_type="pgt_m",
+        analysis_type="pgt",
         family={"family_id": family, "roi": ROI, "pgt": {"inheritance_model": "AD", "affected_parents": [father]}},
         members=[
             _member(father, "male", role="father", clinical_status="affected"),
@@ -140,7 +140,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         added = capture(
             await client.post(
                 "/api/family-imports/deliveries",
-                json={"folder_path": str(hand_folder), "project_id": project_id, "analysis_type": "pgt_m"},
+                json={"folder_path": str(hand_folder), "project_id": project_id, "analysis_type": "pgt"},
             )
         )
         out["hand_added"] = added

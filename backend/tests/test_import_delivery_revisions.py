@@ -36,7 +36,7 @@ def _document(**fields: Any) -> dict[str, Any]:
         "pipeline": {"name": "p", "version": "1", "run_id": "RUN1"},
         "project": "PGT",
         "assembly": "GRCh38",
-        "analysis_type": "pgt_m",
+        "analysis_type": "pgt",
         "family": {"family_id": "FAM001", "pgt": {"inheritance_model": "AR"}},
         "members": [
             {"sample_id": "FATHER1", "sex": "male", "role": "father"},

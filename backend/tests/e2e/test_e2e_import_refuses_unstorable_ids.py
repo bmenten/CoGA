@@ -106,7 +106,7 @@ async def _collect(base: Path) -> dict[str, Any]:
         out["added_nul"] = capture(
             await ac.post(
                 "/api/family-imports/deliveries",
-                json={"folder_path": str(clean), "project_id": project_id, "family_id": f"FAMID{NUL}03", "analysis_type": "wgs"},
+                json={"folder_path": str(clean), "project_id": project_id, "family_id": f"FAMID{NUL}03", "analysis_type": "long_read_wgs"},
             )
         )
         jobs_before = (await row_counts())["jobs"]
@@ -165,7 +165,7 @@ async def _collect(base: Path) -> dict[str, Any]:
         out["added_climbing"] = capture(
             await ac.post(
                 "/api/family-imports/deliveries",
-                json={"folder_path": str(clean), "project_id": project_id, "family_id": "../FAMID03", "analysis_type": "wgs"},
+                json={"folder_path": str(clean), "project_id": project_id, "family_id": "../FAMID03", "analysis_type": "long_read_wgs"},
             )
         )
         out["job_dot_dot"] = await run_import_job(dot_dot_family, project_id, _WORKER)

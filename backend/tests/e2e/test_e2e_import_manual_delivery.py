@@ -71,7 +71,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         async def add(**body: Any) -> dict[str, Any]:
             return capture(await client.post("/api/family-imports/deliveries", json={"project_id": project_id, **body}))
 
-        out["added"] = await add(folder_path=str(folder), analysis_type="wgs")
+        out["added"] = await add(folder_path=str(folder), analysis_type="long_read_wgs")
         delivery_id = out["added"]["json"]["_id"]
         url = f"/api/family-imports/deliveries/{delivery_id}"
         out["added_again"] = await add(folder_path=str(folder))
@@ -100,7 +100,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         await claim_import_job(job_id, worker)
         await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
         out["job"] = await job_outcome(job_id)
-        out["re_added"] = await add(folder_path=str(folder), analysis_type="wgs")
+        out["re_added"] = await add(folder_path=str(folder), analysis_type="long_read_wgs")
         out["no_analysis"] = await add(folder_path=str(none_folder))
         out["verified"] = capture(
             await client.get(

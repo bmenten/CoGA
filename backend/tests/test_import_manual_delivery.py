@@ -15,14 +15,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, get_args
 
 from fastapi import HTTPException
 import pytest
 
 from backend.app.core.config import settings
 from backend.app.services import import_manual_delivery as manual
-from backend.app.services.coga_package import PACKAGE_FILE_NAME
+from backend.app.schemas.imports import ImportDeliveryAdd
+from backend.app.services.coga_package import PACKAGE_FILE_NAME, AnalysisType
 from backend.app.services.import_watcher import DeliveryAssessment
 
 _USER = SimpleNamespace(id="00000000-0000-4000-8000-0000000000aa", username="superuser", email="superuser@example.org")
@@ -105,11 +106,11 @@ _GRCH38 = {"id": _PROJECT, "name": "WGS", "assembly_name": "GRCh38"}
 async def test_a_folder_added_by_hand_gets_the_package_coga_makes_and_is_recorded(folder: Path, checked: list[dict[str, Any]]) -> None:
     session = _Session(project=_GRCH38)
 
-    delivery = await _add(session, folder, analysis_type="wgs_trio")
+    delivery = await _add(session, folder, analysis_type="long_read_wgs")
 
     assert delivery.id == "00000000-0000-4000-8000-0000000000dd"
     made = checked[0]["proposal"]
-    assert (made.project, made.assembly, made.analysis_type, made.family.family_id) == ("WGS", "GRCh38", "wgs_trio", "FAM001")
+    assert (made.project, made.assembly, made.analysis_type, made.family.family_id) == ("WGS", "GRCh38", "long_read_wgs", "FAM001")
     assert made.pipeline.name == manual.MANUAL_PIPELINE_NAME and made.pipeline.run_id.startswith("manual-")
     assert made.extra == {"origin": "manual"} and made.files is None
     assessment = checked[1]["assess"]
@@ -193,3 +194,17 @@ def test_the_import_root_is_the_configured_root_the_folder_lies_under(tmp_path: 
     assert manual._import_root((tmp_path / "share" / "FAM1").resolve()) == str(tmp_path.resolve())
     monkeypatch.setattr(settings, "family_import_roots", [])
     assert manual._import_root(tmp_path / "FAM1") == str(tmp_path)
+
+
+def test_a_folder_added_by_hand_takes_the_analyses_a_package_names() -> None:
+    """The form's analyses are the format's (``coga_package.AnalysisType``), in its order: the
+    laboratory's LR-WGS, LR-AS, PGT, expanded carrier screening and mNIPT."""
+    schema = ImportDeliveryAdd.model_json_schema()["properties"]["analysis_type"]
+    offered = next(option["enum"] for option in schema["anyOf"] if "enum" in option)
+    assert offered == list(get_args(AnalysisType)) == [
+        "long_read_wgs",
+        "long_read_adaptive_sampling",
+        "pgt",
+        "expanded_carrier_screening",
+        "monogenic_nipt",
+    ]

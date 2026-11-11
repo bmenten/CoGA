@@ -1758,7 +1758,7 @@ export interface ImportDeliveryAdd {
   folder_path: string;
   project_id: string;
   family_id?: string | null;
-  analysis_type?: "wgs" | "wgs_trio" | "pgt_m" | "monogenic_nipt" | "long_read_wgs" | "long_read_couple" | null;
+  analysis_type?: "long_read_wgs" | "long_read_adaptive_sampling" | "pgt" | "expanded_carrier_screening" | "monogenic_nipt" | null;
 }
 
 /**

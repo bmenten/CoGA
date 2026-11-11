@@ -9,7 +9,7 @@
   },
   "project": "PGT",
   "assembly": "GRCh38",
-  "analysis_type": "pgt_m",
+  "analysis_type": "pgt",
   "request_id": "REQ-0001",
   "reference": "GRCh38_full_analysis_set_plus_decoy_hla.fa",
   "family": {

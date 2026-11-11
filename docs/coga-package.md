@@ -79,8 +79,8 @@ member's status unset without a word. Information of your own goes under `extra`
 | `pipeline` | always | `name`, `version` and `run_id`: one `run_id` per run, the same in each file it writes | pipeline |
 | `project` | complete | the CoGA project, by its name; it fixes the assembly | samplesheet |
 | `assembly` | complete | the reference assembly (`GRCh38`); must be the project's | pipeline |
-| `analysis_type` | complete | `wgs`, `wgs_trio`, `pgt_m`, `monogenic_nipt`, `long_read_wgs` or `long_read_couple` | samplesheet |
-| `family` | complete | `family_id`; `roi`, the region of interest (a gene or `chr7:1000-2000`); for PGT-M `pgt` (below) | samplesheet |
+| `analysis_type` | complete | `long_read_wgs` (LR-WGS), `long_read_adaptive_sampling` (LR-AS, long-read adaptive sampling), `pgt` (PGT), `expanded_carrier_screening` (expanded carrier screening) or `monogenic_nipt` (mNIPT) | samplesheet |
+| `family` | complete | `family_id`; `roi`, the region of interest (a gene or `chr7:1000-2000`); for PGT `pgt` (below) | samplesheet |
 | `members` | no | every member of the family, the pedigree (below) | pipeline and laboratory |
 | `couples` | no | each couple: `partners` (two members) and `context` (`reproductive`, `carrier screening`) | pipeline |
 | `datasets` | no | what the import reads (below) | pipeline |
@@ -224,7 +224,7 @@ The owner's decisions of 2026-11-11:
 All synthetic, with checksums of nothing real:
 
 - [running.json](schemas/examples/running.json): written as a PGT run starts.
-- [minimum.json](schemas/examples/minimum.json): a short-read trio with only what a complete file
+- [minimum.json](schemas/examples/minimum.json): a long-read trio with only what a complete file
   needs; CoGA proposes the rest.
 - [pgt-m.json](schemas/examples/pgt-m.json): an nf-cmgg/copgtm run: a couple, two embryos and an
   index related to the mother, with the PGT model and the datasets the pipeline computed with the
@@ -232,7 +232,8 @@ All synthetic, with checksums of nothing real:
 - [monogenic-nipt.json](schemas/examples/monogenic-nipt.json): a monogenic NIPT pair: the maternal
   plasma, the father and the fetus, with each parent's callset and coverage table.
 - [long-read-couple.json](schemas/examples/long-read-couple.json): a couple screened for
-  carriership on the long-read pipeline, with each partner's own callsets.
+  carriership (expanded carrier screening) on the long-read pipeline, with each partner's own
+  callsets.
 
 A whole package folder to deliver is the synthetic demo NIPT family,
 [demo/nipt_family](../demo/nipt_family/README.md): a full file for the project `Demo` on GRCh38,
