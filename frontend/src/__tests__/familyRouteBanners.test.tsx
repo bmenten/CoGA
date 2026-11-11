@@ -174,7 +174,6 @@ const PAGE_DATA: Record<string, PageData> = {
   '/families/:familyId/nipt/report': { family: NIPT_FAMILY, api: { '/families/F1/nipt/variants': NO_VARIANTS } },
   '/families/:familyId/nipt/coverage': { family: NIPT_FAMILY },
   '/families/:familyId/igv': {},
-  '/admin/data/families/:familyId/structure': {},
 };
 
 /** Family F1, on project p1 (GRCh37, outside the validated scope), its import incomplete. */

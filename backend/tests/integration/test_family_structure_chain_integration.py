@@ -5,7 +5,7 @@ chain per family that the append-only trigger protects, and recorded on the fami
 clinical audit trail as a ``pedigree`` event with what changed, before and after. A
 compound-het pair review is a clinical audit event too. Here the real writers run against
 Postgres: a family made by hand, a member edit that renames the proband and makes it
-affected, a member removed in the editor and a sample deleted with its data. Then:
+affected, a member removed and a sample deleted with its data. Then:
 
 - the family holds four structure versions on an intact chain, and four ``pedigree`` events
   on its intact clinical audit chain, each naming its change;
@@ -16,6 +16,7 @@ affected, a member removed in the editor and a sample deleted with its data. The
 - a signed anchor records the structure chain's head;
 - an UPDATE or DELETE of a structure version is refused, and a version edited behind the
   trigger's back breaks the chain at that version;
+- the family members editor's one save renames, changes and removes in one version and event;
 - compound-het pair events round-trip through Postgres on an intact chain;
 - a structure version inserted without the writer, with no hashes, is on the family's chain
   and breaks it there.
@@ -276,6 +277,109 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
             async with sm() as s:
                 tampered = await verify_family_structure_chain(s, label)
             assert (tampered.verified, tampered.first_bad_row) == (False, second), tampered
+        finally:
+            await close_postgres_engine()
+
+    asyncio.run(_run())
+
+
+def test_the_members_editor_saves_a_rename_a_status_and_a_removal_as_one_change() -> None:
+    """The family members editor's save (``PUT /families/{id}/structure``): a rename, a changed
+    status, links named by the stored IDs and a removal, in one update, are one structure
+    version and one ``pedigree`` event naming each change."""
+    from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.schemas import (
+        FamilyStructureCoupleUpdate,
+        FamilyStructureMemberUpdate,
+        FamilyStructureParentChildUpdate,
+        FamilyStructureRelationshipsUpdate,
+        FamilyStructureUpdate,
+        ManualPedFamilyCreate,
+        ManualPedMemberCreate,
+    )
+    from backend.app.services.clinical_audit_service import verify_clinical_audit_chain
+    from backend.app.services.family_member_management_service import (
+        update_family_structure_with_renames_for_admin,
+    )
+    from backend.app.services.family_structure_audit import verify_family_structure_chain
+    from backend.app.services.ped_service import create_manual_family_data
+
+    run = uuid4().hex[:10]
+    label = f"edit-{run}"
+    father, mother, child, sibling = (f"{label}-{name}" for name in ("F", "M", "P", "S"))
+
+    async def _run() -> None:
+        try:
+            await init_postgres_schema()
+            sm = get_postgres_sessionmaker()
+            async with sm() as s:
+                user = await admin_account(s, f"edit-{run}")
+                await s.commit()
+            async with sm() as s:
+                await create_manual_family_data(
+                    s,
+                    ManualPedFamilyCreate(
+                        family_id=label,
+                        members=[
+                            ManualPedMemberCreate(sample_id=father, sex="male", clinical_status="unaffected"),
+                            ManualPedMemberCreate(sample_id=mother, sex="female", clinical_status="unaffected"),
+                            ManualPedMemberCreate(
+                                sample_id=child, father_id=father, mother_id=mother, sex="female", is_proband=True
+                            ),
+                            ManualPedMemberCreate(sample_id=sibling, father_id=father, mother_id=mother, sex="male"),
+                        ],
+                    ),
+                    overwrite=False,
+                    user=user,
+                )
+
+            # As the editor sends it: every member and link by its stored ID.
+            async with sm() as s:
+                result = await update_family_structure_with_renames_for_admin(
+                    s,
+                    family_id=label,
+                    update=FamilyStructureUpdate(
+                        expected_structure_version=1,
+                        change_reason="family_members_edit",
+                        members=[
+                            FamilyStructureMemberUpdate(sample_id=father, sex="male", role="father"),
+                            FamilyStructureMemberUpdate(sample_id=mother, sex="female", role="mother"),
+                            FamilyStructureMemberUpdate(
+                                sample_id=child, new_sample_id=f"{child}2", clinical_status="affected"
+                            ),
+                        ],
+                        remove_members=[sibling],
+                        relationships=FamilyStructureRelationshipsUpdate(
+                            parent_child=[
+                                FamilyStructureParentChildUpdate(parent=father, child=child, parent_role="father"),
+                                FamilyStructureParentChildUpdate(parent=mother, child=child, parent_role="mother"),
+                            ],
+                            couples=[FamilyStructureCoupleUpdate(partners=[father, mother])],
+                            relatives=[],
+                        ),
+                    ),
+                    user=user,
+                )
+
+            assert sorted(member.sample_id for member in result.family.members) == sorted([father, mother, f"{child}2"])
+            assert sorted(
+                (link.sample_id_a, link.role_a)
+                for link in result.family.relationships
+                if link.relationship_type == "parent_child" and link.sample_id_b == f"{child}2"
+            ) == sorted([(father, "father"), (mother, "mother")])
+            async with sm() as s:
+                events = await _pedigree_events(s, label)
+                versions = await _versions(s, label)
+                structure_chain = await verify_family_structure_chain(s, label)
+                audit_chain = await verify_clinical_audit_chain(s, label)
+            assert [version["version"] for version in versions] == [1, 2]
+            [_, change] = events
+            assert f"{child} renamed {child}2" in change["summary"]
+            assert "affected status unknown → affected" in change["summary"]
+            assert f"{sibling} made inactive" in change["summary"]
+            assert change["before"]["members"][f"{child}2"]["sample_id"] == child
+            assert change["metadata"]["reason"] == "family_members_edit"
+            assert structure_chain.verified and audit_chain.verified
         finally:
             await close_postgres_engine()
 

@@ -69,17 +69,42 @@ These also refer to a member:
 - family-level: `small_variant_reviews`, `structural_variant_reviews` and the derived
   browser tracks.
 
+## The editor
+
+The web interface has one editor of a family's members: the **Family members** table of the
+family page (`FamilyMembersCard.tsx`), which Admin → Family & sample data shows too. An
+administrator's **Edit members** turns each row into its fields (role, sex, father, mother,
+partner, related to, affected status, carrier status and type) and adds a row for a new member.
+The member dialog edits the same draft (`familyMembersDraft.ts`) and adds the sample ID and the
+HPO terms. **Save changes** sends the whole draft as one `PUT /families/{family_id}/structure`:
+
+- every member as it stands, by its stored ID, with `new_sample_id` when it is renamed. The
+  server writes only the members that changed. The editor never sends `carrier_evidence`, so the
+  import's note of how a carrier status was derived stays;
+- the members the draft removes in `remove_members`. Before it sends them, the editor reads each
+  one's impact (`GET /families/{family_id}/members/{sample_id}`) and asks to confirm with it;
+- `relationships` only when a link changed. Without them the family keeps its links as they are.
+
+An analyst of the family's project changes HPO terms only, each saved on its own; the dialog
+shows the member's other fields greyed out and says why.
+
 ## The edit endpoints
 
 | Endpoint | Does |
 | --- | --- |
+| `PUT /families/{family_id}/structure` | adds, updates, renames and removes members and replaces relationships in one request: the editor's save |
 | `PUT /families/{family_id}/members/{sample_id}` | edits one member (states, sex, role, parents, rename) |
 | `PUT /families/{family_id}/members/batch` | edits several members in one transaction |
 | `DELETE /families/{family_id}/members/{sample_id}?confirm=true` | removes a member; without `confirm` it returns 409 with the impact |
-| `PUT /families/{family_id}/structure` | adds, updates and removes members and replaces relationships in one request |
 
 The member endpoints go through the structure update, so the rules below apply to all of
 them. When ClickHouse cannot be reached, the impact says the genotype linkage is unknown.
+
+A structure update names every member by its stored ID, also in its relationships. A member
+update with `new_sample_id` renames that member first, as a member edit does, and the rest of
+the update is then read under the new ID (`update_family_structure_with_renames_for_admin`).
+A member cannot be renamed and removed in one update, and a member cannot be added under the
+old ID of one it renames (400).
 
 ## Rules checked on every change
 
@@ -100,13 +125,13 @@ them. When ClickHouse cannot be reached, the impact says the genotype linkage is
   when ClickHouse cannot be reached, because CoGA cannot then confirm that nothing would be
   orphaned.
 - A sample ID the request gives a member (its new ID, the father or mother a member edit
-  names, the ID of a member the structure edit adds) is printable text without spaces, and no
-  path, as on import ([data-import.md](data-import.md#validation)). Surrounding whitespace is
-  stripped. An ID is refused (400), before anything is read or written under it, when it holds
-  a control character (line break, tab, escape, NUL, C1 control), whitespace, a text-direction,
-  zero-width or other non-printable character, a `/` or a `\`, or when it is `.` or `..`. So a
-  batch holding one renames no member. The message writes each invisible character as its
-  escape (`\t`, `\x1b`, `\u200b`).
+  names, the ID of a member the structure edit adds or renames) is printable text without
+  spaces, and no path, as on import ([data-import.md](data-import.md#validation)). Surrounding
+  whitespace is stripped. An ID is refused (400), before anything is read or written under it,
+  when it holds a control character (line break, tab, escape, NUL, C1 control), whitespace, a
+  text-direction, zero-width or other non-printable character, a `/` or a `\`, or when it is
+  `.` or `..`. So a batch or a structure update holding one renames no member. The message
+  writes each invisible character as its escape (`\t`, `\x1b`, `\u200b`).
 
 ## What an edit changes
 
@@ -164,12 +189,13 @@ not. A family without imported data has nothing to delete, so its marker keeps
 
 ```yaml
 expected_structure_version: 3
-change_reason: family_detail_page
+change_reason: family_members_edit
 clear_existing_genomic_data: false
 add_members:
   - {sample_id: FUTURE_EMBRYO_1, sex: und, role: embryo, clinical_status: unknown}
 members:
   - {sample_id: FATHER, clinical_status: unaffected, carrier_status: carrier, carrier_type: proven}
+  - {sample_id: PROBAND, new_sample_id: PROBAND2}
 remove_members: []
 relationships:
   parent_child:

@@ -1106,6 +1106,7 @@ export interface FamilyStructureMemberCreate {
 
 export interface FamilyStructureMemberUpdate {
   sample_id: string;
+  new_sample_id?: string | null;
   sex?: "male" | "female" | "und" | null;
   role?: "proband" | "father" | "mother" | "sibling" | "embryo" | "relative" | null;
   clinical_status?: "unknown" | "unaffected" | "affected" | null;

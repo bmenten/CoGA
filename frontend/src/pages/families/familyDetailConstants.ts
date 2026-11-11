@@ -22,10 +22,12 @@ export const HPO_STATUS_OPTIONS: HpoAnnotationStatus[] = ['present', 'absent', '
 
 export const defaultNewMember: StructureMemberDraft = {
   sample_id: '',
+  new_sample_id: '',
   sex: 'und',
   role: 'relative',
   clinical_status: 'unknown',
   carrier_status: 'unknown',
   carrier_type: '',
   isNew: true,
+  removed: false,
 };

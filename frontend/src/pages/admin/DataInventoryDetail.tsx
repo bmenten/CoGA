@@ -130,10 +130,10 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
           </div>
         </div>
 
-        {/* Reused Family Workspace: members, relationships, phenotypes, carrier
-            status, sample info, and click-to-edit member details. */}
+        {/* The family workspace itself: its Family members table is the one editor of the
+            members, their relationships, affected and carrier status and HPO terms. */}
         <section className="admin-embedded-workspace">
-          <FamilyDetailPage familyId={selectedFamily.family_id} editable embedded />
+          <FamilyDetailPage familyId={selectedFamily.family_id} embedded />
         </section>
 
         {/* Project access — displayed once, at the family level. */}

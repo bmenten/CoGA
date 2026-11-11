@@ -3,7 +3,8 @@
 A family or sample ID is printable text without spaces (``family_identifiers.py``). The member
 edits (``PUT /families/{family}/members/{sample}``, ``PUT /families/{family}/members/batch``)
 take a member's new sample ID and its father and mother from the request; the structure edit
-(``PUT /families/{family}/structure``) takes the IDs of the members it adds. One that holds a
+(``PUT /families/{family}/structure``) takes the IDs of the members it adds and the new IDs of
+the members it renames. One that holds a
 control character (C0 or DEL: a line break, a tab, an escape, a NUL) or whitespace is refused
 (400) with the rule's message, before anything is read or written under it: no member of the
 request is renamed, and a NUL never reaches Postgres. So is one that holds a C1 control, a
@@ -28,10 +29,12 @@ from backend.app.schemas import (
     FamilyMemberUpdate,
     FamilyOut,
     FamilyRelationshipOut,
+    FamilyStructureCoupleUpdate,
     FamilyStructureMemberCreate,
     FamilyStructureMemberUpdate,
     FamilyStructureParentChildUpdate,
     FamilyStructureRelationshipsUpdate,
+    FamilyStructureRelativeUpdate,
     FamilyStructureUpdate,
     FamilyStructureUpdateOut,
 )
@@ -503,3 +506,155 @@ async def test_a_structure_edit_naming_a_member_the_family_lacks_shows_the_id_as
 
     assert (refused.value.status_code, refused.value.detail) == answer
     assert ESC not in refused.value.detail and RLO not in refused.value.detail
+
+
+# --------------------------------------------------------------------------- #
+# A structure edit that renames a member: PUT /families/{family}/structure
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("new_sample_id", "detail"),
+    [
+        (f"CHILD{LF}2", "Sample ID 'CHILD\\n2' contains a control character (\\n)."),
+        ("CHILD 2", "Sample ID 'CHILD 2' contains a space."),
+        ("../CHILD2", "Sample ID '../CHILD2' contains a slash (/)."),
+    ],
+)
+async def test_a_structure_edit_refuses_a_new_id_no_sample_can_be_stored_under_before_any_rename(
+    monkeypatch: pytest.MonkeyPatch, new_sample_id: str, detail: str
+) -> None:
+    monkeypatch.setattr(members, "get_accessible_family_mapping", _nothing_read)
+    monkeypatch.setattr(members, "update_family_structure_for_admin", _nothing_read)
+    # The first member would be renamed first: nothing is, once the second's ID is refused.
+    update = FamilyStructureUpdate(
+        members=[
+            FamilyStructureMemberUpdate(sample_id=FATHER, new_sample_id="FATHER2"),
+            FamilyStructureMemberUpdate(sample_id=CHILD, new_sample_id=new_sample_id),
+        ]
+    )
+
+    with pytest.raises(HTTPException) as refused:
+        await members.update_family_structure_with_renames_for_admin(
+            _ExplodingSession(),  # type: ignore[arg-type]
+            family_id=FAMILY,
+            update=update,
+            user=admin_user(),
+        )
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == _refusal(detail)
+
+
+@pytest.mark.asyncio
+async def test_a_structure_edit_renames_a_member_and_names_it_by_its_new_id_everywhere(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _RecordingSession()
+    calls: list[dict[str, Any]] = []
+
+    async def mapping(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"id": "fam-uuid", "family_id": FAMILY}
+
+    async def sample_uuid(*_args: Any, **_kwargs: Any) -> tuple[str, str]:
+        return "uuid-child", CHILD
+
+    async def available(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def impact(_session: Any, *, sample_id: str, **_kwargs: Any) -> FamilyMemberImpactOut:
+        return FamilyMemberImpactOut(sample_id=sample_id)
+
+    async def structure_update(_session: Any, **kwargs: Any) -> FamilyStructureUpdateOut:
+        calls.append(kwargs)
+        return FamilyStructureUpdateOut(family=_family("CHILD2"))
+
+    monkeypatch.setattr(members, "get_accessible_family_mapping", mapping)
+    monkeypatch.setattr(members, "_sample_uuid_for_member", sample_uuid)
+    monkeypatch.setattr(members, "_ensure_sample_id_available", available)
+    monkeypatch.setattr(members, "get_family_member_impact_for_user", impact)
+    monkeypatch.setattr(members, "update_family_structure_for_admin", structure_update)
+
+    # The editor names every member by its stored ID, the renamed one too.
+    await members.update_family_structure_with_renames_for_admin(
+        session,  # type: ignore[arg-type]
+        family_id=FAMILY,
+        update=FamilyStructureUpdate(
+            expected_structure_version=4,
+            members=[
+                FamilyStructureMemberUpdate(sample_id=CHILD, new_sample_id=" CHILD2 ", clinical_status="affected"),
+                FamilyStructureMemberUpdate(sample_id=FATHER, new_sample_id=FATHER.lower()),
+            ],
+            relationships=FamilyStructureRelationshipsUpdate(
+                parent_child=[FamilyStructureParentChildUpdate(parent=FATHER, child=CHILD, parent_role="father")],
+                couples=[FamilyStructureCoupleUpdate(partners=[CHILD, MOTHER])],
+                relatives=[FamilyStructureRelativeUpdate(member=MOTHER, related_to=CHILD.lower())],
+            ),
+        ),
+        user=admin_user(),
+    )
+
+    # Only the child is renamed: the father's new ID differs from his stored one in case alone.
+    assert session.params == [{"sample_uuid": "uuid-child", "sample_id": "CHILD2"}]
+    [call] = calls
+    assert call["renamed_members"] == {"CHILD2": CHILD}
+    update = call["update"]
+    assert update.expected_structure_version == 4
+    assert [(member.sample_id, member.new_sample_id) for member in update.members] == [("CHILD2", None), (FATHER, None)]
+    assert update.members[0].clinical_status == "affected"
+    assert [(link.parent, link.child) for link in update.relationships.parent_child] == [(FATHER, "CHILD2")]
+    assert [couple.partners for couple in update.relationships.couples] == [["CHILD2", MOTHER]]
+    assert [(relative.member, relative.related_to) for relative in update.relationships.relatives] == [(MOTHER, "CHILD2")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("update", "detail"),
+    [
+        pytest.param(
+            FamilyStructureUpdate(
+                members=[FamilyStructureMemberUpdate(sample_id=CHILD, new_sample_id="CHILD2")],
+                remove_members=[CHILD.lower()],
+            ),
+            f"{CHILD.lower()} cannot be renamed and removed in one change",
+            id="renamed-and-removed",
+        ),
+        pytest.param(
+            FamilyStructureUpdate(
+                members=[FamilyStructureMemberUpdate(sample_id=CHILD, new_sample_id="CHILD2")],
+                add_members=[FamilyStructureMemberCreate(sample_id=CHILD)],
+            ),
+            f"{CHILD} is renamed in this change: add the new member under another ID",
+            id="renamed-and-added",
+        ),
+    ],
+)
+async def test_a_structure_edit_refuses_to_rename_a_member_it_also_removes_or_adds(
+    monkeypatch: pytest.MonkeyPatch, update: FamilyStructureUpdate, detail: str
+) -> None:
+    monkeypatch.setattr(members, "get_accessible_family_mapping", _nothing_read)
+    monkeypatch.setattr(members, "update_family_structure_for_admin", _nothing_read)
+
+    with pytest.raises(HTTPException) as refused:
+        await members.update_family_structure_with_renames_for_admin(
+            _ExplodingSession(),  # type: ignore[arg-type]
+            family_id=FAMILY,
+            update=update,
+            user=admin_user(),
+        )
+
+    assert (refused.value.status_code, refused.value.detail) == (400, detail)
+
+
+@pytest.mark.asyncio
+async def test_a_structure_update_still_holding_a_new_id_writes_nothing() -> None:
+    # A rename is written before the update (update_family_structure_with_renames_for_admin):
+    # one passed straight to the update would go unwritten, so the update refuses it.
+    with pytest.raises(ValueError):
+        await structure.update_family_structure_for_admin(
+            _ExplodingSession(),  # type: ignore[arg-type]
+            family_id=FAMILY,
+            update=FamilyStructureUpdate(members=[FamilyStructureMemberUpdate(sample_id=CHILD, new_sample_id="CHILD2")]),
+            user=admin_user(),
+        )

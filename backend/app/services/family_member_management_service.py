@@ -21,6 +21,7 @@ from ..schemas import (
     FamilyStructureParentChildUpdate,
     FamilyStructureRelationshipsUpdate,
     FamilyStructureUpdate,
+    FamilyStructureUpdateOut,
     HpoAnnotationOut,
 )
 from .clickhouse_variant_storage import (
@@ -34,6 +35,7 @@ from .family_structure_service import (
     _sample_key,
     update_family_structure_for_admin,
 )
+from .family_identifiers import visible
 from .hpo_service import list_family_hpo_annotations
 from .metadata_service import get_accessible_family_mapping, get_family_record
 from .ped_service import _require_storable_id
@@ -785,6 +787,123 @@ async def update_family_members_batch_for_admin(
         stale_analysis_scopes=response.stale_analysis_scopes,
         data_counts=response.data_counts,
         cleared_data_counts=response.cleared_data_counts,
+    )
+
+
+def _structure_update_under_new_ids(
+    update: FamilyStructureUpdate,
+    renames: dict[str, str],
+) -> FamilyStructureUpdate:
+    """``update`` with each member ``renames`` names (the key of its stored ID → its new ID)
+    named by its new ID, in its member update and in every relationship, and no
+    ``new_sample_id`` left to apply."""
+
+    def new_id(sample_id: str) -> str:
+        return renames.get(_sample_key(sample_id), sample_id)
+
+    relationships = update.relationships
+    if relationships is not None:
+        relationships = FamilyStructureRelationshipsUpdate(
+            parent_child=[
+                link.model_copy(update={"parent": new_id(link.parent), "child": new_id(link.child)})
+                for link in relationships.parent_child
+            ],
+            couples=[
+                couple.model_copy(update={"partners": [new_id(partner) for partner in couple.partners]})
+                for couple in relationships.couples
+            ],
+            relatives=None
+            if relationships.relatives is None
+            else [
+                relative.model_copy(
+                    update={"member": new_id(relative.member), "related_to": new_id(relative.related_to)}
+                )
+                for relative in relationships.relatives
+            ],
+        )
+    return update.model_copy(
+        update={
+            "members": [
+                member.model_copy(update={"sample_id": new_id(member.sample_id), "new_sample_id": None})
+                for member in update.members
+            ],
+            "relationships": relationships,
+        }
+    )
+
+
+async def update_family_structure_with_renames_for_admin(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    update: FamilyStructureUpdate,
+    user: CurrentUser,
+) -> FamilyStructureUpdateOut:
+    """The structure edit (``PUT /families/{family_id}/structure``), the one save of the family
+    members editor: renames each member whose update gives a ``new_sample_id``, as a member edit
+    renames it (``_rename_member``: refused while its genomic data uses the old ID), then makes
+    the rest of the update, which names every member by its stored ID, one change of the
+    family's structure under the new IDs. Its audit event names the renames."""
+    requested: list[tuple[str, str]] = []
+    for member in update.members:
+        new_sample_id = (member.new_sample_id or "").strip()
+        if not new_sample_id:
+            continue
+        # Refused before anything is read or written under it, as a member edit refuses it.
+        _require_storable_id(new_sample_id, kind="Sample ID")
+        if _sample_key(new_sample_id) != _sample_key(member.sample_id):
+            requested.append((_clean_sample_id(member.sample_id), new_sample_id))
+    if not requested:
+        return await update_family_structure_for_admin(
+            session, family_id=family_id, update=_structure_update_under_new_ids(update, {}), user=user
+        )
+
+    renamed_keys = [_sample_key(sample_id) for sample_id, _new in requested]
+    if len(set(renamed_keys)) != len(renamed_keys):
+        raise HTTPException(status_code=400, detail="Member updates must be unique by sample id")
+    for sample_id in update.remove_members:
+        if _sample_key(sample_id) in renamed_keys:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{visible(sample_id.strip())} cannot be renamed and removed in one change",
+            )
+    for added in update.add_members:
+        if _sample_key(added.sample_id) in renamed_keys:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{visible(added.sample_id.strip())} is renamed in this change: add the new member under another ID",
+            )
+
+    family_row = await get_accessible_family_mapping(session, family_id, user)
+    family_uuid = str(family_row["id"])
+    # Before the renames: the pedigree this change records as before is the one it replaces.
+    await lock_family_pedigree(session, str(family_row["family_id"]))
+    renames: dict[str, str] = {}
+    # Each renamed member's new ID and its old one, for the change's audit event.
+    renamed: dict[str, str] = {}
+    for sample_id, new_sample_id in requested:
+        sample_uuid, resolved_sample_id = await _sample_uuid_for_member(
+            session,
+            family_uuid=family_uuid,
+            sample_id=sample_id,
+        )
+        await _rename_member(
+            session,
+            family_id=family_id,
+            user=user,
+            sample_uuid=sample_uuid,
+            sample_id=resolved_sample_id,
+            new_sample_id=new_sample_id,
+        )
+        renames[_sample_key(resolved_sample_id)] = new_sample_id
+        renamed[new_sample_id] = resolved_sample_id
+
+    return await update_family_structure_for_admin(
+        session,
+        family_id=family_id,
+        update=_structure_update_under_new_ids(update, renames),
+        user=user,
+        renamed_members=renamed,
     )
 
 
