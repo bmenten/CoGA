@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from backend.app.services import nipt_service
+from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
     SmallVariantCall,
@@ -272,10 +273,11 @@ def _wire(
     filtered: list[SmallVariantRecord],
     targets=None,
     artifacts: set[str] | None = None,
-    other_carriers: dict[str, int] | None = None,
-) -> None:
-    # Another family's plasma of the assay: what a de novo candidate's recurrence is counted in.
-    wire_nipt_reads(
+    recurrence: dict[str, CfdnaRecurrence] | None = None,
+    other_samples: int = 1,
+) -> list[list[str]]:
+    # Another family's plasma of the assay: what a variant's recurrence is counted in.
+    counts = wire_nipt_reads(
         monkeypatch,
         family=nipt_family(family_id="NIPTFAM1", father=FATHER, plasma=PLASMA),
         cohort=_ff_sites() + filtered,
@@ -283,7 +285,8 @@ def _wire(
         artifacts=artifacts,
         sample_name_to_uuid={FATHER: "father-uuid", PLASMA: "cfdna-uuid"},
         carrier_samples=["OTHER1"],
-        other_carriers=other_carriers or {},
+        recurrence=recurrence,
+        other_samples=other_samples,
     )
 
     async def fake_tracks(
@@ -307,6 +310,7 @@ def _wire(
         ]
 
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_tracks)
+    return counts
 
 
 async def _variants(**kwargs):
@@ -388,14 +392,118 @@ async def test_the_de_novo_view_triages_the_candidates(monkeypatch: pytest.Monke
 async def test_a_de_novo_candidate_another_pregnancy_carries(monkeypatch: pytest.MonkeyPatch) -> None:
     # Another family's plasma of the assay has the call: a recurrent artefact, unless a
     # ClinVar record may call it pathogenic (a de novo hotspot recurs between pregnancies).
-    _wire(monkeypatch, filtered=_gene_sites(), other_carriers={"7-500-G-A": 1})
+    _wire(monkeypatch, filtered=_gene_sites(), recurrence={"7-500-G-A": CfdnaRecurrence(carriers=1)})
     assert (await _variants(inheritance="de_novo")).variants == []
     sites = _gene_sites()
     sites[4].annotations = [{"impact": "MODERATE", "clinvar": "Pathogenic"}]
-    _wire(monkeypatch, filtered=sites, other_carriers={"7-500-G-A": 1})
+    _wire(monkeypatch, filtered=sites, recurrence={"7-500-G-A": CfdnaRecurrence(carriers=1)})
     [candidate] = (await _variants(inheritance="de_novo")).variants
     assert candidate.de_novo is not None and candidate.de_novo.label == "high"
     assert "ClinVar pathogenic: not excluded as recurrent" in candidate.de_novo.reasons
+
+
+@pytest.mark.asyncio
+async def test_each_listed_variant_carries_its_recurrence_counted_once_for_the_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 7-500-G-A is an unexplained low-VAF call in 3 of the 20 other cfDNA samples of the
+    # assay: the mark of a recurrent artefact. The others recur in none.
+    recurrent = CfdnaRecurrence(
+        carriers=4, maternal=1, paternal_low_vaf=0, unexplained_low_vaf=3, unexplained_median_vaf=0.012
+    )
+    counts = _wire(monkeypatch, filtered=_gene_sites(), recurrence={"7-500-G-A": recurrent}, other_samples=20)
+    result = await _variants(page_size=2)
+    assert [item.record.variant_id for item in result.variants] == ["7-100-A-G", "7-200-C-T"]
+    # Without the filter only the page is counted, in one count.
+    assert counts == [["7-100-A-G", "7-200-C-T"]]
+    for item in result.variants:
+        assert item.recurrence is not None
+        assert (item.recurrence.other_samples, item.recurrence.counts) == (20, CfdnaRecurrence())
+        assert item.recurrence.protection is None
+    [candidate] = (await _variants(inheritance="de_novo", de_novo_priority="low")).variants or [None]
+    # The de novo view leaves out a candidate another plasma carries.
+    assert candidate is None
+    whole = await _variants(page=3, page_size=2)
+    [last] = whole.variants
+    assert last.record.variant_id == "7-500-G-A"
+    assert last.recurrence is not None and last.recurrence.counts == recurrent
+
+
+@pytest.mark.asyncio
+async def test_the_recurrence_filter_leaves_out_unexplained_low_vaf_calls_that_recur(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recurrence = {
+        # An unexplained low-VAF call in 3 other plasmas: an artefact's mark.
+        "7-500-G-A": CfdnaRecurrence(carriers=3, unexplained_low_vaf=3, unexplained_median_vaf=0.012),
+        # The father's allele in 5 other pregnancies, and a maternal allele in 9: explained.
+        "7-200-C-T": CfdnaRecurrence(carriers=5, paternal_low_vaf=5),
+        "7-300-A-G": CfdnaRecurrence(carriers=9, maternal=9),
+    }
+    counts = _wire(monkeypatch, filtered=_gene_sites(), recurrence=recurrence, other_samples=20)
+
+    def listed(result) -> list[str]:
+        return [item.record.variant_id for item in result.variants]
+
+    every = ["7-100-A-G", "7-200-C-T", "7-300-A-G", "7-400-C-T", "7-500-G-A"]
+    assert listed(await _variants()) == every
+    counts.clear()
+    hidden = await _variants(max_unexplained_recurrence=2)
+    assert listed(hidden) == every[:-1]
+    assert hidden.total == 4
+    # The filter counts every classified variant before the page is cut, in one count.
+    assert counts == [every]
+    assert listed(await _variants(max_unexplained_recurrence=3)) == every
+    assert listed(await _variants(max_unexplained_recurrence=0)) == every[:-1]
+
+    # A ClinVar record that may call it pathogenic keeps it listed, whatever its count: a de
+    # novo hotspot recurs between pregnancies.
+    sites = _gene_sites()
+    sites[4].annotations = [{"impact": "MODERATE", "clinvar": "Pathogenic"}]
+    _wire(monkeypatch, filtered=sites, recurrence=recurrence, other_samples=20)
+    kept = await _variants(max_unexplained_recurrence=0)
+    assert listed(kept) == every
+    assert kept.variants[-1].recurrence is not None and kept.variants[-1].recurrence.protection == "clinvar"
+
+    with pytest.raises(HTTPException) as refused:
+        await _variants(max_unexplained_recurrence=-1)
+    assert refused.value.status_code == 400
+
+
+def test_what_the_recurrence_filter_leaves_out() -> None:
+    record = _record("7-1-A-G", [])
+
+    def item(unexplained: int, protection: str | None) -> nipt_service.NiptClassifiedVariant:
+        return nipt_service.NiptClassifiedVariant(
+            record=record,
+            classification=None,  # type: ignore[arg-type]
+            recurrence=nipt_service.NiptRecurrence(
+                other_samples=10,
+                counts=CfdnaRecurrence(carriers=unexplained + 4, maternal=4, unexplained_low_vaf=unexplained),
+                protection=protection,
+            ),
+        )
+
+    assert nipt_service.hidden_as_recurrent(item(3, None), 2)
+    assert not nipt_service.hidden_as_recurrent(item(2, None), 2)
+    assert not nipt_service.hidden_as_recurrent(item(3, "common"), 2)
+    with pytest.raises(RuntimeError):
+        nipt_service.hidden_as_recurrent(
+            nipt_service.NiptClassifiedVariant(record=record, classification=None),  # type: ignore[arg-type]
+            2,
+        )
+
+
+def test_the_recurrence_count_reads_calls_by_the_quality_filter_and_the_fathers_classes() -> None:
+    rules = nipt_service.recurrence_rules(nipt_service.NiptQualityThresholds())
+    assert (rules.min_alt_reads, rules.min_alt_fraction) == (5, 0.01)
+    assert rules.maternal_vaf_boundary == 0.25
+    assert (rules.father_min_depth, rules.father_min_alt_reads, rules.father_min_quality, rules.father_min_vaf) == (
+        20,
+        5,
+        20.0,
+        0.20,
+    )
 
 
 @pytest.mark.asyncio

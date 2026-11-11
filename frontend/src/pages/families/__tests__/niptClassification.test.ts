@@ -1,6 +1,6 @@
 // The monogenic NIPT readouts the NIPT page and its printed report share: the plasma reads
 // behind a call, a panel gene's coverage failure, a variant's fetal-inheritance evidence and
-// the fetal-sex words. Each says what it does not know as such ("—", "no call"), never as a
+// the fetal-sex words, and how an allele recurs in the assay's other cfDNA samples. Each says what it does not know as such ("—", "no call"), never as a
 // value: a missing depth is not 0 reads, a missing probability is not 0%.
 import { describe, expect, it } from 'vitest';
 
@@ -14,6 +14,8 @@ import {
   niptGeneTerms,
   pct,
   readsText,
+  recurrenceShortText,
+  recurrenceText,
   targetExon,
 } from '../niptClassification';
 
@@ -112,5 +114,57 @@ describe('the NIPT words and numbers', () => {
     expect(niptGeneTerms()).toEqual([]);
     expect(targetExon('CFTR;ENST00000003084;x;y; exon 10 ')).toBe('exon 10');
     expect(targetExon('CFTR;ENST00000003084')).toBe('');
+  });
+});
+
+describe("how an allele recurs in the assay's other cfDNA samples", () => {
+  const counts = {
+    other_samples: 31,
+    carriers: 7,
+    maternal: 2,
+    paternal_low_vaf: 1,
+    unexplained_low_vaf: 3,
+    unexplained_median_vaf: 0.0125,
+    protection: null,
+  };
+
+  it('names the unexplained low-VAF calls of how many, their median, and the explained ones', () => {
+    // One carrier has no allele depths: a carrier, in none of the three groups.
+    expect(recurrenceText(counts)).toBe(
+      "unexplained low-VAF in 3 of 31 other cfDNA samples (median 1.3%) · father's allele in 1 · maternal in 2 · without allele depths in 1",
+    );
+    expect(recurrenceShortText(counts)).toBe('recurrent 3/31');
+  });
+
+  it('says what keeps a protected variant listed whatever its count', () => {
+    const kept = { ...counts, carriers: 3, maternal: 0, paternal_low_vaf: 0, protection: 'clinvar' };
+    expect(recurrenceText(kept)).toBe(
+      'unexplained low-VAF in 3 of 31 other cfDNA samples (median 1.3%) · kept by the recurrence filter: ClinVar may call it pathogenic',
+    );
+    expect(recurrenceShortText(kept)).toBe('recurrent 3/31 (kept)');
+    expect(recurrenceText({ ...kept, protection: 'common' })).toContain('common in the population');
+  });
+
+  it('says when no other sample carries it, and when there is none to compare with', () => {
+    const none = { ...counts, carriers: 0, maternal: 0, paternal_low_vaf: 0, unexplained_low_vaf: 0 };
+    expect(recurrenceText(none)).toBe('in none of 31 other cfDNA samples');
+    expect(recurrenceShortText(none)).toBeNull();
+    expect(recurrenceText({ ...none, other_samples: 1 })).toBe('in none of 1 other cfDNA sample');
+    expect(recurrenceText({ ...none, other_samples: 0 })).toBe('no other cfDNA sample of the assay to compare with');
+  });
+
+  it('reads a signed record, which does not hold how many other samples there were', () => {
+    expect(recurrenceText({ ...counts, other_samples: null, carriers: 6 })).toBe(
+      "unexplained low-VAF in 3 other cfDNA samples (median 1.3%) · father's allele in 1 · maternal in 2",
+    );
+    expect(
+      recurrenceText({ ...counts, other_samples: null, carriers: 0, maternal: 0, paternal_low_vaf: 0, unexplained_low_vaf: 0 }),
+    ).toBe('in no other cfDNA sample of the assay');
+  });
+
+  it('leaves out the median when the record holds none', () => {
+    expect(recurrenceText({ ...counts, unexplained_median_vaf: null, carriers: 6 })).toBe(
+      "unexplained low-VAF in 3 of 31 other cfDNA samples · father's allele in 1 · maternal in 2",
+    );
   });
 });

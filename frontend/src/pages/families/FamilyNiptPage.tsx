@@ -102,7 +102,7 @@ const niptParamsSerializer = (params: Record<string, unknown>): string => {
 // the NIPT-supported keys are emitted: the review tags and excluded review tags by the
 // small-variant list's names, but no per-sample genotype, review classification,
 // saved-notes or phenotype params; the maternal/fetal category + inheritance view + min
-// confidence are NIPT-specific. An inheritance mode that is not one of the list's views, from
+// confidence + recurrence filter are NIPT-specific. An inheritance mode that is not one of the list's views, from
 // a saved search made on the small-variant list or a link, is not sent: the server refused
 // the whole search for it (400).
 const buildVariantParams = (f: SmallFilterState, page: number): Record<string, unknown> => {
@@ -168,6 +168,7 @@ const buildVariantParams = (f: SmallFilterState, page: number): Record<string, u
   if (isNiptInheritanceView(f.inheritance)) params.inheritance = f.inheritance;
   if (f.include_not_inherited === 'true') params.include_not_inherited = true;
   str('de_novo_priority', f.de_novo_priority);
+  numeric('max_unexplained_recurrence', f.max_unexplained_recurrence);
   return params;
 };
 

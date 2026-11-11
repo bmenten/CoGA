@@ -244,12 +244,15 @@ export type SmallFilterState = {
   has_notes: string;
   // Monogenic NIPT only: the maternal/fetal category multi-select, the minimum
   // classification confidence, whether the paternal and maternal views also list the
-  // alleles the fetus did not inherit ('true'), and the lowest de novo priority listed
-  // (high, medium or low). Never set by the small-variant UI.
+  // alleles the fetus did not inherit ('true'), the lowest de novo priority listed
+  // (high, medium or low), and the recurrence filter: the most other cfDNA samples of the
+  // assay a listed variant may be an unexplained low-VAF call in. Never set by the
+  // small-variant UI.
   category: string;
   min_confidence: string;
   include_not_inherited: string;
   de_novo_priority: string;
+  max_unexplained_recurrence: string;
 };
 
 export type ActiveSmallFilterChip =
@@ -557,7 +560,8 @@ export const inheritanceLabel = (value: string): string => {
 /**
  * Filters of the shared search that the family small-variant list does not apply: the NIPT
  * list's own (the maternal/fetal categories, the minimum classification confidence, the alleles
- * the fetus did not inherit and the lowest de novo priority), none of which its route declares.
+ * the fetus did not inherit, the lowest de novo priority and the recurrence filter), none of which
+ * its route declares.
  * The form offers them no control. A search saved on the NIPT page, or a link, can still carry
  * them: the small-variant page does not send them, shows no chip for
  * them and names them (`smallVariantAppliesFilterChip`, `smallVariantListFilters`). Each is sent
@@ -567,7 +571,7 @@ export const inheritanceLabel = (value: string): string => {
  */
 export const SMALL_VARIANT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new Set<
   keyof SmallFilterState
->(['category', 'min_confidence', 'include_not_inherited', 'de_novo_priority']);
+>(['category', 'min_confidence', 'include_not_inherited', 'de_novo_priority', 'max_unexplained_recurrence']);
 
 /**
  * Whether the family small-variant list applies the filter a chip names: every per-sample filter
@@ -604,6 +608,7 @@ const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = 
   min_confidence: 'minimum-confidence',
   include_not_inherited: 'not-inherited-alleles',
   de_novo_priority: 'de novo priority',
+  max_unexplained_recurrence: 'recurrence',
 };
 
 const unappliedFilterName = (chip: ActiveSmallFilterChip): string => {
@@ -681,6 +686,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   min_confidence: 'Min confidence',
   include_not_inherited: 'Also not inherited',
   de_novo_priority: 'De novo priority from',
+  max_unexplained_recurrence: 'Max unexplained recurrence',
 };
 
 const SAMPLE_FIELD_LABELS: Record<Exclude<keyof SmallVariantSampleFilter, 'gt'>, string> = {
@@ -834,6 +840,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   min_confidence: '',
   include_not_inherited: '',
   de_novo_priority: '',
+  max_unexplained_recurrence: '',
 });
 
 const buildDefaultSampleFilters = (
@@ -1208,6 +1215,9 @@ export const buildSmallVariantQueryParams = (
   if (currentFilters.min_confidence) params.set('min_confidence', currentFilters.min_confidence);
   if (currentFilters.include_not_inherited === 'true') params.set('include_not_inherited', 'true');
   if (currentFilters.de_novo_priority) params.set('de_novo_priority', currentFilters.de_novo_priority);
+  if (currentFilters.max_unexplained_recurrence) {
+    params.set('max_unexplained_recurrence', currentFilters.max_unexplained_recurrence);
+  }
   parseCommaSeparatedValues(currentFilters.category).forEach((value) => {
     params.append('category', value);
   });

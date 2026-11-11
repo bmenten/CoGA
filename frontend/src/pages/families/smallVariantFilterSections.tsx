@@ -1190,6 +1190,24 @@ summarizeSection(SECTION_FILTER_COUNTS.categories(form), 'All categories')
             placeholder="0.00"
           />
         </label>
+        <label className="analysis-field-label">
+          Hide recurrent low-VAF calls: unexplained in more than … other cfDNA samples
+          <input
+            type="number"
+            name="max_unexplained_recurrence"
+            aria-label="Max unexplained recurrence"
+            min={0}
+            step={1}
+            value={draftFilters.max_unexplained_recurrence}
+            onChange={handleDraftFieldChange}
+            placeholder="off"
+          />
+        </label>
+        <p className="table-subtle">
+          A call below 25% that no parent of its family explains, in another cfDNA sample of this assay (every
+          project), is the mark of a recurrent artefact. An allele ClinVar may call pathogenic, or a common one, stays
+          listed.
+        </p>
       </div>
     </FilterSection>
   );

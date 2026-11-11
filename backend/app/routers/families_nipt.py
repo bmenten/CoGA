@@ -19,6 +19,7 @@ from ..schemas import (
     NiptQcOut,
     NiptRecessiveAlleleOut,
     NiptRecessiveGeneOut,
+    NiptRecurrenceOut,
     NiptSummaryOut,
     NiptClassificationOut,
     NiptVariantStatisticsOut,
@@ -45,6 +46,7 @@ from ..services.nipt_quality_checks import nipt_quality_checks
 from ..services.nipt_service import (
     NiptClassifiedVariant,
     NiptFamilySummary,
+    NiptRecurrence,
     get_family_nipt_coverage,
     get_family_nipt_gene_targets,
     get_family_nipt_summary as load_family_nipt_summary,
@@ -211,6 +213,22 @@ def _recessive_gene_out(gene: RecessiveGeneRisk) -> NiptRecessiveGeneOut:
     )
 
 
+def _recurrence_out(recurrence: NiptRecurrence | None) -> NiptRecurrenceOut:
+    if recurrence is None:
+        # get_family_nipt_variants always counts the page slice's recurrence.
+        raise RuntimeError("NIPT variant was serialized before its recurrence was counted")
+    counts = recurrence.counts
+    return NiptRecurrenceOut(
+        other_samples=recurrence.other_samples,
+        carriers=counts.carriers,
+        maternal=counts.maternal,
+        paternal_low_vaf=counts.paternal_low_vaf,
+        unexplained_low_vaf=counts.unexplained_low_vaf,
+        unexplained_median_vaf=counts.unexplained_median_vaf,
+        protection=recurrence.protection,  # type: ignore[arg-type]
+    )
+
+
 def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
     classification = item.classification
     site = item.site
@@ -247,6 +265,7 @@ def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
             if item.de_novo is not None
             else None
         ),
+        recurrence=_recurrence_out(item.recurrence),
     )
     if item.variant_out is None:
         # get_family_nipt_variants always hydrates the page slice.
@@ -373,6 +392,10 @@ async def get_family_nipt_variants_page(
     # sign-out freezes.
     review_tags: list[str] = Query(default_factory=list, alias="review_tag"),
     exclude_review_tags: list[str] = Query(default_factory=list, alias="exclude_review_tag"),
+    # The recurrence filter: leave out the variants that are an unexplained low-VAF call in
+    # more than this many other cfDNA samples of the assay (unless ClinVar or a population
+    # frequency protects them).
+    max_unexplained_recurrence: int | None = Query(None, ge=0),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptVariantPage:
@@ -428,6 +451,7 @@ async def get_family_nipt_variants_page(
         page_size=page_size,
         review_tags=review_tags,
         exclude_review_tags=exclude_review_tags,
+        max_unexplained_recurrence=max_unexplained_recurrence,
     )
     return NiptVariantPage(
         family_id=family_id,

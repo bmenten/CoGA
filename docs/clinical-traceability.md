@@ -479,8 +479,9 @@ in the EPD refers to the signed version by its report code (*The report code* be
     - each variant tagged `report` as the NIPT variant list classifies it (`variants`: category,
       maternal state and fetal inheritance, observed and expected allele fraction, confidence,
       fetal-inheritance probabilities, flags and quality-filter failures, the plasma's and the
-      father's reads, and for a de novo candidate in the fetal window its triage, including one
-      the de novo view leaves out as recurrent);
+      father's reads, its recurrence in the assay's other cfDNA samples (the counts, not how many
+      other samples there were), and for a de novo candidate in the fetal window its triage,
+      including one the de novo view leaves out as recurrent);
     - each reported variant it does not classify, with why (`not_classified`: not in the data, on
       the artifact list, no plasma call);
     - the recessive fetal risk of the genes the reported variants make both parents carriers in,
@@ -1096,9 +1097,9 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   on the plasma's coverage tracks (`nipt.coverage_notes`), not the coverage the check read or its
   verdict. The check is run as the NIPT page runs it without a gene or panel, over the family's
   region of interest, not for the genes or panel of a search; `coverage_tracks` says which kind of
-  coverage it rested on. The artifact list and the de novo recurrence are shared by every family
-  of the assay: a change to the list, or another pregnancy of the assay imported since, makes the
-  sign-out check name `nipt` as changed.
+  coverage it rested on. The artifact list and the recurrence counts are shared by every family
+  of the assay: a change to the list, or another pregnancy of the assay imported since that carries
+  a reported allele, makes the sign-out check name `nipt` as changed.
 - `coverage_tracks` names each coverage track of the members as their records list it, not the
   chromosomes a depth check read: the mtDNA coverage reads a track only where it has rows on
   chrM, the NIPT coverage check its targets' chromosomes, and a sample with two read-depth tracks

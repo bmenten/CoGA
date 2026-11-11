@@ -1,6 +1,6 @@
 import React from 'react';
 import type { NiptClassification } from './smallVariantSearch';
-import { FATHER_STATE_LABELS, DE_NOVO_LABELS, pct, readsText } from './niptClassification';
+import { FATHER_STATE_LABELS, DE_NOVO_LABELS, pct, readsText, recurrenceText } from './niptClassification';
 
 interface NiptClassificationBlockProps {
   nipt: NiptClassification;
@@ -17,7 +17,8 @@ const Probability: React.FC<{ label: string; value?: number | null }> = ({ label
 /**
  * The monogenic NIPT classification, shown on the small-variant card/table when
  * the variant carries NIPT data (i.e. on the NIPT variant list): the category, the reads
- * behind it, the fetal-inheritance probabilities and, for a de novo candidate, its triage.
+ * behind it, how the allele recurs in the assay's other cfDNA samples, the fetal-inheritance
+ * probabilities and, for a de novo candidate, its triage.
  */
 const NiptClassificationBlock: React.FC<NiptClassificationBlockProps> = ({ nipt }) => (
   <div className="nipt-classification-block">
@@ -59,6 +60,10 @@ const NiptClassificationBlock: React.FC<NiptClassificationBlockProps> = ({ nipt 
           </dd>
         </div>
       ) : null}
+      <div>
+        <dt>Other cfDNA samples</dt>
+        <dd>{recurrenceText(nipt.recurrence)}</dd>
+      </div>
       <Probability label="Paternal allele inherited" value={nipt.paternal_transmission_probability} />
       <Probability label="Maternal allele inherited" value={nipt.maternal_allele_probability} />
       <Probability label="Fetus homozygous" value={nipt.fetal_hom_alt_probability} />

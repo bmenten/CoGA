@@ -35,7 +35,7 @@ import { formatCount, joinWithAnd } from '../../lib/format';
 import type { HaplotypeRiskState } from '../../lib/haplotypeRisk';
 import { describePhaseCorrection, type HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { COUNT_UNIT_MARK, describeCountOffset, formatCorrectedCounts } from '../../lib/repeatStatus';
-import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText } from './niptClassification';
+import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText, recurrenceText } from './niptClassification';
 import { formatAlleleFrequency, scoreBesideClass } from './reportNarrative';
 import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
 
@@ -931,6 +931,16 @@ export interface SignedNiptVariant {
   plasma: { altReads: number | null; depth: number | null; depthEstimated: boolean };
   father: { state: string | null; vaf: number | null; depth: number | null };
   deNovo: { window: string | null; score: number | null; label: string | null; reasons: string[] } | null;
+  /** How the allele recurred in the other cfDNA samples of the assay at sign-out (not how many
+   * other samples there were). */
+  recurrence: {
+    carriers: number | null;
+    maternal: number | null;
+    paternalLowVaf: number | null;
+    unexplainedLowVaf: number | null;
+    unexplainedMedianVaf: number | null;
+    protection: string | null;
+  };
 }
 
 export interface SignedNiptRecessiveGene {
@@ -1904,6 +1914,7 @@ const parseNiptVariant = (entry: Json): SignedNiptVariant => {
   const plasma = isObject(entry.plasma) ? entry.plasma : {};
   const father = isObject(entry.father) ? entry.father : {};
   const deNovo = isObject(entry.de_novo) ? entry.de_novo : null;
+  const recurrence = isObject(entry.recurrence) ? entry.recurrence : {};
   return {
     variantId: text(entry.variant_id),
     source: text(entry.source),
@@ -1933,8 +1944,33 @@ const parseNiptVariant = (entry: Json): SignedNiptVariant => {
           reasons: strings(deNovo.reasons),
         }
       : null,
+    recurrence: {
+      carriers: number(recurrence.carriers),
+      maternal: number(recurrence.maternal),
+      paternalLowVaf: number(recurrence.paternal_low_vaf),
+      unexplainedLowVaf: number(recurrence.unexplained_low_vaf),
+      unexplainedMedianVaf: number(recurrence.unexplained_median_vaf),
+      protection: text(recurrence.protection),
+    },
   };
 };
+
+// The recurrence as signed, in the NIPT page's words; null when the record holds no count.
+const describeSignedRecurrence = (recurrence: SignedNiptVariant['recurrence']): string | null =>
+  recurrence.carriers !== null &&
+  recurrence.maternal !== null &&
+  recurrence.paternalLowVaf !== null &&
+  recurrence.unexplainedLowVaf !== null
+    ? recurrenceText({
+        other_samples: null,
+        carriers: recurrence.carriers,
+        maternal: recurrence.maternal,
+        paternal_low_vaf: recurrence.paternalLowVaf,
+        unexplained_low_vaf: recurrence.unexplainedLowVaf,
+        unexplained_median_vaf: recurrence.unexplainedMedianVaf,
+        protection: recurrence.protection,
+      })
+    : null;
 
 const parseNiptCoverageNotes = (value: Json): SignedNiptCoverageNotes => ({
   gene: text(value.gene),
@@ -2609,11 +2645,12 @@ export const describeNiptVariant = (variant: SignedNiptVariant): string => {
         ? { label: variant.deNovo.label, score: variant.deNovo.score }
         : null,
   });
+  const recurrence = describeSignedRecurrence(variant.recurrence);
   return `${category}${confidence}: maternal ${variant.maternalState ?? 'n/a'}, fetal ${
     variant.fetalInheritance ?? 'n/a'
   }; VAF ${pct(variant.observedVaf)} (expected ${pct(variant.expectedVaf)}); plasma reads ${reads}${father}${
     evidence ? `. ${evidence}` : ''
-  }.`;
+  }${recurrence ? `. Other cfDNA samples: ${recurrence}` : ''}.`;
 };
 
 /** Why a reported variant has no NIPT classification in the record. */

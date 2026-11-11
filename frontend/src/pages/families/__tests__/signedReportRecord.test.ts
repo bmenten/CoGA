@@ -1988,6 +1988,14 @@ describe('a NIPT family’s NIPT results', () => {
         plasma: { alt_reads: 0, depth: 1500, depth_estimated: true },
         father: { state: 'het', vaf: 0.5, depth: 300 },
         de_novo: null,
+        recurrence: {
+          carriers: 5,
+          maternal: 1,
+          paternal_low_vaf: 0,
+          unexplained_low_vaf: 4,
+          unexplained_median_vaf: 0.012,
+          protection: 'clinvar',
+        },
       },
       'not an entry',
     ],
@@ -2089,7 +2097,7 @@ describe('a NIPT family’s NIPT results', () => {
       }),
     ).toBe('median 800x over 60,000 targets; 1,500 below 300x, 1,000 with uncovered bases');
     expect(describeNiptVariant(nipt.variants[0])).toBe(
-      'Unclassified (undetermined), confidence 0.99: maternal hom_ref, fetal paternal_not_transmitted; VAF 0.0% (expected 10.0%); plasma reads no call at ~1500× (target coverage); father het · 50.0% · 300×. paternal inherited 0.0%.',
+      'Unclassified (undetermined), confidence 0.99: maternal hom_ref, fetal paternal_not_transmitted; VAF 0.0% (expected 10.0%); plasma reads no call at ~1500× (target coverage); father het · 50.0% · 300×. paternal inherited 0.0%. Other cfDNA samples: unexplained low-VAF in 4 other cfDNA samples (median 1.2%) · maternal in 1 · kept by the recurrence filter: ClinVar may call it pathogenic.',
     );
     expect(NIPT_NOT_CLASSIFIED_REASONS.artifact_list).toBe(
       'it is on the assay’s recurrent-artifact list, which the analysis leaves out',

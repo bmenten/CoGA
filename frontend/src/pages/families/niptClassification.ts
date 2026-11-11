@@ -156,3 +156,64 @@ export const niptEvidenceSummary = (nipt: {
   }
   return parts.join(' · ');
 };
+
+/** How a variant's allele recurs in the other cfDNA samples of the assay (the NIPT list's
+ * `recurrence`, and the signed record's, which does not hold how many other samples there were:
+ * `other_samples` null). */
+export interface NiptRecurrenceCounts {
+  other_samples: number | null;
+  carriers: number;
+  maternal: number;
+  paternal_low_vaf: number;
+  unexplained_low_vaf: number;
+  unexplained_median_vaf?: number | null;
+  protection?: string | null;
+}
+
+const RECURRENCE_PROTECTION_LABELS: Record<string, string> = {
+  clinvar: 'ClinVar may call it pathogenic',
+  common: 'common in the population',
+};
+
+/** Why the recurrence filter keeps a variant whatever its count, or null. */
+export const recurrenceProtectionText = (protection?: string | null): string | null =>
+  protection ? `kept by the recurrence filter: ${RECURRENCE_PROTECTION_LABELS[protection] ?? protection}` : null;
+
+const samplesText = (count: number): string => `${count} other cfDNA sample${count === 1 ? '' : 's'}`;
+
+/**
+ * The recurrence in words: "unexplained low-VAF in 4 of 31 other cfDNA samples (median 1.2%) ·
+ * father's allele in 1 · maternal in 2", or that no other sample carries it. Without the number of
+ * other samples (a signed record): "unexplained low-VAF in 4 other cfDNA samples …".
+ */
+export const recurrenceText = (recurrence: NiptRecurrenceCounts): string => {
+  const others = recurrence.other_samples;
+  if (others === 0) return 'no other cfDNA sample of the assay to compare with';
+  if (recurrence.carriers === 0) {
+    return others === null ? 'in no other cfDNA sample of the assay' : `in none of ${samplesText(others)}`;
+  }
+  const unexplained =
+    others === null
+      ? `unexplained low-VAF in ${samplesText(recurrence.unexplained_low_vaf)}`
+      : `unexplained low-VAF in ${recurrence.unexplained_low_vaf} of ${samplesText(others)}`;
+  const parts = [
+    `${unexplained}${
+      recurrence.unexplained_median_vaf != null ? ` (median ${pct(recurrence.unexplained_median_vaf)})` : ''
+    }`,
+  ];
+  if (recurrence.paternal_low_vaf) parts.push(`father's allele in ${recurrence.paternal_low_vaf}`);
+  if (recurrence.maternal) parts.push(`maternal in ${recurrence.maternal}`);
+  const rest = recurrence.carriers - recurrence.unexplained_low_vaf - recurrence.paternal_low_vaf - recurrence.maternal;
+  if (rest > 0) parts.push(`without allele depths in ${rest}`);
+  const protection = recurrenceProtectionText(recurrence.protection);
+  if (protection) parts.push(protection);
+  return parts.join(' · ');
+};
+
+/** The table's short form: "recurrent 4/31" when unexplained calls recur, else null. */
+export const recurrenceShortText = (recurrence: NiptRecurrenceCounts): string | null =>
+  recurrence.unexplained_low_vaf > 0
+    ? `recurrent ${recurrence.unexplained_low_vaf}/${recurrence.other_samples ?? '?'}${
+        recurrence.protection ? ' (kept)' : ''
+      }`
+    : null;

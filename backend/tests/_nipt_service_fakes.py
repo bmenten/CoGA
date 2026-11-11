@@ -18,6 +18,7 @@ import pytest
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import nipt_service
+from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import SmallVariantRecord
 
 
@@ -47,11 +48,13 @@ def wire_nipt_reads(
     artifacts: set[str] | None = None,
     sample_name_to_uuid: dict[str, str] | None = None,
     carrier_samples: list[str] | None = None,
-    other_carriers: dict[str, int] | None = None,
-) -> None:
+    recurrence: dict[str, CfdnaRecurrence] | None = None,
+    other_samples: int = 0,
+) -> list[list[str]]:
     """Answer the NIPT service's reads for ``family``. ``carrier_samples`` are the assay's other
-    cfDNA samples (none by default: no allele recurs); with ``other_carriers`` given, the
-    count of them carrying each variant is read from it."""
+    cfDNA samples (none by default: no allele recurs). Each variant's recurrence in them is
+    read from ``recurrence`` (none: no other sample carries it), and ``other_samples`` is how
+    many of them have a call. Returns the variant ids of each recurrence count, as made."""
 
     async def family_record(_session: Any, _family_id: str, _user: Any) -> FamilyOut:
         return family
@@ -86,12 +89,20 @@ def wire_nipt_reads(
     monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", listed_artifacts)
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", assay_carriers)
-    if other_carriers is not None:
+    counts: list[list[str]] = []
 
-        async def recurrence(
-            _assembly: str, variant_ids: Any, *, carrier_samples: Any, exclude_family_uuid: str
-        ) -> dict[str, int]:
-            assert exclude_family_uuid == "family-uuid"
-            return {variant_id: count for variant_id, count in other_carriers.items() if variant_id in variant_ids}
+    async def count_recurrence(
+        _assembly: str, variant_ids: Any, *, carrier_samples: Any, exclude_family_uuid: str, rules: Any
+    ) -> dict[str, CfdnaRecurrence]:
+        assert exclude_family_uuid == "family-uuid"
+        assert rules == nipt_service.recurrence_rules(nipt_service.NiptQualityThresholds())
+        counts.append(list(variant_ids))
+        return {variant_id: value for variant_id, value in (recurrence or {}).items() if variant_id in variant_ids}
 
-        monkeypatch.setattr(nipt_service, "count_cfdna_carriers", recurrence)
+    async def count_others(_assembly: str, *, carrier_samples: Any, exclude_family_uuid: str) -> int:
+        assert exclude_family_uuid == "family-uuid"
+        return other_samples
+
+    monkeypatch.setattr(nipt_service, "count_cfdna_recurrence", count_recurrence)
+    monkeypatch.setattr(nipt_service, "count_other_cfdna_samples", count_others)
+    return counts

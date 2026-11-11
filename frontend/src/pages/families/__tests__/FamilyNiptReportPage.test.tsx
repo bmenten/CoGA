@@ -73,6 +73,15 @@ const niptVariant = (
     observed_vaf: 0.05,
     confidence: 0.95,
     flags: [],
+    recurrence: {
+      other_samples: 0,
+      carriers: 0,
+      maternal: 0,
+      paternal_low_vaf: 0,
+      unexplained_low_vaf: 0,
+      unexplained_median_vaf: null,
+      protection: null,
+    },
   },
 });
 

@@ -383,6 +383,27 @@ def _variant(item: NiptClassifiedVariant) -> dict[str, Any]:
             if triage is not None
             else None
         ),
+        "recurrence": _recurrence(item),
+    }
+
+
+def _recurrence(item: NiptClassifiedVariant) -> dict[str, Any]:
+    """How the reported variant's allele recurred in the other cfDNA samples of the assay
+    when it was signed out, as the variant list showed it. Not how many other samples there
+    were: every pregnancy of the assay imported since would change the record (and make the
+    sign-out check name the section as changed), not only one that carries the allele."""
+    recurrence = item.recurrence
+    if recurrence is None:
+        # get_family_nipt_record counts every reported variant's recurrence.
+        raise RuntimeError("NIPT variant was recorded before its recurrence was counted")
+    counts = recurrence.counts
+    return {
+        "carriers": counts.carriers,
+        "maternal": counts.maternal,
+        "paternal_low_vaf": counts.paternal_low_vaf,
+        "unexplained_low_vaf": counts.unexplained_low_vaf,
+        "unexplained_median_vaf": _number(counts.unexplained_median_vaf),
+        "protection": recurrence.protection,
     }
 
 

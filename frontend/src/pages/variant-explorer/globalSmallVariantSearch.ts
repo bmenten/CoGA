@@ -71,6 +71,7 @@ const GLOBAL_UNREAD_PARAMS = [
   'inheritance',
   'category',
   'min_confidence',
+  'max_unexplained_recurrence',
   'ps',
   'prioritize',
   'require_sv_second_hit',
