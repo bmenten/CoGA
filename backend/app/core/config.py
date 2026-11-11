@@ -379,10 +379,11 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
     admin_password: str = Field(default="change-me", alias="ADMIN_PASSWORD")
     admin_email: str = Field(default="admin@example.com", alias="ADMIN_EMAIL")
-    # The mail server that tells the administrators of an account that waits for approval (a
-    # sign-up, a first CAS sign-in; services/account_notifications.py). No mail goes out
-    # without SMTP_HOST. SMTP_FROM is the sender, ADMIN_EMAIL when it is not set; with
-    # SMTP_USERNAME the server is signed in to, which needs SMTP_STARTTLS outside development.
+    # The mail server CoGA sends its mail through (services/outgoing_mail.py): to the
+    # administrators about an account that waits for approval (a sign-up, a first CAS
+    # sign-in) and to the user a family is assigned to. No mail goes out without SMTP_HOST.
+    # SMTP_FROM is the sender, ADMIN_EMAIL when it is not set; with SMTP_USERNAME the server
+    # is signed in to, which needs SMTP_STARTTLS outside development.
     smtp_host: str = Field(default="", alias="SMTP_HOST")
     smtp_port: int = Field(default=25, ge=1, le=65535, alias="SMTP_PORT")
     smtp_starttls: bool = Field(default=False, alias="SMTP_STARTTLS")

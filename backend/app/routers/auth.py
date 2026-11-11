@@ -36,12 +36,9 @@ from ..schemas import (
 )
 from ..services.account_notifications import (
     AccountRequest,
-    MailNotSent,
     administrator_addresses,
     mail_check_message,
-    mail_enabled,
     notify_account_request,
-    send_mail,
 )
 from ..services.metadata_service import (
     create_user_account,
@@ -53,6 +50,7 @@ from ..services.metadata_service import (
     organisation_sign_in_name,
     update_user_account,
 )
+from ..services.outgoing_mail import MailNotSent, mail_enabled, send_mail
 from ..services.user_accounts import (
     CAS_SIGN_IN,
     is_emergency_admin,

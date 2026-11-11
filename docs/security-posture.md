@@ -699,6 +699,15 @@ What the application relies on there:
   writes to either bucket; the pipelines deliver the packages and the operator loads the
   reference files. The grant covers the whole bucket, not a prefix. The account signs no URL,
   so it needs no token-creator role on itself.
+- **Mail.** CoGA sends mail only through the mail server `SMTP_HOST` names
+  (`services/outgoing_mail.py`), encrypted with `SMTP_STARTTLS` and signed in to with
+  `SMTP_USERNAME` only after STARTTLS outside development. Every active administrator gets a
+  mail about an account that waits for approval (the account's name, address and affiliation,
+  no patient data). The user a family is newly assigned to gets a mail that names the family's
+  ID, the lab's pseudonymous ID (the owner's choice), who assigned it and when, and links the
+  family; no other patient data, and its subject names no family. No mail goes out when
+  someone assigns a family to themselves. The log names neither an address, nor the family, nor
+  the mail server's text.
 - **Client address.** Behind the load balancer the backend takes the client address
   `TRUSTED_PROXY_HOPS` entries from the right of `X-Forwarded-For` (Terraform sets 2), never the
   left-most entry, which a client can set. The audit log and the sign-up and login throttles

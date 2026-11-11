@@ -11,13 +11,17 @@ active analyst of one of the family's projects, or an active administrator. The 
 offer only them (``list_family_assignable_users``) and a save that names anyone else is
 refused (422); a value the family already holds stays until it is changed, even when its
 user has since become a reader.
+
+A save that assigns the case to someone the family did not already name there, other than the
+user saving it, hands that assignment to the caller once it is committed (``on_assignment``):
+the route e-mails the assignee (``family_assignment_mail.py``).
 """
 
 from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from fastapi import HTTPException
 from sqlalchemy import RowMapping, String, bindparam, text
@@ -35,6 +39,7 @@ from ..schemas import (
 )
 from .metadata_service import get_accessible_family_mapping, get_family_record
 from .access_control import ANALYST, CHANGING_ROLES, READER, SUPERUSER_ROLES, CurrentUser
+from .family_assignment_mail import FamilyAssignment
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _DEFAULT_STATUS_COLOR = "#5b6b79"
@@ -342,22 +347,23 @@ def _why_not_assignable(candidate: RowMapping) -> str | None:
     return "they are not a member of this family's projects"
 
 
-async def _assignable_user_id(
+async def _assignable_user(
     session: AsyncSession,
     family_row: Mapping[str, Any],
     *,
     field: str,
     user_id: str,
-) -> str:
+) -> tuple[str, RowMapping | None]:
     """The user a save names for the case's ``field`` (``assigned_to`` or ``reviewed_by``),
     refused unless the case may be theirs: 404 for an unknown user, 422 saying why for one
     who is not an active analyst of one of the family's projects or an active administrator.
+    Returns their id, and their row when the family did not already name them there.
 
     The user the family already holds there is kept as it is: a save that leaves the field
     as it was is not refused because its user has since become a reader."""
     user_uuid = require_uuid(user_id, "Invalid user id")
     if user_uuid == canonical_uuid(family_row.get(f"{field}_id")):
-        return user_uuid
+        return user_uuid, None
     candidate = (
         await session.execute(
             _CANDIDATE_USER,
@@ -372,7 +378,7 @@ async def _assignable_user_id(
             status_code=422,
             detail=f"{_shown_name(candidate)} cannot be {_CASE_ROLE[field]}: {problem}. {_ELIGIBLE_USERS_HINT}",
         )
-    return str(candidate["id"])
+    return str(candidate["id"]), candidate
 
 
 async def _resolve_status_id(session: AsyncSession, status_key: str) -> str:
@@ -386,13 +392,40 @@ async def _resolve_status_id(session: AsyncSession, status_key: str) -> str:
     return status_id
 
 
+def _same_account(first: object, second: object) -> bool:
+    return (canonical_uuid(first) or str(first)) == (canonical_uuid(second) or str(second))
+
+
+def _newly_assigned(
+    family_row: Mapping[str, Any], assignee: RowMapping | None, user: CurrentUser
+) -> FamilyAssignment | None:
+    """The assignment a save made, to be told to its assignee: None when it named no one new,
+    or when the user saving it assigned the case to themselves."""
+    if assignee is None:
+        return None
+    if _same_account(assignee["id"], user.id):
+        return None
+    assigned_by = f"{user.first_name} {user.last_name}".strip() or user.username or user.email
+    return FamilyAssignment(
+        family_id=str(family_row["family_id"]),
+        assignee_email=str(assignee.get("email") or ""),
+        assignee_name=_shown_name(assignee),
+        assigned_by=assigned_by,
+        assigned_at=datetime.now(timezone.utc),
+    )
+
+
 async def update_family_metadata_for_user(
     session: AsyncSession,
     *,
     family_id: str,
     update: FamilyMetadataUpdate,
     user: CurrentUser,
+    on_assignment: Callable[[FamilyAssignment], None] | None = None,
 ) -> FamilyOut:
+    """Save the family's status, *Assigned to* and *Reviewed by*. Once the save is committed,
+    an assignment to someone the family did not name there, other than ``user``, is handed to
+    ``on_assignment``."""
     # 404 if the family is unknown or outside the user's projects; 403 for a reader.
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = family_row["id"]
@@ -400,6 +433,7 @@ async def update_family_metadata_for_user(
     fields = update.model_fields_set
     assignments: list[str] = []
     params: dict[str, Any] = {"family_uuid": family_uuid}
+    assignee: RowMapping | None = None
 
     # Every field is checked before anything is written: a refused save changes nothing.
     if "status_key" in fields:
@@ -413,9 +447,13 @@ async def update_family_metadata_for_user(
             continue
         named = getattr(update, field)
         assignments.append(f"{field}_id = CAST(:{field}_id AS uuid)")
-        params[f"{field}_id"] = (
-            await _assignable_user_id(session, family_row, field=field, user_id=named) if named else None
-        )
+        params[f"{field}_id"] = None
+        if named:
+            params[f"{field}_id"], candidate = await _assignable_user(
+                session, family_row, field=field, user_id=named
+            )
+            if field == "assigned_to":
+                assignee = candidate
 
     if assignments:
         await session.execute(
@@ -426,5 +464,8 @@ async def update_family_metadata_for_user(
             params,
         )
         await session.commit()
+        assignment = _newly_assigned(family_row, assignee, user)
+        if assignment is not None and on_assignment is not None:
+            on_assignment(assignment)
 
     return await get_family_record(session, family_id, user)
