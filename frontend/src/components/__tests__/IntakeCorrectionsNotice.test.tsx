@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import IntakeCorrectionsNotice, {
   intakeCorrectionsFromMetadata,
+  memberAddedOrRemoved,
 } from '../IntakeCorrectionsNotice';
 
 // A family record's metadata after the approval of a corrected delivery (synthetic values).
@@ -74,7 +75,7 @@ describe('IntakeCorrectionsNotice', () => {
 
     const notice = screen.getByText('Corrected at intake.').closest('details')!;
     expect(notice).toHaveTextContent(
-      '(2 corrections, the pedigree or a sex among them)'
+      '(2 corrections, the pedigree, a member or a sex among them)'
     );
     expect(notice).toHaveTextContent('From the request form.');
     expect(notice).toHaveTextContent(
@@ -82,6 +83,54 @@ describe('IntakeCorrectionsNotice', () => {
     );
     expect(notice).toHaveTextContent(
       'members.PROBAND.sex: male → female (the pipeline used it)'
+    );
+  });
+
+  it('marks a member added or removed at intake as a change of the pedigree', () => {
+    const relative = { sample_id: 'REL1', sex: 'male', role: 'relative' };
+    expect(memberAddedOrRemoved({ before: null, after: relative })).toBe(
+      'added'
+    );
+    expect(memberAddedOrRemoved({ before: relative, after: null })).toBe(
+      'removed'
+    );
+    expect(
+      memberAddedOrRemoved({ before: null, after: { present: ['HP:1'] } })
+    ).toBeNull();
+    expect(
+      memberAddedOrRemoved({ before: 'male', after: 'female' })
+    ).toBeNull();
+
+    render(
+      <IntakeCorrectionsNotice
+        metadata={{
+          package_import: {
+            delivery: {
+              corrections: [
+                {
+                  revision: 1,
+                  reason: 'The phased VCF holds the affected uncle.',
+                  changes: [
+                    {
+                      path: ['members', 'REL1'],
+                      kind: 'laboratory',
+                      before: null,
+                      after: relative,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }}
+      />
+    );
+    const notice = screen.getByText('Corrected at intake.').closest('details')!;
+    expect(notice).toHaveTextContent(
+      '(1 correction, the pedigree, a member or a sex among them)'
+    );
+    expect(notice).toHaveTextContent(
+      'members.REL1: not set → {"sample_id":"REL1","sex":"male","role":"relative"} (a member added)'
     );
   });
 
@@ -115,6 +164,8 @@ describe('IntakeCorrectionsNotice', () => {
     );
     expect(
       screen.getByText('Corrected at intake.').closest('details')
-    ).toHaveTextContent('(1 correction).Revision 1: no reason recordedfamily.roi: not set → CFTR');
+    ).toHaveTextContent(
+      '(1 correction).Revision 1: no reason recordedfamily.roi: not set → CFTR'
+    );
   });
 });

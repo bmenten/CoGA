@@ -10,9 +10,16 @@ made it and when, and the whole package after it. The import reads the latest.
 Which fields may change:
 
 - **Fixed, the pipeline's**: the format, the status and time, the pipeline and its run, the
-  assembly, the family ID, every sample ID (no member is added or removed), the files, the QC, the
-  request, the reference, the notes, ``extra`` and ``pipeline_used_pedigree``. A correction of one
-  is refused (400): a wrong value is a refused delivery and a new run or copy.
+  assembly, the family ID, every sample ID, the files, the QC, the request, the reference, the
+  notes, ``extra`` and ``pipeline_used_pedigree``. A correction of one is refused (400): a wrong
+  value is a refused delivery and a new run or copy.
+- **Members added and removed** (``["members", <sample ID>]``, the member as its value, or null),
+  the laboratory's (the owner's decision of 2026-11-11). To a pipeline's package only a sample its
+  files name and no member is (``dataset_vcf_sample_unknown``: a column of the phased family VCF,
+  an affected relative read for segregation) is added, so no sample ID is typed; only a member
+  added in CoGA is removed again. CoGA made the package of a folder added by hand (``origin``
+  ``manual``), so there any member is added or removed. A member added with parents, or removed,
+  changes the pedigree the pipeline used (``import_watcher._pedigree_change_issue``).
 - **Used by the pipeline**: a member's ``sex``, ``father`` and ``mother``, and the ``couples``.
   They change, with a reason; while a dataset the pipeline computed with them
   (``pipeline_used_pedigree``) is in the import, the delivery needs attention
@@ -22,7 +29,9 @@ Which fields may change:
   family's ``roi`` and ``pgt``, and each dataset's entry (in or out of the import, its options,
   another file the package lists).
 
-A correction names the revision it was made on (a correction made on another is refused, 409),
+A correction is a list of changes, or the whole package as the person edited it
+(``package_changes``: the changes are what differs, field by field, and the same rules hold).
+It names the revision it was made on (a correction made on another is refused, 409),
 and is made on a delivery that is ready or needs attention and whose folder is as it was checked.
 It is checked at once as the watcher checks a delivery (``import_watcher.assess_content``), with
 what reading the folder found; the delivery's state, issues, warnings and manifest follow. Each
@@ -33,6 +42,7 @@ it, with what it changed and why.
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Any, Literal
@@ -84,6 +94,39 @@ FIXED_FIELD = (
     "is the pipeline's and is not changed in CoGA: a wrong value is a refused delivery, and a new "
     "run or copy of the package."
 )
+# The issue of a sample the package's files name and no member is: the members a correction may
+# add to a pipeline's package (family_package_validation, the phased family VCF's columns).
+ADDABLE_SAMPLE_ISSUE = "dataset_vcf_sample_unknown"
+
+
+@dataclass(frozen=True)
+class MemberRule:
+    """Which members a correction may add or remove (see the module's docstring): ``any_member``
+    for a package CoGA made (a folder added by hand); otherwise the samples the package's files name
+    and no member is (``addable``), and no member of the package as checked (``as_checked``)."""
+
+    any_member: bool = False
+    addable: frozenset[str] = field(default_factory=frozenset)
+    as_checked: frozenset[str] = field(default_factory=frozenset)
+
+
+def addable_samples(issues: Any) -> list[str]:
+    """The samples the package's files name and no member is, from a delivery's ``issues``."""
+    return sorted(
+        {
+            str(issue["sample_id"])
+            for issue in _json_list(issues)
+            if isinstance(issue, dict) and issue.get("code") == ADDABLE_SAMPLE_ISSUE and issue.get("sample_id")
+        }
+    )
+
+
+def _member_ids(document: dict[str, Any] | None) -> list[str]:
+    return [
+        str(member.get("sample_id"))
+        for member in (document or {}).get("members") or []
+        if isinstance(member, dict) and member.get("sample_id")
+    ]
 
 
 def change_kind(path: list[str]) -> ChangeKind:
@@ -112,14 +155,65 @@ def change_kind(path: list[str]) -> ChangeKind:
     raise HTTPException(status_code=400, detail=f"{where} is no field of the package that can be corrected.")
 
 
-def _member(document: dict[str, Any], sample_id: str) -> dict[str, Any]:
+def _find_member(document: dict[str, Any], sample_id: str) -> dict[str, Any] | None:
     for member in document.get("members") or []:
         if member.get("sample_id") == sample_id:
             return member
-    raise HTTPException(
-        status_code=400,
-        detail=f"members.{sample_id} is no member of the package: members are not added or removed in CoGA.",
-    )
+    return None
+
+
+def _member(document: dict[str, Any], sample_id: str) -> dict[str, Any]:
+    member = _find_member(document, sample_id)
+    if member is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"members.{sample_id} is no member of the package: add the member first.",
+        )
+    return member
+
+
+def _add_or_remove_member(
+    document: dict[str, Any], sample_id: str, value: Any, rule: MemberRule | None
+) -> ImportDeliveryRevisionChange:
+    """Add the member ``value`` (null: remove the member) ``sample_id`` names to ``document``, as
+    ``rule`` allows (see the module's docstring), and say what changed."""
+    path = ["members", sample_id]
+    existing = _find_member(document, sample_id)
+    if value is None:
+        if existing is None:
+            raise HTTPException(status_code=400, detail=f"members.{sample_id} is no member of the package.")
+        if rule is None or (not rule.any_member and sample_id in rule.as_checked):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"members.{sample_id} is a member of the pipeline's package and is not removed in CoGA: "
+                    "a wrong member is a refused delivery."
+                ),
+            )
+        document["members"] = [member for member in document.get("members") or [] if member is not existing]
+        return ImportDeliveryRevisionChange(path=path, kind="laboratory", before=copy.deepcopy(existing), after=None)
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail=f"members.{sample_id} is added as a member: give its fields.")
+    if existing is not None:
+        raise HTTPException(
+            status_code=400, detail=f"members.{sample_id} is a member already: correct its fields instead."
+        )
+    if value.get("sample_id", sample_id) != sample_id:
+        raise HTTPException(status_code=400, detail=f"members.{sample_id} is added with another sample_id.")
+    if rule is None or (not rule.any_member and sample_id not in rule.addable):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"members.{sample_id} is no sample the package's files name without it being a member: "
+                "only such a sample is added to a pipeline's package in CoGA."
+            ),
+        )
+    member = {"sample_id": sample_id, **{key: copy.deepcopy(item) for key, item in value.items() if key != "sample_id"}}
+    members = document.get("members")
+    if not isinstance(members, list):
+        members = document["members"] = []
+    members.append(member)
+    return ImportDeliveryRevisionChange(path=path, kind="laboratory", before=None, after=copy.deepcopy(member))
 
 
 def _container(document: dict[str, Any], path: list[str]) -> tuple[dict[str, Any], str]:
@@ -143,20 +237,26 @@ def _container(document: dict[str, Any], path: list[str]) -> tuple[dict[str, Any
 
 
 def apply_changes(
-    document: dict[str, Any], changes: list[ImportDeliveryChange]
+    document: dict[str, Any], changes: list[ImportDeliveryChange], members: MemberRule | None = None
 ) -> tuple[dict[str, Any], list[ImportDeliveryRevisionChange]]:
     """The package ``document`` with ``changes`` made: each field set to its value, or removed when
-    the value is null (a list emptied). Returns the new package and what changed, each with its
-    kind and its value before and after. A field named twice, a fixed one, or changes that change
-    nothing are refused (400)."""
+    the value is null (a list emptied), and each member added or removed as ``members`` allows (none
+    without it). Returns the new package and what changed, each with its kind and its value before
+    and after. A field named twice, a fixed one, or changes that change nothing are refused (400)."""
     revised = copy.deepcopy(document)
     made: list[ImportDeliveryRevisionChange] = []
     seen: set[tuple[str, ...]] = set()
-    for change in changes:
+    # Members added or removed first, so a change of an added member's field (or of another
+    # member's parent, to one added) finds it.
+    ordered = sorted(changes, key=lambda change: 0 if len(change.path) == 2 and change.path[0] == "members" else 1)
+    for change in ordered:
         path = list(change.path)
         if tuple(path) in seen:
             raise HTTPException(status_code=400, detail=f"{'.'.join(path)} is changed twice in one correction.")
         seen.add(tuple(path))
+        if len(path) == 2 and path[0] == "members":
+            made.append(_add_or_remove_member(revised, path[1], change.value, members))
+            continue
         kind = change_kind(path)
         holder, name = _container(revised, path)
         before = copy.deepcopy(holder.get(name))
@@ -178,6 +278,67 @@ def apply_changes(
     return revised, made
 
 
+def _differs(before: Any, after: Any) -> bool:
+    return not (before == after or (before in (None, []) and after in (None, [])))
+
+
+def _member_changes(before: Any, after: Any) -> list[ImportDeliveryChange]:
+    """What differs between two member lists, member by member: one added or removed whole, and
+    each field of one in both."""
+    old = {member["sample_id"]: member for member in before or [] if isinstance(member, dict) and "sample_id" in member}
+    new = {member["sample_id"]: member for member in after or [] if isinstance(member, dict) and "sample_id" in member}
+    changes: list[ImportDeliveryChange] = []
+    for sample_id, member in old.items():
+        if sample_id not in new:
+            changes.append(ImportDeliveryChange(path=["members", sample_id], value=None))
+            continue
+        edited = new[sample_id]
+        for name in sorted((set(member) | set(edited)) - {"sample_id"}):
+            if _differs(member.get(name), edited.get(name)):
+                changes.append(ImportDeliveryChange(path=["members", sample_id, name], value=edited.get(name)))
+    for sample_id, member in new.items():
+        if sample_id not in old:
+            changes.append(ImportDeliveryChange(path=["members", sample_id], value=member))
+    return changes
+
+
+def package_changes(before: dict[str, Any], after: Any) -> list[ImportDeliveryChange]:
+    """The changes that make the package ``before`` into the package ``after`` (the whole package
+    as a person edited it), field by field as a correction names them: a member added or removed, a
+    member's field, a family field or PGT field, a dataset, or a top-level field. A fixed field
+    that differs is among them, and is refused when the changes are made. ``after`` must follow the
+    format (400), and is compared as CoGA keeps a package."""
+    if not isinstance(after, dict):
+        raise HTTPException(status_code=400, detail="The edited package is no JSON object.")
+    try:
+        edited = package_document(CogaPackage.model_validate(after))
+    except ValidationError as exc:
+        where = ", ".join(sorted({".".join(str(part) for part in error["loc"]) for error in exc.errors()}))
+        raise HTTPException(status_code=400, detail=f"The edited package does not follow the format: {where}.") from exc
+    changes: list[ImportDeliveryChange] = []
+    for key in sorted(set(before) | set(edited)):
+        old, new = before.get(key), edited.get(key)
+        if key == "members":
+            changes.extend(_member_changes(old, new))
+        elif key in ("family", "datasets") and isinstance(old, dict) and isinstance(new, dict):
+            for name in sorted(set(old) | set(new)):
+                old_value, new_value = old.get(name), new.get(name)
+                if key == "family" and name == "pgt" and isinstance(old_value or {}, dict) and isinstance(new_value or {}, dict):
+                    old_pgt, new_pgt = old_value or {}, new_value or {}
+                    changes.extend(
+                        ImportDeliveryChange(path=["family", "pgt", field_name], value=new_pgt.get(field_name))
+                        for field_name in sorted(set(old_pgt) | set(new_pgt))
+                        if _differs(old_pgt.get(field_name), new_pgt.get(field_name))
+                    )
+                elif _differs(old_value, new_value):
+                    changes.append(ImportDeliveryChange(path=[key, name], value=new_value))
+        elif _differs(old, new):
+            changes.append(ImportDeliveryChange(path=[key], value=new))
+    if not changes:
+        raise HTTPException(status_code=400, detail="The correction changes nothing in the package.")
+    return changes
+
+
 def _json_object(value: Any) -> dict[str, Any] | None:
     if isinstance(value, str):
         value = json.loads(value)
@@ -192,7 +353,7 @@ async def _locked_delivery(session: AsyncSession, delivery_id: str) -> dict[str,
                 """
                 SELECT id::text AS id, folder_path, folder_name, state, package_fingerprint,
                        marker_sha256, marker, run_id, family_id, project_id::text AS project_id, issues,
-                       warnings, package, package_check
+                       warnings, package, package_check, origin
                 FROM import_deliveries
                 WHERE id = CAST(:id AS uuid)
                 FOR UPDATE
@@ -237,7 +398,8 @@ async def revisions_of(session: AsyncSession, delivery_id: str) -> list[ImportDe
 async def _package_out(session: AsyncSession, delivery: dict[str, Any]) -> ImportDeliveryPackageOut:
     revisions = await revisions_of(session, delivery["id"])
     _revision, revised = await latest_revision(session, delivery["id"])
-    package = revised or _json_object(delivery.get("package"))
+    as_checked = _json_object(delivery.get("package"))
+    package = revised or as_checked
     check = _json_object(delivery.get("package_check")) or {}
     return ImportDeliveryPackageOut(
         delivery_id=delivery["id"],
@@ -247,6 +409,9 @@ async def _package_out(session: AsyncSession, delivery: dict[str, Any]) -> Impor
         original=_json_object(delivery.get("marker")),
         proposed=[str(section) for section in check.get("proposed") or []],
         revisions=revisions,
+        origin="manual" if delivery.get("origin") == "manual" else "watched",
+        addable_members=addable_samples(delivery.get("issues")),
+        members_as_checked=_member_ids(as_checked),
     )
 
 
@@ -259,7 +424,7 @@ async def delivery_package(session: AsyncSession, delivery_id: str) -> ImportDel
         await session.execute(
             text(
                 """
-                SELECT id::text AS id, marker, package, package_check
+                SELECT id::text AS id, marker, package, package_check, issues, origin
                 FROM import_deliveries
                 WHERE id = CAST(:id AS uuid)
                 """
@@ -278,12 +443,13 @@ async def revise_delivery(
     delivery_id: str,
     user: CurrentUser,
     revision: int,
-    changes: list[ImportDeliveryChange],
+    changes: list[ImportDeliveryChange] | None = None,
+    package: dict[str, Any] | None = None,
     reason: str,
 ) -> ImportDeliveryRevisedOut:
     """Correct the package of the delivery ``delivery_id`` (see the module's docstring), made on
-    its revision ``revision``, as ``user``, for ``reason``: store the revision, check the delivery
-    again with it, and record it. Refused: 404 for no such delivery; 409 for one that is not ready
+    its revision ``revision``, as ``user``, for ``reason``, with ``changes`` or the whole edited
+    ``package``: store the revision, check the delivery again with it, and record it. Refused: 404 for no such delivery; 409 for one that is not ready
     or needing attention, whose package CoGA could not read, that was corrected since ``revision``
     or whose folder changed; 400 for a change the rules refuse or a package the format refuses."""
     delivery = await _locked_delivery(session, delivery_id)
@@ -306,7 +472,14 @@ async def revise_delivery(
         raise HTTPException(status_code=409, detail=DELIVERY_CHANGED)
 
     before = revised or base_document
-    document, made = apply_changes(before, changes)
+    rule = MemberRule(
+        any_member=delivery.get("origin") == "manual",
+        addable=frozenset(addable_samples(delivery["issues"])),
+        as_checked=frozenset(_member_ids(base_document)),
+    )
+    if package is not None:
+        changes = package_changes(before, package)
+    document, made = apply_changes(before, changes or [], rule)
     try:
         effective = CogaPackage.model_validate(document)
     except ValidationError as exc:
@@ -401,5 +574,12 @@ async def revise_delivery(
     await session.commit()
     return ImportDeliveryRevisedOut(
         delivery=await _delivery(session, delivery["id"]),
-        package=await _package_out(session, {**delivery, "package": base_document}),
+        package=await _package_out(
+            session,
+            {
+                **delivery,
+                "package": base_document,
+                "issues": [issue.model_dump() for issue in assessment.issues],
+            },
+        ),
     )

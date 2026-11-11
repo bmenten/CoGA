@@ -241,7 +241,57 @@ describe('ImportDeliveriesPanel', () => {
     expect(
       screen.getByText('OLD1', { selector: 'td > div' })
     ).toBeInTheDocument();
-    expect(within(row('OLD2')).queryByRole('button')).not.toBeInTheDocument();
+    // A decided delivery is not acted on; its package is shown on request.
+    expect(
+      within(row('OLD2'))
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['Package…']);
+  });
+
+  it('shows the package of a decided delivery as coga-package.json', async () => {
+    vi.mocked(api.get).mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.endsWith('/package')
+          ? {
+              delivery_id: 'id-OLD2',
+              revision: 0,
+              package: { project: 'PROJECT1', family: { family_id: 'OLD2' } },
+              package_sha256: 'c'.repeat(64),
+              original: null,
+              proposed: [],
+              revisions: [],
+              origin: 'watched',
+              addable_members: [],
+              members_as_checked: [],
+            }
+          : deliveries,
+      })
+    );
+    renderPanel();
+    await screen.findByText('FAM1', { selector: 'td > div' });
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: /Show decided and superseded/ })
+    );
+    expect(
+      within(row('FAM1')).queryByRole('button', { name: 'Package…' })
+    ).not.toBeInTheDocument();
+    expect(
+      within(row('FAM4')).queryByRole('button', { name: 'Package…' })
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      within(row('OLD2')).getByRole('button', { name: 'Package…' })
+    );
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Package of OLD2',
+    });
+    expect(
+      await within(dialog).findByText(/"family_id": "OLD2"/)
+    ).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith(
+      '/family-imports/deliveries/id-OLD2/package'
+    );
   });
 
   it('lists an imported delivery whose folder changed after its import, with what changed', async () => {
@@ -369,7 +419,9 @@ describe('ImportDeliveriesPanel', () => {
       'confirmed as archived by superuser on 2026-11-11 11:00 UTC. The family’s source files are no longer available.'
     );
     expect(row('FAMA')).toHaveTextContent('Reason: Archived to tape.');
-    expect(archived.queryByRole('button')).not.toBeInTheDocument();
+    expect(
+      archived.getAllByRole('button').map((button) => button.textContent)
+    ).toEqual(['Package…']);
   });
 
   it('says an update of a changed folder’s new delivery keeps the family’s notice', async () => {

@@ -3,8 +3,11 @@
 Which fields change (the laboratory's, and those the pipeline used) and which are refused (the
 pipeline's own, and sample IDs); a correction set, removed or emptied, with each field's value
 before and after; one that names a field twice, a member CoGA does not have, or changes nothing is
-refused. A correction of what the pipeline used makes the delivery need attention while a dataset
-it computed with the pedigree is in the import. A correction is made only on an open delivery
+refused. A member is added to a pipeline's package only when its files name the sample and no
+member is, and only a member added in CoGA is removed; a folder added by hand takes any member. An
+edited package is a correction of what differs, field by field. A correction of what the pipeline
+used (a member added with parents, or removed, among it) makes the delivery need attention while a
+dataset it computed with the pedigree is in the import. A correction is made only on an open delivery
 whose package was read, on its latest revision, while its folder is as it was checked. The paths
 through the real stores are in e2e/test_e2e_import_delivery_corrections.py.
 
@@ -21,7 +24,7 @@ import pytest
 
 from backend.app.schemas import ImportDeliveryChange
 from backend.app.services import import_delivery_revisions as revisions
-from backend.app.services.coga_package import CogaPackage
+from backend.app.services.coga_package import CogaPackage, package_document
 from backend.app.services.import_watcher import _pedigree_change_issue
 
 
@@ -173,6 +176,131 @@ def test_a_correction_that_names_a_field_twice_a_member_coga_lacks_or_changes_no
     assert refused.value.detail.startswith(detail)
 
 
+# --- members added and removed ---------------------------------------------------------------
+
+_RELATIVE = {"sample_id": "REL1", "sex": "male", "role": "relative", "clinical_status": "affected", "related_to": ["MOTHER"]}
+_OFFERED = revisions.MemberRule(addable=frozenset({"REL1"}), as_checked=frozenset({"FATHER1", "MOTHER", "EMB1"}))
+
+
+def test_the_samples_offered_as_members_are_those_the_files_name_and_no_member_is() -> None:
+    issues = [
+        {"code": "dataset_vcf_sample_unknown", "message": "m", "sample_id": "REL1"},
+        {"code": "dataset_vcf_sample_unknown", "message": "m", "sample_id": "REL1"},
+        {"code": "dataset_vcf_sample_unknown", "message": "m", "sample_id": None},
+        {"code": "package_project_unknown", "message": "m", "sample_id": "EMB1"},
+    ]
+    assert revisions.addable_samples(issues) == ["REL1"]
+    assert revisions.addable_samples('[{"code": "dataset_vcf_sample_unknown", "message": "m", "sample_id": "REL2"}]') == ["REL2"]
+    assert revisions.addable_samples(None) == []
+
+
+def test_a_sample_the_files_name_is_added_as_a_member_with_its_fields_and_its_index_role() -> None:
+    revised, made = revisions.apply_changes(
+        _document(),
+        _changes(
+            (["family", "pgt", "indexes"], ["REL1"]),
+            (["members", "REL1"], {key: value for key, value in _RELATIVE.items() if key != "sample_id"}),
+        ),
+        _OFFERED,
+    )
+
+    assert revised["members"][-1] == _RELATIVE
+    assert revised["family"]["pgt"]["indexes"] == ["REL1"]
+    # The member is added first, whatever the order of the changes.
+    assert [(change.path, change.kind, change.before, change.after) for change in made] == [
+        (["members", "REL1"], "laboratory", None, _RELATIVE),
+        (["family", "pgt", "indexes"], "laboratory", None, ["REL1"]),
+    ]
+    CogaPackage.model_validate(revised)
+
+    # Added, it is corrected and removed again like any member CoGA added.
+    _again, corrected = revisions.apply_changes(revised, _changes((["members", "REL1", "sex"], "female")), _OFFERED)
+    assert corrected[0].kind == "pipeline_used"
+    removed, made = revisions.apply_changes(revised, _changes((["members", "REL1"], None)), _OFFERED)
+    assert [member["sample_id"] for member in removed["members"]] == ["FATHER1", "MOTHER", "EMB1"]
+    assert (made[0].before, made[0].after) == (_RELATIVE, None)
+
+
+@pytest.mark.parametrize(
+    ("change", "rule", "detail"),
+    [
+        ((["members", "OTHER"], {"sex": "male"}), _OFFERED, "members.OTHER is no sample the package's files name"),
+        ((["members", "REL1"], {"sex": "male"}), None, "members.REL1 is no sample the package's files name"),
+        ((["members", "EMB1"], {"sex": "male"}), _OFFERED, "members.EMB1 is a member already"),
+        ((["members", "REL1"], {"sample_id": "REL2", "sex": "male"}), _OFFERED, "members.REL1 is added with another sample_id"),
+        ((["members", "REL1"], "male"), _OFFERED, "members.REL1 is added as a member: give its fields"),
+        ((["members", "EMB1"], None), _OFFERED, "members.EMB1 is a member of the pipeline's package and is not removed"),
+        ((["members", "EMB1"], None), None, "members.EMB1 is a member of the pipeline's package and is not removed"),
+        ((["members", "NOBODY"], None), _OFFERED, "members.NOBODY is no member of the package"),
+    ],
+)
+def test_no_other_member_is_added_to_or_removed_from_a_pipelines_package(
+    change: tuple[list[str], Any], rule: revisions.MemberRule | None, detail: str
+) -> None:
+    with pytest.raises(HTTPException) as refused:
+        revisions.apply_changes(_document(), _changes(change), rule)
+    assert refused.value.status_code == 400
+    assert refused.value.detail.startswith(detail)
+
+
+def test_a_folder_added_by_hand_takes_any_member_added_or_removed() -> None:
+    by_hand = revisions.MemberRule(any_member=True, as_checked=frozenset({"FATHER1", "MOTHER", "EMB1"}))
+
+    revised, made = revisions.apply_changes(
+        _document(),
+        _changes((["members", "EMB1"], None), (["members", "EMB2"], {"sex": "unknown", "father": "FATHER1", "mother": "MOTHER"})),
+        by_hand,
+    )
+
+    assert [member["sample_id"] for member in revised["members"]] == ["FATHER1", "MOTHER", "EMB2"]
+    assert [(change.path, change.kind) for change in made] == [(["members", "EMB1"], "laboratory"), (["members", "EMB2"], "laboratory")]
+
+
+# --- an edited package -----------------------------------------------------------------------
+
+
+def test_an_edited_package_is_the_changes_that_differ_field_by_field() -> None:
+    edited = _document()
+    edited["members"] = [dict(member) for member in edited["members"]]
+    edited["members"][2]["clinical_status"] = "affected"
+    edited["members"].append(_RELATIVE)
+    edited["family"] = {"family_id": "FAM001", "roi": "CFTR", "pgt": {"inheritance_model": "AR", "indexes": ["REL1"]}}
+    edited["datasets"] = {"apcad": {"per_sample": {"EMB1": {"file": "apcad/EMB1.csv"}}, "enabled": False}}
+    edited["couples"] = []
+
+    changes = revisions.package_changes(_document(), edited)
+
+    assert [(change.path, change.value) for change in changes] == [
+        (["couples"], []),
+        (["datasets", "apcad"], edited["datasets"]["apcad"]),
+        (["family", "pgt", "indexes"], ["REL1"]),
+        (["family", "roi"], "CFTR"),
+        (["members", "EMB1", "clinical_status"], "affected"),
+        (["members", "REL1"], _RELATIVE),
+    ]
+    revised, _made = revisions.apply_changes(_document(), changes, _OFFERED)
+    assert package_document(CogaPackage.model_validate(revised)) == package_document(CogaPackage.model_validate(edited))
+
+
+def test_an_edited_package_that_changes_a_fixed_field_nothing_or_the_format_is_refused() -> None:
+    renamed = _document(assembly="GRCh37")
+    with pytest.raises(HTTPException) as refused:
+        revisions.apply_changes(_document(), revisions.package_changes(_document(), renamed), _OFFERED)
+    assert (refused.value.status_code, refused.value.detail) == (400, f"assembly {revisions.FIXED_FIELD}")
+
+    with pytest.raises(HTTPException) as refused:
+        revisions.package_changes(_document(), _document())
+    assert refused.value.detail == "The correction changes nothing in the package."
+
+    with pytest.raises(HTTPException) as refused:
+        revisions.package_changes(_document(), _document(surprise=True))
+    assert refused.value.detail == "The edited package does not follow the format: surprise."
+
+    with pytest.raises(HTTPException) as refused:
+        revisions.package_changes(_document(), ["not", "an", "object"])
+    assert refused.value.detail == "The edited package is no JSON object."
+
+
 # --- what the pipeline used ------------------------------------------------------------------
 
 
@@ -197,6 +325,25 @@ def test_a_change_of_what_the_pipeline_used_needs_attention_while_its_dataset_is
     unused = CogaPackage.model_validate(_document(pipeline_used_pedigree=[]))
     resexed, _made = revisions.apply_changes(_document(pipeline_used_pedigree=[]), _changes((["members", "EMB1", "sex"], "male")))
     assert _pedigree_change_issue(unused, CogaPackage.model_validate(resexed)) is None
+
+
+def test_a_member_added_with_parents_or_removed_changes_the_pedigree_one_added_without_does_not() -> None:
+    base = CogaPackage.model_validate(_document())
+    by_hand = revisions.MemberRule(any_member=True)
+
+    relative, _made = revisions.apply_changes(_document(), _changes((["members", "REL1"], _RELATIVE)), _OFFERED)
+    assert _pedigree_change_issue(base, CogaPackage.model_validate(relative)) is None
+
+    child, _made = revisions.apply_changes(
+        _document(), _changes((["members", "EMB2"], {"sex": "male", "father": "FATHER1", "mother": "MOTHER"})), by_hand
+    )
+    issue = _pedigree_change_issue(base, CogaPackage.model_validate(child))
+    assert issue is not None and "(EMB2)" in issue.message
+
+    fewer = _document()
+    fewer["members"] = fewer["members"][:2]
+    issue = _pedigree_change_issue(base, CogaPackage.model_validate(fewer))
+    assert issue is not None and "(EMB1)" in issue.message
 
 
 # --- when a correction is made ---------------------------------------------------------------
@@ -235,6 +382,7 @@ def _delivery(**fields: Any) -> dict[str, Any]:
         "warnings": [],
         "package": _document(),
         "package_check": {"issues": [], "warnings": [], "sha256": {}, "proposed": [], "proposal_issues": []},
+        "origin": "watched",
     }
     row.update(fields)
     return row
@@ -252,13 +400,14 @@ def unchanged_folder(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(revisions, "latest_revision", revision)
 
 
-async def _revise(row: dict[str, Any] | None, *, revision: int = 0, changes: Any = None) -> Any:
+async def _revise(row: dict[str, Any] | None, *, revision: int = 0, changes: Any = None, package: Any = None) -> Any:
     return await revisions.revise_delivery(
         _Session(row),  # type: ignore[arg-type]
         delivery_id=_ID,
         user=_USER,  # type: ignore[arg-type]
         revision=revision,
-        changes=changes or _changes((["members", "EMB1", "clinical_status"], "affected")),
+        changes=changes or (None if package is not None else _changes((["members", "EMB1", "clinical_status"], "affected"))),
+        package=package,
         reason="From the request form.",
     )
 
@@ -304,6 +453,43 @@ async def test_a_correction_the_format_refuses_is_refused_before_anything_is_sto
         await _revise(session_row, changes=_changes((["members", "EMB1", "sex"], "M")))
     assert refused.value.status_code == 400
     assert refused.value.detail == "The corrected package does not follow the format: members.2.sex."
+
+
+class _Checked(Exception):
+    """Raised by the stand-in check: the correction got as far as checking the delivery again."""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("row", "added"),
+    [
+        ({}, False),
+        ({"issues": [{"code": "dataset_vcf_sample_unknown", "message": "m", "sample_id": "EMB2"}]}, True),
+        ({"origin": "manual"}, True),
+    ],
+)
+async def test_an_edited_package_adds_a_member_by_the_deliverys_own_rule(
+    unchanged_folder: None, monkeypatch: pytest.MonkeyPatch, row: dict[str, Any], added: bool
+) -> None:
+    checked: list[CogaPackage] = []
+
+    async def check(*_args: Any, effective: CogaPackage, **_kwargs: Any) -> None:
+        checked.append(effective)
+        raise _Checked
+
+    monkeypatch.setattr(revisions, "assess_content", check)
+    edited = _document()
+    edited["members"] = [*edited["members"], {"sample_id": "EMB2", "sex": "male"}]
+
+    if added:
+        with pytest.raises(_Checked):
+            await _revise(_delivery(**row), package=edited)
+        assert [member.sample_id for member in checked[0].members or []] == ["FATHER1", "MOTHER", "EMB1", "EMB2"]
+    else:
+        with pytest.raises(HTTPException) as refused:
+            await _revise(_delivery(**row), package=edited)
+        assert refused.value.status_code == 400
+        assert refused.value.detail.startswith("members.EMB2 is no sample the package's files name")
 
 
 def test_a_kept_package_is_read_from_its_json() -> None:

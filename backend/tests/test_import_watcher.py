@@ -917,6 +917,41 @@ async def test_stopping_the_watcher_ends_its_task() -> None:
     assert stop.is_set() and task.cancelled()
 
 
+def test_a_draft_whose_phased_vcf_names_a_sample_the_ped_lacks_still_proposes_its_members_and_datasets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The PGT index is in the phased family VCF, not in the PED (the samplesheet that named it was
+    # not kept): the draft does not validate, but the package still gets the PED's members and the
+    # datasets, so the person adds the index in Deliveries; the delivery's check reports it.
+    from backend.app.core.config import settings
+    from backend.tests.e2e._pgt_package import write_pgt_package
+
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    folder = tmp_path / "FAM1"
+    names = write_pgt_package(folder, "FAM1")
+    (folder / "manifest.yaml").unlink()
+    ped = folder / "family.ped"
+    ped.write_text("".join(f"{line}\n" for line in ped.read_text().splitlines() if names["INDEX"] not in line))
+    package = CogaPackage.model_validate(
+        {
+            "schema": "coga-package/1",
+            "status": "complete",
+            "written_at": "2026-11-10T12:00:00Z",
+            "pipeline": {"name": "p", "version": "1", "run_id": "r"},
+            "family": {"family_id": "FAM1"},
+        }
+    )
+
+    completed, warnings, issues = asyncio.run(watcher._proposal(folder, package))
+
+    assert issues == []
+    assert sorted(member.sample_id for member in completed.members or []) == sorted(
+        names[role] for role in ("FATHER", "MOTHER", "E_RISK", "E_CLEAR")
+    )
+    assert (completed.datasets or {})["haplotypes"]["family_vcf"] == "haplotypes/family.glimpse2.vcf"
+    assert {"package_members_proposed", "package_datasets_proposed"} <= {warning.code for warning in warnings}
+
+
 def test_the_proposal_keeps_no_warning_validation_checks_again(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # A warning validation gives at every check of the delivery (a NIPT file's column, a linked
     # folder) is not kept from Discover: kept, it stayed after a correction that resolved it.

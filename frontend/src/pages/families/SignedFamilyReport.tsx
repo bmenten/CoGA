@@ -11,6 +11,7 @@ import { formatCnvPoints } from '../../lib/cnvAcmg/format';
 import { sexUnknownWarning } from '../../lib/embryoSegregation';
 import { isNotFoundError } from '../../lib/errorMessage';
 import PageState from '../../components/PageState';
+import { memberAddedOrRemoved } from '../../components/IntakeCorrectionsNotice';
 import {
   PackageSourceChangePaths,
   describePackageSourceChange,
@@ -566,12 +567,16 @@ const CoverageTracksSection: React.FC<{ record: SignedReport; version: number }>
 const intakeValue = (value: unknown): string =>
   value === null || value === undefined ? 'not set' : typeof value === 'string' ? value : JSON.stringify(value);
 
-const IntakeChangeLine: React.FC<{ change: SignedIntakeChange }> = ({ change }) => (
-  <li>
-    <code>{change.path}</code>: {intakeValue(change.before)} → {intakeValue(change.after)}
-    {change.kind === 'pipeline_used' ? <strong> (the pipeline used it)</strong> : null}
-  </li>
-);
+const IntakeChangeLine: React.FC<{ change: SignedIntakeChange }> = ({ change }) => {
+  const member = memberAddedOrRemoved(change);
+  return (
+    <li>
+      <code>{change.path}</code>: {intakeValue(change.before)} → {intakeValue(change.after)}
+      {change.kind === 'pipeline_used' ? <strong> (the pipeline used it)</strong> : null}
+      {member ? <strong> (a member {member})</strong> : null}
+    </li>
+  );
+};
 
 /**
  * The delivered package the family's data came from, and each correction made to it in CoGA

@@ -181,13 +181,20 @@ the changes ([data-import.md](data-import.md#correcting-a-delivery)). What CoGA 
 minimal file is written into the package first, and is corrected the same way. The family's
 record keeps the file's checksum, the revision, the SHA-256 of the package imported and every
 change. The signed record lists every change made at intake (*Package intake*, a change the
-pipeline used marked), and the family page the same (*Corrected at intake*).
+pipeline used and a member added or removed marked), and the family page the same (*Corrected at
+intake*). Deliveries shows the package as `coga-package.json` and saves it (**Package…**, and in
+**Correct…**); CoGA writes it into no folder.
 
 | Kind of field | Fields | In Deliveries |
 | --- | --- | --- |
 | Fixed: the pipeline's | `schema`, `pipeline`, `assembly`, `family.family_id`, every `sample_id`, `files`, `qc` | Not changed. A wrong value is a refused delivery and a new run or copy. |
 | Used by the pipeline | `sex`, `father`, `mother`, `couples` | Changed with a reason; refused while a dataset in `pipeline_used_pedigree` is in the import. Leave it out, or run the pipeline again. |
 | The laboratory's | `project` (of the same assembly), `analysis_type`, `role`, `clinical_status`, the carrier fields, `hpo`, `related_to`, `family.roi`, `family.pgt`, a dataset in or out of the import and its options (`vcf_sample`, `source_format`, `exclude_filters`, a coverage `content`, another listed file) | Changed with a reason. |
+| A member added or removed | a whole member of `members` | Added with a reason when the package's files name the sample and no member is (a column of the phased family VCF: an affected relative read for segregation, a PGT index): the sample ID is the files', never typed. A member added in CoGA is removed again; a member the package delivered is not. A member added with parents, or removed, is a change of the pedigree the pipeline used (above). |
+
+A folder added by hand has no pipeline: CoGA made its package from the folder, so any member is
+added or removed there, and the package is also edited as JSON, each save a revision like any
+correction. Its family ID, assembly and files stay as CoGA read them.
 
 The owner's decisions of 2026-11-10:
 
@@ -202,6 +209,15 @@ The owner's decisions of 2026-11-10:
 - The file is JSON, not YAML (a YAML reader turns an ID such as `012345`, `NA` or `no` into a
   number, nothing or false without a word), and a minimal file is accepted while the pipelines
   move to a full one.
+
+The owner's decisions of 2026-11-11:
+
+- A sample the package's files name and no member is (an affected relative in the phased family
+  VCF, read for segregation) is added as a member in Deliveries, with a reason, from the files'
+  own sample ID.
+- The package of a folder added by hand stays in CoGA: it is shown as `coga-package.json`, saved,
+  and edited in Deliveries as a form or as JSON, members added and removed too. CoGA writes
+  nothing into the folder, so a share mounted read-only serves.
 
 ## Examples
 

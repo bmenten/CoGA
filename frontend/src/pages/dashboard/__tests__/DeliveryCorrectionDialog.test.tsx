@@ -6,7 +6,10 @@ import api from '../../../lib/api';
 import type { ImportDeliveryOut } from '../../../lib/apiSchema.generated';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import DeliveryCorrectionDialog, {
+  PackageFileDialog,
   changesBetween,
+  newMember,
+  packageJson,
   toForm,
   type PackageDocument,
 } from '../DeliveryCorrectionDialog';
@@ -77,6 +80,9 @@ const packageOut = {
   package_sha256: 'c'.repeat(64),
   original: pkg,
   proposed: ['datasets'],
+  origin: 'watched',
+  addable_members: [] as string[],
+  members_as_checked: ['FATHER1', 'MOTHER', 'EMB1'],
   revisions: [
     {
       revision: 1,
@@ -153,6 +159,34 @@ describe('changesBetween', () => {
     expect(changesBetween(withIndexes, form)).toEqual([
       { path: ['family', 'pgt', 'indexes'], value: null },
       { path: ['members', 'EMB1', 'hpo'], value: null },
+    ]);
+  });
+
+  it('adds a member whole, removes one, and changes whom a member is related to', () => {
+    const form = toForm(pkg);
+    form.members = form.members.filter((member) => member.sample_id !== 'EMB1');
+    form.members[1].related_to = ['FATHER1'];
+    form.members.push({
+      ...newMember('REL1'),
+      sex: 'male',
+      clinical_status: 'affected',
+      related_to: ['MOTHER'],
+      hpo_present: 'HP:0001250',
+    });
+
+    expect(changesBetween(pkg, form)).toEqual([
+      { path: ['members', 'MOTHER', 'related_to'], value: ['FATHER1'] },
+      { path: ['members', 'EMB1'], value: null },
+      {
+        path: ['members', 'REL1'],
+        value: {
+          sex: 'male',
+          role: 'relative',
+          clinical_status: 'affected',
+          hpo: { present: ['HP:0001250'], absent: [] },
+          related_to: ['MOTHER'],
+        },
+      },
     ]);
   });
 
@@ -328,5 +362,249 @@ describe('DeliveryCorrectionDialog', () => {
         })
       )
     );
+  });
+  it('adds a sample the package files name as a member, related to a parent, as the PGT index', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { ...packageOut, addable_members: ['REL1'] },
+    });
+    vi.mocked(api.post).mockResolvedValue({
+      data: { delivery, package: packageOut },
+    });
+    renderDialog();
+
+    // A pipeline's member is not removed; the sample offered is added.
+    expect(
+      await screen.findByRole('combobox', { name: 'Sex of EMB1' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Remove EMB1' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/The package's files name REL1, which no member is/)
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Add a member' }), {
+      target: { value: 'REL1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sex of REL1' }), {
+      target: { value: 'male' },
+    });
+    fireEvent.change(
+      screen.getByRole('combobox', { name: 'Clinical status of REL1' }),
+      { target: { value: 'affected' } }
+    );
+    fireEvent.change(
+      screen.getByRole('combobox', { name: 'Member REL1 is related to' }),
+      { target: { value: 'MOTHER' } }
+    );
+    fireEvent.click(screen.getAllByRole('checkbox', { name: 'Index' })[3]);
+    expect(
+      screen.getByRole('button', { name: 'Remove REL1' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Add a member' })
+    ).not.toBeInTheDocument();
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Reason for the correction' }),
+      { target: { value: 'The affected uncle, read for segregation.' } }
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save the correction' })
+    );
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/family-imports/deliveries/id-FAM001/revisions',
+        {
+          revision: 1,
+          reason: 'The affected uncle, read for segregation.',
+          changes: [
+            { path: ['family', 'pgt', 'indexes'], value: ['REL1'] },
+            {
+              path: ['members', 'REL1'],
+              value: {
+                sex: 'male',
+                role: 'relative',
+                clinical_status: 'affected',
+                related_to: ['MOTHER'],
+              },
+            },
+          ],
+        }
+      )
+    );
+  });
+
+  it('removes a member of a package CoGA made, and edits it as JSON', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { ...packageOut, origin: 'manual' },
+    });
+    vi.mocked(api.post).mockResolvedValue({
+      data: { delivery, package: packageOut },
+    });
+    renderDialog();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove EMB1' }));
+    expect(
+      screen.queryByRole('combobox', { name: 'Sex of EMB1' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText('1 field(s) changed: members.EMB1.')
+    ).toBeInTheDocument();
+    // Any sample ID is added to a package CoGA made.
+    expect(screen.getByRole('combobox', { name: 'Add a member' })).toHaveValue(
+      ''
+    );
+    // The JSON is edited from the package as it is, not over changes in the form.
+    expect(
+      screen.queryByRole('button', { name: 'Edit as JSON' })
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Add a member' }), {
+      target: { value: ' EMB2 ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByRole('combobox', { name: 'Sex of EMB2' })).toHaveValue(
+      'unknown'
+    );
+    expect(
+      screen.getByText('2 field(s) changed: members.EMB1, members.EMB2.')
+    ).toBeInTheDocument();
+  });
+
+  it('edits the package CoGA made as JSON, and says when it is no JSON', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { ...packageOut, origin: 'manual' },
+    });
+    vi.mocked(api.post).mockResolvedValue({
+      data: { delivery, package: packageOut },
+    });
+    renderDialog();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Edit as JSON' })
+    );
+    const editor = screen.getByRole('textbox', { name: 'The package as JSON' });
+    expect(editor).toHaveValue(packageJson(pkg));
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Reason for the correction' }),
+      { target: { value: 'The uncle is in the phased VCF.' } }
+    );
+    const save = screen.getByRole('button', { name: 'Save the correction' });
+    expect(save).toBeDisabled();
+
+    fireEvent.change(editor, { target: { value: '{"members": [' } });
+    expect(screen.getByText(/This is no JSON/)).toBeInTheDocument();
+    expect(save).toBeDisabled();
+
+    const edited = {
+      ...pkg,
+      members: [...(pkg.members ?? []), { sample_id: 'REL1', sex: 'male' }],
+    };
+    fireEvent.change(editor, { target: { value: JSON.stringify(edited) } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/family-imports/deliveries/id-FAM001/revisions',
+        {
+          revision: 1,
+          reason: 'The uncle is in the phased VCF.',
+          package: edited,
+        }
+      )
+    );
+  });
+});
+
+describe('packageJson', () => {
+  it('writes the package in the format order, whatever order it was kept in', () => {
+    const kept = {
+      extra: { origin: 'manual' },
+      members: [{ role: 'father', sex: 'male', sample_id: 'FATHER_1' }],
+      family: { family_id: 'FAM001' },
+      schema: 'coga-package/1',
+    } as unknown as PackageDocument;
+
+    expect(packageJson(kept)).toBe(
+      JSON.stringify(
+        {
+          schema: 'coga-package/1',
+          family: { family_id: 'FAM001' },
+          members: [{ sample_id: 'FATHER_1', sex: 'male', role: 'father' }],
+          extra: { origin: 'manual' },
+        },
+        null,
+        2
+      )
+    );
+  });
+});
+
+describe('member choices', () => {
+  it('shows a sample ID as it is, underscores and all', async () => {
+    const withUnderscores: PackageDocument = {
+      ...pkg,
+      members: [
+        { sample_id: 'FATHER_1', sex: 'male', role: 'father' },
+        { sample_id: 'MOTHER_1', sex: 'female', role: 'mother' },
+      ],
+    };
+    vi.mocked(api.get).mockResolvedValue({
+      data: { ...packageOut, package: withUnderscores },
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <DeliveryCorrectionDialog
+          delivery={delivery}
+          onCancel={vi.fn()}
+          onSaved={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    const father = await screen.findByRole('combobox', {
+      name: 'Father of MOTHER_1',
+    });
+    expect(
+      [...(father as HTMLSelectElement).options].map((option) => option.text)
+    ).toEqual(['—', 'FATHER_1']);
+    // The format's own values still read with spaces.
+    const carrier = screen.getByRole('combobox', {
+      name: 'Carrier status of MOTHER_1',
+    }) as HTMLSelectElement;
+    expect([...carrier.options].map((option) => option.text)).toContain(
+      'not carrier'
+    );
+  });
+});
+
+describe('PackageFileDialog', () => {
+  it('shows the package as coga-package.json, with its corrections, and saves it', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: packageOut });
+    const createObjectURL = vi.fn(() => 'blob:package');
+    const revokeObjectURL = vi.fn();
+    Object.assign(window.URL, { createObjectURL, revokeObjectURL });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <PackageFileDialog
+          delivery={{ ...delivery, state: 'imported' }}
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(
+      await screen.findByText(/"family_id": "FAM001"/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/revision 1, corrected in CoGA/)
+    ).toBeInTheDocument();
+    expect(screen.getByText('Corrections made (1)')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Download coga-package.json' })
+    );
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:package');
   });
 });

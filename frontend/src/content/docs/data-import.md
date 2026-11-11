@@ -391,6 +391,17 @@ with the delivery.
   names every correction.
   - The run, the assembly, the family and sample IDs and the files are the pipeline's and are not
     offered: a wrong one is refused, and the pipeline delivers again.
+  - A sample the package's files name and no member is, such as an affected relative in the phased
+    family VCF read for segregation, or a PGT index the samplesheet did not name, is offered under
+    **Add a member**: add it, give its sex, role and status, and how it is related (its parents,
+    or under **Related to** the member it is related to; a PGT index without a link stays grey).
+    A member added here can be removed again; a member the package delivered cannot.
+  - The package is shown as `coga-package.json` under the form, and **Download coga-package.json**
+    saves it. **Package…** shows it for a delivery that is no longer corrected, with its
+    corrections. CoGA writes it into no folder.
+  - A folder added by hand has no pipeline: CoGA made its package, so you add any member there,
+    remove one, or edit the whole package with **Edit as JSON**. Each save is a correction with
+    its reason, like any other.
   - A member's sex and parents, which the pipeline used to compute some datasets (the form names
     them), can be changed, but the delivery then needs attention until those datasets are out of
     the import or the value is put back: the pipeline computed them with the pedigree it was
@@ -435,7 +446,9 @@ ends. The decided and superseded deliveries are listed on request.
    pipeline delivered is added with **Add a folder by hand**: choose it (or type its path), its
    **Project** and its analysis. A folder that is a link leading out of the import folder, or a link
    that loops, is not listed, and CoGA reads nothing in it; typed, it is refused with the reason. A
-   folder a family was imported from is marked *imported*.
+   folder whose families were all imported is left out until you tick **Show imported folders**,
+   and one whose import did not complete is marked *import incomplete* (*import undone* when its
+   latest import was undone).
 2. **Check and correct.** Read the delivery's issues and warnings, and open **Correct…** to complete or
    correct what the package says (the project, the analysis, the members, the datasets), with a reason.
 3. **Dry run.** **Dry run** checks the delivery as an import would, without writing anything; its job

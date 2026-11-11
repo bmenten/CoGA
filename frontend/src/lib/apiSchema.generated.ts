@@ -1787,8 +1787,9 @@ export interface ImportDeliveryArchive {
 /**
  * One field of a delivery's package set to a value, or removed (``value`` null). ``path``
  * names it: ``["project"]``, ``["analysis_type"]``, ``["family", "roi"]``, ``["family", "pgt"]``
- * or one of its fields, ``["members", <sample ID>, <field>]``, ``["couples"]``, or
- * ``["datasets", <dataset>]`` (import_delivery_revisions.py says which may change).
+ * or one of its fields, ``["members", <sample ID>]`` (a member added, its fields the value, or
+ * removed), ``["members", <sample ID>, <field>]``, ``["couples"]``, or ``["datasets", <dataset>]``
+ * (import_delivery_revisions.py says which may change).
  */
 export interface ImportDeliveryChange {
   path: string[];
@@ -1854,6 +1855,9 @@ export interface ImportDeliveryPackageOut {
   original: Record<string, unknown> | null;
   proposed: string[];
   revisions: ImportDeliveryRevisionOut[];
+  origin: "watched" | "manual";
+  addable_members: string[];
+  members_as_checked: string[];
 }
 
 /** A delivery refused, and why. */
@@ -1863,12 +1867,14 @@ export interface ImportDeliveryRefuse {
 
 /**
  * A correction of a delivery's package: made on ``revision`` (the latest the person saw, 0
- * when there is none), with its reason.
+ * when there is none), with its reason. It is the ``changes``, or the whole ``package`` as the
+ * person edited it, whose changes CoGA works out field by field: one of the two.
  */
 export interface ImportDeliveryRevise {
   revision: number;
   reason: string;
-  changes: ImportDeliveryChange[];
+  changes?: ImportDeliveryChange[];
+  package?: Record<string, unknown> | null;
 }
 
 export interface ImportDeliveryRevisedOut {

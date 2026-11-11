@@ -1876,7 +1876,10 @@ describe('FamilyReportPage', () => {
                   reason: 'The request form gives another sex.',
                   by: 'superuser',
                   at: '2026-11-10T12:00:00+00:00',
-                  changes: [{ path: 'members.PROBAND.sex', kind: 'pipeline_used', before: 'male', after: 'female' }],
+                  changes: [
+                    { path: 'members.PROBAND.sex', kind: 'pipeline_used', before: 'male', after: 'female' },
+                    { path: 'members.REL1', kind: 'laboratory', before: null, after: { sample_id: 'REL1', sex: 'male' } },
+                  ],
                 },
               ],
             },
@@ -1891,6 +1894,7 @@ describe('FamilyReportPage', () => {
       expect(intake).toHaveTextContent('Revision 1 by superuser, 2026-11-10 11:00 UTC: From the request form.');
       expect(intake).toHaveTextContent('members.PROBAND.hpo: not set → {"present":["HP:0001250"],"absent":[]}');
       expect(intake).toHaveTextContent('members.PROBAND.sex: male → female (the pipeline used it)');
+      expect(intake).toHaveTextContent('members.REL1: not set → {"sample_id":"REL1","sex":"male"} (a member added)');
       first.unmount();
 
       mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, package_intake: { delivery: null } } });
