@@ -726,7 +726,7 @@ async def test_a_failed_check_computed_from_the_data_is_frozen_with_its_verdict(
 @pytest.mark.asyncio
 async def test_a_family_is_a_nipt_family_by_its_analysis_type() -> None:
     assert await srn.is_nipt_family(_Session(), _context()) is True
-    for other in (None, "wgs", "monogenic-nipt"):
+    for other in (None, "long_read_wgs", "monogenic-nipt"):
         assert await srn.is_nipt_family(_Session(analysis_type=other), _context()) is False
 
     class _NoFamily(_Session):

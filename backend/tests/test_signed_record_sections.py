@@ -597,7 +597,7 @@ def test_a_nipt_family_holds_its_nipt_results_read_for_its_reported_variants(mon
     assert "analysis_type" in sql and params == {"family_uuid": _context().family_uuid}
 
 
-@pytest.mark.parametrize("analysis_type", [None, "", "wgs", "MONOGENIC_NIPT"])
+@pytest.mark.parametrize("analysis_type", [None, "", "long_read_wgs", "MONOGENIC_NIPT"])
 def test_a_family_that_is_no_nipt_family_holds_no_nipt_key(monkeypatch, analysis_type) -> None:
     async def _must_not_read(*args, **kwargs):
         raise AssertionError("no NIPT family, no NIPT analysis")

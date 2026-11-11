@@ -267,7 +267,13 @@ class ImportDeliveryAdd(BaseModel):
     project_id: str = Field(min_length=1)
     family_id: Optional[str] = Field(default=None, max_length=512)
     analysis_type: Optional[
-        Literal["wgs", "wgs_trio", "pgt_m", "monogenic_nipt", "long_read_wgs", "long_read_couple"]
+        Literal[
+            "long_read_wgs",
+            "long_read_adaptive_sampling",
+            "pgt",
+            "expanded_carrier_screening",
+            "monogenic_nipt",
+        ]
     ] = None
 
 

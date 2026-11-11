@@ -177,7 +177,7 @@ def _send(api: _Api, route: str, value: str) -> tuple[int, Any]:
         # A folder added to Deliveries by hand: its project is looked up before the folder.
         response = api.client.post(
             "/api/family-imports/deliveries",
-            json={"folder_path": "/data/families/FAM1", "project_id": value, "analysis_type": "wgs"},
+            json={"folder_path": "/data/families/FAM1", "project_id": value, "analysis_type": "long_read_wgs"},
         )
     return response.status_code, response.json()
 

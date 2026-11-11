@@ -190,7 +190,7 @@ def _sweep_bodies(run: str, records: dict[str, str]) -> dict[tuple[str, str], di
         ("PUT", "/api/admin/variant-tags/{tag_key}"): tag,
         ("POST", "/api/family-imports/deliveries"): {
             "folder_path": f"/nonexistent/e2e-body-uuid-{run}/sweep",
-            "analysis_type": "wgs",
+            "analysis_type": "long_read_wgs",
         },
     }
 
@@ -410,7 +410,7 @@ async def _collect(run: str, base: Path) -> dict[str, Any]:
                 r["job"][name] = capture(
                     await ac.post(
                         "/api/family-imports/deliveries",
-                        json={"folder_path": f"{folder}/{name}", "project_id": value, "analysis_type": "wgs"},
+                        json={"folder_path": f"{folder}/{name}", "project_id": value, "analysis_type": "long_read_wgs"},
                     )
                 )
 
@@ -438,7 +438,7 @@ async def _collect(run: str, base: Path) -> dict[str, Any]:
                 r["viewer"][f"job_{name}"] = capture(
                     await viewer.post(
                         "/api/family-imports/deliveries",
-                        json={"folder_path": f"{folder}/viewer-{name}", "project_id": value, "analysis_type": "wgs"},
+                        json={"folder_path": f"{folder}/viewer-{name}", "project_id": value, "analysis_type": "long_read_wgs"},
                     )
                 )
 

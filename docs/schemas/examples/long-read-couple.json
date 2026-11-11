@@ -9,7 +9,7 @@
   },
   "project": "Carrier screening",
   "assembly": "GRCh38",
-  "analysis_type": "long_read_couple",
+  "analysis_type": "expanded_carrier_screening",
   "family": {
     "family_id": "COUPLE1"
   },

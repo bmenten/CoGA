@@ -48,7 +48,7 @@ def _package_file(folder: Path, **fields: Any) -> dict[str, Any]:
         "pipeline": {"name": "nf-core/example", "version": "1.0.0", "run_id": "RUN1"},
         "project": "PROJECT1",
         "assembly": "GRCh38",
-        "analysis_type": "wgs_trio",
+        "analysis_type": "long_read_wgs",
         "family": {"family_id": "FAM1"},
         "files": [_entry(folder, "family.ped"), _entry(folder, "snv/family.vcf")],
     }
