@@ -1033,8 +1033,11 @@ owner's decisions of 2026-11-11).
   neither imported nor refused is. A folder added by hand is added again by hand, and that delivery
   imported with overwrite or refused. A folder that is gone has no new delivery: it ends when the
   folder is back as it was imported, or is confirmed as archived. A delivery imported with update
-  cannot be approved again: its notice stays until the folder is delivered again and imported with
-  overwrite, or is back as the reference was imported.
+  whose family still has the notice (its record names it, made with update, and its reference is
+  `changed_after_import`) may be approved again by an administrator, with overwrite only
+  (`overwrite_approvable` in the list; 400 for another choice, 409 for any other imported delivery).
+  A failed overwrite of it leaves it `imported` (`import_delivery_overwrite_failed`), the family put
+  back as it was.
 - **The record.** Each transition is an event on the `system:import-inbox` chain:
   `import_delivery_changed_after_import` (by `system:import-watcher`, with the change and the one
   it replaced), `import_delivery_archived` (by the superuser, with the reason) and

@@ -1393,7 +1393,24 @@ stop_import_watcher = stop_worker
 DELIVERY_LIST_LIMIT = 200
 
 # A fixed column list (never input), with the delivery's import job's status.
-_DELIVERY_COLUMNS = """
+# Whether the delivery ``d`` is the one a family's record names as its last import, made with
+# update, while the family's reference delivery (its data's last import as a new family or with
+# overwrite) is ``changed_after_import``: an administrator may then approve it again, to overwrite
+# (the owner's decision of 2026-11-11; ``import_delivery_review.approve_delivery``).
+UPDATE_IMPORT_UNDER_A_CHANGE = """
+    EXISTS (
+        SELECT 1
+        FROM families f
+        JOIN import_deliveries r
+          ON r.id::text = f.metadata -> 'package_import' -> 'reference_delivery' ->> 'id'
+        WHERE f.metadata -> 'package_import' -> 'delivery' ->> 'id' = d.id::text
+          AND f.metadata -> 'package_import' ->> 'import_mode' = 'update'
+          AND r.state = 'changed_after_import'
+    )
+"""
+
+_DELIVERY_COLUMNS = f"""
+    (d.state = 'imported' AND {UPDATE_IMPORT_UNDER_A_CHANGE}) AS overwrite_approvable,
     d.id::text AS id, d.watch_root, d.folder_path, d.folder_name, d.state, d.package_fingerprint,
     d.marker_sha256, d.marker, d.run_id, d.family_id, d.project_id::text AS project_id, d.issues,
     d.warnings, d.manifest_sha256, d.job_id::text AS job_id, d.first_seen_at, d.last_seen_at,
@@ -1442,6 +1459,7 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
         last_seen_at=row["last_seen_at"],
         state_changed_at=row["state_changed_at"],
         source_change=_source_change(row.get("source_change")),
+        overwrite_approvable=bool(row.get("overwrite_approvable")),
     )
 
 

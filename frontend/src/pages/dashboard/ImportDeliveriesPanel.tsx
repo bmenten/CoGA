@@ -129,8 +129,16 @@ export const needsAnOverwrite = (delivery: Delivery) =>
   needsAChoice(delivery) &&
   delivery.issues.some((issue) => issue.code === MEMBERS_DIFFER);
 
+/** An imported delivery an administrator may approve again, with overwrite only: its family's
+ * record names it as its last import, made with update, while the family's package folder still
+ * warns of a change since its last import as a new family or with overwrite. */
+export const approvableAgainToOverwrite = (delivery: Delivery) =>
+  delivery.state === 'imported' && delivery.overwrite_approvable === true;
+
 export const isApprovable = (delivery: Delivery) =>
-  delivery.state === 'ready' || needsAChoice(delivery);
+  delivery.state === 'ready' ||
+  needsAChoice(delivery) ||
+  approvableAgainToOverwrite(delivery);
 
 const IssueList: React.FC<{
   issues: ImportDeliveryIssue[];
@@ -180,8 +188,12 @@ const ApproveDialog: React.FC<ApproveDialogProps> = ({
   onConfirm,
 }) => {
   const headingId = useId();
-  const existing = deliveries.length === 1 && needsAChoice(deliveries[0]);
-  const overwriteOnly = existing && needsAnOverwrite(deliveries[0]);
+  const again =
+    deliveries.length === 1 && approvableAgainToOverwrite(deliveries[0]);
+  const existing =
+    deliveries.length === 1 && (needsAChoice(deliveries[0]) || again);
+  const overwriteOnly =
+    existing && (again || needsAnOverwrite(deliveries[0]));
   const [conflictMode, setConflictMode] = useState<ConflictMode>(
     overwriteOnly ? 'overwrite' : existing ? 'update' : 'cancel'
   );
@@ -242,14 +254,20 @@ const ApproveDialog: React.FC<ApproveDialogProps> = ({
           </select>
         </label>
       ) : null}
-      {overwriteOnly ? (
+      {again ? (
+        <p className="status-note">
+          This delivery was imported with update, and its family&apos;s package
+          folder still warns of a change since its last import as a new family
+          or with overwrite. Approve it again with overwrite to end the notice.
+        </p>
+      ) : overwriteOnly ? (
         <p className="status-note">
           The package&apos;s members differ from the family in CoGA: an update
           changes none of the family&apos;s members. Correct the package, or
           overwrite, which makes its members the family&apos;s pedigree.
         </p>
       ) : null}
-      {existing && changedFolder ? (
+      {existing && changedFolder && !again ? (
         <p className="status-note">
           This is the new state of a package folder that changed after its
           import. Only an overwrite ends the family&apos;s notice: an update
@@ -439,7 +457,10 @@ const ImportDeliveriesPanel: React.FC = () => {
     () => deliveriesQuery.data ?? [],
     [deliveriesQuery.data]
   );
-  const open = deliveries.filter((delivery) => OPEN_STATES.has(delivery.state));
+  const open = deliveries.filter(
+    (delivery) =>
+      OPEN_STATES.has(delivery.state) || approvableAgainToOverwrite(delivery)
+  );
   const closedCount = deliveries.length - open.length;
   const shown = showClosed ? deliveries : open;
   const waiting = deliveries.filter(

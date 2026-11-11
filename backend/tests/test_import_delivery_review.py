@@ -165,6 +165,81 @@ async def test_a_delivery_of_an_existing_family_is_queued_into_it_with_the_choic
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("under_a_change", "conflict_mode", "refused"), [
+    (True, "update", (400, review.REAPPROVAL_NEEDS_AN_OVERWRITE)),
+    (False, "overwrite", (409, review.NOT_REAPPROVABLE)),
+    (True, "overwrite", None),
+])
+async def test_an_update_imported_delivery_is_approved_again_only_to_overwrite_a_change(
+    queued: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch, under_a_change: bool, conflict_mode: str, refused: Any
+) -> None:
+    # The owner's decision of 2026-11-11: a delivery imported with update, whose family's package
+    # folder still warns of a change since its reference import, is approved again with overwrite.
+    async def eligible(_session: Any, delivery_id: str) -> bool:
+        assert delivery_id == _ID
+        return under_a_change
+
+    monkeypatch.setattr(review, "_imported_with_update_under_a_change", eligible)
+    session = _Session(_delivery(state="imported", issues=json.dumps([{"code": "existing_family", "message": "x"}])))
+
+    if refused is not None:
+        with pytest.raises(HTTPException) as exc:
+            await _approve(session, conflict_mode=conflict_mode)
+        assert (exc.value.status_code, exc.value.detail) == refused
+        assert queued == []
+        return
+    await _approve(session, conflict_mode=conflict_mode)
+    queue, event = queued
+    assert (queue["queue"]["requested_family_id"], queue["queue"]["conflict_mode"]) == ("FAM1", "overwrite")
+    assert queue["queue"]["delivery"]["reapproval"] is True
+    assert event["event"]["after"]["reapproval"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_reapproved_deliverys_failed_overwrite_leaves_it_imported(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _JobsSession:
+        def __init__(self) -> None:
+            self.updates: list[dict[str, Any]] = []
+            self.events: list[dict[str, Any]] = []
+
+        async def execute(self, statement: Any, params: Any = None) -> Any:
+            sql = str(statement)
+            if "FROM import_deliveries d" in sql and "JOIN family_import_jobs" in sql:
+                rows = [
+                    {"id": _ID, "folder_name": "FAM1", "package_fingerprint": _FINGERPRINT, "job_id": "job-1",
+                     "status": "failed", "reapproval": True},
+                    {"id": "id-2", "folder_name": "FAM2", "package_fingerprint": _FINGERPRINT, "job_id": "job-2",
+                     "status": "failed", "reapproval": False},
+                ]
+                return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
+            if "UPDATE import_deliveries" in sql:
+                self.updates.append(dict(params))
+            return SimpleNamespace()
+
+        async def commit(self) -> None:
+            return None
+
+        async def __aenter__(self) -> "_JobsSession":
+            return self
+
+        async def __aexit__(self, *_exc: Any) -> None:
+            return None
+
+    session = _JobsSession()
+    recorded: list[dict[str, Any]] = []
+
+    async def record(_session: Any, **kwargs: Any) -> None:
+        recorded.append(kwargs)
+
+    monkeypatch.setattr(review, "record_clinical_event", record)
+
+    assert await review.sync_delivery_jobs(lambda: session) == 2  # type: ignore[arg-type]
+
+    assert [(update["id"], update["state"]) for update in session.updates] == [(_ID, "imported"), ("id-2", "failed")]
+    assert [event["action"] for event in recorded] == ["import_delivery_overwrite_failed", "import_delivery_failed"]
+
+
+@pytest.mark.asyncio
 async def test_a_delivery_whose_members_differ_from_its_family_is_queued_only_to_overwrite(
     queued: list[dict[str, Any]],
 ) -> None:

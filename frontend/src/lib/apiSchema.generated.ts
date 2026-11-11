@@ -1838,6 +1838,7 @@ export interface ImportDeliveryOut {
   last_seen_at: string;
   state_changed_at: string;
   source_change: PackageSourceChangeOut | null;
+  overwrite_approvable: boolean;
 }
 
 /**

@@ -24,7 +24,6 @@ brackets.
   - An import whose heartbeat has not reached the database for five minutes stops itself where it is, before a worker can take it for stopped. One whose variant-write locks' connection is lost is stopped where it is: nothing restored, its job ended failed.
   - An import whose job cannot record the family it imports writes nothing of it.
   - Watched import folders: a pipeline's package with its package file `coga-package.json` is checked and waits for a person to approve it, and its folder is followed after the import ([data-import.md](data-import.md#watched-import-folders)). Still to come:
-    - A changed folder's new delivery imported with update keeps the family's notice, and an imported delivery cannot be approved again: an overwrite then needs the folder delivered again.
     - Optionally, a mail to the administrators when a delivery is ready.
     - An import without a person's approval, only by a separate decision of the owner.
     - The format's open points, to settle with the pipeline owners (REG-12).
