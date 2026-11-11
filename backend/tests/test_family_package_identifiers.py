@@ -11,7 +11,7 @@ reads a folder's PED and per-sample folder names, and holds a parent the PED nam
 as a member to the rule too; the package validation reads the IDs of the manifest CoGA keeps
 for the import (its family_id, or the folder name, and the members of family.add_members).
 
-SEC-15: an ID holds no other character a reader cannot see either (a C1 control, a
+an ID holds no other character a reader cannot see either (a C1 control, a
 text-direction or zero-width character, or any other character that is not printable: two IDs
 that look the same would name different records), and it is no path: no ``/`` or ``\\``, and
 not ``.`` or ``..`` (a folder named after it, or a URL's path segment, would read it as a

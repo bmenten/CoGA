@@ -9,7 +9,7 @@ The GRCh38 recurrent-CNV file writes ``chrx``. Every clinical-CNV query for X as
 ``X``/``chrX``, so chromosome names are read case-insensitively: kept as ``x``, four X-linked
 recurrent regions would never show.
 
-The recurrent-CNV file is pinned per assembly by its SHA-256 (TRACE-14, TRACE-18): the build
+The recurrent-CNV file is pinned per assembly by its SHA-256: the build
 reads it only if its SHA-256 is the pinned one (GRCh38: the bundled copy of ClinGen's V2.1
 file), stops on any other file, does not download it for an assembly with no pin, and writes
 the file it checked to ``--sources-out``, which the admin rebuild records with the load.

@@ -1,6 +1,6 @@
-"""The clinical CNV knowledgebase names every file it was built from (TRACE-18).
+"""The clinical CNV knowledgebase names every file it was built from.
 
-ClinGen's recurrent-CNV file is pinned and recorded (TRACE-14). The knowledgebase's other
+ClinGen's recurrent-CNV file is pinned and recorded. The knowledgebase's other
 inputs, the ClinGen dosage curation, the UCSC cytobands, ClinVar's variant summary, Orphanet's
 nomenclature and a DECIPHER map, are recorded too: the build records each file it reads, by its
 SHA-256 and size (a local file by its name, not where it lies),

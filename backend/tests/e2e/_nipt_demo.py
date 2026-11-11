@@ -88,7 +88,7 @@ def prepare_copy(
     holds it. With ``fetus_status`` (``affected``, ``unaffected``, ``unknown``), the package
     gives the fetus that status instead of the demo's (affected). With ``roi``, the package gives
     the family that region of interest; without ``declare_coverage``, the plasma's coverage BED
-    declares nothing (TRACE-9). With ``project``, the package names that project."""
+    declares nothing. With ``project``, the package names that project."""
     suffix = uuid4().hex[:8]
     ids = {token: f"{token}_{suffix}" for token in TOKENS}
     panel = f"e2e-nipt-signed-record-{suffix}"

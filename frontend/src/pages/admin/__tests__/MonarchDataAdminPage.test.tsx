@@ -117,7 +117,7 @@ describe('MonarchDataAdminPage', () => {
       /The Mendeliome panel was not regenerated \(RuntimeError\) — it still reflects the previous release/,
     ],
     ['without a reason', undefined, /The Mendeliome panel was not regenerated — it still reflects the previous release/],
-  ])('warns when the Mendeliome was not regenerated after the refresh (#514), %s', async (_case, reason, warning) => {
+  ])('warns when the Mendeliome was not regenerated after the refresh, %s', async (_case, reason, warning) => {
     vi.mocked(api.post).mockResolvedValue(
       refreshSummary({ mendeliome_regenerated: false, ...(reason ? { mendeliome_error: reason } : {}) }),
     );

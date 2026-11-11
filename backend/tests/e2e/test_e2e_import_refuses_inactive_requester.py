@@ -4,7 +4,7 @@ The worker runs a queued import job as the account that requested it, found by t
 ``requested_by_id``. Deactivating an account ends its access at once
 (docs/security-posture.md), so an account an administrator deactivated between the request and
 the run has no import run as it. And only an administrator queues an import, so one demoted to
-viewer since is refused even while it is an analyst of the job's project (SEC-35; the owner's
+viewer since is refused even while it is an analyst of the job's project (the owner's
 decision of 2026-10-28).
 
 Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see

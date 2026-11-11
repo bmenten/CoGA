@@ -276,7 +276,7 @@ async def _record_package_raw_files(
                     identity = await asyncio.to_thread(remote_object_identity, storage_path)
                 except Exception:
                     # Named by its dataset: the object's path holds the family's folder
-                    # name, often its ID, and a file name that can hold a sample's (SEC-39).
+                    # name, often its ID, and a file name that can hold a sample's.
                     logger.warning(
                         "Could not read the object store's record of a %s file for provenance",
                         dataset_type,
@@ -417,7 +417,7 @@ async def _register_package_provenance(
     """Record the package's provenance on the family and refresh its members' affected and
     carrier status from the PED and the manifest. A refresh that changes the pedigree is
     stored as the family's next structure version and recorded on its clinical audit
-    trail as made by ``user`` (SEC-7)."""
+    trail as made by ``user``."""
     now = datetime.now(timezone.utc).isoformat()
     await lock_family_pedigree(session, family_identifier)
     pedigree_before = await read_structure_snapshot(session, family_uuid)
@@ -631,7 +631,7 @@ async def _resolve_manifest_roi(
     return await roi_gene_region(session, assembly_id=assembly_id, query=query)
 
 
-# A manifest's region of interest that does not resolve (DATA-10). The PGT calls and the NIPT
+# A manifest's region of interest that does not resolve. The PGT calls and the NIPT
 # coverage check read the family's region of interest, so an import whose manifest names one
 # leaves the family with that region or with none, never with a region the package does not
 # name. The warning is in the validation, the dry run and the import's result.
@@ -699,7 +699,7 @@ async def manifest_roi_issue(
 ) -> FamilyImportValidationIssue | None:
     """The warning of a validation or dry run whose manifest names a region of interest the
     import will not resolve, looked up as the import looks it up (``_package_roi_assembly``):
-    the import leaves the family without one (DATA-10). None when the manifest names none,
+    the import leaves the family without one. None when the manifest names none,
     or it resolves."""
     roi_query = (roi_query or "").strip()
     if not roi_query:
@@ -729,7 +729,7 @@ async def _apply_manifest_roi(
     context: FamilyMetadataContext,
 ) -> FamilyImportValidationIssue | None:
     """Give the family the region of interest its manifest names. One that does not resolve
-    clears the family's (DATA-10): the PGT calls and the NIPT coverage check read the family's
+    clears the family's: the PGT calls and the NIPT coverage check read the family's
     region, and the one it had need not be the one this package names. The warning returned
     then says so and names the region cleared; the import puts it in its result."""
     roi_query = _manifest_roi_value(bundle.manifest)
@@ -770,8 +770,8 @@ async def _apply_manifest_roi(
         else:
             outcome = f"The family has no region of interest, {_ROI_UNREAD}: set it on the family page."
         issue = _issue(MANIFEST_ROI_UNRESOLVED, f"{reason} {outcome}")
-        # Cleared, and nothing goes into the family's metadata: the key an import once wrote
-        # here, unresolved_roi, was never read (ENG-6). The warning is in the import's result.
+        # Cleared, and nothing goes into the family's metadata: the warning is in the
+        # import's result.
         roi = dict.fromkeys(("query", "label", "source", "assembly_id", "chr", "start", "end"))
     await session.execute(
         text(
@@ -824,7 +824,7 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 # begins, its import's entry lists every dataset the family holds in ClickHouse
 # (`imported_scopes`: ``merged_imported_scopes``, which the uploads add to as the imports
 # do) besides its own, under `whole_family`, each with its scope (``whole_family_entry``). A restore that puts
-# the family back, or that refuses to start, removes the entry as before. One that fails
+# the family back, or that refuses to start, removes the entry too. One that fails
 # part-way, or whose process stops in it, leaves it: any dataset of the family may then be
 # partly written or missing, whichever import or upload wrote it. Each later import that
 # completes with `overwrite` removes from it what it imported again, and each upload with
@@ -841,14 +841,14 @@ WHOLE_FAMILY_KEY = "whole_family"
 _FINISHED_DATASET_STATUSES = frozenset({"imported", "warning", "skipped", "registered"})
 
 # A dataset an import ended with one of these brought its data again: completely, or with
-# warnings (the rows its input got wrong left out, each named in the job's record; SAFE-17).
+# warnings (the rows its input got wrong left out, each named in the job's record).
 _IMPORTED_DATASET_STATUSES = frozenset({"imported", "warning"})
 
 # The key of a scope (``dataset_scopes``) whose dataset carries nothing CoGA imports: no file
 # or sample entry, or only a file CoGA does not import (``dataset_carries_nothing``). Such a
 # dataset brings nothing, so nothing of it can be missing: a failure or entry of it is
 # completed by any import or upload that brings the dataset again, its registration included,
-# and its registration completes nothing else (SAFE-17). Set only when true.
+# and its registration completes nothing else. Set only when true.
 EMPTY_SCOPE_KEY = "empty"
 
 
@@ -859,9 +859,9 @@ def _carries_nothing(scope: Any) -> bool:
 def datasets_brought_again(endings: Iterable[tuple[str, str]], scopes: Mapping[str, Any]) -> list[str]:
     """The datasets an import brought again, by how it ended each (``endings``: the dataset
     and its status): imported, or imported with warnings; and registered when its package
-    carries nothing for it (its scope ``empty``, ``scopes``), so nothing of it can be missing
-    (SAFE-17). Never one it registered for want of an assembly or of a file it could find or
-    read, which may lack data, nor one an update skipped, its rows being there (SAFE-20)."""
+    carries nothing for it (its scope ``empty``, ``scopes``), so nothing of it can be missing.
+    Never one it registered for want of an assembly or of a file it could find or
+    read, which may lack data, nor one an update skipped, its rows being there."""
     return sorted(
         {
             str(name)
@@ -873,7 +873,7 @@ def datasets_brought_again(endings: Iterable[tuple[str, str]], scopes: Mapping[s
 
 # The source of an SNV scope whose callset was never resolved: what the manifest's
 # `source_format: auto` (the default) says before the file is read. A scope records the
-# callset the import stores, `auto` as it resolves (SAFE-23); one that still reads `auto`
+# callset the import stores, `auto` as it resolves; one that still reads `auto`
 # names no callset: the import could not read its family VCF when it began
 # (``snv_dataset_callset``). It covers nothing, and nothing covers it: two scopes that read
 # `auto` may stand for different callsets, and either may have stored another callset than
@@ -893,11 +893,10 @@ def dataset_scopes(
     ``source_format`` the dataset declares, or with ``auto`` the callset the loader works
     out from the family VCF, read from the file here, before the import's first write.
     Two imports that leave ``source_format`` at ``auto`` then replace each other's rows only
-    when their files are the same callset, and their scopes say so (SAFE-23).
+    when their files are the same callset, and their scopes say so.
 
     A dataset that carries nothing CoGA imports (``dataset_carries_nothing``) is marked
-    ``empty`` (``EMPTY_SCOPE_KEY``): it brings nothing, and nothing of it can be missing
-    (SAFE-17)."""
+    ``empty`` (``EMPTY_SCOPE_KEY``): it brings nothing, and nothing of it can be missing."""
     # Imported here: family_package_datasets imports this module.
     from .family_package_datasets import dataset_carries_nothing, snv_dataset_callset
 
@@ -916,7 +915,7 @@ def dataset_scopes(
             source = snv_dataset_callset(bundle)
         scope: dict[str, Any] = {"source": source, "samples": samples}
         if dataset_type == "coverage" and dataset is not None and samples:
-            # What each sample's coverage BED declares it holds (TRACE-9), as the import
+            # What each sample's coverage BED declares it holds, as the import
             # stores it: `unknown` without the manifest's `content`. A per-target table
             # declares nothing.
             contents = {
@@ -942,7 +941,7 @@ def _scope_covers(replaced: Any, wanted: Any) -> bool:
 
     A dataset that carried nothing (``empty``) is covered by any scope of it brought again,
     as nothing of it can be missing; one that brings nothing covers only such a dataset,
-    never data another import or upload brought (SAFE-17)."""
+    never data another import or upload brought."""
     if not isinstance(replaced, Mapping) or not isinstance(wanted, Mapping):
         return False
     if _carries_nothing(wanted):
@@ -970,7 +969,7 @@ def imported_dataset_scopes(
     gives it) less the samples an update left as they were, their rows being there
     (``skipped``). A skip imports nothing again, so it completes no failure the flag records
     and no entry: a dataset left with no sample, or one whose scope is not split by sample
-    and that skipped any, is not listed (SAFE-20). A dataset an update skipped whole ends
+    and that skipped any, is not listed. A dataset an update skipped whole ends
     ``skipped``, and is not in ``imported``."""
     result: dict[str, Any] = {}
     for name in imported:
@@ -1012,7 +1011,7 @@ def _names_sample(scope: Any, sample: str) -> bool:
 def _scope_without_sample(scope: Mapping[str, Any], sample: str) -> dict[str, Any] | None:
     """A scope that names ``sample`` (``_names_sample``) without it, and without what its
     coverage BED was declared to hold (``content``); None when it named that sample alone.
-    The reverse of ``scope_with_samples``, for a sample that is deleted (SAFE-35)."""
+    The reverse of ``scope_with_samples``, for a sample that is deleted."""
     samples = [named for named in scope["samples"] if named and str(named) != sample]
     if not samples:
         return None
@@ -1040,7 +1039,7 @@ def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) 
 # first, each with the import job whose record holds its error (None: an upload, or an
 # import run outside a job). A later failure of the same dataset under another scope never
 # replaces an earlier one: each leaves the flag only once an import or upload has brought
-# that scope again (SAFE-26).
+# that scope again.
 FAILED_SCOPES_KEY = "failed_scopes"
 
 
@@ -1130,14 +1129,14 @@ def merged_import_failure(
     (``imported_scopes``: the scope of each dataset it imported). A later failure never
     drops an earlier one, of another dataset or of the same dataset under another scope
     (another callset, other samples): each failure keeps its scope and the job whose record
-    holds its error, and leaves the flag only once its scope has been brought again
-    (SAFE-26). The same scope failing again is one failure, with its latest job.
+    holds its error, and leaves the flag only once its scope has been brought again.
+    The same scope failing again is one failure, with its latest job.
 
     A stored flag not in the shape an import writes (``true``, a list) is kept as it is: it
     says the family is incomplete without naming what would complete it, as a sign-out reads
     it, and a completed import leaves it too (``failures_left_after``). Replacing it would
-    let the family read as complete once this import's own failures had been imported again
-    (SAFE-18). This import's failures are then named in its job's record alone."""
+    let the family read as complete once this import's own failures had been imported again.
+    This import's failures are then named in its job's record alone."""
     if stored is not None and stored is not False and _flag_failures(stored) is None:
         return stored
     failures = _failures_not_imported_again(_flag_failures(stored) or {}, imported_scopes)
@@ -1218,8 +1217,8 @@ def flag_without_sample(stored: Any, sample: str) -> Any:
     with its last dataset. ``stored`` itself when no failure names the sample, or when it is
     not in the shape an import writes: nothing shows what would complete such a flag.
 
-    No import or upload can bring a deleted sample's data again, so a failure naming it could
-    never leave the flag, which gated sign-out for good (SAFE-35)."""
+    No import or upload can bring a deleted sample's data again, so a failure naming it would
+    never leave the flag, which would gate sign-out for good."""
     failures = _flag_failures(stored)
     if failures is None or not isinstance(stored, Mapping):
         return stored
@@ -1343,7 +1342,7 @@ def _scope_items(dataset: str, scope: Any) -> list[dict[str, Any]]:
 
     A coverage BED's scope also says what each sample's BED declared it holds
     (``content``: one value for an upload's sample, or sample -> value for a package's
-    ``coverage`` dataset, TRACE-9), and each sample's item keeps its own. It says what the
+    ``coverage`` dataset), and each sample's item keeps its own. It says what the
     data is, not what an overwrite replaces: ``_scope_covers`` does not read it."""
     if not isinstance(scope, Mapping):
         return [{"dataset": dataset, "scope": None}]
@@ -1387,9 +1386,9 @@ def merged_imported_scopes(
     stopped had finished once that one's entry goes; an upload adds what it brought with
     its own commit (``record_family_upload``). An addition without a scope (an import run
     without its bookkeeping) adds nothing, nor does one of a dataset that carried nothing
-    (``EMPTY_SCOPE_KEY``): the family holds nothing of it (SAFE-17). A stored value not in
+    (``EMPTY_SCOPE_KEY``): the family holds nothing of it. A stored value not in
     this shape is read as holding nothing. A coverage BED's item says what the BED declared
-    it holds (``content``), and a later addition for the same sample replaces it (TRACE-9)."""
+    it holds (``content``), and a later addition for the same sample replaces it."""
     if isinstance(stored, str):
         try:
             stored = json.loads(stored)
@@ -1436,7 +1435,7 @@ def whole_family_entry(
     (``dataset_clickhouse_stores``): the restore rewrites ClickHouse table by table, but puts
     Postgres back in one transaction, which a failure rolls back whole, so it cannot leave a
     dataset held in Postgres alone (repeats, Paraphase, QC, phenotypes) partly written. Those
-    of this import are all listed, as its flag names each as failed (SAFE-18)."""
+    of this import are all listed, as its flag names each as failed."""
     pairs: list[tuple[str, Any]] = [(name, mark.scopes.get(name)) for name in mark.datasets]
     for dataset, held in merged_imported_scopes(imported, ()).items():
         pairs.extend((dataset, scope) for scope in held if dataset_clickhouse_stores(dataset))
@@ -1739,7 +1738,7 @@ async def _end_import_failed_before_datasets(
         )
         return written is not None
     except Exception:  # the entry stays: the family stays marked
-        # Named by the import (its job, or its own run), not the family's ID (SEC-39).
+        # Named by the import (its job, or its own run), not the family's ID.
         logger.warning("Failed to record the failed import %s on its family", mark.key, exc_info=True)
         try:
             await session.rollback()
@@ -1978,12 +1977,12 @@ async def _delete_family_shell(
     (samples / members / other family-scoped rows cascade via ``ON DELETE
     CASCADE``) so a failed import leaves no orphan partial state. Mirrors the
     deletion recipe in ``ped_service``. The deletion is the family's last clinical audit
-    event, as made by ``user``, the import's (SEC-7); the phenotypes the family goes with are
+    event, as made by ``user``, the import's; the phenotypes the family goes with are
     recorded as removed just before it, as made by ``phenotype_import``, the failed import.
 
     Returns the kept copies of the family's files (a manifest CoGA kept for the import), read
     before its rows go: the caller unlinks them once the deletion has committed
-    (``unlink_managed_files``), as an administrator's deletion does (SAFE-35).
+    (``unlink_managed_files``), as an administrator's deletion does.
     """
     assembly_name = family_context.assembly_name
     family_uuid = family_context.family_uuid
@@ -2130,7 +2129,7 @@ async def _mark_family_import_restoring(
         await _mark_family_import_unfinished(
             session, family_uuid=family_context.family_uuid, mark=mark, entry=entry
         )
-    except Exception:  # every dataset of the import pending instead: as before
+    except Exception:  # every dataset of the import recorded as pending instead
         logger.warning(
             "Failed to mark the restore of family %s as rewriting all of its data",
             family_context.family_uuid,
@@ -2368,12 +2367,12 @@ def interval_track_upload_scope(
     bed_type: str, sample_id: str, *, content: str | None = None
 ) -> tuple[str, dict[str, Any]]:
     """What a BED upload of one sample's ``bed_type`` track brought; it replaces the
-    sample's track of that type that a BED brought (source ``web``), and no other caller's
-    (SAFE-22). A package dataset that writes such a track may read another kind of file, or
+    sample's track of that type that a BED brought (source ``web``), and no other caller's.
+    A package dataset that writes such a track may read another kind of file, or
     write another track (a coverage dataset's target table, an APCAD VCF), so neither can
     show that it replaced what the other wrote: the upload has a dataset of its own,
     ``bed_<type>``. A coverage BED's scope also says what it declared it holds
-    (``content``, TRACE-9), which no overwrite compares."""
+    (``content``), which no overwrite compares."""
     scope: dict[str, Any] = {"source": None, "samples": [sample_id]}
     if content is not None:
         scope[COVERAGE_CONTENT_KEY] = content
@@ -2381,7 +2380,7 @@ def interval_track_upload_scope(
 
 
 # A write of the family's data made outside a package import marks the family as an import
-# does (SAFE-28). ClickHouse has no transactions, and such a write deletes rows before it
+# does. ClickHouse has no transactions, and such a write deletes rows before it
 # writes them again: a process that stops in between -- a restart, a crash, running out of
 # memory -- runs no clean-up, and a failure that cannot put back what it deleted leaves it
 # missing. So the write leaves an entry in ``import_unfinished`` (``FamilyWriteMark``), under
@@ -2401,7 +2400,7 @@ def interval_track_upload_scope(
 # (``record_family_upload_failure``).
 #
 # So does every deletion of the family's data that deletes or rewrites ClickHouse rows
-# (SAFE-31; ``FamilyDeletion``): an admin's deletion of a sample with its data, of a sample's
+# (``FamilyDeletion``): an admin's deletion of a sample with its data, of a sample's
 # structural variants or of the family, a PED upload or a manual family that replaces the
 # family, and a structure change that clears its data. Its mark lists what it may leave
 # partly written or missing if it stops anywhere after its first ClickHouse write; it goes
@@ -2661,7 +2660,7 @@ def _import_entry_without_sample(entry: Any, sample: str) -> Any:
     when no scope names the sample, or when it is not in the shape an import writes.
 
     Only an import of a dataset for every sample its scope names removes the entry, and none
-    can name a deleted sample, so an entry naming one stayed for good (SAFE-35)."""
+    can name a deleted sample, so an entry naming one would stay for good."""
     if not isinstance(entry, Mapping):
         return entry
     scopes = entry.get("scopes")
@@ -2698,7 +2697,7 @@ def _without_sample(entry: Any, sample: str) -> Any:
     deleted. A whole-family entry loses the sample's items: its own items and its part of a
     family-level dataset (``ITEM_SAMPLE_KEY``); None when nothing is left of a list that had
     items. An import's own entry, which lists datasets with their scopes, loses the sample
-    from each scope (``_import_entry_without_sample``, SAFE-35). The entry itself when none
+    from each scope (``_import_entry_without_sample``). The entry itself when none
     is struck."""
     if not is_whole_family_entry(entry):
         return _import_entry_without_sample(entry, sample)
@@ -2746,8 +2745,8 @@ END
 
 @dataclass
 class FamilyDeletion:
-    """A deletion of a family's data that deletes or rewrites its rows in ClickHouse
-    (SAFE-31), from its mark to its end.
+    """A deletion of a family's data that deletes or rewrites its rows in ClickHouse,
+    from its mark to its end.
 
     ``begin`` writes the deletion's mark (``FamilyWriteMark``, ``DELETION_MARK_PREFIX``)
     before its first ClickHouse write, committed on a connection of its own, listing each
@@ -2839,8 +2838,8 @@ class FamilyDeletion:
         with everything the deletion changed. With ``deleted_sample`` (a sample the deletion
         removed), what every other entry and the ``import_incomplete`` flag name of it goes
         too (``_without_sample``, ``flag_without_sample``): nothing of a sample that is gone
-        can be missing, and no import or upload can bring its data again to clear them
-        (SAFE-35). Raises: a deletion whose mark cannot be removed fails."""
+        can be missing, and no import or upload can bring its data again to clear them.
+        Raises: a deletion whose mark cannot be removed fails."""
         row = (
             await session.execute(text(_UNFINISHED_ROW), {"family_uuid": self.family_uuid})
         ).mappings().first()
@@ -3040,7 +3039,7 @@ async def record_family_upload(
             pass
     if _flag_failures(stored_flag):
         # Rewritten once it strikes a failure off: a dataset that failed for several
-        # scopes stays, for the others (SAFE-26).
+        # scopes stays, for the others.
         failures = failures_left_after(stored_flag, {dataset: scope})
         if failures.changed:
             metadata = _with_import_flag(metadata)
@@ -3059,8 +3058,8 @@ async def record_family_upload_failure(
     scope: Mapping[str, Any],
     mark: FamilyWriteMark | None = None,
 ) -> None:
-    """A single-file upload that failed after it had begun deleting the rows it replaces
-    (SAFE-25): ClickHouse has no transactions, so what it was to bring (``dataset``, with
+    """A single-file upload that failed after it had begun deleting the rows it replaces:
+    ClickHouse has no transactions, so what it was to bring (``dataset``, with
     ``scope``, as ``small_variant_upload_scope`` gives them) is missing or partly written.
     The family is flagged import-incomplete for it, as an import that failed for a dataset
     flags it (``_write_import_failure``): merged with a flag already there, under no import

@@ -157,7 +157,7 @@ def test_rebuild_swaps_atomically_when_valid(monkeypatch) -> None:
     )
     asyncio.run(cvs.rebuild_small_variant_gene_index(DATASET))
     joined = " || ".join(recorder)
-    # Atomic swap, not the old empty-window TRUNCATE of the live table.
+    # Atomic swap, never a TRUNCATE that leaves the live table empty for a while.
     assert "EXCHANGE TABLES" in joined
     assert "TRUNCATE" not in joined
     assert any(q.startswith("CREATE TABLE") for q in recorder)
@@ -237,7 +237,7 @@ def _count_checks(execute):
 
 
 def test_a_table_is_judged_on_every_part_not_its_first(monkeypatch) -> None:
-    # Read row by row, this flattened result was judged on all_1_1_0 alone: it passed.
+    # Read row by row, this flattened result would be judged on all_1_1_0 alone, and pass.
     monkeypatch.setattr(
         cvs,
         "_execute",
@@ -334,7 +334,7 @@ def test_an_unreadable_verdict_rests_on_a_fully_read_part_list(monkeypatch) -> N
     ("check_rows", "named"),
     [
         ([("all_1_1_0", False, "UNKNOWN_CODEC")], "all_1_1_0: UNKNOWN_CODEC"),
-        # Read row by row, the flattened result was judged on its first part alone.
+        # Read row by row, the flattened result would be judged on its first part alone.
         ([("all_1_1_0", True, ""), ("all_2_2_0", False, "UNKNOWN_CODEC")], "all_2_2_0: UNKNOWN_CODEC"),
     ],
     ids=["its-only-part", "a-later-part"],

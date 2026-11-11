@@ -87,8 +87,6 @@ describe('AdminAuditLogsPage', () => {
             entityId: 'F1',
             updateType: 'update',
           },
-          // A row from before request_meta was recorded.
-          request_meta: undefined,
         }),
       ],
       [],
@@ -214,9 +212,9 @@ describe('AdminAuditLogsPage', () => {
 });
 
 // AUDIT-4: what the writers flag in a row, shown on the page. A request answered as for an
-// unknown record carries request_meta.record_hidden (#785); a row in which a value the database
+// unknown record carries request_meta.record_hidden; a row in which a value the database
 // cannot store was escaped names its columns in request_meta._escaped, or for a UI event in
-// detail._escaped (#768). The page shows these flags and nothing else of request_meta or detail.
+// detail._escaped. The page shows these flags and nothing else of request_meta or detail.
 describe('AdminAuditLogsPage flags', () => {
   // The Flags cell of the row whose path or label is `text`.
   const flagsOf = (text: string): HTMLElement => {
@@ -290,7 +288,7 @@ describe('AdminAuditLogsPage flags', () => {
     expect(within(odd).getByText('Escaped')).toBeInTheDocument();
   });
 
-  // SEC-4: an account made at a first Microsoft sign-in, an administrator's role or activation
+  // An account made at a first Microsoft sign-in, an administrator's role or activation
   // change (request_meta.account_change, each field from and to), and every request of the
   // emergency administrator's password sign-in (request_meta.emergency_sign_in).
   it('flags an account made or changed, and the emergency sign-in', async () => {
@@ -344,7 +342,7 @@ describe('AdminAuditLogsPage flags', () => {
     expect(flagsOf('/api/projects')).toHaveTextContent(/^—$/);
   });
 
-  // SEC-1: an account's projects or its levels in them, set on the Users page.
+  // An account's projects or its levels in them, set on the Users page.
   it.each([
     ['its projects', { project_ids: { from: [], to: ['p1'] } }],
     ['its levels', { reader_project_ids: { from: ['p1'], to: [] } }],

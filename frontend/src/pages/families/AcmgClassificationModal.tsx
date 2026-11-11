@@ -157,7 +157,7 @@ export default function AcmgClassificationModal({
   isPending = false,
   errorMessage = null,
 }: AcmgClassificationModalProps) {
-  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
   // Working selection state keyed by criterion code. A criterion absent from the
   // map renders as an unaccepted default; toggling/strength-editing upserts it.
@@ -167,7 +167,7 @@ export default function AcmgClassificationModal({
   // The computed acmg_class_* tag is derived from the criteria and excluded here.
   const [reviewTags, setReviewTags] = useState<string[]>([]);
 
-  // #337: seed the analyst's editable state (selections/note/tags) once per variant and
+  // Seed the analyst's editable state (selections/note/tags) once per variant and
   // keep refining it while the async gene-profile / HPO context resolves — but STOP the
   // moment the analyst edits anything, so a late-arriving query never wipes their
   // in-progress work.
@@ -216,7 +216,7 @@ export default function AcmgClassificationModal({
   });
 
   // A failed profile is unknown, not a gene without a LOF mechanism or HPO terms: the
-  // criteria that read it say "not assessed" (#609).
+  // criteria that read it say "not assessed".
   const geneContext = useMemo<AcmgGeneContext | undefined>(
     () => (geneProfileFailed ? { unavailable: true } : toGeneContext(geneProfile)),
     [geneProfile, geneProfileFailed],
@@ -299,7 +299,7 @@ export default function AcmgClassificationModal({
 
   // (Re)seed selections when the variant changes or gene/HPO context arrives — but only
   // until the analyst edits this variant (see the refs above), so late-resolving
-  // gene/HPO queries refine the suggestions without discarding in-progress work (#337).
+  // gene/HPO queries refine the suggestions without discarding in-progress work.
   useEffect(() => {
     if (variant._id !== seededVariantKey.current) {
       // A different variant is being classified: reset the edit guard and (re)seed.
@@ -406,7 +406,7 @@ export default function AcmgClassificationModal({
     }
   };
 
-  // Escape, focus trap, and a check before unsaved input is discarded (#529).
+  // Escape, focus trap, and a check before unsaved input is discarded.
   const dialog = useModalDialog({
     onClose,
     discardMessage: 'Discard your unsaved changes to this ACMG classification?',
@@ -461,7 +461,7 @@ export default function AcmgClassificationModal({
         </div>
 
         <div className="variant-review-modal-body acmg-modal-body">
-          {/* A lookup that failed changes the suggestions: say which, and why (#609). */}
+          {/* A lookup that failed changes the suggestions: say which, and why. */}
           {geneProfileFailed ? (
             <QueryFailure
               what={`the gene profile of ${geneSymbol}`}

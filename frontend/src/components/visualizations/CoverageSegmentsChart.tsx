@@ -41,7 +41,7 @@ interface CoverageTrackData {
   segments: Segment[];
 }
 
-/** The y-axis a coverage chart draws its values on (TRACE-9). */
+/** The y-axis a coverage chart draws its values on. */
 interface CoverageAxis {
   min: number;
   max: number;
@@ -129,7 +129,7 @@ interface Props {
   coverageUrls: string[];
   segmentsUrls?: string[];
   /**
-   * What the coverage values are (TRACE-9), as the track availability serves it: a log2
+   * What the coverage values are, as the track availability serves it: a log2
    * ratio is drawn on the ± log2-ratio axis with the gain/loss colouring and the segments; read
    * depth on a depth axis from 0; values of unknown kind on their own range, without an axis.
    * Segments are log2 ratios, and drawn on the log2-ratio axis only.
@@ -173,9 +173,8 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   const stableSegmentsUrls = useMemo(() => splitKey(segmentUrlKey), [segmentUrlKey]);
   const stableChroms = useMemo(() => splitKey(chromKey), [chromKey]);
 
-  // React Query caches/dedupes by URL across re-renders and navigation (was a raw
-  // fetch in useEffect that re-ran on every mount/resize). The data is static per
-  // family, so it is held indefinitely.
+  // React Query caches/dedupes by URL across re-renders and navigation, so a mount or a
+  // resize fetches nothing again. The data is static per family, so it is held indefinitely.
   const {
     data: trackData = null,
     isLoading,
@@ -189,7 +188,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
     queryFn: async ({ signal }) => {
       const allowedChroms = new Set(stableChroms.map(normalizeChrom));
       // A 404 is the BED endpoints' "no data" answer; any other failure fails the chart
-      // rather than drawing (and caching) a partial track (#510).
+      // rather than drawing (and caching) a partial track.
       const [coveragePayloads, segmentPayloads] = await Promise.all([
         Promise.all(
           stableCoverageUrls.map((url) =>
@@ -202,7 +201,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
           ),
         ),
       ]);
-      // A row served without a value (null) has nothing to draw: it was drawn as 0.
+      // A row served without a value (null) has nothing to draw, and is not drawn as 0.
       const bins: CoverageBin[] = [];
       coveragePayloads.forEach((payload) => {
         payload?.items.forEach((item) => {
@@ -544,14 +543,14 @@ const CoverageSegmentsChart: React.FC<Props> = ({
 
   // The gain/loss colouring thresholds are shown on the chart, and marked when they are
   // this browser's own: they live in browser storage, so the same data could otherwise
-  // be coloured differently on two workstations without anyone seeing why (#529).
+  // be coloured differently on two workstations without anyone seeing why.
   const upperThreshold = getCoverageUpperThreshold();
   const lowerThreshold = getCoverageLowerThreshold();
   const customThresholds = hasCustomCoverageThresholds();
   const thresholdLegend = `gain > ${upperThreshold >= 0 ? '+' : ''}${upperThreshold} · loss < ${lowerThreshold} (log2)`;
   // The name also says, as every other chart's does, when the chart failed to load, is
   // loading or has nothing to show; it named only the thresholds, so a failed chart read
-  // as a drawn one (#510, #602).
+  // as a drawn one.
   const coverageState = isError
     ? 'failed to load'
     : loading
@@ -559,7 +558,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       : hasData === false
         ? 'no data'
         : null;
-  // A depth axis says its range; values of unknown kind say they have none (TRACE-9).
+  // A depth axis says its range; values of unknown kind say they have none.
   const scaleLegend =
     valueAxis === null
       ? null

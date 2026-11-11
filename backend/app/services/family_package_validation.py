@@ -176,8 +176,7 @@ def _warn_file_without_a_record(
     sample_id: str | None = None,
 ) -> None:
     """A warning for a data file with nothing after its header, which the import refuses: it
-    fails the dataset with the stored data as it was (SAFE-29). A dry run did not report it
-    (SAFE-3). A file that cannot be read here is left to the import, which says what is
+    fails the dataset with the stored data as it was. A dry run did not report it. A file that cannot be read here is left to the import, which says what is
     wrong with it."""
     if warnings is None or path is None or not path.is_file():
         return
@@ -200,7 +199,7 @@ def _warn_file_without_a_record(
 
 
 # The per-sample datasets whose required file the import refuses when it holds no record
-# (SAFE-29): a sample's TRGT VCF, NeedlR VCF and chrM VCF. A HiFiCNV VCF or a chrM SV VCF
+#: a sample's TRGT VCF, NeedlR VCF and chrM VCF. A HiFiCNV VCF or a chrM SV VCF
 # without a call is a result, and neither is warned of.
 _RECORD_REQUIRED_DATASETS = frozenset({"repeats_trgt", "sv_needlr", "mito"})
 
@@ -274,7 +273,7 @@ def _vcf_columns_or_refusal(
     read: a gzip file cut short (a BGZF file wherever the cut lies), damaged or not gzip at
     all. Such a file is refused by name in ``errors`` (``dataset_vcf_unreadable``, naming
     ``sample_id`` where given), never by the error's text: it passed validation and failed
-    its dataset only at import (DATA-12)."""
+    its dataset only at import."""
     if path is None or not path.is_file():
         return None
     try:
@@ -450,7 +449,7 @@ def _validate_per_sample_snv_dataset(
             try:
                 columns = read_vcf_sample_columns(vcf_path)
             except UnreadableVcf:
-                # Refused by name: the read raised out of the request, a 500 (DATA-11).
+                # Refused by name: the read raised out of the request, a 500.
                 errors.append(
                     unreadable_vcf_issue(
                         root, vcf_path, dataset="snv", label=f"The SNV file of {sample_id}", sample_id=sample_id
@@ -469,7 +468,7 @@ def _validate_per_sample_snv_dataset(
                 )
             elif analysis_type == MONOGENIC_NIPT_ANALYSIS_TYPE and warnings is not None:
                 # The import reads a NIPT file's one column as the entry's sample whatever its
-                # name: a column named otherwise is warned of, not refused (CLIN-13).
+                # name: a column named otherwise is warned of, not refused.
                 column_issue = nipt_vcf_column_issue(
                     root,
                     sample_id,
@@ -498,7 +497,7 @@ def _validate_coverage_dataset(
     warnings: list[FamilyImportValidationIssue] | None = None,
 ) -> FamilyImportDatasetSummary:
     """A coverage entry names a BED (``bed``) with what it holds (``content``: ``read_depth``
-    or ``log2_ratio``, TRACE-9), or a per-target table (``target_table``). A ``content`` that
+    or ``log2_ratio``), or a per-target table (``target_table``). A ``content`` that
     is neither is an error: a misspelt declaration must not import as unknown without a word.
     A BED without one is imported as ``unknown`` -- drawn without a depth or log2-ratio axis,
     never read as depth -- and validation says so (``coverage_content_undeclared``)."""
@@ -691,7 +690,7 @@ def _validate_apcad_dataset(
             errors=errors,
             files=files,
         )
-        # One the validation cannot read is refused by name; the import failed on it (DATA-12).
+        # One the validation cannot read is refused by name; the import failed on it.
         _vcf_columns_or_refusal(
             root, family_vcf_path, dataset="apcad", label="The family APCAD VCF", errors=errors
         )
@@ -794,7 +793,7 @@ def _check_apcad_sample_vcf_columns(
     pipeline's) also holds the parents' columns, which give each site its parental
     origin: without one, the import still runs but cannot say which parent an allele
     came from, so that is a warning. One that cannot be read (cut short, damaged, not gzip)
-    is refused, naming the sample and the file (DATA-12). One without sample columns is
+    is refused, naming the sample and the file. One without sample columns is
     read from its records' INFO, and one without a VCF record as a BED, by the import."""
     value = entry.get("vcf") or entry.get("bed") or entry.get("file")
     if not isinstance(value, str) or not value.lower().endswith((".vcf", ".vcf.gz")):
@@ -985,13 +984,13 @@ def _validate_haplotypes_dataset(
             errors=errors,
             files=files,
         )
-        # One that cannot be read is refused by name; the import failed on it (DATA-12).
+        # One that cannot be read is refused by name; the import failed on it.
         columns = _vcf_columns_or_refusal(
             root, family_vcf_path, dataset="haplotypes", label="The phased family VCF", errors=errors
         )
         if columns == [] and family_vcf_path is not None:
             # The import reads each member's genotypes from the member's own column: from a
-            # file naming none it could give no member one (DATA-12).
+            # file naming none it could give no member one.
             errors.append(
                 _issue(
                     "dataset_vcf_no_sample_columns",

@@ -46,7 +46,7 @@ def wire_nipt_reads(
     filtered: list[SmallVariantRecord],
     artifacts: set[str] | None = None,
     sample_name_to_uuid: dict[str, str] | None = None,
-    carrier_samples: dict[str, str] | None = None,
+    carrier_samples: list[str] | None = None,
     other_carriers: dict[str, int] | None = None,
 ) -> None:
     """Answer the NIPT service's reads for ``family``. ``carrier_samples`` are the assay's other
@@ -77,8 +77,8 @@ def wire_nipt_reads(
     async def no_hydration(_session: Any, *, context: Any, variants: Any) -> None:
         return None
 
-    async def assay_carriers(_session: Any, *, assay_key: str) -> dict[str, str]:
-        return dict(carrier_samples or {})
+    async def assay_carriers(_session: Any, *, assay_key: str) -> list[str]:
+        return list(carrier_samples or [])
 
     monkeypatch.setattr(nipt_service, "get_family_record", family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", metadata_context)

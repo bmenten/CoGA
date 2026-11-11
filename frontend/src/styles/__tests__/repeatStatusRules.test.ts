@@ -7,8 +7,8 @@ import { themeRules } from './themeSource';
 
 /**
  * Every repeat status has a style of its own on the repeat page: a call's alleles, and the
- * chip a locus shows beside its name for any status but normal. A *review* call had neither,
- * and read as a plain chip (ENG-10, #826). The repeat cards colour both through the tones every
+ * chip a locus shows beside its name for any status but normal; a *review* call does not read
+ * as a plain chip. The repeat cards colour both through the tones every
  * variant card shares (FamilyGenotypeGrid), so this checks each status's tone has its rules.
  * jsdom applies no stylesheet, so this reads the rules themselves.
  */

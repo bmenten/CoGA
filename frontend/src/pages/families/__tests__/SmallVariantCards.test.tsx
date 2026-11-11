@@ -60,21 +60,8 @@ describe('SmallVariantCards', () => {
               alt: 'A',
               mane_select: true,
               exon: '13/27',
+              // The primary transcript is the variant's own fields; the list holds the others.
               transcripts: [
-                transcript({
-                  gene: 'BRCA2',
-                  gene_id: 'ENSG00000139618',
-                  transcript_id: 'NM_000059.4',
-                  transcript_source: 'RefSeq',
-                  transcript_biotype: 'protein_coding',
-                  impact: 'MODERATE',
-                  effect: 'missense_variant',
-                  hgvsc: 'NM_000059.4:c.7007G>A',
-                  hgvsp: 'NP_000050.3:p.Arg2336His',
-                  exon: '13/27',
-                  mane_select: true,
-                  primary: true,
-                }),
                 transcript({
                   gene: 'BRCA2',
                   gene_id: 'ENSG00000139618',
@@ -163,7 +150,7 @@ describe('SmallVariantCards', () => {
     const dialog = await screen.findByRole('dialog', { name: /BRCA2/i });
 
     // Matched despite the VCF naming the unversioned transcript, and the annotation
-    // version the cross-references come from is named (#536).
+    // version the cross-references come from is named.
     expect(await within(dialog).findByText('CCDS')).toBeInTheDocument();
     expect(within(dialog).getByText('NM_000059.4')).toBeInTheDocument();
     expect(
@@ -219,7 +206,7 @@ describe('SmallVariantCards', () => {
     const decipher = within(nav).getByRole('link', { name: 'DECIPHER' });
     expect(decipher).toHaveAttribute('href', 'https://www.deciphergenomics.org/gene/BRCA2');
     expect(decipher).toHaveAttribute('target', '_blank');
-    // Only once on the card: no longer under the in-silico predictions.
+    // Only once on the card: not under the in-silico predictions.
     expect(screen.getAllByRole('link', { name: 'OMIM' })).toHaveLength(1);
     expect(screen.getAllByRole('link', { name: 'DECIPHER' })).toHaveLength(1);
   });
@@ -434,8 +421,9 @@ describe('SmallVariantCards', () => {
     expect(screen.getByText(/some other field/i)).toBeInTheDocument();
   });
 
-  // CLIN-51: the annotation filters must all hold on one transcript, and a variant kept by
-  // SIFT deleterious on its second transcript read its primary transcript's "tolerated".
+  // The annotation filters must all hold on one transcript, and a variant kept by SIFT
+  // deleterious on its second transcript shows its primary transcript's "tolerated" on the card,
+  // with the transcript the filters held on named beside it.
   // The e2e ready case (variant 20-62900601 of test_e2e_in_silico_prediction_filters.py).
   const keptOnItsSecondTranscript: SmallVariant = smallVariant({
     _id: '20-62900601-C-T',
@@ -566,10 +554,10 @@ describe('SmallVariantCards', () => {
 
     expect(screen.getByText('chr13:g.32316461G>A')).toBeInTheDocument();
     expect(screen.getByText('(13q13.1)')).toBeInTheDocument();
-    // Labelled as a genomic change, not as HGVS, which it is not normalised to (#536).
+    // Labelled as a genomic change, not as HGVS, which it is not normalised to.
     expect(screen.getByText('Genomic change')).toHaveAttribute('title', expect.stringMatching(/Not HGVS-normalised/));
     expect(screen.queryByText('HGVS.g')).not.toBeInTheDocument();
-    // The headline no longer repeats the position as a locus range.
+    // The headline does not repeat the position as a locus range.
     expect(screen.queryByText(/32,316,461/)).not.toBeInTheDocument();
 
     const dbSnp = screen.getByRole('link', { name: 'rs80359550' });
@@ -762,7 +750,7 @@ describe('SmallVariantCards', () => {
 
     await userEvent.click(screen.getByText('More annotations & detail'));
 
-    // Two combined sections replace the four that used to split these rows.
+    // These rows are in two combined sections, not four.
     for (const gone of ['Variant summary', 'Transcript context', 'All scores & constraint', 'Additional annotations']) {
       expect(screen.queryByText(gone)).not.toBeInTheDocument();
     }
@@ -781,7 +769,7 @@ describe('SmallVariantCards', () => {
     expect(within(annotations).getByText(/some other field/i)).toBeInTheDocument();
   });
 
-  it("names the VCF's own missense Z apart from the gene profile's (TRACE-15)", async () => {
+  it("names the VCF's own missense Z apart from the gene profile's", async () => {
     // The import stores a VCF's MISSENSE_Z under the annotation's gene_missense_z, which the
     // disclosure listed as a raw "gene missense z" line, read like the gene profile's value
     // that the In silico column shows as Missense Z.
@@ -1017,7 +1005,7 @@ describe('SmallVariantCards', () => {
     expect(screen.getByText(/Congenital hypothyroidism/)).toBeInTheDocument();
   });
 
-  // #610 — a failed gene profile is not a gene without diseases, nor transcripts without
+  // A failed gene profile is not a gene without diseases, nor transcripts without
   // CCDS or RefSeq; the lookup failure lasts until recover() is called.
   const failGeneProfile = () => {
     let failing = true;
@@ -1111,10 +1099,9 @@ describe('SmallVariantCards excluded variant', () => {
   });
 });
 
-// CLIN-76 (the owner's decision of 2026-11-10): a card shows its review's class by the one rule
-// of the family page. Its heading showed the classification text (a class word as its label)
-// whatever the tags said, and its tag row every class tag beside it: text "VUS" beside the tag of
-// class 4 showed *VUS - class 3* and *Likely pathogenic - class 4* on one card.
+// The owner's decision of 2026-11-10: a card shows its review's class by the one rule of the
+// family page, once: text "VUS" beside the tag of class 4 shows *VUS - class 3* alone, never
+// beside *Likely pathogenic - class 4* on one card.
 describe('SmallVariantCards review class', () => {
   beforeEach(() => {
     vi.resetAllMocks();

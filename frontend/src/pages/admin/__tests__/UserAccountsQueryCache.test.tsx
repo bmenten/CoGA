@@ -1,8 +1,7 @@
 // The Users, Projects and Audit logs pages read the account list (GET /auth/users) under one
-// cache key. The audit page used to cache only each account's id and e-mail there, and the page
-// opened next within the app's stale time read those as full accounts: Users threw on
-// `u.projects.length`, and Projects lost every user's name (UI-1). Each test opens Audit logs
-// and then another page with one query client, as the app does.
+// cache key, so each caches whole accounts there: a page opened next within the app's stale
+// time reads them as whole accounts. Each test opens Audit logs and then another page with one
+// query client, as the app does.
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import type React from 'react';

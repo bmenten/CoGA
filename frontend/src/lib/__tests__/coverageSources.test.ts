@@ -54,7 +54,7 @@ describe('coverage sources', () => {
     expect(coverageTrackLabel('hificnv', 3)).toBe('Coverage · HiFiCNV');
   });
 
-  // TRACE-9: each coverage track is drawn on the axis of what it holds, as the track availability
+  // Each coverage track is drawn on the axis of what it holds, as the track availability
   // serves it (`coverage_contents`, decided by the rule the depth readers read it by).
   it('draws each track on the axis of what it holds', () => {
     expect(coverageScale('log2_ratio')).toBe('log2_ratio');
@@ -76,8 +76,8 @@ describe('coverage sources', () => {
   });
 
   it('says why depths stored as read are on a depth axis, beside the callers log2 ratios', () => {
-    // TRACE-7: a HiFiCNV depth file without a usable autosomal median, stored as read. It used to
-    // be left off the chart, the log2-ratio axis being the only one.
+    // A HiFiCNV depth file without a usable autosomal median, stored as read: on the chart, on a
+    // depth axis of its own.
     expect(coverageScaleNote('hificnv', 'read_depth', ['none'])).toEqual({
       text: 'Read depth, stored as read: the sample had no usable autosomal median to normalise it by.',
       warning: false,
@@ -85,8 +85,7 @@ describe('coverage sources', () => {
   });
 
   it('warns that values of unknown kind are neither depth nor a log2 ratio', () => {
-    // A coverage BED that does not declare what it holds: it was drawn on the log2-ratio axis
-    // while the depth readers read it as depth.
+    // A coverage BED that does not declare what it holds: on no axis, and not read as depth.
     expect(coverageScaleNote('web', 'unknown')).toEqual({
       text: 'This coverage BED does not declare whether it holds read depth or a log2 ratio: drawn on its own range without an axis, and not read as depth. Load it again with what it holds.',
       warning: true,

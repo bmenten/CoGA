@@ -1,4 +1,4 @@
-// The ids the in-app reference docs give their headings (ENG-19): the slugs GitHub gives the
+// The ids the in-app reference docs give their headings: the slugs GitHub gives the
 // same Markdown, which the docs' links to their own headings are written against.
 import { describe, expect, it } from 'vitest';
 

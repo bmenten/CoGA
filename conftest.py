@@ -6,7 +6,7 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
-# A unit run reaches no database (ENG-16). The suite mocks Postgres and ClickHouse, but a
+# A unit run reaches no database. The suite mocks Postgres and ClickHouse, but a
 # route test that leaves the request audit on writes its row itself when no worker runs,
 # to whatever Postgres listens on localhost:5432: the dev stack publishes its database
 # there, whose request audit is append-only. Without RUN_INTEGRATION=1 both datastores

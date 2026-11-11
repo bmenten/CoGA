@@ -10,9 +10,9 @@ classified this" (see docs/clinical-traceability.md).
 The annotation-set hash is the authoritative drift key (it changes whenever any
 annotation changes); the ClinVar significance is reported as the human-readable
 specific when it is what moved, and so is each value the snapshot froze: the consequence,
-impact and LoF call, each population frequency and in-silico score (CLIN-7), and, for a
+impact and LoF call, each population frequency and in-silico score, and, for a
 missense variant, the gene's missense Z PP2 reads and its source, the gene profile's, which
-is not under the hash, else the VCF's own (TRACE-15): ``changed`` names what moved,
+is not under the hash, else the VCF's own: ``changed`` names what moved,
 ``evidence_from`` and ``evidence_to`` hold the values. Each field the snapshot froze is
 compared: the gene's missense Z only for a missense variant, which alone has it, so one of a
 variant that is not a missense variant never drifts on its gene's profile; a group that is
@@ -224,9 +224,9 @@ async def evaluate_classification_drift(
         stored = row["acmg_evidence_snapshot"]
         # A snapshot that is not a JSON object, which the writer never stores, froze nothing
         # that can be read: it is compared as one that froze nothing, so it reads as unknown
-        # (or as variant_missing), as an unreadable SV/CNV snapshot does. It was skipped, and
-        # so counted neither as checked nor, at sign-out, as without a snapshot: it cleared
-        # the drift gate unexamined (TRACE-15).
+        # (or as variant_missing), as an unreadable SV/CNV snapshot does. Skipped, it would
+        # count neither as checked nor, at sign-out, as without a snapshot, and clear the
+        # drift gate unexamined.
         snapshot = stored if isinstance(stored, dict) else {}
         current_record = None
         if context.assembly_name:
@@ -321,7 +321,7 @@ async def evaluate_structural_classification_drift(
             continue
         checked += 1
         # The row of the caller the evidence was frozen from: another caller's call of the
-        # SV, under the same id, has evidence of its own (TRACE-11). A snapshot that names
+        # SV, under the same id, has evidence of its own. A snapshot that names
         # none cannot be read, so any row only tells it apart from an SV no longer there.
         current_records = await fetch_structural_variant_records(
             context, str(row["variant_id"]), source=frozen_evidence_source(snapshot)

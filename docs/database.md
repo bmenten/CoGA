@@ -6,26 +6,13 @@ reference.
 
 ## Postgres Tables
 
-The schema is five idempotent baseline files in
+The schema is five baseline files in
 [backend/db/schema/postgres/](../backend/db/schema/postgres/), which create each table in its
-final form, and the Alembic revisions in
-[backend/db/migrations/versions/](../backend/db/migrations/versions/), which bring a table that
-already exists to that form. One migration step applies both, as the table owner, on every
-start in the default mode (see "Startup Behavior"); the ledger table `alembic_version` records
-the revision a database is at ([Schema Migrations](#schema-migrations)).
-
-Some baselines also add columns to a table that already exists. A revision runs the same
-statements, for when the baselines are no longer re-applied:
-
-- `01_access.sql` adds `users.azure_object_id` and `project_users.access_level` with
-  `ALTER TABLE … ADD COLUMN IF NOT EXISTS`. Each stored account keeps its row, without an
-  object ID; each stored membership keeps its row, as an analyst's. Revisions `0006` and `0005`.
-- `03_assay.sql` adds `family_import_jobs.requested_by_id` and the presets' `owner_id`, each in
-  a block that runs only while the column is missing. Revision `0008`.
-- `02_reference.sql` does the same for `gene_info_refresh_jobs.requested_by_id` and
-  `clinical_cnv_kb_jobs.requested_by_id`. Revision `0010`.
-- `02_reference.sql` adds `gene_panels.external_selection` with `ALTER TABLE … ADD COLUMN IF
-  NOT EXISTS`, before the unique index that reads it. Revision `0020`.
+final form. Revision `0001` in [backend/db/migrations/versions/](../backend/db/migrations/versions/)
+applies them to an empty database, as the table owner, at the first start in the default mode
+(see "Startup Behavior"). The ledger table `alembic_version` records the revision a database is
+at, and `schema_baselines` the digest of the baselines it was made from
+([Schema Migrations](#schema-migrations)).
 
 ### 01_access.sql: genome foundation and access
 
@@ -138,8 +125,8 @@ reference file is recorded under its file name.
 | `family_relationships` | explicit links between two samples: `parent_child` (with the role at each end), `couple`, or `relative` (`sample_id_b` is related through `sample_id_a` by an unknown degree, such as a PGT index known only to be on the mother's side); `source` says what made it (`pedigree`: the parents a pedigree gives; `manifest`: a package manifest's `family.relationships`; `manual`: a couple typed in, or an edit), `active = false` retires it |
 | `family_structure_versions` | **append-only**, hash-chained: one row per change of a family's pedigree (its creation, a structure or member edit, a package import that changes a member's affected or carrier status, a sample deleted with its data): the version, a `structure_hash` over the members (sex, role, affected and carrier status, active) and the relationships, the full snapshot, and the family's own ID (`family_identifier`), which stays when the family is deleted (below) |
 | `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset, with progress (start and end; while running, the share of its files read and the time left). `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running. A running job writes `heartbeat_at` every minute, stamped and judged by the database's clock (`now()`). A worker claims a job whose heartbeat is ten minutes old: it runs the job again if it was still `validating`, and ends it `failed` (interrupted) if it was `running`, adding a line to its log either way. An update that names a worker applies only while the job is that worker's, so the heartbeat of an import whose job was ended this way stops the import. `requested_by_id` is the account that asked for the job: the import runs as that account. Every import route needs an admin, so a user who is no admin sees no job. `requested_by` is the e-mail address it was asked under, shown with the job (a Microsoft sign-in may later change an account's address); it decides nothing. Deleting the account keeps the job, linked to no account; it can then no longer run. A job whose account is deactivated, or is no longer an administrator, before a worker takes it up does not run either: the worker ends it `failed`, with the reason, before writing anything of the family. `manifest_text` is the manifest CoGA keeps for the job, which its validation and import read instead of the package folder's own (a folder CoGA cannot write, such as a share mounted read-only), with its SHA-256 in `manifest_sha256`; both are NULL for a job that reads the folder's manifest, and `family_import_jobs_manifest_check` holds both or neither. `package_fingerprint` is the fingerprint of the local package folder when the job was queued (`family_package_fingerprint.py`: a SHA-256 over each file's path, size and modification time, each link's target, and the kept manifest's SHA-256; `family_import_jobs_package_fingerprint_check`: NULL or 64 lowercase hexadecimal digits); the job imports nothing when the folder's differs as it starts. It is NULL for a package in a bucket and a folder the queue could not read |
-| `import_deliveries` | packages pipelines delivered into a watched import folder (`FAMILY_IMPORT_WATCH_ROOTS`; `import_watcher.py`): one row per package folder and package fingerprint among the watcher's deliveries (the partial unique index `import_deliveries_folder_fingerprint_key`, `WHERE origin = 'watched'`; a folder added by hand can be added again), so a folder that changes is a new delivery; an open one is checked again in place when the project its package file names, or its family or samples, change in CoGA, and superseded when the package file says a run is under way in the folder, or failed. It keeps the watched folder (for a folder added by hand, the import root it lies under), the folder's path and name, its `origin` (`watched`, or `manual` for a folder a person added by hand, whose package CoGA made: `import_manual_delivery.py`), the package file as read (`marker`, `coga-package.json`) with its bytes' SHA-256 (`marker_sha256`) and the run it names, the family, the project the package file names, the `state` (`incomplete`, `ready`, `needs_attention`, `superseded`, `gone`; once a person decided, `queued`, `imported`, `failed` or `refused`; `approved` and `changed_after_import` for a later step), the `issues` that stand in the way and the `warnings` an approver sees (code, message, path), a summary of the validation, the package as checked, with what the file leaves out proposed by Discover and written into it (`package`), what reading the folder found (`package_check`: the file checks, the files whose checksum was verified, what was proposed), which a correction and a check again reuse, the manifest the import reads, made from the package as last corrected (`manifest_text`, JSON, with `manifest_sha256`; both or neither), the last import job it was approved for (a dry run, or the import: `import_delivery_review.py`), how many rounds an open delivery's folder was missing, and when it was first and last seen and last changed state. Mutable state: each change of state is an event on the clinical audit chain `system:import-inbox`, which is the record. Created by its baseline alone |
-| `import_delivery_revisions` | the corrections of a delivery's package made in CoGA before it is approved (`import_delivery_revisions.py`): one row per revision of a delivery (`import_delivery_revisions_delivery_revision_key`), numbered from 1, with what it changed (`changes`: each field's path, its kind, its value before and after), the `reason` (1 to 2,000 characters), who made it (`created_by`, `ON DELETE SET NULL`, and `created_by_name`) and when, the whole package after it (`package`) with its SHA-256, and the SHA-256 of the package it was made on (`base_sha256`). The import reads the latest; the family's record names it. **Append-only**: `import_delivery_revisions_block_mutation` refuses UPDATE and DELETE but for the nulling of `created_by`, and `05_grants.sql` revokes UPDATE, DELETE and TRUNCATE from `coga_app`. Each revision is also an event on the `system:import-inbox` chain. Created by its baseline alone |
+| `import_deliveries` | packages pipelines delivered into a watched import folder (`FAMILY_IMPORT_WATCH_ROOTS`; `import_watcher.py`): one row per package folder and package fingerprint among the watcher's deliveries (the partial unique index `import_deliveries_folder_fingerprint_key`, `WHERE origin = 'watched'`; a folder added by hand can be added again), so a folder that changes is a new delivery; an open one is checked again in place when the project its package file names, or its family or samples, change in CoGA, and superseded when the package file says a run is under way in the folder, or failed. It keeps the watched folder (for a folder added by hand, the import root it lies under), the folder's path and name, its `origin` (`watched`, or `manual` for a folder a person added by hand, whose package CoGA made: `import_manual_delivery.py`), the package file as read (`marker`, `coga-package.json`) with its bytes' SHA-256 (`marker_sha256`) and the run it names, the family, the project the package file names, the `state` (`incomplete`, `ready`, `needs_attention`, `superseded`, `gone`; once a person decided, `queued`, `imported`, `failed` or `refused`; `approved` and `changed_after_import` for a later step), the `issues` that stand in the way and the `warnings` an approver sees (code, message, path), a summary of the validation, the package as checked, with what the file leaves out proposed by Discover and written into it (`package`), what reading the folder found (`package_check`: the file checks, the files whose checksum was verified, what was proposed), which a correction and a check again reuse, the manifest the import reads, made from the package as last corrected (`manifest_text`, JSON, with `manifest_sha256`; both or neither), the last import job it was approved for (a dry run, or the import: `import_delivery_review.py`), how many rounds an open delivery's folder was missing, and when it was first and last seen and last changed state. Mutable state: each change of state is an event on the clinical audit chain `system:import-inbox`, which is the record |
+| `import_delivery_revisions` | the corrections of a delivery's package made in CoGA before it is approved (`import_delivery_revisions.py`): one row per revision of a delivery (`import_delivery_revisions_delivery_revision_key`), numbered from 1, with what it changed (`changes`: each field's path, its kind, its value before and after), the `reason` (1 to 2,000 characters), who made it (`created_by`, `ON DELETE SET NULL`, and `created_by_name`) and when, the whole package after it (`package`) with its SHA-256, and the SHA-256 of the package it was made on (`base_sha256`). The import reads the latest; the family's record names it. **Append-only**: `import_delivery_revisions_block_mutation` refuses UPDATE and DELETE but for the nulling of `created_by`, and `05_grants.sql` revokes UPDATE, DELETE and TRUNCATE from `coga_app`. Each revision is also an event on the `system:import-inbox` chain |
 | `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown`. An analyst of the family's project or an admin adds, changes and removes them; a package import brings them in. Each change, an import's too, is a `phenotype` event on the clinical audit trail ([clinical-traceability.md](clinical-traceability.md)) |
 | `repeat_expansions` | TRGT repeat calls per sample |
 | `sample_paraphase_results` | Paraphase copy-number and haplotype results per sample |
@@ -157,23 +144,19 @@ reference file is recorded under its file name.
 | `qc_threshold_changes` | **append-only** history of every cut-off edit (below) |
 
 A `CHECK` (`sample_interval_track_sources_track_type_check`) holds
-`sample_interval_track_sources.track_type` to the track types above. The baseline creates the
-table only when it is missing, so it leaves the check of a table that exists as it is. Revision
-`0003` gives such a table the check with `target_coverage` (for the NIPT-M pair) at its next start
-([Schema Migrations](#schema-migrations)); revision `0012` gives it the check with
-`apcad_segregation` (an embryo's segregation table, for the parental-origin view).
+`sample_interval_track_sources.track_type` to the track types above, `target_coverage` (for the
+NIPT-M pair) and `apcad_segregation` (an embryo's segregation table, for the parental-origin view)
+among them.
 
 `repeat_expansions.status` is a call's status as its import classified it: `normal`, `review`,
 `not_assessed`, `intermediate`, `premutation`, `pathogenic` or `unknown` (no call).
 `not_assessed` is a call at a locus without thresholds: no catalogue row names its TRID, or the
 row states no intermediate, premutation or pathogenic threshold (a count inside the benign range
 such a row states is `normal`). The repeat page and the genome tracks both classify the call
-again against the current catalogue, so a POLG call of 10 stored as `not_assessed` under an
-older catalogue reads normal on both at once.
+again against the current catalogue, so both show the same status, whatever catalogue the import
+read.
 
-A `CHECK` (`repeat_expansions_status_check`) holds the status to these values. The baseline
-leaves the check of a table that exists as it is; revision `0002` gives such a table the current
-check at its next start ([Schema Migrations](#schema-migrations)).
+A `CHECK` (`repeat_expansions_status_check`) holds the status to these values.
 
 A call whose TRID names several STRchive loci (the gene of ARX or HOXA13) and whose region
 picks none of them is stored without thresholds. `repeat_expansions.metadata` holds the reason
@@ -202,7 +185,7 @@ JSON keys that package import writes into the `metadata` columns:
 | `families.metadata` | `pipeline_qc` | the QC the PGT pipeline reported for the family as a whole: the KING kinship, IBS0 and SNP count of every pair (`kinship`), and the files they came from |
 | `families.metadata` | `haplotype_phase_corrections` | the parents' phase switches the haplotype blocks undid, one per switch: the parent and its side, the chromosome, the position from which its two haplotypes are swapped, the end of the children's switches, and how many informative children switched, out of how many. Replaced at every haplotype import; the lineage colouring and the phased markers read the parents' phase through them |
 | `families.metadata` | `pipeline_haplotype_origin` | the PGT pipeline's reading of which haplotype of the affected parent is the affected one: the parent, the sites each haplotype shares with the index's affected and normal haplotypes, and the pipeline's conclusion. Evidence only; CoGA's risk-haplotype inference does not read it |
-| `families.metadata` | `package_import` | the import provenance: folder (`folder_path`: a local folder's real path, or a bucket folder's URI), manifest, datasets and the manifest's own `metadata`. The manifest is named by where it was read (`manifest_source`: `folder`, its file's path in `manifest_path`, or `coga`, the text the import's job kept, with `manifest_path` null and a managed copy among the family's `raw_import_files` as dataset `manifest`) and its SHA-256 (`manifest_sha256`: of the file's bytes, or of the kept text). `package_fingerprint` is the folder's fingerprint the import read it with, taken before it read the folder (NULL for a package in a bucket). The package list reads `folder_path` to name, per folder, the families imported from it (`imported_package_folders.py`). `delivery` names the delivery of a watched import folder it was imported from (its id, the pipeline's run, the ready marker's SHA-256 and the package fingerprint), absent for a package a user chose. `previous_import` keeps the record the family had before this import registered it again (without a previous record of its own; absent for a family's first import): an import undone because its package changed while it was read puts that record back (`put_back_family_package_record`). The paths recorded on the samples (`alignment`, `signal_tracks`, the QC report) are served from that folder, when it lies below `FAMILY_IMPORT_ROOTS` |
+| `families.metadata` | `package_import` | the import provenance: folder (`folder_path`: a local folder's real path, or a bucket folder's URI), manifest, datasets and the manifest's own `metadata`. The manifest is named by where it was read (`manifest_source`: `folder`, its file's path in `manifest_path`, or `coga`, the text the import's job kept, with `manifest_path` null and a managed copy among the family's `raw_import_files` as dataset `manifest`) and its SHA-256 (`manifest_sha256`: of the file's bytes, or of the kept text). `package_fingerprint` is the folder's fingerprint the import read it with, taken before it read the folder (NULL for a package in a bucket). The package list reads `folder_path` to name, per folder, the families imported from it (`imported_package_folders.py`). `delivery` names the delivery it was imported from, a watched import folder's or one added by hand (its id and `origin`, the pipeline's run, the package file's SHA-256, the package fingerprint, the revision imported, the SHA-256 of the package imported and every correction), absent for a package a user chose. `previous_import` keeps the record the family had before this import registered it again (without a previous record of its own; absent for a family's first import): an import undone because its package changed while it was read puts that record back (`put_back_family_package_record`). The paths recorded on the samples (`alignment`, `signal_tracks`, the QC report) are served from that folder, when it lies below `FAMILY_IMPORT_ROOTS` |
 | `families.metadata` | `pgt`, `analysis_type` | the manifest's PGT context (the inheritance model, the obligate and proven carriers, the affected parents and the indexes) and analysis type |
 | `families.metadata` | `import_incomplete` | set by an import that failed for some datasets and kept the others. It holds the datasets that failed and those that imported, when, and the import job (after a failed overwrite whose restore failed too, other than by refusing without its whole backup: every dataset of that import as failed, none as imported). For each failed dataset it holds every scope it failed for, oldest first, each with the job that holds its error (`failed_scopes`), and the job of its latest failure (`failed_jobs`, which the family pages and a sign-out name; null for a failure outside an import job, a single-file upload's, which they name with no job). In `failed_scopes` a later failure keeps an earlier one's; a failure of the same dataset under another callset or other samples never replaces it; the same scope failing again is one failure, with its latest job. A completed import removes each failure it brought again for that scope (imported, imported with warnings, or registered when its package carries nothing CoGA imports for the dataset), as does each single-file upload; the flag goes with the last failure. Once what is left is one job's, that job becomes the flag's `job_id`. An admin's deletion of a sample removes the sample from each failure's scope as it commits: a failure that named only that sample goes, one that named others too keeps them, and one of a family-level file (no samples) stays; the flag goes with its last failure (no import or upload can bring a deleted sample's data again, so a failure naming it could never be cleared). A flag not in this shape stays as it is, a later failure included |
 | `families.metadata` | `import_unfinished` | the imports that have begun writing the family and not finished, by job: when each began, its datasets and those it finished. An import writes its entry before its first write (and again once it holds the family's variant-write locks) and removes it when it ends, so an entry that stays names an import whose process stopped part-way. The entry records each dataset's scope (`scopes`: the small variants' callset, as `imported_scopes` records it; a per-sample dataset's samples; `empty` for a dataset that carries nothing CoGA imports, which any import of the dataset completes). Only an `overwrite` that imports again, for that scope, what the import had not finished removes it. **A failed overwrite:** once its restore begins, its entry names every dataset of the family that ClickHouse holds (`imported_scopes`: the restore puts Postgres back in one transaction, so a dataset Postgres alone holds cannot be left partly written) and every dataset of the import, none finished, each listed with its scope, one sample at a time, under `whole_family`. A restore that puts the family back or refuses to start removes the entry; one that fails part-way (or whose process stops in it) leaves it. Each `overwrite` that completes, and each single-file upload with `overwrite`, removes from it what it brought again; the entry goes with the last item. **A single-file upload** that writes ClickHouse (small variants, structural variants, interval tracks) writes an entry of its own before its first write there, keyed `upload-` and an id, with no job, committed apart from the upload. In the same `whole_family` shape it lists what the upload may leave partly written or missing (its callset; its caller's calls of every sample its rewrite deletes; the sample's track). The upload's commit removes it. A failure removes it once nothing is missing; otherwise it stays and gates sign-out until each item has been brought again with `overwrite`. **A deletion** of the family's data that deletes or rewrites ClickHouse rows (an admin's deletion of a sample, of its SVs or of the family; a PED upload or manual family that replaces it; a structure change that clears its data) writes an entry keyed `deletion-` and an id the same way, before its first write there. It lists each dataset the family holds that the deletion may leave partly written or missing; an item that stands for one sample's part of a family-level file names the sample (`sample`). Its commit removes it (with the family, for a deletion of the family). The deletion of a sample removes that sample's items from every `whole_family` entry, and the sample from each dataset's scope in an import's own entry: a dataset whose scope named only that sample goes, and the entry goes with its last dataset. A failure leaves exactly what its writes may have left missing, or removes the entry ([data-import.md](data-import.md#the-mark-of-an-upload-that-did-not-finish)) |
@@ -232,6 +215,7 @@ whether a structure update kept the imported data; see
 | Table | Holds |
 | --- | --- |
 | `alembic_version` | the schema-migration ledger: one row, the revision the database is at. Only the migration step writes it, as the owner; `coga_app` may read it ([Schema Migrations](#schema-migrations)) |
+| `schema_baselines` | one row: the SHA-256 of the five baseline files the database was made from (`baseline_digest`), which revision `0001` writes. Every start compares it with its own baselines. Only the migration step writes it; `coga_app` may read it ([Schema Migrations](#schema-migrations)) |
 | `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked; a value Postgres cannot store is escaped, and each event is stored once, under its `event_id` (below) |
 | `ui_events` | **append-only** log of UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped and stored once like `audit_log_events`; the browser's time of each, within bounds (below). Not hash-chained (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below); an uploaded coverage BED's `metadata.content` says what it was declared to hold |
@@ -357,12 +341,9 @@ verifiable.
   signed anchors record its head.
 - Who made each change is in the matching `pedigree` event of the clinical audit trail.
   `created_by` is a user link that the account's deletion nulls, so the chain does not bind it.
-- Every version of the family identifier is on the chain: one without a `row_hash` does not
-  verify. The same holds for the clinical audit events.
-- A table without the chain gains its columns, the nullable `family_id` and the
-  `ON DELETE SET NULL` link from upgrade statements in `03_assay.sql` (each a no-op on a table
-  that has them), and from revision `0004` once the baselines are frozen
-  ([Schema Migrations](#schema-migrations)).
+- Every version of the family identifier is on the chain: `row_hash` and `family_identifier`
+  are `NOT NULL`, and `prev_hash` is NULL in a family's first version only. The same holds for
+  the clinical audit events and the sign-outs.
 - A family's deletion writes its last clinical audit event (`family_deleted`) before the family
   row goes, so the chains it leaves end with it.
 
@@ -378,10 +359,7 @@ deletion.
 - The sign-outs are ordered by version, so their versions are numbered per family identifier:
   the new family's first sign-out is the version after the deleted family's last.
   `uq_report_signouts_family_identifier_version` makes a version unique per identifier, where
-  `UNIQUE (family_id, version)` cannot, as the deletion nulls `family_id`. A database where an
-  identifier holds a version twice cannot take that index: the check before it in
-  `04_traceability.sql` stops the migration with a message that counts the identifiers and names
-  none.
+  `UNIQUE (family_id, version)` cannot, as the deletion nulls `family_id`.
 
 **Why `ui_events` is not chained.** A UI event is what the browser reports about itself (any
 signed-in user can send any event), not the device's record of a clinical action. A chain would
@@ -393,7 +371,7 @@ clinical audit trail.
 
 Creates the restricted role `coga_app` and grants it normal access to every table, except:
 UPDATE, DELETE and TRUNCATE on the eight append-only tables and the three append-only ancestry
-PCA tables, and anything but SELECT on the ledger `alembic_version`. How and when the
+PCA tables, and anything but SELECT on the ledger `alembic_version` and on `schema_baselines`. How and when the
 application switches to it is in [db-runtime-role-runbook.md](db-runtime-role-runbook.md).
 
 ## Schema Migrations
@@ -403,128 +381,74 @@ The Postgres schema reaches a database through one migration step,
 runs. The API runs it at every start when it connects as the table owner
 (`POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP`, the default); when the API runs as the restricted
 role, `python -m app.db_migrate` runs it as the owner before each rollout
-([db-runtime-role-runbook.md](db-runtime-role-runbook.md)), and the API checks the revision at
+([db-runtime-role-runbook.md](db-runtime-role-runbook.md)), and the API checks the database at
 its start instead (below). The step is one transaction, so it applies whole or not at all:
 
 1. It takes an advisory lock, so two instances starting together migrate one after the
    other.
-2. It refuses to run as `coga_app`. It also refuses a ledger that names a revision this version
-   does not have: a newer version migrated that database, and older code does not run on a newer
-   schema.
-3. Until the release candidate, it re-applies the five baseline files. They are idempotent, so
-   a pull request that edits a baseline reaches every existing database, the dev stack's
-   included. But `CREATE TABLE IF NOT EXISTS` leaves an existing table as it is.
+2. It refuses to run as `coga_app`.
+3. It refuses any database this version did not make, before anything runs. It migrates only
+   an empty database (an empty ledger and no table in the `public` schema) or one whose ledger
+   names one of its revisions and whose `schema_baselines` digest equals the SHA-256 of its own
+   five baseline files (`baseline_digest`). Tables without a ledger, a ledger naming a revision
+   this version does not have (another version made or migrated the database), and a database
+   made from other baselines are each refused with a message that says which.
 4. It runs the Alembic revisions in
    [backend/db/migrations/versions/](../backend/db/migrations/versions/) that the ledger does not
-   list yet, and records the last one in `alembic_version`.
+   list yet, and records the last one in `alembic_version`. Revision `0001` applies the five
+   baseline files to the empty database and records their digest in `schema_baselines`.
 
-| Revision | What it does |
-| --- | --- |
-| `0001` | applies the five baseline files |
-| `0002` | gives `repeat_expansions` the baseline's `repeat_expansions_status_check`, with `review`, `premutation` and `not_assessed` |
-| `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` and `target_coverage` |
-| `0004` | gives `family_structure_versions` its hash chain (`family_identifier`, `row_hash`, `prev_hash` and the chain's index), and a nullable `family_id` that the family's deletion nulls; gives it and `ui_events` their append-only trigger and REVOKE; by running those statements of the baselines |
-| `0005` | gives `project_users` its `access_level` (`analyst` or `reader`, with its check), each stored membership an analyst's, by running the statement `01_access.sql` adds it with |
-| `0006` | gives `users` its `azure_object_id` (a unique UUID, empty for a password account) for Microsoft sign-in, each stored account kept without one, by running the statement `01_access.sql` adds it with |
-| `0007` | makes a family identifier's sign-out versions unique (`uq_report_signouts_family_identifier_version`, replacing the plain `idx_report_signouts_chain`), after a check that stops it where an identifier holds a version twice, by running those statements of `04_traceability.sql`; every stored sign-out stays |
-| `0008` | keeps an import job's requester and a filter preset's owner by the account: gives `family_import_jobs` its `requested_by_id`, each job linked to the account its `requested_by` address finds or to none, and both preset tables their `owner_id`, each preset given to the account its `owner` user name finds (a preset no account's user name finds is removed), with the foreign keys and the presets' unique indexes on the account, by running those statements of `03_assay.sql`; every job stays |
-| `0009` | gives `audit_log_events` and `ui_events` their `event_id` (a unique UUID), each stored row kept without one, by running the two statements `04_traceability.sql` adds it with |
-| `0010` | keeps a gene-reference sync's and a clinical CNV knowledgebase rebuild's requester by the account: gives `gene_info_refresh_jobs` and `clinical_cnv_kb_jobs` their `requested_by_id`, each job linked to the account its `requested_by` address finds or to none (as `startup-bootstrap`), with the foreign keys, by running those statements of `02_reference.sql`; every job stays |
-| `0011` | drops three columns no code read: `auth_login_attempts.last_success_at` and `small_variant_reviews.compound_het_partner_variant_keys`, never written or read, and `structural_variant_reviews.variant_key`, never written, with its unique index; every row kept with its other values. It also removes the key `unresolved_roi` (a manifest's region of interest an import could not resolve), which nothing reads or clears, from the families' `metadata` |
-| `0012` | gives `sample_interval_track_sources` the baseline's check, with `apcad_segregation` (an embryo's segregation table from the PGT pipeline, read by the `apcad` dataset for the parental-origin view) |
-| `0013` | writes the class labels in sentence case: where a mutable row holds a class label in another case ("Likely Pathogenic - class 4"), it writes the label as the code writes it ("Likely pathogenic - class 4"). That is the classification, the compound-het pair's classification and the ACMG scoring's (`acmg`) of `small_variant_reviews`; the classification and the CNV scoring's (`cnv_acmg`) of `structural_variant_reviews`; and the classifications each filter preset filters on (`filters.classification`, a list or comma-separated text). Only the case changes; text that is no class label, every other value and `updated_at` stay. The append-only tables keep their text |
-| `0014` | gives `repeat_locus_count_units` its `count_offset` (QA's count correction per locus, CLIN-57), with the baseline's default 0 and check; every stored record kept with no correction |
-| `0015` | gives `users` the baseline's `users_role_check` with the five roles (`viewer`, `analyst`, `supervisor`, `superuser`, `admin`; the owner's decision of 2026-11-04) and, on a database whose check lacks `analyst` and `supervisor`, makes each `viewer` an `analyst`, its access level in each project still deciding there; a `superuser` and an `admin` keep their role. The request audit has no row for these changes: the revision is their record |
-| `0016` | gives `ancestry_runs` and `ancestry_results` what the PCA reading the stored callsets needs ([Exploratory ancestry PCA](#exploratory-ancestry-pca)) |
-| `0017` | gives `users` its `activated_at` and `archived_at` with `users_archived_inactive_check`. An active account, and an inactive one with a request of its own in `audit_log_events` (it signed in once), get their creation's time as `activated_at`; an inactive one without such a row never signed in and waits for approval (NULL). No account is archived |
-| `0018` | gives `family_import_jobs` its `manifest_text` and `manifest_sha256` with `family_import_jobs_manifest_check`: an import job can keep the manifest it validates and imports with. Each stored job keeps neither, and reads its folder's manifest |
-| `0019` | gives `family_import_jobs` its `package_fingerprint` with `family_import_jobs_package_fingerprint_check`: an import job keeps the fingerprint of the package folder it was queued for. Each stored job keeps none |
-| `0020` | gives `gene_panels` its `external_selection` and replaces the unique index on source and external id (`idx_gene_panels_source_external`) with one on source, external id and selection (`idx_gene_panels_source_external_selection`), so one PanelApp panel can be imported once per choice of confidence levels, each a panel of its own. Each PanelApp panel without a selection gets the levels its last import took, as its `source_metadata` records them (`import_options.confidence_levels`, lowest first); one whose metadata records none, and every other panel, gets none |
-| `0021` | gives `users` its `sessions_ended_at`, when the account last signed out, every token issued to it before then refused. Each stored account gets none |
-| `0022` | gives `small_variant_tag_definitions` the baseline's one `small_variant_tag_definitions_scope_project_check` (it replaces two identical checks, `small_variant_tag_definitions_check` among them, and also lets an inactive project tag be without a project) and its foreign key to `projects` with `ON DELETE SET NULL` instead of `ON DELETE CASCADE`, so a project's deletion keeps the tags defined for it, inactive and without the project. Every tag and link stays: the baseline's check holds every row the two it replaces did |
-| `0023` | gives `import_deliveries` the baseline's two columns `package` (the package as the import watcher checked it, with what the file leaves out proposed by Discover) and `package_check` (what reading the folder found), which a correction made in CoGA and a check again reuse. A stored delivery has neither and is checked again from its folder. The table `import_delivery_revisions` comes from the baseline alone |
-| `0024` | gives `import_deliveries` the baseline's `origin` (`watched` by default, `manual` for a folder added by hand) with `import_deliveries_origin_check`, and makes `import_deliveries_folder_fingerprint_key` a unique index over the watcher's deliveries only (`WHERE origin = 'watched'`): it drops the constraint of that name and creates the index. Each stored delivery is the watcher's and keeps the default |
-
-A database whose ledger is empty runs every revision at its next migration. Each revision ends at the baseline's definition,
-whatever it starts from. Every row stays, with two exceptions: `0008` removes a filter preset
-whose user name no account has (it is nobody's), and `0011` drops three columns with the values
-they held (none of which anything read) and the families' `unresolved_roi`. `0013` changes only
-the case of class labels in mutable rows. The integration
-test [test_postgres_migrations.py](../backend/tests/integration/test_postgres_migrations.py)
-shows both:
-
-- a new database ends with exactly the schema the baseline files create (the same catalogue
-  fingerprint of its columns, constraints, indexes, triggers, functions, sequences, views,
-  privileges, extensions and owners);
-- a database with an empty ledger and an earlier form of its tables, rows included, reaches that
-  same fingerprint with its rows unchanged, and then stores a TRGT call at a locus without
-  thresholds.
-
-**Writing a revision.** Until the release candidate, a change to a table that already exists (a
-value added to a `CHECK`, a column, a type, an index) goes in its baseline as the table's final
-form, and in a new revision that brings an existing table to that form. From the repository
-root, `alembic revision --rev-id <next number> -m "<what it changes>"` writes the revision from
-the template ([script.py.mako](../backend/db/migrations/script.py.mako)). A revision:
-
-- may meet a table that already has the change (a new database gets the baseline first);
-- keeps every stored row valid;
-- runs forward only: its `downgrade` refuses.
-
-A new table needs only its baseline. `backend/tests/test_postgres_migrations.py` checks that the
-revisions form one numbered line (so two pull requests that take the same number fail it), and
-that a revision's check is its baseline's. Alembic's commands that need a database
-(`alembic upgrade`, `alembic current`) stop in `env.py`: the revisions run only through the
-migration step.
+**Before the release candidate.** CoGA holds test data only, and every database is made from
+empty. A schema change is an edit of its baseline, never a migration of an existing database:
+revision `0001` is the only revision, and a database made from the earlier baselines is refused
+at its next start (step 3). Make it again from empty ([development.md](development.md#stop-and-reset))
+and import the test data again. The integration test
+[test_postgres_migrations.py](../backend/tests/integration/test_postgres_migrations.py) shows that
+an empty database ends with exactly the schema the baseline files create (the same catalogue
+fingerprint of its columns, constraints, indexes, triggers, functions, sequences, views,
+privileges, extensions and owners), that a later start changes nothing, and that each database
+step 3 refuses is left as it was.
 
 **A start that does not migrate.** With `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` (the
-restricted role) the API only reads the ledger at its start, which `coga_app` may
-(`check_schema_revision` in the same module). It starts only when the ledger names exactly this
-version's newest revision:
+restricted role) the API only reads the ledger and `schema_baselines` at its start, which
+`coga_app` may (`check_schema_revision` in the same module). It starts only on a database at
+exactly this version's newest revision, made from this version's baselines:
 
-- An older revision, an empty ledger or none at all means the migration job has not run for
-  this version. The start is refused with "The database is at schema revision …, and this
-  version of CoGA needs revision …", which says to run the job first.
-- A revision this version does not have means a newer version migrated the database: "…, which
-  this version of CoGA does not have …: this version is older than the database".
+- An empty ledger or none at all means the migration job has not run for this version. The
+  start is refused with "The database is at schema revision …, and this version of CoGA needs
+  revision …", which says to run the job first.
+- A revision this version does not have means another version made or migrated the database:
+  "…, which this version of CoGA does not have …".
+- Another digest means the database was made from other baselines: "The database was made from
+  other baseline files than this version's …".
 
-Either way the message is logged and nothing else starts. Until the release candidate a pull
-request can still change a baseline without a new revision (a new table, say), which this check
-cannot see. On Google Cloud the migration job runs before every rollout of a new image, so it
-applies such a change too.
-
-**Upgrading a database that holds data.** Take a backup first. On Google Cloud the deploy does
-so itself. Before each schema migration it starts (the migration job, or the first start of a
-new revision in the default mode), it takes an on-demand Cloud SQL backup and waits until it is
-done; it stops before the migration when the backup fails
-([deployment-gcp.md](deployment-gcp.md), 12.1). That backup is the restore point of the upgrade
-itself, beside the daily backups and point-in-time recovery (12.3). Elsewhere, take one by hand
-before you migrate; locally the data is synthetic. Then roll out the new version. In the default
-mode its first start migrates; with the restricted role the migration job runs first, and the
-API rolls out only when it succeeded ([deployment-gcp.md](deployment-gcp.md), 12.8). The log
-names the revision the database came from and is now at
-(`Postgres schema migrated from revision … to …`). A failed migration keeps nothing, and the
-running version keeps serving.
-
-**Going back.** Revisions do not run backwards. A version older than the database's revision
-refuses to start on it, whether it migrates at start (step 2) or not (above). Restore the backup taken before the upgrade
-([deployment-gcp.md](deployment-gcp.md), 12.3), or go forward with a fix
-([RELEASING.md](../RELEASING.md#rollback)).
+Either way the message is logged and nothing else starts.
 
 ### Freezing the baselines at the release candidate
 
 This is a proposal for QA to confirm ([TF-18](regulatory/TF-18-change-configuration-management.md),
-§3a). Until the release candidate, pull requests still edit the baseline files, and step 3
-brings those edits to every database. The release candidate's pull request freezes them:
+§3a). The release candidate's pull request freezes the baselines:
 
-1. It sets `REAPPLY_BASELINES_ON_EVERY_RUN` to `False` in `postgres_migrations.py`. A start then
-   runs only the revisions the ledger lacks; revision `0001` applies the baselines to a new
-   database, and to one whose ledger is empty.
-2. It pins the SHA-256 of the five baseline files in a test, so they cannot change after the
-   release candidate: a database created later gets the same baseline as one created at the
-   release candidate.
-3. From then on every schema change is a new revision only. Its change record (TF-18 §8) names
-   the revision, its verification runs it on a database at the previous revision (as the
-   integration test does), and the release record states the release's last revision.
+1. It pins the SHA-256 of the five baseline files in a test, so they cannot change after the
+   release candidate: every database made later is made from the same baselines, and its
+   `schema_baselines` digest stays the frozen one.
+2. From then on every schema change is a new revision after `0001`, written with
+   `alembic revision --rev-id <next number> -m "<what it changes>"` from the repository root
+   ([script.py.mako](../backend/db/migrations/script.py.mako)). A revision keeps every stored row
+   valid and runs forward only (its `downgrade` refuses). Its change record (TF-18 §8) names the
+   revision, its verification runs it on a database at the previous revision, and the release
+   record states the release's last revision.
+3. Upgrading a database that holds data then takes a backup first. On Google Cloud the deploy
+   takes an on-demand Cloud SQL backup before each migration it starts and stops when the backup
+   fails ([deployment-gcp.md](deployment-gcp.md), 12.1); that backup is the restore point beside
+   the daily backups and point-in-time recovery (12.3). Revisions do not run backwards: a version
+   older than the database's revision refuses to start on it. Restore the backup taken before the
+   upgrade, or go forward with a fix ([RELEASING.md](../RELEASING.md#rollback)).
+
+`backend/tests/test_postgres_migrations.py` checks that the revisions form one numbered line,
+that each runs forward only, that the baselines hold no statement that alters a table they
+created, and that Alembic's commands that need a database (`alembic upgrade`, `alembic current`)
+stop in `env.py`: the revisions run only through the migration step.
 
 ## ClickHouse Tables
 
@@ -553,8 +477,8 @@ names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 An `overwrite` package import of an existing family also makes **backup tables**: a copy of
 the family's rows in `SNV_INDEL/entries`, `SV/entries`, `SV/variants/details`, `SV/key_lookup`
 and `INTERVAL/entries`, named after the import: `<assembly>/SNAPSHOT/<import job id>/<table>`
-(`run-<hex>` for an import run outside a job). They are never served, and the startup storage
-check ignores them. The import drops them when it ends. For an import whose process stopped,
+(`run-<hex>` for an import run outside a job). They are never served. The import drops them
+when it ends. For an import whose process stopped,
 the worker that ends its job drops them, and every start drops a backup whose job has ended (or
 one made outside a job, a day after it was made). See
 [clickhouse_family_snapshot.py](../backend/app/services/clickhouse_family_snapshot.py).
@@ -636,8 +560,8 @@ each row keeps its annotation version and annotation-set hash.
 
 An SV delete (`delete_family_structural_variants`) covers a family, or one source of it: the
 delete half of a per-sample upload's rewrite and of a package dataset's re-import. It deletes the
-scope's `SV/entries` rows first, then the scope's `SV/variants/details` and `SV/key_lookup` rows
-whose key no remaining `SV/entries` row of the family has. Unlike the small-variant annotation
+scope's `SV/entries` rows first, then the scope's `SV/variants/details` and `SV/key_lookup` rows:
+an SV's key hashes its source, so no other source's entry reaches them. Unlike the small-variant annotation
 tables, these two are not shared between families: an SV's key hashes the family
 ([Row identity](#row-identity)), every row carries `family_guid`, and every write that keeps a
 stored key (a per-sample upload, the admin sample delete, a snapshot restore) writes it back to
@@ -656,9 +580,6 @@ writes the rows again. It is handed the rows it deletes, as read under the famil
   delete of a sample (`SmallVariantsNotRestored` when it cannot) and a per-sample upload of a
   package's chrM or NIPT files (`DatasetLeftMissing`, naming each sample whose calls the rows
   held, when it cannot).
-- After a source-scoped delete the source's rows go, but a row whose key another source's entry
-  still has is kept: `variants/details` keeps one row per key, so deleting it would strip the
-  other caller's SV of its span, length and annotation.
 - Other sources' and other families' rows are never touched.
 
 `SNV_INDEL/family_data_version` (plain `MergeTree`) is not variant data. Every change to a
@@ -876,12 +797,12 @@ commits before the count, and one written after waits and then finds no project.
 
 ## Startup Behavior
 
-When `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default), every start migrates
-the Postgres schema (until the release candidate it re-applies the five baseline files, then
-runs the revisions the ledger lacks: [Schema Migrations](#schema-migrations)) and makes sure the
-admin user exists. With the restricted runtime role a separate migration step
+When `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default), every start runs the
+Postgres schema migration (it makes an empty database from the baselines, refuses one this
+version did not make, and runs the revisions the ledger lacks: [Schema Migrations](#schema-migrations))
+and makes sure the admin user exists. With the restricted runtime role a separate migration step
 (`backend/app/db_migrate.py`) does this instead, as the table owner, and the start refuses to go
-on unless the database is at this version's own schema revision
+on unless the database is at this version's own schema revision and baselines
 ([A start that does not migrate](#schema-migrations)).
 
 In ClickHouse, startup creates the database. Each assembly's tables are created at first use,
@@ -894,20 +815,18 @@ data it loads is listed in [data-import.md](data-import.md), section 1.
 
 Seven tables in `04_traceability.sql` hold the exploratory ancestry PCA, which is outside the
 intended purpose and never enters a sign-out or the signed record ([ancestry-pca.md](ancestry-pca.md)).
-A projection reads the family's stored small variants in ClickHouse at the reference markers;
-revision 0016 gives the runs and results what that needs.
+A projection reads the family's stored small variants in ClickHouse at the reference markers.
 
 | Table | Holds |
 | --- | --- |
 | `ancestry_reference_panels` | Append-only public reference snapshots keyed by the model NPZ's SHA-256: metadata, PC variance, population labels, the exome mask's checksum and definition, and reference coordinates |
 | `ancestry_runs` | Project-scoped jobs pinning the reference checksum: a user's (`trigger = 'user'`, with `requested_by`) or the worker's own once the family's genotypes changed (`trigger = 'automatic'`, no requester; a check makes a user's run name its requester). `storage_version` is the family's small-variant data version the run was queued for, then the one it read: the worker's sweep queues no second run for a version. Queued, running, completed, failed or interrupted |
 | `ancestry_results` | One append-only snapshot per completed run: each individual's four PCs or why there are none, the callset it was read from and how (genome, exome, a call at every marker), every callset's scan, the `storage_version` read, the calculation version and the rules, with a digest of the rows read |
-| `ancestry_sample_choices` | Append-only choices of how one individual is read, the latest per individual holding: CoGA's own reading (`auto`), one callset (`callset`, which also includes an embryo) with the regions it covers, or left out (`exclude`). `regions` holds the regions' source (a gene panel's id and version, or a BED file's name and SHA-256), their interval count and the reference markers inside them (`loci`); never the BED file. Created by its baseline alone |
-| `ancestry_files` | Append-only VCF files a family package declared for ancestry without importing them (a gVCF): the family, project, import job, package and relative path, and label. Of the declarations of one path the latest counts. Created by its baseline alone |
-| `ancestry_file_scans` | Append-only scans of a declared file: `scanned` (its SHA-256 and size as read, its sample columns and its calls at the reference markers, `rows`) or `failed` (a fixed reason), and the reference whose markers were kept. A calculation reads the latest scan, never the file. Created by its baseline alone |
-| `wgs_sources` | Append-only WGS file sources (a retained upload by `raw_file_id`, a family package by its import job), with their checksum, the stored genotypes' version and fingerprint and the absence and unfiltered-call policies. A run's or result's `source_id` can name one; no projection reads a source and nothing writes one |
+| `ancestry_sample_choices` | Append-only choices of how one individual is read, the latest per individual holding: CoGA's own reading (`auto`), one callset (`callset`, which also includes an embryo) with the regions it covers, or left out (`exclude`). `regions` holds the regions' source (a gene panel's id and version, or a BED file's name and SHA-256), their interval count and the reference markers inside them (`loci`); never the BED file |
+| `ancestry_files` | Append-only VCF files a family package declared for ancestry without importing them (a gVCF): the family, project, import job, package and relative path, and label. Of the declarations of one path the latest counts |
+| `ancestry_file_scans` | Append-only scans of a declared file: `scanned` (its SHA-256 and size as read, its sample columns and its calls at the reference markers, `rows`) or `failed` (a fixed reason), and the reference whose markers were kept. A calculation reads the latest scan, never the file |
 
-`wgs_sources`, `ancestry_reference_panels`, `ancestry_results`, `ancestry_sample_choices`, `ancestry_files` and `ancestry_file_scans` have mutation-blocking triggers,
+`ancestry_reference_panels`, `ancestry_results`, `ancestry_sample_choices`, `ancestry_files` and `ancestry_file_scans` have mutation-blocking triggers,
 and `coga_app` may not UPDATE, DELETE or TRUNCATE them (`05_grants.sql`). A running job holds its
 own row lock until it ends; a job whose process stopped loses it, and the next worker ends it as
 interrupted. Publication is checked again under the family's variant-write locks, so a family,

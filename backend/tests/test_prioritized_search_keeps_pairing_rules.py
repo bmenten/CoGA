@@ -1,4 +1,4 @@
-"""A ranked search keeps what the same search keeps unranked (CLIN-44).
+"""A ranked search keeps what the same search keeps unranked.
 
 *Phenotype prioritization* orders a search; it must not change which variants, and which
 compound-het pairs, the search keeps. The ranked path (``_prioritized_small_variants_page``)
@@ -394,7 +394,7 @@ def test_a_gene_filter_keeps_a_variant_of_the_gene_outside_its_loci_in_every_vie
     # VEP assigns a variant just past GENE_A's loci (an upstream one) to GENE_A. The search
     # without a mode keeps it for its gene, as the SQL reads the gene's name; the ranked
     # search and the compound-het search, ranked or not, kept only the variants inside the
-    # loci the gene reference gives (ENG-1). From the mother, it pairs with A2, the father's.
+    # loci the gene reference gives. From the mother, it pairs with A2, the father's.
     upstream = _variant("v-a3", "GENE_A", start=1_300, proband="0/1", mother="0/1")
     world.records.append(upstream)
     for prioritize in (False, True):

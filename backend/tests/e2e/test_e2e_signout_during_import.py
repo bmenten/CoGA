@@ -2,9 +2,9 @@
 
 A package import writes a family over minutes: its pedigree and samples, then dataset after
 dataset, committing as it goes. It holds the family's variant-write locks from its first
-dataset to its end, but the sign-out took none of them, and the family is flagged
-import-incomplete only once an import has failed. So a sign-out while an import ran froze a
-half-imported family into a signed record as if it were complete (TF-06 H16).
+dataset to its end, and the family is flagged import-incomplete only once an import has
+failed. A sign-out while an import runs would freeze a half-imported family into a signed
+record as if it were complete (TF-06 H16), so the sign-out refuses it.
 
 Over the golden trio this runs a real re-import job (queued as an approved delivery queues it, then the
 worker's ``run_family_import_job``) and signs the report out through
@@ -200,7 +200,7 @@ async def _collect(root: Path, mp: pytest.MonkeyPatch) -> dict:
             out["counts"]["after_race"] = await _signouts()
 
             # 4. Nothing is written any more: signed out, each gate acknowledged in its dialog
-            # with the fingerprint of the concerns its refusal listed (TRACE-19).
+            # with the fingerprint of the concerns its refusal listed.
             r["after"] = capture(await _harness.sign_out(ac, signout_url, _SIGNOUT_BODY))
             out["counts"]["after"] = await _signouts()
     finally:

@@ -1,7 +1,7 @@
 """The pedigree service (``ped_service``): a family's PED, made, read and written.
 
 * Creating a family inserts its samples one by one (for their returned IDs) and stores its
-  first structure version on the family's chain, with its ``pedigree`` audit event (SEC-7).
+  first structure version on the family's chain, with its ``pedigree`` audit event.
 * The PED's phenotype column reads 1 as unaffected, 2 as affected and 0 or -9 as unknown; a
   carrier status is kept apart from the clinical status. A PED upload records the family's
   inheritance model and its obligate and proven carriers. Its proband is the first affected
@@ -11,12 +11,12 @@
 * The Family Builder (manual family creation) threads the family's and the samples' metadata
   into the family it creates, and takes only the metadata its page sends: a monogenic NIPT
   family and its cfDNA sample. Every other key or value is refused with 400 before anything
-  is replaced or written (SAFE-12): a family's annotation manifest or import state, another
+  is replaced or written: a family's annotation manifest or import state, another
   analysis type, a sample's sequencing QC or assay panel, an assay that is no text. So is a
   pedigree it cannot store.
 * A refusal that quotes an ID or a PED field (an unknown father or mother, a carrier outside
   the PED, a missing family, an unknown phenotype) writes each character a reader cannot see
-  (a control, text-direction or zero-width character) as its escape (SEC-15).
+  (a control, text-direction or zero-width character) as its escape.
 * The PED download (``build_pedigree_text``) is written from the family's current members and
   parent-child relationships in the database, not the text stored on the family; a family
   without members is not found (404).
@@ -116,7 +116,7 @@ class _RecordingSession:
             )
         if "FROM family_relationships" in sql:
             return _FakeMappingResult([])
-        # The structure version's and the audit event's chains (SEC-7): the family's lock,
+        # The structure version's and the audit event's chains: the family's lock,
         # an empty chain head, the next version number and the two inserts.
         if "pg_advisory_xact_lock" in sql:
             return _FakeScalarResult(None)
@@ -252,7 +252,7 @@ async def test_create_family_inserts_samples_one_by_one_for_returning_ids() -> N
 
 @pytest.mark.asyncio
 async def test_create_family_records_its_first_structure_version_and_pedigree_event() -> None:
-    # SEC-7: the new family's pedigree is version 1 of its chained structure versions and the
+    # The new family's pedigree is version 1 of its chained structure versions and the
     # first event of its clinical audit trail, both under the family's own ID.
     session = _RecordingSession()
 
@@ -552,7 +552,7 @@ async def test_manual_family_creation_threads_family_and_sample_metadata(
     assert members_by_id["fetus-1"]["role"] == "proband"
 
 
-# What an import or an audited edit writes, and the backend trusts where it reads it (SAFE-12):
+# What an import or an audited edit writes, and the backend trusts where it reads it:
 # the Family Builder refuses it before anything is replaced or written.
 REFUSED_METADATA = [
     pytest.param({"annotation_manifest": {"pipeline": "client"}}, {}, "Family", id="family-annotation-manifest"),
@@ -626,7 +626,7 @@ _PARENTS = [_member("FATHER1", "male"), _member("MOTHER1", "female")]
         ),
         pytest.param([_member("CHILD1", father_id="FATHER9")], [], "Father id not found: FATHER9", id="unknown-father"),
         pytest.param([_member("CHILD1", mother_id="MOTHER9")], [], "Mother id not found: MOTHER9", id="unknown-mother"),
-        # A parent's ID is quoted with each character a reader cannot see escaped (SEC-15).
+        # A parent's ID is quoted with each character a reader cannot see escaped.
         pytest.param(
             [_member("CHILD1", father_id="FATHER\u202e9")],
             [],

@@ -408,7 +408,7 @@ async def test_get_family_nipt_variants_classifies_filtered_subset(
 async def test_get_family_nipt_variants_names_the_transcript_the_filters_held_on(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # CLIN-51: the NIPT variant list uses the family search's annotation filters, so a
+    # the NIPT variant list uses the family search's annotation filters, so a
     # variant kept by SIFT deleterious on its second transcript names that transcript
     # beside its primary one, which SIFT calls tolerated.
     annotations = [
@@ -527,7 +527,7 @@ _SMALL_VARIANT_SEARCH_TS = (
 
 def test_the_nipt_page_sends_exactly_the_inheritance_views_the_list_takes() -> None:
     # The NIPT page sends an inheritance only when it is one of these views, and names any other
-    # a saved search or a link carries as a filter the list does not apply (ENG-19). A view
+    # a saved search or a link carries as a filter the list does not apply. A view
     # added here and not there would never be sent; one added there and not here would fail
     # the whole search, as an unsupported preset.
     source = _SMALL_VARIANT_SEARCH_TS.read_text(encoding="utf-8")
@@ -937,7 +937,7 @@ async def test_a_panel_without_genes_or_regions_lists_nothing(monkeypatch: pytes
 
 
 # --------------------------------------------------------------------------- #
-# The review-tag filter (UI-4): the small-variant list's review_tag and
+# The review-tag filter: the small-variant list's review_tag and
 # exclude_review_tag, read from the family's reviews by the same code.
 # --------------------------------------------------------------------------- #
 
@@ -1033,7 +1033,7 @@ async def test_the_review_tag_filter_keeps_exactly_the_tagged_variants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The NIPT page had no review-tag filter: the variants a sign-out freezes, those tagged
-    # report, could not be listed (UI-4).
+    # report, could not be listed.
     loads = _wire_family_rows(monkeypatch, _family_records())
     session = _ReviewSession(
         {
@@ -1200,7 +1200,7 @@ async def test_the_nipt_list_selects_by_review_tag_as_the_small_variant_list_doe
 
 def _plasma_coverage_is_a_bed(monkeypatch: pytest.MonkeyPatch) -> None:
     """The plasma's coverage track is a coverage BED (source ``web``) declared as read depth:
-    the track the coverage check reads as depth (coverage_read_depth, CLIN-46, TRACE-9)."""
+    the track the coverage check reads as depth (coverage_read_depth)."""
 
     async def fake_sources(_assembly_name, *, sample_uuid_to_name, **_kwargs):
         return {name: ["web"] for name in sample_uuid_to_name.values()}

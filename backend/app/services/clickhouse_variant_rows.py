@@ -40,7 +40,7 @@ _DEFAULT_SMALL_ANNOTATION_VERSION = "current"
 
 logger = logging.getLogger(__name__)
 
-# Every value below is bound to its column before the write (SAFE-30): a value the column
+# Every value below is bound to its column before the write: a value the column
 # cannot hold, or that is no finite number, is stored as missing (clickhouse_column_bounds).
 # A record whose position no column holds is left out: its loader already skipped it as
 # malformed, and counted it, so this only guards a loader that did not.
@@ -98,7 +98,7 @@ def _max_or_none(values: Iterable[float | int | None]) -> Any:
 def _annotation_gene_symbols(annotations: Sequence[dict[str, Any]]) -> list[str]:
     values: list[str] = []
     for annotation in annotations:
-        for key in ("gene", "gene_symbol", "geneSymbol", "hgnc_symbol", "hgncSymbol"):
+        for key in ("gene", "gene_symbol", "hgnc_symbol"):
             value = str(annotation.get(key) or "").strip()
             if value:
                 values.append(value)
@@ -119,22 +119,17 @@ def _annotation_gnomad_over_5_percent(annotations: Sequence[dict[str, Any]]) -> 
         values: list[float] = []
         for key in (
             "gnomad_af",
-            "gnomadAf",
             "gnomad_exomes_af",
-            "gnomadExomesAf",
             "gnomad_genomes_af",
-            "gnomadGenomesAf",
             "gnomad_popmax_af",
-            "gnomadPopmaxAf",
             "topmed_af",
-            "topmedAf",
         ):
-            # As the frequency columns store it (#868): a value that is no finite number or
-            # lies beyond Float32 is missing, never a frequency over 5 % (DATA-7).
+            # As the frequency columns store it: a value that is no finite number or
+            # lies beyond Float32 is missing, never a frequency over 5 %.
             stored = column_float32(annotation.get(key))
             if stored is not None:
                 values.append(stored)
-        frequencies = annotation.get("population_frequencies") or annotation.get("populationFrequencies")
+        frequencies = annotation.get("population_frequencies")
         if isinstance(frequencies, dict):
             for raw in frequencies.values():
                 stored = column_float32(raw)
@@ -150,11 +145,11 @@ def _popmax_column(annotation: dict[str, Any], population_frequencies: dict[str,
     popmax, else VEP's MAX_AF, the highest frequency over every population VEP reads (1000
     Genomes and gnomAD). An annotation with MAX_AF but no gnomAD frequency would otherwise let
     a common variant through a frequency ceiling. The card and the frozen evidence name the two
-    apart (``max_af``); before, the parser stored MAX_AF as gnomAD's popmax."""
-    gnomad = _population_float(annotation, population_frequencies, "gnomad_popmax_af", "gnomadPopmaxAf")
+    apart (``max_af``)."""
+    gnomad = _population_float(annotation, population_frequencies, "gnomad_popmax_af")
     if gnomad is not None:
         return gnomad
-    return _population_float(annotation, population_frequencies, "max_af", "maxAf")
+    return _population_float(annotation, population_frequencies, "max_af")
 
 
 def _population_float(
@@ -225,31 +220,31 @@ def _annotation_columns(annotation: dict[str, Any]) -> _AnnotationColumns:
     return _AnnotationColumns(
         gene=_casefold(_annotation_gene(annotation)),
         gene_id=_casefold(_annotation_gene_id(annotation)),
-        transcript_id=_clean_text(_annotation_text(annotation, "transcript_id", "transcriptId")),
+        transcript_id=_clean_text(_annotation_text(annotation, "transcript_id")),
         hgvsc=_clean_text(_annotation_text(annotation, "hgvsc")),
         hgvsp=_clean_text(_annotation_text(annotation, "hgvsp")),
         impact=_casefold(_annotation_text(annotation, "impact")),
         effect_terms=_annotation_terms(_annotation_effect(annotation)),
         clinvar_terms=_status_terms(_annotation_clinvar(annotation)),
         canonical=_annotation_bool(annotation, "canonical"),
-        mane_select=_annotation_bool(annotation, "mane_select", "maneSelect"),
-        mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical"),
+        mane_select=_annotation_bool(annotation, "mane_select"),
+        mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical"),
         lof=_casefold(_annotation_text(annotation, "lof") or ""),
-        gnomad_af=_population_float(annotation, population_frequencies, "gnomad_af", "gnomadAf"),
-        gnomad_exomes_af=_population_float(annotation, population_frequencies, "gnomad_exomes_af", "gnomadExomesAf"),
+        gnomad_af=_population_float(annotation, population_frequencies, "gnomad_af"),
+        gnomad_exomes_af=_population_float(annotation, population_frequencies, "gnomad_exomes_af"),
         gnomad_genomes_af=_population_float(
-            annotation, population_frequencies, "gnomad_genomes_af", "gnomadGenomesAf"
+            annotation, population_frequencies, "gnomad_genomes_af"
         ),
         gnomad_popmax_af=_popmax_column(annotation, population_frequencies),
-        topmed_af=_population_float(annotation, population_frequencies, "topmed_af", "topmedAf"),
+        topmed_af=_population_float(annotation, population_frequencies, "topmed_af"),
         gnomad_ac=_annotation_count(annotation, "gnomad_ac"),
-        gnomad_hom_count=_annotation_count(annotation, "gnomad_hom_count", "gnomadHomCount"),
+        gnomad_hom_count=_annotation_count(annotation, "gnomad_hom_count"),
         gnomad_hemi_count=_annotation_count(annotation, "gnomad_hemi_count"),
-        cadd_phred=_annotation_float32(annotation, "cadd_phred", "caddPhred"),
+        cadd_phred=_annotation_float32(annotation, "cadd_phred"),
         revel=_annotation_float32(annotation, "revel"),
         spliceai_max=column_float32(_annotation_spliceai_max(annotation)),
-        sift=_casefold(_annotation_text(annotation, "sift", "siftPrediction")),
-        polyphen=_casefold(_annotation_text(annotation, "polyphen", "polyphenPrediction")),
+        sift=_casefold(_annotation_text(annotation, "sift")),
+        polyphen=_casefold(_annotation_text(annotation, "polyphen")),
     )
 
 
@@ -394,8 +389,8 @@ def _normalized_project_ids(project_ids: Sequence[str]) -> list[str]:
 def _small_call_af(call: SmallVariantCall) -> list[float]:
     """The call's allele fractions as stored, one per alternate allele: all of them, or none
     when one is no finite number or lies beyond Float32, as the VCF reader keeps them
-    (``_parse_float_list``). Leaving one out moved each later allele's fraction onto the
-    allele before it (DATA-7)."""
+    (``_parse_float_list``). Leaving one out would move each later allele's fraction onto the
+    allele before it."""
     stored = [column_float32(value) for value in call.af]
     numbers = [number for number in stored if number is not None]
     return numbers if len(numbers) == len(stored) else []
@@ -505,8 +500,8 @@ def _small_variant_entry_rows(
         row_annotations: list[Any] = record.annotations or [{}]
         row_payloads = payloads if record.annotations else [_annotation_canonical_json({})]
         row_columns = [_annotation_columns(annotation) for annotation in row_annotations]
-        # The index rows read the annotations that are mappings, as before; with none, the
-        # annotations row of an empty annotation is no annotation of the variant.
+        # The index rows read the annotations that are mappings; with none, the annotations
+        # row of an empty annotation is no annotation of the variant.
         index_columns = [
             columns
             for annotation, columns in zip(record.annotations, row_columns)

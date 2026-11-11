@@ -80,7 +80,7 @@ export const formatCutoff = (row: {
   ].filter((part): part is string => part !== null);
   if (thresholds.length) return thresholds.join(' · ');
   // A locus without thresholds: a count inside the benign range the catalogue states there
-  // reads Normal (POLG 10, CLIN-36), any other count Not assessed (CLIN-26).
+  // reads Normal (POLG 10), any other count Not assessed.
   if (hasBenignRange) return `normal ${formatCountRange(benignMin, benignMax)} · no threshold`;
   return 'No reference cutoff';
 };
@@ -208,7 +208,7 @@ const REPEAT_READING_GUIDE =
   'status. Hover over or focus it for the boundary. Aberrant only keeps such a locus too.';
 
 // Each status's tone on the card (FamilyGenotypeGrid): the call, its status chip and the
-// locus chip. A review call has a tone of its own, never another status's (ENG-10).
+// locus chip. A review call has a tone of its own, never another status's.
 export const REPEAT_STATUS_TONE: Record<ApiRepeatStatus, GenotypeTone> = {
   normal: 'ref',
   intermediate: 'warn',
@@ -446,7 +446,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
     [aberrantOnly, diseaseFilter, geneFilter, repeatTable?.loci],
   );
   // The members' calls not assessed: at a locus without thresholds, outside any benign range
-  // the catalogue states there (CLIN-26, CLIN-36). Counted over the whole table, whatever the
+  // the catalogue states there. Counted over the whole table, whatever the
   // filters show.
   const notAssessedCalls = useMemo(
     () =>

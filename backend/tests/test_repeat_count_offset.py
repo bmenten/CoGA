@@ -52,7 +52,7 @@ FMR1 = {
     "premutation_min": 55,
 }
 HTT = {"warning_min": 27, "pathogenic_min": 36, "benign_min": 6, "benign_max": 26, "pathogenic_max": 250}
-# STRchive's POLG: no threshold, a benign count of exactly 10 (CLIN-36).
+# STRchive's POLG: no threshold, a benign count of exactly 10.
 POLG = {"warning_min": None, "pathogenic_min": None, "benign_min": 10, "benign_max": 10, "pathogenic_max": None}
 # Pathogenic by contraction: normal at exactly 2, pathogenic at 1 or 3.
 VWA1 = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}

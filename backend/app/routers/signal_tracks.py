@@ -27,8 +27,8 @@ through signed URLs, as the alignments are: the staging copy of a package import
 from a bucket is deleted after the import. The location the import recorded (``uris``)
 comes first, under the CRAM endpoint's rules (an object with the file's own extension in
 the family's own package folder under the configured import roots), so a tampered row can at
-most point at another file of that kind of the family's package, never at any other object
-(SEC-27); the fallback is the package layout under the storage prefix,
+most point at another file of that kind of the family's package, never at any other object;
+the fallback is the package layout under the storage prefix,
 ``<prefix>/<family>/<recorded path>``, where the CRAM endpoint probes too. The manifest
 hands out the signed URLs; the GET redirects to one; the HEAD answers the object's
 size itself, since a URL signed for GET cannot be used for a HEAD.
@@ -176,8 +176,8 @@ def _track_paths(rows: list[tuple[str, dict[str, Any], str | None]]) -> dict[str
 def _track_uris(rows: list[tuple[str, dict[str, Any], str | None]]) -> dict[str, dict[str, dict[str, Any]]]:
     """``sample_id -> source -> kind -> recorded object URI``, for a package imported from
     a bucket. The values are data from the database and are checked before any use: here,
-    that each lies in its sample's family's own package folder (``within_family_package``,
-    SEC-27), else it is left out and the track is looked for at the package layout; then
+    that each lies in its sample's family's own package folder (``within_family_package``),
+    else it is left out and the track is looked for at the package layout; then
     by ``_recorded_track_key``."""
 
     recorded: dict[str, dict[str, dict[str, Any]]] = {}

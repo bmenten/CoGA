@@ -42,7 +42,7 @@ describe('auth storage helpers', () => {
     expect(isAuthenticated()).toBe(false);
   });
 
-  // SEC-4: a session says how it signed in, so the API client knows to renew a Microsoft token.
+  // A session says how it signed in, so the API client knows to renew a Microsoft token.
   it('keeps how the session signed in: with a password unless it says Microsoft', () => {
     const first = ['first', 'access'].join('-');
     persistSession(first, 'user@example.com', 'viewer');
@@ -68,10 +68,10 @@ describe('auth storage helpers', () => {
   });
 });
 
-// The tabs of a browser share the session: it is kept in the browser's storage. A tab that had
-// written the session itself (it signed in, or renewed a Microsoft token) read back its own copy
-// once another tab had logged out, and its next renewal wrote the token back for every tab (found
-// while fixing SEC-36).
+// The tabs of a browser share the session: it is kept in the browser's storage. A tab that wrote
+// the session itself (it signed in, or renewed a Microsoft token) reads it from that storage like
+// any other tab, so another tab's logout ends it there too, and a renewal it receives afterwards
+// writes no token back for any tab.
 describe('a session shared by the tabs of a browser', () => {
   // Another tab: the same browser storage, and a page of its own.
   const otherTab = async () => {
@@ -108,7 +108,7 @@ describe('a session shared by the tabs of a browser', () => {
     // MSAL hands back a token to a request this tab sent before the logout.
     updateSessionToken(late);
 
-    // Before, the renewal signed every tab in again, the one that logged out included.
+    // The renewal signs no tab in again, the one that logged out included.
     expect(tabB.getAuthToken()).toBeNull();
     expect(getAuthToken()).toBeNull();
   });
@@ -136,8 +136,8 @@ describe('a session shared by the tabs of a browser', () => {
   });
 
   // A sign-in of another account in another tab (on a sign-in page left open there from before
-  // this tab signed in) replaced the session this tab shows without a logout, and this tab's
-  // requests went out as that account.
+  // this tab signed in) replaces the session this tab shows without a logout: this tab ends, so
+  // none of its requests goes out as that account.
   describe('signed into in another tab', () => {
     const [first, renewed, next] = ['first', 'renewed', 'next'].map((part) => [part, 'access'].join('-'));
     let onEnded: Mock<() => void>;

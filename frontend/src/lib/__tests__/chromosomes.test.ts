@@ -44,8 +44,8 @@ describe('normalizeChrom', () => {
   });
 });
 
-// #602 — one name per chromosome on screen: the mitochondrion is chrM however the data
-// spells it, as the viewer header already wrote it.
+// One name per chromosome on screen: the mitochondrion is chrM however the data
+// spells it, as the viewer header writes it.
 describe('formatChromosomeLabel', () => {
   it.each([
     ['1', 'chr1'],
@@ -59,8 +59,9 @@ describe('formatChromosomeLabel', () => {
   });
 });
 
-// Found while fixing ENG-7 (#1019): the ideograms joined the route's key to the band's stored
-// name, so the mitochondrion's band read "MT" (GRCh38, no name) or "MTchrM" (T2T, named chrM).
+// A band's label is its chromosome, as the header names it, and the band: the route's key joined
+// to the band's stored name would read "MT" for the mitochondrion (GRCh38, no name) or "MTchrM"
+// (T2T, named chrM).
 describe('formatCytobandLabel', () => {
   it.each([
     ['1', 'p36.33', '1p36.33'],

@@ -1,4 +1,4 @@
-"""Every route that answers JSON names its response model (ENG-4).
+"""Every route that answers JSON names its response model.
 
 Each names a model (``backend/app/schemas``), which the frontend reads through its generated
 type:

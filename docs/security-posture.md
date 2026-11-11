@@ -346,7 +346,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   terms. Its backup download fetches the vendored file's release from its versioned URL and uses
   the file only if its SHA-256 is the vendored file's; another file is refused and logged before
   anything is written. The URLs and the backup's SHA-256 are fixed in the code; no setting
-  changes them: `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` are ignored if set. An accepted backup file is written atomically
+  changes them. An accepted backup file is written atomically
   ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#how-a-start-loads-hpo)). The
   clinical-CNV knowledgebase script runs with an allowlisted environment: no database
   passwords, signing keys or cloud credentials; `OMIM_API_KEY` is its one credential. It reads

@@ -314,7 +314,7 @@ def test_service_nipt_database_error_is_rolled_back_to_its_savepoint(monkeypatch
     # The NIPT analysis reads the assay's artifact list from Postgres. A database error
     # there aborted the request's transaction: the QC noted that the analysis could not
     # run, but every later statement failed, so a sign-out, which reads on in that
-    # transaction, failed with it (ENG-19). The step runs in a savepoint: the error is
+    # transaction, failed with it. The step runs in a savepoint: the error is
     # rolled back to it and reads like the step's other failures.
     from sqlalchemy import text
 
@@ -375,7 +375,7 @@ def test_service_logs_a_failed_check_by_its_kind_not_its_text(monkeypatch, caplo
             session=_Session(), family_id="FAM1", user=None
         )
     )
-    # The family by its UUID, never its ID (SEC-39).
+    # The family by its UUID, never its ID.
     assert _warnings(caplog) == ["NIPT cfDNA QC could not run for family fam-uuid: RuntimeError"]
 
     caplog.clear()
@@ -446,8 +446,8 @@ def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out
     assert _warnings(caplog) == ["NIPT parents' sex could not be checked for family fam-uuid: DatabaseError"]
     assert _QUOTED_VALUE not in _frozen(report)
     assert "DB::Exception" not in _frozen(report)
-    # The gate holds each parent by name: the same sentence twice named neither (CLIN-8),
-    # with one colon (ENG-10; it read "Sample FATHER: sex could not be checked: the …").
+    # The gate holds each parent by name: the same sentence twice named neither,
+    # with one colon (it read "Sample FATHER: sex could not be checked: the …").
     assert _unverifiable_swap_checks(_canonical_sample_qc(report)) == [
         "Sample FATHER: the genotypes could not be loaded, so the sex could not be checked.",
         "Sample MOTHER: the genotypes could not be loaded, so the sex could not be checked.",
@@ -590,7 +590,7 @@ def _trio_sample(*, autosome=None, drop=None):
 
 
 def test_service_warns_that_a_callset_on_part_of_the_genome_is_read_on_that_part(monkeypatch) -> None:
-    # CLIN-11 (the owner's decision of 2026-10-27): a callset whose sampled sites lie on fewer
+    # The owner's decision of 2026-10-27: a callset whose sampled sites lie on fewer
     # than QC_MIN_AUTOSOMES autosomes (one chromosome, a region) is still checked, and the
     # report warns that the checks read only that part, in a fixed sentence the signed
     # record freezes.

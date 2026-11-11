@@ -110,7 +110,7 @@ const NOT_IN_RECORD_PER_VARIANT = 'Not in the signed record: the segregation, ge
 /**
  * A section of what the analysis looked at, in each of its states: not captured when it could
  * not be read, else as `children` renders it, said first when part of it cannot be read here (a
- * malformed list, TRACE-17). Every section of signed_record_sections.py is shown through this,
+ * malformed list). Every section of signed_record_sections.py is shown through this,
  * so none drops out of the signed view without a trace.
  */
 function RecordSectionBlock<T>({
@@ -200,7 +200,7 @@ const VariantDescription: React.FC<{
         </p>
       ) : !entries.length ? (
         descriptions.state === 'recorded' && descriptions.malformed ? (
-          // Its entry may be one this view cannot read (TRACE-17): which variant such an entry
+          // Its entry may be one this view cannot read: which variant such an entry
           // describes cannot be told, so neither cause is claimed.
           <p className="report-paragraph" role="note">
             The record holds no description of this variant that this view can read: it was not
@@ -250,7 +250,7 @@ const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
     }.`;
   }
   if (entry.wholeFamily) {
-    // A failed overwrite whose restore did not finish, as the record froze it (SAFE-18).
+    // A failed overwrite whose restore did not finish, as the record froze it.
     return `An import${entry.at ? ` (begun ${formatReportTime(entry.at)})` : ''}${
       entry.jobId ? `, import job ${entry.jobId},` : ''
     } had failed, and putting the family’s data back had not finished${
@@ -277,7 +277,7 @@ type CardContext = {
   version: number;
 };
 
-// A reported variant's class as its record holds it (CLIN-80): the class shown, the score beside
+// A reported variant's class as its record holds it: the class shown, the score beside
 // it when the record holds another, and the scoring's points.
 const smallVariantClass = (variant: SignedSmallVariant): ReportedClass => ({
   shown: variant.classification,
@@ -385,7 +385,7 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> 
           </div>
         ) : null}
         {variant.compoundHet ? (
-          // The pair review whose report tag reports the variant, whatever its own tags (TRACE-19).
+          // The pair review whose report tag reports the variant, whatever its own tags.
           <div className="report-section">
             <h3 className="report-subheading">Compound-het pair</h3>
             <p className="report-paragraph">{describeCompoundHetPair(variant.compoundHet)}</p>
@@ -515,7 +515,7 @@ const describeCoverageTracksLine = (record: SignedReport | null): string => {
 
 /**
  * What each coverage track of the family's samples held when the version was signed, as the
- * depth readers read it (TRACE-9; owner decision of 2026-10-20), with the files each was loaded
+ * depth readers read it (owner decision of 2026-10-20), with the files each was loaded
  * from: which kind of coverage a depth check rested on.
  */
 const CoverageTracksSection: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => {
@@ -628,7 +628,7 @@ const niptStatusLabel = (status: string | null): string =>
   qcStatusLabel(status === 'unknown' ? 'skip' : status);
 
 /**
- * The notes of the coverage check without a per-target table, as the record froze them (TRACE-17):
+ * The notes of the coverage check without a per-target table, as the record froze them:
  * nothing with a per-target table, whose targets the check reads.
  */
 const NiptCoverageNotesLine: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {

@@ -1,4 +1,4 @@
-"""The family SV list and its CSV export read one set of filters (ENG-2).
+"""The family SV list and its CSV export read one set of filters.
 
 ``GET /families/{family_id}/structural-variants`` and ``…/structural-variants/export`` read
 their filters through one dependency, ``_family_structural_variant_filters``, which builds the

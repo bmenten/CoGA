@@ -9,10 +9,7 @@ import { raw, routePath } from '../../lib/routePath';
 /**
  * The top card every family-scoped page opens with.
  *
- * Each analysis page had grown its own version of this: some titled the family plainly
- * and carried a separate "Family" button that went where the title names, some linked
- * the title instead, and the pedigree panel picked up a different class depending on the
- * page. They are one thing seen from different pages, so they are drawn from one place.
+ * Every family page draws its header from here: it is one thing seen from different pages.
  *
  * The title is the way back to the workspace — a page does not also need a button to the
  * same destination — except on the workspace itself, where `isWorkspace` leaves it as
@@ -29,7 +26,7 @@ export interface FamilyPageHeaderFamily {
   members?: readonly unknown[];
   relationships?: readonly unknown[];
   metadata?: Record<string, unknown> | null | unknown;
-  /** The caller is a reader in the family's projects (SEC-1). */
+  /** The caller is a reader in the family's projects. */
   read_only?: boolean;
 }
 

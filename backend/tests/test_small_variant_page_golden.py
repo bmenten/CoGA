@@ -40,7 +40,7 @@ from backend.tests._segregation_flags import flag, members_of
 
 @pytest.fixture(autouse=True)
 def _a_steady_small_variant_data_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The family's small-variant data version, read before and after each search (ENG-17):
+    """The family's small-variant data version, read before and after each search:
     steady, as no write lands during these searches. A test that keys a ranking on it sets
     its own."""
 
@@ -357,7 +357,7 @@ def test_the_scenarios_reach_every_path() -> None:
     assert expected["compound_het"]["page"]["variant_groups"], "no compound-het pair was formed"
     assert expected["candidates_capped"]["page"]["total_is_estimated"] is True
     # A gene filter keeps the variants annotated with the gene and reads none of its loci
-    # (ENG-1); an excluded gene's loci are still read.
+    #; an excluded gene's loci are still read.
     assert "_fetch_gene_regions" not in called["recessive_with_gene"]
     assert "_fetch_gene_regions" in called["every_scope_filter"]
     assert "get_sv_hit_genes" in called["sv_second_hit"]

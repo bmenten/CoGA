@@ -5,10 +5,10 @@ them reads the rows it replaces, deletes them and inserts them again changed: a 
 upload merges its file's calls into its source's stored rows, the admin sample delete writes
 the family's rows back without the sample, a package dataset replaces its source, and a
 failed package import restores the rows it snapshotted before it began. Two writes of one
-family ran at once, each from what it had read before the other wrote. Both answered, and
-one writer's calls were lost, or a variant was stored twice with different calls (a part
-merge then keeps one of the rows), or an SV lost its details row to the other write's delete
-between its own details and entries inserts.
+family at once would each write from what it had read before the other wrote: both would
+answer, and one writer's calls could be lost, or a variant stored twice with different calls
+(a part merge then keeps one of the rows), or an SV lose its details row to the other write's
+delete between its own details and entries inserts.
 
 So each writer of a family's variants holds a Postgres advisory lock for the family's small
 variants, its structural variants or both, from before its first read of the rows until its
@@ -29,7 +29,7 @@ writes nothing and answers 404, as it would have had it started after the delete
 
 A lock held for a whole package import (:func:`hold_family_variant_writes`) lives on a
 connection of its own, and goes with it: Postgres releases it when the connection is lost,
-and nothing told the import, which went on writing beside the next writer (SAFE-15). Such a
+and nothing tells the import, which would go on writing beside the next writer. Such a
 hold can be checked (:func:`watch_family_variant_holds`): a check runs ``SELECT 1`` in the
 lock's transaction, which answers only while that transaction, and so the lock, lives.
 """

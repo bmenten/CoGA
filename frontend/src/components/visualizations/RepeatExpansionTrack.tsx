@@ -35,7 +35,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
 }) => {
   const overviewMode = Number.isFinite(chromosomeSize) && (chromosomeSize ?? 0) > 0;
   // Overview mode asks for the whole chromosome; otherwise a view with no width asks for
-  // nothing, and is neither loading nor "none" (#602).
+  // nothing, and is neither loading nor "none".
   const regionInView = overviewMode || hasRegionInView(regionStart, regionEnd);
   const { data: rawData, isLoading, isError, refetch } = useQuery<ApiRepeatExpansionTrackResponse>({
     queryKey: [
@@ -83,7 +83,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
   const visibleItems = useMemo(() => {
     // One chromosome however it is spelled (chr1 and 1; MT, M, chrM and chrMT), as the API
     // reads it (data_scope.chromosome_aliases): a locus on the mitochondrion stored as chrM
-    // or M was not drawn on the view's MT.
+    // or M is drawn on the view's MT.
     const viewChrom = normalizeChrom(chrom);
     return (data?.items || []).filter(
       (item) =>
@@ -92,9 +92,9 @@ const RepeatExpansionTrack: React.FC<Props> = ({
     );
   }, [chrom, data?.items, overviewMode, regionEnd, regionStart]);
 
-  // The chart's accessible name (#529): what it shows now — the whole chromosome in
+  // The chart's accessible name: what it shows now — the whole chromosome in
   // overview mode, else the region. A failure or a load is said as such, never as zero
-  // loci (#510).
+  // loci.
   const lociSummary = useMemo(() => describeRepeatLoci(visibleItems), [visibleItems]);
   const chartScope = overviewMode
     ? formatChromosomeLabel(chrom)

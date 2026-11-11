@@ -1,5 +1,4 @@
-"""A rewrite of a family's structural variants puts back the rows it deleted when it fails
-(SAFE-28).
+"""A rewrite of a family's structural variants puts back the rows it deleted when it fails.
 
 ClickHouse has no transactions. ``rewrite_family_structural_variants`` deletes the family's SV
 rows -- one source's, or every source's -- and writes them again, changed: the per-sample SV

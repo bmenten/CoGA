@@ -88,7 +88,7 @@ def test_phase_trans_with_unaffected_parents() -> None:
 
 def test_an_unaffected_relative_carrying_neither_hit_is_not_evidence_of_trans() -> None:
     # An unaffected sibling who carries neither hit says nothing about which copy each hit
-    # is on: the verdict is not trans (and the pair not "biallelic").
+    # is on: the verdict is not trans (nor the pair "biallelic").
     summary = summarize_second_hit(
         [_sv("DEL", {"child": "0/1", "sib": "0/0"})],
         ["child"],
@@ -115,7 +115,7 @@ def test_unaffected_members_without_a_pedigree_are_not_evidence_of_trans() -> No
 
 def test_parents_carrying_neither_hit_leave_the_phase_unknown() -> None:
     # Both hits absent from both parents (de novo, or missed calls): either could sit on
-    # either copy, though no unaffected member carries both.
+    # either copy. That no unaffected member carries both does not make it trans.
     summary = summarize_second_hit(
         [_sv("DEL", {"child": "0/1", "mother": "0/0", "father": "0/0"})],
         ["child"],
@@ -290,9 +290,9 @@ def test_read_phase_skipped_for_different_phase_sets() -> None:
 
 
 # A half call has one allele missing, so it does not say which haplotype carries the alt:
-# the missing allele may be an alt too. The SNV + SNV pair declines it; the badge read
-# `1|.` as the alt on haplotype 0, and showed trans by read phasing — for a deletion,
-# "effectively biallelic" — from a call that places nothing.
+# the missing allele may be an alt too. The SNV + SNV pair declines it, and so does the
+# badge: reading `1|.` as the alt on haplotype 0 would show trans by read phasing (for a
+# deletion, "effectively biallelic") from a call that places nothing.
 @pytest.mark.parametrize("sv_gt", ["1|.", ".|1", "|1", "1|", "2|.", ".|2"])
 def test_a_half_called_sv_next_to_a_phased_snv_gives_no_read_backed_phase(sv_gt: str) -> None:
     summary = summarize_second_hit(
@@ -369,9 +369,10 @@ def test_segregation_used_when_no_phasing() -> None:
     assert summary["phase_evidence"] == "segregation"
 
 
-# CLIN-28: each SV of the gene gets its own phase against the SNV, and the badge's verdict
-# is drawn from theirs, so a duplication in cis does not hide a deletion in trans in the same
-# phase block, where the SNV is the only copy left.
+# Each SV of the gene gets its own phase against the SNV, and the badge's verdict
+# is drawn from theirs. One verdict for all of a gene's SVs, won by any cis, would let a
+# duplication in cis hide a deletion in trans in the same phase block, the badge saying cis✓
+# where the SNV is the only copy left.
 
 
 def _sv_at(
@@ -495,9 +496,9 @@ def test_a_deletion_without_read_backed_phase_is_placed_by_the_parents() -> None
 
 def test_a_parent_carrying_the_snv_and_another_sv_does_not_put_the_deletion_in_cis() -> None:
     # Joint calls. The unaffected father carries the SNV and the duplication, and has a
-    # reference call at the deletion; the mother carries only the deletion. The father
-    # carried "an SV of the gene" and the SNV, so the gene was cis by segregation, and the
-    # deletion from the mother, in trans, was hidden.
+    # reference call at the deletion; the mother carries only the deletion. Counted as
+    # carrying "an SV of the gene" and the SNV, the father would make the gene cis by
+    # segregation and hide the deletion from the mother, in trans.
     duplication = _sv_at("DUP", 2_000, 3_000, {"child": "0/1", "mother": "0/0", "father": "0/1"})
     deletion = _sv_at("DEL", 5_000, 9_000, {"child": "0/1", "mother": "0/1", "father": "0/0"})
     summary = summarize_second_hit(
@@ -517,8 +518,8 @@ def test_a_parents_own_call_of_the_same_sv_stands_in_for_a_per_sample_file() -> 
     # Per-sample SV files: each record holds one sample's call. The mother's own file holds
     # the child's deletion (its breakpoints a few bases off), the father's an insertion in
     # the gene. Only the same SV counts: the mother carries the deletion, the father is not
-    # known to, and the trace puts it in trans. His insertion does not count, so the father,
-    # unaffected and carrying the SNV, does not make it cis.
+    # known to, and the trace puts it in trans. Were any SV of the father's to count, the
+    # father, unaffected and carrying the SNV, would make it cis.
     svs = [
         _sv_at("DEL", 10_000, 15_000, {"child": "0/1"}),
         _sv_at("DEL", 10_040, 14_980, {"mother": "0/1"}),
@@ -602,7 +603,7 @@ def test_what_may_be_the_same_sv_called_in_another_file(other: dict, same: bool)
         ("CNV", 0, True),
         ("CNV", 2, False),
         ("CNV", 3, False),  # a gain
-        # Types that name their direction, as the SV ranking has read them (CLIN-47).
+        # Types that name their direction, as the SV ranking has read them.
         ("LOSS", None, True),
         ("CNV_LOSS", None, True),
         ("GAIN", None, False),
@@ -835,8 +836,8 @@ class _IndexSession:
     """Just enough of an AsyncSession to run sv_gene_index_service's SQL in memory."""
 
     def __init__(self, built_from: dict[str, str | None] | None = None) -> None:
-        # family_id -> the SV data version its index was built from (None: none recorded).
-        # A family absent here has no index.
+        # family_id -> the SV data version its index was built from (None: before the
+        # column existed). A family absent here has no index.
         self.built_from: dict[str, str | None] = dict(built_from or {})
         self.genes: dict[str, set[str]] = {fid: {"STALE"} for fid in self.built_from}
         self.commits = 0
@@ -960,7 +961,7 @@ def test_the_second_hits_are_read_for_the_genes_asked_in_one_array_parameter() -
         "FGR": {"sv_count": 2, "svs": [{"sv_id": "sv2"}, {"sv_id": "sv3"}]},
     }
     # The genes upper-cased, once each, as one text[] parameter (a CSV export's genes can pass
-    # the 32,767 parameters asyncpg takes in one statement, DATA-3).
+    # the 32,767 parameters asyncpg takes in one statement).
     [(sql, params)] = session.executed
     assert "gene_symbol = ANY(CAST(:genes AS text[]))" in sql
     assert params == {"fid": "u1", "genes": ["BRCA2", "FGR"]}

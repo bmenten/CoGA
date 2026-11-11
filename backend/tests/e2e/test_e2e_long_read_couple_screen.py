@@ -1,10 +1,9 @@
 """A long-read couple screened for carriership, from the pipeline's folder to the screen (E2E).
 
 nf-core/lrsvar writes no PED and no joint callset for a couple: each partner has an
-annotated SNV VCF (DeepVariant, VEP), a NeedlR SV VCF and a TRGT VCF of their own. Such a
-package could not be imported: the scanner did not list it, Discover stopped without a
-PED, and validation refused a per-sample SNV callset outside monogenic NIPT. Here it goes
-through the front door end to end:
+annotated SNV VCF (DeepVariant, VEP), a NeedlR SV VCF and a TRGT VCF of their own. The
+scanner lists such a package, Discover drafts it without a PED, and validation takes its
+per-sample SNV callsets. Here it goes through the front door end to end:
 
 * Discover proposes the couple from the per-sample folders, each partner sexed by the
   karyotype TRGT ran with, and drafts the per-sample callsets; the import needs no PED;
@@ -12,8 +11,7 @@ through the front door end to end:
   calls, a partner's DeepVariant reference record is kept as their call where the other
   has a variant, and reference-only sites are left out;
 * the couple's carrier screen keeps the gene both partners carry a variant in and the
-  female partner's X-linked variant, and nothing else, ranked by phenotype priority or not
-  (CLIN-44: ranked, it listed every variant either partner carries);
+  female partner's X-linked variant, and nothing else, ranked by phenotype priority or not;
 * sample-integrity QC reads the couple as a couple, sexes both partners, and says that
   the call set was made one sample at a time.
 
@@ -131,7 +129,7 @@ def _write_package(root: Path, mother: str, father: str) -> None:
             f"--karyotype {karyotype} --threads 4 --output-prefix {sample}\n"
             f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}_sort\n"
             # One normal HTT call: a TRGT file without a record is refused as a failed
-            # analysis (SAFE-29), as a real sample's never is.
+            # analysis, as a real sample's never is.
             "chr4\t3074876\t.\tA\t<STR>\t.\tPASS\tEND=3074933;TRID=HD_HTT;MOTIFS=CAG\tGT:MC\t0/1:17_18\n",
             encoding="utf-8",
         )
@@ -321,7 +319,7 @@ def test_the_carrier_screen_keeps_the_shared_gene_and_the_female_partners_x_link
 
 
 def test_the_ranked_carrier_screen_keeps_the_same_findings(run) -> None:
-    # CLIN-44: Phenotype prioritization orders the screen and keeps what it keeps. Ranked, the
+    # Phenotype prioritization orders the screen and keeps what it keeps. Ranked, the
     # screen listed every variant either partner carries in a gene: the mother's two GENE2
     # variants and the father's GENEY variant too.
     screen, ranked = run["screen"], run["screen_ranked"]

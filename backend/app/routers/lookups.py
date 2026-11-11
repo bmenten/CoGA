@@ -7,7 +7,7 @@ read the family's own, its projects' analysts and the administrators
 
 The status catalogue is open to any signed-in user; the admin endpoints manage the full
 catalogue. The user list gives every active account's name and e-mail address, so it answers
-administrators only (SEC-33); the admin endpoints manage the accounts themselves
+administrators only; the admin endpoints manage the accounts themselves
 (``GET /auth/users``).
 """
 
@@ -39,6 +39,6 @@ async def get_assignable_users(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> List[UserRefOut]:
-    """Every active account's name and e-mail address, for administrators only (SEC-33)."""
+    """Every active account's name and e-mail address, for administrators only."""
     del user
     return await list_assignable_users(session)

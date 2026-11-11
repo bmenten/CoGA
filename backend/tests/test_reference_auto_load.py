@@ -1,9 +1,8 @@
 """The clinical CNV knowledgebase and the DGV variants an assembly gets without being asked.
 
-Adding GRCh38 (at a start, or from UCSC on the Reference page) loaded its cytobands and genes
-only: the clinical CNV knowledgebase waited for an administrator's rebuild, and DGV for a manual
-load. Now an assembly import from UCSC queues both for a GRCh37 or GRCh38 assembly that has
-neither, as the importing administrator, and says so in its result; a start does the same as no
+Adding GRCh38 (at a start, or from UCSC on the Reference page) loads its cytobands and genes,
+and the clinical CNV knowledgebase and DGV need no administrator's rebuild or manual load: an
+assembly import from UCSC queues both for a GRCh37 or GRCh38 assembly that has neither, as the importing administrator, and says so in its result; a start does the same as no
 account, the bootstrap assembly first, unless switched off (``REFERENCE_BOOTSTRAP_CLINICAL_CNVS``,
 ``REFERENCE_BOOTSTRAP_DGV``), and never stops on a failure. What each queue does is tested with
 its job (``test_clinical_cnv_kb_jobs.py``, ``test_dgv_load_jobs.py``).

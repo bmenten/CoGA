@@ -1,5 +1,5 @@
 """Integration test: the repeat catalogue is the shipped STRchive release, and a gene with
-several STRchive loci is read against the tract each call lies on (CLIN-31).
+several STRchive loci is read against the tract each call lies on.
 
 These run the real seed, TRGT ingest and family-table query against Postgres, on a family of
 their own, deleted afterwards. Only Postgres is needed. Skipped unless ``RUN_INTEGRATION=1``

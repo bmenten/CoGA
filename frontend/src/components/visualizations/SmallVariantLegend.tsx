@@ -14,7 +14,7 @@ const Swatch: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </svg>
 );
 
-/** The key to the small-variant marks (#529): shape and size carry the class, not colour alone. */
+/** The key to the small-variant marks: shape and size carry the class, not colour alone. */
 const SmallVariantLegend: React.FC = () => (
   <span className="small-variant-legend" role="group" aria-label="Small-variant marks">
     {SMALL_VARIANT_MARK_ORDER.map((kind) => {

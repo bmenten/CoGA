@@ -11,7 +11,8 @@ boundary its classification uses is marked with that boundary; the status is not
 
 - The warning: the boundaries are where the classifier itself changes status, on each side.
 - The family table and the genome track: the warning per allele while the locus is not
-  validated, none once it is; the statuses as before; what is known of the gene's count.
+  validated, none once it is; the statuses unchanged by the mark; what is known of the gene's
+  count.
 - The validation record: an admin sets it with a reason, each change a clinical audit event
   on its own chain; the admin list; the routes refuse a viewer.
 (integration/test_repeat_count_units_storage.py runs the record and both reads on Postgres.)

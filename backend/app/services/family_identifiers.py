@@ -11,14 +11,14 @@ remains may not hold
   a log or a report, hide in what a screen shows, and a NUL cannot be stored at all;
 - whitespace: a PED row is split on whitespace, and the stored pedigree and the rows
   ``family.add_members`` adds are PED rows, so an ID with a space could not be read back;
-- any other character a reader cannot see (SEC-15): a text-direction character (Unicode's
+- any other character a reader cannot see: a text-direction character (Unicode's
   bidirectional formatting characters and the Arabic letter mark), with which
   ``FAM\\u202e100`` shows as ``FAM001``; a zero-width character (``\\u200b``-``\\u200d``,
   ``\\u2060``, and ``\\ufeff``, the byte-order mark); and any other character Python does not
   count as printable (a soft hyphen, a private-use or unassigned code point, or a lone
   surrogate, which is how Python reads a file name that is not UTF-8). Two IDs that look the
   same would name two families or samples;
-- a path (SEC-15): a ``/`` or a ``\\`` anywhere, or an ID that is ``.`` or ``..``. A folder
+- a path: a ``/`` or a ``\\`` anywhere, or an ID that is ``.`` or ``..``. A folder
   named after an ID (the files an import keeps, a family's data folders) and a URL's path
   segment read them as separators, the folder itself or its parent. ``..`` inside a longer
   ID (``F..1``) is part of one name and is kept.
@@ -41,7 +41,7 @@ query parameter's name, or a ``family_id`` or ``sample_id`` query value that hol
 control character or DEL is refused with a 400, and so is a NUL in any query value
 (``request_value_problem``, called by ``dependencies.get_current_user``). No family or sample
 ID may hold one, nor any other key a route looks up, and Postgres cannot compare a NUL: a
-``%00`` in the URL arrives decoded, and the lookup failed with a 500.
+``%00`` in the URL arrives decoded, and its lookup would fail with a 500.
 """
 
 from __future__ import annotations

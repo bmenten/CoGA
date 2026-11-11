@@ -1,4 +1,4 @@
-"""A case is assigned to, and recorded as reviewed by, someone who may work on it (E2E, SEC-1).
+"""A case is assigned to, and recorded as reviewed by, someone who may work on it (E2E).
 
 A family's "Assigned to" and "Reviewed by" name an active analyst of one of the family's
 projects or an active administrator. Over the real API (an in-process ``httpx.ASGITransport``

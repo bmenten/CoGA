@@ -1,4 +1,4 @@
-"""A gnomAD count filter reads gnomAD's counts, never the callset's own (E2E, CLIN-59).
+"""A gnomAD count filter reads gnomAD's counts, never the callset's own (E2E).
 
 A VCF's INFO/AC is the allele count over its own samples, a reserved key that joint callers
 write, and the unprefixed INFO keys ``nhomalt`` and ``HEMI`` are not gnomAD's counts either:

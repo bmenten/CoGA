@@ -95,7 +95,7 @@ describe('GeneReferenceAdminPage', () => {
     ]) {
       expect(lead).toHaveTextContent(source);
     }
-    // The sync no longer calls Ensembl: NCBI is its only per-gene request.
+    // NCBI is the sync's only per-gene request: it does not call Ensembl.
     expect(lead).not.toHaveTextContent(/ensembl/i);
   });
 

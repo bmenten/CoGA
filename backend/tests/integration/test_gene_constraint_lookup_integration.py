@@ -1,4 +1,4 @@
-"""The gene constraint a small variant is served and classified with, on real Postgres (TRACE-15).
+"""The gene constraint a small variant is served and classified with, on real Postgres.
 
 A variant's gene pLI and missense Z come from its gene's profile in ``gene_info``, which holds
 one profile per assembly. The variant list, the ranking, the evidence snapshot a classification

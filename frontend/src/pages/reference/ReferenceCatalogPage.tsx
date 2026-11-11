@@ -619,8 +619,8 @@ const ReferenceCatalogPage: React.FC = () => {
     );
   };
 
-  // A failed list is not an empty catalogue: it read "No species are configured yet", with
-  // counts of 0 (#610).
+  // A failed list is not an empty catalogue: it never reads "No species are configured yet",
+  // with counts of 0.
   const failedCatalogLists = [
     speciesFailed ? 'the species' : null,
     assembliesFailed ? 'the assemblies' : null,

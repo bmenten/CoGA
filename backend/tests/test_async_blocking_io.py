@@ -1,4 +1,4 @@
-"""Tests for the #11 async-offloading / caching changes:
+"""Async offloading and caching:
 - cram manifest resolves samples concurrently while preserving order + dedup,
 - object_storage.download_prefix downloads every object under a prefix.
 """

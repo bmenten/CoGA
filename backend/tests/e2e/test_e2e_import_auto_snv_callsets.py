@@ -1,11 +1,11 @@
 """An `auto` SNV import reads the callset it stores, and the import-incomplete flag keeps
-each callset that failed (SAFE-27, SAFE-26), E2E.
+each callset that failed, E2E.
 
 With ``source_format: auto`` (the default) the SNV importer's update check and its clean-up
-after a failure act on the callset the family VCF holds (SAFE-27): an update of imputed
+after a failure act on the callset the family VCF holds: an update of imputed
 genotypes is imported beside the family's direct calls (clair3), and a failed import of
 imputed genotypes, its overwrite without a backup to put the family back from, removes them
-and leaves the direct calls. And the flag keeps one scope per failed callset (SAFE-26): a
+and leaves the direct calls. And the flag keeps one scope per failed callset: a
 later failure of the SNV dataset for another callset keeps the earlier one, so importing the
 later callset again leaves the flag while the earlier callset is still missing.
 

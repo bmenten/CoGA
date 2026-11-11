@@ -14,7 +14,7 @@ of its own:
   of its source (REQ-CARR-003; ``panel_use_audit``);
 * ``reference_data`` — beside the manifest's modules, the releases of the reference data
   the analysis read: the gene reference for the reported variants' genes, and the clinical
-  CNV knowledgebase (TRACE-5). PanelApp states a release per panel, which ``gene_panels``
+  CNV knowledgebase. PanelApp states a release per panel, which ``gene_panels``
   holds;
 * ``repeat_expansions`` — each TRGT call of the family's samples, with its status as CoGA
   classifies it at sign-out and the thresholds and catalogue behind it; beside each allele its
@@ -24,7 +24,7 @@ of its own:
   classifies it at sign-out and the catalogue rule behind it;
 * ``coverage_tracks`` — each coverage track of the family's samples, per sample and caller:
   what it holds as the depth readers read it (read depth, a log2 ratio or unknown: a coverage
-  BED what it declared, TRACE-9), and the file(s) it was loaded from, from where and when
+  BED what it declared), and the file(s) it was loaded from, from where and when
   (owner decision of 2026-10-20), so it stays traceable which kind of coverage a depth check
   rested on;
 * ``package_intake`` — the delivered package the family's last package import came from (its
@@ -37,7 +37,7 @@ of its own:
   each embryo's call with what it rests on, as the family page shows it (``pgt_analysis``,
   REQ-PGT-005). A family without an embryo has no such key, and nor has a monogenic NIPT
   family none of whose embryos has haplotype blocks of its own: its fetus is an embryo
-  member without data of its own (TRACE-19).
+  member without data of its own.
 * ``nipt`` — in a monogenic NIPT family only: its NIPT analysis as the NIPT page shows it, the
   reported variants' classification among it, and the inputs it ran with
   (``signed_record_nipt``). Another family has no such key.
@@ -45,7 +45,7 @@ of its own:
 A section with an ``application`` is held by that application's families alone. Every
 section is built inside a savepoint. A section that cannot be read is frozen as
 ``{"unavailable": <a fixed sentence>}``, never as an empty one that would read as "nothing
-there" (#514), and ``report_signout_service.snapshot_gaps`` names it. Every record holds
+there", and ``report_signout_service.snapshot_gaps`` names it. Every record holds
 every section (a section of one application, that application's families' records only).
 
 Adding a section (as the PGT and NIPT results were added):
@@ -235,7 +235,7 @@ async def _guarded(
     try:
         async with session.begin_nested():
             return await build()
-    except Exception:  # a section that cannot be read must not break the sign-out (#514)
+    except Exception:  # a section that cannot be read must not break the sign-out
         logger.warning("A signed-record section could not be read: %s", unavailable, exc_info=True)
         return {"unavailable": unavailable}
 
@@ -459,7 +459,7 @@ async def clinical_cnv_release(session: AsyncSession, assembly_id: str | None) -
     """The clinical CNV knowledgebase loaded for the assembly: where it came from, the release
     its source states and when it was loaded. A rebuild reads the data current on the day; its
     release is the one pinned file it read, ClinGen's recurrent CNV file, by release and
-    SHA-256 (TRACE-14; ``not stated`` for a rebuild loaded before). None when none is loaded."""
+    SHA-256. None when none is loaded."""
     if not assembly_id:
         return None
     row = (await session.execute(_CLINICAL_CNV_SQL, {"assembly_id": assembly_id})).mappings().first()
@@ -711,8 +711,8 @@ async def paraphase_results(
 # --- Coverage tracks ----------------------------------------------------------------
 
 # Every record of the family's coverage tracks, with what the depth readers read of each: a
-# coverage BED's declaration (``content``, TRACE-9) and another caller's transform
-# (``normalization``, TRACE-7), as ``interval_track_contents_by_sample`` and
+# coverage BED's declaration (``content``) and another caller's transform
+# (``normalization``), as ``interval_track_contents_by_sample`` and
 # ``interval_track_normalizations_by_sample`` read them; and where the file came from.
 _COVERAGE_TRACKS_SQL = text(
     """
@@ -925,7 +925,7 @@ async def build_record_sections(
     nipt = await is_nipt_family(session, context)
     # A monogenic NIPT family's fetus is an embryo member too, with no data of its own: its
     # record holds the PGT section only where an embryo has haplotype blocks of its own, which
-    # every embryo call reads (TRACE-19). Another family with an embryo holds it as before.
+    # every embryo call reads. Every other family with an embryo holds it.
     if is_pgt_family(context) and (not nipt or await embryo_has_haplotype_blocks(session, context)):
         sections[PGT_ANALYSIS.key] = await _guarded(
             session, PGT_ANALYSIS.unavailable, lambda: pgt_embryo_results(session, context)

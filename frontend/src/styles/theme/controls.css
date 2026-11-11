@@ -5,8 +5,8 @@
   align-items: center;
   gap: 0.25rem;
   /* Fully shed the global <button> chrome so a `<button className="subtle-link">`
-     renders as plain text, not a filled button. (Tailwind v4 moved Preflight into
-     @layer base, so it no longer resets buttons over this unlayered sheet — the reset
+     renders as plain text, not a filled button. (Tailwind v4's Preflight sits in
+     @layer base, so it does not reset buttons over this unlayered sheet — the reset
      has to be explicit here.) */
   min-height: 0;
   padding: 0;

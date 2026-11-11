@@ -115,7 +115,7 @@ describe('FamilyBuilderPage', () => {
     vi.restoreAllMocks();
   });
 
-  // SEC-1: a family is added to a project by an analyst of it or an admin.
+  // A family is added to a project by an analyst of it or an admin.
   it('offers only the projects where the user is an analyst, and says so to a reader', async () => {
     const project = (id: string, name: string, readOnly: boolean) => ({
       id,

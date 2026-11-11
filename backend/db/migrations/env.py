@@ -2,10 +2,11 @@
 
 It runs only inside CoGA's migration step (``backend/app/core/postgres_migrations.py``), which
 hands it its connection: by then that step holds the migration lock, has refused the
-restricted runtime role and has applied the baselines, all in one transaction, as the owner of
-the tables. Run the step with ``python -m app.db_migrate`` (or start the backend as the owner);
-``alembic upgrade`` and the other commands that need a database stop here. Writing a revision
-(``alembic revision``) needs no database. See docs/database.md, "Schema Migrations".
+restricted runtime role and has checked that the database is empty or made from this version's
+baselines, all in one transaction, as the owner of the tables. Run the step with
+``python -m app.db_migrate`` (or start the backend as the owner); ``alembic upgrade`` and the
+other commands that need a database stop here. Writing a revision (``alembic revision``) needs
+no database. See docs/database.md, "Schema Migrations".
 """
 
 from alembic import context
@@ -18,8 +19,8 @@ if connection is None or context.is_offline_mode():
         "(docs/database.md, \"Schema Migrations\")."
     )
 
-# The caller's transaction is open, so Alembic adds none of its own: every revision commits
-# with the baselines, or none does.
+# The caller's transaction is open, so Alembic adds none of its own: every revision commits,
+# or none does.
 context.configure(connection=connection, target_metadata=None, transactional_ddl=True)
 with context.begin_transaction():
     context.run_migrations()

@@ -175,7 +175,7 @@ class TestXLinked:
         assert _kept(records) == []
 
     def test_t2t_reads_its_own_boundaries(self) -> None:
-        # CLIN-12: T2T-CHM13v2.0's PAR1 ends at 2,394,410. A woman's variant just past it counts
+        # T2T-CHM13v2.0's PAR1 ends at 2,394,410. A woman's variant just past it counts
         # alone; one inside it follows the both-partners rule.
         past = [_variant("x-1", "GENEX", woman="0/1", chr="X", start=2_394_411)]
         assert _kept(past, assembly_name="T2T-CHM13v2.0") == ["x-1"]

@@ -67,7 +67,7 @@ async def set_family_annotation_manifest_endpoint(
     # The replacement is recorded on the family's clinical audit chain.
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> AnnotationManifestOut:
-    # payload.source is ignored: a replacement through the API is recorded as 'manual'.
+    # A replacement through the API is recorded as 'manual'.
     return AnnotationManifestOut.model_validate(
         await set_family_annotation_manifest(
             session,
@@ -193,7 +193,7 @@ async def check_family_report_against_signout_endpoint(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> ReportSignoutCheckOut:
-    """Whether the report as it would be signed now matches the latest sign-out (#508)."""
+    """Whether the report as it would be signed now matches the latest sign-out."""
     return ReportSignoutCheckOut.model_validate(
         await compare_report_with_latest_signout(
             session, family_id=family_id, user=user, project_id=project_id

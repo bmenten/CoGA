@@ -1,5 +1,5 @@
 /**
- * Optimistic concurrency for variant-review saves (#513).
+ * Optimistic concurrency for variant-review saves.
  *
  * A save carries the review's `updated_at` as it was loaded (null when there was none).
  * If another reviewer has saved in between, the server refuses with 409

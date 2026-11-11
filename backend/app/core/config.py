@@ -33,7 +33,7 @@ _DEVELOPMENT_ENVIRONMENTS = {"dev", "development", "local", "test"}
 _INSECURE_SECRET_VALUES = {"secret", "change-me"}
 _INSECURE_PASSWORD_VALUES = {"admin", "change-me"}
 # HS256 wants at least 256 bits of key material (RFC 7518 §3.2); a short or guessable
-# SECRET_KEY lets anyone mint session tokens (#522).
+# SECRET_KEY lets anyone mint session tokens.
 _MIN_SECRET_KEY_LENGTH = 32
 # libpq/asyncpg SSL modes for the Postgres connection (TF-13 S-2).
 _POSTGRES_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
@@ -62,10 +62,10 @@ _AZURE_API_SCOPE_PATTERN = re.compile(r"(?:api|https)://[^\s/]+(?:/[^\s/]+)*/[A-
 # AZURE_API_SCOPE names none.
 AZURE_DEFAULT_SCOPE_NAME = "access_as_user"
 # The algorithm of the tokens CoGA issues itself, the password sign-in's session and a QC
-# report's link, signed with SECRET_KEY: fixed, not a setting (SEC-12), so no environment
+# report's link, signed with SECRET_KEY: fixed, not a setting, so no environment
 # variable changes how they are signed or which algorithm a check accepts.
 LOCAL_TOKEN_ALGORITHM = "HS256"
-# The vendored HPO release, the startup's backup (TRACE-14): the release of the committed
+# The vendored HPO release, the startup's backup: the release of the committed
 # data/ref-data/hpo/hp.obo (its `data-version:` header) and that file's SHA-256. A start on an
 # empty database imports HPO's newest release, downloaded from its own versioned PURL
 # (HPO_LATEST_RELEASE_API_URL and HPO_RELEASE_URL_TEMPLATE below, as the admin sync does), and
@@ -74,17 +74,16 @@ LOCAL_TOKEN_ALGORITHM = "HS256"
 # if its SHA-256 is this one. With no file in place it fetches this release from its own PURL,
 # which never floats, and uses the file only if its SHA-256 is this one. These two values are the
 # pin, and the URL is built from the release. No setting overrides them: the backup release
-# changes only through a reviewed code change, with the vendored file (the HPO_ONTOLOGY_URL and
-# HPO_ONTOLOGY_SHA256 settings were removed; Settings ignores them, like every name it does not
-# define). data/ref-data/hpo/README.md says how, and test_hpo_download_pin.py fails until the
-# file, the pin and that README agree.
+# changes only through a reviewed code change, with the vendored file.
+# data/ref-data/hpo/README.md says how, and test_hpo_download_pin.py fails until the file, the
+# pin and that README agree.
 HPO_PINNED_RELEASE = "hp/releases/2026-02-16"
 HPO_PINNED_ONTOLOGY_SHA256 = "8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd"
 HPO_PINNED_ONTOLOGY_URL = f"https://purl.obolibrary.org/obo/{HPO_PINNED_RELEASE}/hp.obo"
 # Where the HPO admin page and a start on an empty database read which HPO release is the
 # newest (the release check), and the URL a release's ontology file is downloaded from: its own
 # versioned PURL, which never floats. Neither is a setting. A downloaded file is imported only if
-# it states the release asked for, and its SHA-256 is kept with the terms (TRACE-18); the admin
+# it states the release asked for, and its SHA-256 is kept with the terms; the admin
 # sync also previews it and applies it with the SHA-256 the preview showed.
 HPO_LATEST_RELEASE_API_URL = (
     "https://api.github.com/repos/obophenotype/human-phenotype-ontology/releases/latest"
@@ -93,7 +92,7 @@ HPO_RELEASE_URL_TEMPLATE = "https://purl.obolibrary.org/obo/hp/releases/{release
 
 
 class CytobandBackup(NamedTuple):
-    """One shipped cytoband file, the backup of UCSC's table for a UCSC genome (TRACE-14)."""
+    """One shipped cytoband file, the backup of UCSC's table for a UCSC genome."""
 
     file_name: str  # in data/ref-data/cytobands/
     sha256: str
@@ -123,7 +122,7 @@ CYTOBAND_BACKUP_FILES: dict[str, CytobandBackup] = {
 
 
 class DgvPinnedRelease(NamedTuple):
-    """One DGV release file as the reference loader downloads it (TRACE-14)."""
+    """One DGV release file as the reference loader downloads it."""
 
     release: str
     url: str
@@ -153,9 +152,9 @@ DGV_PINNED_RELEASES: dict[str, DgvPinnedRelease] = {
         size_bytes=367419437,
     ),
 }
-# The STRchive release the repeat catalogue is built from (CLIN-31): the shipped
+# The STRchive release the repeat catalogue is built from: the shipped
 # data/ref-data/STRchive-loci.json, validated with the built-in repeat loci, which carry its
-# thresholds (CLIN-22). The file states no release of its own, so its SHA-256 is its identity.
+# thresholds. The file states no release of its own, so its SHA-256 is its identity.
 # Every start reads the STRchive file (TRGT_STRCHIVE_LOCI_PATH, else the repository's copy)
 # only if its SHA-256 is this one, and refuses to start on any other file, or on none: no
 # setting overrides it. The pin moves only with the file, in a reviewed change
@@ -166,10 +165,10 @@ STRCHIVE_PINNED_LOCI_SHA256 = "a0295e1fe3e25a9f375db25fa27c403c217c74047ec3fa4b4
 # STRchive published with release v2.18.0 (2026-04-28), found on 2026-10-20 by comparing the
 # SHA-256 with the loci file of every published STRchive release. It moves with the pin.
 STRCHIVE_PINNED_RELEASE = "v2.18.0"
-# The segmental-duplication file the startup loads (TRACE-14): the shipped
+# The segmental-duplication file the startup loads: the shipped
 # data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed, ClinGen's
 # V2.1 recurrent-CNV file for GRCh38, checked byte-identical with ClinGen's download on 2026-10-14
-# (TRACE-3, TF-08). While the assembly holds no segmental duplications, the startup reads the
+# (TF-08). While the assembly holds no segmental duplications, the startup reads the
 # file REFERENCE_SEGMENTAL_DUPLICATIONS_PATH names (on Cloud Run the reference-data bucket's
 # copy), else the repository's, and loads it only if its SHA-256 is this one: another file is
 # refused with a logged error, and the start goes on without it. No setting overrides the pin;
@@ -349,7 +348,7 @@ class Settings(BaseSettings):
         ge=1,
         alias="CLICKHOUSE_SEND_RECEIVE_TIMEOUT",
     )
-    # Scheduled ClickHouse variant-integrity monitor (#269) (CHECK TABLE sweep). Detects
+    # Scheduled ClickHouse variant-integrity monitor (CHECK TABLE sweep). Detects
     # corruption proactively (logs ERROR on 'corrupt'/'missing') before it surfaces as 500s.
     clickhouse_integrity_monitor_enabled: bool = Field(
         default=True, alias="CLICKHOUSE_INTEGRITY_MONITOR_ENABLED"
@@ -432,7 +431,7 @@ class Settings(BaseSettings):
     # When false (production default) the async pipeline never silently drops: a
     # full queue applies backpressure and then writes the event synchronously.
     # True is a dev/test-only escape hatch (refused in production below) that
-    # restores the old drop-on-full behaviour for low overhead.
+    # drops an event when the queue is full, for low overhead.
     audit_log_drop_allowed: bool = Field(default=False, alias="AUDIT_LOG_DROP_ALLOWED")
     audit_log_backpressure_timeout_seconds: float = Field(
         default=5.0,
@@ -632,12 +631,12 @@ class Settings(BaseSettings):
         default=300, ge=30, le=86_400, alias="FAMILY_IMPORT_WATCH_INTERVAL_SECONDS"
     )
     # Reverse proxies in front of the backend that each append to X-Forwarded-For; the
-    # client address is taken that many entries from the right (#520). 0 leaves it to
+    # client address is taken that many entries from the right. 0 leaves it to
     # uvicorn. Google's external Application Load Balancer appends two (client, LB).
     trusted_proxy_hops: int = Field(default=0, ge=0, le=5, alias="TRUSTED_PROXY_HOPS")
     # The STRchive file the repeat catalogue reads first; the repository's copy when this one
     # does not exist. Whichever is read must be the shipped release, byte for byte
-    # (STRCHIVE_PINNED_LOCI_SHA256), or the backend refuses to start (CLIN-31).
+    # (STRCHIVE_PINNED_LOCI_SHA256), or the backend refuses to start.
     trgt_strchive_loci_path: str | None = Field(
         default="/data/ref-data/STRchive-loci.json",
         alias="TRGT_STRCHIVE_LOCI_PATH",
@@ -672,7 +671,7 @@ class Settings(BaseSettings):
     )
     # The segmental-duplication file the startup reads first; the repository's copy when this
     # one does not exist. Whichever is read must be the shipped file, byte for byte
-    # (SEGMENTAL_DUPLICATIONS_PINNED_SHA256 above), or it is not loaded (TRACE-14).
+    # (SEGMENTAL_DUPLICATIONS_PINNED_SHA256 above), or it is not loaded.
     reference_segmental_duplications_path: str | None = Field(
         default="/data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed",
         alias="REFERENCE_SEGMENTAL_DUPLICATIONS_PATH",
@@ -692,7 +691,7 @@ class Settings(BaseSettings):
         default="/data/ref-data/paraphase-medical-regions.json",
         alias="PARAPHASE_MEDICAL_REGIONS_PATH",
     )
-    # Microsoft sign-in (Azure AD / Microsoft Entra ID, SEC-4). With the directory (tenant) ID
+    # Microsoft sign-in (Azure AD / Microsoft Entra ID). With the directory (tenant) ID
     # and the application (client) ID of the app registration IT made for CoGA, users sign in
     # with their Microsoft account and the API accepts only Microsoft's access tokens for
     # CoGA's API scope (core/azure.py); without them, the local password sign-in serves every
@@ -709,7 +708,7 @@ class Settings(BaseSettings):
     # made with it, is logged and flagged in the request audit. It needs an organisation
     # sign-in: Microsoft's, or the CAS server's below.
     azure_admin_override: bool = Field(default=False, alias="AZURE_ADMIN_OVERRIDE")
-    # Sign-in through the organisation's CAS server (SEC-4), such as Ghent University's
+    # Sign-in through the organisation's CAS server, such as Ghent University's
     # login.ugent.be (core/cas.py). The browser goes to CAS_SERVER_URL/login with
     # CAS_SERVICE_URL, the app's own /login page, as the service; the backend checks the
     # ticket it returns with the CAS server and reads the user's attributes from the answer.
@@ -758,7 +757,7 @@ class Settings(BaseSettings):
 
     # List settings are annotated ``NoDecode``: pydantic-settings would otherwise JSON-decode
     # an environment value before these validators see it, and reject the documented
-    # comma-separated form (``FAMILY_IMPORT_ROOTS=/data/families`` failed at startup).
+    # comma-separated form (``FAMILY_IMPORT_ROOTS=/data/families`` would fail at startup).
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: object) -> object:
@@ -843,11 +842,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_azure_ad(self) -> "Settings":
-        """Refuse a half Microsoft sign-in configuration, in every environment (SEC-4).
+        """Refuse a half Microsoft sign-in configuration, in every environment.
 
-        A tenant without a client ID (or the reverse) used to leave Azure AD off without a
-        word, and an override without Azure AD did nothing; either way the deployment did not
-        sign in the way it was configured to.
+        A tenant without a client ID (or the reverse), or an override without an organisation
+        sign-in, would leave the deployment signing in otherwise than it was configured to.
         """
         tenant, client = self.azure_tenant_id, self.azure_client_id
         if bool(tenant) != bool(client):
@@ -934,7 +932,7 @@ class Settings(BaseSettings):
     @property
     def organisation_sign_in_enabled(self) -> bool:
         """Whether users sign in through their organisation (Microsoft or its CAS server), so
-        that no password sign-in or sign-up serves them (SEC-4)."""
+        that no password sign-in or sign-up serves them."""
         return self.azure_ad_enabled or self.cas_enabled
 
     @property
@@ -1004,11 +1002,11 @@ class Settings(BaseSettings):
         if secret_key in _INSECURE_SECRET_VALUES or len(secret_key) < _MIN_SECRET_KEY_LENGTH:
             insecure_fields.append("SECRET_KEY")
         # A real environment's ClickHouse holds every genotype; it must have a password,
-        # and not the .env.example placeholder (#530).
+        # and not the .env.example placeholder.
         if self.clickhouse_password.strip() in {"", *_INSECURE_PASSWORD_VALUES}:
             insecure_fields.append("CLICKHOUSE_PASSWORD")
         # Without it, integrity anchors are unsigned and give no tamper-evidence against a
-        # database owner (#522); it must be the base64 of a 32-byte Ed25519 seed.
+        # database owner; it must be the base64 of a 32-byte Ed25519 seed.
         if not _is_ed25519_seed(self.integrity_anchor_signing_key):
             insecure_fields.append("INTEGRITY_ANCHOR_SIGNING_KEY")
         if self.postgres_password.strip() in _INSECURE_PASSWORD_VALUES:

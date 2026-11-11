@@ -104,13 +104,13 @@ async def _fetch_panel_rows(
                     gp.created_by::text AS created_by,
                     gp.created_at,
                     gp.description,
-                    COALESCE(gp.source, 'local') AS source,
+                    gp.source,
                     gp.external_id,
                     gp.external_selection,
                     gp.external_version,
                     gp.external_url,
                     gp.source_updated_at,
-                    COALESCE(gp.source_metadata, '{}'::jsonb) AS source_metadata,
+                    gp.source_metadata,
                     COALESCE(NULLIF(u.email, ''), u.username) AS created_by_email
                 FROM gene_panels gp
                 LEFT JOIN users u ON u.id = gp.created_by
@@ -131,13 +131,13 @@ async def _fetch_panel_rows(
                 gp.created_by::text AS created_by,
                 gp.created_at,
                 gp.description,
-                COALESCE(gp.source, 'local') AS source,
+                gp.source,
                 gp.external_id,
                 gp.external_selection,
                 gp.external_version,
                 gp.external_url,
                 gp.source_updated_at,
-                COALESCE(gp.source_metadata, '{}'::jsonb) AS source_metadata,
+                gp.source_metadata,
                 COALESCE(NULLIF(u.email, ''), u.username) AS created_by_email
             FROM gene_panels gp
             LEFT JOIN users u ON u.id = gp.created_by
@@ -228,17 +228,16 @@ async def _resolve_gene_regions(
 ) -> tuple[list[GeneLocation], list[str]]:
     """Each gene's locus in every loaded assembly that has it, tagged with that assembly.
 
-    A panel is a gene list; its coordinates depend on the assembly. This used to keep one
-    region per gene across all assemblies (GRCh38 first, else T2T) in an assembly-less
-    table, and every family's panel filter unioned them — so a GRCh38 family could be
-    filtered on T2T coordinates, and a T2T family on GRCh38 ones (#515). A gene is
+    A panel is a gene list; its coordinates depend on the assembly, so each region is kept
+    with its assembly and a family's panel filter reads only its own assembly's: a GRCh38
+    family is never filtered on T2T coordinates, nor a T2T family on GRCh38 ones. A gene is
     "missing" only when no loaded assembly has it.
     """
     deduped_symbols = list(dict.fromkeys(symbol.strip() for symbol in symbols if symbol and symbol.strip()))
     if not deduped_symbols:
         return [], []
     # One text[] parameter, not one per gene (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and a panel names any number of genes (DATA-6).
+    # per statement, and a panel names any number of genes.
     result = await session.execute(
         text(
             """
@@ -582,7 +581,7 @@ async def update_panel_data(
             text(
                 """
                 SELECT id::text AS id, name, version,
-                       COALESCE(source, 'local') AS source, description
+                       source, description
                 FROM gene_panels WHERE id = CAST(:panel_id AS uuid)
                 FOR UPDATE
                 """
@@ -698,7 +697,7 @@ async def import_panelapp_panel_data(
     )
     genes = content.genes
     # PanelApp's own coordinates are for the requested assembly. They are stored for that
-    # assembly when it is loaded; otherwise they apply to no family and are not kept (#515).
+    # assembly when it is loaded; otherwise they apply to no family and are not kept.
     requested_assembly_id = await _assembly_id_by_name(session, request.assembly)
     panelapp_regions = (
         [

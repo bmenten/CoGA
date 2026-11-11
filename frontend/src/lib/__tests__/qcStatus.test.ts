@@ -10,7 +10,7 @@ describe('QC roll-ups', () => {
     expect(worstQcStatus([])).toBe('skip');
   });
 
-  it('counts a sample-integrity check that could not run as a warning, never a pass (CLIN-1)', () => {
+  it('counts a sample-integrity check that could not run as a warning, never a pass', () => {
     expect(worstIntegrityStatus(['skip', 'pass'])).toBe('warn');
     expect(worstIntegrityStatus(['skip'])).toBe('warn');
     expect(worstIntegrityStatus(['pass', 'pass'])).toBe('pass');

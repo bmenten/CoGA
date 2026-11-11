@@ -1,5 +1,5 @@
 """Every embryo's APCAD file and every sample's coverage file are checked before any sample's
-track is replaced (E2E, SAFE-3).
+track is replaced (E2E).
 
 A dataset of one track file per sample (the `apcad` dataset's file per embryo, and the
 `coverage` dataset's BED or per-target table per sample) reads every sample's file before it

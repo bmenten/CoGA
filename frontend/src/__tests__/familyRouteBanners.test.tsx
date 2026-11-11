@@ -1,8 +1,8 @@
 // Every family page warns of what keeps the family's data from being read as complete and
 // validated: an import of the family that partly failed or has not finished (*Import
 // incomplete*), and a reference assembly outside the validated scope (*Not validated for
-// clinical use*). A page that left them out showed a partly imported family as complete, and
-// the NIPT report printed it so, with no sign-out to stop it.
+// clinical use*). A page that left them out would show a partly imported family as complete,
+// and the NIPT report would print it so, with no sign-out to stop it.
 //
 // This walks the app's routes (src/index.tsx): every route whose path holds `:familyId` is
 // rendered with the page its element lazy-loads, for a family on an off-scope assembly whose
@@ -11,11 +11,9 @@
 // never signed out, as the live report; a signed version shows the import state frozen in its
 // record instead, and checks it against the family's current one.)
 //
-// The warnings come from the family record, so no page shows the family's data without it
-// (SAFE-14). Before the record is in, a page shows a page state alone; when it could not be
-// loaded, the page says the family could not be loaded, offers a retry, and shows nothing else.
-// Three pages showed their data without the warnings when the record failed, and one waited
-// for it for good.
+// The warnings come from the family record, so no page shows the family's data without it.
+// Before the record is in, a page shows a page state alone; when it could not be loaded, the
+// page says the family could not be loaded, offers a retry, and shows nothing else.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -261,7 +259,7 @@ describe('the family routes', () => {
     const declared = [...APP_SOURCE.matchAll(/\bpath="([^"]*:familyId[^"]*)"/g)].map(([, routePath]) => routePath);
     // A family route whose element this cannot read would be skipped: it fails here instead.
     expect(FAMILY_ROUTES.map((route) => route.routePath)).toEqual(declared);
-    // Each one is in PAGE_DATA, and PAGE_DATA names no route the app no longer has.
+    // Each one is in PAGE_DATA, and PAGE_DATA names no route the app does not have.
     expect(Object.keys(PAGE_DATA).sort()).toEqual([...declared].sort());
   });
 
@@ -318,9 +316,9 @@ describe('the family routes', () => {
   it.each(FAMILY_ROUTES)(
     '$routePath ($page) shows nothing of the family before its project’s reference is in',
     async (route) => {
-      // The assembly-scope warning shows nothing while the project list loads (#515): a page
-      // that showed its data meanwhile showed it without "Not validated for clinical use",
-      // which came a moment later (ENG-12).
+      // The assembly-scope warning shows nothing while the project list loads: a page
+      // that showed its data meanwhile would show it without "Not validated for clinical
+      // use", which comes a moment later.
       const projects = held();
       projectsAnswer = projects.answered;
       const { container } = await renderRoute(route);

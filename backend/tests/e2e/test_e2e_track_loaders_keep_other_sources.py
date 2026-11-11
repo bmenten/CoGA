@@ -1,4 +1,4 @@
-"""A track loader replaces only its own source's track of a sample (SAFE-22), E2E.
+"""A track loader replaces only its own source's track of a sample, E2E.
 
 A sample can carry several callers' tracks of one type, each under its own source, and the
 track viewers draw one track per caller. The coverage dataset's BED, the BED upload (source
@@ -248,7 +248,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
         async def upload(name: str, bed_type: str, body: bytes, *, overwrite: bool) -> None:
-            # A coverage BED declares what it holds (TRACE-9): these hold log2 ratios.
+            # A coverage BED declares what it holds: these hold log2 ratios.
             declared = {"content": "log2_ratio"} if bed_type == "coverage" else {}
             response = await ac.post(
                 f"/api/bed/upload/{sample}/{bed_type}",

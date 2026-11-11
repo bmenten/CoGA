@@ -1,8 +1,9 @@
-"""A family made again under its ID keeps every chain of the ID verifiable (TRACE-13, real Postgres).
+"""A family made again under its ID keeps every chain of the ID verifiable (real Postgres).
 
 A family ID's sign-outs are one hash chain, ordered by version, whichever family row signed
-them, so a family deleted and made again under its ID signs the ID's next version and the chain
-verifies. Here the real writers run against Postgres: a family made by hand and signed out twice;
+them, so a family deleted and made again under its ID signs the next version, never version 1
+again, which would fail the chain's verification as if it had been tampered with. Here the
+real writers run against Postgres: a family made by hand and signed out twice;
 replaced by a family made by hand with overwrite (the Family Builder's replacement, as a PED
 upload's: the old family deleted and a new one made under its ID, in one transaction) and
 signed out twice; then deleted by an admin, made again and signed out once. Then:
@@ -13,7 +14,7 @@ signed out twice; then deleted by an admin, made again and signed out once. Then
   ``sign_out`` events among its events) and its structure-version chain verify across the
   three families;
 - each family's pedigree is its structure version 1, numbered per family row; the trail names
-  them apart (ENG-19): each family made again names how many versions the deleted families
+  them apart: each family made again names how many versions the deleted families
   stored before it, in its first event's metadata and summary and in its deletion;
 - the five report codes differ; the lookup finds the current family's record and answers the
   deleted families' codes like an unknown code; the family's pages hold its own record only;
@@ -85,7 +86,7 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
 
     async def _snapshot_body(session: Any, *, family_id: str, user: Any, project_id: Any = None) -> dict[str, Any]:
         # The keys sign_out_report reads, the drift lists its drift gate's refusal lists
-        # among them (TRACE-19).
+        # among them.
         return {
             "drift": {"drifted_count": 0, "drifted": []},
             "structural_drift": {"drifted_count": 0, "drifted": []},
@@ -218,9 +219,9 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
             assert [row["prev_hash"] for row in structure[1:]] == [row["row_hash"] for row in structure[:-1]]
 
             # Structure versions are numbered per family row: each family's pedigree is its
-            # version 1. The trail names them apart (ENG-19): each family made again names how
+            # version 1. The trail names them apart: each family made again names how
             # many versions the families deleted under the ID stored before it, its first event
-            # says so, and so does its deletion. The first family's name none.
+            # says so, and so does its deletion. The first family's are recorded as before.
             assert [row["version"] for row in structure] == [1, 1, 1]
             pedigree = [event for event in pedigree_trail if event["action"] == "pedigree"]
             assert [
@@ -291,7 +292,8 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
                     await s.execute(
                         text(
                             "INSERT INTO report_signouts (family_identifier, version, signed_out_by, "
-                            "content_hash, snapshot) VALUES (:f, 3, 'trace13', 'not-a-record', '{}'::jsonb)"
+                            "content_hash, snapshot, row_hash) "
+                            "VALUES (:f, 3, 'test', 'not-a-record', '{}'::jsonb, 'not-on-a-chain')"
                         ),
                         {"f": label},
                     )

@@ -12,27 +12,27 @@ import {
 } from '../svTypes';
 
 describe('describeSvTypes', () => {
-  it('counts the drawn SVs by type, in track order (#529)', () => {
+  it('counts the drawn SVs by type, in track order', () => {
     expect(
       describeSvTypes([{ typeKey: 'DUP' }, { typeKey: 'DEL' }, { typeKey: 'DEL' }]),
     ).toBe('3 (2 DEL, 1 DUP)');
   });
 
-  it('counts the SVs of the Other row as other, last (CLIN-54)', () => {
+  it('counts the SVs of the Other row as other, last', () => {
     expect(describeSvTypes([{ typeKey: 'OTHER' }, { typeKey: 'BND' }])).toBe('2 (1 BND, 1 other)');
   });
 
-  it('keeps the row order the tracks draw, the Other row last (CLIN-54)', () => {
+  it('keeps the row order the tracks draw, the Other row last', () => {
     expect(SV_TYPE_ORDER).toEqual(['DEL', 'DUP', 'INV', 'INS', 'BND', 'OTHER']);
     expect(SV_TYPE_ORDER.map(svTypeLabel)).toEqual(['DEL', 'DUP', 'INV', 'INS', 'BND', 'Other']);
   });
 });
 
-// CLIN-54: the tracks drew DEL, DUP, INV, INS and BND by their exact names only, so a DEL:ME, a
-// DUP:TANDEM, an INS:ME, a CNV or a TRA was not drawn, though the SV list showed it. The server
+// The tracks draw every SV the list shows, not only DEL, DUP, INV, INS and BND by their exact
+// names: a DEL:ME, a DUP:TANDEM, an INS:ME, a CNV and a TRA too. The server
 // says which copies an SV changes (`copy_change`, by the rule of the SV ranking); the type
 // without its subtypes says the rest.
-describe('svTypeKey (CLIN-54)', () => {
+describe('svTypeKey', () => {
   const rows: Array<[string | null | undefined, SvCopyChange | undefined, SvTypeKey]> = [
     ['DEL', 'loss', 'DEL'],
     ['DEL', undefined, 'DEL'],
@@ -74,7 +74,7 @@ describe('svTypeKey (CLIN-54)', () => {
   });
 });
 
-describe('describeSvType (CLIN-54)', () => {
+describe('describeSvType', () => {
   it('states a CNV with the copy-number change it is drawn by, and any other type as stored', () => {
     expect(describeSvType('CNV', 'loss')).toBe('CNV (copy-number loss)');
     expect(describeSvType('CNV', 'gain')).toBe('CNV (copy-number gain)');

@@ -59,8 +59,8 @@ def csv_document(
     return buffer.getvalue()
 
 
-# Response headers an export sets so the UI can say when a file was cut at the export cap
-# (#512). Exposed through CORS in main.py for split-origin deployments.
+# Response headers an export sets so the UI can say when a file was cut at the export cap.
+# Exposed through CORS in main.py for split-origin deployments.
 EXPORT_ROWS_HEADER = "X-CoGA-Export-Rows"
 EXPORT_TRUNCATED_HEADER = "X-CoGA-Export-Truncated"
 EXPORT_LIMIT_HEADER = "X-CoGA-Export-Limit"

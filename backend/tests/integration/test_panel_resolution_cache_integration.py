@@ -1,4 +1,4 @@
-"""A panel's resolution is kept only while what it is read from is unchanged (ENG-14) —
+"""A panel's resolution is kept only while what it is read from is unchanged —
 real Postgres.
 
 A panel filter applies the panel's genes, its regions stored for the family's assembly and
@@ -14,7 +14,7 @@ through the reference import and a panel made and edited through the panel servi
 * an edit through the panel service reads the panel again, with its new gene;
 * a gene written into the panel's rows, or taken out, without a new version, is read too;
 * a gene-reference reload that moves a gene reads its loci again, and the check that lets
-  a broader ranking serve a sub-panel (CLIN-27) passes over a ranking recorded on the old
+  a broader ranking serve a sub-panel passes over a ranking recorded on the old
   loci, and takes one recorded on the new.
 
 Every record is the test's own (a species, assembly, user and gene symbols of its own) and
@@ -91,7 +91,7 @@ def test_a_kept_panel_resolution_follows_every_change_of_what_it_is_read_from(mo
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
             async with sm() as s:
-                ids["species"] = await fresh_species(s, f"ENG-14 {tag} {uuid4()}")
+                ids["species"] = await fresh_species(s, f"Panel resolution cache {tag} {uuid4()}")
                 ids["assembly"] = await fresh_assembly(s, ids["species"], f"ENG14-{tag}")
                 ids["user"] = (
                     await s.execute(
@@ -124,10 +124,10 @@ def test_a_kept_panel_resolution_follows_every_change_of_what_it_is_read_from(mo
                         _gene_row(assembly, gene_c, f"ENST{tag}C1", "3", 20_000, 21_000),
                     ],
                     overwrite=False,
-                    source="ENG-14 integration test",
+                    source="Panel resolution cache integration test",
                 )
             async with sm() as s:
-                created = await create_panel_data(s, GenePanelCreate(name=f"ENG-14 {tag}", genes=[gene_a, gene_b]), admin)
+                created = await create_panel_data(s, GenePanelCreate(name=f"Panel resolution cache {tag}", genes=[gene_a, gene_b]), admin)
             ids["panel"] = panel = created.panel.id
 
             async def resolve():
@@ -189,7 +189,7 @@ def test_a_kept_panel_resolution_follows_every_change_of_what_it_is_read_from(mo
                         _gene_row(assembly, gene_c, f"ENST{tag}C1", "3", 20_000, 21_000),
                     ],
                     overwrite=True,
-                    source="ENG-14 integration test, reloaded",
+                    source="Panel resolution cache integration test, reloaded",
                 )
             reloaded = await resolve()
             assert len(reads) == 5
@@ -197,7 +197,7 @@ def test_a_kept_panel_resolution_follows_every_change_of_what_it_is_read_from(mo
             assert ("1", 1_200, 1_800) not in loci(reloaded)
             assert panel_members_digest(reloaded) != recorded_before
 
-            # CLIN-27: a ranking recorded on the old loci no longer serves a sub-panel; one
+            # A ranking recorded on the old loci no longer serves a sub-panel; one
             # recorded on the new loci does, from the kept resolution.
             async with sm() as s:
                 old = {"panel_id": panel, "provenance": {"panel_members": recorded_before}}

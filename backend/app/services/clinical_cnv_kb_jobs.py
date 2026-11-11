@@ -5,7 +5,7 @@ as an isolated subprocess so its heavy/optional dependencies and external
 network fetches never touch the API process, then loads the resulting TSV into
 ``clinical_cnvs`` for the target assembly via the standard reference loader. The build reads
 ClinGen's recurrent CNV file only if its SHA-256 is the pinned one, and the load records that
-file's release and SHA-256 as the knowledgebase's release (TRACE-14).
+file's release and SHA-256 as the knowledgebase's release.
 
 Progress is tracked in ``clinical_cnv_kb_jobs``; the build runs as an in-process
 background task and the admin UI polls the status endpoint. One job may be active (queued
@@ -25,7 +25,7 @@ Should the old worker come back, the job is no longer its own: each of its write
 guarded by its worker id.
 
 A rebuild is an administrator's (the route requires one), and it is run, and what it built
-loaded, only while the account that asked for it is an active administrator (SEC-35): the job
+loaded, only while the account that asked for it is an active administrator: the job
 keeps that account by its id (``requested_by_id``), and ``_run_job`` checks it as the job
 starts and again before the load, the rebuild's one write, as the build runs for up to
 ``CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS`` before it. A job whose account no longer exists, has
@@ -84,7 +84,7 @@ _STALE_ERROR = (
 _SCRIPT_MISSING = "The clinical CNV knowledgebase build script is not available on the server."
 _FAILED = "status = 'failed', worker_id = NULL, completed_at = now(), error = :error"
 # The build writes the pinned source files it checked to this file in its temporary folder
-# (--sources-out), and the load records them (TRACE-14).
+# (--sources-out), and the load records them.
 _SOURCES_FILE = "clinical_cnv_knowledgebase.sources.json"
 _SOURCES_UNRECORDED = (
     "The build did not record the SHA-256 of the ClinGen recurrent CNV file it read, so the "
@@ -110,7 +110,7 @@ def _requester_lost(lapse: str) -> str:
     )
 
 
-# Why a rebuild is not run, or what it built not loaded, as the job's error says (SEC-35): the
+# Why a rebuild is not run, or what it built not loaded, as the job's error says: the
 # account that asked for it no longer exists, has been deactivated, or is no longer an
 # administrator, as the route required. None names the account: the job does.
 REQUESTER_GONE_ERROR = _requester_lost("no longer exists")
@@ -120,7 +120,7 @@ REQUESTER_NOT_ADMIN_ERROR = _requester_lost("is no longer an administrator")
 
 # What the knowledgebase build script needs from the environment, and nothing else: it
 # makes network calls to external sources, so it must not inherit the backend's database
-# passwords, signing keys or cloud credentials (#522). OMIM_API_KEY is its one credential.
+# passwords, signing keys or cloud credentials. OMIM_API_KEY is its one credential.
 _SCRIPT_ENV_ALLOWLIST = frozenset(
     {
         "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "TEMP", "TMP",
@@ -153,8 +153,8 @@ def _failure_reason(stderr_tail: str) -> str:
 
 def checked_files_release(sources_json: str) -> str:
     """What the load records as the knowledgebase's release: each pinned file the build read,
-    by source, release, file name and SHA-256 (TRACE-14), then each file it read as
-    published on the day, by source, file name and SHA-256 (TRACE-18), e.g. ``ClinGen
+    by source, release, file name and SHA-256, then each file it read as
+    published on the day, by source, file name and SHA-256, e.g. ``ClinGen
     recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 …; read as published:
     UCSC cytobands: cytoBand.txt.gz, SHA-256 …``.
 
@@ -176,7 +176,7 @@ def checked_files_release(sources_json: str) -> str:
         if not isinstance(digest, str) or not _SHA256_HEX.fullmatch(digest):
             raise ValueError("a checked source file lacks its SHA-256")
         described.append(f"{str(source).strip()} {str(release).strip()}: {_file_name(url)}, SHA-256 {digest}")
-    recorded = payload.get("recorded_files", [])
+    recorded = payload.get("recorded_files")
     if not isinstance(recorded, list):
         raise ValueError("the build's record of the files it read is not a list")
     read: list[str] = []
@@ -298,8 +298,8 @@ async def queue_clinical_cnv_kb_rebuild(
     requested_by: CurrentUser | None,
 ) -> ClinicalCnvKbJobOut:
     """Queue the rebuild an administrator asked for, and start it. The job keeps its requester
-    by the account's id, which its run checks (SEC-35), and the e-mail address it was asked
-    under, which it shows: a Microsoft sign-in may change the address (SEC-32). None is a
+    by the account's id, which its run checks, and the e-mail address it was asked
+    under, which it shows: a Microsoft sign-in may change the address. None is a
     rebuild a start queues, which is no account's (``STARTUP_REQUESTER``)."""
     if _script_path() is None:
         raise HTTPException(status_code=503, detail=_SCRIPT_MISSING)
@@ -473,7 +473,7 @@ async def _record_failure(job_id: str, worker_id: str | None, error: str) -> Non
 async def _requester_refusal(requester_id: str | None, requested_by: str | None = None) -> str | None:
     """Why the rebuild is not run, or not loaded, for the account that asked for it: it no
     longer exists (its deletion unlinks the job), has been deactivated, or is no longer an
-    administrator, as the route required (SEC-35). None while it is an active administrator,
+    administrator, as the route required. None while it is an active administrator,
     and for a rebuild a start queued, which is no account's."""
     if requester_id is None and requested_by == STARTUP_REQUESTER:
         return None
@@ -550,7 +550,7 @@ async def _run_job(job_id: str) -> None:
             logger.info("Clinical CNV knowledgebase rebuild %s is no longer queued; not started", job_id)
             return
         owner = worker_id
-        # Run only for an active administrator (SEC-35); the log names the job, not the account.
+        # Run only for an active administrator; the log names the job, not the account.
         refusal = await _requester_refusal(row.get("requested_by_id"), row.get("requested_by"))
         if refusal is not None:
             logger.warning(
@@ -604,7 +604,7 @@ async def _run_job(job_id: str) -> None:
             return
 
         tsv_text = await asyncio.to_thread(Path(out_path).read_text, encoding="utf-8")
-        # The pinned files the build read are recorded with the load (TRACE-14): without that
+        # The pinned files the build read are recorded with the load: without that
         # record nothing is loaded, before anything is replaced.
         try:
             release = await asyncio.to_thread(_read_checked_files_release, sources_path)
@@ -624,7 +624,7 @@ async def _run_job(job_id: str) -> None:
             return
         # Replace the knowledgebase only while the job is still this worker's, and its
         # requester still an active administrator: the build ran for up to two hours, and an
-        # account deleted, deactivated or demoted meanwhile has nothing loaded (SEC-35).
+        # account deleted, deactivated or demoted meanwhile has nothing loaded.
         if not await _update_job(job_id, owner, "heartbeat_at = now()", {}):
             raise _JobClosed()
         refusal = await _requester_refusal(row.get("requested_by_id"), row.get("requested_by"))
@@ -647,7 +647,7 @@ async def _run_job(job_id: str) -> None:
             # curation, ClinVar and UCSC data current on the day, dated by when it was loaded.
             # Its release records the files it was built from: its one pinned source,
             # ClinGen's recurrent CNV file, by release, file name and SHA-256, and each file
-            # read as published on the day by file name and SHA-256 (TRACE-18).
+            # read as published on the day by file name and SHA-256.
             result = await apply_reference_dataset_text(
                 session,
                 assembly_id=row["assembly_id"],

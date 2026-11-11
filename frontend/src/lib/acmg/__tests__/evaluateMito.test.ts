@@ -48,8 +48,8 @@ describe('evaluateMitoAcmg', () => {
   });
 
   it('offers PM2 for review, and leaves BA1 / BS1 open, without a frequency in the annotation', () => {
-    // Absent from gnomAD, or gnomAD not annotated: the annotation does not say which. Before,
-    // PM2 applied as "Absent from gnomAD-MT.".
+    // Absent from gnomAD, or gnomAD not annotated: the annotation does not say which, so PM2 is
+    // not applied as "Absent from gnomAD-MT.".
     for (const gnomad_af of [undefined, null]) {
       const suggestions = evaluateMitoAcmg(
         { ...baseVariant, gnomad_af: gnomad_af as number | undefined },
@@ -72,7 +72,7 @@ describe('evaluateMitoAcmg', () => {
 
   it('offers PP5 / BP6 from the MITOMAP/ClinVar status for review, never applied', () => {
     // ClinGen's SVI advises against counting another source's assertion (the owner's choice of
-    // 2026-11-06): before, both were applied.
+    // 2026-11-06).
     expect(
       find(evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'pathogenic' }), 'PP5')?.disposition,
     ).toBe('consider');
@@ -201,7 +201,7 @@ describe('evaluateMitoAcmg', () => {
     expect(codes(suggestions)).toContain('PP4');
   });
 
-  // #609 — without the gene profile or the HPO terms the overlap is unknown, not absent.
+  // Without the gene profile or the HPO terms the overlap is unknown, not absent.
   it('offers PP4 for review when a lookup it needs failed', () => {
     const mito: AcmgMitoContext = { category: 'protein coding', calls: [] };
     const pp4 = find(

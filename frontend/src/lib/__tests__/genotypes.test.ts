@@ -45,7 +45,7 @@ describe('hasAltAllele', () => {
   });
 });
 
-// #511: one classification, the same as the backend's services/genotypes.py.
+// One classification, the same as the backend's services/genotypes.py.
 describe('classifyGenotype', () => {
   it.each([
     ['1', 'hom_alt'],

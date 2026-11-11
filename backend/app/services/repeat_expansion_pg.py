@@ -190,9 +190,9 @@ def _configured_strchive_loci_paths() -> list[Path]:
 class StrchiveReleaseRefused(RuntimeError):
     """The STRchive file a start would read is not the shipped release, or there is none.
 
-    The built-in loci carry the shipped release's thresholds (CLIN-22), so a call reads the
+    The built-in loci carry the shipped release's thresholds, so a call reads the
     same whichever catalogue row its TRID finds only while the STRchive rows are that release
-    too. A start that would seed another file is refused before anything is written (CLIN-31).
+    too. A start that would seed another file is refused before anything is written.
     """
 
 
@@ -213,7 +213,7 @@ def _refuse_strchive_release(message: str) -> StrchiveReleaseRefused:
 
 
 def read_shipped_strchive_release(path: Path) -> bytes:
-    """The STRchive file's bytes, if it is the shipped release byte for byte (CLIN-31).
+    """The STRchive file's bytes, if it is the shipped release byte for byte.
 
     The file states no release of its own, so its SHA-256 names it: the pin
     ``STRCHIVE_PINNED_LOCI_SHA256``. An identical copy passes wherever it lies; any other
@@ -367,8 +367,7 @@ async def seed_builtin_repeat_catalog(session: AsyncSession) -> None:
     The STRchive file is checked first (``_load_configured_strchive_repeat_loci``): a file
     that is not the shipped release, or none, refuses the start before anything is written.
     The STRchive rows then become exactly that release's: a STRchive row it does not list,
-    left by an earlier start, is removed, so no TRID can find another release's thresholds
-    (CLIN-31)."""
+    left by an earlier start, is removed, so no TRID can find another release's thresholds."""
     strchive_loci = _load_configured_strchive_repeat_loci()
     await _seed_repeat_catalog_entries(session, BUILTIN_REPEAT_LOCI)
     await _seed_repeat_catalog_entries(session, strchive_loci)
@@ -399,7 +398,7 @@ def parse_float_list(value: str | None) -> list[float | None]:
             continue
         number = float(item)
         # ``nan`` and ``inf`` read as floats, which the stored JSON cannot hold: Postgres
-        # refused the insert with a 500 (DATA-7, SAFE-3).
+        # would refuse the insert.
         if not math.isfinite(number):
             raise ValueError(f"{item!r} is no finite number")
         items.append(number)
@@ -491,10 +490,10 @@ def classify_repeat_count(
     On a non-monotonic locus a count outside every stated range is ``review``, not
     ``normal``: "further from the threshold is safer" is exactly the assumption that
     fails there, and the catalog says nothing about those counts. ``review`` ranks above
-    ``normal`` so such an allele can never hide behind a normal one (#535); ``unknown``
+    ``normal`` so such an allele can never hide behind a normal one; ``unknown``
     is kept for a no-call.
 
-    On a monotonic locus the thresholds alone decide, as they always have: the benign
+    On a monotonic locus the thresholds alone decide: the benign
     range is not consulted. Where the catalog's benign range shares its upper endpoint
     with the grey zone (RFC1 11, SCA8/ATXN8OS 50), that count therefore reads as
     ``intermediate`` — the conservative reading of an ambiguous boundary.
@@ -507,16 +506,16 @@ def classify_repeat_count(
     A locus without thresholds -- no intermediate, premutation or pathogenic threshold:
     no catalogue row matches the call's TRID, or the row states none (STRchive's MUC1 and
     POLG) -- gives a called allele ``not_assessed``. Read as ``normal``, an expansion there
-    could not be seen (CLIN-26). Where such a row states a benign range, a count inside it
+    could not be seen. Where such a row states a benign range, a count inside it
     is ``normal``: the catalogue calls that count benign (STRchive's POLG, exactly 10; the
-    owner's decision of 2026-10-14, CLIN-36). Any other count there, above the range or
+    owner's decision of 2026-10-14). Any other count there, above the range or
     below it, stays ``not_assessed``: a benign range is not a threshold, and nothing says
     where harm starts. A range is stated by both of its ends.
 
     A row with a pathogenic threshold and a benign range below it, but no grey zone of its
     own (no intermediate threshold), leaves the counts between the two unclassified: such a
     count is neither benign nor pathogenic, and reads ``intermediate``, the cautious reading
-    of a gap (the owner's decision of 2026-10-27, CLIN-14). It read ``normal``. Below the
+    of a gap (the owner's decision of 2026-10-27). Below the
     benign range, and at a row without one, a count under the threshold stays ``normal``.
     """
     if repeat_count is None:
@@ -560,8 +559,8 @@ def classify_repeat_count(
 
 # How much attention a status calls for; the row / locus shows its most severe allele.
 # "review" (a count the catalog cannot classify) outranks "normal" so it surfaces in the
-# aberrant-only view; "unknown" (no call) ranks lowest (#535). "not_assessed" (a count at a
-# locus without thresholds, outside any benign range stated there: CLIN-26, CLIN-36) outranks
+# aberrant-only view; "unknown" (no call) ranks lowest. "not_assessed" (a count at a
+# locus without thresholds, outside any benign range stated there) outranks
 # "normal" for the same reason, and "review" so that a male's two chrX alleles at such a locus
 # keep saying why it was not assessed (the note still asks for review). A premutation ranks
 # between the grey zone and a full mutation.
@@ -604,9 +603,8 @@ def _reclassify_repeat_alleles(
     through here, so the correction QA records reaches each at once, whatever the call was
     stored with.
 
-    Without any threshold an allele reads ``not_assessed``, unless its count lies inside the
-    benign range the catalogue row states there, where it reads ``normal`` (CLIN-26, CLIN-36).
-    A no-call keeps its stored status.
+    Without any threshold an allele reads ``not_assessed``, and a count inside the benign
+    range the catalogue row states there reads ``normal``. A no-call keeps its stored status.
     """
     if not isinstance(alleles, list):
         return []
@@ -763,8 +761,7 @@ def _call_status(alleles: list[dict[str, Any]], *, note: str | None) -> str:
 
 def _review_reason(alleles: list[dict[str, Any]], status: str) -> RepeatReviewReason | None:
     """Why a call reads ``review``: a count the catalogue cannot classify (an allele's own
-    status), else the male chrX note that raised it. The page said "outside catalogued
-    ranges" for both, the wrong reason for the note (CLIN-14). None for any other status."""
+    status), else the male chrX note that raised it. None for any other status."""
     if status != "review":
         return None
     if any(allele.get("status") == "review" for allele in alleles):
@@ -775,7 +772,7 @@ def _review_reason(alleles: list[dict[str, Any]], status: str) -> RepeatReviewRe
 def _classified_call(
     row: Mapping[str, Any] | RowMapping, *, sex: str | None, assembly_name: str | None
 ) -> tuple[list[dict[str, Any]], RepeatStatus, str | None]:
-    """A stored call as the family table and the genome track read it (CLIN-14): its alleles
+    """A stored call as the family table and the genome track read it: its alleles
     reclassified against the catalogue row that classifies it (``_CALL_CATALOGUE_COLUMNS``),
     each count corrected by QA's correction for that row (``count_offset``, CLIN-57) before it
     is classified, each with its count-unit warning made from the corrected count, and the
@@ -895,7 +892,7 @@ async def _build_repeat_locus_lookup(session: AsyncSession) -> RepeatLocusLookup
     Except where the rows a key names in its best field include several STRchive loci: the
     tracts of ARX or HOXA13 under the gene's name, or the loci a tag names. The first of those
     by locus_id is one tract among several, with thresholds of its own, so such a key names
-    no row; its loci are in ``tracts``, for the call's position to choose (CLIN-31). A
+    no row; its loci are in ``tracts``, for the call's position to choose. A
     built-in row and its STRchive row (``HD``: HTT and HD_HTT) are one locus, with the same
     thresholds, and keep the rule above.
     """
@@ -975,7 +972,7 @@ def _resolve_repeat_locus(
 
     A TRID names one row, or none. The gene of a locus with several repeat tracts (ARX,
     HOXA13) names each tract (``RepeatLocusLookup.tracts``): the call's region picks the one
-    it overlaps on the family's assembly (the owner's decision of 2026-10-14, CLIN-31). If it
+    it overlaps on the family's assembly (the owner's decision of 2026-10-14). If it
     overlaps none of them, or several, or the assembly has no STRchive coordinates, no row
     classifies the call: it reads *not assessed*, never by another tract's thresholds, and
     the reason says why.
@@ -1128,9 +1125,7 @@ _TRGT_POSITION_MAX = 2**32 - 1
 
 def _trgt_position(value: Any) -> int:
     """A TRGT record's position (``POS``, ``END``) as the whole number it writes; ValueError
-    for any other value, a fraction or one no chromosome reaches among them. ``int()`` read
-    a fraction as an error and a 25-digit position as one the table could not hold: both
-    answered 500 (DATA-7, SAFE-3)."""
+    for any other value, a fraction or one no chromosome reaches among them."""
     text_value = str(value).strip()
     if not re.fullmatch(r"[0-9]+", text_value) or int(text_value) > _TRGT_POSITION_MAX:
         raise ValueError(f"{text_value!r} is no chromosome position")
@@ -1139,8 +1134,8 @@ def _trgt_position(value: Any) -> int:
 
 def _trgt_record(line_number: int, *, chrom: str, pos: str, **fields: Any) -> dict[str, Any]:
     """``_build_trgt_insert_params`` for the record on ``line_number``, refused (400) when a
-    value it reads as a number is none: a malformed TRGT value answered 500 (DATA-7, SAFE-3).
-    The file is refused before any stored call is deleted."""
+    value it reads as a number is none. The file is refused before any stored call is
+    deleted."""
     try:
         return _build_trgt_insert_params(chrom=chrom, pos=pos, **fields)
     except ValueError as exc:
@@ -1325,8 +1320,8 @@ def _build_trgt_insert_params(
                 "motifs": motifs,
                 "vcf_sample": header_sample,
                 "raw_format": sample_values,
-                # Why the call's TRID, naming several STRchive loci, classified it by none
-                # (CLIN-31): the family table shows it with the call.
+                # Why the call's TRID, naming several STRchive loci, classified it by none:
+                # the family table shows it with the call.
                 **({"locus_not_resolved": locus_not_resolved} if locus_not_resolved else {}),
             }
         ),
@@ -1362,7 +1357,7 @@ async def _update_sample_repeat_file(
 
 # A TRGT VCF holds a record for every locus of the catalogue TRGT genotyped, a no-call
 # included, so one without a record for a sample is no result for it: a header alone, a
-# file cut short before its records, or nothing at all (SAFE-29).
+# file cut short before its records, or nothing at all.
 NO_TRGT_RECORDS = "No valid TRGT records found"
 
 
@@ -1390,8 +1385,8 @@ async def read_trgt_sample_calls(
 
     The column is chosen by ``per_sample_vcf_column`` (``declared`` is a package entry's
     ``vcf_sample``): a file with no column for the sample, or whose column names another
-    sample, is refused (400). So is a file with no record for the sample (SAFE-29): it used
-    to replace the sample's calls with none.
+    sample, is refused (400). So is a file with no record for the sample, which would
+    replace the sample's calls with none.
     """
     lines = text_value.splitlines()
     header_samples: list[str] = []
@@ -1537,8 +1532,7 @@ async def ingest_family_trgt_text(
     """The TRGT calls of every family sample a column of the family VCF ``text_value``
     names, each sample's in place of its stored TRGT calls. The whole file is read before
     any of them is deleted: a file none of whose columns names a family sample, or with no
-    record for a sample it names (SAFE-29: it used to replace that sample's calls with none),
-    is refused (400) with the stored calls as they were."""
+    record for a sample it names, is refused (400) with the stored calls as they were."""
     lines = text_value.splitlines()
     header_samples: list[str] = []
     matched_samples: dict[str, SampleMetadataContext] = {}
@@ -1558,8 +1552,7 @@ async def ingest_family_trgt_text(
                 if resolved is not None:
                     matched_samples[sample_name] = sample_contexts[resolved]
             if not matched_samples:
-                # Silently inserting zero rows here used to report "imported" while the
-                # repeat callset was dropped entirely.
+                # Inserting zero rows here would report "imported" with no repeat call.
                 raise HTTPException(
                     status_code=400,
                     detail=(
@@ -1687,7 +1680,7 @@ _CALL_CATALOGUE_COLUMNS = """                COALESCE(catalog.locus_id, repeat_e
                 repeat_expansions.allele_count,
                 repeat_expansions.alleles,
                 -- Why the import classified the call by no catalogue locus, where its TRID
-                -- names several (CLIN-31); shown while no row matches it.
+                -- names several; shown while no row matches it.
                 CASE WHEN catalog.locus_id IS NULL
                      THEN repeat_expansions.metadata ->> 'locus_not_resolved' END AS locus_not_resolved"""
 
@@ -1747,7 +1740,7 @@ _CALL_CATALOGUE_JOINS = """            -- The STRchive loci the call's names rea
                   -- Names that reach several STRchive loci (ARX's or HOXA13's tracts, a
                   -- shared tag) choose none of them: only the locus the call was stored
                   -- under classifies it. The import chose that tract by the call's position,
-                  -- which a name cannot do (CLIN-31).
+                  -- which a name cannot do.
                   AND (
                        lower(repeat_loci.locus_id) = lower(repeat_expansions.locus_id)
                     OR strchive_named.loci <= 1
@@ -1759,8 +1752,8 @@ _CALL_CATALOGUE_JOINS = """            -- The STRchive loci the call's names rea
                         ELSE 2
                     END,
                     -- A gene can be catalogued twice (built-in ATXN8OS and STRchive
-                    -- SCA8_ATXN8OS). Without a tie-breaker the call's thresholds depended
-                    -- on row order (#535): prefer the entry that carries the catalogued
+                    -- SCA8_ATXN8OS). Without a tie-breaker the call's thresholds would
+                    -- depend on row order: prefer the entry that carries the catalogued
                     -- ranges, then a stable id.
                     ((repeat_loci.metadata ->> 'benign_max') IS NOT NULL) DESC,
                     repeat_loci.locus_id
@@ -1830,7 +1823,7 @@ async def get_family_repeat_expansion_table_response(
             row, sex=meta.get("sex"), assembly_name=context.assembly_name
         )
         review_reason = _review_reason(alleles, row_status)
-        # Why no catalogue locus classifies the call, where its TRID names several (CLIN-31).
+        # Why no catalogue locus classifies the call, where its TRID names several.
         # It explains the status the alleles already have, so it does not raise it.
         call_note = " ".join(part for part in (note, row.get("locus_not_resolved")) if part) or None
         key = str(row.get("locus_id") or f'{row.get("chr")}:{row.get("start")}')
@@ -1928,7 +1921,7 @@ async def get_sample_repeat_expansion_track_response(
         params["start"] = start
         params["end"] = end
     # The catalogue row that classifies each call, and the call read against it, as the
-    # family table reads it (CLIN-14).
+    # family table reads it.
     query = text(
         f"""
         SELECT

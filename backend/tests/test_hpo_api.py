@@ -311,7 +311,7 @@ def test_family_member_management_endpoints(hpo_api_client) -> None:
 
 
 def test_a_database_error_in_a_member_edit_is_a_server_error_that_names_no_table(hpo_api_client) -> None:
-    # ENG-8. Startup applies the schema, or refuses to serve on another revision, so a
+    # Startup applies the schema, or refuses to serve on another revision, so a
     # database error in a member route is the server's, answered as any other: a 500 that
     # names no table and does not mention the schema.
     _client, monkeypatch = hpo_api_client

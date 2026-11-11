@@ -10,7 +10,7 @@ full mutation, and the stored status may hold it (integration/test_repeat_status
 A full mutation is more than 200 repeats. FMR1 has two catalogue rows, the built-in ``FMR1``
 and STRchive's ``FXS_FMR1``, and the call's TRID decides which one classifies it. Both rows
 start the full mutation at 201, so a 200-repeat premutation reads as a full mutation under
-neither (CLIN-2).
+neither.
 All samples and values are synthetic.
 """
 
@@ -157,7 +157,7 @@ async def test_the_family_table_reads_the_premutation_from_the_catalogue() -> No
     assert call.status == "premutation"
 
 
-# ---- The full mutation starts at 201, under either catalogue row (CLIN-2) ---------------------
+# ---- The full mutation starts at 201, under either catalogue row ---------------------
 #
 # The classifier reads pathogenic_min as the first pathogenic count (">="), as STRchive's
 # inclusive ranges do (FXS_FMR1: intermediate 45-200, pathogenic 201-2000). A full mutation is

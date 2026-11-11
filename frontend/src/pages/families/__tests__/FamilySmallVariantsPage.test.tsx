@@ -249,7 +249,7 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByText('Standard tags')).toBeInTheDocument();
     expect(screen.getByText('Custom tags')).toBeInTheDocument();
     expect(screen.getByLabelText(/Only show variants with saved notes/i)).toBeInTheDocument();
-    // The family search applies every exclusion; only the explorer hides some (#526).
+    // The family search applies every exclusion; only the explorer hides some.
     expect(screen.getByPlaceholderText(/^Excluded genes:/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/^Excluded intervals:/)).toBeInTheDocument();
     expect(screen.getByText('Excluded standard tags')).toBeInTheDocument();
@@ -301,8 +301,8 @@ describe('FamilySmallVariantsPage', () => {
     expect(await screen.findByText(factText('Showing 7'))).toBeInTheDocument();
   });
 
-  // #608 — the search runs within the linked project; with the catalogue failed it used to
-  // wait for the project for good. It says the reference failed, and retries.
+  // The search runs within the linked project; with the catalogue failed it does not wait
+  // for the project for good: it says the reference failed, and retries.
   it('says the reference failed, instead of loading for good, and runs the search on retry', async () => {
     let projectRequests = 0;
     apiMock.get.mockImplementation((url: string) => {
@@ -336,8 +336,8 @@ describe('FamilySmallVariantsPage', () => {
     expect(await screen.findByText(factText('Showing 7'))).toBeInTheDocument();
   });
 
-  // SAFE-14 — the search waits for the family record, which holds what the header warns of;
-  // with the record failed it waited for good. It says the family failed, and retries.
+  // The search waits for the family record, which holds what the header warns of; with the
+  // record failed it does not wait for good: it says the family failed, and retries.
   it('says the family could not be loaded, instead of loading for good, and runs the search on retry', async () => {
     let familyRequests = 0;
     apiMock.get.mockImplementation((url: string) => {
@@ -369,8 +369,8 @@ describe('FamilySmallVariantsPage', () => {
     expect(await screen.findByText(factText('Showing 7'))).toBeInTheDocument();
   });
 
-  // #606 — a failed panel list used to leave the select at "Any gene panel" while the
-  // panel from the URL was still applied, and to drop the default Mendeliome scope unsaid.
+  // A failed panel list leaves the select at the panel from the URL, which is still applied,
+  // never at "Any gene panel", and says the default Mendeliome scope is not applied.
   it('keeps an applied panel visible when the panel list could not be loaded', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
@@ -396,8 +396,8 @@ describe('FamilySmallVariantsPage', () => {
     expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
   });
 
-  // #604 — an interval list entry that cannot be read is named, not skipped: skipped, the
-  // search covered less than the list asked, or read as a family without variants.
+  // An interval list entry that cannot be read is named, not skipped: skipped, the search
+  // would cover less than the list asked, or read as a family without variants.
   describe('an unreadable interval', () => {
     const serveFamily = () =>
       apiMock.get.mockImplementation((url: string) => {
@@ -492,7 +492,7 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.queryByText('345')).not.toBeInTheDocument();
   });
 
-  describe('a search that read only part of the callset (#725 follow-up)', () => {
+  describe('a search that read only part of the callset', () => {
     const renderWithPage = (page: Record<string, unknown>) => {
       apiMock.get.mockImplementation((url: string) => {
         if (url === '/families/F1') {
@@ -1070,7 +1070,7 @@ describe('FamilySmallVariantsPage', () => {
     const payload = apiMock.put.mock.calls.at(-1)?.[1] as Record<string, unknown> | undefined;
     expect(payload).toBeTruthy();
     expect(payload?.compound_het).toBeUndefined();
-    // #513: the save names the version it was made against.
+    // The save names the version it was made against.
     expect(payload?.expected_updated_at).toBe('2026-04-14T10:00:00Z');
   });
 
@@ -1109,7 +1109,7 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.queryByText('Loading variants')).not.toBeInTheDocument();
   });
 
-  it('shows a review conflict and reloads instead of overwriting (#513)', async () => {
+  it('shows a review conflict and reloads instead of overwriting', async () => {
     apiMock.put.mockRejectedValue({
       response: {
         status: 409,
@@ -1308,11 +1308,11 @@ describe('FamilySmallVariantsPage', () => {
     });
   });
 
-  // Found while fixing #1012: saved searches are each user's own, and this page and the NIPT page
-  // share them. A search saved on the NIPT page carries the NIPT list's own filters, and this page
-  // sent them: a NIPT inheritance view failed the whole search, the fetal de novo view was read as
-  // de novo / dominant, and the NIPT-only filters were chipped and counted though the list never
-  // applied them.
+  // Saved searches are each user's own, and this page and the NIPT page share them. A search
+  // saved on the NIPT page carries the NIPT list's own filters, which this page does not send:
+  // a NIPT inheritance view would fail the whole search, the fetal de novo view would be read
+  // as de novo / dominant, and no NIPT-only filter is chipped or counted, as the list never
+  // applies them.
   describe('a search saved on the NIPT page, or a link with its filters', () => {
     // What the server reads as an inheritance (clickhouse_variant_queries: its modes, and the
     // spellings it reads as one of them). It refuses any other, and with it the whole search.

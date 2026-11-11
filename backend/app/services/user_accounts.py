@@ -1,4 +1,4 @@
-"""Who signs in, with Microsoft sign-in configured (SEC-4).
+"""Who signs in, with Microsoft sign-in configured.
 
 With Azure AD (Microsoft Entra ID) configured, users sign in with their Microsoft account. A
 user's first sign-in makes their CoGA account: bound to their object ID in the directory, the

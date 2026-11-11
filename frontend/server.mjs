@@ -24,7 +24,7 @@ export const ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 export const SHELL_CACHE_CONTROL = 'no-cache';
 
 // A request's method and URL in a log line: line breaks removed so a URL cannot forge
-// log lines, and passed as %s arguments, never as the format string itself (#702). The
+// log lines, and passed as %s arguments, never as the format string itself. The
 // breaks are deleted, not replaced: that is the form CodeQL recognises as a sanitiser.
 const forLog = (value) => String(value).replace(/\n|\r/g, '');
 const hopByHopHeaders = new Set([
@@ -54,13 +54,13 @@ const apiProxy = async (req, res) => {
       headers.set(name, value);
     }
   }
-  // One clean client address for the backend's throttling and audit log (#521).
+  // One clean client address for the backend's throttling and audit log.
   for (const [name, value] of Object.entries(forwardedHeaders(req))) {
     if (value) headers.set(name, value);
   }
 
   // A backend that never answers must not hold the request open forever, and a
-  // client that goes away should not leave the backend working for nobody (#521).
+  // client that goes away should not leave the backend working for nobody.
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -106,8 +106,8 @@ const apiProxy = async (req, res) => {
       res.end();
       return;
     }
-    // pipeline, not pipe: an upstream reset mid-stream used to be an unhandled stream
-    // error that could take the whole server down (#521). Now it ends this response.
+    // pipeline, not pipe: an upstream reset mid-stream ends this response, never as an
+    // unhandled stream error that could take the whole server down.
     pipeline(Readable.fromWeb(upstream.body), res, (error) => {
       if (error && !controller.signal.aborted) {
         console.error('API proxy stream failed for %s %s', forLog(req.method), forLog(req.originalUrl), error);
@@ -139,7 +139,7 @@ const apiProxy = async (req, res) => {
 /** The server for the build in `distPath`, a folder holding index.html and assets/. */
 export function createApp(buildPath = distPath) {
   const app = express();
-  // The app shell, read once: no request reaches the file system for it (#702). Absent
+  // The app shell, read once: no request reaches the file system for it. Absent
   // until the app is built (a test importing this module); the fallback then answers 503.
   const indexHtmlPath = path.join(buildPath, 'index.html');
   const indexHtml = existsSync(indexHtmlPath) ? readFileSync(indexHtmlPath) : null;
@@ -152,10 +152,10 @@ export function createApp(buildPath = distPath) {
   // these itself (applySecurityHeaders).
   app.use(securityHeaders);
 
-  // A file under /assets that is not there answers 404. It used to fall through to the app
-  // shell, an HTML page answered with 200, which a browser cannot run as a script ("Failed to
-  // fetch dynamically imported module"): what a tab opened before a release asks for when it
-  // opens a page. The app reloads itself then (src/lib/lazyPage.ts).
+  // A file under /assets that is not there answers 404, never the app shell: an HTML page
+  // answered with 200, which a browser cannot run as a script ("Failed to fetch dynamically
+  // imported module"). A tab opened before a release asks for such a file when it opens a page;
+  // the app reloads itself then (src/lib/lazyPage.ts).
   app.use(
     '/assets',
     express.static(path.join(buildPath, 'assets'), {

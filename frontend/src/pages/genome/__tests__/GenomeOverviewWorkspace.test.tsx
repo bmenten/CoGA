@@ -10,7 +10,7 @@ import {
 } from '../../../test/familyPageBanners';
 
 vi.mock('../../../components/visualizations/CoverageSegmentsChart', () => ({
-  // The axis it is drawn on, and whether it was given segments to draw (TRACE-9).
+  // The axis it is drawn on, and whether it was given segments to draw.
   default: ({ scale, segmentsUrls }: { scale?: string; segmentsUrls?: string[] }) => (
     <div data-testid="coverage-chart" data-scale={scale ?? 'log2_ratio'} data-segments={segmentsUrls ? 'yes' : 'no'} />
   ),
@@ -171,7 +171,7 @@ const drag = (surface: HTMLElement, fromX: number, toX: number) => {
 };
 
 describe('GenomeOverviewWorkspace', () => {
-  // #607 — which tracks a sample has decides which are mounted: a failed availability
+  // Which tracks a sample has decides which are mounted: a failed availability
   // request is not a sample without data.
   it('says the track availability failed, not that the samples have no data', () => {
     const retry = vi.fn();
@@ -185,7 +185,7 @@ describe('GenomeOverviewWorkspace', () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
-  // #610 — the chromosome lengths the view is laid out on failed: said by name, in place
+  // The chromosome lengths the view is laid out on failed: said by name, in place
   // of the tracks, instead of loading for good.
   it('names the request the tracks are waiting on when it is not the availability', () => {
     renderWorkspace({
@@ -262,7 +262,7 @@ describe('GenomeOverviewWorkspace', () => {
     fireEvent.click(screen.getByText('1'));
     expect(navigateToChromosome).toHaveBeenCalledWith('1');
 
-    // The keyboard opens a chromosome too (#529).
+    // The keyboard opens a chromosome too.
     navigateToChromosome.mockClear();
     const chromosome = screen.getByRole('button', { name: 'Open chromosome 1' });
     expect(chromosome).toHaveAttribute('tabindex', '0');
@@ -295,10 +295,10 @@ describe('GenomeOverviewWorkspace', () => {
     expect(navigateToChromosome).toHaveBeenCalledWith('2', { start: 200, end: 400 });
   });
 
-  // The strip writes each chromosome as the sidebar, the chromosome view and the tracks name it
-  // (#602), without its chr, which its narrow slots have no room for (1, X), and opens the
-  // chromosome view's route. ENG-7 named the mitochondrion M here; the overview has left it out
-  // since ENG-20 (the owner's decision of 2026-10-28), so no layout the page builds holds it.
+  // The strip writes each chromosome as the sidebar, the chromosome view and the tracks name it,
+  // without its chr, which its narrow slots have no room for (1, X), and opens the chromosome
+  // view's route. The overview leaves the mitochondrion out (the owner's decision of
+  // 2026-10-28), so no layout the page builds holds it.
   it('names each chromosome in the strip without its chr, and opens it by its route', () => {
     const navigateToChromosome = vi.fn();
     renderWorkspace({
@@ -357,11 +357,10 @@ describe('GenomeOverviewWorkspace', () => {
     expect(screen.getByTestId('genome-region-select-coverage-PROBAND-qdnaseq')).toBeInTheDocument();
   });
 
-  // TRACE-7, TRACE-9 — each coverage track is drawn on the axis of what it holds, as the track
+  // Each coverage track is drawn on the axis of what it holds, as the track
   // availability serves it: a log2 ratio on the log2-ratio axis, read depth on a depth axis
-  // (HiFiCNV's depths stored as read, which were left off the chart), and a coverage BED that
-  // does not declare what it holds on its own range without an axis (it was drawn on the
-  // log2-ratio axis while the depth readers read it as depth).
+  // (HiFiCNV's depths stored as read), and a coverage BED that does not declare what it holds
+  // on its own range without an axis: it is not read as depth either.
   it('draws each coverage track on the axis of what it holds, and says why where that is not a log2 ratio', () => {
     const coverageTrackUrls = vi.fn(urlsBySource);
     renderWorkspace({
@@ -393,7 +392,7 @@ describe('GenomeOverviewWorkspace', () => {
     expect(chart('Coverage · HiFiCNV')).toHaveAttribute('data-segments', 'no');
     expect(chart('Coverage · web')).toHaveAttribute('data-scale', 'unknown');
     expect(chart('Coverage · web')).toHaveAttribute('data-segments', 'no');
-    // The HiFiCNV depths are fetched now: before, they were not drawn at all.
+    // The HiFiCNV depths are fetched and drawn.
     expect(coverageTrackUrls).toHaveBeenCalledWith('PROBAND', 'hificnv');
     // Each head says why, where the track is not on the log2-ratio axis.
     expect(within(track('Coverage · WisecondorX')).queryByRole('note')).not.toBeInTheDocument();

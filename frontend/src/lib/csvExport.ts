@@ -28,7 +28,7 @@ const headerNumber = (headers: HeaderBag, name: string): number | null => {
 };
 
 /**
- * Read a CSV export response's headers (#512). The backend caps an export and says so
+ * Read a CSV export response's headers. The backend caps an export and says so
  * in `X-CoGA-Export-Truncated`, and why in `X-CoGA-Export-Truncated-Reason`; a capped file is saved under a name that says so, and
  * the caller tells the user, so a partial export can never pass for the full result.
  */
@@ -40,7 +40,8 @@ export function describeCsvExport(
   const truncated = String(headers?.['x-coga-export-truncated'] ?? '') === 'true';
   const rows = headerNumber(headers, 'x-coga-export-rows');
   const limit = headerNumber(headers, 'x-coga-export-limit');
-  // A truncation without a stated reason is the row cap, as on the server (core/csv_export.py).
+  // A reason other than a partial search's is the row cap, so a truncated file is always named
+  // and announced as cut.
   let reason: CsvTruncationReason | null = null;
   if (truncated) {
     const stated = String(headers?.['x-coga-export-truncated-reason'] ?? '');

@@ -1,5 +1,4 @@
-"""A structural variant written as a sequence allele without SVLEN is measured by its alleles
-(CLIN-41).
+"""A structural variant written as a sequence allele without SVLEN is measured by its alleles.
 
 VCF 4.4 writes SVLEN for a symbolic allele only, and ``.`` for a sequence allele, whose bases
 hold its length. Measured by END − POS, an insertion written as its sequence, whose END is
@@ -303,7 +302,7 @@ def _chrm(ref: str, alt: str, info: str) -> StructuralVariantRecord:
     ("read", "ref", "alt", "info", "stored"),
     [
         # NeedlR ends a call without END where VCF 4.4 puts it, as the uploads do, and its id
-        # is theirs (CLIN-39); its length is its alleles' (CLIN-41).
+        # is theirs (CLIN-39); its length is its alleles'.
         pytest.param(_needlr_family, _INS_REF, _INS_ALT, "", ("1-100000-100000-INS---", 100_000, 350), id="needlr-insertion"),
         pytest.param(_needlr_family, _DEL_REF, _DEL_ALT, "SVLEN=.;", ("1-100000-100100-DEL---", 100_100, -100), id="needlr-deletion"),
         pytest.param(_needlr_per_sample, _INS_REF, _INS_ALT, "SVTYPE=INS;", ("1-100000-100000-INS---", 100_000, 350), id="needlr-per-sample-insertion"),
@@ -313,7 +312,7 @@ def _chrm(ref: str, alt: str, info: str) -> StructuralVariantRecord:
         pytest.param(_hificnv, _DEL_REF, _DEL_ALT, f"END={POS + 100}", ("1-100000-100100-DEL----hificnv", 100_100, -100), id="hificnv-deletion"),
         pytest.param(_hificnv, "N", "<DEL>", f"SVTYPE=DEL;END={POS + 100}", ("1-100000-100100-DEL----hificnv", 100_100, None), id="hificnv-symbolic"),
         # The chrM reader ends a sequence deletion without END on its REF's last base, where
-        # VCF 4.4 puts it (CLIN-39), with its alleles' length (CLIN-41).
+        # VCF 4.4 puts it (CLIN-39), with its alleles' length.
         pytest.param(_chrm, "A" + "C" * 500, "A", "", ("M-8470-8970-DEL----mito_sv", 8_970, -500), id="chrm-deletion"),
         pytest.param(_chrm, "N", "<DEL>", "SVLEN=-500;", ("M-8470-8970-DEL----mito_sv", 8_970, -500), id="chrm-written-svlen"),
     ],

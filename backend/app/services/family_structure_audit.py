@@ -1,4 +1,4 @@
-"""A family's pedigree on the clinical record (SEC-7).
+"""A family's pedigree on the clinical record.
 
 Two records keep a family's pedigree, both append-only and hash-chained per family:
 
@@ -163,7 +163,7 @@ class StructureVersion:
     family ID stored on its chain before this family, of ``deleted_families`` families: 0 for a
     family never made again under its ID. Versions are numbered per family row, so a family
     made again numbers its own from 1 again, and the two numbers name a version apart on the
-    ID's chain (ENG-19)."""
+    ID's chain."""
 
     version: int
     structure_hash: str
@@ -693,7 +693,7 @@ def pedigree_changed_summary(source: str, phrases: list[str]) -> str:
 def made_again_note(versions: int, families: int) -> str:
     """What the pedigree of a family made again under the ID of a deleted family adds to its
     summary: its structure versions start again at 1, after the deleted families' on the ID's
-    chain (ENG-19)."""
+    chain."""
     deleted = "a deleted family" if families <= 1 else f"{families} deleted families"
     return (
         f"Made again under this family ID, after {versions} structure version"
@@ -771,7 +771,7 @@ async def record_pedigree_change(
     }
     if version.deleted_family_versions:
         # The version number repeats one of a deleted family's on the ID's trail: this names
-        # it apart (ENG-19).
+        # it apart.
         metadata["deleted_family_versions"] = version.deleted_family_versions
     if change.reason:
         metadata["reason"] = change.reason
@@ -934,7 +934,7 @@ async def record_family_deleted(
     variant_counts: Mapping[str, int] | None = None,
     reason: str | None = None,
 ) -> None:
-    """Record a family's deletion as the last event of its clinical audit trail (SEC-7), in
+    """Record a family's deletion as the last event of its clinical audit trail, in
     the transaction of the deletion and before the family row goes (no commit).
 
     The event names who deleted the family and when, and what went with it: its samples,
@@ -967,7 +967,7 @@ async def record_family_deleted(
         "data": data,
     }
     if deleted_versions:
-        # A family made again under the ID: its latest version named apart (ENG-19).
+        # A family made again under the ID: its latest version named apart.
         before["deleted_family_versions"] = deleted_versions
     actor_id = getattr(user, "id", None)
     await record_clinical_event(

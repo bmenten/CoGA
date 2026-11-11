@@ -299,7 +299,7 @@ const GenePanelDetailPage: React.FC = () => {
     return panel.genes.filter((gene) => !located.has(geneKey(gene)));
   }, [panel]);
 
-  // It stayed at "Loading gene panel" for good (#610).
+  // A failed panel request is said as such, never as a panel still loading.
   if (panelFailed) {
     return (
       <PageState

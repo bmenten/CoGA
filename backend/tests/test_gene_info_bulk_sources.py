@@ -335,7 +335,7 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
                     "BRCA1": {
                         "extra": {
                             "clingen_curation_counts": {"gene_disease_validity": 3},
-                            # The count follows the list it counts (ENG-10).
+                            # The count follows the list it counts.
                             "clingen_validity_assertions": [
                                 {"disease_label": "Breast cancer"},
                                 {"disease_label": "Ovarian cancer"},
@@ -689,7 +689,7 @@ async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
     assert result["location"] == "17q21.31"
     assert result["aliases"] == ["RNF53"]
     assert result["previous_symbols"] == ["BRCAI"]
-    # Nothing read a copy of the VEGA id of its own (ENG-8); HGNC's identifiers keep it.
+    # Nothing read a copy of the VEGA id of its own; HGNC's identifiers keep it.
     assert "hgnc_vega_id" not in result["extra"]
     assert result["extra"]["hgnc_identifiers"]["vega_id"] == "OTTHUMG00000157426"
     assert result["extra"]["refseq_accessions"] == ["NM_007294"]
@@ -699,7 +699,7 @@ async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
 
 
 def test_a_merged_gene_counts_the_curations_its_sources_combine() -> None:
-    # ENG-10: dbNSFP's copy of ClinGen's haploinsufficiency curation and ClinGen's own dosage
+    # dbNSFP's copy of ClinGen's haploinsufficiency curation and ClinGen's own dosage
     # file each counted one; the merge listed both, beside the last source's count of 1.
     dbnsfp = {
         "clingen_dosage_assertions": [{"haploinsufficiency": "Sufficient evidence", "description": "HI score 3"}],
@@ -727,7 +727,7 @@ def test_a_merged_gene_counts_the_curations_its_sources_combine() -> None:
     }
 
 
-# --- a source that cannot be read is an error named by its kind (SEC-39) --------------------
+# --- a source that cannot be read is an error named by its kind --------------------
 
 # An HTTP error's text quotes the address it read, with a value holding characters a reader
 # cannot see: an escape sequence, a text-direction override.

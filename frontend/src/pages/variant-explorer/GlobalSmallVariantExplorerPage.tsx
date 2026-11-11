@@ -188,7 +188,7 @@ const GlobalSmallVariantExplorerPage = () => {
   const tags = tagDefinitions ?? [];
   const variants = variantPage?.variants ?? [];
   const total = variantPage?.total ?? 0;
-  // The count stops at a cap: past it the server says so, and the page shows N+ (#526).
+  // The count stops at a cap: past it the server says so, and the page shows N+.
   const totalLabel = `${total.toLocaleString()}${variantPage?.total_is_estimated ? '+' : ''}`;
   const noAssemblies = !assembliesLoading && !assembliesFailed && (assemblies?.length ?? 0) === 0;
   const nextCursor = variantPage?.next_cursor ?? null;
@@ -369,7 +369,7 @@ const GlobalSmallVariantExplorerPage = () => {
       <section className="surface-card space-y-4">
         <div className="variant-explorer-results-header">
           <p className="analysis-section-title">
-            {/* A failed search has no count: it read "0 variants" above the failure (#606). */}
+            {/* A failed search has no count: never "0 variants" above the failure. */}
             {assemblyId && !isError ? (
               <>
                 {totalLabel} variant{total === 1 && !variantPage?.total_is_estimated ? '' : 's'}
@@ -403,7 +403,7 @@ const GlobalSmallVariantExplorerPage = () => {
         ) : null}
 
         {/* Until an assembly is chosen the variant query does not run, so its idle state
-            is not an empty result: say what is actually happening (#526, as #510). */}
+            is not an empty result: say what is actually happening. */}
         {assembliesLoading ? (
           <p className="table-subtle">Loading the accessible assemblies…</p>
         ) : assembliesFailed ? (

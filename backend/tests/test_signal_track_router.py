@@ -290,7 +290,7 @@ async def test_an_untrusted_recorded_signal_track_is_never_signed(
 async def test_a_track_outside_the_familys_own_package_is_never_signed(
     monkeypatch: pytest.MonkeyPatch, package_folder: Any
 ) -> None:
-    # SEC-27: the recorded URI was checked against the import area alone, so a row naming
+    # the recorded URI was checked against the import area alone, so a row naming
     # another family's package there was signed. It must lie in the package folder the
     # sample's family's import read.
     use_store(monkeypatch, "gs", {DEPTH_KEY: "bigwig"})
@@ -341,7 +341,7 @@ async def test_the_layout_probe_stays_in_the_family_folder(monkeypatch: pytest.M
 @pytest.mark.parametrize("family_id", ["other-family/cnv", "other-family/cnv/", "/other-family/cnv", ".."])
 def test_the_layout_probe_takes_a_family_id_only_when_it_is_one_folder_name(family_id: str) -> None:
     # `<prefix>/<family>/<recorded path>`: a family ID holding `/` would name another family's
-    # folder, here its object `cnv/x.bw`, from a recorded path of its own (SEC-25).
+    # folder, here its object `cnv/x.bw`, from a recorded path of its own.
     assert signal_tracks._probed_track_key(family_id, "x.bw", "depth_bigwig") is None
 
 

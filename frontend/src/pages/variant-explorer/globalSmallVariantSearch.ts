@@ -38,12 +38,11 @@ const EMPTY_RELATIONSHIPS: SmallVariantFamily['relationships'] = [];
 const EMPTY_SAMPLE_FILTERS: Record<string, SmallVariantSampleFilter> = {};
 
 /**
- * Filters of the shared form that the explorer's backend does not apply (#526): it takes
+ * Filters of the shared form that the explorer's backend does not apply: it takes
  * one locus, not an interval list, and no transcript, excluded genes or intervals, no
  * callers' FILTER, and none of the per-family review state (excluded tags, saved notes). The
- * form hides their
- * controls, and their parameters are never sent, so no chip claims a filter that the
- * results do not reflect.
+ * form hides their controls, and their parameters are never sent, so no chip claims a filter
+ * that the results do not reflect.
  */
 export const GLOBAL_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new Set<
   keyof SmallFilterState

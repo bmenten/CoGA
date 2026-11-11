@@ -1,4 +1,4 @@
-"""One worker runs a gene-reference refresh at a time — real Postgres (SAFE-36).
+"""One worker runs a gene-reference refresh at a time — real Postgres.
 
 Another worker takes a running refresh up once its heartbeat is older than
 ``GENE_REFERENCE_STALE_HEARTBEAT``. The worker wrote no heartbeat while it loaded the bulk
@@ -278,7 +278,7 @@ def test_a_failed_run_ends_its_own_job_and_frees_the_slot(monkeypatch: pytest.Mo
         with pytest.raises(RuntimeError):
             await _run_job(job_id)
 
-        # The job's error names the error by its kind, never by its text (SEC-37).
+        # The job's error names the error by its kind, never by its text.
         job = await _job(sm, job_id)
         assert (job["status"], job["worker_id"], job["active_slot"], job["error"]) == (
             "failed",

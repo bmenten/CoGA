@@ -95,7 +95,7 @@ describe('formatPredictionScore', () => {
 });
 
 describe('describeFilterTranscript', () => {
-  // CLIN-51: the card describes the variant's primary transcript; the annotation filters
+  // The card describes the variant's primary transcript; the annotation filters
   // held on another. The second transcript of the e2e ready case: SIFT tolerated on the
   // card's transcript, deleterious on the one the filter kept.
   const matched = {
@@ -465,7 +465,7 @@ describe('getUcscDb and getGnomadDataset on GRCh38 and GRCh37', () => {
   });
 
   it('lets the name decide over a version that holds another build', () => {
-    // Before: hg38 and gnomAD v4 for each, from the version.
+    // Never hg38 and gnomAD v4 for each, read from the version.
     expect(getUcscDb('Homo sapiens', 'GRCh37', 'hg38')).toBe('hg19');
     expect(getGnomadDataset('Homo sapiens', 'GRCh37', 'hg38')).toBe('gnomad_r2_1');
     expect(getUcscDb('Homo sapiens', 'T2T CHM13v2.0', 'GRCh38')).toBe('hs1');
@@ -509,7 +509,7 @@ describe('formatVariantTotal', () => {
     expect(formatVariantTotal(1001, true)).toBe('1,000+');
   });
 
-  it('counts what a capped candidate read found, as a lower bound (#725 follow-up)', () => {
+  it('counts what a capped candidate read found, as a lower bound', () => {
     // 12 matches in a capped window: 12 or more, not "11+".
     expect(formatVariantTotal(12, true, 10000)).toBe('12+');
     // Nothing in a capped window is not "no matches".
@@ -538,11 +538,9 @@ describe('visibleReviewTagKeys', () => {
   });
 });
 
-// CLIN-76 (the owner's decision of 2026-11-10): the family page shows a small-variant review's
-// class by one rule. The table hid the class word whenever a tag of the classification group was
-// a chip (a VUS tier or *Secondary finding* too), so text "VUS" beside the tag of class 4 showed
-// class 4; the cards showed the word beside every class tag, two classes. Over the shared cases,
-// the chips show the class the rule gives, once, and no other class.
+// The owner's decision of 2026-11-10: the family page shows a small-variant review's class by
+// one rule, in the table and on the cards alike. Over the shared cases, the chips show the class
+// the rule gives, once, and no other class.
 describe('reviewClassChips', () => {
   const classLabels = new Set(Object.values(ACMG_CLASSIFICATION_LABELS));
   // The classes a cell shows: the class tags among the chips, by their label, and the class chip.
@@ -624,14 +622,14 @@ describe('review tag chips', () => {
   });
 
   it('reads a key the tag list does not hold as the bare key', () => {
-    expect(formatReviewTagLabel('legacy_key', tagMap)).toBe('legacy_key');
-    expect(isDeletedReviewTag('legacy_key', tagMap)).toBe(false);
+    expect(formatReviewTagLabel('other_key', tagMap)).toBe('other_key');
+    expect(isDeletedReviewTag('other_key', tagMap)).toBe(false);
   });
 
   it('dashes the border of a deleted tag only', () => {
     expect(getReviewTagStyle('probe_x', tagMap)).toHaveProperty('borderStyle', 'dashed');
     expect(getReviewTagStyle('needs_segregation', tagMap)).not.toHaveProperty('borderStyle');
-    expect(getReviewTagStyle('legacy_key', tagMap)).not.toHaveProperty('borderStyle');
+    expect(getReviewTagStyle('other_key', tagMap)).not.toHaveProperty('borderStyle');
   });
 
   it('marks a deleted tag in its tooltip too', () => {

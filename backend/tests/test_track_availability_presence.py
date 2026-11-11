@@ -60,13 +60,13 @@ def _patch_execute(monkeypatch, rows):
 
 
 def test_presence_maps_ids_to_names_and_filters_to_family(monkeypatch):
-    cap = _patch_execute(monkeypatch, [("PROBAND",), ("u-mother",), ("stranger",)])
+    cap = _patch_execute(monkeypatch, [("PROBAND",), ("MOTHER",), ("stranger",)])
     present = asyncio.run(_small_variant_present_sample_names(_context(), _filters()))
-    # PROBAND (by name) + MOTHER (by uuid) map in; "stranger" is not a family sample.
+    # PROBAND and MOTHER are family samples; "stranger" is not.
     assert present == {"PROBAND", "MOTHER"}
     # One SELECT over the family's rows: each row's samples with an ALT allele, picked from
-    # its call arrays, and the distinct samples. No ARRAY JOIN aggregate over an inner
-    # filtered subquery, which ClickHouse's analyzer is slow to analyse (ENG-19).
+    # its call arrays, and the distinct samples; not an ARRAY JOIN aggregate over an inner
+    # filtered subquery, which ClickHouse's analyzer is slow to analyse.
     assert "SELECT DISTINCT arrayJoin(arrayFilter(" in cap["query"]
     assert "ARRAY JOIN" not in cap["query"] and "FROM (" not in cap["query"]
     # Presence counts every call with an ALT allele, haploid and multi-allelic too.
@@ -97,7 +97,7 @@ def test_explicit_reference_parent_present_iff_base_matches(monkeypatch):
     )
     assert present == {"MOTHER"}  # via the base-match probe, not the ALT-call aggregate
     assert any("LIMIT 1" in q for q in queries)  # the base-match probe ran
-    # The probe reads the family's rows in one SELECT too (ENG-19).
+    # The probe reads the family's rows in one SELECT too.
     (probe,) = [q for q in queries if "LIMIT 1" in q]
     assert probe.startswith("SELECT 1 FROM ") and "FROM (" not in probe
 
@@ -126,7 +126,7 @@ def _sv_filters(**kwargs) -> StructuralVariantQueryFilters:
 
 
 def test_structural_presence_maps_ids_to_names(monkeypatch):
-    cap = _patch_execute(monkeypatch, [("PROBAND",), ("u-father",), ("ghost",)])
+    cap = _patch_execute(monkeypatch, [("PROBAND",), ("FATHER",), ("ghost",)])
     present = asyncio.run(_structural_present_sample_names(_context(), _sv_filters()))
     assert present == {"PROBAND", "FATHER"}  # ghost is not a family sample
     assert "ARRAY JOIN sample_ids AS sid" in cap["query"] and "GROUP BY sid" in cap["query"]

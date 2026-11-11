@@ -403,9 +403,9 @@ describe('preset frequency ceilings bound popmax', () => {
   });
 });
 
-// #604 — a location filter that cannot be read as written is named, not searched. Sent
-// on, a malformed locus was searched as a gene name and an unreadable interval skipped:
-// the search covered less than it asked, or read as a family without variants.
+// A location filter that cannot be read as written is named, not searched. Sent on, a
+// malformed locus would be searched as a gene name and an unreadable interval skipped: the
+// search would cover less than it asked, or read as a family without variants.
 describe('location filters that cannot be read', () => {
   it('lists the unreadable locus and interval entries, by where they are set', () => {
     expect(
@@ -490,8 +490,8 @@ describe('deleted tags', () => {
   });
 
   it('lists the held keys no option offers, a deleted tag by its marked label', () => {
-    expect(heldTagOptions(['review', 'probe_x', 'legacy_key'], tags, ['review', 'needs_segregation'])).toEqual([
-      { value: 'legacy_key', label: 'legacy_key' },
+    expect(heldTagOptions(['review', 'probe_x', 'other_key'], tags, ['review', 'needs_segregation'])).toEqual([
+      { value: 'other_key', label: 'other_key' },
       { value: 'probe_x', label: 'Probe X (deleted)' },
     ]);
   });
@@ -570,7 +570,7 @@ describe('preset filter (de)serialisation', () => {
   });
 });
 
-// ENG-6 (the owner's decision of 2026-10-28): the classification tags and the VUS tiers in
+// The owner's decision of 2026-10-28: the classification tags and the VUS tiers are in
 // sentence case.
 describe('class labels in sentence case', () => {
   it('names the classification tags and the VUS tiers in sentence case', () => {
@@ -589,17 +589,17 @@ describe('class labels in sentence case', () => {
 
 // The class a review shows, from its text and its tags. The Variant Explorer reads it on the server
 // (review_class_label in review_pg_utils.py), which reads these same cases in
-// test_acmg_frontend_parity.py, so a review shows one class on both pages (CLIN-71).
+// test_acmg_frontend_parity.py, so a review shows one class on both pages.
 describe('the class a review shows', () => {
   it.each(reviewClassCases.cases)('$why', ({ classification, tags, shown }) => {
     expect(normalizeReviewClassification(classification, tags)).toBe(shown);
   });
 });
 
-// Found while fixing #1012: a search saved on the NIPT page, or a link, carries the NIPT list's own
-// filters. The small-variant list reads none of them: its route refused a NIPT inheritance view
-// (400) and read the fetal de novo one as de novo / dominant, and declares none of the others. The
-// page sends none of them, and names them once instead of chipping them.
+// A search saved on the NIPT page, or a link, carries the NIPT list's own filters. The
+// small-variant list reads none of them: its route refuses a NIPT inheritance view (400), would
+// read the fetal de novo one as de novo / dominant, and declares none of the others. The page
+// sends none of them, and names them once instead of chipping them.
 describe('a NIPT search on the small-variant list', () => {
   const niptSearch = (): SmallFilterState => ({
     ...createEmptySmallFilters(),

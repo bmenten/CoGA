@@ -74,17 +74,15 @@ def _transcript_refseq_accessions(doc: dict[str, Any]) -> list[str]:
 def _transcript_relevance_flags(doc: dict[str, Any]) -> dict[str, bool]:
     """Read MANE / Ensembl-canonical status off the annotation's own tags.
 
-    GENCODE states this per transcript (``MANE_Select``, ``MANE_Plus_Clinical``,
-    ``Ensembl_canonical``), so it is known for every gene without a network call. The
-    ``mane_select`` boolean is written by the importer; the rest are read from the tag
-    list, which also covers annotations that carry the tags without the flag.
+    GENCODE states this per transcript in its tag list (``MANE_Select``,
+    ``MANE_Plus_Clinical``, ``Ensembl_canonical``), which the importer keeps on the row
+    (``extra.tags``), so it is known for every gene without a network call.
     """
     extra = doc.get("extra") or {}
     tags = {str(tag) for tag in (extra.get("tags") or [])}
     return {
-        "mane_select": bool(extra.get("mane_select")) or "MANE_Select" in tags,
-        "mane_plus_clinical": bool(extra.get("mane_plus_clinical"))
-        or "MANE_Plus_Clinical" in tags,
+        "mane_select": "MANE_Select" in tags,
+        "mane_plus_clinical": "MANE_Plus_Clinical" in tags,
         "ensembl_canonical": "Ensembl_canonical" in tags,
     }
 
@@ -331,7 +329,7 @@ async def _lookup_gene_documents(
                 OR lower(COALESCE(g.extra->>'transcript_id', '')) IN :candidates
                 -- GENCODE keys gene_id on a versioned Ensembl transcript accession, so
                 -- also match the unversioned transcript, the Ensembl gene, and the
-                -- RefSeq accessions the refGene-derived table used to carry.
+                -- RefSeq accessions the GENCODE import records for the transcript.
                 OR lower(COALESCE(g.extra->>'ensembl_transcript_id', '')) IN :candidates
                 OR lower(COALESCE(g.extra->>'ensembl_gene_id', '')) IN :candidates
                 OR EXISTS (
@@ -442,7 +440,7 @@ async def build_gene_profile(
             raise HTTPException(status_code=400, detail="Project is not linked to this family")
     elif family_row is not None:
         # The first of the family's projects the caller may see: another of its projects tells
-        # them nothing, not even its assembly (SEC-9).
+        # them nothing, not even its assembly.
         visible_project_ids = [
             project
             for project in family_row.get("project_ids") or []

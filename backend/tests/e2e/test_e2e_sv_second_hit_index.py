@@ -10,7 +10,7 @@ This imports the golden trio into real Postgres + ClickHouse, opens the small va
 (which builds the index), then:
 
 * uploads a per-sample SV file for the mother with a duplication over BRCA2. Each SV
-  gets its own phase (CLIN-28): the mother, unaffected, carries the SNV and her own
+  gets its own phase: the mother, unaffected, carries the SNV and her own
   duplication but has a reference call at the deletion, so the deletion stays in trans
   and the badge biallelic.
 * deletes the proband's SVs through the admin data endpoint. The BRCA2 badge must stop
@@ -224,7 +224,7 @@ def test_a_parents_own_sv_of_another_type_does_not_hide_the_deletion_in_trans(ru
     hit = hits[0]
     assert hit["sv_types"] == ["DEL", "DUP"], hit
     # The unaffected mother carries the SNV and her own duplication, and has a reference
-    # call at the deletion. Each SV gets its own phase (CLIN-28): the deletion stays in trans.
+    # call at the deletion. Each SV gets its own phase: the deletion stays in trans.
     assert hit["phase"] == "trans", hit
     assert hit["phase_evidence"] == "segregation", hit
     assert hit["deletion_unmasked"] is True, hit

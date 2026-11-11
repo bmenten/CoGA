@@ -113,7 +113,7 @@ resource "google_cloud_run_v2_service" "backend" {
         value = var.forwarded_allow_ips
       }
       # The client address is taken this many X-Forwarded-For entries from the right,
-      # past the load balancer, rather than uvicorn's client-settable left-most (#520).
+      # past the load balancer, rather than uvicorn's client-settable left-most.
       env {
         name  = "TRUSTED_PROXY_HOPS"
         value = tostring(var.trusted_proxy_hops)
@@ -134,7 +134,7 @@ resource "google_cloud_run_v2_service" "backend" {
         value = google_storage_bucket.phi.name
       }
       # Where Package Import may read family folders from. Without it, gs:// imports
-      # were refused although section 11 of docs/deployment-gcp.md enables them (#520).
+      # would be refused, though section 11 of docs/deployment-gcp.md enables them.
       dynamic "env" {
         for_each = length(local.family_import_roots) > 0 ? [1] : []
         content {
@@ -156,7 +156,7 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "POSTGRES_DB"
         value = google_sql_database.coga.name
       }
-      # DB privilege separation (#262), var.db_runtime_role. "owner" (default): the
+      # DB privilege separation, var.db_runtime_role. "owner" (default): the
       # app connects as the table owner and applies the schema on startup. "coga_app": it
       # connects as the restricted role, never runs DDL, and the db-migrate job applies the
       # schema first (migrate.tf). See docs/db-runtime-role-runbook.md (change-controlled).
@@ -367,7 +367,7 @@ resource "google_cloud_run_v2_service" "backend" {
       }
     }
 
-    # Read-only, like the image and compose treat reference data (#520): it is loaded
+    # Read-only, like the image and compose treat reference data: it is loaded
     # into the bucket out of band. The HPO bootstrap downloads to a temporary directory
     # when this path is not writable.
     volumes {
@@ -389,7 +389,7 @@ resource "google_cloud_run_v2_service" "backend" {
   ]
 
   lifecycle {
-    # The backend refuses to start on half a Microsoft sign-in configuration (SEC-4): say so
+    # The backend refuses to start on half a Microsoft sign-in configuration: say so
     # at plan time instead of after a deploy.
     precondition {
       condition     = (var.azure_ad_tenant_id == "") == (var.azure_ad_client_id == "")
@@ -445,7 +445,7 @@ resource "google_cloud_run_v2_service" "frontend" {
       }
       # Where the frontend server's /api proxy sends a request (frontend/server.mjs). The load
       # balancer routes /api to the backend itself, so none reaches this service; without it
-      # the proxy aimed at Compose's http://backend:8000 (SEC-23). The backend's ingress
+      # the proxy would aim at Compose's http://backend:8000 (SEC-23). The backend's ingress
       # admits the load balancer and internal traffic only, so this service, whose traffic
       # does not go through the VPC, would still be refused there.
       env {

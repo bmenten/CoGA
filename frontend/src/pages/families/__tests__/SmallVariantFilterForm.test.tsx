@@ -1,4 +1,4 @@
-// The small-variant filter form (#528), rendered whole in the three ways the pages use
+// The small-variant filter form, rendered whole in the three ways the pages use
 // it: a family's search, the family-agnostic Global Small Variant Explorer, and
 // monogenic NIPT. The markup is recorded (__snapshots__), so splitting the form into
 // section components must reproduce it exactly: every section, label, control, value
@@ -79,7 +79,7 @@ test('renders the Global Small Variant Explorer form as recorded', () => {
   expect(markup({ familyAware: false, unsupportedFilters: GLOBAL_UNSUPPORTED_FILTERS, members: [] })).toMatchSnapshot();
 });
 
-// With the review tags the NIPT list takes (UI-4), and no classification or saved-notes
+// With the review tags the NIPT list takes, and no classification or saved-notes
 // filter, which it does not.
 test('renders the monogenic NIPT form as recorded', () => {
   expect(
@@ -152,8 +152,8 @@ test('offers a deleted tag in no list that does not hold it', () => {
   expect(screen.queryAllByText(/Probe X/)).toHaveLength(0);
 });
 
-// ENG-10: the active-filter chips named a deleted tag as if it could still be chosen, unlike
-// every other chip since #776.
+// The active-filter chips mark a deleted tag, as every other chip does, never as if it could
+// still be chosen.
 test('marks a deleted tag on the active review-tag and exclude chips', () => {
   render(
     <MemoryRouter>
@@ -231,7 +231,7 @@ test('clearing a full group removes its terms and keeps the others', () => {
   expect(setDraftFilterValue).toHaveBeenLastCalledWith('effect', 'stop_gained');
 });
 
-// The search reads a term whatever its case (ENG-1), so the boxes do too; a term no box
+// The search reads a term whatever its case, so the boxes do too; a term no box
 // offers stays listed, ticked, so it can be unticked.
 test('reads terms case aside and lists a term no box offers', () => {
   const { setDraftFilterValue } = renderWith({

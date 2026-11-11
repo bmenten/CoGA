@@ -3,15 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { themeRules } from './themeSource';
 
 /**
- * The sequencing-QC chip of the family members table (ENG-10, #867). jsdom applies no
- * stylesheet, so these read the rules themselves; the behaviour was checked in a browser
- * against the stylesheet before and after.
+ * The sequencing-QC chip of the family members table. jsdom applies no
+ * stylesheet, so these read the rules themselves.
  *
  * - The chip that opens a report is a `<button>`, and the shared `button:hover` rule, (0,1,1),
- *   outranks a tone class such as `.table-chip--warning`, (0,1,0): a hovered Warning or Fail
- *   chip turned dark grey with white text. Each tone's hover rule restates its colours.
- * - Edited, the table's columns are fixed, and a chip wider than its column ran under the
- *   Remove button beside it. It wraps inside its column instead.
+ *   outranks a tone class such as `.table-chip--warning`, (0,1,0): without a rule of its own a
+ *   hovered Warning or Fail chip would turn dark grey with white text. Each tone's hover rule
+ *   restates its colours.
+ * - Edited, the table's columns are fixed: a chip wider than its column wraps inside it,
+ *   rather than running under the Remove button beside it.
  */
 
 const RULES = themeRules();

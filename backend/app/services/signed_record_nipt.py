@@ -1,4 +1,4 @@
-"""The NIPT section of the signed analysis record (REG-2; owner decision of 2026-10-14).
+"""The NIPT section of the signed analysis record (owner decision of 2026-10-14).
 
 A monogenic NIPT family is signed out like every family: through the same sign-out, gates
 and report code, one record per analysis (``report_signout_service``). Its record also holds
@@ -24,8 +24,8 @@ backend (``nipt_service``, ``nipt_quality_checks``), not by the browser:
   (its validation, constants and quality filter);
 * without a per-target coverage table, the notes of the coverage check over the plasma's
   coverage tracks, word for word as the NIPT page shows them, each naming a track the check
-  does not read as depth (TRACE-9), with what the check ran for (``coverage_notes``, TRACE-17,
-  the owner's decision of 2026-10-28). The check depends on the gene or panel the page's search
+  does not read as depth, with what the check ran for (``coverage_notes``, the owner's
+  decision of 2026-10-28). The check depends on the gene or panel the page's search
   gives it, which the sign-out is not told: the sign-out runs it as the page runs it without a
   gene or panel, over the family's region of interest, the page's view on opening. Null with a
   per-target table, whose targets the check reads instead (``target_coverage``).

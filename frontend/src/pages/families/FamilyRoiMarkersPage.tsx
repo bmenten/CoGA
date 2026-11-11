@@ -104,7 +104,7 @@ const parseAlleleIndices = (gt: string): number[] | null => {
 
 // A man's call on his one X (chrX outside the PARs) is read, and what a member's two homolog rows
 // draw at a site (`rowAlleles`: a call of one allele, once), by lib/phasedMarkers.ts, which the
-// haplotype track's tooltip shares (ENG-19).
+// haplotype track's tooltip shares.
 
 // Mirrors the backend Mendelian check: the child genotype must form from one
 // allele of each parent (two parents), or share an allele with the lone parent.
@@ -123,7 +123,7 @@ const mendelianConsistent = (parents: number[][], child: number[]): boolean => {
 };
 
 // Why a child's genotype is a Mendelian error, as its cell's note says it: it cannot come from
-// the parents; or, for a son on his one X, which is his mother's (ENG-19), his mother does not
+// the parents; or, for a son on his one X, which is his mother's, his mother does not
 // carry his allele, or he has two different alleles.
 type MendelError = 'parents' | 'not-his-mothers' | 'two-alleles';
 const MENDEL_ERROR_NOTES: Record<MendelError, string> = {
@@ -344,14 +344,14 @@ const FamilyRoiMarkersPage: React.FC = () => {
     return map;
   }, [parentsOf, shownSites, sampleOrder, sexBySample, hemizygousRanges]);
 
-  // The project's reference too: the assembly-scope warning shows nothing while it loads
-  // (#515), so the markers showed without "Not validated for clinical use" (ENG-12).
+  // The project's reference too: the assembly-scope warning shows nothing while it loads,
+  // and the markers are never shown without "Not validated for clinical use".
   if (familyLoading || phasedLoading || referenceLoading) {
     return <PageState loading title="Loading ROI markers…" />;
   }
-  // Without the family its ROI is unknown, not absent (#607). A family that does not exist,
+  // Without the family its ROI is unknown, not absent. A family that does not exist,
   // or is not in the user's projects, is not found: the page said "could not be loaded" for
-  // a 404 too (ENG-10).
+  // a 404 too.
   if (familyFailed) {
     return (
       <FamilyLoadFailure
@@ -379,7 +379,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
   const inheritanceModel = (family?.metadata?.pgt as { inheritance_model?: string } | undefined)
     ?.inheritance_model;
   const inRoi = (pos: number) => pos >= roi.start && pos <= roi.end;
-  // The ROI's chromosome as the viewer names it (`chr1`, `chrX`; #602), however the family
+  // The ROI's chromosome as the viewer names it (`chr1`, `chrX`), however the family
   // record stores it. The requests above send the stored name.
   const roiChrom = formatChromosomeLabel(roi.chr);
 
@@ -416,7 +416,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
       const child = badge.dataset.sample ?? '';
       const qc = qcBySample.get(child);
       // Where the window holds chrX outside the PARs, the QC counted a son on his one X
-      // against his mother alone (ENG-19).
+      // against his mother alone.
       const sonOnOneX = sexBySample.get(child) === 'male' && hemizygousRanges.length > 0;
       if (qc) {
         setTooltip({
@@ -594,7 +594,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
       ) : null}
 
       {/* The markers' failure is said in their place: it read "0 markers in view · 0
-          informative for embryos", an uninformative ROI (#607). */}
+          informative for embryos", an uninformative ROI. */}
       {phasedFailed ? (
         <QueryFailure
           what="the phased markers at the ROI"

@@ -15,7 +15,7 @@ interface ConfirmDeleteDialogProps {
 }
 
 /**
- * Asks before a deletion is sent (UI-7), saying what goes. Nothing is sent until the
+ * Asks before a deletion is sent, saying what goes. Nothing is sent until the
  * confirming button is pressed: Cancel, Escape and the backdrop send nothing. Focus starts on
  * Cancel, so Enter on the opened dialog cancels. A family's deletion asks more
  * (`DeleteFamilyDialog`): its name typed out and a reason for its audit trail.

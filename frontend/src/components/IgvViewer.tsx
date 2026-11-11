@@ -27,7 +27,7 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
   const controllersRef = useRef<AbortController[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // The signal-track manifest failed: the alignments load without the depth and MAF
-  // tracks, and that is said rather than looking like a family without them (#610).
+  // tracks, and that is said rather than looking like a family without them.
   const [signalTracksFailed, setSignalTracksFailed] = useState(false);
   const [retrySeq, setRetrySeq] = useState(0);
 
@@ -113,7 +113,7 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
       const base = api.defaults.baseURL;
       // IGV asks for the session's token at each request it makes, as the API client does: a
       // token read once, when the browser is built, runs out while the viewer stays open
-      // (Microsoft's within about an hour, SEC-32). Without a session it sends none.
+      // (Microsoft's within about an hour). Without a session it sends none.
       const auth = { oauthToken: async () => (await sessionAccessToken()) ?? '' };
       let mount: HTMLDivElement | null = null;
 

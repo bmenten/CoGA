@@ -21,8 +21,7 @@ the laboratory maps its genetically verified tubes to the files they are in, and
 named, and its column too, after another tube. Unlike another per-sample file's
 (``per_sample_vcf_column``), a column named after another sample is not refused. A column
 named neither as the member nor as the entry's ``vcf_sample`` is warned of, by Discover, the
-dry run and the import (``nipt_vcf_column_warning``; the owner's decision of 2026-10-28,
-CLIN-13).
+dry run and the import (``nipt_vcf_column_warning``; the owner's decision of 2026-10-28).
 """
 
 from __future__ import annotations
@@ -120,7 +119,7 @@ def nipt_vcf_column_warning(
     """The warning for a NIPT per-sample SNV file whose one sample ``column``, which the
     import reads as ``sample_id``'s calls, is named neither as the member (the shared alias
     rules: ``FATHER1``, ``FATHER1_sorted``) nor as its entry's ``vcf_sample`` (``declared``,
-    the operator's recorded word), or None (CLIN-13). It names the member, the ``file`` and
+    the operator's recorded word), or None. It names the member, the ``file`` and
     the column, and another member the column is named after: a swapped file reads as the
     other sample's calls. A ``vcf_sample`` of the member's own ID, which confirms another
     per-sample file's one column, names no column here."""
@@ -161,7 +160,7 @@ def nipt_vcf_column_issue(
 ) -> FamilyImportValidationIssue | None:
     """The validation's and Discover's warning (``nipt_vcf_column_named_otherwise``) for the
     NIPT per-sample SNV file ``vcf_path`` of ``sample_id``'s manifest ``entry``, whose one sample
-    column is ``column``, or None (CLIN-13)."""
+    column is ``column``, or None."""
     message = nipt_vcf_column_warning(
         sample_id,
         column,
@@ -182,7 +181,7 @@ def nipt_draft_column_issues(
 ) -> list[FamilyImportValidationIssue]:
     """The column warnings the validation will give the NIPT per-sample SNV files of the
     manifest Discover drafts (``payload``), so that Discover shows them before the manifest is
-    written (CLIN-13). A file that is not in the package, cannot be read or holds other than
+    written. A file that is not in the package, cannot be read or holds other than
     one sample column is left to the validation, which reports it."""
     if payload.get("analysis_type") != MONOGENIC_NIPT_ANALYSIS_TYPE:
         return []
@@ -220,7 +219,7 @@ def nipt_package_cfdna_sample(bundle: FamilyPackageBundle) -> str | None:
 
     The manifest's ``samples`` are read as registration reads them, a mapping or a list of
     entries keyed ``sample_id`` or ``id``, so the sample the import filters the paternal calls
-    by is the one registration tags as the plasma (SAFE-6)."""
+    by is the one registration tags as the plasma."""
     for sample_id, entry in _normalize_manifest_samples(bundle.manifest.samples).items():
         if str(entry.get(SAMPLE_ASSAY_KEY) or "").strip() == NIPT_CFDNA_ASSAY:
             return sample_id
@@ -304,8 +303,8 @@ def discover_nipt_package_files(
     them. The mother is taken as the plasma sample. None when the folder is no such pair.
 
     A parent's VCF that cannot be read (cut short, damaged, not gzip) makes no pair, and is
-    refused by name in ``errors`` (``dataset_vcf_unreadable``, DATA-11): its read raised out
-    of Discover, a 500.
+    refused by name in ``errors`` (``dataset_vcf_unreadable``) rather than raised out of
+    Discover as a 500.
     """
     for member in ped.members:
         father, mother = member.pid, member.mid

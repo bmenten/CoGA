@@ -1,5 +1,5 @@
 // The region of interest marked over a viewer track (ViewerTrackBlock): where the disorder's
-// locus lies on the track. Before this test only its absence ran in a test.
+// locus lies on the track.
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 

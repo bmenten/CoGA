@@ -6,7 +6,7 @@ held a path, an absolute one or ``..`` that climbs out of the package folder, wo
 outside the package: another folder's PED (its sample IDs and its path in the draft), a VCF's
 header (its column count deciding whether a NIPT pair is proposed), any ``.ped`` on the host
 through an absolute family ID, or, for a sample ID beginning with ``~``, the home folder. Such
-an ID is no ID (it holds a ``/``, or is ``..``, SEC-15): Discover refuses it
+an ID is no ID (it holds a ``/``, or is ``..``): Discover refuses it
 (``family_id_invalid``, ``sample_id_invalid``) and drafts nothing, before it looks anything up
 under it. A symlink cannot lead a PED or a NIPT VCF out either, and an ID's wildcard characters
 (``*``, ``?``, ``[``) match only themselves, so a sample never takes another's file.
@@ -221,7 +221,7 @@ def test_a_family_id_that_leads_out_of_the_package_is_refused_and_reads_no_ped_t
     # Neither the decoy's content nor its path is in the answer.
     assert _holds(answer, *DECOY_MARKERS) == []
     assert _paths_naming(answer, package, decoy) == []
-    # The ID holds a '/': no ID (SEC-15), so no manifest is drafted for it.
+    # The ID holds a '/': no ID, so no manifest is drafted for it.
     assert [(issue.code, issue.message) for issue in answer.errors] == [
         ("family_id_invalid", f"Family ID '{family_id}' (the family_id of the request) contains a slash (/). {IDENTIFIER_RULE}")
     ]
@@ -237,7 +237,7 @@ def test_without_a_ped_such_a_family_id_gets_no_draft(monkeypatch: pytest.Monkey
         answer = _discover(package, family_id="../decoy")
 
     assert access.touching(decoy) == []
-    # Discover refuses the ID (SEC-15) before it looks for a PED.
+    # Discover refuses the ID before it looks for a PED.
     assert [issue.code for issue in answer.errors] == ["family_id_invalid"]
     assert (answer.ped_path, answer.manifest_yaml) == (None, "")
     assert _holds(answer, *DECOY_MARKERS) == []
@@ -309,7 +309,7 @@ def test_a_family_id_with_a_wildcard_finds_its_own_callset(imports: Path) -> Non
         ("{tmp}/outside/decoy", "outside/decoy.cram", True),
         ("../../outside/decoy", "outside/decoy.cram", True),
         # "~" is the home folder only in a path someone types: in an ID it is a name. With a
-        # '/' after it, it is no ID (SEC-15).
+        # '/' after it, it is no ID.
         ("~/decoy", "outside/decoy.cram", True),
         ("~decoy", "outside/decoy.cram", False),
     ],
@@ -331,7 +331,7 @@ def test_a_sample_id_that_leads_out_of_the_package_is_looked_up_nowhere_outside(
     assert access.touching(decoy, tmp_path / "outside") == []
     assert _paths_naming(answer, package, decoy) == []
     if refused:
-        # A '/' makes it no ID (SEC-15): no draft, and nothing looked up under it.
+        # A '/' makes it no ID: no draft, and nothing looked up under it.
         assert [(issue.code, issue.message) for issue in answer.errors] == [
             ("sample_id_invalid", f"Sample ID '{sample_id}' (in the PED) contains a slash (/). {IDENTIFIER_RULE}")
         ]
@@ -367,7 +367,7 @@ def test_a_nipt_parent_id_that_leads_out_reads_no_vcf_there(
     assert _holds(answer, *DECOY_MARKERS, "decoyf.vcf.gz", "decoym.vcf.gz") == []
     assert _paths_naming(answer, package, *decoys) == []
     # The parents are not in the PED, which Discover reports, and their IDs hold a
-    # '/': no IDs (SEC-15), so it drafts nothing.
+    # '/': no IDs, so it drafts nothing.
     assert {issue.code for issue in answer.errors} == {"ped_missing_father", "ped_missing_mother", "sample_id_invalid"}
     assert answer.manifest_yaml == ""
 
@@ -513,7 +513,7 @@ def _id_templates() -> list[str]:
     ["S1", ".", "..", "../x", "../../x", "a/..", "a/../..", "a/../../x", "./../x", "x/./../../y", "/abs/x", "~/x"],
 )
 def test_an_id_leads_a_path_out_of_the_package_only_when_it_is_a_path_out_itself(identifier: str) -> None:
-    # Discover refuses an ID that is a path out of the package folder (the ID rule, SEC-15).
+    # Discover refuses an ID that is a path out of the package folder (the ID rule).
     # A path built from any other ID stays in the folder, so every path that would lead out
     # comes from an ID Discover refuses; and no pattern leaves the folder of itself.
     from backend.app.services.family_package_common import path_leaves_package

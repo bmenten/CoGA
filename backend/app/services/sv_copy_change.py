@@ -3,16 +3,14 @@
 One rule for every caller that asks: the SNV + SV second hit (``sv_gene_index_service``: a
 copy loss in trans with a heterozygous SNV leaves the SNV the only copy) and the SV ranking
 (``variant_prioritization``: a copy loss scores as a deletion, haploinsufficient in a
-LoF-intolerant gene, and a copy gain as a duplication). The ranking matched exact type
-names, so a ``DEL:ME``, a ``DUP:TANDEM`` and a CNV, whatever its copy number, scored as
-neither, while the second-hit badge counted a ``DEL:ME`` and a CNV loss as copy losses
-(CLIN-47). The SV list serves each SV with its change (``VariantOut.copy_change``), which the
-genome, chromosome and Circos views draw it by (CLIN-54).
+LoF-intolerant gene, and a copy gain as a duplication), so both read a ``DEL:ME``, a
+``DUP:TANDEM`` and a CNV alike. The SV list serves each SV with its change
+(``VariantOut.copy_change``), which the genome, chromosome and Circos views draw it by.
 
 * A deletion, ``DEL`` with any subtype (``DEL:ME``), is a loss, and a duplication, ``DUP``
   with any subtype (``DUP:TANDEM``), a gain, whatever copy numbers they store. So are
   ``LOSS`` and ``CNV_LOSS``, and ``GAIN`` and ``CNV_GAIN``: not VCF's types, but types that
-  name their direction, which the ranking has read so from the start.
+  name their direction.
 * A CNV names no direction: its copy number (``calls.cn``) says it. It is a loss when a
   sample that carries it has fewer copies than that sample has there: two, or one for a
   male on chrX or chrY outside the PARs. Otherwise it is a gain when such a sample has

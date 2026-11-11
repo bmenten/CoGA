@@ -1,8 +1,7 @@
 /**
  * How a sequencing-QC metric's value is written, per unit, wherever it is shown: the members
  * table's QC chip and its tooltip, and a signed version's sequencing QC. One writer, so a
- * value reads the same in both ("18.6x"); the signed report wrote the raw value ("18.57 x")
- * where the chip wrote "18.6x" (ENG-10).
+ * value reads the same in both ("18.6x"), never the raw value ("18.57 x") in one of them.
  */
 
 /** The fields of a metric the value is written from: as served, and as a signed record keeps it. */

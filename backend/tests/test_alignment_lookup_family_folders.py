@@ -1,9 +1,9 @@
-"""The alignment lookup finds a sample's reads only in its own family's folders (SEC-20, SEC-13).
+"""The alignment lookup finds a sample's reads only in its own family's folders.
 
 In local storage mode the CRAM endpoints look for ``<sample>.cram`` (``.crai``, ``.bam``,
 ``.bai``) under five layouts in the family's two folders, ``<data>/<family>`` and
 ``<data>/families/<family>``. The family and sample IDs come from the request, and may hold
-``/`` and ``..`` (the ID rule, SEC-15, refuses both in a stored ID, but a request is not held
+``/`` and ``..`` (the ID rule, refuses both in a stored ID, but a request is not held
 to it).
 
 Each path is joined and normalised as a string and dropped, before anything is looked up, when
@@ -265,7 +265,7 @@ def _folders_leading_out(data: Path, tmp_path: Path) -> None:
 
 def test_a_family_whose_folders_lead_out_of_the_data_directory_has_no_reads(data: Path, tmp_path: Path) -> None:
     # Every layout is refused, and nothing else is tried: the GET does not serve
-    # <data>/F1/S1.cram from outside the data directory (SEC-13).
+    # <data>/F1/S1.cram from outside the data directory.
     _folders_leading_out(data, tmp_path)
 
     assert cram._alignment_candidate_paths("F1", "S1", "cram") == []

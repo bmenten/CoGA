@@ -102,12 +102,12 @@ describe('SmallVariantReviewDialog classification', () => {
   });
 });
 
-// CLIN-76: the dialog opens on the class the review shows on the page, by the one rule (a class
+// The dialog opens on the class the review shows on the page, by the one rule (a class
 // word in the text before a class tag), and changes the classification only when the user
-// chooses another class. It took the class tag first: a review of text "VUS" beside the tag of
-// class 4, shown as class 3, opened on class 4, and its save, the class left alone, wrote
-// "Likely pathogenic - class 4". A class tag other than the one ticked stayed on the review
-// unseen, so a chosen class could show as another one, and a cleared class did not clear.
+// chooses another class: a review of text "VUS" beside the tag of class 4, shown as class 3,
+// opens on class 3, and its save, the class left alone, sends the text and tags back as stored.
+// A chosen class replaces every class tag, so the review shows it, and a cleared class takes
+// every class tag off.
 describe('SmallVariantReviewDialog opens on the class the review shows', () => {
   const ticked = () =>
     ACMG_CLASSIFICATION_TAGS.map((option) => option.label).filter((label) =>
@@ -246,9 +246,9 @@ describe('SmallVariantReviewDialog deleted tags', () => {
   });
 
   it('lists a key the tag list does not hold as it is, so it can be removed', async () => {
-    const { save } = renderWithTags(['legacy_key', 'report']);
-    expect(box('legacy_key')).toBeChecked();
-    fireEvent.click(box('legacy_key'));
+    const { save } = renderWithTags(['other_key', 'report']);
+    expect(box('other_key')).toBeChecked();
+    fireEvent.click(box('other_key'));
     expect((await save()).tags).toEqual(['report']);
   });
 
@@ -258,7 +258,7 @@ describe('SmallVariantReviewDialog deleted tags', () => {
   });
 });
 
-// SEC-1: a reader in the family's projects reads the review but cannot save it.
+// A reader in the family's projects reads the review but cannot save it.
 describe('SmallVariantReviewDialog for a reader', () => {
   const renderDialog = (readOnly: boolean) => {
     const onSave = vi.fn(async () => undefined);

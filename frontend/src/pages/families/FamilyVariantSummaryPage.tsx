@@ -23,13 +23,13 @@ import {
 } from './VariantSummaryOtherCalls';
 
 /**
- * The family's variant summary: every kind of variant data the family holds, one tab each
- * (PROD-1). A row of tabs names the kinds it has: small variants, structural variants, repeat
+ * The family's variant summary: every kind of variant data the family holds, one tab each.
+ * A row of tabs names the kinds it has: small variants, structural variants, repeat
  * expansions, Paraphase and mtDNA, and, first, NIPT-M for a monogenic NIPT family (its plasma's
  * sites as the NIPT analysis classes them); the open one's section is shown and the others hidden. A
  * section loads when its tab is first opened and stays loaded, so switching back keeps its
  * view. A kind the family lacks has no tab; one whose check failed has one, so its section can
- * say for itself (#607). The open tab is in the URL's hash (#structural-variants), so a reload
+ * say for itself. The open tab is in the URL's hash (#structural-variants), so a reload
  * or a shared link opens it again.
  */
 
@@ -165,7 +165,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
   };
 
   // Without the family it is not known whether its import is complete, nor whether its
-  // assembly is validated: the summary is not shown without those warnings (SAFE-14).
+  // assembly is validated: the summary is not shown without those warnings.
   if (familyFailed) {
     return (
       <FamilyLoadFailure

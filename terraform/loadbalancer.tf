@@ -107,7 +107,7 @@ resource "google_compute_managed_ssl_certificate" "cert" {
 }
 
 # TLS 1.2+ with the MODERN cipher profile; without a policy Google's default applies,
-# which still accepts TLS 1.0 (#520).
+# which still accepts TLS 1.0.
 resource "google_compute_ssl_policy" "https" {
   name            = "${local.name_prefix}-ssl-policy"
   profile         = "MODERN"

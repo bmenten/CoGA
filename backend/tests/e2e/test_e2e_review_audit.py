@@ -19,7 +19,7 @@ The IVDR-critical traceability path. Over the golden-trio data it:
   without the pair, the second variant's review, which held only the pair, is deleted, and
   the clinical audit trail records exactly that;
 * saves a review of text "VUS - class 3" beside the tag of class 4, then a quick tag toggle
-  as the page sends it (the text as stored, CLIN-76): the trail records the tag alone, and
+  as the page sends it (the text as stored): the trail records the tag alone, and
   the row keeps its text. A toggle that sends the class shown (from the tag) as its text
   records a classification change no one made.
 
@@ -55,7 +55,7 @@ FAMILY = "FAM_TRIO"
 PLP_VARIANT_ID = "1-2000-C-T"
 # The golden GENE_CH pair, both heterozygous in the affected proband.
 CH_PAIR = ("1-4000-T-C", "1-5000-A-T")
-# The variant the quick tag toggle is saved on, after the pair's reviews are cleared (CLIN-76).
+# The variant the quick tag toggle is saved on, after the pair's reviews are cleared.
 QUICK_TOGGLE_VARIANT_ID = CH_PAIR[1]
 
 
@@ -264,7 +264,7 @@ async def _collect(root: Path) -> dict:
             r["drop_cleared"] = capture(await ac.put(f"{reviews}/{first}/review", json={"tags": [], "note": None}))
             out["drop_rows_at_end"] = await _pair_review_rows(facts["family_uuid"])
 
-        # CLIN-76: a quick tag toggle sends the classification text back as stored. A review of
+        # a quick tag toggle sends the classification text back as stored. A review of
         # text "VUS - class 3" beside the tag of class 4 (shown as class 4) gets the Review quick
         # tag as the page sends it, then loses it in a save that sends the class shown as its
         # text. The trail is read after each save.
@@ -563,7 +563,7 @@ def test_the_trail_records_what_the_save_that_dropped_the_pair_stored(snap):
     assert integrity["status"] == 200 and integrity["json"]["verified"] is True, integrity
 
 
-# ------------------------------------------------------------ quick tag toggle (CLIN-76)
+# ------------------------------------------------------------ quick tag toggle
 
 
 def _new_events(snap: dict, before_key: str, after_key: str) -> list[tuple[str, str]]:

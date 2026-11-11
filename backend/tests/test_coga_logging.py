@@ -1,7 +1,7 @@
 """scrub_log control-character neutralization (CWE-117 log forging); describe_error and
 describe_traceback, which name an exception and give its frames without quoting the values in
 its text; own_error_message, which keeps only the words of an error CoGA raised itself for a
-record or a page to show (SEC-39); the JSON formatter, which writes every log line that carries an exception that way;
+record or a page to show; the JSON formatter, which writes every log line that carries an exception that way;
 the filter that does the same for uvicorn's traceback of an unhandled error; and the event loop
 exception handler, which logs what asyncio reports without the values its reprs quote."""
 from __future__ import annotations
@@ -136,7 +136,7 @@ def test_describe_error_reads_a_code_and_name_only_from_the_clickhouse_driver() 
 
 
 def test_own_error_message_keeps_the_words_of_an_error_coga_raised() -> None:
-    # SEC-39. A record or a page shows CoGA's own refusal as it is written: an HTTPException
+    # A record or a page shows CoGA's own refusal as it is written: an HTTPException
     # (as str() writes it, status first) and an error of a class CoGA defines.
     from fastapi import HTTPException
 

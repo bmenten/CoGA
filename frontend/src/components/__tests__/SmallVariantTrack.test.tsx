@@ -72,7 +72,7 @@ test('renders loader while small variants are loading', () => {
   expect(screen.getByText(/loading small variants/i)).toBeInTheDocument();
 });
 
-// The span no longer gates the request — it fires at any zoom and the variant cap governs.
+// The span does not gate the request — it fires at any zoom and the variant cap governs.
 test.each([
   ['a broad region', 10_000_000],
   ['a bounded region', 100],
@@ -164,7 +164,7 @@ test('preserves an explicit small-variant sample filter', async () => {
   );
 });
 
-test('rings a tagged variant in the tag colour and keeps its ClinVar mark (#529)', async () => {
+test('rings a tagged variant in the tag colour and keeps its ClinVar mark', async () => {
   useQueryMock.mockImplementation(({ queryKey }) =>
     queryKey[0] === 'small-variant-track-tags'
       ? { data: [{ key: 'priority', color: '#123456' }], isLoading: false }
@@ -209,7 +209,7 @@ test('rings a tagged variant in the tag colour and keeps its ClinVar mark (#529)
   );
 
   await waitFor(() => expect(drawnMarks(container)).toHaveLength(2));
-  // A tag used to replace the fill, hiding that the variant is pathogenic.
+  // A tag does not replace the fill, which says the variant is pathogenic.
   expect(drawnMarks(container).map((mark) => [mark.kind, mark.fill])).toEqual([
     ['pathogenic', '#dc2626'],
     ['pathogenic', '#dc2626'],
@@ -273,7 +273,7 @@ test('colors ClinVar benign/pathogenic; other ClinVar falls through to impact', 
 
   await waitFor(() => expect(drawnMarks(container)).toHaveLength(3));
   const [likelyPathogenic, likelyBenign, conflicting] = drawnMarks(container);
-  // Shape carries the ClinVar class as well as colour (#529): a diamond for P/LP, a
+  // Shape carries the ClinVar class as well as colour: a diamond for P/LP, a
   // hollow square for B/LB.
   expect(likelyPathogenic).toMatchObject({ kind: 'pathogenic', fill: '#dc2626' });
   expect(likelyBenign).toMatchObject({ kind: 'benign', fill: 'white', stroke: '#60a5fa' });
@@ -473,9 +473,8 @@ test('shows a hover tooltip with the gene and variant', async () => {
   expect(tooltip?.textContent).toContain('c.7007G>A');
 });
 
-// The tooltip wrote the chromosome as the variant is stored (`13:32316461`, `MT:3243`), where the
-// viewer names it chr13 and chrM (#602), as the genome overview's SV tooltip does since ENG-20
-// (found while fixing ENG-20, #1030).
+// The tooltip names the chromosome as the viewer and the genome overview's SV tooltip do
+// (chr13, chrM), however the variant is stored (`13:32316461`, `MT:3243`).
 test.each([
   ['13', '13', 32316461, 'G', 'A', 'chr13:32316461 G>A SNV'],
   ['chr13', '13', 32316461, 'G', 'A', 'chr13:32316461 G>A SNV'],
@@ -514,7 +513,7 @@ test.each([
   expect(within(document.body.querySelector('.viz-tooltip') as HTMLElement).getByText(text)).toBeInTheDocument();
 });
 
-test('names the review tags in the tooltip, since a ring gives only a colour (#529)', async () => {
+test('names the review tags in the tooltip, since a ring gives only a colour', async () => {
   useQueryMock.mockImplementation(({ queryKey }) =>
     queryKey[0] === 'small-variant-track-tags'
       ? {
@@ -563,7 +562,7 @@ test('names the review tags in the tooltip, since a ring gives only a colour (#5
   );
 });
 
-test('a failed request shows the failure, never "no small variants" (#510)', () => {
+test('a failed request shows the failure, never "no small variants"', () => {
   const refetch = vi.fn();
   useQueryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch });
   render(
@@ -586,7 +585,7 @@ test('a failed request shows the failure, never "no small variants" (#510)', () 
   expect(refetch).toHaveBeenCalled();
 });
 
-// The chart's accessible name summarises what it draws now (#529).
+// The chart's accessible name summarises what it draws now.
 const serveVariants = (state: Record<string, unknown>) =>
   useQueryMock.mockImplementation(({ queryKey }) =>
     queryKey[0] === 'small-variant-track-tags'
@@ -615,7 +614,7 @@ const brca2Track = (regionStart = 32_316_000) => (
   />
 );
 
-test('names the drawn variants and the salient marks among them (#529)', () => {
+test('names the drawn variants and the salient marks among them', () => {
   serveVariants({
     data: {
       total: 5,
@@ -639,7 +638,7 @@ test('names the drawn variants and the salient marks among them (#529)', () => {
   ).toBeInTheDocument();
 });
 
-test('says when none of the drawn variants is P/LP or HIGH impact (#529)', () => {
+test('says when none of the drawn variants is P/LP or HIGH impact', () => {
   serveVariants({
     data: { total: 2, variants: [carried(32_316_100, { impact: 'MODERATE' }), carried(32_316_200, { impact: 'LOW' })] },
   });
@@ -652,7 +651,7 @@ test('says when none of the drawn variants is P/LP or HIGH impact (#529)', () =>
   ).toBeInTheDocument();
 });
 
-test('an empty region is named as empty (#529)', () => {
+test('an empty region is named as empty', () => {
   serveVariants({ data: { total: 0, variants: [] } });
   render(brca2Track());
 
@@ -661,7 +660,7 @@ test('an empty region is named as empty (#529)', () => {
   ).toBeInTheDocument();
 });
 
-test('a view over the cap is named as too many, not as zero (#529)', () => {
+test('a view over the cap is named as too many, not as zero', () => {
   serveVariants({ data: { total: 10000, total_is_estimated: true, count_limit: 10000, variants: [] } });
   render(brca2Track());
 
@@ -672,7 +671,7 @@ test('a view over the cap is named as too many, not as zero (#529)', () => {
   ).toBeInTheDocument();
 });
 
-test('a load or a failure is named as such, never as the held window’s count (#510, #529)', () => {
+test('a load or a failure is named as such, never as the held window’s count', () => {
   serveVariants({ data: { total: 1, variants: [carried(32_316_100, { clinvar: 'Pathogenic' })] } });
   const { rerender } = render(brca2Track());
   expect(screen.getByRole('img', { name: /: 1, of which 1 ClinVar P\/LP$/ })).toBeInTheDocument();

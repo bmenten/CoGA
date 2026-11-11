@@ -86,7 +86,7 @@ def long_read_sample_ids(root: Path) -> list[str]:
     under one of the pipeline's per-sample datasets that holds a file named after it.
     Empty for any other layout. A name no sample can be stored under (with a space or a
     control character) is listed too: Discover reports it, rather than leave a member out. A
-    symlink that loops is no folder (looked up, it failed Discover and the package list)."""
+    symlink that loops is no folder (looked up, it would fail Discover and the package list)."""
     samples: set[str] = set()
     for dataset_folder in LONG_READ_SAMPLE_DATASET_FOLDERS:
         base = root / dataset_folder

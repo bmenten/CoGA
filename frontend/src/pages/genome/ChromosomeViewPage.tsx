@@ -472,7 +472,7 @@ const ChromosomeViewPage: React.FC = () => {
     );
   }
 
-  // The project catalogue failed: the reference is unknown, not missing (#608).
+  // The project catalogue failed: the reference is unknown, not missing.
   if (referenceFailed) {
     return (
       <PageState
@@ -515,7 +515,7 @@ const ChromosomeViewPage: React.FC = () => {
     );
   });
   // Without the chromosome's length there is no region to wait for: the failure is said
-  // in place of the tracks, not as a load that never ends (#610).
+  // in place of the tracks, not as a load that never ends.
   const availabilityPending =
     visibleMembers.length > 0 &&
     !chromInfoFailed &&

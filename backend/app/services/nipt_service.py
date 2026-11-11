@@ -195,7 +195,7 @@ def derive_father_state(
     with fewer than 20 reads, fewer than 5 alt reads or a quality (TLOD, else QUAL) below 20
     is ``low_support``; then a VAF of 0.80 or more is ``hom_alt``, 0.20 or more ``het``,
     less ``low_vaf``. A call without an alt read is ``hom_ref`` at 20 reads or more. A call
-    without allele depths falls back on its GT (the shared genotype classes, #511: a haploid
+    without allele depths falls back on its GT (the shared genotype classes: a haploid
     ``1`` is ``hom_alt``, ``./0`` no call). No call is ``uncalled``: ``missing`` in a joint
     VCF, ``absent`` in a per-sample callset.
 
@@ -702,12 +702,12 @@ async def _analyse_family(
 
 class SharedNiptAnalysis:
     """A family's NIPT analysis computed once for everything one sign-out builds: the Sample
-    QC's NIPT checks and the signed record's NIPT section (#900, OPS-9).
+    QC's NIPT checks and the signed record's NIPT section.
 
-    The analysis reads the family's whole callset. Computed for each, it ran twice per
+    The analysis reads the family's whole callset. Computed for each, it would run twice per
     sign-out, and the two could read different inputs: the assay's artifact list is curated
-    apart from the family's data, and a change between the two reads made the Sample QC and
-    the NIPT section of one record disagree. Shared, they read the same values. An analysis
+    apart from the family's data, and a change between the two reads would make the Sample
+    QC and the NIPT section of one record disagree. Shared, they read the same values. An analysis
     is shared only with a caller asking for the same one (the family's data scope, trio,
     artifact-list scope and thresholds); one that failed fails for both, so neither reports
     what the other could not read.
@@ -840,7 +840,7 @@ async def _summarize_family(
 ) -> NiptFamilySummary:
     """The summary of the family's analysis, the NIPT page's and the signed record's."""
     # The whole family callset goes through the analysis: pure CPU work, so it runs in a
-    # worker thread and other requests are served meanwhile (#527).
+    # worker thread and other requests are served meanwhile.
     analysis = await asyncio.to_thread(
         _analyse_family_sites, data, trio, qc, removed.__contains__
     )
@@ -1088,7 +1088,7 @@ async def _triage_de_novo_candidates(
     ff_estimate: FetalFractionEstimate,
     *,
     assembly_name: str | None,
-    carrier_samples: dict[str, str],
+    carrier_samples: Sequence[str],
     family_uuid: str,
 ) -> list[NiptClassifiedVariant]:
     """The de novo candidates among ``classified``, each given its triage (nipt_triage) in
@@ -1132,7 +1132,7 @@ async def _de_novo_view(
     ff_estimate: FetalFractionEstimate,
     *,
     assembly_name: str | None,
-    carrier_samples: dict[str, str],
+    carrier_samples: Sequence[str],
     family_uuid: str,
     min_priority: str,
 ) -> list[NiptClassifiedVariant]:
@@ -1207,8 +1207,8 @@ async def get_family_nipt_variants(
     listed = await _load_listed_artifacts(session, context, assay_key)
 
     # The location filters, as the family search applies them: the interval list, the
-    # excluded intervals and the excluded genes were sent, chipped and never applied here
-    # (#604). Read before the cohort work, so an unreadable interval fails fast.
+    # excluded intervals and the excluded genes. Read before the cohort work, so an
+    # unreadable interval fails fast.
     filters = _build_nipt_query_filters(query_filters or {})
     include_regions = _parse_interval_regions(filters.intervals)
     exclude_regions = _parse_interval_regions(filters.exclude_intervals, label="Excluded interval")
@@ -1226,7 +1226,7 @@ async def get_family_nipt_variants(
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are
     # rarely inside the clinical filter), exactly as the summary estimates it, then
     # the filtered subset is classified against that FF. Both steps are CPU work over
-    # many sites, so they run in a worker thread (#527).
+    # many sites, so they run in a worker thread.
     data = await _load_family_data(context, trio)
     removed, _protected = family_artifact_ids(data.records, listed)
     ff_estimate = await asyncio.to_thread(
@@ -1264,8 +1264,8 @@ async def get_family_nipt_variants(
                 fetal_fraction=ff_estimate, total=0, variants=[], not_classified=not_classified
             )
 
-    # One row past the limit tells a cut list from a complete one. The list used to stop
-    # at the limit with a total that looked exact, so the page and the report read as
+    # One row past the limit tells a cut list from a complete one: a list stopped at the
+    # limit with a total that looked exact would have the page and the report read as
     # complete while the rest of the genome was never classified.
     fetch_limit = _NIPT_VARIANT_FETCH_LIMIT
     records = await _fetch_small_variant_rows(
@@ -1322,7 +1322,7 @@ async def get_family_nipt_variants(
     # Serialize the page slice as full small-variant payloads (and hydrate their
     # review / internal-cohort / gene-constraint data) so the NIPT variant list
     # carries the same shape as the small-variant view, classification aside, each naming
-    # the transcript the annotation filters held on when its primary one does not (CLIN-51).
+    # the transcript the annotation filters held on when its primary one does not.
     variant_outs = await _small_variant_outs(context, filters, [item.record for item in page_items])
     await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
     for item, variant_out in zip(page_items, variant_outs):
@@ -1485,7 +1485,7 @@ async def _fetch_labeled_gene_regions(
     if not cleaned:
         return []
     # One text[] parameter, not one per term (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and a gene list names any number of genes (DATA-6).
+    # per statement, and a gene list names any number of genes.
     clauses = ["(upper(hgnc_symbol) = ANY(CAST(:terms AS text[])) OR upper(gene_id) = ANY(CAST(:terms AS text[])))"]
     params: dict = {"terms": [term.upper() for term in cleaned]}
     if assembly_id:
@@ -1604,7 +1604,7 @@ async def nipt_coverage_notes(
 ) -> list[str]:
     """The notes of the coverage check over ``sample_id``'s coverage tracks for
     ``target_regions``, word for word as the NIPT page shows them (``get_family_nipt_coverage``,
-    from the same code): the signed record freezes them (TRACE-17). The check's coverage itself
+    from the same code): the signed record freezes them. The check's coverage itself
     is not read."""
     _tracks, notes = await _coverage_tracks_over(session, context, sample_id, target_regions)
     return notes
@@ -1617,12 +1617,12 @@ async def _load_coverage_intervals(
     target_regions: list[TargetRegion],
 ) -> tuple[list[CoverageInterval], list[str]]:
     """The sample's coverage on the target regions' chromosomes, from its one coverage track
-    whose values are read depth (CLIN-46): a coverage BED declared as read depth, or a depth
+    whose values are read depth: a coverage BED declared as read depth, or a depth
     track stored as read (``coverage_read_depth``). WisecondorX's and QDNAseq's bins and
-    HiFiCNV's normalised depth are log2 ratios: merged with the BED's depths they pulled its
-    median down, and their rows over a region counted its bases again, which can hide an
+    HiFiCNV's normalised depth are log2 ratios: merged with the BED's depths they would pull
+    its median down, and their rows over a region count its bases again, which can hide an
     uncovered stretch from the completeness check. A coverage BED that does not declare what
-    it holds is of unknown kind, and is not read as depth either (TRACE-9). Without a depth
+    it holds is of unknown kind, and is not read as depth either. Without a depth
     track, [], which reads as no coverage.
 
     With the intervals, a note for each of the sample's coverage tracks there that is not
@@ -1662,7 +1662,7 @@ async def _load_coverage_intervals(
 class NiptCoverageResult:
     """The coverage QC: the target table's when the plasma has one (``targets``), else the
     coverage track's over the gene or panel spans (``regions``), with a note for each of the
-    plasma's coverage tracks not read as depth (``notes``, TRACE-9)."""
+    plasma's coverage tracks not read as depth (``notes``)."""
 
     regions: NiptCoverageSummary
     targets: TargetCoverageSummary | None = None

@@ -60,7 +60,7 @@ These processes realize the **H11.1-OP5 phase flow**:
 | 5.8 Release | Tagged version + build identifier; release checklist | TF-18 |
 | 6 Maintenance | Bugfix/enhancement under same gates; change control | TF-18 |
 | 7 Risk management | ISO 14971 process | [TF-06](TF-06-risk-management-plan.md) |
-| 8 Configuration management | Git, pinned deps, schema baselines and migration revisions | TF-18, [TF-08](TF-08-soup-register.md) |
+| 8 Configuration management | Git, pinned deps, schema baselines and their digest, migration revisions from the release candidate on | TF-18, [TF-08](TF-08-soup-register.md) |
 | 9 Problem resolution | Issue tracking + CAPA | [TF-17](TF-17-vigilance-capa.md) |
 
 ## 3. Roles & responsibilities
@@ -86,8 +86,7 @@ roles, not people: the repository is public, so the holders' names stay in the K
 person holds several roles, the table says so, because the segregation of duties below depends
 on it.
 
-> **🔲 OWNER:** the role titles are to be confirmed ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)). Confirmed
-> 2026-09-30: the quality role is held by the CMGG's QC-verantwoordelijke (kwaliteitsbeheerder).
+> **🔲 OWNER:** confirm the role titles ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)).
 
 > **Segregation of duties — recorded, not resolved.** The **developer, project lead and lab
 > director are the same person**, so implementation and release authorization are not
@@ -125,7 +124,7 @@ For each change reaching a clinical release:
 - risk-file review (TF-06) when a new hazard or control is touched;
 - a release record (TF-18).
 
-## 6. Maintenance & legacy
+## 6. Maintenance
 
 CoGA is actively maintained. Maintenance changes follow the same process and gates as
 development. Per change, the change-control procedure (TF-18) decides whether re-verification

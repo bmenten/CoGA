@@ -28,7 +28,7 @@ from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_PANEL_KEY, assay_key_for_sample
 
 # A change to the artifact list changes which variants every NIPT analysis of its scope
 # filters out, so each add, update, removal and auto-seed is a hash-chained clinical audit
-# event (#683). They form a chain of their own, not tied to a family; verify it with
+# event. They form a chain of their own, not tied to a family; verify it with
 # GET /admin/integrity/verify?table=clinical_audit_events&family_id=system:nipt-artifacts.
 NIPT_ARTIFACT_AUDIT_CHAIN = "system:nipt-artifacts"
 
@@ -326,10 +326,9 @@ async def bulk_upsert_nipt_artifacts(
     return len(rows)
 
 
-async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> dict[str, str]:
-    """The cfDNA samples whose artifact scope is ``assay_key``, keyed by each identifier
-    ClickHouse may store for them (name and UUID) -> the sample name: whose calls count as
-    recurrence.
+async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> list[str]:
+    """The IDs of the cfDNA samples whose artifact scope is ``assay_key``: whose calls
+    count as recurrence.
 
     A cfDNA sample is one tagged ``assay: nipt_cfdna``; its scope is its
     ``assay_panel``, resolved as ``nipt_assay_key`` resolves it for the analysis.
@@ -337,8 +336,7 @@ async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) 
     result = await session.execute(
         text(
             """
-            SELECT id::text AS sample_uuid,
-                   sample_id,
+            SELECT sample_id,
                    CASE WHEN jsonb_typeof(metadata -> 'assay_panel') = 'string'
                         THEN metadata ->> 'assay_panel' END AS assay_panel
             FROM samples
@@ -348,13 +346,11 @@ async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) 
         ),
         {"assay": NIPT_CFDNA_ASSAY},
     )
-    carriers: dict[str, str] = {}
-    for sample_uuid, sample_name, assay_panel in result.all():
-        if assay_key_for_sample_metadata({SAMPLE_ASSAY_PANEL_KEY: assay_panel}) != assay_key:
-            continue
-        carriers[str(sample_name)] = str(sample_name)
-        carriers[str(sample_uuid)] = str(sample_name)
-    return carriers
+    return [
+        str(sample_id)
+        for sample_id, assay_panel in result.all()
+        if assay_key_for_sample_metadata({SAMPLE_ASSAY_PANEL_KEY: assay_panel}) == assay_key
+    ]
 
 
 async def auto_seed_nipt_artifacts(

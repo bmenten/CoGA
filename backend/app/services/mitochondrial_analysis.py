@@ -53,7 +53,8 @@ MITOMAP_ALLELE_SEARCH_URL = "https://www.mitomap.org/cgi-bin/search_allele"
 MAX_MTDNA_VARIANTS = 5_000
 # The most chrM coverage rows read for a sample: those of its one track of read depth. A track
 # whose rows do not overlap holds at most one row per base of chrM, so this does not cut one
-# short. Until #852 it held for the family's rows together, and cut per-base tracks short.
+# short. It holds per sample, not for the family's rows together, which would cut per-base
+# tracks short.
 MAX_MT_COVERAGE_ROWS = 50_000
 
 MT_LOCI: tuple[dict[str, Any], ...] = (
@@ -230,8 +231,8 @@ def _clinical_significance(annotation: dict[str, Any]) -> str:
         return "unknown"
     # ClinVar's "Conflicting classifications of pathogenicity" contains "pathogenic" but is
     # neither pathogenic nor benign, as in variant_prioritization and the frontend's ClinVar
-    # reading: checked after the words below, it read as pathogenic and the mt ACMG evaluator
-    # suggested PP5. A conflicting record makes the status uncertain, whatever else is joined.
+    # reading: checked after the words below, it would read as pathogenic and the mt ACMG
+    # evaluator suggest PP5. A conflicting record makes the status uncertain, whatever else is joined.
     if "conflict" in status_text:
         return "uncertain"
     if "pathogenic" in status_text and "likely" in status_text:
@@ -333,8 +334,8 @@ def _gene_key(gene: Any) -> str:
 
 def _gene_consequences(record: SmallVariantRecord) -> list[MitoGeneConsequenceOut]:
     """Each gene's consequence where the variant lies in two overlapping genes: the most
-    severe annotation of each gene (as the primary one is picked). Before, only the first
-    annotation was read, and the other gene's consequence was not shown."""
+    severe annotation of each gene (as the primary one is picked), so the other gene's
+    consequence is shown too."""
     loci = _position_loci(record.start)
     if len(loci) < 2:
         return []
@@ -535,14 +536,14 @@ def _maternal_transmission(
     pedigree gives the same mother. The parents are the ones the pedigree links to the
     proband (``parent_links``, read by ``_parent_child_links`` as the de novo mode reads them),
     not the members with the role "mother" or "father": a PED import gives everyone with a
-    child that role, so a paternal grandmother who carried the variant read as a carrier
-    mother.
+    child that role, so a paternal grandmother who carried the variant would read as a
+    carrier mother.
 
     "Not seen in mother" needs a mother who was looked at: one the pedigree links to the
     proband, with mtDNA data (``mtdna_samples``: members with a chrM coverage track of read
     depth or call depth; None trusts every member) and not a no-call at this site. Without
     one -- a singleton, a father-child duo, a mother whose mtDNA was not sequenced -- the
-    proband's variant is ``mother_not_assessed``; it used to read as not seen in her. Without
+    proband's variant is ``mother_not_assessed``, not read as not seen in her. Without
     a proband (a couple in carrier screening) there is no maternal line to read:
     ``no_proband``.
     """
@@ -682,11 +683,11 @@ def _coverage_from_rows(rows: Sequence[dict[str, Any]], source: str) -> MitoDNAC
 
     A row is stored as a BED line states it, half-open and 0-based: it covers the
     ``end - start`` bases from ``start``, cut to chrM's length, and a row that covers no base
-    of chrM counts for nothing. Each row counted one base more (CLIN-56), so a per-base track
-    read about twice its breadth, and a row past chrM's end one base. The mean depth is over
-    the bases the rows cover. The breadth is the share of chrM's bases a row gives a depth
-    above 0: a coverage BED's row of depth 0 counts no more than the bins without reads that
-    HiFiCNV's track leaves out (``skip_zero``); it counted as covered.
+    of chrM counts for nothing: a row counted one base more would have a per-base track read
+    about twice its breadth, and a row past chrM's end one base. The mean depth is over the
+    bases the rows cover. The breadth is the share of chrM's bases a row gives a depth above
+    0: a coverage BED's row of depth 0 counts no more than the bins without reads that
+    HiFiCNV's track leaves out (``skip_zero``), not as covered.
     """
     if not rows:
         return MitoDNACoverageOut()
@@ -723,13 +724,13 @@ def _coverage_from_rows(rows: Sequence[dict[str, Any]], source: str) -> MitoDNAC
 async def _mt_coverage_tracks(
     session: AsyncSession, context: FamilyMetadataContext
 ) -> dict[str, SampleCoverageTracks]:
-    """Sample name → its chrM coverage tracks and what each holds (CLIN-46, TRACE-9).
+    """Sample name → its chrM coverage tracks and what each holds.
 
     A sample's coverage can come from several callers, and only some hold read depth
     (``coverage_read_depth``): a coverage BED declared as read depth, and a HiFiCNV depth
     track stored as read. WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth
-    are log2 ratios, and merged with depths they gave a mean chrM depth that was neither; a
-    coverage BED that does not declare what it holds is of unknown kind. A sample without a
+    are log2 ratios, and merged with depths they would give a mean chrM depth that is
+    neither; a coverage BED that does not declare what it holds is of unknown kind. A sample without a
     depth track has its calls' depth as its coverage, as without any track.
     """
     if not context.assembly_name or not context.sample_uuid_to_name:
@@ -753,7 +754,7 @@ def _mt_depth_sources(tracks: dict[str, SampleCoverageTracks]) -> dict[str, str]
 
 
 def _not_read_as_depth_notes(tracks: dict[str, SampleCoverageTracks]) -> list[str]:
-    """A note for each chrM coverage track not read as depth, with the reason (TRACE-9): a
+    """A note for each chrM coverage track not read as depth, with the reason: a
     log2 ratio, or a coverage BED that does not declare what it holds. The page shows them
     with the family's QC notes, so a mean depth from the calls, or none, says why."""
     return [
@@ -834,47 +835,24 @@ def _sample_variant_depth_coverage(records: Sequence[SmallVariantRecord]) -> dic
 
 
 def _sample_haplogroup(metadata: dict[str, Any]) -> str | None:
+    """The haplogroup the import took from the sample's mtDNA-Server calls
+    (``mtdna.haplogroup``), else the one the package manifest gives the sample."""
     return _text(
         _nested(
             metadata,
             ("mtdna", "haplogroup"),
-            ("mtDNA", "haplogroup"),
-            ("mtdna_server", "haplogroup"),
-            ("haplogrep", "haplogroup"),
-            ("haplocheck", "haplogroup"),
             ("package_sample_metadata", "mtdna", "haplogroup"),
             ("package_sample_metadata", "haplogroup"),
-            ("haplogroup",),
         )
     )
 
 
 def _sample_contamination(metadata: dict[str, Any]) -> float | None:
-    return _float(
-        _nested(
-            metadata,
-            ("mtdna", "contamination"),
-            ("mtDNA", "contamination"),
-            ("mtdna_server", "contamination"),
-            ("haplocheck", "contamination"),
-            ("haplocheck", "contamination_level"),
-            ("package_sample_metadata", "mtdna", "contamination"),
-        )
-    )
+    return _float(_nested(metadata, ("package_sample_metadata", "mtdna", "contamination")))
 
 
 def _explicit_qc_status(metadata: dict[str, Any]) -> str | None:
-    status = _text(
-        _nested(
-            metadata,
-            ("mtdna", "qc_status"),
-            ("mtdna", "status"),
-            ("mtDNA", "qc_status"),
-            ("mtdna_server", "qc_status"),
-            ("haplocheck", "status"),
-            ("package_sample_metadata", "mtdna", "qc_status"),
-        )
-    )
+    status = _text(_nested(metadata, ("package_sample_metadata", "mtdna", "qc_status")))
     if not status:
         return None
     normalized = status.strip().lower()
@@ -890,10 +868,7 @@ def _explicit_qc_status(metadata: dict[str, Any]) -> str | None:
 
 
 def _qc_notes(metadata: dict[str, Any]) -> list[str]:
-    return _list_texts(
-        _nested(metadata, ("mtdna", "qc_notes"), ("mtdna", "notes"), ("haplocheck", "notes")),
-        _nested(metadata, ("mtdna_server", "warnings"), ("package_sample_metadata", "mtdna", "qc_notes")),
-    )
+    return _list_texts(_nested(metadata, ("package_sample_metadata", "mtdna", "qc_notes")))
 
 
 def _sample_qc(
@@ -906,7 +881,7 @@ def _sample_qc(
     The depth and contamination cut-offs come from the family's QC threshold profile
     (**Admin → Sequencing QC Thresholds**, metric keys ``mtdna.mean_depth`` and
     ``mtdna.contamination``), not from constants: a QC cut-off is lab configuration, and
-    having one hard-coded here while every other cut-off was admin-settable meant two
+    one hard-coded here while every other cut-off is admin-settable would mean two
     mitochondrial-depth rules, one of them invisible and unchangeable.
 
     With no cut-off configured a metric contributes nothing — the sample is not claimed
@@ -916,22 +891,10 @@ def _sample_qc(
     contamination = _sample_contamination(metadata)
     explicit_status = _explicit_qc_status(metadata)
     mean_depth = coverage.mean_depth if coverage.mean_depth is not None else _float(
-        _nested(
-            metadata,
-            ("mtdna", "mean_depth"),
-            ("mtDNA", "mean_depth"),
-            ("mtdna_server", "mean_depth"),
-            ("package_sample_metadata", "mtdna", "mean_depth"),
-        )
+        _nested(metadata, ("package_sample_metadata", "mtdna", "mean_depth"))
     )
     min_mean_depth = coverage.min_depth if coverage.min_depth is not None else _float(
-        _nested(
-            metadata,
-            ("mtdna", "min_mean_depth"),
-            ("mtDNA", "min_mean_depth"),
-            ("mtdna_server", "min_mean_depth"),
-            ("package_sample_metadata", "mtdna", "min_mean_depth"),
-        )
+        _nested(metadata, ("package_sample_metadata", "mtdna", "min_mean_depth"))
     )
     configured = thresholds or {}
     status = explicit_status or "skip"
@@ -1028,7 +991,7 @@ def _family_qc_notes(
         notes.append(
             "No MT coverage track with read depth was found; variant-call depth is used when available."
         )
-    # Each chrM coverage track not read as depth, and why (TRACE-9): a sample's mean depth
+    # Each chrM coverage track not read as depth, and why: a sample's mean depth
     # then comes from its calls, or there is none.
     notes.extend(coverage_notes)
     if any(sample.qc.status in {"warn", "fail"} for sample in samples):

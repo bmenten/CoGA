@@ -318,7 +318,7 @@ const FamilyNiptReportPage: React.FC = () => {
   } = useReportSignOut(
     familyId,
     (version) => navigate(signedVersionLink(version), { state: { signedOut: { version } } }),
-    // A viewer or a reader in the family's project signs nothing out (SEC-1), nor does a user
+    // A viewer or a reader in the family's project signs nothing out, nor does a user
     // below supervisor (TF-06 H15).
     { readOnly: Boolean(family?.read_only), canSignOut: Boolean(family?.can_sign_out) },
   );
@@ -339,7 +339,7 @@ const FamilyNiptReportPage: React.FC = () => {
   );
   const extent = candidateListExtent(variantPage, candidates.length);
   // Fewer candidates listed than the scope holds: said on screen, in the list, and at the
-  // top of a printout. The report used to show the first page as the whole list.
+  // top of a printout, so the first page never passes for the whole list.
   const listIncomplete = extent.pastReportLimit || extent.classificationCapped;
 
   // The moment the report was produced, and the build that renders it (TF-15 §1).
@@ -381,8 +381,8 @@ const FamilyNiptReportPage: React.FC = () => {
     );
   }
 
-  // Without the family nothing is requested: the report used to render with no fetal
-  // fraction, no coverage and no candidates (#605).
+  // Without the family nothing is requested: the page says so, never a report with no fetal
+  // fraction, no coverage and no candidates.
   if (familyFailed) {
     return (
       <PageState
@@ -438,7 +438,7 @@ const FamilyNiptReportPage: React.FC = () => {
   const lowCoverage = coverage?.low_coverage_regions ?? [];
   // The fetal fraction and the coverage QC are part of what the report states: when either
   // could not be loaded it is said in its place and heads every printed page, instead of
-  // "no estimate" or "no target regions" (#605).
+  // "no estimate" or "no target regions".
   const failedParts = [
     summaryFailed ? 'the fetal-fraction estimate' : null,
     coverageFailed ? 'the coverage QC' : null,
@@ -512,7 +512,7 @@ const FamilyNiptReportPage: React.FC = () => {
             type="button"
             className="form-button"
             onClick={signOut}
-            // As on the family report: not to a reader (SEC-1), nor off the validated scope,
+            // As on the family report: not to a reader, nor off the validated scope,
             // nor while the sign-out record is unknown (the analysis may be signed already).
             disabled={signOutPending || signOutBlocked !== null}
             title={signOutBlocked ?? undefined}
@@ -672,7 +672,7 @@ const FamilyNiptReportPage: React.FC = () => {
         <section className="surface-card report-section">
           <h2 className="section-title">Quality checks</h2>
           <p className="report-paragraph">
-            {/* The tokens read as the QC panel on screen reads them (ENG-10). */}
+            {/* The tokens read as the QC panel on screen reads them. */}
             <strong>Fetal sex: {niptFetalSexLabel(qc.fetal_sex.call)}.</strong> The father&apos;s X alleles:{' '}
             {qc.fetal_sex.x_transmitted} seen, {qc.fetal_sex.x_not_transmitted} absent (
             {qc.fetal_sex.paternal_x}); chrY coverage: {niptChryProfileLabel(qc.fetal_sex.chry_profile)}
@@ -729,7 +729,7 @@ const FamilyNiptReportPage: React.FC = () => {
               across {coverage.target_region_count} target region
               {coverage.target_region_count === 1 ? '' : 's'}.
             </p>
-            {/* Each coverage track not read as depth, and why (TRACE-9). */}
+            {/* Each coverage track not read as depth, and why. */}
             {(coverage.coverage_notes ?? []).map((note) => (
               <p key={note} className="report-paragraph">
                 {note}

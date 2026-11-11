@@ -28,7 +28,7 @@ The rules (the in-app reference ``/docs/reference/haplotype-segregation``):
 * a male is read on one X only on blocks the backend marks ``hemizygous_in_males`` (chrX
   outside the pseudo-autosomal regions of the family's assembly);
 * X-linked recessive, an unaffected father's X is not at risk (the owner's confirmed rule of
-  2026-10-14, CLIN-6); a member whose sex is not recorded is called as a son and as a
+  2026-10-14); a member whose sex is not recorded is called as a son and as a
   daughter, and where the two calls differ, as neither: at risk when either is, else
   uninformative, with both calls (``sex_dependent``);
 * an embryo's block boundary within ``ROI_RECOMBINATION_FLANK`` of the ROI is a

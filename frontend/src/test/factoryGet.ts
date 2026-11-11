@@ -5,7 +5,7 @@ export type ApiGet = (url: string, config?: unknown) => Promise<{ data: unknown 
 /**
  * Keeps the answers a test file's `vi.mock('…/lib/api')` factory gives `api.get`, and puts them
  * back before each test, so an override one test sets cannot leak into the next (a leaked
- * `mockImplementation` made a test's outcome depend on the order the tests ran in). Call it in
+ * `mockImplementation` would make a test's outcome depend on the order the tests run in). Call it in
  * the file's `describe` block; a test overrides some URLs with `get.mockImplementation`, falling
  * back to `factory` for the others.
  */

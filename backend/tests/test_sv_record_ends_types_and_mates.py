@@ -1,14 +1,14 @@
 """Every SV reader positions, types and pairs a record as VCF 4.4 defines it: its END, its
-SVTYPE, a breakend's mate and whether it has a length (CLIN-33, CLIN-37, CLIN-39).
+SVTYPE, a breakend's mate and whether it has a length (CLIN-39).
 
-**A record that leaves END or SVTYPE out (CLIN-33, CLIN-37).** VCF 4.4 lets a
+**A record that leaves END or SVTYPE out.** VCF 4.4 lets a
 structural-variant record leave both out: SVTYPE is deprecated as redundant with ALT, and a
 symbolic allele without END has it "computed from the SVLEN field". The upload lists an SV with
 the genes its POS-END span overlaps, so a deletion written with SVLEN alone, read as ending at
 its POS, would be listed with the genes at its POS only, and a search for a gene it deletes
-downstream of its POS would miss it (CLIN-33). A breakend typed by the ALT it spells,
+downstream of its POS would miss it. A breakend typed by the ALT it spells,
 ``N]5:3000000]``, would be of a type neither the type filter nor the translocation rule of the
-length filters knows (CLIN-37). So (``structural_variant_ingest``):
+length filters knows. So (``structural_variant_ingest``):
 
 * a record without END, or with END ``.``, ends at POS + SVLEN (its sign dropped) for a
   ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes included, and at
@@ -164,7 +164,7 @@ def _mate(record) -> tuple[str | None, int | None]:
     return record.remote_chr, record.remote_start
 
 
-# --- END: the uploads (CLIN-33) ---------------------------------------------------------------
+# --- END: the uploads ---------------------------------------------------------------
 
 
 @pytest.mark.parametrize("record_format", _UPLOAD_FORMATS)
@@ -333,7 +333,7 @@ def test_every_package_reader_leaves_out_a_record_whose_extent_is_not_stated(rea
     assert (records, skipped.without_extent) == ([], 1)
 
 
-# --- SVTYPE (CLIN-37) ---------------------------------------------------------------------
+# --- SVTYPE ---------------------------------------------------------------------
 
 _TYPE_FROM_ALT = [
     # A symbolic deletion or duplication states its length: one without is left out.
@@ -546,7 +546,7 @@ def test_the_length_filters_read_a_length_without_its_sign(length, min_length, p
     )
 
 
-# --- The upload: the genes a record spans, and what it left out (CLIN-33, CLIN-39) -----------------
+# --- The upload: the genes a record spans, and what it left out (CLIN-39) -----------------
 
 # The gene table on chromosome 1: (start, end, symbol).
 _GENES = {

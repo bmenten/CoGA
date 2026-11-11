@@ -106,7 +106,7 @@ export default function StructuralVariantTable({
   onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantTableProps) {
-  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
   // Pure derivations of props — memoize so they aren't rebuilt on every unrelated re-render
   // (this table re-renders on review/sort state changes that don't touch tags/members).

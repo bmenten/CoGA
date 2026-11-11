@@ -1,4 +1,4 @@
-"""A gene with several STRchive loci: its name picks the tract by the call's position (CLIN-31).
+"""A gene with several STRchive loci: its name picks the tract by the call's position.
 
 STRchive lists two repeat tracts in ARX (EIEE1_ARX, pathogenic from 17 GCN repeats; PRTS_ARX,
 from 20) and three in HOXA13 (HFG_HOXA13-I and -III from 22, -II from 18). The owner decided on

@@ -144,9 +144,8 @@ test('marker tooltip shows colour-coded nucleotide genotypes for all members', (
   expect(tooltip?.textContent).toContain('✓');
 });
 
-// The marker tooltip wrote the chromosome as the route holds it (`1:100`), where the viewer names
-// it chr1 (#602), as the genome overview's SV tooltip does since ENG-20 (found while fixing
-// ENG-20, #1030).
+// The marker tooltip names the chromosome as the viewer and the genome overview's SV tooltip
+// do (chr1), not as the route holds it (`1:100`).
 test('marker tooltip names the chromosome as the viewer does', () => {
   mockData({ segments });
   const { container } = renderTrack(true);
@@ -177,8 +176,7 @@ test('marker tooltip draws an allele that is not a single base in the shared gre
     [...tooltip.querySelectorAll<HTMLElement>('span')]
       .filter((span) => span.textContent === text && span.children.length === 0)
       .map((span) => span.style.color);
-  // A multi-base allele was drawn #cbd5e1 and an N #9ca3af: both are now the one grey,
-  // the grey the ROI marker table uses.
+  // A multi-base allele and an N are drawn in one grey, the grey the ROI marker table uses.
   expect(letterColors('GTT').length).toBeGreaterThan(0);
   expect(new Set(letterColors('GTT'))).toEqual(new Set([probe.style.color]));
   expect(new Set(letterColors('N'))).toEqual(new Set([probe.style.color]));
@@ -228,7 +226,7 @@ test('does not fetch phased markers when the overlay is off', () => {
   expect((phasedCall?.[0] as { enabled?: boolean } | undefined)?.enabled).toBe(false);
 });
 
-test('a failed haplotype request shows the failure, not "no haplotype data" or a risk state (#510)', () => {
+test('a failed haplotype request shows the failure, not "no haplotype data" or a risk state', () => {
   const refetch = vi.fn();
   useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
     queryKey[0] === 'haplotypes'
@@ -244,7 +242,7 @@ test('a failed haplotype request shows the failure, not "no haplotype data" or a
   expect(refetch).toHaveBeenCalled();
 });
 
-test('a failed marker request is flagged while the blocks stay drawn (#510)', () => {
+test('a failed marker request is flagged while the blocks stay drawn', () => {
   useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
     queryKey[0] === 'phased-markers'
       ? { data: undefined, isLoading: false, isError: true }
@@ -260,9 +258,9 @@ test('a failed marker request is flagged while the blocks stay drawn (#510)', ()
   expect(container.textContent).not.toContain('Could not load haplotypes');
 });
 
-// #529: the canvas is a named image — whose haplotypes, where, and the risk state its
+// The canvas is a named image — whose haplotypes, where, and the risk state its
 // border shows.
-test('is named with whose haplotypes, where, and the risk state at the ROI (#529)', () => {
+test('is named with whose haplotypes, where, and the risk state at the ROI', () => {
   const trio = [
     { sample_id: 'FATHER', role: 'father', affected: true },
     { sample_id: 'MOTHER', role: 'mother', affected: false },
@@ -311,7 +309,7 @@ test('is named with whose haplotypes, where, and the risk state at the ROI (#529
   ).toBeInTheDocument();
 });
 
-test('a loading, empty or failed track claims no risk state it does not have (#529, #510)', () => {
+test('a loading, empty or failed track claims no risk state it does not have', () => {
   useQueryMock.mockImplementation(() => ({ data: undefined, isLoading: true }));
   const loading = renderTrack(false);
   expect(loading.getByRole('img', { name: 'Haplotypes of CHILD on chr1:0–1,000: loading' })).toBeInTheDocument();
@@ -337,7 +335,7 @@ test('a loading, empty or failed track claims no risk state it does not have (#5
   ).toBeInTheDocument();
 });
 
-test('the name says when the phased-marker overlay failed to load (#529, #510)', () => {
+test('the name says when the phased-marker overlay failed to load', () => {
   useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
     queryKey[0] === 'phased-markers'
       ? { data: undefined, isLoading: false, isError: true }
@@ -391,7 +389,7 @@ test("marks where a parent's phase was corrected, and says what it means on hove
   expect(document.body.querySelector('.viz-tooltip')).toBeNull();
 });
 
-// CLIN-66: blocks built for another pedigree or other sexes resolve no disease haplotype, as
+// Blocks built for another pedigree or other sexes resolve no disease haplotype, as
 // the family page calls no embryo from them.
 test('reads no risk state from outdated blocks, and says why', () => {
   const trio = [
@@ -437,7 +435,7 @@ test('reads no risk state from outdated blocks, and says why', () => {
 
   const warning =
     "The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.";
-  // Before: "affected / at risk", as in the test above.
+  // Not "affected / at risk", as in the test above.
   expect(
     getByRole('img', {
       name: `Haplotypes of CHILD on chr1:0–1,000; risk state at chr1:400–600: uninformative; ${warning}`,
@@ -447,9 +445,9 @@ test('reads no risk state from outdated blocks, and says why', () => {
   expect(getByRole('note')).toHaveTextContent('Outdated blocks: no risk state');
 });
 
-// Found while fixing ENG-19 (#1009): a call written as one allele, a man's one X outside the
-// PARs, read '—' (no genotype) in the marker tooltip, as it read '·' in the ROI marker review
-// before #1009. The tooltip now writes a call by the review's rule, its two homologs side by side.
+// A call written as one allele, a man's one X outside the PARs, is a genotype, not '—' (no
+// genotype): the marker tooltip writes a call by the ROI marker review's rule, its two homologs
+// side by side.
 describe('the marker tooltip at an X-linked locus', () => {
   const xMembers = [
     { sample_id: 'FATHER', role: 'father', sex: 'male' },

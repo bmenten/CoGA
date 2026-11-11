@@ -9,7 +9,7 @@ order of a gene's assemblies and of a panel's regions read ``grc_build`` too, an
 take one order, ``sex_chromosomes.assembly_display_rank``: GRCh38, T2T-CHM13, GRCh37, then the
 rest.
 
-T2T-CHM13 (OPS-17). The UCSC reference import names T2T-CHM13v2.0 the way UCSC's description of
+T2T-CHM13. The UCSC reference import names T2T-CHM13v2.0 the way UCSC's description of
 it does, ``T2T CHM13v2.0`` with a space. NCBI writes ``T2T-CHM13v2.0``, its ClickHouse tables are
 keyed ``T2T_CHM13v2.0``, and UCSC calls it ``hs1``. One rule reads every name,
 ``sex_chromosomes.is_t2t_chm13``. T2T is outside the validated scope (GRCh38 only,
@@ -143,7 +143,7 @@ def test_no_other_assembly_is_read_as_t2t_chm13(name: str | None) -> None:
 
 
 def test_t2t_has_no_grc_build_and_its_own_pars_under_each_name() -> None:
-    # T2T is no GRC build; its PARs are its own (CLIN-12), read under every name it carries,
+    # T2T is no GRC build; its PARs are its own, read under every name it carries,
     # and another CHM13 release has none.
     assert [sex_chromosomes.grc_build(name) for name in T2T_NAMES] == [None] * len(T2T_NAMES)
     t2t_pars = sex_chromosomes.pseudoautosomal_regions("T2T-CHM13v2.0")
@@ -236,7 +236,7 @@ def test_one_order_for_a_gene_s_assemblies_and_a_panel_s_regions() -> None:
 # Each case: the assemblies in the order the table holds them, and the order the gene reference
 # and a panel's regions list them in. GRCh38 and GRCh37 under the exact names, under UCSC's
 # names and as patch releases; T2T under each name the import, ClickHouse, UCSC and NCBI give
-# it, after GRCh38 and before GRCh37 (OPS-17).
+# it, after GRCh38 and before GRCh37.
 ORDER_CASES = [
     pytest.param(
         [OTHER_NAME, grch37, UCSC_IMPORT_NAME, grch38],

@@ -1,6 +1,6 @@
 /**
  * The app's one reading of a ClinVar clinical significance as pathogenic or benign, for
- * everything that turns ClinVar into a class: the small-variant track's marks (#529) and
+ * everything that turns ClinVar into a class: the small-variant track's marks and
  * the ACMG evaluators' PP5 / BP6.
  *
  * "Conflicting classifications of pathogenicity" (before 2024 "conflicting interpretations")

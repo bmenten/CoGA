@@ -5,9 +5,8 @@
 # chapters under review.
 #
 # The HTML is generated, but it is committed (it is the deliverable operators open in a
-# browser), so nothing stops a Markdown edit from landing without a regeneration — which
-# is exactly what happened in #387, where a heading changed and the page kept the old
-# one until #389 happened to rebuild it.
+# browser), so nothing else stops a Markdown edit from landing without a regeneration,
+# leaving the page with a heading the chapter no longer has.
 #
 # Method: regenerate in place and fail if that changes the file. build_site.py embeds no
 # timestamps and is idempotent, so a clean tree means in sync, and any diff is real

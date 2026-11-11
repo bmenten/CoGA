@@ -21,7 +21,7 @@ const dispatchMouseEvent = (
   });
   // The block measures x from the frame's bounding box + clientX (jsdom reports a
   // zero-origin rect, so clientX maps directly to the in-frame x). We deliberately
-  // do NOT set offsetX — the fix must not depend on it. mousemove/mouseup are
+  // do NOT set offsetX — the measurement must not depend on it. mousemove/mouseup are
   // handled by window-level listeners, so bubbling from the target is required.
   Object.defineProperty(event, 'clientX', { value: clientX });
   fireEvent(element, event);
@@ -71,7 +71,7 @@ describe('ViewerTrackBlock', () => {
     );
 
     // Events fire on the inner <rect>, not the frame — they must still be measured
-    // relative to the frame (clientX), not the child (which broke offsetX-based zoom).
+    // relative to the frame (clientX), not the child.
     const feature = screen.getByTestId('feature');
     dispatchMouseEvent(feature, 'mouseDown', 50);
     dispatchMouseEvent(feature, 'mouseMove', 150);
@@ -200,10 +200,9 @@ describe('ViewerTrackBlock', () => {
     expect(onChange).toHaveBeenCalledWith(70, 270);
   });
 
-  // Found while fixing ENG-7 (#1019): a track block removed mid-drag took its window listeners
-  // with it, so no mouseup cleared the shared surface. Every track stayed shifted, with the
-  // grabbing cursor (or the selection band stayed up), until the next drag. A cancelled
-  // pointer, or a window that loses focus and with it the mouseup, did the same.
+  // A track block removed mid-drag takes its window listeners with it, so no mouseup clears
+  // the shared surface; nor does a cancelled pointer, or a window that loses focus and with it
+  // the mouseup. Each of these still clears the pan, or the selection band, at once.
   describe('a gesture that cannot end with a mouseup', () => {
     it('clears the pan when its track is removed mid-drag, and moves nothing', () => {
       const onChange = vi.fn();
@@ -288,9 +287,8 @@ describe('ViewerTrackBlock', () => {
     });
   });
 
-  // ENG-7: the stylesheet gives every track a grabbing cursor while a pan is live, on
-  // `[data-panning]`, but nothing set that attribute (the surface marked a pan
-  // `data-shifting`), so a pan kept the open hand of `cursor: grab`.
+  // The stylesheet gives every track a grabbing cursor while a pan is live, on
+  // `[data-panning]`: the surface sets that attribute during a pan.
   it('shows the grabbing cursor on every track while a pan drag is live', () => {
     const style = document.createElement('style');
     style.textContent = readFileSync(GENOME_CSS, 'utf8');

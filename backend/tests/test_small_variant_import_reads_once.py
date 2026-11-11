@@ -1,11 +1,11 @@
-"""A whole-genome small-variant import reads each annotation once, and stores what it stored
-when it read each one many times.
+"""A whole-genome small-variant import reads each annotation once, and stores what a full
+reading of each, wherever it is used, would store.
 
 The import's time goes on reading VEP's CSQ entries and building each variant's rows from
 them. A CSQ header's entries are read by alias tables narrowed to the fields that header
 declares; a record's INFO without an annotation field is not read at all; each annotation is
 read and serialized once for its own row, the variant's index rows and both hashes. These
-tests hold each shortcut to the full reading it replaces, and the variant tables to
+tests hold each shortcut to the full reading it stands for, and the variant tables to
 synchronous inserts.
 """
 
@@ -191,11 +191,11 @@ _ANNOTATIONS: list[dict[str, Any]] = [
         "rsid": "rs1",
     },
     {
-        "geneSymbol": "Gene2",
-        "geneId": "ENSG2",
-        "majorConsequence": "intron_variant",
-        "maneSelect": "yes",
-        "gnomadAf": 0.5,
+        "gene": "Gene2",
+        "gene_id": "ENSG2",
+        "effect": "intron_variant",
+        "mane_select": True,
+        "gnomad_af": 0.5,
         "gnomad_hom_count": "3",
         "lof": "HC",
         "revel": 0.9,
@@ -258,8 +258,8 @@ def test_each_annotation_is_read_and_serialized_once_for_all_its_rows(monkeypatc
 
     _small_variant_entry_rows("GRCh38", "family-uuid", ["project-uuid"], [_record(_ANNOTATIONS)])
 
-    # Once each: before, the five frequencies of the annotations row and of the index row
-    # each read the annotation again (ten reads), and the set hash serialized them again.
+    # Once each: not again for each of the five frequencies of the annotations row and of the
+    # index row (ten reads), nor again for the set hash.
     assert reads == _ANNOTATIONS
     assert serialized == _ANNOTATIONS
 

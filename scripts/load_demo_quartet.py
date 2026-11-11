@@ -459,9 +459,8 @@ async def import_repeat_expansions(
         }
         # As the single-file upload loads them (routers/repeat_expansions.py): under the
         # family's variant-write locks, the file read before the stored calls are deleted, and
-        # what it brings recorded for the family in the transaction that commits the calls
-        # (SAFE-18). This loader wrote them without the record, so a failed overwrite's
-        # restore that stopped part-way did not name them.
+        # what it brings recorded for the family in the transaction that commits the calls,
+        # so a failed overwrite's restore that stopped part-way names them.
         await lock_family_variant_writes(
             session, sample_context.family_uuid, VARIANT_TYPES, samples=[sample_context.sample_uuid]
         )
@@ -500,7 +499,7 @@ async def import_bed_tracks(
         for bed_type in bed_types:
             path = bed_upload_path(bundle, sample_id, bed_type)
             # As the single-file upload loads it (routers/bed.py): under the family's
-            # variant-write locks, what it brings recorded for the family (SAFE-18).
+            # variant-write locks, what it brings recorded for the family.
             await lock_family_variant_writes(
                 session, sample_context.family_uuid, VARIANT_TYPES, samples=[sample_context.sample_uuid]
             )
@@ -512,7 +511,7 @@ async def import_bed_tracks(
                     file=upload,
                     overwrite=overwrite,
                     record_upload=True,
-                    # A coverage BED declares what it holds (TRACE-9): the demo's coverage
+                    # A coverage BED declares what it holds: the demo's coverage
                     # bins are log2 ratios (its README).
                     content="log2_ratio" if bed_type == "coverage" else None,
                     # Where the file came from, as this loader's other records say it.
@@ -542,7 +541,7 @@ async def import_structural_variants(
                 file=upload,
                 overwrite=overwrite,
                 format_hint=source,  # type: ignore[arg-type]
-                # What it brings recorded for the family, as the single-file upload does (SAFE-18).
+                # What it brings recorded for the family, as the single-file upload does.
                 record_upload=True,
             )
     return results
@@ -566,7 +565,7 @@ async def import_small_variants(
             file=upload,
             overwrite=overwrite,
             format_hint=source,  # type: ignore[arg-type]
-            # What it brings recorded for the family, as the single-file upload does (SAFE-18).
+            # What it brings recorded for the family, as the single-file upload does.
             record_upload=True,
         )
 

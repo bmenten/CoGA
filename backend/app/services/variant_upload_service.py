@@ -117,7 +117,7 @@ _PROVENANCE_SKIP_PREFIXES = (
 _PROVENANCE_HEADER_CAP = 200
 
 # The value doubles as the ClickHouse ``source`` tag, which scopes deletes and
-# re-imports. "clair3" is the historical label for *the family's primary, directly
+# re-imports. "clair3" is the label for *the family's primary, directly
 # called nuclear callset* whatever produced it (DeepVariant on the long-read
 # pipeline) -- the actual caller and its version are recorded per family in the
 # annotation manifest from the VCF header, which is the traceable record. "mito" is a
@@ -202,7 +202,7 @@ def _upload_size(file: UploadFile) -> int | None:
 def _refuse_bgzf_without_its_end(file: UploadFile, *, kind: str) -> None:
     """400 for an upload that is a BGZF file without BGZF's end-of-file block: cut short,
     perhaps exactly where one of its blocks ends, which gzip reads as a whole file, the
-    records after the cut gone without a word (DATA-4). Read from the file's first header
+    records after the cut gone without a word. Read from the file's first header
     and last bytes, so before any of its records. A file that cannot seek is left to its
     read, which refuses it."""
     try:
@@ -250,8 +250,8 @@ def _parse_vep_tsv_annotation_upload(file: UploadFile) -> VepAnnotationLookup:
 
 def _parse_float_list(value: str | None) -> list[float]:
     """A call's allele fractions, one per alternate allele (FORMAT AF or VAF): all of them, or
-    none when one is missing or no finite number. Leaving that one out moved each later
-    allele's fraction onto the allele before it (DATA-7); without them the call's fraction
+    none when one is missing or no finite number. Leaving that one out would move each later
+    allele's fraction onto the allele before it; without them the call's fraction
     comes from its allele depths, where it has them. Never an error: a bad value does not
     fail the ingest."""
     if value in (None, ".", ""):
@@ -284,7 +284,7 @@ def _parse_int_list(value: str | None) -> list[int]:
 def _parse_qual(value: str | None) -> float | None:
     """Parse the site-level VCF QUAL column (a float, or '.'/'' when missing); None, as
     missing, for a QUAL that is no finite number (``inf``, ``nan``), as the other loaders
-    read one, or that no Float32 column holds (SAFE-30)."""
+    read one, or that no Float32 column holds."""
     if value in (None, ".", ""):
         return None
     return column_float32(value)
@@ -413,8 +413,7 @@ async def _delete_family_haplotype_blocks(
     family_uuid: str,
 ) -> None:
     """Delete the family's haplotype blocks this loader made (source ``glimpse2``): their
-    rows and Postgres's record of them. A track loader deletes only its own source's track
-    (SAFE-22)."""
+    rows and Postgres's record of them. A track loader deletes only its own source's track."""
     await delete_interval_tracks(
         assembly_name,
         family_uuid=family_uuid,
@@ -506,7 +505,7 @@ async def _insert_haplotype_rows(
     metadata = json.loads(metadata_json)
     if basis is not None:
         # The pedigree the blocks were built for, which the PGT analysis compares with the
-        # current one before it calls an embryo from them (CLIN-66).
+        # current one before it calls an embryo from them.
         metadata = {**metadata, "pedigree_basis": basis}
     for sample_uuid, row_count in counts_by_sample.items():
         sample_context = sample_context_by_uuid.get(sample_uuid)
@@ -524,8 +523,8 @@ async def _insert_haplotype_rows(
 
 
 def _sample_call_ids(samples: Iterable[SampleMetadataContext]) -> set[str]:
-    """What a stored call may name these samples by: the sample id or the sample uuid."""
-    return {value for sample in samples for value in (sample.sample_id, sample.sample_uuid) if value}
+    """The IDs the stored calls of these samples name them by."""
+    return {sample.sample_id for sample in samples if sample.sample_id}
 
 
 def _entry_with_uploaded_calls(entry: dict[str, Any], uploaded: dict[str, Any]) -> dict[str, Any]:
@@ -588,7 +587,7 @@ async def _rewrite_with_sample_calls(
     cannot be written back either, every sample's calls of the callset may be partly written
     or missing, not only the file's: ``DatasetLeftMissing`` is raised from the original
     error, naming each sample whose calls the rows held, and the import flags its dataset for
-    each of them (SAFE-31).
+    each of them.
     """
     assembly_name = context.assembly_name or ""
     rows = _entries_with_uploaded_calls(stored, replaced, uploaded)
@@ -612,9 +611,7 @@ async def _rewrite_with_sample_calls(
                 f"The {source} calls could not be written, nor put back as they were: those of "
                 "every sample may be partly written or missing",
                 samples={
-                    context.sample_uuid_to_name.get(str(sample), str(sample))
-                    for entry in (*stored, *rows)
-                    for sample in entry.get("calls.sampleId") or []
+                    str(sample) for entry in (*stored, *rows) for sample in entry.get("calls.sampleId") or []
                 },
             ) from write_error
         raise
@@ -632,7 +629,7 @@ async def _read_off_the_event_loop(steps: Generator[_LoopStep, None, _ReadT]) ->
     returns.
 
     Parsing a VCF's lines is CPU work that would hold the event loop, and with it every other
-    request, for as long as the file is read (OPS-9). Each step reads and parses lines in a
+    request, for as long as the file is read. Each step reads and parses lines in a
     worker thread until the reader yields what the event loop must await -- a batch to
     insert, a progress report -- which is awaited here before the next step. The reader
     holds at most one batch, reads nothing ahead of the insert, and its records, inserts and
@@ -682,7 +679,7 @@ class SmallVariantWriteState:
     ``write_state``) has begun writing ClickHouse: its delete of the stored rows it replaces,
     or with none its first insert. A caller's clean-up after the load failed deletes only
     what a load that began may have replaced or partly written: one refused before that
-    (an annotation file it cannot read, the lock, a check) replaced nothing (SAFE-32)."""
+    (an annotation file it cannot read, the lock, a check) replaced nothing."""
 
     began: bool = False
 
@@ -776,11 +773,11 @@ async def upload_family_small_variant_file(
 
     A BGZF file that does not end with BGZF's end-of-file block (cut short, perhaps exactly
     where one of its blocks ends) is refused (400) before anything is read or replaced,
-    whatever ``check_before_replacing`` says (DATA-4).
+    whatever ``check_before_replacing`` says.
 
     An upload that replaces stored rows (with ``overwrite``, the family's rows of its
     callset, and for imputed genotypes the family's haplotype blocks) reads and checks the
-    whole file before it deletes them (``check_before_replacing``, SAFE-25): a first read
+    whole file before it deletes them (``check_before_replacing``): a first read
     builds every record as the write builds it, and the haplotype blocks, and stores
     nothing, so a file the upload refuses (400, 413) or cannot read leaves the stored rows
     as they were. Then the rows are deleted and the file is read again and written: the
@@ -795,7 +792,7 @@ async def upload_family_small_variant_file(
 
     A single-file upload (``record_upload``) also marks the family before its first
     ClickHouse write -- the delete of what it replaces, or with nothing stored its first
-    insert -- in a transaction of its own (``mark_family_upload``, SAFE-28): a process that
+    insert -- in a transaction of its own (``mark_family_upload``): a process that
     stops after that write (a restart, a crash, running out of memory) runs none of the
     clean-up below, and leaves the family marked for the callset, which gates its sign-out.
     The upload's commit removes the mark; a failure removes it once the clean-up has removed
@@ -803,7 +800,7 @@ async def upload_family_small_variant_file(
 
     ``write_state`` is told when the load begins writing ClickHouse (``began``), at the same
     point: a package import's clean-up after a failed load deletes its callset only then,
-    never after a file the load refused before it replaced anything (SAFE-32).
+    never after a file the load refused before it replaced anything.
     """
     if not context.assembly_name:
         raise HTTPException(
@@ -811,7 +808,7 @@ async def upload_family_small_variant_file(
             detail="Could not resolve a single assembly for this family",
         )
     # A BGZF file cut where one of its blocks ends is refused before anything else: a
-    # package import reads its file only after the delete (DATA-4).
+    # package import reads its file only after the delete.
     _refuse_bgzf_without_its_end(file, kind="VCF")
 
     alias_map = {str(key): str(value) for key, value in (sample_aliases or {}).items()}
@@ -831,9 +828,9 @@ async def upload_family_small_variant_file(
     # delete of the very rows the refusal was protecting.
     mutation_started = False
     # Set as the upload begins deleting the stored rows it replaces: a failure from then on
-    # leaves the family without them (SAFE-25).
+    # leaves the family without them.
     replacing = False
-    # A single-file upload's mark, written before its first ClickHouse write (SAFE-28); set
+    # A single-file upload's mark, written before its first ClickHouse write; set
     # as that write begins, and once the clean-up has removed what the upload wrote.
     upload_mark: FamilyWriteMark | None = None
     wrote = False
@@ -910,7 +907,7 @@ async def upload_family_small_variant_file(
             With ``write``, store them a batch at a time and report the progress; without,
             store nothing: the check of a file before it replaces stored rows.
 
-            Run by ``read_file`` in a worker thread, a step at a time (OPS-9): a step reads
+            Run by ``read_file`` in a worker thread, a step at a time: a step reads
             and parses lines until the event loop must await something, which it yields: a
             full batch to insert, or a progress report that is due. The file's read is
             returned at its end."""
@@ -1061,7 +1058,7 @@ async def upload_family_small_variant_file(
                 # reported below) rather than aborting the whole ingest with a 500 and
                 # leaving partially-flushed rows behind (mirrors the package-import path,
                 # which coerces + skips unparseable records). So is a POS that is no whole
-                # number the UInt32 position column holds (SAFE-30): negative, beyond
+                # number the UInt32 position column holds: negative, beyond
                 # 4,294,967,295, infinite.
                 start = column_int(pos, UINT32)
                 if start is None:
@@ -1081,7 +1078,7 @@ async def upload_family_small_variant_file(
                     gt_val = fmt_vals.get("GT", "./.")
                     if not is_vcf_genotype(gt_val):
                         # A word such as HET, which only a malformed VCF holds: refused, not
-                        # stored for each reader to read its own way (CLIN-16).
+                        # stored for each reader to read its own way.
                         raise HTTPException(
                             status_code=400,
                             detail=(
@@ -1169,7 +1166,7 @@ async def upload_family_small_variant_file(
 
         async def read_file(*, write: bool) -> _SmallVariantFileRead:
             # Read and parsed in a worker thread, a batch at a time, while the event loop
-            # serves other requests and awaits each insert (OPS-9).
+            # serves other requests and awaits each insert.
             return await _read_off_the_event_loop(read_records(write=write))
 
         async def check_file() -> None:
@@ -1181,12 +1178,12 @@ async def upload_family_small_variant_file(
 
         if replaces_stored and check_before_replacing:
             # A file the upload refuses, or cannot read, is refused here, before the
-            # delete below: the stored rows stay as they were (SAFE-25).
+            # delete below: the stored rows stay as they were.
             await check_file()
         if record_upload:
             # Before the first ClickHouse write, committed whatever becomes of this
             # transaction: a process that stops after it leaves the family marked for the
-            # callset (SAFE-28). An upload that cannot mark the family writes nothing.
+            # callset. An upload that cannot mark the family writes nothing.
             upload_mark = await mark_family_upload(
                 family_uuid=context.family_uuid,
                 items=[small_variant_upload_scope(resolved_format)],
@@ -1251,7 +1248,7 @@ async def upload_family_small_variant_file(
                 session, family_uuid=context.family_uuid, corrections=phase_corrections
             )
         if record_upload:
-            # What the upload brought, recorded for the family (SAFE-19) in the transaction
+            # What the upload brought, recorded for the family in the transaction
             # that commits it, once its rows are written: the family row is not held for the
             # whole file, and a record that cannot be written fails the upload, whose rows the
             # clean-up below removes. A per-sample upload brought its file's samples' calls.
@@ -1345,8 +1342,8 @@ async def upload_family_small_variant_file(
         if replacing and record_upload and resolved_format is not None:
             # The upload had begun deleting the stored rows it replaces, and failed: the
             # family may hold neither those nor its own, so it is flagged import-incomplete
-            # for what the upload was to bring, and does not read as complete (SAFE-25).
-            # The upload's mark goes with that write (SAFE-28). Best-effort; the upload's
+            # for what the upload was to bring, and does not read as complete.
+            # The upload's mark goes with that write. Best-effort; the upload's
             # own error is raised.
             dataset, scope = small_variant_upload_scope(resolved_format)
             await record_family_upload_failure(
@@ -1359,7 +1356,7 @@ async def upload_family_small_variant_file(
         elif upload_mark is not None and (cleaned_up or not wrote):
             # Nothing stored was replaced, and what the upload wrote is removed again (or it
             # wrote nothing): the family is as it was before the upload. Otherwise the mark
-            # stays, as the upload's rows may be left partly written (SAFE-28).
+            # stays, as the upload's rows may be left partly written.
             await end_family_write_mark(
                 session,
                 family_uuid=context.family_uuid,
@@ -1412,8 +1409,8 @@ def _gene_symbols_for_window(
     end: int,
 ) -> list[str]:
     """Distinct, sorted gene symbols overlapping [start, end) on ``chrom`` —
-    the in-memory equivalent of the old ``start < window_end AND end > window_start``
-    range query."""
+    the in-memory equivalent of the range query ``start < window_end AND end > window_start``.
+    """
     return sorted(
         {
             symbol
@@ -1428,8 +1425,8 @@ def _structural_record_call(
     record: ParsedStructuralVariant,
 ) -> StructuralVariantCall:
     """The uploaded sample's call of ``record``, with its copy number (FORMAT/CN): without it
-    a CNV named no direction, counted as a possible deletion in the second-hit badge and
-    ranked as a loss whatever it called (CLIN-39)."""
+    a CNV would name no direction, count as a possible deletion in the second-hit badge and
+    rank as a loss whatever it called."""
     return StructuralVariantCall(
         sample=sample_id,
         gt=str(record.gt or "./."),
@@ -1500,19 +1497,12 @@ def _rows_with_uploaded_calls(
 def _structural_variant_upload_items(
     record_format: StructuralVariantRecordFormat,
     rows: Sequence[StoredStructuralVariantRow],
-    family_context: FamilyMetadataContext,
 ) -> list[tuple[str, dict[str, Any]]]:
     """What a structural-variant upload's rewrite may leave partly written or missing if it
     stops, or fails without putting the stored rows back: the caller's calls of each sample
     the rewritten rows hold, the upload's own sample among them, each as an upload of that
-    sample's file from that caller records it (``structural_variant_upload_scope``). A
-    stored call names its sample by id or by uuid."""
-    samples = {
-        family_context.sample_uuid_to_name.get(call.sample, call.sample)
-        for row in rows
-        for call in row.record.calls
-        if call.sample
-    }
+    sample's file from that caller records it (``structural_variant_upload_scope``)."""
+    samples = {call.sample for row in rows for call in row.record.calls if call.sample}
     return [structural_variant_upload_scope(record_format, sample) for sample in sorted(samples)]
 
 
@@ -1602,7 +1592,7 @@ async def upload_structural_variant_file(
 
     The upload rewrites the source's rows of every sample: it deletes them, then writes
     them back with this sample's calls changed. A rewrite that fails after its delete puts
-    the stored rows back (``rewrite_family_structural_variants``, SAFE-28). A single-file
+    the stored rows back (``rewrite_family_structural_variants``). A single-file
     upload also marks the family before it, for the source's calls of every sample the rows
     hold (``mark_family_upload``): a process that stops in the rewrite, or a rewrite that
     could not put the rows back, leaves the family marked, which gates its sign-out until
@@ -1634,8 +1624,7 @@ async def upload_structural_variant_file(
         [STRUCTURAL_VARIANTS],
         samples=[sample_context.sample_uuid],
     )
-    # A stored call names its sample by id or by uuid.
-    sample_ids = {value for value in (sample_context.sample_id, sample_context.sample_uuid) if value}
+    sample_ids = {sample_context.sample_id}
     # This source's rows as stored, in every project and with every call: the conflict
     # check is about them, and they are exactly what the source-scoped rewrite below
     # deletes. Everything in them but this sample's calls is written back unchanged.
@@ -1661,8 +1650,8 @@ async def upload_structural_variant_file(
 
     uploaded: dict[str, StructuralVariantRecord] = {}
     # A deletion, duplication, inversion or CNV that states neither END nor SVLEN is left out
-    # and counted: stored on its POS it read as 0 bp, and a gene or panel search missed the
-    # genes it spans (CLIN-39, the owner's decision, 2026-10-27).
+    # and counted: stored on its POS it would read as 0 bp, and a gene or panel search would
+    # miss the genes it spans (the owner's decision, 2026-10-27).
     skipped = SkippedRecords()
     parsed_records = list(
         iter_structural_variant_records(text_value, resolved_format, sample_column=sample_column, skipped=skipped)
@@ -1694,8 +1683,8 @@ async def upload_structural_variant_file(
         )
 
     # Two calls of one position, type and mate with other alleles or another length are two
-    # SVs, as a package's NeedlR calls are (``event_discriminators``): they were one, with the
-    # first one's length and both calls of the sample (CLIN-39). The SV this source already
+    # SVs, as a package's NeedlR calls are (``event_discriminators``), not one with the first
+    # one's length and both calls of the sample. The SV this source already
     # stores under the id keeps it, by its length, so another sample's file of it attaches
     # to it; an upload stores no alleles, so a call of that length is that SV.
     events = [
@@ -1782,16 +1771,16 @@ async def upload_structural_variant_file(
     if record_upload:
         # Before the rewrite, which deletes every sample's calls of this caller before it
         # writes them back, committed whatever becomes of this transaction: a process that
-        # stops in the rewrite leaves the family marked for each of them (SAFE-28). Before
+        # stops in the rewrite leaves the family marked for each of them. Before
         # the record below too, which locks the family row this write needs. An upload that
         # cannot mark the family writes nothing.
         upload_mark = await mark_family_upload(
             family_uuid=family_context.family_uuid,
-            items=_structural_variant_upload_items(resolved_format, rows, family_context),
+            items=_structural_variant_upload_items(resolved_format, rows),
         )
     try:
         if record_upload:
-            # What the upload brings, recorded for the family (SAFE-19) before its rows are
+            # What the upload brings, recorded for the family before its rows are
             # rewritten, in the transaction that commits them: a rewrite that fails takes the
             # record with it, and a record that cannot be written stops the upload first.
             dataset, scope = structural_variant_upload_scope(resolved_format, sample_context.sample_id)

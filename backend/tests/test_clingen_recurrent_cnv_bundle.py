@@ -1,4 +1,4 @@
-"""The bundled ClinGen recurrent-CNV file is ClinGen's V2.1 GRCh38 file, unchanged (TRACE-3).
+"""The bundled ClinGen recurrent-CNV file is ClinGen's V2.1 GRCh38 file, unchanged.
 
 data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed says V2.1
 in its name, but its track line names `ClinGen_recurrent_CNV_V2.0-hg38`. On 2026-10-14 the

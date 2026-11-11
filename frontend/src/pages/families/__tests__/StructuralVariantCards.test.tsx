@@ -60,7 +60,7 @@ describe('StructuralVariantCards frequencies heading', () => {
 });
 
 describe('StructuralVariantCards HPO link', () => {
-  it('carries the SV page, with its project and filters, so the HPO page can return to it (#526)', () => {
+  it('carries the SV page, with its project and filters, so the HPO page can return to it', () => {
     const withHpo: StructuralVariant = {
       ...variant,
       annotation_extra: { hpo_terms: 'HP:0001250;HP:0000707' },

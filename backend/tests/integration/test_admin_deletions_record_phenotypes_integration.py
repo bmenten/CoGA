@@ -1,10 +1,10 @@
-"""An administrator's deletion records the phenotypes it removes, on real Postgres (TRACE-16).
+"""An administrator's deletion records the phenotypes it removes, on real Postgres.
 
-A sample's or a family's phenotypes go with it (``individual_hpo`` cascades from both), but an
-administrator's deletion with its data (Admin → Data) recorded them as no ``phenotype`` event:
-its ``pedigree`` or ``family_deleted`` event does not name them, so the trail did not say which
-phenotypes the family lost, or when. A PED upload or the Family Builder that replaces a family,
-and a failed import's rollback, recorded theirs already.
+A sample's or a family's phenotypes go with it (``individual_hpo`` cascades from both). Its
+``pedigree`` or ``family_deleted`` event does not name them, so an administrator's deletion
+with its data (Admin → Data) records them as ``phenotype`` events, as a PED upload or the
+Family Builder that replaces a family, and a failed import's rollback, record theirs: the
+trail says which phenotypes the family lost, and when.
 
 A family of two members, each with a phenotype, loses the father with his data, then itself:
 each deletion writes one ``phenotype`` event per member whose phenotypes went, before its own
@@ -134,7 +134,7 @@ def test_an_administrators_deletions_record_the_phenotypes_they_remove() -> None
         ]
 
         # A family deletion without a reason is refused before anything happens: it is on the
-        # family's last event (TRACE-16, the owner's decision of 2026-10-27).
+        # family's last event (the owner's decision of 2026-10-27).
         for missing in (None, "", "   "):
             async with sessionmaker() as session:
                 with pytest.raises(HTTPException) as refused:

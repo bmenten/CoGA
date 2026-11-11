@@ -85,8 +85,7 @@ def package_folder_path(folder_path: str | Path) -> str:
 
 # The staged copy of the package the running import or validation downloaded from a bucket:
 # the one place under the staging root the folder guard admits. A typed path into the
-# staging root, or a root entry linked there, read another import's staged copy (#850,
-# SEC-27).
+# staging root, or a root entry linked there, would read another import's staged copy.
 _CURRENT_STAGED_ROOT: ContextVar[Path | None] = ContextVar("coga_current_staged_package", default=None)
 
 
@@ -95,7 +94,7 @@ def _staging_root() -> Path:
 
     It must be this process's own folder. One planted on a shared temp dir, a symlink or
     another user's folder, would put what it leads to under the staging root, so it is
-    refused (PermissionError, an OSError) rather than followed (SEC-27)."""
+    refused (PermissionError, an OSError) rather than followed."""
     root = Path(tempfile.gettempdir()) / "coga-family-imports"
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     info = os.lstat(root)
@@ -128,7 +127,7 @@ def within_family_package(uri: str, package_folder: object) -> bool:
     ``package_folder``: the bucket folder its import read
     (``families.metadata.package_import.folder_path``), below a remote FAMILY_IMPORT_ROOTS
     entry. A location the import recorded on a sample (its aligned reads, its signal files)
-    is served only from there (SEC-27): a changed row can point at most at another of the
+    is served only from there: a changed row can point at most at another of the
     family's own files, never at another family's package in the import area.
 
     False for a family without such a folder (never imported from a bucket), and for a folder
@@ -291,7 +290,7 @@ def _ensure_authorized_package_path(path: Path) -> Path:
     """
     written = str(path)
     if NUL in written:
-        # Every look-up of the path raised ValueError on it: a 500 (SAFE-5).
+        # Every look-up of the path raised ValueError on it: a 500.
         raise HTTPException(status_code=400, detail=f"Family import path '{visible(written)}' {NUL_IN_PATH}")
     if os.path.expanduser(written).startswith("~"):
         raise HTTPException(
@@ -314,7 +313,7 @@ def _authorized_package_folder(path: Path) -> Path:
     import staged; 403 otherwise. Callers go through ``_ensure_authorized_package_path``."""
     resolved = path.expanduser().resolve()
     # The package this import or validation staged from a bucket (its s3:// or gs:// source
-    # was checked before the download), and nothing else under the staging root (SEC-27).
+    # was checked before the download), and nothing else under the staging root.
     staged = _CURRENT_STAGED_ROOT.get()
     if staged is not None and (resolved == staged or staged in resolved.parents):
         return resolved
@@ -419,7 +418,7 @@ def package_folder_link_issues(root: Path) -> list[FamilyImportValidationIssue]:
 
     They follow such a link wherever it leads: a PED in a linked ``ped/`` lists the package,
     and Discover proposes a member from a linked per-sample folder, though what it holds may
-    be another family's. The owner chose a warning over a refusal (SEC-27), so Discover and
+    be another family's. The owner chose a warning over a refusal, so Discover and
     the package validation report each such link, in name order: the folder in the package,
     and where it leads, as a path relative to the import folder that holds it, or as a
     folder outside the import folders. A message never names an absolute path. Nothing under

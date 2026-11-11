@@ -23,7 +23,7 @@ Die scheiding is klinisch belangrijk: bij een recessieve aandoening is een ouder
 
 Een review legt per variant en per familie vast: de **klasse** (bv. "VUS - class 3"), een lijst **tags** en een **notitie**. Per tag bewaart CoGA ook *wie* hem zette en *wanneer*.
 
-**Klasselabels in zinshoofdletters.** De klassetags en de VUS-niveaus staan in zinshoofdletters: "Likely pathogenic - class 4", "VUS — hot" (beslissing van de eigenaar). Een tag staat op een review als sleutel; de klassetekst van een review en van een filterpreset zet revisie `0013` in zinshoofdletters (hoofdstuk 3). De klassetekst van een review is vrije tekst: een opslag bewaart ze zoals verstuurd, zonder witruimte vooraan en achteraan (`_stored_classification` in `review_pg_utils.py`). De filters en de Variant Explorer lezen een klasselabel ongeacht hoofdletters.
+**Klasselabels in zinshoofdletters.** De klassetags en de VUS-niveaus staan in zinshoofdletters: "Likely pathogenic - class 4", "VUS — hot" (beslissing van de eigenaar). Een tag staat op een review als sleutel. De klassetekst van een review is vrije tekst: een opslag bewaart ze zoals verstuurd, zonder witruimte vooraan en achteraan (`_stored_classification` in `review_pg_utils.py`). De filters en de Variant Explorer lezen een klasselabel ongeacht hoofdletters.
 
 **Waar in de code:** de labels in `acmg_points.py`, `cnv_acmg_points.py` en `small_variant_review_tags.py`; de filters in `small_variant_review_pg.py`, `structural_variant_review_pg.py` en `variant_explorer_service.py`.
 

@@ -15,7 +15,7 @@ import {
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
-import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
+import { cnvCriterionMap } from '../../lib/cnvAcmg';
 import { formatQcLimit, formatQcMetricValue } from '../../lib/qcMetricValue';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type { ApiSmallVariantEvidence, ApiStructuralEvidence, CoverageContent, QcStatus } from '../../lib/apiTypes';
@@ -51,7 +51,7 @@ const number = (value: unknown): number | null =>
 // its lists the record holds malformed, a value that is no list where one belongs, or an entry
 // of a list that is not of its kind. The parse reads such a list as empty and leaves such an
 // entry out, so the section says that part of it cannot be read here, rather than reading as if
-// it held nothing (TRACE-17). Null outside a section's parse.
+// it held nothing. Null outside a section's parse.
 let malformedInSection: number | null = null;
 
 const noteMalformed = (count = 1): void => {
@@ -277,15 +277,15 @@ export interface SignedEvidence {
   geneConstraint: SignedEvidenceValue[] | null;
   /**
    * Where that missense Z came from: 'gene_profile', 'vcf' (the VCF's own MISSENSE_Z, read when
-   * the gene profile held none), or null when neither held one (TRACE-15).
+   * the gene profile held none), or null when neither held one.
    */
   geneConstraintSource: string | null;
 }
 
 /**
  * The compound-het pair review that put a small variant in the report, as frozen with it: the
- * pair's report tag reports both its variants, whatever their own reviews hold (TRACE-19,
- * `report_signout_service._reported_reviews`).
+ * pair's report tag reports both its variants, whatever their own reviews hold
+ * (`report_signout_service._reported_reviews`).
  */
 export interface SignedCompoundHetPair {
   partnerVariantIds: string[];
@@ -300,7 +300,7 @@ export interface SignedSmallVariant {
   /** Null when the entry cannot be read here (the downloaded record holds it). */
   variantId: string | null;
   /**
-   * The class its review showed, frozen at sign-out (`class_shown`, CLIN-80) by the family page's
+   * The class its review showed, frozen at sign-out (`class_shown`) by the family page's
    * rule; null: *Not classified*.
    */
   classification: string | null;
@@ -332,7 +332,7 @@ export interface SignedCnvCriterion {
 export interface SignedStructuralVariant {
   variantId: string | null;
   /**
-   * The class its review showed, frozen at sign-out (`class_shown`, CLIN-80) as the SV page shows
+   * The class its review showed, frozen at sign-out (`class_shown`) as the SV page shows
    * it; null: *Not classified*.
    */
   classification: string | null;
@@ -422,7 +422,7 @@ export interface SignedSequencingQcSample {
 
 export interface SignedSequencingQc {
   profileLabel: string | null;
-  /** Why the cut-offs could not be resolved at sign-out, when they could not (#514). */
+  /** Why the cut-offs could not be resolved at sign-out, when they could not. */
   unavailable: string | null;
   samples: SignedSequencingQcSample[];
 }
@@ -454,7 +454,7 @@ export const LIVE_REPORT_SIGN_OFF_STATEMENT =
  * `parseRecordSection` and render it with `RecordSectionBlock` (SignedFamilyReport.tsx).
  *
  * A recorded section's `malformed` counts the lists of it this view cannot read: a value that
- * is no list, or an entry not of its list's kind, each read as empty or left out (TRACE-17).
+ * is no list, or an entry not of its list's kind, each read as empty or left out.
  */
 export type SignedRecordSection<T> =
   | { state: 'unavailable'; reason: string }
@@ -679,7 +679,7 @@ export interface SignedCoverageFile {
 
 /**
  * A member's coverage track of one caller, with what it held as the depth readers read it when the
- * version was signed (TRACE-9; `signed_record_sections.coverage_tracks`): a coverage BED what it
+ * version was signed (`signed_record_sections.coverage_tracks`): a coverage BED what it
  * declared, another caller's track what its import recorded. Only read depth is read as depth.
  */
 export interface SignedCoverageTrack {
@@ -826,14 +826,14 @@ export interface SignedPgtAnalysis {
   diseaseHaplotypes: SignedPgtDiseaseHaplotype[];
   phaseCorrections: HaplotypePhaseCorrection[];
   /** Phase corrections the record holds that cannot be read here (kept in the downloaded
-   * record): the warning beside the calls says so rather than leaving them out (TRACE-17). */
+   * record): the warning beside the calls says so rather than leaving them out. */
   unreadablePhaseCorrections: number;
   embryos: SignedPgtEmbryo[];
   members: SignedPgtMember[];
   sources: SignedPgtSource[];
   blocksRead: number | null;
   blocksDigest: string | null;
-  /** The blocks were built for another pedigree or other sexes (CLIN-66). */
+  /** The blocks were built for another pedigree or other sexes. */
   blocksOutdated: boolean;
   markersTruncated: boolean;
   recombinationFlank: number | null;
@@ -907,7 +907,7 @@ export interface SignedNiptRecessiveGene {
 
 /**
  * The notes of the coverage check without a per-target table, as the record froze them
- * (`signed_record_nipt._coverage_notes`, TRACE-17): each of the plasma's coverage tracks the check
+ * (`signed_record_nipt._coverage_notes`): each of the plasma's coverage tracks the check
  * did not read as depth, with why, word for word as the NIPT page showed them, and what the check
  * ran for. The sign-out runs it as the NIPT page does without a gene or panel: over the family's
  * region of interest.
@@ -1081,7 +1081,7 @@ const IN_SILICO_FIELDS: EvidenceField[] = [
 // with where it came from (MISSENSE_Z_SOURCE_KEY).
 const GENE_CONSTRAINT_FIELDS: EvidenceField[] = [{ key: 'gene_missense_z', label: 'gnomAD missense Z', format: 2 }];
 
-// The source of the frozen missense Z (TRACE-15): the gene's profile, else the VCF's own
+// The source of the frozen missense Z: the gene's profile, else the VCF's own
 // MISSENSE_Z.
 const MISSENSE_Z_SOURCE_KEY = 'gene_missense_z_source';
 const MISSENSE_Z_SOURCE_LABEL: Record<string, string> = { gene_profile: 'gene profile', vcf: 'VCF' };
@@ -1111,7 +1111,7 @@ const parseEvidenceValues = (value: unknown, fields: EvidenceField[]): SignedEvi
     : null;
 
 // The key, in a reported variant's entry, of the class its review showed when it was signed
-// (report_signout_service.CLASS_SHOWN_KEY, CLIN-80).
+// (report_signout_service.CLASS_SHOWN_KEY).
 const CLASS_SHOWN_KEY = 'class_shown';
 
 const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
@@ -1134,7 +1134,7 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
   const pair = isObject(entry.compound_het) ? entry.compound_het : null;
   const { criteria, unreadable } = parseAcmgCriteria(acmg);
   const evidence = isObject(entry.evidence_snapshot) ? entry.evidence_snapshot : null;
-  // The class its review showed, frozen at sign-out by the family page's rule (CLIN-80), with
+  // The class its review showed, frozen at sign-out by the family page's rule, with
   // the ACMG classification beside it as the score when that is another class.
   const shown = text(entry[CLASS_SHOWN_KEY]);
   return {
@@ -1205,16 +1205,15 @@ const parseStructuralVariant = (entry: unknown): SignedStructuralVariant => {
       evidence: text(criterion.evidence),
     });
   });
-  const cnvClass = text(entry.cnv_class);
-  const cnvScore = text(cnvAcmg?.classification) || (cnvClass ? (CNV_CLASS_LABELS[cnvClass] ?? cnvClass) : null);
-  // The class its review showed, frozen at sign-out as the SV page shows it (CLIN-80), with the
+  const cnvScore = text(cnvAcmg?.classification);
+  // The class its review showed, frozen at sign-out as the SV page shows it, with the
   // CNV scoring beside it as the score, never as the class.
   const shown = text(entry[CLASS_SHOWN_KEY]);
   return {
     variantId: text(entry.variant_id),
     classification: shown,
     score: scoreBesideClass(shown, cnvScore),
-    pointTotal: number(entry.cnv_point_total) ?? number(cnvAcmg?.point_total),
+    pointTotal: number(entry.cnv_point_total),
     criteria,
     unreadableCriteria: unreadable,
     tags,
@@ -1965,7 +1964,7 @@ const parseNipt = (value: Json): SignedNipt => {
           })),
         }
       : null,
-    // Null with a per-target table: recorded, as none (TRACE-17).
+    // Null with a per-target table: recorded, as none.
     coverageNotes:
       value.coverage_notes === null
         ? { state: 'recorded', value: null }
@@ -2068,7 +2067,7 @@ export const formatReportTime = (iso: string): string => `${iso.replace('T', ' '
 
 /**
  * One module and its version, as the report footer lists it. A database cited at
- * different releases by different pipelines lists each (issue #294): "GENCODE 49 (snv),
+ * different releases by different pipelines lists each: "GENCODE 49 (snv),
  * 45 (sv)".
  */
 export const describeModuleVersion = (module: {
@@ -2490,7 +2489,7 @@ const describeCoverageRegion = (region: SignedNiptCoverageNotes['regions'][numbe
   })`;
 
 /**
- * The notes of the coverage check without a per-target table as signed (TRACE-17), word for word,
+ * The notes of the coverage check without a per-target table as signed, word for word,
  * then what the check ran for: "CFDNA1: the coverage BED does not declare whether it holds read
  * depth or a log2 ratio; it is not read as depth. The coverage check ran without a gene or panel,
  * over the family’s region of interest GENEA locus (7:1–1,000)." "none." when it named no track.
@@ -2574,7 +2573,7 @@ export const qcStatusLabel = (status: string | null): string =>
 /**
  * The sentence of a classification's frozen gene missense Z, naming where PP2 read it: "From its
  * gene's profile: gnomAD missense Z 3.52." or "From the VCF's MISSENSE_Z, as its gene's profile
- * held none: …" (TRACE-15); null when the record holds none.
+ * held none: …"; null when the record holds none.
  */
 const describeFrozenMissenseZ = (evidence: SignedEvidence, list: (values: SignedEvidenceValue[]) => string) => {
   if (!evidence.geneConstraint?.length) return null;
@@ -2615,7 +2614,7 @@ export const describeFrozenEvidenceValues = (evidence: SignedEvidence): string |
  * What moved in a small-variant classification's frozen values ("consequence stop_gained →
  * stop_gained&splice_region_variant; REVEL 0.412 → 0.951; gnomAD missense Z 2.95 → 3.52");
  * null when none of them moved. A missense Z read from another source names both sources
- * ("gnomAD missense Z 3.52 (gene profile) → 3.52 (VCF)", TRACE-15). The live report and the
+ * ("gnomAD missense Z 3.52 (gene profile) → 3.52 (VCF)"). The live report and the
  * signed version both describe drift this way.
  */
 export const describeSmallVariantEvidenceChange = (
@@ -2708,7 +2707,7 @@ export const describeStructuralEvidenceChange = (
 /**
  * What is gone when an SV/CNV classification's variant is missing: the call of the caller its
  * evidence was frozen from ("its needlr call is no longer present"), which another caller may
- * still call under the same id (TRACE-12). Unnamed when the frozen evidence names no caller.
+ * still call under the same id. Unnamed when the frozen evidence names no caller.
  */
 export const describeMissingStructuralCall = (evidence: ApiStructuralEvidence | null): string =>
   evidence?.source ? `its ${evidence.source} call is no longer present` : 'no longer present';
@@ -2729,7 +2728,7 @@ export const describeSignedStructuralDrift = (item: SignedStructuralDriftItem): 
 /** A sequencing-QC metric outside its cut-offs: "Mean depth 18.6x (Warning; warning 20x, fail 10x)". */
 export const describeBreachedMetric = (metric: SignedSequencingQcMetric): string => {
   // Written as the members table's QC chip writes them (`lib/qcMetricValue.ts`): the record
-  // keeps the value as measured, which read "18.57 x" beside the chip's "18.6x" (ENG-10).
+  // keeps the value as measured, which read "18.57 x" beside the chip's "18.6x".
   const limits = [
     metric.warnValue !== null ? `warning ${formatQcLimit(metric.unit, metric.warnValue)}` : null,
     metric.errorValue !== null ? `fail ${formatQcLimit(metric.unit, metric.errorValue)}` : null,
@@ -2797,7 +2796,7 @@ export const describeDiseaseHaplotypes = (analysis: SignedPgtAnalysis): string |
 /**
  * The warning of the parents' phase corrections near the ROI, as the record froze them: each in
  * the haplotype track's words (`describePhaseCorrection`), and any the record holds that cannot
- * be read here counted, so the warning is never left out unsaid (TRACE-17). Null: none frozen.
+ * be read here counted, so the warning is never left out unsaid. Null: none frozen.
  */
 export const describeSignedPhaseCorrections = (analysis: SignedPgtAnalysis): string | null => {
   const unreadable = analysis.unreadablePhaseCorrections;
@@ -2989,7 +2988,7 @@ export const describePgtMembers = (members: SignedPgtMember[]): string | null =>
 /**
  * How a live report (the family report's, or the NIPT report's) relates to the family's
  * latest signed version. It is never the signed report, whatever the state: only the signed
- * version, rendered from its record, is (#508).
+ * version, rendered from its record, is.
  */
 export type LiveReportSignedState =
   | 'loading'
@@ -3014,8 +3013,8 @@ export const liveReportSignedState = ({
   check: { version?: number | null; matches?: boolean | null } | undefined;
 }): LiveReportSignedState =>
   // A sign-out record that could not be loaded leaves it unknown whether the case is
-  // signed: the page is then neither a draft nor the signed report (#605). Still loading,
-  // it is not known either: not yet a draft (#605).
+  // signed: the page is then neither a draft nor the signed report. Still loading,
+  // it is not known either: not yet a draft.
   signoutsFailed
     ? 'unknown'
     : signoutsPending

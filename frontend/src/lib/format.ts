@@ -1,6 +1,4 @@
-// Display formatters shared across pages. Each page used to carry its own copy; the
-// copies had the same behaviour and differed only in the text shown for a missing value,
-// which is now an argument.
+// Display formatters shared across pages. The text shown for a missing value is an argument.
 
 /**
  * A timestamp in the viewer's locale. A missing value shows `missing`; a value that does not
@@ -17,7 +15,7 @@ export const formatTimestamp = (value?: string | null): string => formatDateTime
 
 /**
  * A date in the viewer's locale. A date-only value (`2026-06-06`) is parsed as UTC midnight,
- * which in local time falls a day early west of UTC, so it is shown in UTC (#526).
+ * which in local time falls a day early west of UTC, so it is shown in UTC.
  */
 export const formatDate = (value?: string | null, missing = ''): string => {
   if (!value) return missing;

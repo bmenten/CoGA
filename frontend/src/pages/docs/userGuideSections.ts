@@ -1,4 +1,4 @@
-// The user guide's sections (#528): what the page lists — id, title, summary and the
+// The user guide's sections: what the page lists — id, title, summary and the
 // workspace quick links — while each section's text lives in Markdown under
 // src/content/docs/user-guide/<id>.md, where it can be read and edited as prose.
 // The guide is part of the information for safety (TF-15). Each section says what a page

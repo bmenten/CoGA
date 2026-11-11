@@ -304,8 +304,8 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("tags", "Tags"),
     ("genotypes", "Genotypes"),
     # The transcript the annotation filters held on, when the row's transcript (the
-    # variant's primary one, which the columns above describe) does not meet them
-    # (CLIN-51), with that transcript's values of the columns above; empty otherwise. Last,
+    # variant's primary one, which the columns above describe) does not meet them,
+    # with that transcript's values of the columns above; empty otherwise. Last,
     # so every column before them keeps its place.
     ("filter_transcript.transcript_id", "Filter-matched transcript"),
     ("filter_transcript.gene", "Filter-matched gene"),
@@ -339,7 +339,7 @@ def _family_export_cell(variant: VariantOut, field: str) -> str:
     if field == "classification":
         # The class the review shows on the family page, as the Variant Explorer's export
         # writes it (review_class_label: a class word in the text, else the most severe class
-        # tag, else the text; CLIN-76); the review's tags are in their own column.
+        # tag, else the text); the review's tags are in their own column.
         if variant.review is None:
             return ""
         return review_class_label(variant.review.classification, variant.review.tags) or ""
@@ -365,7 +365,7 @@ async def export_family_small_variants_csv(
     """Download the filtered small variants for this family as a CSV file.
 
     Up to the export cap (50,000 rows). A larger result is not cut silently: the
-    file name says TRUNCATED and the X-CoGA-Export-* headers report it (#512). So is a
+    file name says TRUNCATED and the X-CoGA-Export-* headers report it. So is a
     result drawn from a capped candidate read (X-CoGA-Export-Truncated-Reason:
     candidate-limit), which can miss matches however few rows it holds.
     """
@@ -467,7 +467,7 @@ async def list_small_variant_tags(
     )
     # With the inactive tags, also each tag the family's own reviews hold that its projects do
     # not list (a project it left, or a deleted one), inactive, so its reviews show the tag's
-    # label rather than its key (SAFE-37).
+    # label rather than its key.
     return await list_small_variant_tag_definitions(
         session,
         family_uuid=context.family_uuid,

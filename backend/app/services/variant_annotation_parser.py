@@ -30,11 +30,10 @@ _LIST_SEPARATORS = re.compile(r"[&,;]")
 # with (VEP --custom's ClinVar_CLNSIG, the CLNSIG of bcftools annotate or vcfanno), and from
 # VEP's cache (CLIN_SIG) only where no ClinVar file was annotated. The cache holds an older
 # ClinVar release, read for the known variants at the record's position, and joins their
-# classifications with "&" (``uncertain_significance&likely_pathogenic``). It was read first,
-# so it stood in for the ClinVar file's classification. Where a ClinVar file was annotated,
-# the cache's classification is kept apart (``clinvar_vep_cache``) and never read as
-# ClinVar's, also for a variant the file has no record of: ClinVar's file holds every
-# variant ClinVar classifies at a precise location.
+# classifications with "&" (``uncertain_significance&likely_pathogenic``). Where a ClinVar
+# file was annotated, the cache's classification is kept apart (``clinvar_vep_cache``) and
+# never read as ClinVar's, also for a variant the file has no record of: ClinVar's file
+# holds every variant ClinVar classifies at a precise location.
 CLINVAR_FILE_ALIASES = ("ClinVar_CLNSIG", "CLNSIG", "CLINVAR")
 _CLINVAR_CACHE_KEY = "clinvar_vep_cache"
 
@@ -89,12 +88,12 @@ _ANN_ALIASES = {
 # (gnomAD, gnomADe, gnomADg, TOPMed), or from VEP's MAX_AF and POPMAX_AF, which only a
 # population annotation writes. gnomAD's popmax (named grpmax since gnomAD v4) is gnomAD's
 # own; MAX_AF is VEP's highest frequency over every population it reads (1000 Genomes and
-# gnomAD's), a different value: it was read as gnomAD's popmax. It is kept as ``max_af``, and
+# gnomAD's), a different value, never read as gnomAD's popmax. It is kept as ``max_af``, and
 # stands in for the popmax only in the stored filter column (``clickhouse_variant_rows``). The aliases are read from the record's INFO as well as from
 # each CSQ/ANN entry, and an entry without a value keeps the INFO's. An unprefixed key names
 # no source: INFO/AC is the callset's own allele count (a reserved VCF key that joint callers
-# write), and read as gnomAD's AC it made a maximum gnomAD AC filter filter on the family's
-# own count (CLIN-59); AC_Adj, nhomalt and hemi are not read either. A record without a
+# write), and read as gnomAD's AC it would make a maximum gnomAD AC filter filter on the
+# family's own count; AC_Adj, nhomalt and hemi are not read either. A record without a
 # source-named field has no value, and the frequency and count filters keep it, as absent
 # from gnomAD (``ifNull(value, 0) <= maximum``).
 _POPULATION_ALIASES = {
@@ -133,12 +132,11 @@ _POPULATION_ALIASES = {
     "gnomad_mt_af_het": ["GNOMAD_MT31_AF_het", "gnomAD_MT_AF_het", "gnomADmt_AF_het"],
 }
 
-# gnomAD's counts are read as gnomAD's total (CLIN-67): its combined count where the record
+# gnomAD's counts are read as gnomAD's total: its combined count where the record
 # has one, else its exome and genome counts added (``gnomADe_…`` and ``gnomADg_…``, as VEP
 # names a --custom gnomAD file's fields), either alone when the other is missing. That is
 # the total gnomAD's browser shows, the owner's choice of 2026-10-27. Each count lists its
-# combined, exome and genome aliases. Before, ``gnomADe_nhomalt`` and ``gnomADg_nhomalt``
-# were not read at all, and the allele count took the exome count alone.
+# combined, exome and genome aliases.
 _COUNT_ALIASES = {
     "gnomad_hom_count": (
         ["gnomAD_Hom", "GNOMAD_HOM", "gnomAD_hom", "gnomad_hom", "gnomAD_nhomalt", "GNOMAD_NHOMALT"],
@@ -418,7 +416,7 @@ def _first_value(mapping: Dict[str, Any], aliases: Sequence[str]) -> Any:
 
 def _gnomad_count(mapping: Dict[str, Any], aliases: _CountAliases) -> Optional[int]:
     """gnomAD's count in ``mapping``: its combined count, else its exome and genome counts
-    added, either alone when the other is missing; None when it holds none (CLIN-67)."""
+    added, either alone when the other is missing; None when it holds none."""
     combined_aliases, exome_aliases, genome_aliases = aliases
     combined = _parse_int(_first_value(mapping, combined_aliases))
     if combined is not None:
@@ -721,8 +719,8 @@ def _normalize_annotation_entry(
 # A record with several ALT alleles (``G,T``) is stored as one variant, not split, and its CSQ
 # holds the entries of every allele. Each entry names its allele, and each annotation of such
 # a record says which ALT it is of (``alt_allele``): the card, the transcript list, the ACMG
-# dialog and the frozen evidence name it. Before, the entries were read as the record's own,
-# so its primary transcript, consequence and scores could be another allele's, unnamed.
+# dialog and the frozen evidence name it. Read as the record's own, the entries would give
+# it a primary transcript, consequence and scores of another allele, unnamed.
 ALT_ALLELE_KEY = "alt_allele"
 
 

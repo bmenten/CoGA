@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-/** The stylesheet's entry: it imports the modules under styles/theme/ in cascade order (#711). */
+/** The stylesheet's entry: it imports the modules under styles/theme/ in cascade order. */
 export const THEME_ENTRY = path.resolve(process.cwd(), 'src/styles/theme.css');
 export const THEME_DIR = path.resolve(process.cwd(), 'src/styles/theme');
 

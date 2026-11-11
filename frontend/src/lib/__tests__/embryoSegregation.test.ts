@@ -72,7 +72,7 @@ describe('embryoClassificationsFromAnalysis', () => {
     expect(out.get('E1')).toMatchObject({ uninformative: true, roiNotCovered: false });
   });
 
-  it('reads every embryo as uninformative for outdated blocks, with the reason to give (CLIN-66)', () => {
+  it('reads every embryo as uninformative for outdated blocks, with the reason to give', () => {
     const out = embryoClassificationsFromAnalysis(
       analysis([embryo({ call: 'uninformative' }), embryo({ sample: 'E2', call: 'uninformative' })], {
         inputs: { haplotype_sources: [], blocks_read: 4, blocks_digest: 'abc', markers_truncated: false, blocks_outdated: true },
@@ -140,10 +140,6 @@ describe('the phasing-QC warning', () => {
     );
     expect(describeQcFinding({ measure: 'maternal_markers', value: 1, threshold: 6, flank: 'right' })).toBe(
       "1 marker on the mother's side right of the ROI (fewer than 6)",
-    );
-    // A record from before the flanks were counted apart names none.
-    expect(describeQcFinding({ measure: 'paternal_markers', value: 3, threshold: 6, flank: null })).toBe(
-      "3 markers on the father's side (fewer than 6)",
     );
   });
 

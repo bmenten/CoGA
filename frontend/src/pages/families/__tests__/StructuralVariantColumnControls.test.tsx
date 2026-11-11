@@ -1,4 +1,4 @@
-// The SV table's column picker (#526): one checkbox per column, named for a person, and a
+// The SV table's column picker: one checkbox per column, named for a person, and a
 // click toggles that column.
 import { fireEvent, render, screen } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';

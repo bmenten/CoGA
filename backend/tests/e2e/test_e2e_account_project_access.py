@@ -1,4 +1,4 @@
-"""An administrator sets an account's projects on the Users page (E2E, SEC-1).
+"""An administrator sets an account's projects on the Users page (E2E).
 
 A project's members and an account's projects are the same rows (``project_users``), set from
 either side: a project's ``user_ids`` and ``reader_user_ids`` on *Projects & access*, an

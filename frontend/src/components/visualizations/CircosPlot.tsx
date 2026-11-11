@@ -687,7 +687,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
         const targetPos = v.remote_start ?? v.end ?? v.start;
         if (!sourceScale || !targetScale) return null;
         // Drawn by the type it is drawn as in the tracks: a DEL:ME or a CNV loss as a DEL, a
-        // TRA as a BND, an SV of any other type in the neutral colour (CLIN-54).
+        // TRA as a BND, an SV of any other type in the neutral colour.
         const type = svTypeKey(v.type, v.copy_change);
 
         const sourceAngle = sourceScale(sourcePos);
@@ -771,7 +771,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
           .attr('stroke-width', render.strokeWidth)
           .style('cursor', render.clickable && onVariantClickRef.current ? 'pointer' : 'default')
           .on('mouseover', (event) => {
-            // The chromosomes as the viewer names them (`chr1`, `chrX`; #602), however stored.
+            // The chromosomes as the viewer names them (`chr1`, `chrX`), however stored.
             const startChr = formatChromosomeLabel(v.chr);
             const endChr = formatChromosomeLabel(v.remote_chr || v.chr);
             const endPos = v.remote_start ?? v.end ?? v.start;

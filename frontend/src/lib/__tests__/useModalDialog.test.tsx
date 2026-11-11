@@ -1,5 +1,5 @@
-// Dialog keyboard, focus and close behaviour — #529: clinical dialogs closed on any
-// backdrop click and discarded unsaved input, with no Escape key or focus handling.
+// Dialog keyboard, focus and close behaviour: Escape, a backdrop click that asks before
+// discarding unsaved input, and focus kept inside and given back.
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
@@ -109,7 +109,7 @@ describe('useModalDialog', () => {
   });
 
   it('does not close when a press inside the dialog is released over the backdrop', () => {
-    // Dragging a text selection out of a field used to close the dialog.
+    // Dragging a text selection out of a field leaves the dialog open.
     const onClose = vi.fn();
     render(<Dialog onClose={onClose} />);
     fireEvent.mouseDown(screen.getByLabelText('Review note'));

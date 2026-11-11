@@ -1,4 +1,4 @@
-"""A single-file upload marks the family before its first ClickHouse write (SAFE-28).
+"""A single-file upload marks the family before its first ClickHouse write.
 
 ClickHouse has no transactions, and an upload that replaces stored data deletes it before it
 writes the file's rows: a process that stops after that delete -- a restart, a crash,
@@ -11,7 +11,7 @@ The small-variant, structural-variant and interval-track uploads write a mark in
 connection of their own: it names what the upload may leave partly written or missing, one
 sample at a time. The upload's commit removes it; a failure removes it once nothing is
 missing; else it stays (or, for a small-variant upload that replaced its callset, becomes
-the flag SAFE-25 writes). It gates sign-out as an import's entry does, and the gate's
+the import-incomplete flag). It gates sign-out as an import's entry does, and the gate's
 message names a single-file upload; each item goes once an upload or an import with
 overwrite has brought it again. The import job's claim and its heartbeat read the jobs
 alone, so they never take such a mark for a running or stopped import. (The repeat-expansion
@@ -82,7 +82,7 @@ def _calls(count: int) -> str:
 
 _CLAIR3 = {"source": "clair3", "samples": None}
 _COVERAGE_S1 = {"source": None, "samples": ["S1"]}
-# What the coverage BED upload below brings: S1's BED, declared as read depth (TRACE-9).
+# What the coverage BED upload below brings: S1's BED, declared as read depth.
 _DECLARED_COVERAGE_S1 = {**_COVERAGE_S1, "content": "read_depth"}
 
 
@@ -360,7 +360,7 @@ async def test_a_small_variant_upload_whose_clean_up_fails_stays_marked_and_answ
     assert key.startswith("upload-")
     assert mark["whole_family"] == [{"dataset": "snv", "scope": _CLAIR3}]
     assert database.committed["flag"] is None
-    # The family by its UUID, never its ID (SEC-39).
+    # The family by its UUID, never its ID.
     assert "Failed to clean up partial small-variant rows for family family-uuid after an upload error" in caplog.text
 
 
@@ -400,7 +400,7 @@ async def test_a_bed_upload_that_fails_after_its_delete_leaves_the_family_marked
 
 @pytest.mark.asyncio
 async def test_a_bed_upload_that_fails_after_its_delete_removes_the_tracks_record(stores, monkeypatch) -> None:
-    # SAFE-18. The record's delete is the upload's, and rolls back with it, so the record is
+    # The record's delete is the upload's, and rolls back with it, so the record is
     # removed again in a transaction of its own: else Postgres would keep the record of a track
     # whose rows the upload had deleted, which the coverage readers and the signed record read.
     database = _Postgres()

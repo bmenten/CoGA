@@ -1,4 +1,4 @@
-// Helpers for the /api proxy in server.mjs (#521), kept pure so they can be tested.
+// Helpers for the /api proxy in server.mjs, kept pure so they can be tested.
 
 /** Time the backend has to start responding before the proxy answers 504. */
 export const DEFAULT_PROXY_TIMEOUT_MS = 10 * 60 * 1000;

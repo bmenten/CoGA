@@ -105,7 +105,7 @@ const MonarchDataAdminPage: React.FC = () => {
         + `${formatCount(summary.disease_phenotype_pairs)} disease–phenotype pairs `
         + `in ${summary.duration_seconds.toFixed(1)}s.`;
       // The Mendeliome is re-versioned after each refresh; it can fail without failing the
-      // refresh, and is then said instead of hidden (#514).
+      // refresh, and is then said instead of hidden.
       setStatus(
         summary.mendeliome_regenerated === false
           ? {

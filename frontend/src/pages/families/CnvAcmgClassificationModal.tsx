@@ -48,12 +48,12 @@ export default function CnvAcmgClassificationModal({
   isPending = false,
   errorMessage = null,
 }: CnvAcmgClassificationModalProps) {
-  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
   const savedKind = variant.review?.cnv_acmg?.kind;
   const [kind, setKind] = useState<CnvKind>(savedKind ?? cnvKindForType(variant.type));
 
-  // One set of selections per kind, each seeded from the suggestions for that kind (CLIN-55)
+  // One set of selections per kind, each seeded from the suggestions for that kind
   // and from the saved criteria when the saved classification is of that kind. Switching kind
   // shows the other kind's set: what was changed by hand stays with the kind it was changed in,
   // and only the set shown is saved.
@@ -105,7 +105,7 @@ export default function CnvAcmgClassificationModal({
 
   const handleSave = async () => {
     // The class this dialog sets replaces every ACMG class tag the review holds, as the review
-    // dialog's chosen class does (CLIN-76): a class tag outranks a class label in the class a
+    // dialog's chosen class does: a class tag outranks a class label in the class a
     // review shows (`normalizeReviewClassification`), so one kept beside the CNV class would show
     // instead of it. The review's other tags go back as they are.
     const classTags: readonly string[] = ACMG_CLASSIFICATION_TAG_KEYS;
@@ -126,13 +126,13 @@ export default function CnvAcmgClassificationModal({
         classification: classification.classLabel,
       },
       // The caller whose row this dialog was opened on: the save freezes that row's
-      // evidence, the one the criteria above were suggested from (TRACE-11).
+      // evidence, the one the criteria above were suggested from.
       source: variant.source ?? null,
     };
     await onSave(payload);
   };
 
-  // Escape, focus trap, and a check before unsaved input is discarded (#529).
+  // Escape, focus trap, and a check before unsaved input is discarded.
   const dialog = useModalDialog({
     onClose,
     discardMessage: 'Discard your unsaved changes to this CNV classification?',
@@ -157,7 +157,7 @@ export default function CnvAcmgClassificationModal({
               {variant.end.toLocaleString()}
               {variant.gene ? ` · ${variant.gene}` : ''}
               {/* The caller whose row this is: another caller's call of the SV is evidence of its
-                  own, and the save freezes this row's (TRACE-11, TRACE-12). */}
+                  own, and the save freezes this row's. */}
               {variant.source ? ` · ${variant.source} call` : ''}
             </h2>
             <p className="variant-review-modal-subtitle">

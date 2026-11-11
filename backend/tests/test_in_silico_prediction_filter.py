@@ -1,5 +1,5 @@
 """SIFT and PolyPhen filters: the ClickHouse condition keeps the transcript whose value names
-the prediction (CLIN-45).
+the prediction.
 
 VEP writes a SIFT or PolyPhen call with its score, ``deleterious(0.01)`` or
 ``probably_damaging(0.998)``, and the import stores the value so, case-folded. A filter keeps
@@ -224,7 +224,7 @@ def test_one_predictor_is_enough() -> None:
 
 def test_the_variant_explorer_applies_the_same_condition() -> None:
     # The explorer builds its per-transcript condition with the family search's function
-    # (CLIN-29), so it reads SIFT and PolyPhen by the same rule.
+    #, so it reads SIFT and PolyPhen by the same rule.
     from backend.app.services.clickhouse_variant_queries import _small_annotation_filter_condition
     from backend.app.services.variant_explorer_service import (
         ExplorerScope,

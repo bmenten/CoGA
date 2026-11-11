@@ -1,4 +1,4 @@
-"""Each change to a family's phenotypes is on its clinical audit trail (SEC-1).
+"""Each change to a family's phenotypes is on its clinical audit trail.
 
 Phenotypes feed the prioritised ranking and the PP4 suggestion, and an analyst of the
 family's project or an admin may add, change and remove them. Each change writes one event

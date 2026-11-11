@@ -4,7 +4,7 @@ A TRGT call's TRID chooses the catalogue row that classifies it: a gene name (as
 data) finds the built-in row (``repeat_expansion_catalog.py``), a STRchive ID such as
 ``SCA1_ATXN1`` the STRchive row (``data/ref-data/STRchive-loci.json``). The owner decided on
 2026-10-09 that the built-in rows take STRchive's thresholds wherever STRchive has the locus, so
-the same allele is called the same whatever the pipeline's TRIDs (CLIN-22). A threshold is the
+the same allele is called the same whatever the pipeline's TRIDs. A threshold is the
 first count of its range (the classifier tests ``>=``), as STRchive's inclusive ranges read:
 ``warning_min`` starts the intermediate range, ``pathogenic_min`` the pathogenic one.
 
@@ -42,7 +42,7 @@ BUILT_IN_LOCI_STRCHIVE_LACKS: frozenset[str] = frozenset()
 
 @dataclass(frozen=True)
 class ThresholdLocus:
-    """A built-in locus that carries STRchive's thresholds (CLIN-22), with counts on each side."""
+    """A built-in locus that carries STRchive's thresholds, with counts on each side."""
 
     gene_trid: str  # the built-in row's locus_id, the TRID of the demo data
     strchive_trid: str  # STRchive's locus ID

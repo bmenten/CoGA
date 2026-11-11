@@ -75,7 +75,7 @@ export default function SmallVariantPairCards({
               projectId,
             )
           : null;
-        // The pair review's class once, by the one rule (CLIN-76): a class tag that is not the
+        // The pair review's class once, by the one rule: a class tag that is not the
         // class shown is no chip.
         const pairClass = reviewClassChips(
           group.review?.classification,
@@ -140,7 +140,7 @@ export default function SmallVariantPairCards({
                       )}
                     </div>
                   </div>
-                  {/* The class the pair review shows: a class word as its label, not as typed (ENG-10). */}
+                  {/* The class the pair review shows: a class word as its label, not as typed. */}
                   {pairClass.label ? (
                     <span className={`variant-card-chip variant-card-chip--${pairClass.tone}`}>
                       {pairClass.label}

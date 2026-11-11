@@ -3,8 +3,8 @@
 ``install_ranking_storage`` stands in for what a ranked family search reads and writes besides
 the family's variants: the ranking-cache rows (``family_variant_ranking_cache``, in a dict keyed
 by the real ``inputs_hash``, each row through the JSON round trip its jsonb columns make), the
-superset candidates read without their rankings as ``find_superset_candidates`` reads them
-(ENG-13), the other inputs of the cache key (the pedigree, the panel's version, the Monarch and
+superset candidates read without their rankings as ``find_superset_candidates`` reads them,
+the other inputs of the cache key (the pedigree, the panel's version, the Monarch and
 reference releases), a steady small-variant data version, no gene constraint metrics and no
 hydration. ``panel_sql_match`` is the panel part of the family search's SQL filter, and
 ``sql_keeps`` the parts these tests set; each refuses to stand in for a filter it does not

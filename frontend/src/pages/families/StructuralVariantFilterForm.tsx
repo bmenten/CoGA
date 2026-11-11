@@ -128,7 +128,7 @@ const StructuralVariantFilterForm = ({
   const [selectedPreset, setSelectedPreset] = useState('');
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
-  // A saved search is for this family, or reusable: for every family the user opens (PROD-3).
+  // A saved search is for this family, or reusable: for every family the user opens.
   const [presetScope, setPresetScope] = useState<StructuralVariantFilterPreset['scope']>('family');
   const selectedSavedPreset = selectedPreset.startsWith('saved:')
     ? presets.find((entry) => `saved:${entry._id}` === selectedPreset)
@@ -179,7 +179,7 @@ const StructuralVariantFilterForm = ({
   const getActiveChipLabel = (chip: ActiveStructuralFilterChip) => {
     if (chip.kind === 'top' && chip.key === 'panel_id') {
       // The applied panel, as the chip's filter is: the draft's panel named a panel the shown
-      // results were not filtered by, until the form was applied (CLIN-21).
+      // results were not filtered by, until the form was applied.
       const panel = panels.find((entry) => entry._id === chip.value);
       return `Gene panel: ${panel?.name || chip.value}`;
     }
@@ -579,7 +579,7 @@ const StructuralVariantFilterForm = ({
                       <option key={panel._id} value={panel._id}>{panel.name}</option>
                     ))}
                     {/* An applied panel missing from the list (it failed to load) still shows
-                        as applied, not as "Any gene panel" (#606). */}
+                        as applied, not as "Any gene panel". */}
                     {draftFilters.panel_id && !panels.some((panel) => panel._id === draftFilters.panel_id) ? (
                       <option value={draftFilters.panel_id}>{`Panel ${draftFilters.panel_id} (not in the panel list)`}</option>
                     ) : null}
@@ -621,7 +621,7 @@ const StructuralVariantFilterForm = ({
                   onChange={handleDraftFieldChange}
                 />
               </div>
-              {/* A location that is neither a gene nor a region is named, not searched (#604). */}
+              {/* A location that is neither a gene nor a region is named, not searched. */}
               {draftLocationProblem ? (
                 <div className="variant-workspace-feedback variant-workspace-feedback--error" role="alert">
                   {draftLocationProblem} Nothing was searched.

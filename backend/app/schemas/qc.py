@@ -30,9 +30,6 @@ class QcThresholdOut(BaseModel):
     label: str
     unit: str
     direction: Literal["lower_is_worse", "higher_is_worse"]
-    #: False when a stored row's metric is no longer in the catalogue, so an admin can
-    #: still see and clear it instead of it silently gating nothing.
-    known_metric: bool = True
     warn_value: Optional[float] = None
     error_value: Optional[float] = None
 

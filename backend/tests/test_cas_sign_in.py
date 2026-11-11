@@ -1,4 +1,4 @@
-"""Sign-in through the organisation's CAS server, such as login.ugent.be (SEC-4).
+"""Sign-in through the organisation's CAS server, such as login.ugent.be.
 
 The browser comes back from the CAS server to the app's /login page with a service ticket, and
 ``POST /api/auth/cas/session`` checks it with the CAS server (``/serviceValidate``, for CoGA's

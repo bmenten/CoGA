@@ -29,11 +29,11 @@ from .vcf_fields import parse_format, parse_info
 
 
 class EmptyTrackFileError(RuntimeError):
-    """A track file in which its reader finds no row to store (SAFE-29): no record, or none
-    it can read. Every reader of a package's track files measures its sample across the
-    genome (bins, segments, depth, allele fractions), so such a file is no result. It is
-    refused before anything is deleted: its dataset fails, and the stored track stays as it
-    was. It used to replace the track with none, the dataset reading as imported."""
+    """A track file in which its reader finds no row to store: no record, or none it can
+    read. Every reader of a package's track files measures its sample across the genome
+    (bins, segments, depth, allele fractions), so such a file is no result. It is refused
+    before anything is deleted: its dataset fails, and the stored track stays as it was,
+    rather than replaced by none with the dataset reading as imported."""
 
 
 def _first_stored_row(rows: Iterator[dict[str, Any] | None]) -> tuple[dict[str, Any] | None, int]:
@@ -50,8 +50,8 @@ def _first_stored_row(rows: Iterator[dict[str, Any] | None]) -> tuple[dict[str, 
 
 def _coordinate(value: Any) -> int | None:
     """A track row's start, end or position: a whole number the interval table's UInt64
-    columns hold, else None, and the row is left out as malformed (SAFE-30): a negative
-    coordinate failed the insert of the whole batch."""
+    columns hold, else None, and the row is left out as malformed: a negative coordinate
+    would fail the insert of the whole batch."""
     return column_int(_coerce_int(value), UINT64)
 
 
@@ -67,7 +67,7 @@ async def _delete_sample_interval_source(
     ``filename``): its rows and Postgres's record of it. A sample can carry several callers'
     tracks of one type (the coverage of a BED, WisecondorX, QDNAseq and HiFiCNV; HiFiCNV's
     minor allele fraction beside the APCAD), so a loader replaces its own source's track and
-    no other (SAFE-22). The admin deletes of a sample's or a family's data remove every
+    no other. The admin deletes of a sample's or a family's data remove every
     source."""
     if not sample_context.assembly_name:
         raise ImportRefused("Cannot delete interval tracks without an assembly name")
@@ -419,7 +419,7 @@ async def _import_wisecondorx_track(
     source ``wisecondorx``, in place of the one stored from that file.
 
     The file is read up to its first row before anything is deleted: one without a row is
-    refused (``EmptyTrackFileError``) with the stored track as it was (SAFE-29).
+    refused (``EmptyTrackFileError``) with the stored track as it was.
     ``check_only`` stops there, deleting and storing nothing: the check of the file before
     its track is replaced (``_import_interval_track_unless_present``)."""
     if not sample_context.assembly_name:
@@ -516,7 +516,7 @@ async def _import_copy_number_track(
     records its own.
 
     The file is read up to its first row before anything is deleted: one without a row is
-    refused (``EmptyTrackFileError``) with the stored track as it was (SAFE-29).
+    refused (``EmptyTrackFileError``) with the stored track as it was.
     ``check_only`` stops there, deleting and storing nothing.
     """
 
@@ -1197,9 +1197,9 @@ async def _import_apcad_track_file(
 ) -> dict[str, Any]:
     """Store an APCAD file as the samples' ``apcad`` track, source ``apcad``, in place of the
     one this source stored before. HiFiCNV's minor allele fraction, on the same track type
-    (source ``hificnv``), and a BED upload's APCAD (``web``) stay (SAFE-22).
+    (source ``hificnv``), and a BED upload's APCAD (``web``) stay.
 
-    The file is read before any track is deleted (SAFE-29). It replaces the track of each
+    The file is read before any track is deleted. It replaces the track of each
     sample it holds a value for: the selected sample, or each sample of ``sample_contexts``
     a VCF column is named after (every one for a BED or table, which names no sample, or a
     VCF without sample columns). A sample it holds no value for keeps its track, and a file
@@ -1211,7 +1211,7 @@ async def _import_apcad_track_file(
     ``check_only`` stops before the delete, deleting and storing nothing, and returns an
     empty result for each sample whose track the file would replace (``{}`` for a VCF read
     as a BED, as above): the check a dataset of one APCAD file per embryo makes of every
-    embryo's file before it clears any embryo's track (SAFE-3).
+    embryo's file before it clears any embryo's track.
     """
     target_contexts = (
         {selected_sample_id: sample_contexts[selected_sample_id]}
@@ -1386,7 +1386,7 @@ async def _import_pcf_segment_file(
 ) -> dict[str, int]:
     """Store one parent's PCF segment table as rows of the sample's ``apcad_pcf`` track; the
     ``pcf`` dataset has deleted the sample's track first. A table without a segment is
-    refused (``EmptyTrackFileError``, SAFE-29): the dataset reads each of a sample's tables
+    refused (``EmptyTrackFileError``): the dataset reads each of a sample's tables
     with ``check_only``, up to its first segment, before it deletes the track."""
     if not sample_context.assembly_name:
         raise ImportRefused("Cannot import PCF segment tracks without an assembly name")
@@ -1498,7 +1498,7 @@ async def _import_segregation_table(
     check_only: bool = False,
 ) -> dict[str, int]:
     """Replace the embryo's ``apcad_segregation`` track with its segregation table. A table
-    without a site of group 2 or 3 is refused (``EmptyTrackFileError``, SAFE-29); with
+    without a site of group 2 or 3 is refused (``EmptyTrackFileError``); with
     ``check_only`` it is read up to its first site and nothing is deleted or stored, as the
     ``apcad`` dataset reads every table before it replaces any track."""
     if not sample_context.assembly_name:

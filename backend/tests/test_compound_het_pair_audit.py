@@ -1,4 +1,4 @@
-"""A compound-heterozygous pair review is a clinical audit event (SEC-7).
+"""A compound-heterozygous pair review is a clinical audit event.
 
 The review of a compound-het pair (its classification, tags and note, given on one variant's
 review with its partner) is a clinical decision like a single variant's review. Each save that

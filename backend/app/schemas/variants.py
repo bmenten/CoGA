@@ -59,7 +59,7 @@ class SmallVariantTranscriptOut(BaseModel):
 
 class SmallVariantFilterTranscriptOut(BaseModel):
     """The transcript a search's annotation filters held on, when the variant's primary
-    transcript does not meet them (CLIN-51).
+    transcript does not meet them.
 
     The annotation filters must all hold on one transcript of a variant, while the
     variant's own fields describe its primary transcript (MANE Select, else canonical,
@@ -168,7 +168,7 @@ class VariantOut(ApiDocumentModel):
     chr: str
     start: int
     end: int
-    # None for a translocation (BND, TRA), which has no length (CLIN-39).
+    # None for a translocation (BND, TRA), which has no length.
     length: Optional[int] = None
     type: str
     source: Optional[str] = None
@@ -244,14 +244,14 @@ class VariantOut(ApiDocumentModel):
     annotation_extra: Dict[str, Any] = Field(default_factory=dict)
     transcripts: List[SmallVariantTranscriptOut] = Field(default_factory=list)
     # Small variants: the transcript the search's annotation filters held on, when the
-    # primary transcript the fields above describe does not meet them (CLIN-51). None
+    # primary transcript the fields above describe does not meet them. None
     # without annotation filters and whenever the primary transcript meets them. The
     # fields above, and everything that reads them (the ranking, the ACMG suggestions,
     # the report), stay on the primary transcript.
     filter_transcript: Optional[SmallVariantFilterTranscriptOut] = None
     genotypes: List[GenotypeOut] = Field(default_factory=list)
     # Small variants: on chrX or chrY outside the pseudo-autosomal regions of the family's
-    # assembly, where a male carries one copy (#545, #621). False elsewhere, and on an
+    # assembly, where a male carries one copy. False elsewhere, and on an
     # assembly whose PARs are not known.
     hemizygous_in_males: bool = False
     # Structural variants: whether the SV removes a copy of what it spans ("loss"), adds one
@@ -259,7 +259,7 @@ class VariantOut(ApiDocumentModel):
     # (`sv_copy_change.copy_change`): a DEL or DUP of any subtype by its type, a CNV by the
     # copy numbers of the carriers in `genotypes`, a male's single copy of chrX and chrY
     # outside the PARs counted. A track asks for one sample, so its rows read that sample's
-    # call. The genome, chromosome and Circos views draw an SV by it (CLIN-54). None for a
+    # call. The genome, chromosome and Circos views draw an SV by it. None for a
     # small variant.
     copy_change: Optional[Literal["loss", "gain"]] = None
     review: Optional[SmallVariantReviewOut] = None
@@ -461,7 +461,7 @@ class StructuralVariantUploadResult(BaseModel):
     created: int
     merged: int
     # Deletions, duplications, inversions and CNVs left out for stating neither END nor
-    # SVLEN (CLIN-39).
+    # SVLEN.
     skipped_without_extent: int
     # The caller the calls are stored under (``auto`` resolves to one of them).
     source_format: Literal["manual", "sniffles", "spectre"]
@@ -519,7 +519,7 @@ class GlobalVariantPageOut(BaseModel):
     total: int
     total_is_estimated: bool = False
     page_size: int = 50
-    # Opaque keyset cursor (#274) for the NEXT page; null when this is the last page.
+    # Opaque keyset cursor for the NEXT page; null when this is the last page.
     next_cursor: Optional[str] = None
     assembly_id: Optional[str] = None
     assembly_name: Optional[str] = None

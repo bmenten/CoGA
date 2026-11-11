@@ -247,7 +247,7 @@ QC_METRICS: tuple[QcMetric, ...] = (
     ),
     # Mitochondrial QC. Evaluated by mitochondrial_analysis against its own coverage and
     # contamination inputs, but configured here so there is one place a lab sets a QC
-    # cut-off. These replace numbers that used to be hard-coded in that module.
+    # cut-off.
     _metric(
         "mtdna.mean_depth",
         "mtDNA mean depth",
@@ -419,16 +419,14 @@ async def list_qc_threshold_profiles(session: AsyncSession) -> list[dict[str, An
         )
         if row["metric_key"] is None:
             continue
-        metric = QC_METRICS_BY_KEY.get(row["metric_key"])
+        # A limit is stored only on a metric of the catalogue (``set_qc_threshold``).
+        metric = QC_METRICS_BY_KEY[row["metric_key"]]
         profile["thresholds"].append(
             {
                 "metric_key": row["metric_key"],
-                # A row whose metric left the catalogue is still surfaced, so an admin
-                # can see and remove it instead of it silently doing nothing.
-                "label": metric.label if metric else row["metric_key"],
-                "unit": metric.unit if metric else "",
-                "direction": metric.direction if metric else "lower_is_worse",
-                "known_metric": metric is not None,
+                "label": metric.label,
+                "unit": metric.unit,
+                "direction": metric.direction,
                 "warn_value": row["warn_value"],
                 "error_value": row["error_value"],
             }
@@ -601,9 +599,8 @@ async def set_qc_threshold(
     test's clinical validation report, outside this tool; what the tool has to be able
     to show is that a change here was deliberate and attributable to that decision.
 
-    A metric outside the catalogue takes no cut-off. A stored one whose metric has left the
-    catalogue can still be cleared, which the admin list surfaces it for: it gates nothing,
-    and was refused as an unknown metric, so it could not be removed (ENG-12, REQ-QC-003).
+    A metric outside the catalogue takes no cut-off and is refused before anything is
+    read (REQ-QC-003).
     """
     reason = (reason or "").strip()
     if not reason:
@@ -612,9 +609,9 @@ async def set_qc_threshold(
             detail="A reason is required when changing a QC cut-off.",
         )
     metric = QC_METRICS_BY_KEY.get(metric_key)
-    clearing = warn_value is None and error_value is None
-    if metric is None and not clearing:
+    if metric is None:
         raise HTTPException(status_code=400, detail=f"Unknown QC metric: {metric_key}")
+    clearing = warn_value is None and error_value is None
     profile_id = (
         await session.execute(
             text("SELECT id::text FROM qc_threshold_profiles WHERE key = :key"),
@@ -635,9 +632,6 @@ async def set_qc_threshold(
         )
     ).mappings().first()
     previous_bounds = dict(previous) if previous else None
-    if metric is None and previous_bounds is None:
-        # Nothing stored to clear, and no metric of the catalogue to name.
-        raise HTTPException(status_code=400, detail=f"Unknown QC metric: {metric_key}")
 
     if clearing:
         await session.execute(
@@ -662,8 +656,6 @@ async def set_qc_threshold(
         )
         await session.commit()
         return {"profile_key": profile_key, "metric_key": metric_key, "warn_value": None, "error_value": None}
-    # A cut-off is set only on a metric of the catalogue: refused above otherwise.
-    assert metric is not None
 
     # A warning that is stricter than the error bound would make the error branch
     # unreachable — reject rather than store a configuration that cannot fire.

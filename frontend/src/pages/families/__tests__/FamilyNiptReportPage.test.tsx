@@ -168,7 +168,7 @@ describe('FamilyNiptReportPage', () => {
     // Coverage QC flags the low-depth panel gene.
     expect(screen.getByText('Coverage QC')).toBeInTheDocument();
     expect(screen.getByText(/1 of 3 panel genes were not adequately interrogated/)).toBeInTheDocument();
-    // Printed with the coverage: the plasma's track the check did not read as depth (TRACE-9).
+    // Printed with the coverage: the plasma's track the check did not read as depth.
     expect(screen.getByText('CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.')).toBeInTheDocument();
     expect(screen.getByText(/8x median/)).toBeInTheDocument();
 
@@ -295,8 +295,8 @@ describe('FamilyNiptReportPage', () => {
 
     expect(await screen.findByText('Quality checks')).toBeInTheDocument();
     expect(screen.getByText(/the per-site median gives 19\.0%/)).toBeInTheDocument();
-    // The tokens read as the screen's QC panel reads them (ENG-10; before: "female",
-    // "female no chrY signal", "(pass)").
+    // The tokens read as the screen's QC panel reads them, never raw ("female no chrY signal",
+    // "(pass)").
     expect(screen.getByText('Fetal sex: Female.')).toBeInTheDocument();
     expect(screen.getByText(/30 seen, 0 absent \(female\); chrY coverage: no chrY signal/)).toBeInTheDocument();
     expect(screen.getByText('Paternity (Pass).')).toBeInTheDocument();
@@ -322,7 +322,7 @@ describe('FamilyNiptReportPage', () => {
     ).toBeInTheDocument();
   });
 
-  // #605 — a failed request is never printed as a report without that part.
+  // A failed request is never printed as a report without that part.
   describe('when a request fails', () => {
     const failing = (...urls: string[]) =>
       apiMock.get.mockImplementation((url: string) => {
@@ -643,7 +643,7 @@ describe('FamilyNiptReportPage', () => {
   });
 
   // The NIPT analysis is signed out from this report, through the family sign-out, its gates and
-  // report code: one signed record per analysis, which holds the NIPT results (REG-2). The NIPT
+  // report code: one signed record per analysis, which holds the NIPT results. The NIPT
   // page offers no sign-out: it links here.
   describe('signing the NIPT analysis out', () => {
     const LATEST = {
@@ -678,7 +678,7 @@ describe('FamilyNiptReportPage', () => {
               members: [],
               metadata: { analysis_type: 'monogenic_nipt' },
               read_only: readOnly,
-              // A supervisor or higher signs out; a reader never (SEC-1, TF-06 H15).
+              // A supervisor or higher signs out; a reader never (TF-06 H15).
               can_sign_out: !readOnly,
             },
           });
@@ -792,7 +792,7 @@ describe('FamilyNiptReportPage', () => {
       fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
 
       expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toBeInTheDocument();
-      // With the fingerprint of the concerns the dialog showed, which it covers (TRACE-19).
+      // With the fingerprint of the concerns the dialog showed, which it covers.
       expect(apiMock.post).toHaveBeenLastCalledWith(
         '/families/NIPT001/report/sign-out',
         expect.objectContaining({
@@ -803,7 +803,7 @@ describe('FamilyNiptReportPage', () => {
       );
     });
 
-    it('lists the NIPT checks as they are now when another failed after the dialog listed them (TRACE-19)', async () => {
+    it('lists the NIPT checks as they are now when another failed after the dialog listed them', async () => {
       // The reason was written for the plasma's check; the fetal-sex check failed before it was
       // sent. The sign-out is refused with the checks as they are now, which the dialog lists
       // for a fresh reason: the first one does not cover a check it was not written for.
@@ -867,7 +867,7 @@ describe('FamilyNiptReportPage', () => {
       });
     });
 
-    it('lists the checks that could not run beside the failures, each group under its heading (CLIN-58)', async () => {
+    it('lists the checks that could not run beside the failures, each group under its heading', async () => {
       // The mother's sex check failed and the maternal plasma is male DNA, while the paternity
       // and the maternal lineage could not run. The dialog listed the failures and the
       // paternity (`qc_summary`), but not the maternal lineage, which the 409 names among the
@@ -956,7 +956,7 @@ describe('FamilyNiptReportPage', () => {
       );
     });
 
-    // SEC-1: a reader in the family's project reads the NIPT report and whether it was signed
+    // A reader in the family's project reads the NIPT report and whether it was signed
     // out, but signs nothing out: the button is disabled with the reason the report page gives.
     it('offers a reader no sign-out, says why, and sends none', async () => {
       serve({ readOnly: true });

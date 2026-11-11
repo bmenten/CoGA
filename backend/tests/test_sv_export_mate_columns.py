@@ -1,4 +1,4 @@
-"""The SV CSV export names a breakend's mate (DATA-5).
+"""The SV CSV export names a breakend's mate.
 
 The SV list serves a breakend's mate (``remote_chr``, ``remote_start``: its *Remote chr* and
 *Remote start* columns), and so does ``GET /families/{family_id}/structural-variants/export``,
@@ -96,7 +96,7 @@ _SNIFFLES2_VCF = (
 
 _SEARCHES: dict[str, dict[str, str]] = {
     "unranked": {},
-    "filtered": {"min_length": "50"},  # a translocation passes any minimum (CLIN-25)
+    "filtered": {"min_length": "50"},  # a translocation passes any minimum
     "ranked": {"prioritize": "true"},
 }
 

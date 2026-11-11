@@ -1,6 +1,6 @@
 """A family's pedigree changes are chained structure versions and clinical audit events (real Postgres).
 
-SEC-7: each change of a family's pedigree is stored as its next structure version, on a hash
+Each change of a family's pedigree is stored as its next structure version, on a hash
 chain per family that the append-only trigger protects, and recorded on the family's
 clinical audit trail as a ``pedigree`` event with what changed, before and after. A
 compound-het pair review is a clinical audit event too. Here the real writers run against
@@ -245,7 +245,7 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
             )
             assert deletion["before"]["samples"] == [mother, f"{child}2"]
             assert deletion["before"]["structure_version"] == 4
-            # The administrator's reason, required (TRACE-16).
+            # The administrator's reason, which the deletion requires.
             assert deletion["metadata"] == {"source": "admin_delete", "reason": "integration test"}
             assert (endpoint.verified, endpoint.rows_checked, endpoint.family_id) == (True, 4, label), endpoint
             assert audit_after.verified and audit_after.rows_checked == 5, audit_after
@@ -388,15 +388,17 @@ def test_a_structure_version_added_without_the_writer_breaks_the_chain() -> None
                 written = await verify_family_structure_chain(s, label)
             assert (written.verified, written.rows_checked) == (True, 2), written
 
-            # A version inserted by hand after the head, with no hashes (the trigger lets an
-            # INSERT through): every version of the family ID is on its chain, so it breaks there.
+            # A version inserted by hand after the head, with a hash of its own and no predecessor
+            # (the trigger lets an INSERT through): every version of the family ID is on its
+            # chain, so it breaks there.
             async with sm() as s:
                 unhashed = (
                     await s.execute(
                         text(
                             "INSERT INTO family_structure_versions (family_id, family_identifier, version, "
-                            "structure_hash, snapshot, created_at) SELECT CAST(:f AS uuid), :fl, 3, 'deadbeef', "
-                            "'{}'::jsonb, max(created_at) + interval '1 second' FROM family_structure_versions "
+                            "structure_hash, snapshot, created_at, row_hash) SELECT CAST(:f AS uuid), :fl, 3, "
+                            "'deadbeef', '{}'::jsonb, max(created_at) + interval '1 second', 'forged' "
+                            "FROM family_structure_versions "
                             "WHERE family_identifier = :fl RETURNING id::text"
                         ),
                         {"f": family_uuid, "fl": label},

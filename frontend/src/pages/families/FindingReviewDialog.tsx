@@ -42,7 +42,7 @@ export default function FindingReviewDialog({
   isPending?: boolean;
   errorMessage?: string | null;
 }) {
-  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
   const [classification, setClassification] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);

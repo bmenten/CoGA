@@ -1,7 +1,7 @@
 """The access rules in services/access_control.py: the global roles and the
 project-scoped access levels.
 
-The endpoint-level checks are in test_access_control.py and, for the access levels (SEC-1),
+The endpoint-level checks are in test_access_control.py and, for the access levels,
 test_project_access_levels.py; these pin the rules themselves.
 """
 
@@ -140,7 +140,7 @@ def test_a_member_and_an_admin_may_see_it() -> None:
     assert user_can_access_metadata_projects([], _user("superuser")) is True
 
 
-# --- access levels (SEC-1) -----------------------------------------------------------------
+# --- access levels -------------------------------------------------------------------------
 
 
 def test_a_member_is_an_analyst_where_they_are_no_reader() -> None:

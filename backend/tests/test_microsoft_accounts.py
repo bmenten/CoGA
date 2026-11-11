@@ -1,4 +1,4 @@
-"""Accounts of Microsoft sign-in, and the emergency administrator's password (SEC-4).
+"""Accounts of Microsoft sign-in, and the emergency administrator's password.
 
 A user's first Microsoft sign-in makes their CoGA account, bound to the token's object ID: a
 viewer's, active, in no project, with no password (a marker no password matches), with the

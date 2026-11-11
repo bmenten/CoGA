@@ -2,7 +2,7 @@
 
 `stylediff.mjs` renders two production builds of the frontend side by side, against the same
 backend and data, and compares what the browser computes. For a clean-up the answer must be
-"nothing renders differently". It verified the CSS clean-up of #712 (the PRs linked there).
+"nothing renders differently".
 
 **What it compares.** It covers ~110 routes (`states.mjs`): every app, admin and docs page, and
 every family page for three families. Each route is rendered at three widths, and every element

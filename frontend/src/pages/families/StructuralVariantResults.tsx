@@ -37,7 +37,7 @@ type StructuralVariantResultsProps = {
   linkSearch: string;
   members: StructuralVariantFamilyMember[];
   onPageChange: (nextPage: number) => void;
-  /** All the family's imported SVs; null when that count could not be loaded (#606). */
+  /** All the family's imported SVs; null when that count could not be loaded. */
   overallTotal: number | null;
   page: number;
   projectId?: string;
@@ -50,7 +50,7 @@ type StructuralVariantResultsProps = {
   onOpenReview?: () => void;
   onSaveReview?: (variant: StructuralVariant, payload: StructuralVariantReviewSavePayload) => Promise<void>;
   onToggleReviewTag?: (variant: StructuralVariant, tagKey: string) => Promise<void>;
-  // The caller is a reader in the family's projects (SEC-1): the review controls inside are
+  // The caller is a reader in the family's projects: the review controls inside are
   // disabled, and the reviews stay readable.
   readOnly?: boolean;
 };
@@ -93,7 +93,7 @@ export default function StructuralVariantResults({
     length: true,
     type: true,
     // Shown: several callers' calls of one SV are rows of their own, under one id, each with
-    // its own evidence and drift (TRACE-11, TRACE-12).
+    // its own evidence and drift.
     source: true,
     gene: true,
     cytoband: true,

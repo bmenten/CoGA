@@ -10,8 +10,8 @@ A family search that applies a panel therefore records it on the family's clinic
 trail (``panel_applied``), before the search runs: the panel's id, name and local version
 and the release of its source (PanelApp's version of the panel, or the Monarch release of
 the Mendeliome) as they are at that moment. Each panel version is recorded once per family,
-the first time a search applies it: a panel edited or imported again since (#809 archives
-each version) is recorded again when a search next applies it. The events are hash-chained
+the first time a search applies it: a panel edited or imported again since (each version is
+archived) is recorded again when a search next applies it. The events are hash-chained
 with the family's other clinical events, and a sign-out freezes them
 (``report_signout_service``, section ``gene_panels``).
 
@@ -195,13 +195,13 @@ async def record_family_panel_use(
 
 async def applied_gene_panels(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
     """Each panel version the family's searches applied, with when and by whom it was first
-    applied, as its clinical audit trail records them; sorted, for a stable content hash."""
+    applied, as its clinical audit trail records them: once, at its first use
+    (``record_family_panel_use``). Sorted, for a stable content hash."""
     rows = (
         await session.execute(
             _APPLIED_SQL, {"family_uuid": family_uuid, "action": PANEL_APPLIED_ACTION}
         )
     ).mappings().all()
-    seen: set[tuple[str, int, str]] = set()
     applied: list[dict[str, Any]] = []
     for row in rows:
         after = _record(row.get("after"))
@@ -209,10 +209,6 @@ async def applied_gene_panels(session: AsyncSession, family_uuid: str) -> list[d
         if panel_id is None:
             continue
         version = int(after.get("version") or 0)
-        key = (panel_id, version, _text(after.get("external_version")) or "")
-        if key in seen:
-            continue
-        seen.add(key)
         levels = after.get("confidence_levels")
         applied.append(
             {

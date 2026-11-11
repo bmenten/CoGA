@@ -1,4 +1,4 @@
-"""Annotation tables uploaded beside a small-variant VCF: VEP TSV and mutserve (#528).
+"""Annotation tables uploaded beside a small-variant VCF: VEP TSV and mutserve.
 
 Each is parsed into a :class:`VepAnnotationLookup`, a temporary SQLite index keyed by
 variant id (and, for VEP, by its normalised Location + Allele), which the VCF loader
@@ -34,8 +34,8 @@ from .vcf_header_provenance import extract_vep_tab_provenance
 
 # A multi-allelic record's table rows are stored by the name VEP gives the record (its
 # alleles after VEP's trimming, ``_vep_record_name``) with each row's own allele, which the
-# lookup ties to the VCF's ALT. Before, such a record found no row: neither its variant id
-# (``G,T``, VEP writes ``G/T``) nor a single allele's position matched.
+# lookup ties to the VCF's ALT: neither its variant id (``G,T``, VEP writes ``G/T``) nor a
+# single allele's position matches a row.
 _ROW_ALLELE = "_vep_allele"
 _ROW_ALLELE_NUM = "_vep_allele_num"
 
@@ -279,7 +279,7 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
         row = {key: value for key, value in zip(header, values)}
         # VEP's default output (not ``--tab``) writes SYMBOL, IMPACT, CANONICAL, MANE, HGVS,
         # SIFT, PolyPhen, CLIN_SIG and the frequencies in its Extra column: read as the
-        # columns ``--tab`` writes, a column of the row's own winning (CLIN-52).
+        # columns ``--tab`` writes, a column of the row's own winning.
         for key, value in _vep_extra_fields(row.pop("Extra", "")).items():
             row.setdefault(key, value)
         annotation = normalize_small_variant_annotation_entry(
@@ -396,8 +396,8 @@ _MUTSERVE_IGNORED_COLUMNS = frozenset({"id", "filter"})
 
 # mtDNA-Server's annotation (the PGT pipeline's mito/variants.annotated.txt) writes in its
 # Phylotree17_haplogroups and Phylotree17_clades columns how many PhyloTree 17 haplogroups and
-# clades carry the variant (4247 at 73G), not their names. A number there is kept as that count:
-# read as a haplogroup, it became the sample's "haplogroup" (the most frequent one, "471").
+# clades carry the variant (4247 at 73G), not their names. A number there is kept as that count,
+# never read as a haplogroup: it would become the sample's "haplogroup".
 _MUTSERVE_COUNT_FIELDS = {"haplogroup": "haplogroup_count", "haplogroup_clades": "haplogroup_clade_count"}
 
 

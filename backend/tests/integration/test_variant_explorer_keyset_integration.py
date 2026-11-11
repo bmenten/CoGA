@@ -8,7 +8,7 @@ and the next-cursor termination against the real engine (which unit tests can't 
 
 ``resolve_scope`` is monkeypatched so the test needs only ClickHouse data + a Postgres
 session (for the empty review/annotation joins), not a seeded project/user/assembly. It
-creates the Postgres schema those joins read itself, so it passes run alone (ENG-16).
+creates the Postgres schema those joins read itself, so it passes run alone.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """

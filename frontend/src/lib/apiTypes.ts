@@ -41,7 +41,7 @@ export interface ApiFamilyMember {
   carrier_evidence?: Record<string, unknown>;
   active?: boolean;
   sample_metadata?: Record<string, unknown>;
-  // Null when the sample has no sequencing QC to judge (the backend sends null, #528).
+  // Null when the sample has no sequencing QC to judge (the backend sends null).
   sequencing_qc?: ApiSampleSequencingQcEvaluation | null;
 }
 
@@ -72,7 +72,6 @@ export interface ApiQcThreshold {
   label: string;
   unit: string;
   direction: 'lower_is_worse' | 'higher_is_worse';
-  known_metric: boolean;
   warn_value?: number | null;
   error_value?: number | null;
 }
@@ -268,7 +267,7 @@ export interface ApiNiptCoverageSummary {
   // The capture targets' QC, when the plasma has a per-target coverage table.
   targets?: NiptTargetCoverageOut | null;
   // Without a table: why each of the plasma's coverage tracks over the regions was not read
-  // as depth (TRACE-9): a log2 ratio, or a coverage BED that does not declare what it holds.
+  // as depth: a log2 ratio, or a coverage BED that does not declare what it holds.
   coverage_notes?: string[];
 }
 
@@ -341,7 +340,7 @@ export interface ApiAnnotationModule {
   version: string | null;
   detail: string | null;
   layer: string; // 'pipeline' | 'reference'
-  // Per-modality versions (issue #294): { modality: version } when a database was
+  // Per-modality versions: { modality: version } when a database was
   // cited at different releases by different pipelines (e.g. SNV vs SV GENCODE).
   by_modality: Record<string, string> | null;
 }
@@ -452,7 +451,7 @@ export interface ApiReportSignoutList {
   signouts: ReportSignoutSummary[];
 }
 
-// Whether the report, as it would be signed now, matches the latest sign-out (#508).
+// Whether the report, as it would be signed now, matches the latest sign-out.
 // `matches` is null when the family has never been signed out; `changed_sections` names
 // the snapshot sections that differ, each section compared whole.
 export interface ApiReportSnapshotGap {
@@ -467,7 +466,7 @@ export interface ApiReportSignoutCheck {
   content_hash: string | null;
   matches: boolean | null;
   changed_sections: string[];
-  // Parts the signed snapshot froze as unavailable because a lookup failed (#514).
+  // Parts the signed snapshot froze as unavailable because a lookup failed.
   not_captured?: ApiReportSnapshotGap[];
   checked_at: string;
 }
@@ -511,7 +510,7 @@ export interface ApiClinicalCnv {
   orpha_id?: string | null;
   orpha_name?: string | null;
   // Pathogenic ClinVar CNVs overlapping the region by >= 30 % reciprocally, per side, and
-  // their VariationIDs, from the knowledgebase build (#624). null: not recorded, not zero.
+  // their VariationIDs, from the knowledgebase build. null: not recorded, not zero.
   clinvar_pathogenic_loss_count?: number | null;
   clinvar_pathogenic_gain_count?: number | null;
   clinvar_pathogenic_accessions?: string[] | null;
@@ -525,18 +524,18 @@ export interface ApiChromosome {
   bands: ApiChromosomeBand[];
 }
 
-/** What a coverage track holds, as the track availability serves it (TRACE-9). */
+/** What a coverage track holds, as the track availability serves it. */
 export type CoverageContent = TrackAvailabilityOut['coverage_contents'][string];
 
 /**
  * A repeat allele's, call's or locus's status. `not_assessed` is a call at a locus without
- * thresholds (no catalogue row names its TRID, or the row states none; CLIN-26) whose count is
- * outside any benign range the row states (CLIN-36); `unknown` a no-call.
+ * thresholds (no catalogue row names its TRID, or the row states none) whose count is
+ * outside any benign range the row states; `unknown` a no-call.
  */
 export type ApiRepeatStatus = RepeatExpansionRowOut['status'];
 
 /** Why a call or a locus reads `review`: a count the catalogue cannot classify, or a man's two
- *  different chrX alleles (CLIN-14). */
+ *  different chrX alleles. */
 export type ApiRepeatReviewReason = NonNullable<RepeatExpansionRowOut['review_reason']>;
 
 export interface ApiRepeatExpansionMotifCount {
@@ -864,8 +863,8 @@ export interface ApiRepeatExpansionTrackItem {
   motif?: string | null;
   warning_min?: number | null;
   pathogenic_min?: number | null;
-  // As the family table reads the call: against the catalogue row that classifies it now
-  // (CLIN-14), not the status stored at import.
+  // As the family table reads the call: against the catalogue row that classifies it now, not
+  // the status stored at import.
   status: ApiRepeatStatus;
   review_reason?: ApiRepeatReviewReason | null;
   // The counts classified (with QA's correction), and TRGT's own beside them.
@@ -911,7 +910,7 @@ export interface GeneLocation {
   chr: string;
   start: number;
   end: number;
-  // The assembly these coordinates belong to: panel regions are stored per assembly (#515).
+  // The assembly these coordinates belong to: panel regions are stored per assembly.
   assembly_id?: string | null;
   assembly?: string | null;
 }

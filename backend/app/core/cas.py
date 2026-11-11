@@ -1,4 +1,4 @@
-"""Sign-in through the organisation's CAS server, such as login.ugent.be (SEC-4).
+"""Sign-in through the organisation's CAS server, such as login.ugent.be.
 
 The browser goes to ``CAS_SERVER_URL/login?service=CAS_SERVICE_URL``; the CAS server signs the
 user in (at Ghent University, with Microsoft Entra ID behind it) and sends the browser back to

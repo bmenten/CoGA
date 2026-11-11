@@ -1,7 +1,7 @@
 """The family row's import state in Postgres, as the single-file uploads read and write it.
 
-The state is ``flag`` (``import_incomplete``, SAFE-25), ``unfinished`` (``import_unfinished``,
-where an upload marks the family before its first ClickHouse write, SAFE-28) and ``imported``
+The state is ``flag`` (``import_incomplete``), ``unfinished`` (``import_unfinished``,
+where an upload marks the family before its first ClickHouse write) and ``imported``
 (``imported_scopes``). A write through the request's transaction is the transaction's until
 it commits; a rollback discards it. The upload writes its mark on a connection of its own
 (``family_package_registration.mark_family_upload``), committed at once, so the upload's

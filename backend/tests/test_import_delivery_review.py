@@ -43,6 +43,7 @@ def _delivery(**fields: Any) -> dict[str, Any]:
         "warnings": [],
         "manifest_text": None,
         "package": None,
+        "origin": "watched",
     }
     row.update(fields)
     return row

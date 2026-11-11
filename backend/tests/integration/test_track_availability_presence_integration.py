@@ -5,7 +5,7 @@ S2 is non-ref on chr2) and asserts the aggregate's per-sample presence: non-ref 
 ref does not, and the chromosome filter scopes correctly. This both validates the
 real-ClickHouse semantics and catches any SQL-execution error in the query.
 
-The aggregate is one SELECT over the family's rows (ENG-19): each row's samples with an ALT
+The aggregate is one SELECT over the family's rows: each row's samples with an ALT
 allele are picked from its call arrays, as an ARRAY JOIN over a subquery is slow for
 ClickHouse's analyzer to analyse under a large panel. The members it counts for
 each kind of call are pinned here, and a loose guard holds the analyzer's time over it near
@@ -155,8 +155,7 @@ def test_small_variant_presence_counts_each_call_with_an_alt_allele_against_clic
     """A member is present when a matching variant's call of theirs carries an ALT allele,
     and only then: a het, hom-alt, haploid, multi-allelic or half call, or one with an allele
     index of two digits, but not a reference, half-reference or missing call. A call of a
-    sample outside the family is not read. The ARRAY JOIN over a subquery that ENG-19
-    replaced counted the same members."""
+    sample outside the family is not read."""
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_small_variant_records,
@@ -198,7 +197,7 @@ def _mendeliome_sized_panel() -> PanelFilterConstraints:
 def test_the_presence_costs_the_analyzer_about_what_a_members_track_count_does(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A loose guard (ENG-19). Under a Mendeliome-sized panel, ClickHouse's analyzer takes
+    """A loose guard. Under a Mendeliome-sized panel, ClickHouse's analyzer takes
     about as long over the presence as over a member's track count, one SELECT that applies
     the same panel clause. The presence wrapped the family's rows in a subquery, ARRAY JOINed
     and grouped outside it, and took three times as long (36 ms against 11 on the throwaway

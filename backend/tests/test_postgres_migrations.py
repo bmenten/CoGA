@@ -1,19 +1,22 @@
-"""The Postgres schema migration's ledger and revisions, without a database (ENG-3).
+"""The Postgres schema migration's ledger, revision and baselines' digest, without a database.
 
 The integration tests (``integration/test_postgres_migrations.py``) run the migration on real
 Postgres; these pin what can be read without one: the revisions form one forward-only line,
-each revision's check is the baseline's, the ledger table and its REVOKE are where Alembic and
-05_grants.sql need them, Alembic refuses to run outside CoGA's migration step, and the step
-refuses the runtime role and a newer ledger before anything runs. A start that does not migrate
-checks the ledger instead, and starts only on this version's own revision (OPS-23).
+revision 0001 applies the baselines and records their digest, the ledger and digest tables and
+their REVOKE are where Alembic and 05_grants.sql need them, Alembic refuses to run outside
+CoGA's migration step, and the step refuses the runtime role and any database this version did
+not make before anything runs: tables without a ledger, a ledger naming a revision this version
+does not have, a database made from other baselines. A start that does not migrate checks the
+ledger and the digest instead, and starts only on this version's own revision and baselines.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
-import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from alembic import command
@@ -30,6 +33,7 @@ from backend.app.core.postgres_migrations import (
     SchemaRevision,
     SchemaRevisionMismatch,
     apply_postgres_schema,
+    baseline_digest,
     check_schema_revision,
     head_revision,
     migration_script,
@@ -64,502 +68,91 @@ def test_the_revisions_form_one_line_numbered_from_0001() -> None:
         assert Path(revision.path).parent == MIGRATIONS_DIR / "versions"
 
 
+def test_until_the_release_candidate_revision_0001_is_the_only_revision() -> None:
+    # A schema change before the release candidate edits a baseline; a database made from other
+    # baselines is made again from empty, never migrated (docs/database.md, "Schema Migrations").
+    assert [revision.revision for revision in _revisions()] == ["0001"]
+
+
 def test_every_revision_is_forward_only() -> None:
     for revision in _revisions():
         with pytest.raises(NotImplementedError, match="restore the database from the backup"):
             revision.module.downgrade()
 
 
-def _baseline_check(name: str) -> str:
-    """A check constraint as 03_assay.sql defines it, from CHECK to its closing parenthesis."""
-
-    match = re.search(rf"CONSTRAINT {name} (CHECK \(.*\)),?$", (_SCHEMA_DIR / "03_assay.sql").read_text(), re.M)
-    assert match, name
-    return match.group(1)
-
-
-def test_the_revisions_give_the_tables_the_baselines_checks() -> None:
-    script = migration_script()
-    repeat_status = script.get_revision("0002").module
-    relationship_and_track = script.get_revision("0003").module
-
-    assert repeat_status._STATUS_CHECK == _baseline_check("repeat_expansions_status_check")
-    assert "'not_assessed'::text" in repeat_status._STATUS_CHECK
-    assert relationship_and_track._RELATIONSHIP_TYPE_CHECK == _baseline_check(
-        "family_relationships_relationship_type_check"
-    )
-    # The newest revision that sets the track-type check (0012, `apcad_segregation`) gives the
-    # baseline's; 0003 gave the list as it stood then, which the baseline's extends.
-    segregation_track = script.get_revision("0012").module
-    assert segregation_track._TRACK_TYPE_CHECK == _baseline_check("sample_interval_track_sources_track_type_check")
-    assert (
-        relationship_and_track._TRACK_TYPE_CHECK.removesuffix("])))") + ", 'apcad_segregation'::text])))"
-        == segregation_track._TRACK_TYPE_CHECK
-    )
-
-
-def test_revision_0016_gives_the_ancestry_runs_the_baselines_checks() -> None:
-    ancestry = migration_script().get_revision("0016").module
-    traceability = (_SCHEMA_DIR / "04_traceability.sql").read_text()
-
-    assert f"CONSTRAINT ancestry_runs_trigger_check {ancestry._TRIGGER_CHECK}," in traceability
-    assert f"CONSTRAINT ancestry_runs_requester_check {ancestry._REQUESTER_CHECK}," in traceability
-
-
-def test_revision_0018_gives_the_import_jobs_the_baselines_check() -> None:
-    kept_manifest = migration_script().get_revision("0018").module
-
-    assert kept_manifest._MANIFEST_CHECK == _baseline_check("family_import_jobs_manifest_check")
-
-
-def test_revision_0019_gives_the_import_jobs_the_baselines_fingerprint_check() -> None:
-    package_fingerprint = migration_script().get_revision("0019").module
-
-    assert package_fingerprint._PACKAGE_FINGERPRINT_CHECK == _baseline_check(
-        "family_import_jobs_package_fingerprint_check"
-    )
-
-
-def test_revision_0020_adds_the_baselines_selection_column_and_unique_index() -> None:
-    # The column and the index that make each choice of confidence levels of a PanelApp panel
-    # a panel of its own, as 02_reference.sql holds them; the index they replace is dropped.
-    selection = migration_script().get_revision("0020").module
-    reference = [" ".join(statement.split()) for statement in _statements("02_reference.sql")]
-
-    assert selection._ADD_COLUMN in reference
-    assert " ".join(selection._UNIQUE_INDEX.split()) in reference
-    assert not [statement for statement in reference if "idx_gene_panels_source_external " in f"{statement} "]
-
-
-def test_revision_0022_gives_the_tag_definitions_the_baselines_one_check_and_foreign_key() -> None:
-    # SAFE-37: a project's deletion keeps its tags, inactive and without a project. One check
-    # where there were two identical ones, and a foreign key that sets the project to NULL.
-    module = migration_script().get_revision("0022").module
-    assay = (_SCHEMA_DIR / "03_assay.sql").read_text()
-
-    assert module._SCOPE_PROJECT_CHECK == _baseline_check("small_variant_tag_definitions_scope_project_check")
-    assert "(NOT is_active)" in module._SCOPE_PROJECT_CHECK
-    assert f"CONSTRAINT small_variant_tag_definitions_project_id_fkey {module._PROJECT_FOREIGN_KEY}\n" in assay
-    assert module._PROJECT_FOREIGN_KEY.endswith("ON DELETE SET NULL")
-    assert "CONSTRAINT small_variant_tag_definitions_check " not in assay
-    source = Path(module.__file__).read_text()
-    assert "DROP CONSTRAINT IF EXISTS small_variant_tag_definitions_check, " in source
-
-
-def test_revision_0023_adds_the_baselines_two_delivery_columns(monkeypatch) -> None:
-    kept_package = migration_script().get_revision("0023").module
-    assay = (_SCHEMA_DIR / "03_assay.sql").read_text()
-    deliveries = assay[assay.index("CREATE TABLE IF NOT EXISTS import_deliveries (") :]
-    deliveries = deliveries[: deliveries.index(");")]
-    statements: list[str] = []
-    monkeypatch.setattr(
-        kept_package.op, "get_bind", lambda: type("Bind", (), {"exec_driver_sql": lambda _self, sql: statements.append(sql)})()
-    )
-
-    kept_package.upgrade()
-
-    assert "    package jsonb,\n    package_check jsonb,\n" in deliveries
-    assert statements == [
-        "ALTER TABLE import_deliveries ADD COLUMN IF NOT EXISTS package jsonb, ADD COLUMN IF NOT EXISTS package_check jsonb"
-    ]
-
-
-def test_revision_0024_gives_the_deliveries_the_baselines_origin_and_partial_index(monkeypatch) -> None:
-    by_hand = migration_script().get_revision("0024").module
-    assay = (_SCHEMA_DIR / "03_assay.sql").read_text()
-    statements: list[str] = []
-    monkeypatch.setattr(
-        by_hand.op, "get_bind", lambda: type("Bind", (), {"exec_driver_sql": lambda _self, sql: statements.append(sql)})()
-    )
-
-    by_hand.upgrade()
-
-    assert by_hand._ORIGIN_CHECK == _baseline_check("import_deliveries_origin_check")
-    assert "    origin text DEFAULT 'watched'::text NOT NULL,\n" in assay
-    # The baseline's index, as the revision creates it; the table holds no such constraint.
-    assert f"{by_hand._FOLDER_FINGERPRINT_INDEX};" in assay
-    assert "CONSTRAINT import_deliveries_folder_fingerprint_key" not in assay
-    assert statements[1] == by_hand._FOLDER_FINGERPRINT_INDEX
-    assert "DROP CONSTRAINT IF EXISTS import_deliveries_folder_fingerprint_key" in statements[0]
-
-
-def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versions_and_the_ui_event_log() -> None:
-    # SEC-7: the structure versions' chain and both tables' append-only guards, brought to a
-    # database the baselines created before them by the baselines' own statements.
-    from backend.app.core.postgres_migrations import baseline_statements
-
-    module = migration_script().get_revision("0004").module
-    selected = module.selected_statements(baseline_statements)
-
-    every = [statement for name in ("03_assay.sql", "04_traceability.sql", "05_grants.sql") for statement in _statements(name)]
-    assert all(statement in every for statement in selected)
-    prefixes = [
-        "ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS family_identifier ",
-        "ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS row_hash ",
-        "ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS prev_hash ",
-        "ALTER TABLE family_structure_versions ALTER COLUMN family_id DROP NOT NULL",
-        "DO $$",
-        "CREATE INDEX IF NOT EXISTS idx_family_structure_versions_chain ",
-        "CREATE OR REPLACE FUNCTION ui_events_block_mutation() ",
-        "DROP TRIGGER IF EXISTS ui_events_immutable ON ui_events",
-        "CREATE TRIGGER ui_events_immutable",
-        "CREATE OR REPLACE FUNCTION family_structure_versions_block_mutation() ",
-        "DROP TRIGGER IF EXISTS family_structure_versions_immutable ON family_structure_versions",
-        "CREATE TRIGGER family_structure_versions_immutable",
-        "REVOKE UPDATE, DELETE, TRUNCATE ON",
-    ]
-    assert len(selected) == len(prefixes)
-    assert [statement for statement, prefix in zip(selected, prefixes) if not statement.startswith(prefix)] == []
-    assert "family_structure_versions_family_id_fkey" in selected[4]
-    assert "family_structure_versions, ui_events" in " ".join(selected[-1].split())
-    # A baseline that no longer holds one of them stops the revision.
-    with pytest.raises(RuntimeError, match="the baseline changed under it"):
-        module.selected_statements(lambda _name: [])
-
-
-def test_revision_0005_runs_the_access_baselines_own_upgrade_of_the_project_memberships() -> None:
-    # SEC-1: a membership's access level, brought to a database made before it by the
-    # statement 01_access.sql adds it with.
-    from backend.app.core.postgres_migrations import baseline_statements
-
-    module = migration_script().get_revision("0005").module
-    selected = module.selected_statements(baseline_statements)
-
-    upgrades = [statement for statement in _statements("01_access.sql") if statement.startswith("ALTER TABLE project_users")]
-    assert selected == upgrades
-    assert len(selected) == 1
-    flat = " ".join(selected[0].split())
-    assert flat == (
-        "ALTER TABLE project_users ADD COLUMN IF NOT EXISTS access_level TEXT NOT NULL DEFAULT 'analyst' "
-        "CHECK (access_level IN ('analyst', 'reader'))"
-    )
-    # The column a new database's CREATE TABLE gives, with the same default and check.
-    create = next(s for s in _statements("01_access.sql") if s.startswith("CREATE TABLE IF NOT EXISTS project_users"))
-    assert "access_level TEXT NOT NULL DEFAULT 'analyst' CHECK (access_level IN ('analyst', 'reader'))" in " ".join(
-        create.split()
-    )
-    # A baseline that no longer holds it stops the revision.
-    with pytest.raises(RuntimeError, match="the baseline changed under it"):
-        module.selected_statements(lambda _name: [])
-
-
-def test_revision_0006_runs_the_access_baselines_own_upgrade_of_the_accounts() -> None:
-    # SEC-4: the Microsoft object ID an account signs in with, brought to a database made
-    # before it by the statement 01_access.sql adds it with.
-    from backend.app.core.postgres_migrations import baseline_statements
-
-    module = migration_script().get_revision("0006").module
-    selected = module.selected_statements(baseline_statements)
-
-    upgrades = [statement for statement in _statements("01_access.sql") if statement.startswith("ALTER TABLE users")]
-    assert selected == upgrades
-    assert len(selected) == 1
-    assert " ".join(selected[0].split()) == "ALTER TABLE users ADD COLUMN IF NOT EXISTS azure_object_id UUID UNIQUE"
-    # The column a new database's CREATE TABLE gives, with the same type and uniqueness.
-    create = next(s for s in _statements("01_access.sql") if s.startswith("CREATE TABLE IF NOT EXISTS users"))
-    assert "azure_object_id UUID UNIQUE" in " ".join(create.split())
-    # A baseline that no longer holds it stops the revision.
-    with pytest.raises(RuntimeError, match="the baseline changed under it"):
-        module.selected_statements(lambda _name: [])
-
-
-def test_revision_0007_runs_the_traceability_baselines_own_statements_for_the_sign_out_versions() -> None:
-    # TRACE-13: a family ID's sign-out versions unique, across every family made under it,
-    # brought to a database made before it by the statements 04_traceability.sql makes it with.
-    from backend.app.core.postgres_migrations import baseline_statements
-
-    module = migration_script().get_revision("0007").module
-    selected = module.selected_statements(baseline_statements)
-
-    statements = _statements("04_traceability.sql")
-    assert len(selected) == 3 and all(statement in statements for statement in selected)
-    check, index, drop = (" ".join(statement.split()) for statement in selected)
-    # The check first: a family ID that holds one version twice stops the migration, and the
-    # message counts the family IDs instead of naming one.
-    assert check.startswith("DO $$") and "RAISE EXCEPTION" in check
-    assert "FROM report_signouts WHERE family_identifier IS NOT NULL GROUP BY family_identifier, version" in check
-    assert "HAVING count(*) > 1" in check and "|| repeated ||" in check
-    assert index == (
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_report_signouts_family_identifier_version "
-        "ON report_signouts (family_identifier, version)"
-    )
-    assert drop == "DROP INDEX IF EXISTS idx_report_signouts_chain"
-    assert [statements.index(statement) for statement in selected] == sorted(
-        statements.index(statement) for statement in selected
-    )
-    # Nothing in the baselines makes the plain index it replaces again.
-    every = [statement for path in _schema_files() for statement in _statements(path.name)]
-    assert not [statement for statement in every if "CREATE INDEX IF NOT EXISTS idx_report_signouts_chain" in statement]
-    # A baseline that no longer holds them stops the revision.
-    with pytest.raises(RuntimeError, match="the baseline changed under it"):
-        module.selected_statements(lambda _name: [])
-
-
-def test_revision_0008_runs_the_assay_baselines_own_upgrade_of_the_requesters_and_the_preset_owners() -> None:
-    # SEC-32: an import job's requester and a filter preset's owner kept by the account's id,
-    # brought to a database made before it by the statements 03_assay.sql makes them with.
-    from backend.app.core.postgres_migrations import baseline_statements
-
-    module = migration_script().get_revision("0008").module
-    selected = module.selected_statements(baseline_statements)
-
-    statements = _statements("03_assay.sql")
-    assert len(selected) == 5 and all(statement in statements for statement in selected)
-    assert [statements.index(statement) for statement in selected] == sorted(
-        statements.index(statement) for statement in selected
-    )
-    jobs, small, small_index, sv, sv_index = (" ".join(statement.split()) for statement in selected)
-    # Each upgrade runs once, when its column is missing, so that a later start never links a
-    # job or a preset again, by an address or a user name another account may have by then.
-    for upgrade, table, column in (
-        (jobs, "family_import_jobs", "requested_by_id"),
-        (small, "small_variant_filter_presets", "owner_id"),
-        (sv, "structural_variant_filter_presets", "owner_id"),
-    ):
-        assert upgrade.startswith("DO $$ BEGIN IF NOT EXISTS ( SELECT 1 FROM pg_attribute")
-        assert f"WHERE attrelid = '{table}'::regclass AND attname = '{column}' AND NOT attisdropped" in upgrade
-        assert f"ALTER TABLE {table} ADD COLUMN {column} uuid;" in upgrade
-    # A job is linked to the account its address finds, or to none; the account's deletion
-    # keeps the job.
-    assert "SET requested_by_id = account.id FROM users AS account WHERE account.email = job.requested_by;" in jobs
-    assert (
-        "ADD CONSTRAINT family_import_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) "
-        "REFERENCES users(id) ON DELETE SET NULL;" in jobs
-    )
-    assert "DELETE FROM" not in jobs and "SET NOT NULL" not in jobs
-    # A preset is the account's its user name finds, else removed; the account's deletion
-    # deletes it, and the unique index on the user name gives way to one on the account.
-    for upgrade, table in ((small, "small_variant_filter_presets"), (sv, "structural_variant_filter_presets")):
-        assert "SET owner_id = account.id FROM users AS account WHERE account.username = preset.owner;" in upgrade
-        assert f"DELETE FROM {table} WHERE owner_id IS NULL;" in upgrade
-        assert f"ALTER TABLE {table} ALTER COLUMN owner_id SET NOT NULL;" in upgrade
-        assert (
-            f"ADD CONSTRAINT {table}_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE;"
-            in upgrade
-        )
-        assert f"DROP INDEX IF EXISTS idx_{table}_unique;" in upgrade
-    assert small_index == (
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique "
-        "ON small_variant_filter_presets USING btree (owner_id, name)"
-    )
-    assert sv_index == (
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_filter_presets_unique "
-        "ON structural_variant_filter_presets USING btree "
-        "(COALESCE(family_id, '00000000-0000-0000-0000-000000000000'::uuid), scope, owner_id, name)"
-    )
-    # The tables a new database's CREATE TABLE gives: the same columns and foreign keys.
-    creates = {
-        table: " ".join(next(s for s in statements if s.startswith(f"CREATE TABLE IF NOT EXISTS {table} ")).split())
-        for table in ("family_import_jobs", "small_variant_filter_presets", "structural_variant_filter_presets")
+def test_revision_0001_applies_the_baselines_then_records_their_digest(monkeypatch) -> None:
+    module = migration_script().get_revision("0001").module
+    connection = object()
+    steps: list[tuple[str, object]] = []
+    attributes = {
+        "apply_baselines": lambda bind: steps.append(("baselines", bind)),
+        "record_baseline_digest": lambda bind: steps.append(("digest", bind)),
     }
-    assert "requested_by text NOT NULL, requested_by_id uuid," in creates["family_import_jobs"]
-    assert (
-        "CONSTRAINT family_import_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) "
-        "REFERENCES users(id) ON DELETE SET NULL" in creates["family_import_jobs"]
-    )
-    for table in ("small_variant_filter_presets", "structural_variant_filter_presets"):
-        assert "owner text NOT NULL, owner_id uuid NOT NULL," in creates[table]
-        assert (
-            f"CONSTRAINT {table}_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE"
-            in creates[table]
-        )
-    # A baseline that no longer holds them stops the revision.
-    with pytest.raises(RuntimeError, match="the baseline changed under it"):
-        module.selected_statements(lambda _name: [])
+    monkeypatch.setattr(module, "op", SimpleNamespace(get_bind=lambda: connection))
+    monkeypatch.setattr(module, "context", SimpleNamespace(config=SimpleNamespace(attributes=attributes)))
+
+    module.upgrade()
+
+    assert steps == [("baselines", connection), ("digest", connection)]
 
 
-def test_revision_0009_runs_the_traceability_baselines_own_upgrade_of_the_two_event_logs() -> None:
-    # SEC-17: each request-audit row and UI event carries the id its event was given before it
-    # was queued, unique, so that a write retried after a commit whose outcome was unknown
-    # stores the row once; brought to a database made before it by the statements
-    # 04_traceability.sql adds it with.
-    from backend.app.core.postgres_migrations import baseline_statements
+def test_the_migration_step_hands_revision_0001_its_own_functions() -> None:
+    config = postgres_migrations._alembic_config(object())  # type: ignore[arg-type]
 
-    module = migration_script().get_revision("0009").module
-    selected = module.selected_statements(baseline_statements)
-
-    statements = _statements("04_traceability.sql")
-    upgrades = [
-        statement
-        for statement in statements
-        if statement.startswith(("ALTER TABLE audit_log_events ", "ALTER TABLE ui_events "))
-    ]
-    assert selected == upgrades
-    assert [" ".join(statement.split()) for statement in selected] == [
-        "ALTER TABLE audit_log_events ADD COLUMN IF NOT EXISTS event_id UUID UNIQUE",
-        "ALTER TABLE ui_events ADD COLUMN IF NOT EXISTS event_id UUID UNIQUE",
-    ]
-    # The column a new database's CREATE TABLE gives, with the same type and uniqueness: empty
-    # in a row written before it, which the append-only tables keep as it is.
-    for table in ("audit_log_events", "ui_events"):
-        create = next(s for s in statements if s.startswith(f"CREATE TABLE IF NOT EXISTS {table} "))
-        assert "event_id UUID UNIQUE" in " ".join(create.split())
-    # The writers' INSERT does nothing for an id the table holds.
-    from backend.app.services.audit_log_pg import _INSERT_AUDIT_LOG_SQL
-    from backend.app.services.ui_event_pg import _INSERT_UI_EVENT_SQL
-
-    for insert in (_INSERT_AUDIT_LOG_SQL, _INSERT_UI_EVENT_SQL):
-        assert " ".join(str(insert).split()).endswith("ON CONFLICT (event_id) DO NOTHING")
-    # A baseline that no longer holds them stops the revision.
-    with pytest.raises(RuntimeError, match="the baseline changed under it"):
-        module.selected_statements(lambda _name: [])
+    assert config.attributes["apply_baselines"] is postgres_migrations.apply_baselines
+    assert config.attributes["record_baseline_digest"] is postgres_migrations.record_baseline_digest
 
 
-def test_revision_0010_runs_the_reference_baselines_own_upgrade_of_the_two_job_tables() -> None:
-    # SEC-35: a gene-reference refresh's and a knowledgebase rebuild's requester kept by the
-    # account's id, which the worker checks before it runs the job, brought to a database made
-    # before it by the statements 02_reference.sql adds it with.
-    from backend.app.core.postgres_migrations import baseline_statements
-
-    module = migration_script().get_revision("0010").module
-    selected = module.selected_statements(baseline_statements)
-
-    statements = _statements("02_reference.sql")
-    assert len(selected) == 2 and all(statement in statements for statement in selected)
-    assert [statements.index(statement) for statement in selected] == sorted(
-        statements.index(statement) for statement in selected
-    )
-    # Each upgrade runs once, when its column is missing, so that a later start never links a
-    # job again, by an address another account may have by then; a job is linked to the
-    # account its address finds, or to none, and the account's deletion keeps the job.
-    for upgrade, table in zip(
-        (" ".join(statement.split()) for statement in selected), ("gene_info_refresh_jobs", "clinical_cnv_kb_jobs")
-    ):
-        assert upgrade.startswith("DO $$ BEGIN IF NOT EXISTS ( SELECT 1 FROM pg_attribute")
-        assert f"WHERE attrelid = '{table}'::regclass AND attname = 'requested_by_id' AND NOT attisdropped" in upgrade
-        assert f"ALTER TABLE {table} ADD COLUMN requested_by_id uuid;" in upgrade
-        assert (
-            f"UPDATE {table} AS job SET requested_by_id = account.id FROM users AS account "
-            "WHERE account.email = job.requested_by;" in upgrade
-        )
-        assert (
-            f"ADD CONSTRAINT {table}_requested_by_id_fkey FOREIGN KEY (requested_by_id) "
-            "REFERENCES users(id) ON DELETE SET NULL;" in upgrade
-        )
-        assert "DELETE FROM" not in upgrade and "SET NOT NULL" not in upgrade
-        # The table a new database's CREATE TABLE gives: the same column and foreign key.
-        create = " ".join(next(s for s in statements if s.startswith(f"CREATE TABLE IF NOT EXISTS {table} ")).split())
-        assert "requested_by_id uuid," in create
-        assert (
-            f"CONSTRAINT {table}_requested_by_id_fkey FOREIGN KEY (requested_by_id) "
-            "REFERENCES users(id) ON DELETE SET NULL" in create
-        )
-    # A baseline that no longer holds them stops the revision.
-    with pytest.raises(RuntimeError, match="the baseline changed under it"):
-        module.selected_statements(lambda _name: [])
+def _baselines_in(tmp_path: Path, monkeypatch, contents: dict[str, bytes]) -> None:
+    for name, body in contents.items():
+        (tmp_path / name).write_bytes(body)
+    monkeypatch.setattr(postgres_migrations, "_schema_files", lambda: sorted(tmp_path.glob("*.sql")))
 
 
-def test_revision_0011_drops_the_columns_nothing_reads_and_the_unresolved_roi_key() -> None:
-    # ENG-6: three columns no code reads, dropped from a database made before, and the
-    # families' metadata key an import wrote and nothing read. The baselines create none of
-    # the columns, so the revision ends at their definition.
-    module = migration_script().get_revision("0011").module
+def test_the_digest_covers_every_baseline_files_name_and_bytes(tmp_path, monkeypatch) -> None:
+    real = baseline_digest()
+    assert len(real) == 64 and int(real, 16) >= 0
+    expected = hashlib.sha256()
+    for path in _schema_files():
+        expected.update(path.name.encode() + b"\0" + path.read_bytes() + b"\0")
+    assert real == expected.hexdigest()
 
-    assert [" ".join(statement.split()) for statement in module._STATEMENTS] == [
-        "ALTER TABLE auth_login_attempts DROP COLUMN IF EXISTS last_success_at",
-        "ALTER TABLE small_variant_reviews DROP COLUMN IF EXISTS compound_het_partner_variant_keys",
-        # Its unique index on (family_id, variant_key) goes with it.
-        "ALTER TABLE structural_variant_reviews DROP COLUMN IF EXISTS variant_key",
-        "UPDATE families SET metadata = metadata - 'unresolved_roi' WHERE metadata ? 'unresolved_roi'",
-    ]
-    every = [statement for path in _schema_files() for statement in _statements(path.name)]
-    for table, column in (
-        ("auth_login_attempts", "last_success_at"),
-        ("small_variant_reviews", "compound_het_partner_variant_keys"),
-        ("structural_variant_reviews", "variant_key"),
-    ):
-        create = next(s for s in every if s.startswith(f"CREATE TABLE IF NOT EXISTS {table} "))
-        assert not re.search(rf"\b{column}\b", create), (table, column)
-    assert not [s for s in every if "idx_structural_variant_reviews_family_variant_key" in s]
-    # No baseline statement writes the key again: nothing in the code does either.
-    assert not [s for s in every if "unresolved_roi" in s]
+    _baselines_in(tmp_path, monkeypatch, {"01_a.sql": b"SELECT 1;\n", "02_b.sql": b"SELECT 2;\n"})
+    first = baseline_digest()
+    assert baseline_digest() == first
+    (tmp_path / "02_b.sql").write_bytes(b"SELECT 2; \n")
+    assert baseline_digest() != first
+    (tmp_path / "02_b.sql").write_bytes(b"SELECT 2;\n")
+    (tmp_path / "02_b.sql").rename(tmp_path / "03_b.sql")
+    assert baseline_digest() != first
 
 
-def test_revision_0013_writes_the_class_labels_the_code_writes_in_mutable_rows_only() -> None:
-    # ENG-6: the class labels in sentence case. The revision rewrites the reviews' and the
-    # filter presets' class labels as the code writes them, and no append-only table: a
-    # record signed, or an audit event written, before keeps its text.
-    from backend.app.services import acmg_points, cnv_acmg_points
-
-    module = migration_script().get_revision("0013").module
-
-    assert list(module.CLASS_LABELS) == list(acmg_points.CLASS_LABELS.values())
-    assert list(module.CLASS_LABELS) == list(cnv_acmg_points.CLASS_LABELS.values())
-    updated = [re.match(r"UPDATE (\w+) AS ", statement).group(1) for statement in module.STATEMENTS]
-    assert updated == [
-        "small_variant_reviews",
-        "small_variant_reviews",
-        "small_variant_reviews",
-        "structural_variant_reviews",
-        "structural_variant_reviews",
-        "small_variant_filter_presets",
-        "small_variant_filter_presets",
-        "structural_variant_filter_presets",
-        "structural_variant_filter_presets",
-    ]
-    every = " ".join(statement for path in _schema_files() for statement in _statements(path.name))
-    append_only = set(re.findall(r"BEFORE UPDATE OR DELETE ON (\w+)", every))
-    assert {"clinical_audit_events", "report_signouts", "audit_log_events", "ui_events"} <= append_only
-    assert not append_only & set(updated)
-    # Only the case changes: each statement matches a label case-insensitively and skips the
-    # rows that already hold it; nothing else of a row is written (updated_at stays).
-    for statement in module.STATEMENTS:
-        assert "lower(" in statement and "<> l.label" in statement
-        assert "updated_at" not in statement
-
-
-def test_revision_0014_gives_qas_repeat_record_the_baselines_count_correction() -> None:
-    # CLIN-57: the count correction per repeat catalogue locus, with the baseline's type, default
-    # and check; every stored record gets 0, no correction.
-    module = migration_script().get_revision("0014").module
-    create = next(
-        statement
-        for statement in _statements("02_reference.sql")
-        if statement.startswith("CREATE TABLE IF NOT EXISTS repeat_locus_count_units ")
-    )
-
-    assert "count_offset integer DEFAULT 0 NOT NULL," in create
-    assert f"CONSTRAINT repeat_locus_count_units_count_offset_check {module._COUNT_OFFSET_CHECK}," in create
-    assert module._COUNT_OFFSET_CHECK == "CHECK (((count_offset >= '-20'::integer) AND (count_offset <= 20)))"
-
-
-
-def test_revision_0015_gives_the_accounts_the_baselines_five_roles() -> None:
-    # The analyst and supervisor roles (owner, 2026-11-04): the check the baseline gives a new
-    # database, in the roles' order, lowest first; each viewer from before becomes an analyst.
-    from backend.app.services.access_control import USER_ROLES
-
-    module = migration_script().get_revision("0015").module
-    create = next(
-        statement
-        for statement in _statements("01_access.sql")
-        if statement.startswith("CREATE TABLE IF NOT EXISTS users ")
-    )
-
-    roles = ", ".join(f"'{role}'" for role in USER_ROLES)
-    assert f"role TEXT NOT NULL CHECK (role IN ({roles}))," in create
-    assert module._ROLE_CHECK == (
-        "CHECK ((role = ANY (ARRAY[" + ", ".join(f"'{role}'::text" for role in USER_ROLES) + "])))"
-    )
-    source = Path(module.__file__).read_text()
-    # Only the viewers change, and only on a database whose check is from before the roles.
-    assert "UPDATE users SET role = 'analyst' WHERE role = 'viewer'" in source
-    assert "if before != _ROLE_CHECK:" in source
-
-def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
-    # Alembic finds the table the baseline created and uses it as its own.
+def test_the_ledger_and_digest_tables_are_read_only_to_the_runtime_role() -> None:
+    # Alembic finds the ledger the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")
     alembics = " ".join(str(CreateTable(context._version).compile(dialect=postgresql.dialect())).split())
-    ledger = next(s for s in _statements("04_traceability.sql") if "alembic_version" in s)
+    traceability = _statements("04_traceability.sql")
+    ledger = next(s for s in traceability if "TABLE IF NOT EXISTS alembic_version" in s)
     assert " ".join(ledger.replace("IF NOT EXISTS ", "").split()) == alembics
+    digest = next(s for s in traceability if "TABLE IF NOT EXISTS schema_baselines" in s)
+    assert "CHECK (singleton)" in digest and "PRIMARY KEY (singleton)" in digest
 
     # 04 runs before 05, and in 05 the REVOKE comes after the GRANT that it narrows.
     names = [path.name for path in _schema_files()]
     assert names.index("04_traceability.sql") < names.index("05_grants.sql")
     grants = _statements("05_grants.sql")
     broad = next(i for i, s in enumerate(grants) if s.startswith("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES"))
-    revoke = grants.index("REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON alembic_version FROM coga_app")
+    revoke = grants.index("REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON alembic_version, schema_baselines FROM coga_app")
     assert broad < revoke
+
+
+def test_the_baselines_hold_no_upgrade_of_an_existing_table() -> None:
+    # They make an empty database, so no statement alters a table one of them created.
+    for path in _schema_files():
+        for statement in _split_sql_script(path.read_text()):
+            assert not statement.upper().startswith("ALTER TABLE"), (path.name, statement[:80])
+            assert "ADD COLUMN" not in statement.upper(), (path.name, statement[:80])
+            assert "DROP NOT NULL" not in statement.upper(), (path.name, statement[:80])
 
 
 def test_alembic_runs_only_inside_the_migration_step() -> None:
@@ -594,12 +187,10 @@ class _Connection:
 
     async def run_sync(self, fn):
         self.ran.append(fn)
-        return SchemaRevision(before="0002", after="0003")
+        return SchemaRevision(before=None, after="0001")
 
 
 def test_the_runtime_role_is_refused_before_anything_runs() -> None:
-    import asyncio
-
     connection = _Connection("coga_app")
 
     with pytest.raises(SchemaMigrationRefused, match="not as coga_app"):
@@ -609,67 +200,101 @@ def test_the_runtime_role_is_refused_before_anything_runs() -> None:
     assert "pg_advisory_xact_lock" in connection.statements[0]
 
 
-def test_the_owner_migrates_under_the_lock() -> None:
-    import asyncio
-
+def test_the_owner_migrates_under_the_lock(caplog) -> None:
     connection = _Connection("coga")
 
-    revision = asyncio.run(apply_postgres_schema(connection))  # type: ignore[arg-type]
+    with caplog.at_level(logging.INFO, logger=postgres_migrations.__name__):
+        revision = asyncio.run(apply_postgres_schema(connection))  # type: ignore[arg-type]
 
-    assert revision == SchemaRevision(before="0002", after="0003")
+    assert revision == SchemaRevision(before=None, after="0001")
     assert "pg_advisory_xact_lock" in connection.statements[0]
     assert connection.ran == [postgres_migrations._migrate]
+    assert "Postgres schema made at revision 0001" in caplog.text
 
 
 @pytest.fixture
-def _recorded(monkeypatch):
-    """Record the migration's steps instead of running them."""
+def _database(monkeypatch):
+    """A database stand-in for ``_migrate``: its ledger, tables and digest, and what ran on it."""
 
-    steps: list[str] = []
-    ledger = iter(["0002", "0003"])
+    state = SimpleNamespace(ledger=[None, "0001"], tables=0, digest=None, steps=[])
+    ledger = iter(state.ledger)
     monkeypatch.setattr(postgres_migrations, "ledger_revision", lambda connection: next(ledger))
-    monkeypatch.setattr(postgres_migrations, "apply_baselines", lambda connection: steps.append("baselines"))
+    monkeypatch.setattr(postgres_migrations, "_public_table_count", lambda connection: state.tables)
+    monkeypatch.setattr(postgres_migrations, "stored_baseline_digest", lambda connection: state.digest)
     monkeypatch.setattr(
-        postgres_migrations.command, "upgrade", lambda config, target: steps.append(f"upgrade to {target}")
+        postgres_migrations.command, "upgrade", lambda config, target: state.steps.append(f"upgrade to {target}")
     )
-    return steps
+
+    def _set_ledger(*revisions):
+        nonlocal ledger
+        ledger = iter(revisions)
+
+    state.set_ledger = _set_ledger
+    return state
 
 
-def test_until_the_rc_every_run_reapplies_the_baselines_before_the_revisions(_recorded) -> None:
-    assert postgres_migrations.REAPPLY_BASELINES_ON_EVERY_RUN is True
+def test_an_empty_database_is_made_by_the_revisions(_database) -> None:
+    revision = postgres_migrations._migrate(object())  # type: ignore[arg-type]
+
+    assert _database.steps == ["upgrade to head"]
+    assert revision == SchemaRevision(before=None, after="0001")
+
+
+def test_a_database_with_tables_but_no_ledger_is_refused_before_anything_runs(_database) -> None:
+    _database.tables = 3
+
+    with pytest.raises(SchemaMigrationRefused, match="holds 3 table.*no schema ledger.*point it at an empty one"):
+        postgres_migrations._migrate(object())  # type: ignore[arg-type]
+
+    assert _database.steps == []
+
+
+def test_a_database_made_from_these_baselines_runs_the_revisions_it_lacks(_database) -> None:
+    _database.set_ledger("0001", "0001")
+    _database.tables = 60
+    _database.digest = baseline_digest()
 
     revision = postgres_migrations._migrate(object())  # type: ignore[arg-type]
 
-    assert _recorded == ["baselines", "upgrade to head"]
-    assert revision == SchemaRevision(before="0002", after="0003")
+    assert _database.steps == ["upgrade to head"]
+    assert revision == SchemaRevision(before="0001", after="0001")
 
 
-def test_after_the_freeze_only_the_revisions_run(_recorded, monkeypatch) -> None:
-    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", False)
+@pytest.mark.parametrize("stored", [None, "0" * 64])
+def test_a_database_made_from_other_baselines_is_refused_before_anything_runs(_database, stored) -> None:
+    _database.set_ledger("0001")
+    _database.tables = 60
+    _database.digest = stored
 
-    postgres_migrations._migrate(object())  # type: ignore[arg-type]
-
-    assert _recorded == ["upgrade to head"]
-
-
-def test_a_ledger_from_a_newer_version_is_refused_before_the_baselines_run(_recorded, monkeypatch) -> None:
-    monkeypatch.setattr(postgres_migrations, "ledger_revision", lambda connection: "9999")
-
-    with pytest.raises(SchemaMigrationRefused, match="schema revision 9999.*a newer version migrated it"):
+    with pytest.raises(SchemaMigrationRefused) as refused:
         postgres_migrations._migrate(object())  # type: ignore[arg-type]
 
-    assert _recorded == []
+    message = str(refused.value)
+    assert "made from other baseline files than this version's" in message
+    assert f"schema_baselines records {stored or 'none'}, this version has {baseline_digest()}" in message
+    assert 'docs/database.md, "Schema Migrations"' in message
+    assert _database.steps == []
 
 
-# ---- A start that does not migrate (OPS-23) -----------------------------------------------------
+def test_a_ledger_this_version_does_not_have_is_refused_before_anything_runs(_database) -> None:
+    _database.set_ledger("9999")
+
+    with pytest.raises(SchemaMigrationRefused, match="schema revision 9999.*another version made or migrated it"):
+        postgres_migrations._migrate(object())  # type: ignore[arg-type]
+
+    assert _database.steps == []
+
+
+# ---- A start that does not migrate ---------------------------------------------------------------
 #
 # With POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false (the restricted runtime role) the migration
 # job runs before the rollout, and the API starts only on a database whose ledger names exactly
-# its own newest revision.
+# its own newest revision and whose digest is its own baselines'.
 
 
-def _check_with_ledger(monkeypatch, ledger) -> str:
-    """check_schema_revision on a ledger that names ``ledger`` (or, an exception, raises it)."""
+def _check_with_ledger(monkeypatch, ledger, digest: str | None = None) -> str:
+    """check_schema_revision on a ledger that names ``ledger`` (or, an exception, raises it) and
+    a database made from the baselines of ``digest`` (this version's when omitted)."""
 
     def _read(connection):
         if isinstance(ledger, Exception):
@@ -677,6 +302,9 @@ def _check_with_ledger(monkeypatch, ledger) -> str:
         return ledger
 
     monkeypatch.setattr(postgres_migrations, "ledger_revision", _read)
+    monkeypatch.setattr(
+        postgres_migrations, "stored_baseline_digest", lambda connection: digest or baseline_digest()
+    )
     return check_schema_revision(object())  # type: ignore[arg-type]
 
 
@@ -692,22 +320,15 @@ def test_a_start_that_does_not_migrate_accepts_its_own_revision(monkeypatch, cap
     assert f"Postgres schema at revision {head_revision()}" in caplog.text
 
 
-@pytest.mark.parametrize("behind", ["none", "first", "previous"])
-def test_a_start_that_does_not_migrate_refuses_a_database_the_migration_job_has_not_brought_to_it(
-    monkeypatch, caplog, behind: str
+def test_a_start_that_does_not_migrate_refuses_a_database_the_migration_job_has_not_made(
+    monkeypatch, caplog
 ) -> None:
-    revisions = [revision.revision for revision in _revisions()]
-    ledger = {"none": None, "first": revisions[0], "previous": revisions[-2]}[behind]
-
     with caplog.at_level(logging.ERROR, logger=postgres_migrations.__name__):
         with pytest.raises(SchemaRevisionMismatch) as refused:
-            _check_with_ledger(monkeypatch, ledger)
+            _check_with_ledger(monkeypatch, None)
 
     message = str(refused.value)
-    assert (
-        f"at schema revision {ledger or 'none (no ledger)'}, and this version of CoGA needs revision "
-        f"{head_revision()}" in message
-    )
+    assert f"at schema revision none (no ledger), and this version of CoGA needs revision {head_revision()}" in message
     assert "the backend does not start" in message
     assert "Run the migration job first, python -m app.db_migrate as the owner" in message
     assert "gcloud run jobs execute coga-db-migrate" in message
@@ -715,7 +336,7 @@ def test_a_start_that_does_not_migrate_refuses_a_database_the_migration_job_has_
     assert _logged_errors(caplog) == [message]
 
 
-def test_a_start_that_does_not_migrate_refuses_a_database_a_newer_version_migrated(monkeypatch, caplog) -> None:
+def test_a_start_that_does_not_migrate_refuses_a_revision_this_version_does_not_have(monkeypatch, caplog) -> None:
     with caplog.at_level(logging.ERROR, logger=postgres_migrations.__name__):
         with pytest.raises(SchemaRevisionMismatch) as refused:
             _check_with_ledger(monkeypatch, "9999")
@@ -723,9 +344,19 @@ def test_a_start_that_does_not_migrate_refuses_a_database_a_newer_version_migrat
     message = str(refused.value)
     assert "at schema revision 9999, which this version of CoGA does not have" in message
     assert f"(its newest is {head_revision()})" in message
-    assert "this version is older than the database" in message
-    assert "restore the database from the backup taken before that migration" in message
+    assert "another version made or migrated it" in message
     assert "migration job" not in message
+    assert _logged_errors(caplog) == [message]
+
+
+def test_a_start_that_does_not_migrate_refuses_a_database_made_from_other_baselines(monkeypatch, caplog) -> None:
+    with caplog.at_level(logging.ERROR, logger=postgres_migrations.__name__):
+        with pytest.raises(SchemaRevisionMismatch) as refused:
+            _check_with_ledger(monkeypatch, head_revision(), digest="0" * 64)
+
+    message = str(refused.value)
+    assert "made from other baseline files than this version's" in message
+    assert "the backend does not start" in message
     assert _logged_errors(caplog) == [message]
 
 
@@ -795,7 +426,7 @@ def test_a_start_on_another_schema_revision_stops_before_anything_else_runs(monk
 
 
 def test_a_start_that_migrates_leaves_the_revision_to_the_migration(monkeypatch) -> None:
-    # The owner's start migrates to this version's revision, or refuses a newer ledger itself.
+    # The owner's start migrates to this version's revision, or refuses the database itself.
     assert _start_until_the_audit_writer(monkeypatch, migrates=True) == [
         "wait_for_postgres",
         "init_postgres_schema",

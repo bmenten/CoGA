@@ -1,4 +1,4 @@
-"""A loader refuses a file without a record before it deletes what the file replaces (SAFE-29).
+"""A loader refuses a file without a record before it deletes what the file replaces.
 
 Most loaders replace what they load: they delete the stored data of their source and write the
 file's records. ClickHouse has no transactions, and a package import commits each dataset as it
@@ -24,17 +24,17 @@ A chrM SV file with its header and no call is a result, not an empty file: most 
 no mtDNA deletion. It replaces the sample's earlier chrM SV calls with none; one
 without its header is refused before anything is written.
 
-A dataset of one file per sample checks every sample's file before it writes any (SAFE-3), the
+A dataset of one file per sample checks every sample's file before it writes any, the
 APCAD file per embryo and the coverage BED or per-target table per sample included: a later
 sample's refused file fails the dataset with the earlier samples' data as it was. A TRGT value
 that is no number is refused with 400, and a dry run warns of a data file without a record,
 which the import will refuse. A Paraphase copy number that its Postgres ``integer`` column
 cannot hold fails the dataset as such a TRGT value does, before the sample's results are
-deleted (DATA-7). A sample's coverage BED, APCAD file read as a BED or TRGT VCF that its
+deleted. A sample's coverage BED, APCAD file read as a BED or TRGT VCF that its
 loader refuses fails the dataset naming the sample and the file, by its path in the package:
 the loaders' refusals, which the single-file uploads answer with, name neither. A refused
 per-target coverage table names both too, and a family TRGT VCF's refusal names the file before
-the loader's words, which name the samples (DATA-9).
+the loader's words, which name the samples.
 
 The stores are faked at their edge: the interval table answers the statements
 ``clickhouse_interval_tracks`` sends ClickHouse, and the session the Postgres statements the
@@ -454,7 +454,7 @@ async def test_a_trgt_file_without_a_record_fails_the_dataset_with_the_samples_c
     # The failure names the sample and its file, by its path in the package.
     assert str(refused.value) == "The TRGT VCF of S2 (trgt/S2.vcf): No valid TRGT records found"
     # Every sample's file is read before any sample's calls are replaced: S1's as much as
-    # S2's are as they were (SAFE-29, SAFE-3).
+    # S2's are as they were.
     assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
     assert stores.deletes == []
 
@@ -509,7 +509,7 @@ async def test_every_refusal_of_a_family_trgt_vcf_names_the_file_and_replaces_no
         await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
 
     # The failure names the file, by its path in the package, before the loader's words
-    # (DATA-9).
+    #.
     assert str(refused.value) == f"The family TRGT VCF (trgt/family.vcf): {detail}"
     # Both samples' calls are as they were.
     assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
@@ -921,7 +921,7 @@ _MITO_DELETION = (
 
 def test_a_chrm_sv_file_with_its_header_and_no_call_replaces_the_samples_calls_with_none() -> None:
     """Most samples carry no mtDNA deletion, so Sniffles2 writes its header and no call: a
-    result, which replaces the sample's earlier calls (the decision kept by SAFE-29). The
+    result, which replaces the sample's earlier calls. The
     other samples' calls stay."""
     from backend.app.services.clickhouse_variant_records import StoredStructuralVariantRow
     from backend.app.services.family_package_variants import _iter_mito_sv_records, _mito_sv_rows_after_import
@@ -981,7 +981,7 @@ async def test_a_chrm_sv_file_without_its_header_fails_the_mito_dataset_before_a
     assert writes == []
 
 
-# --- SAFE-3: every sample's file is checked before anything of its dataset is written -----------
+# --- every sample's file is checked before anything of its dataset is written -----------
 
 
 def _trgt_line(*, pos: str = "3074876", end: str = "3074933", fmt: str = "GT:MC", call: str = "0/1:18_40") -> str:
@@ -1011,7 +1011,7 @@ async def test_a_trgt_upload_with_a_value_that_is_no_number_is_refused_with_the_
         await upload_trgt(_TRGT_HEADER + _TRGT_COLUMNS.format(samples="S1") + record)
 
     # Refused with 400, the calls as they were: Postgres holds no 25-digit position and no
-    # NaN in JSON (DATA-7).
+    # NaN in JSON.
     assert (refused.value.status_code, refused.value.detail) == (400, _TRGT_REFUSAL)
     assert stores.repeats == {_uuid("S1"): 5}
     assert stores.deletes == []
@@ -1210,7 +1210,7 @@ async def test_a_nipt_fathers_snv_file_without_a_record_fails_the_dataset_before
     assert writes == []
 
 
-# An APCAD file per embryo and a coverage file per sample (SAFE-3): every one is checked before
+# An APCAD file per embryo and a coverage file per sample: every one is checked before
 # any sample's track is cleared.
 
 _COVERAGE_BED = "chr1\t0\t1000\t30\nchr1\t1000\t2000\t32\n"
@@ -1362,7 +1362,7 @@ async def test_a_later_samples_refused_coverage_table_fails_the_dataset_before_a
     with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "coverage", dataset))
 
-    # The refusal names the sample and its table, by its path in the package (DATA-9).
+    # The refusal names the sample and its table, by its path in the package.
     assert str(refused.value) == error
     # A monogenic NIPT pair's per-target tables.
     _assert_untouched(stores, before)
@@ -1416,7 +1416,7 @@ async def test_an_update_checks_no_file_of_a_coverage_track_it_leaves_as_stored(
     assert stores.tracks() == (expected, expected)
 
 
-# --- SAFE-3: a dry run reports a data file without a record ---------------------------------------
+# --- a dry run reports a data file without a record ---------------------------------------
 
 
 def _validated(tmp_path: Path, dataset_type: str, dataset: ManifestDataset) -> list[tuple[str, str | None]]:
@@ -1623,7 +1623,7 @@ async def test_a_needlr_file_whose_calls_state_no_extent_says_why_it_holds_none(
     )
 
 
-# --- DATA-7: a Paraphase copy number that no Postgres integer column holds -----------------------
+# --- a Paraphase copy number that no Postgres integer column holds -----------------------
 #
 # The copy numbers are Postgres ``integer`` columns (``total_cn``, ``gene_cn``,
 # ``highest_total_cn``) filled from the sample's JSON. A file with a value beyond them is
@@ -1711,7 +1711,7 @@ async def test_a_paraphase_copy_number_at_the_integer_columns_bounds_is_stored_a
     assert (smn1[_uuid("S1")]["total_cn"], smn1[_uuid("S2")]["gene_cn"]) == (2**31 - 1, -(2**31))
 
 
-# --- a BGZF file cut where one of its blocks ends (DATA-4) -------------------------------------
+# --- a BGZF file cut where one of its blocks ends -------------------------------------
 #
 # Cut exactly where one of its blocks ends, a BGZF file is whole gzip: its first blocks would
 # read as the file, the records after the cut gone without a word. A BGZF file must end with BGZF's

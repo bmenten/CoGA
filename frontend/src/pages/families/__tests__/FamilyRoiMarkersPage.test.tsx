@@ -105,7 +105,7 @@ beforeEach(() => {
 });
 
 describe('FamilyRoiMarkersPage', () => {
-  // #607 — a failed request is not an uninformative ROI, nor a family without one.
+  // A failed request is not an uninformative ROI, nor a family without one.
   describe('when a request fails', () => {
     const failing = (matches: (url: string) => boolean) => {
       const working = (api.get as Mock).getMockImplementation()!;
@@ -148,8 +148,8 @@ describe('FamilyRoiMarkersPage', () => {
       expect(screen.queryByText('No region of interest')).not.toBeInTheDocument();
     });
 
-    // ENG-10: a family that does not exist, or is not in the user's projects, read "could
-    // not be loaded", as a failed request does.
+    // A family that does not exist, or is not in the user's projects, reads "Family not
+    // found"; "could not be loaded" is a failed request's.
     it('says a family the API does not find is not found', async () => {
       const working = (api.get as Mock).getMockImplementation()!;
       (api.get as Mock).mockImplementation((url: string, config?: unknown) =>
@@ -268,8 +268,8 @@ describe('FamilyRoiMarkersPage', () => {
     expect(screen.getByText(/derived from the phased imputed data/i)).toBeTruthy();
   });
 
-  // ENG-20: the page wrote the ROI's chromosome as the family record stores it (`1:1,000,500`,
-  // `X:…`), where the viewer and its tooltips write `chr1` and `chrX` (#602). The requests keep
+  // The page writes the ROI's chromosome as the viewer and its tooltips write it (`chr1`,
+  // `chrX`), whatever the family record stores (`1:1,000,500`, `X:…`). The requests keep
   // the stored name.
   it.each([
     ['1', 'chr1'],
@@ -322,8 +322,8 @@ describe('FamilyRoiMarkersPage', () => {
     const alleleColor = (sample: string, lane: number) =>
       bandCell(sample, lane, 1_000_500)?.querySelector<HTMLElement>('.roi-markers-allele')?.style.color;
 
-    // The father's informative GT allele was drawn #cbd5e1, the colour of an uninformative
-    // allele; it is now the grey the haplotype tooltip uses for it.
+    // The father's informative GT allele is drawn in the grey the haplotype tooltip uses for
+    // it, not #cbd5e1, the colour of an uninformative allele.
     expect(bandCell('FATHER', 2, 1_000_500)?.dataset.base).toBe('GT');
     expect(bandCell('FATHER', 2, 1_000_500)?.dataset.informative).toBe('1');
     expect(alleleColor('FATHER', 2)).toBe(asRendered(NUCLEOTIDE_FALLBACK_COLOR));
@@ -505,7 +505,7 @@ describe('FamilyRoiMarkersPage', () => {
     root.style.removeProperty('--color-haplotype-unknown');
   });
 
-  // CLIN-60: on chrX outside the pseudo-autosomal regions a man has one X. The QC counts read
+  // On chrX outside the pseudo-autosomal regions a man has one X. The QC counts read
   // him as one copy, and the per-cell check reads him the same way.
   describe('at an X-linked ROI', () => {
     const members = ['FATHER', 'MOTHER', 'SON', 'DAUGHTER', 'UNRECORDED'];
@@ -591,7 +591,7 @@ describe('FamilyRoiMarkersPage', () => {
       expect(flagged('UNRECORDED')).toEqual([]);
     });
 
-    // ENG-19: a call of one allele showed as '·' on both rows, as if the genotype were missing.
+    // A call of one allele never shows as '·' on both rows, as if the genotype were missing.
     it('draws a man’s one X as its one allele, on the row of his X, and no allele on the other', async () => {
       mockX([[31_000_000, 31_001_000]]);
       renderPage();
@@ -635,7 +635,7 @@ describe('FamilyRoiMarkersPage', () => {
       expect(document.querySelectorAll('.roi-markers-band[data-base="·"]')).toHaveLength(0);
     });
 
-    // ENG-19: the note said the son's genotype "can't be inherited from the parents", as if his
+    // The note never says the son's genotype "can't be inherited from the parents", as if his
     // father gave him an X.
     it('says a son’s Mendelian error on his one X is against his mother alone', async () => {
       const sites = [

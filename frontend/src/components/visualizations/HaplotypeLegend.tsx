@@ -10,7 +10,7 @@ interface LegendEntry {
   color: string;
   /** Risk alleles are marked by a thin line under the homolog fill, not a solid block. */
   risk?: boolean;
-  /** A carrier's line is dashed, an affected haplotype's solid (#529). */
+  /** A carrier's line is dashed, an affected haplotype's solid. */
   dashed?: boolean;
 }
 

@@ -113,7 +113,7 @@ def _refuse_if_signed_out(user: CurrentUser, issued_at: float | None, request: R
 
 
 async def _microsoft_user(token: str, session: AsyncSession, request: Request | None) -> CurrentUser:
-    """The account a Microsoft access token signs in, made at its first sign-in (SEC-4)."""
+    """The account a Microsoft access token signs in, made at its first sign-in."""
     try:
         identity = await verify_azure_token(
             token,
@@ -139,7 +139,7 @@ async def _microsoft_user(token: str, session: AsyncSession, request: Request | 
 async def _emergency_admin(token: str, session: AsyncSession, request: Request | None) -> CurrentUser:
     """With Microsoft sign-in, a token this server issued signs in the emergency administrator
     only, and only while AZURE_ADMIN_OVERRIDE is on; each use is logged and flagged in the
-    request audit (SEC-4)."""
+    request audit."""
     if not settings.azure_admin_override:
         raise _refused()
     email, issued_at = _local_token_claims(token)
@@ -165,7 +165,7 @@ async def _emergency_admin(token: str, session: AsyncSession, request: Request |
 def _cas_session_user(user: CurrentUser, request: Request) -> CurrentUser:
     """With the CAS sign-in, a token this server issued signs in an account the CAS sign-in
     bound to an object ID, or the emergency administrator while AZURE_ADMIN_OVERRIDE is on,
-    each use logged and flagged in the request audit; no other local account (SEC-4)."""
+    each use logged and flagged in the request audit; no other local account."""
     if user.azure_object_id:
         return user
     account = {"username": user.username, "azure_object_id": user.azure_object_id, "role": user.role}
@@ -208,7 +208,7 @@ async def get_current_user(
         _refuse_if_signed_out(found, issued_at, request)
         user = _cas_session_user(found, request) if settings.cas_enabled else found
     request.state.current_user = user
-    # Whether this request changes something a reader may not change (SEC-1). The family,
+    # Whether this request changes something a reader may not change. The family,
     # sample and project checkpoints read it, so every route that names a record is held to
     # the user's access level there: a route can only be let off by being marked
     # changes_only_own_data (access_control).

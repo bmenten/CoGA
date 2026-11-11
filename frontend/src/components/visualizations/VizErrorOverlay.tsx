@@ -8,7 +8,7 @@ interface Props {
 
 /**
  * Shown when a track's request failed. It must never read like an empty result: a
- * failure is not "no variants in this region" (#510).
+ * failure is not "no variants in this region".
  */
 const VizErrorOverlay: React.FC<Props> = ({ what, onRetry }) => (
   <div className="viz-error-overlay" role="alert">

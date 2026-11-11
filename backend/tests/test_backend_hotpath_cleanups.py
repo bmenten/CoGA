@@ -1,9 +1,9 @@
-"""The interval-track table's DDL runs once per assembly per process (a Batch-1 hot-path cleanup).
+"""The interval-track table's DDL runs once per assembly per process.
 
 ``ensure_clickhouse_interval_table`` memoizes the assemblies whose table it has created, so a
 read or write path that calls it on every request sends its ``CREATE TABLE IF NOT EXISTS``
 once; another assembly still gets its own. (The process caches are reset between tests by the
-autouse fixture in the root conftest.) The same cleanup's HPO table-probe caching is tested in
+autouse fixture in the root conftest.) The HPO table-probe caching is tested in
 ``test_hpo_service.py``.
 """
 

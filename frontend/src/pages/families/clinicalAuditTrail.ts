@@ -11,15 +11,13 @@ export type ClinicalAuditTrail = {
 /**
  * The trail the pages read so far hold. The API serves it a page at a time, most recent
  * first; each later page holds the events recorded before the last one shown, so together
- * the pages are the trail the first page counted. A page that came back without its count
- * counts what it holds.
+ * the pages are the trail the first page counted.
  */
 export function clinicalAuditTrail(
   pages: readonly (ApiClinicalAudit | null | undefined)[] | null | undefined,
 ): ClinicalAuditTrail {
   const events = (pages ?? []).flatMap((page) => page?.events ?? []);
-  const counted = pages?.[0]?.total;
-  return { events, total: Math.max(typeof counted === 'number' ? counted : 0, events.length) };
+  return { events, total: Math.max(pages?.[0]?.total ?? 0, events.length) };
 }
 
 const mostRecent = (shown: number) =>

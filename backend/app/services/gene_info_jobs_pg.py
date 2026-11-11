@@ -52,7 +52,7 @@ GENE_REFERENCE_PROGRESS_COMMIT_SECONDS = 30.0
 # While the bulk sources load (whole-file downloads and the dbNSFP gene file, which can take
 # longer than GENE_REFERENCE_STALE_HEARTBEAT on a slow link), the worker writes the job's
 # heartbeat this often, from a session of its own, as the import and knowledgebase workers do:
-# another worker takes a running job up only once its heartbeat is stale (SAFE-36).
+# another worker takes a running job up only once its heartbeat is stale.
 GENE_REFERENCE_HEARTBEAT_SECONDS = 60.0
 # Who asked for the refresh a start queues: no account, so the worker runs it as it is.
 STARTUP_REQUESTER = "startup-bootstrap"
@@ -66,7 +66,7 @@ def _requester_lost(lapse: str) -> str:
     )
 
 
-# Why a refresh is not run, as the job's error says (SEC-35): the account that asked for it no
+# Why a refresh is not run, as the job's error says: the account that asked for it no
 # longer exists, has been deactivated, or is no longer an administrator, as the routes
 # required. None names the account: the job does.
 REQUESTER_GONE_ERROR = _requester_lost("no longer exists")
@@ -77,7 +77,7 @@ REQUESTER_NOT_ADMIN_ERROR = _requester_lost("is no longer an administrator")
 def _failed_refresh(exc: BaseException) -> str:
     """The error a failed refresh ends its job with: a fixed sentence naming the error by its
     kind (``describe_error``), never its text, which can quote a statement's values or the
-    address a source was read from (SEC-37)."""
+    address a source was read from."""
     return (
         f"The gene reference refresh failed ({describe_error(exc)}). The genes it had saved "
         "keep their new records, the others the ones from before; the server log shows where it "
@@ -90,7 +90,7 @@ _T = TypeVar("_T")
 
 class _JobTakenOver(Exception):
     """The job is no longer this worker's: another worker took it up once its heartbeat was
-    stale, or it has ended. This worker stops and writes nothing more to it (SAFE-36)."""
+    stale, or it has ended. This worker stops and writes nothing more to it."""
 
 
 @dataclass(slots=True)
@@ -199,7 +199,7 @@ def _expand_groups_with_hgnc(
     ~77k symbols against HGNC's ~45k, the difference being unnamed clone-based loci
     (``AC093323.1``) and novel transcripts. Enriching those is not merely wasted: each
     one that dbNSFP does not cover costs four external lookups that return nothing, and
-    taking the union of both sets turned a 3.9k-gene fallback into a 39.4k-gene one —
+    taking the union of both sets would turn a 3.9k-gene fallback into a 39.4k-gene one —
     roughly 157,000 requests at HGNC, Ensembl, NCBI and ClinGen for no cached data.
     """
     hgnc = (bulk_context.datasets.get("hgnc_complete_set") if bulk_context else None)
@@ -241,7 +241,7 @@ async def _load_human_gene_groups(
     assembly_ids = [assembly["id"] for assembly in human_context.assemblies]
     # Only the fields the refresh writes from a gene row: its locus and the annotation it
     # falls back on. A whole-cohort refresh holds every gene row of every human assembly
-    # (over half a million) for the hours it runs; their exon lists and extra were most
+    # (over half a million) for the hours it runs; their exon lists and extra would be most
     # of the API process's memory, enough for an import beside it to run it out of memory.
     params: dict[str, Any] = {}
     if symbol:
@@ -477,7 +477,7 @@ async def queue_gene_reference_refresh_job(
     symbol: str | None = None,
 ) -> GeneInfoRefreshJobOut:
     """Queue a refresh. One an administrator asked for keeps them by the account's id, which
-    the worker checks before it runs the job (SEC-35), and the e-mail address it was asked
+    the worker checks before it runs the job, and the e-mail address it was asked
     under, which it shows; the refresh a start queues (``requested_by`` None) is no account's,
     ``STARTUP_REQUESTER``."""
     if scope == "symbol" and not str(symbol or "").strip():
@@ -574,9 +574,9 @@ async def queue_startup_gene_reference_refresh_if_needed(
     """At a start, queue the whole-cohort gene reference sync, as no account, when the cached
     gene information needs it (``GENE_REFERENCE_BOOTSTRAP_ON_STARTUP``):
 
-    - **no gene is cached yet**, with or without the local dbNSFP gene file. The sync used to
-      wait for the file, which is not shipped, so a new instance never got gene information on
-      its own. Its bulk sources (HGNC, ClinGen, GenCC, ClinVar) are each source's current export.
+    - **no gene is cached yet**, with or without the local dbNSFP gene file. The sync does not
+      wait for the file, which is not shipped, so a new instance gets gene information on its
+      own. Its bulk sources (HGNC, ClinGen, GenCC, ClinVar) are each source's current export.
       Without the file, every gene costs one NCBI request (for its summary), so the sync takes
       hours, and dbNSFP's constraint metrics and orthologues stay empty until the file is added;
     - **the dbNSFP gene file is there now, and no cached gene was synced with it**, so the file
@@ -932,7 +932,7 @@ async def _refresh_grouped_human_gene_info(
 async def _requester_refusal(session: AsyncSession, job_row: RowMapping) -> str | None:
     """Why the refresh is not run for the account that asked for it: it no longer exists (its
     deletion unlinks the job), has been deactivated, or is no longer an administrator, as the
-    routes required (SEC-35). None while it is an active administrator, and for the refresh a
+    routes required. None while it is an active administrator, and for the refresh a
     start queues, which is no account's."""
     requester_id = job_row.get("requested_by_id")
     if requester_id is None and job_row.get("requested_by") == STARTUP_REQUESTER:
@@ -1033,14 +1033,14 @@ async def run_gene_reference_refresh_job(
 ) -> None:
     """Run a job this worker has taken up: queued, or taken again after its worker stopped.
 
-    The refresh runs only for an active administrator, as the routes that queue it require
-    (SEC-35): a job whose account no longer exists, has been deactivated or is no longer an
-    administrator when a worker takes it up ends failed, saying why
+    The refresh runs only for an active administrator, as the routes that queue it require: a
+    job whose account no longer exists, has been deactivated or is no longer an administrator
+    when a worker takes it up ends failed, saying why
     (``REQUESTER_GONE_ERROR``, ``REQUESTER_INACTIVE_ERROR``, ``REQUESTER_NOT_ADMIN_ERROR``),
     before any gene record is written. The account is checked as the job starts, also when it
     is taken again: one deactivated or demoted while the refresh runs has it run to its end.
 
-    One worker runs a job at a time (SAFE-36). Another worker takes a running job up once its
+    One worker runs a job at a time. Another worker takes a running job up once its
     heartbeat is older than GENE_REFERENCE_STALE_HEARTBEAT, so the heartbeat is written while
     the bulk sources load as well as with the refresh's progress. Once the job is found to be
     another worker's, this run stops and writes nothing more to it; a run that fails ends the
@@ -1080,7 +1080,7 @@ async def run_gene_reference_refresh_job(
             # rather than from whichever symbols the assembly's annotation happens to
             # carry. A whole-cohort refresh consults every source for every gene, so it
             # loads them unrestricted. The load can outlast the stale window, so the
-            # job's heartbeat is written while it runs (SAFE-36).
+            # job's heartbeat is written while it runs.
             bulk_context = await _with_heartbeat(
                 load_human_gene_bulk_context(symbols=[job_symbol] if job_symbol else None),
                 job_id=job_id,
@@ -1144,7 +1144,7 @@ async def run_gene_reference_refresh_job(
             # failed only while it is still this worker's: a job another worker has taken up
             # meanwhile is that worker's to end. The job's error, which the admin page shows, and
             # the log name the error by its kind, never by its text: a failed statement's text
-            # quotes the values it was given, a source's error the address it read (SEC-37).
+            # quotes the values it was given, a source's error the address it read.
             logger.error("Gene reference refresh job %s failed (%s)", job_id, describe_error(exc))
             try:
                 await session.rollback()

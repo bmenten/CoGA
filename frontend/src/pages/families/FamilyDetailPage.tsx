@@ -105,7 +105,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   // Haplotype lineage colours and embryo segregation depend on the pedigree roles and
   // affected status. Those queries never go stale on their own (staleTime: Infinity), so
   // a structure or member edit must drop them — otherwise embryo classification pairs
-  // the new roles with pre-edit haplotypes until a reload (#510).
+  // the new roles with pre-edit haplotypes until a reload.
   const invalidatePedigreeDependentQueries = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ['haplotypes', familyId] }),
@@ -150,7 +150,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       return res.data as ApiFamilyRecord;
     },
   });
-  // A reader in the family's projects changes nothing here (SEC-1): the server refuses it, and
+  // A reader in the family's projects changes nothing here: the server refuses it, and
   // the controls say so.
   const readOnly = Boolean(data?.read_only);
 
@@ -394,8 +394,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   }
 
   // The project's reference too, before anything of the family: the assembly-scope warning
-  // shows nothing while it loads (#515), so the workspace showed the family without "Not
-  // validated for clinical use", which came a moment later (ENG-12).
+  // shows nothing while it loads, and the workspace never shows the family without "Not
+  // validated for clinical use".
   if (referenceLoading) {
     return (
       <PageState
@@ -1097,7 +1097,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           </div>
         )}
         {/* No derived segregation is not "no warnings": the embryos' recombination and
-            uninformative flags come with the calls (#607, TF-12 U2). */}
+            uninformative flags come with the calls (TF-12 U2). */}
         {segregationFailed ? (
           <QueryFailure
             what="the embryo calls at the ROI"
@@ -1105,7 +1105,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             consequence="The embryos' segregation, and any recombination or uninformative warning, are not shown."
           />
         ) : null}
-        {/* The blocks no longer match the pedigree (CLIN-66): the calls are uninformative. */}
+        {/* The blocks no longer match the pedigree: the calls are uninformative. */}
         {haplotypeBlocksOutdated ? (
           <p className="status-note status-note--warning" role="note">
             ⚠ {BLOCKS_OUTDATED_WARNING}
@@ -1496,7 +1496,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                           )}
                         </div>
                       ) : hpoFailed ? (
-                        // Not "-": the member's terms are unknown (#607).
+                        // Not "-": the member's terms are unknown.
                         <span className="dashboard-link-note">could not be loaded</span>
                       ) : (
                         <span className="dashboard-link-note">-</span>

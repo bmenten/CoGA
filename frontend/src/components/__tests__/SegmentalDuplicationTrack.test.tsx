@@ -1,5 +1,5 @@
 // Segmental-duplication/LCR track: the window request, intervals mapped and clipped to the region with a
-// 2-px floor and a label title, the empty and failed (#510) states, and the same-span pan fallback.
+// 2-px floor and a label title, the empty and failed states, and the same-span pan fallback.
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -104,7 +104,7 @@ describe('SegmentalDuplicationTrack', () => {
     ]);
     expect(options.enabled).toBe(true);
     await expect(options.queryFn()).resolves.toEqual([LCR22A]);
-    // Each identifier is one encoded path segment (#521); the window travels as query params.
+    // Each identifier is one encoded path segment; the window travels as query params.
     expect(apiGetMock).toHaveBeenCalledWith(
       '/segmental-duplications/GRCh38%2Fhg38/22',
       {
@@ -198,7 +198,7 @@ describe('SegmentalDuplicationTrack', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('a failed request shows the failure with retry, never an empty region or old blocks (#510)', () => {
+  it('a failed request shows the failure with retry, never an empty region or old blocks', () => {
     serve({ data: [LCR22A] });
     const { container, rerender } = render(track());
     expect(blocks(container)).toHaveLength(1);
@@ -242,7 +242,7 @@ describe('SegmentalDuplicationTrack', () => {
     ]);
   });
 
-  it('does not draw a held block that lies outside the new window while a pan loads (#526)', () => {
+  it('does not draw a held block that lies outside the new window while a pan loads', () => {
     serve({ data: [LCR22A, LCR22B] });
     const { container, rerender } = render(track());
     expect(blocks(container).map((block) => block.label)).toEqual(['LCR22-A', 'LCR22-B']);
@@ -250,12 +250,12 @@ describe('SegmentalDuplicationTrack', () => {
     // Pan to 19.5–23.5 Mb: LCR22-A (18.6–19.0 Mb) is now entirely left of the window.
     serve({});
     rerender(track({ regionStart: 19_500_000, regionEnd: 23_500_000 }));
-    // It used to be clamped into a 2 px block at x = 0, labelled LCR22-A at 19.5 Mb.
+    // It is not clamped into a 2 px block at x = 0, labelled LCR22-A at 19.5 Mb.
     expect(blocks(container)).toEqual([{ x: 80, width: 40, label: 'LCR22-B' }]);
     expect(screen.queryByText(/No segmental duplications/)).not.toBeInTheDocument();
   });
 
-  it('names how many duplications it draws for a screen reader (#529)', () => {
+  it('names how many duplications it draws for a screen reader', () => {
     serve({ data: [LCR22A, LCR22B, LCR22D] });
     render(track());
 
@@ -269,8 +269,8 @@ describe('SegmentalDuplicationTrack', () => {
   it.each([
     ['an empty region', { data: [] }, 'none'],
     ['the first window loading', {}, 'loading'],
-    ['a failed request (#510)', { isError: true }, 'failed to load'],
-  ])('names %s as what it is, and only an empty region as "none" (#529)', (_label, state, summary) => {
+    ['a failed request', { isError: true }, 'failed to load'],
+  ])('names %s as what it is, and only an empty region as "none"', (_label, state, summary) => {
     serve(state);
     render(track());
 
@@ -281,7 +281,7 @@ describe('SegmentalDuplicationTrack', () => {
     ).toBeInTheDocument();
   });
 
-  it('while a pan loads, counts only the held blocks in the new window, never "none" (#529)', () => {
+  it('while a pan loads, counts only the held blocks in the new window, never "none"', () => {
     serve({ data: [LCR22A, LCR22B] });
     const { rerender } = render(track());
 

@@ -12,13 +12,13 @@ export interface FamilyReferenceContext {
   assemblyName?: string;
   assemblyVersion: string;
   assemblyId?: string;
-  /** Inside the validated scope; undefined until a linked project has loaded (#515). */
+  /** Inside the validated scope; undefined until a linked project has loaded. */
   assemblyValidated?: boolean;
   projectId?: string;
   isLoading: boolean;
   /**
    * The project catalogue could not be loaded, so the reference and its validation scope
-   * are unknown. Not "not linked": the family may well be linked, and off scope (#608).
+   * are unknown. Not "not linked": the family may well be linked, and off scope.
    */
   isError: boolean;
   /** Load the project catalogue again. */
@@ -120,8 +120,7 @@ const OTHER_IGV_GENOMES = new Map([
  * The IGV genome of an assembly, or null where there is none for it.
  *
  * Never another assembly's genome in its place: IGV draws the reads and variants at their
- * positions on the genome it opens. Any name it did not know opened hg38, among them the
- * `T2T CHM13v2.0` the UCSC import gives T2T.
+ * positions on the genome it opens.
  */
 export function mapAssemblyToIgvGenome(assemblyName?: string | null): string | null {
   const name = (assemblyName ?? '').trim();

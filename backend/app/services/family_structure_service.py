@@ -275,10 +275,10 @@ async def _clear_family_genomic_data(
     transaction, and return what the family held and the assemblies whose ClickHouse data
     the caller deletes with ``_delete_family_clickhouse_data``, last, just before it commits.
 
-    ClickHouse has no transactions: deleted here, the variants and tracks were gone when a
-    write of the structure change after this failed (a member or relationship row, the
+    ClickHouse has no transactions: deleted here, the variants and tracks would be gone when
+    a write of the structure change after this failed (a member or relationship row, the
     pedigree, the structure version) and the rollback brought the family back with its
-    reviews and its Postgres data (SAFE-28), as the PED upload's were before #859."""
+    reviews and its Postgres data."""
     # Until the structure change commits, so no write that read the family's variants
     # before the clear writes them back after it.
     await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
@@ -309,11 +309,11 @@ async def _delete_family_clickhouse_data(
     """Delete the family's small variants, structural variants and interval tracks in
     ClickHouse, for a structure change that clears its genomic data
     (``_clear_family_genomic_data``), and for a PED upload or manual family that replaces it
-    (``ped_service._delete_replaced_family_data``, SAFE-35): once everything else of the
+    (``ped_service._delete_replaced_family_data``): once everything else of the
     change is written, just before its commit, so a write that fails before this leaves them,
     with the family the rollback brings back. The variant-write locks the clear or the
     replacement took are still held. Each delete is recorded on the change's ``deletion`` as
-    it begins (SAFE-31)."""
+    it begins."""
     for assembly_name in assembly_names:
         if deletion is not None:
             deletion.reach(DataReach(SMALL_VARIANT_DATA))
@@ -1011,15 +1011,15 @@ async def update_family_structure_for_admin(
 ) -> FamilyStructureUpdateOut:
     """Change a family's members and relationships, store the result as its next structure
     version and record the change, with what each changed member and link was and is, on
-    the family's clinical audit trail (SEC-7), as made through ``source`` (an edit of the
-    family's structure, or a package import, ``take_package_pedigree``).
+    the family's clinical audit trail, as made through ``source`` (an edit of the family's
+    structure, or a package import, ``take_package_pedigree``).
 
     ``renamed_members`` maps the new sample ID of each member the caller renamed in this
     transaction (a member edit) to its old one, so the audit event names the rename.
 
     A change that clears the family's genomic data deletes its ClickHouse data last, just
-    before its commit (SAFE-28), and marks the family before that, for each of its datasets
-    held there (``FamilyDeletion``, SAFE-31): a commit that fails, or a process that stops,
+    before its commit, and marks the family before that, for each of its datasets held
+    there (``FamilyDeletion``): a commit that fails, or a process that stops,
     after the deletes brings the family back without that data, marked. The commit removes
     the mark; a change that fails removes it, or leaves it listing what the deletes it began
     may have left missing."""
@@ -1052,7 +1052,7 @@ async def _update_family_structure(
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = str(family_row["id"])
     # One change of the family's pedigree at a time, from before its state is read until
-    # the change commits, so its audit event's before is what it replaced (SEC-7). A clear of
+    # the change commits, so its audit event's before is what it replaced. A clear of
     # the imported data takes the family's variant-write locks first, in the order every
     # writer that holds both takes them.
     if update.clear_existing_genomic_data:
@@ -1173,9 +1173,9 @@ async def _update_family_structure(
     relationships_changed = current_relationship_keys != target_relationship_keys
     data_counts: dict[str, int] = {}
     cleared_data_counts: dict[str, int] = {}
-    # The assemblies whose ClickHouse data the clear deletes, last (SAFE-28).
+    # The assemblies whose ClickHouse data the clear deletes, last.
     cleared_assemblies: list[str] = []
-    # The change's deletion of the family's ClickHouse data, marked before it (SAFE-31).
+    # The change's deletion of the family's ClickHouse data, marked before it.
     deletion: FamilyDeletion | None = None
     if update.clear_existing_genomic_data:
         data_counts = await _family_genomic_data_counts(session, family_uuid=family_uuid)
@@ -1292,8 +1292,8 @@ async def _update_family_structure(
     )
     # ClickHouse has no transactions: its data goes once everything else of the change is
     # written, just before the commit, so a write that fails before this leaves the family's
-    # variants and tracks with the family the rollback brings back (SAFE-28). The mark goes
-    # with the commit (SAFE-31).
+    # variants and tracks with the family the rollback brings back. The mark goes with the
+    # commit.
     await _delete_family_clickhouse_data(family_uuid, cleared_assemblies, deletion)
     if deletion is not None:
         await deletion.finished(session)

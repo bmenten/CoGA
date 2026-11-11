@@ -74,7 +74,7 @@ export default function SmallVariantTable({
   onAcmgClassify,
   onToggleReviewTag,
 }: SmallVariantTableProps) {
-  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
   const [tableSortKey, setTableSortKey] = useState<TableSortKey>('position');
   const [tableSortAsc, setTableSortAsc] = useState(true);
@@ -162,7 +162,7 @@ export default function SmallVariantTable({
             const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
             const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
             const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-            // The review's class once, by the one rule (CLIN-76); a class tag that is not the
+            // The review's class once, by the one rule; a class tag that is not the
             // class shown is no chip.
             const reviewClass = reviewClassChips(
               variant.review?.classification,
@@ -239,7 +239,7 @@ export default function SmallVariantTable({
                 <td className="table-wrap-cell">
                   {variant.effect || '—'}
                   {/* The row's impact and effect are its primary transcript's; the
-                      transcript the annotation filters held on, when another (CLIN-51). */}
+                      transcript the annotation filters held on, when another. */}
                   <FilterTranscriptNote
                     variant={variant}
                     className="variant-table-filter-transcript"
@@ -314,7 +314,7 @@ export default function SmallVariantTable({
                       </div>
                     ) : null}
                     {/* The class shown, when its tag is no chip above: a class word as its label
-                        (ENG-10), or the text as stored. */}
+, or the text as stored. */}
                     {reviewClass.chipLabel ? (
                       <span className={`table-chip table-chip--${reviewClass.tone}`}>{reviewClass.chipLabel}</span>
                     ) : null}

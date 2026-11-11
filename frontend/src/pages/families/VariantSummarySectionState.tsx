@@ -4,7 +4,7 @@ import QueryFailure from '../../components/QueryFailure';
 /**
  * A variant-summary section whose figures are not in: loading, or failed with the reason and
  * a retry. Each section loads on its own, so one that fails leaves the others shown, and a
- * failure never reads as an empty result (#510).
+ * failure never reads as an empty result.
  */
 export const VariantSummarySectionState: React.FC<{
   /** What the section loads, e.g. "small-variant statistics". */

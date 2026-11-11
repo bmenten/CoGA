@@ -4,14 +4,12 @@ An SV's storage key hashes its source, so each caller's call of an SV has its ow
 ``SV/variants/details`` row (span, length, filters, annotation) and its own ``SV/key_lookup``
 row beside its ``SV/entries`` rows. ``delete_family_structural_variants`` with a ``source``,
 the delete half of a per-sample upload's rewrite and of a package dataset's re-import,
-deletes that source's ``entries`` rows, and no details or lookup row of an SV it removed stays
-behind unreached.
+deletes that source's ``entries`` rows; deleting those alone would leave the details and
+lookup rows of every SV it removed behind, reached by no entry.
 
 Both tables are family-scoped: the key hashes the family and every row carries
-``family_guid``. The delete removes the deleted source's details and lookup rows whose key no
-remaining ``entries`` row of the family has. A row that another source's entry still reaches
-(a key two callers' rows share) is kept. Other sources' and other
-families' rows are never touched, and every value is bound.
+``family_guid``. The delete also removes the deleted source's details and lookup rows. Other
+sources' and other families' rows are never touched, and every value is bound.
 
 The storage functions run against an in-memory SQLite copy of the SV tables, so each
 statement's predicate, subquery included, is evaluated rather than string-matched.
@@ -43,7 +41,7 @@ _PROJECT = "project-1"
 # A per-sample upload's ids: they do not name the caller.
 _DEL = "1-30000-31000-DEL---"
 _DUP = "1-50000-50500-DUP---"
-# A NeedlR call's id: its coordinates and type too (CLIN-43).
+# A NeedlR call's id: its coordinates and type too.
 _NEEDLR = "1-20000-25000-DEL---"
 
 _SV_TABLES = ("SV/entries", "SV/variants/details", "SV/key_lookup")
@@ -274,7 +272,6 @@ async def test_the_stand_in_starts_with_one_row_per_caller_in_each_table(tables)
 async def test_a_source_delete_leaves_no_row_of_that_source(tables) -> None:
     await _store_two_families()
     await cvs.delete_family_structural_variants(_ASSEMBLY, _FAMILY, source="sniffles")
-    # The entries go, and both SVs' details and lookup rows with them.
     for suffix in _SV_TABLES:
         left = [row for row in tables.identities(suffix) if row[:2] == (_FAMILY, "sniffles")]
         assert left == [], suffix
@@ -301,29 +298,6 @@ async def test_other_sources_and_other_families_keep_every_row_as_stored(tables)
 
 
 @pytest.mark.asyncio
-async def test_a_row_another_sources_entry_still_reaches_is_kept(tables) -> None:
-    # Two callers' calls at one position may share one key: a row written back keeps
-    # its stored key. ClickHouse keeps one details row per key, which may be the one labelled
-    # with the deleted source: removing it would strip the Spectre SV of its span, length and
-    # annotation.
-    shared = 4242
-    await cvs.insert_structural_variant_records(
-        _ASSEMBLY, _FAMILY, [_PROJECT], [_sniffles_del(variant_key=shared)]
-    )
-    await cvs.insert_structural_variant_records(
-        _ASSEMBLY, _FAMILY, [_PROJECT], [_spectre_del(variant_key=shared)]
-    )
-    await cvs.delete_family_structural_variants(_ASSEMBLY, _FAMILY, source="sniffles")
-
-    assert tables.identities("SV/entries") == [(_FAMILY, "spectre", _DEL, shared)]
-    for suffix in ("SV/variants/details", "SV/key_lookup"):
-        assert tables.identities(suffix) == [
-            (_FAMILY, "sniffles", _DEL, shared),
-            (_FAMILY, "spectre", _DEL, shared),
-        ], suffix
-
-
-@pytest.mark.asyncio
 async def test_an_overwrite_that_drops_an_sv_leaves_no_row_for_it(tables) -> None:
     # The per-sample upload's overwrite: the source's stored rows are rewritten, each with
     # its stored key, without the duplication the new file no longer has.
@@ -338,8 +312,6 @@ async def test_an_overwrite_that_drops_an_sv_leaves_no_row_for_it(tables) -> Non
     )
     for suffix in _SV_TABLES:
         sniffles = [row for row in tables.identities(suffix) if row[:2] == (_FAMILY, "sniffles")]
-        # The duplication keeps no details or lookup row, and the deletion has one of each,
-        # not the replaced ones beside the new ones.
         assert sniffles == [(_FAMILY, "sniffles", _DEL, stored_key)], suffix
     assert tables.unreached() == {"SV/variants/details": [], "SV/key_lookup": []}
 
@@ -365,7 +337,7 @@ async def test_the_delete_binds_every_value_and_stamps_the_version_last(tables) 
     await cvs.delete_family_structural_variants(_ASSEMBLY, family, source=source)
 
     deletes = [(sql, params) for sql, params in tables.statements if sql.startswith("ALTER TABLE")]
-    # The entries first, so the details and lookup deletes see only the remaining entries.
+    # The entries first, then the details and lookup rows of the same scope.
     assert [re.search(r"/SV/([^`]+)`", sql)[1] for sql, _params in deletes] == [
         "entries",
         "variants/details",

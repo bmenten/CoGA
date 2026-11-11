@@ -2,7 +2,7 @@
 
 A sign-up (and a first CAS sign-in) makes an inactive account that was never active
 (``users.activated_at`` empty). Every active administrator is told by e-mail; an administrator
-activates it, archives it, or deletes it when it is not relevant (SEC-4).
+activates it, archives it, or deletes it when it is not relevant.
 
 On real Postgres, through the app with real sign-ins:
 

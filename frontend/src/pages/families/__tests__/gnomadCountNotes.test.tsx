@@ -7,9 +7,9 @@ import { gnomadCountNotes } from '../gnomadCountNotes';
 import type { SmallVariant, SmallVariantPage } from '../smallVariantSearch';
 import { smallVariant } from '../../../test/variants';
 
-// CLIN-67: a maximum gnomAD count filter keeps a variant whose annotation holds no such count,
+// A maximum gnomAD count filter keeps a variant whose annotation holds no such count,
 // as absent from gnomAD. The laboratory's VCFs carry gnomAD's frequencies but no counts, so the
-// filters kept every variant without a word; the list now says how many it kept that way.
+// filters keep every variant: the list says how many it kept that way.
 const variant = (id: string, fields: Partial<SmallVariant> = {}): SmallVariant =>
   smallVariant({
     _id: id,

@@ -282,7 +282,7 @@ def _wire(
         filtered=filtered,
         artifacts=artifacts,
         sample_name_to_uuid={FATHER: "father-uuid", PLASMA: "cfdna-uuid"},
-        carrier_samples={"other-cfdna": "OTHER1"},
+        carrier_samples=["OTHER1"],
         other_carriers=other_carriers or {},
     )
 

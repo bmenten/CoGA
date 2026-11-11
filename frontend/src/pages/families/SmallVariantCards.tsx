@@ -165,7 +165,7 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
   }
   // The primary transcript is delivered as the flat variant fields and omitted
   // from `transcripts` (so it isn't serialized twice); reconstruct it and lead the
-  // list with it, dropping any listed entry with the primary's transcript and allele.
+  // list with it.
   const primary: SmallVariantTranscript = {
     alt_allele: variant.alt_allele,
     gene: variant.gene,
@@ -185,23 +185,13 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
     mane_plus_clinical: variant.mane_plus_clinical,
     primary: true,
   };
-  // A multi-allelic record lists a transcript once per ALT: only the primary's own allele is
-  // the primary.
-  const others = listed.filter(
-    (transcript) =>
-      !transcript.primary &&
-      !(
-        transcript.transcript_id === variant.transcript_id &&
-        (transcript.alt_allele ?? null) === (variant.alt_allele ?? null)
-      ),
-  );
-  return normalizeTranscriptFlags([primary, ...others]);
+  return normalizeTranscriptFlags([primary, ...listed]);
 };
 
 const transcriptRegionLabel = (transcript: SmallVariantTranscript) =>
   transcript.exon ? `Exon ${transcript.exon}` : transcript.intron ? `Intron ${transcript.intron}` : '—';
 
-// The listed transcript the search's annotation filters held on (CLIN-51): the entry with
+// The listed transcript the search's annotation filters held on: the entry with
 // the filter transcript's identity, as the backend lists each transcript once by it.
 const isFilterTranscript = (transcript: SmallVariantTranscript, variant: SmallVariant) => {
   const matched = variant.filter_transcript;
@@ -279,7 +269,7 @@ const useGeneProfileSlice = (symbol?: string | null) =>
 
 // VEP may write ENST00000357654 while the annotation stores ENST00000357654.9, so the
 // lookup is on the accession stem; the version then decides whether the cross-reference
-// may be shown (#536).
+// may be shown.
 const transcriptKey = (id?: string | null) => (id || '').trim().toUpperCase().split('.')[0];
 const normalizedTranscriptId = (id?: string | null) => (id || '').trim().toUpperCase();
 const hasVersion = (id?: string | null) => normalizedTranscriptId(id).includes('.');
@@ -339,7 +329,7 @@ const useGeneTranscriptDetails = (symbol?: string | null) => {
     }
     return byKey;
   }, [data]);
-  // A failed profile leaves the transcripts' CCDS and RefSeq unknown, not absent (#610).
+  // A failed profile leaves the transcripts' CCDS and RefSeq unknown, not absent.
   return { byKey, failed: isError };
 };
 
@@ -362,7 +352,7 @@ const VariantGeneDiseases = ({ symbol }: { symbol?: string | null }) => {
     return <p className="variant-card-empty-note">No gene assigned to this variant.</p>;
   }
   if (isError) {
-    // It stayed at "Loading gene–disease associations…" for good (#610).
+    // It stayed at "Loading gene–disease associations…" for good.
     return (
       <p className="variant-card-empty-note" role="alert">
         The gene–disease associations of {symbol} could not be loaded.{' '}
@@ -449,7 +439,7 @@ const TranscriptPopup = ({
   const variantLabel = `${formatLocus(variant)} · ${variant.ref || '—'} → ${variant.alt || '—'}`;
 
   return (
-    // ModalDialog: Escape, a focus trap and focus restore (#529).
+    // ModalDialog: Escape, a focus trap and focus restore.
     <ModalDialog
       onClose={onClose}
       labelledBy="small-variant-transcript-title"
@@ -584,7 +574,7 @@ const CARD_CONSUMED_EXTRA_KEYS = new Set([
 
 // annotation_extra keys the disclosure names in words rather than by the raw key. The VCF's own
 // MISSENSE_Z is stored under the annotation's gene_missense_z: as a raw key it read like the gene
-// profile's Missense Z in the In silico column, which PP2 reads first (TRACE-15). Where the
+// profile's Missense Z in the In silico column, which PP2 reads first. Where the
 // pipeline annotated a ClinVar file, VEP's cache classification (an older ClinVar release) is
 // kept apart under clinvar_vep_cache: shown, never read as the ClinVar classification.
 const EXTRA_KEY_LABELS: Record<string, string> = {
@@ -612,14 +602,12 @@ const buildVariantDetailData = (variant: SmallVariant) => {
   const populationFrequencies = Object.entries(variant.population_frequencies || {}).filter(
     ([, value]) => typeof value === 'number' && Number.isFinite(value),
   );
-  // annotation_extra is the source of AlphaMissense on the card, so listing it raw here
-  // showed the same score twice. Anything the card lifts out is excluded.
+  // Anything the card lifts out of annotation_extra is excluded, so no score is listed twice.
   const additionalAnnotations = Object.entries(variant.annotation_extra || {}).filter(
     ([key, value]) => value !== null && value !== '' && !CARD_CONSUMED_EXTRA_KEYS.has(key.toLowerCase()),
   );
-  // Only what the card itself does not already show. pLI, Missense Z, CADD, REVEL,
-  // SpliceAI, SIFT and PolyPhen are all in the card's In silico column, so repeating
-  // them here made the disclosure a second copy of the card rather than extra detail.
+  // Only what the card itself does not already show: pLI, Missense Z, CADD, REVEL,
+  // SpliceAI, SIFT and PolyPhen are all in the card's In silico column.
   const scoreItems = [
     variant.lof_filter ? { label: 'LoF filter', value: variant.lof_filter } : null,
     variant.lof_flags ? { label: 'LoF flags', value: variant.lof_flags } : null,
@@ -649,9 +637,8 @@ const buildVariantDetailData = (variant: SmallVariant) => {
         value: formatFrequency(value),
       })),
   ].filter((item): item is { label: string; value: string } => Boolean(item));
-  // One section rather than a "Variant summary" / "Transcript context" pair: between
-  // them they were six rows across two columns. Consequence, HGVS, locus, dbSNP,
-  // alleles and the transcript itself are all on the card already.
+  // One section: consequence, HGVS, locus, dbSNP, alleles and the transcript itself are
+  // all on the card already.
   // Gene first, then narrowing to the transcript and the position within it, and only
   // then the call's own provenance.
   const contextItems = [
@@ -683,7 +670,7 @@ export default function SmallVariantCards({
   onAcmgClassify,
   onToggleReviewTag,
 }: SmallVariantCardsProps) {
-  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
   const tagMap = getTagDefinitionMap(tags);
   const [transcriptPopupVariant, setTranscriptPopupVariant] = useState<SmallVariant | null>(null);
@@ -739,7 +726,7 @@ export default function SmallVariantCards({
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
         const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
         const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-        // The review's class once, by the one rule (CLIN-76): in the heading, and among the tags
+        // The review's class once, by the one rule: in the heading, and among the tags
         // only as its own class tag; a class tag that is not the class shown is no chip.
         const reviewClass = reviewClassChips(
           variant.review?.classification,
@@ -749,13 +736,12 @@ export default function SmallVariantCards({
         const visibleReviewTags = reviewClass.tagKeys;
 
         const consequenceLabel = formatTokenLabel(variant.effect);
-        // Replaces the locus that used to sit in the headline: it carries the same
-        // position, in the notation a report is written in.
+        // The headline's genomic change carries the variant's position, in the notation a
+        // report is written in.
         const genomicChange = formatGenomicChange(variant);
         const variantIds = parseVariantIds(variant.rsid);
         const popFreq = variant.population_frequencies || {};
-        // AlphaMissense arrives as two first-class fields. Reading it out of
-        // annotation_extra missed it entirely, because the extra keys are the
+        // AlphaMissense arrives as two first-class fields: annotation_extra holds the
         // annotation's own spellings, not the VEP ones.
         const alphaMissenseScore =
           typeof variant.alpha_missense_pathogenicity === 'number'
@@ -774,7 +760,7 @@ export default function SmallVariantCards({
           { label: 'gnomAD', value: formatFrequency(variant.gnomad_af), href: gnomadLink?.href },
           { label: 'gnomAD popmax', value: formatFrequency(popFreq.gnomad_popmax_af), href: undefined },
           // VEP's MAX_AF: the highest frequency over the 1000 Genomes and gnomAD populations
-          // VEP reads, not gnomAD's popmax (it was shown as that).
+          // VEP reads, not gnomAD's popmax.
           { label: 'MAX_AF (VEP)', value: formatFrequency(popFreq.max_af), href: undefined },
           // gnomAD's filtering allele frequency, which BA1 and BS1 read where it is annotated.
           { label: 'gnomAD FAF95', value: formatFrequency(popFreq.gnomad_faf95_af), href: undefined },
@@ -860,7 +846,7 @@ export default function SmallVariantCards({
                     </span>
                   )
                 ) : null}
-                {/* The class the review shows: a class word as its label, not as typed (ENG-10). */}
+                {/* The class the review shows: a class word as its label, not as typed. */}
                 {reviewClass.label ? (
                   <span className={`variant-card-chip variant-card-chip--${reviewClass.tone}`}>
                     {reviewClass.label}
@@ -945,7 +931,7 @@ export default function SmallVariantCards({
                     ) : null}
                     {/* The card describes the primary transcript; when the search's annotation
                         filters held on another one, it is named here with what it reads
-                        otherwise (CLIN-51), e.g. a SIFT the filter kept that the card's
+                        otherwise, e.g. a SIFT the filter kept that the card's
                         transcript does not have. */}
                     <FilterTranscriptNote
                       variant={variant}
@@ -1045,7 +1031,7 @@ export default function SmallVariantCards({
                             : '—';
                           return {
                             member,
-                            // Haploid and multi-allelic calls are classified too (#511):
+                            // Haploid and multi-allelic calls are classified too:
                             // '1' reads as hom, '0' as ref, '1/2' as het.
                             tone: ZYGOSITY_TONE[genotypeZygosity(gt === '—' ? '' : gt)],
                             call: gt,

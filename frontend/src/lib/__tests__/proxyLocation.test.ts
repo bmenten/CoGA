@@ -29,7 +29,7 @@ describe('rewriteProxyLocation', () => {
     expect(rewriteProxyLocation(external, BACKEND)).toBe(external);
   });
 
-  it('keeps a backend path on this site, never naming another host (UI-3)', () => {
+  it('keeps a backend path on this site, never naming another host', () => {
     // `//host` and `/\host` are read by a browser as another host (a protocol-relative URL).
     expect(rewriteProxyLocation('http://backend:8000//evil.example/x', BACKEND)).toBe('/evil.example/x');
     expect(rewriteProxyLocation('http://backend:8000/\\evil.example/x', BACKEND)).toBe('/evil.example/x');

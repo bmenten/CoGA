@@ -163,7 +163,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             assert no_reason.value.status_code == 422
 
             # (c) Acknowledged with a reason and the fingerprint of the flag the refusal listed,
-            # as its dialog sends it (TRACE-19): signed out as version 1.
+            # as its dialog sends it: signed out as version 1.
             # Read back through JSONB, the flag still has the fingerprint the refusal gave.
             shown: Any = refused.value.detail
             async with sm() as s:

@@ -200,7 +200,7 @@ def test_the_diploid_rules_hold_in_a_par_in_a_daughter_and_off_scope() -> None:
 
 
 def test_t2t_reads_a_son_s_x_by_its_own_pars() -> None:
-    # CLIN-12: on T2T-CHM13v2.0 a son's one-allele call between the PARs is de novo where his
+    # on T2T-CHM13v2.0 a son's one-allele call between the PARs is de novo where his
     # mother is reference; in its PAR1 (to 2,394,410) the diploid rules hold.
     hemizygous = _record("chrX", X_NON_PAR, _call("SON", "1"), _call("MOTHER", "0/0"), _call("FATHER", "0"))
     assert _is_de_novo(hemizygous, assembly="T2T-CHM13v2.0")
@@ -273,7 +273,7 @@ def test_the_sql_admits_a_hemizygous_alt_call_for_an_affected_male_outside_the_p
 
 
 def test_the_sql_binds_t2t_s_own_par_bounds() -> None:
-    # CLIN-12: an affected male on T2T-CHM13v2.0 is read by its PARs, bound as parameters.
+    # an affected male on T2T-CHM13v2.0 is read by its PARs, bound as parameters.
     filters = SmallVariantQueryFilters(page=1, page_size=50, inheritance="de_novo_dominant")
     clauses, params = _small_native_inheritance_clauses(_sql_context("male", "T2T-CHM13v2.0"), filters)
 

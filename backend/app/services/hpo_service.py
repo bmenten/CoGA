@@ -46,7 +46,7 @@ UNKNOWN_STATUS_VALUES = {"unknown", "uncertain", "na", "n/a", "not_applicable"}
 ANNOTATION_STATUSES = {"present", "absent", "unknown"}
 HPO_ADMIN_TABLES = ("hpo_term", "hpo_synonym", "hpo_edge")
 HPO_IMPORT_TABLES = ("hpo_term", "hpo_synonym", "hpo_edge", "hpo_closure")
-# hp.obo is ~10 MB; the ceiling only stops a runaway response exhausting the disk (#522).
+# hp.obo is ~10 MB; the ceiling only stops a runaway response exhausting the disk.
 MAX_HPO_ONTOLOGY_BYTES = 256 * 1024 * 1024
 _HPO_DOWNLOAD_CHUNK = 1 << 20
 _SHA256_HEX_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -56,8 +56,8 @@ logger = logging.getLogger(__name__)
 
 class _HttpsOnlyRedirects(HTTPRedirectHandler):
     """urllib's redirect handling, following a redirect only to another HTTPS URL: the
-    ontology is fetched over TLS only, and a redirect from HTTPS to plain HTTP was followed
-    (SEC-32). The pinned SHA-256 is checked whatever the transport."""
+    ontology is fetched over TLS only, so a redirect from HTTPS to plain HTTP is refused. The
+    pinned SHA-256 is checked whatever the transport."""
 
     def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
         if urlparse(newurl).scheme.lower() != "https":
@@ -551,7 +551,7 @@ def hpo_ontology_candidate_paths(ontology_path: str | Path | None = None) -> lis
         repo_root / "data" / "ref-data" / "hpo" / "hpo.obo",
         repo_root / "data" / "ref-data" / "hpo" / "hp.obo",
         # Last resort for the bootstrap download when the reference-data mount is
-        # read-only (Cloud Run, #520): the file is only needed until it is imported.
+        # read-only (Cloud Run): the file is only needed until it is imported.
         Path(tempfile.gettempdir()) / "coga-ref-data" / "hpo" / "hp.obo",
     ]
     resolved: list[Path] = []
@@ -613,8 +613,8 @@ def _read_bounded(response: Any, max_bytes: int) -> bytes:
 
 
 class HpoOntologyChecksumMismatch(RuntimeError):
-    """The backup ontology, downloaded (OPS-6) or found in place (TRACE-14), is not the vendored
-    file, so it was refused."""
+    """The backup ontology, downloaded or found in place, is not the vendored file, so it was
+    refused."""
 
 
 _HPO_PINNED_FILE_REMEDY = (
@@ -628,7 +628,7 @@ _HPO_PINNED_FILE_REMEDY = (
 
 
 def read_pinned_hpo_ontology(path: Path) -> bytes:
-    """The backup ontology file's bytes, if it is the vendored release byte for byte (TRACE-14).
+    """The backup ontology file's bytes, if it is the vendored release byte for byte.
 
     A file already in place is held to the pin (``HPO_PINNED_ONTOLOGY_SHA256``, which no setting
     overrides) as the backup download is. Any other file raises ``HpoOntologyChecksumMismatch``
@@ -659,11 +659,11 @@ def _download_hpo_ontology_file(
 
     The bootstrap trusts this file as the phenotype ontology, so it is fetched over TLS
     only, capped in size, must look like an OBO file (an HTML error page would otherwise
-    be imported as an empty ontology), and never leaves a partial file behind (#522). It
+    be imported as an empty ontology), and never leaves a partial file behind. It
     must be the pinned file: its SHA-256 must be ``expected_sha256``, by default the vendored
     file's (``HPO_PINNED_ONTOLOGY_SHA256``, which no setting overrides), checked before
     anything is written. Another file, such as a later release, is refused and no file on
-    disk is touched (OPS-6). There is no unchecked download: without a SHA-256 to check
+    disk is touched. There is no unchecked download: without a SHA-256 to check
     against, nothing is requested.
     """
     if urlparse(url).scheme.lower() != "https":
@@ -729,14 +729,14 @@ async def ensure_hpo_ontology_on_startup(
     With ``download_latest`` (``HPO_DOWNLOAD_LATEST_ON_STARTUP``, the default) the start reads
     which release HPO published last and downloads it from the release's own PURL, which never
     floats (``hpo_release_download``, as the admin sync does). The file is imported only if it
-    states that release. The terms keep the release and the SHA-256 of the bytes imported
-    (TRACE-18), and every sign-out freezes both. Neither the release nor the URL is a setting.
+    states that release. The terms keep the release and the SHA-256 of the bytes imported,
+    and every sign-out freezes both. Neither the release nor the URL is a setting.
 
     When HPO cannot be reached, or what it serves is refused, or ``download_latest`` is off, the
     start imports the backup instead: the ontology file it finds (the vendored ``hp.obo``), only
-    if its SHA-256 is the vendored file's (TRACE-14). With no file in place, and
+    if its SHA-256 is the vendored file's. With no file in place, and
     ``download_latest``, it downloads the vendored release from its PURL, held to the same
-    SHA-256 (OPS-6). Another file, or one that cannot be read, is refused with one logged error,
+    SHA-256. Another file, or one that cannot be read, is refused with one logged error,
     and nothing is imported. The start goes on: the terminology stays empty, which the admin HPO
     page shows, until a later start or an administrator loads a release.
     """
@@ -784,7 +784,7 @@ async def ensure_hpo_ontology_on_startup(
 
 async def _download_latest_hpo_release() -> tuple[str, HpoFileRelease]:
     """HPO's newest release: the release's PURL, and the ontology file HPO serves there, checked
-    to state that release, with the SHA-256 of its bytes (TRACE-18). HpoReleaseUnavailable when
+    to state that release, with the SHA-256 of its bytes. HpoReleaseUnavailable when
     HPO cannot be reached or serves no OBO file; ValueError when HPO has no such file, or it
     states another release, or none."""
     latest = await hpo_release_download.fetch_latest_hpo_release()
@@ -807,7 +807,7 @@ async def _import_backup_hpo_ontology(
 ) -> dict[str, Any] | None:
     """Import the vendored release, the backup: the ontology file in place, or, with none and
     ``download``, the vendored release from its PURL; either only if it is the vendored file byte
-    for byte (TRACE-14, OPS-6)."""
+    for byte."""
     candidate_paths = hpo_ontology_candidate_paths(ontology_path)
     resolved_path = resolve_hpo_ontology_path(ontology_path)
     if resolved_path is None and download:
@@ -821,7 +821,7 @@ async def _import_backup_hpo_ontology(
             logger.info("Downloaded HPO ontology to %s", resolved_path)
         except Exception as exc:
             if isinstance(exc, HpoOntologyChecksumMismatch):
-                # Not the vendored file (OPS-6): an expected refusal, logged without a traceback.
+                # Not the vendored file: an expected refusal, logged without a traceback.
                 logger.error("%s The HPO ontology was not imported.", exc)
             else:
                 logger.exception("Failed to download HPO ontology from %s", HPO_PINNED_ONTOLOGY_URL)
@@ -838,8 +838,8 @@ async def _import_backup_hpo_ontology(
         return None
 
     # Reading, checking and parsing the ontology file is CPU and disk work: keep it off the
-    # event loop (#527). The file is imported only if it is the vendored release (TRACE-14),
-    # whether it was found in place or just downloaded.
+    # event loop. The file is imported only if it is the vendored release, whether it was
+    # found in place or just downloaded.
     try:
         payload = await asyncio.to_thread(read_pinned_hpo_ontology, resolved_path)
     except HpoOntologyChecksumMismatch as exc:
@@ -961,9 +961,9 @@ async def import_hpo_ontology(
     release_sha256: str,
 ) -> dict[str, int]:
     """Import the ontology at ``path``, or ``ontology_text`` when given: the file's text as the
-    caller read (and checked) it, so the file is not read again (TRACE-14). ``release_sha256``,
+    caller read (and checked) it, so the file is not read again. ``release_sha256``,
     the SHA-256 of those bytes, is kept on each term with its release (``metadata``,
-    ``release_sha256``), so the loaded release names the exact file (TRACE-18). ``source_format``
+    ``release_sha256``), so the loaded release names the exact file. ``source_format``
     is the text's format when there is no ``path`` to tell it (a downloaded release: OBO)."""
     if path is None and ontology_text is None:
         raise ValueError("No HPO ontology to import")
@@ -977,7 +977,10 @@ async def import_hpo_ontology(
         release_metadata = parse_hpo_ontology_release_metadata_text(ontology_text, source_format=source_format)
     if not ontology.terms:
         raise ValueError("HPO ontology import found no terms")
-    effective_release_version = release_version or release_metadata.release_version
+    effective_release_version = (release_version or release_metadata.release_version or "").strip()
+    if not effective_release_version:
+        # Each term records its release, which every signed record names.
+        raise ValueError("The HPO ontology states no release (no data-version header): nothing was imported")
     effective_release_date = release_date or release_metadata.release_date
 
     term_rows = [
@@ -1598,9 +1601,7 @@ async def get_loaded_hpo_release(session: AsyncSession) -> dict[str, Any] | None
     No table holds the release: an import writes it onto every term in the file, and a
     term the new release no longer lists keeps the release it came with. So the loaded
     release is the one on the most recently written term. It is not the highest release
-    string (an older release re-imported is what is loaded), nor the latest one recorded
-    (an import from a file without a data-version header left the release unknown). The
-    signed record (annotation manifest), the admin summary and the ranking-cache key all
+    string: an older release re-imported is what is loaded. The signed record (annotation manifest), the admin summary and the ranking-cache key all
     read it here, so they cannot name different releases.
 
     ``None`` when no ontology is loaded. A failed query raises: each caller decides what
@@ -1926,7 +1927,7 @@ async def preview_hpo_ontology_sync(
 @dataclass(frozen=True)
 class HpoFileRelease:
     """An ontology file as the admin sync imports it: its text, the release it states about
-    itself and the SHA-256 of its bytes (TRACE-18)."""
+    itself and the SHA-256 of its bytes."""
 
     text: str
     release_version: str
@@ -1948,11 +1949,11 @@ def checked_hpo_file_release(
     expected_date: date | None = None,
 ) -> HpoFileRelease:
     """The release an ontology file states about itself (its ``data-version``), which the
-    admin sync records, and the SHA-256 of its bytes (TRACE-18).
+    admin sync records, and the SHA-256 of its bytes.
 
-    The sync took a release the admin typed over the file's own, unchecked, and recorded no
-    checksum, so the terms and every signed record after it could name a release the file was
-    not. ValueError, answered 400, when the file states no release, or when ``expected_version``
+    The sync records the release the file states, never one typed over it, and the file's
+    checksum, so the terms and every signed record after it name the release the file is.
+    ValueError, answered 400, when the file states no release, or when ``expected_version``
     or ``expected_date`` is not what it states: nothing is imported."""
     text_value = payload.decode("utf-8")
     metadata = parse_hpo_ontology_release_metadata_text(text_value, source_format=source_format)
@@ -1995,7 +1996,7 @@ async def sync_hpo_ontology(
     admin expects, and the sync is refused when the file is another release. ``expected_sha256``
     is the SHA-256 the preview showed: an apply with it imports only those bytes, and refuses a
     file that changed (or a release HPO served anew) since. The terms keep the SHA-256 of the
-    bytes imported (TRACE-18)."""
+    bytes imported."""
     if ontology_bytes is not None:
         payload, source_format = ontology_bytes, "obo"
     elif path is not None:
@@ -2122,7 +2123,7 @@ async def _record_phenotype_change(
     user: CurrentUser,
 ) -> None:
     """Record a phenotype change on the family's hash-chained clinical audit trail, in the
-    transaction of the change (SEC-1): what it was and what it is, and a summary that names
+    transaction of the change: what it was and what it is, and a summary that names
     the fields that changed. A save that changes nothing records nothing."""
     before_state, after_state = phenotype_audit_state(before), phenotype_audit_state(after)
     if before_state == after_state:
@@ -2149,7 +2150,7 @@ async def _record_phenotype_change(
 # A package import brings a family's phenotypes in (and a failed one puts them back as they
 # were, or removes the family it had created), and a PED upload or the Family Builder that
 # replaces a family deletes them with it, as does an administrator's deletion of the family or
-# of a sample with its data (TRACE-16). Each such change is on the family's clinical audit
+# of a sample with its data. Each such change is on the family's clinical audit
 # trail like an edit on screen: ``phenotype`` events, in the transaction of the change, under
 # the family's phenotype lock. One event per member whose phenotypes changed, so the trail
 # reads as the edits do (each of their events concerns one member), while an import of many

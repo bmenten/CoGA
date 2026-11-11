@@ -1,4 +1,4 @@
-// A failed request said where its result would be (#510, #606): never as an empty result,
+// A failed request said where its result would be: never as an empty result,
 // with the server's reason, what the failure means for the page, and a retry.
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';

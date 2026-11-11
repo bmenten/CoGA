@@ -1,4 +1,4 @@
-"""The chromosome view offers a member's small-variant track under a gene panel exactly when the list shows them a variant (E2E, CLIN-62).
+"""The chromosome view offers a member's small-variant track under a gene panel exactly when the list shows them a variant (E2E).
 
 The chromosome view asks which tracks each member has (``GET /families/{family_id}/
 track-availability``) with the filters it came with, the small-variant page's gene panel among

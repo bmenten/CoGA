@@ -22,7 +22,7 @@ from app.services import raw_import_files_pg as rif
 def _files_in_the_familys_package(monkeypatch, tmp_path) -> None:
     """The local files verified here lie in ``tmp_path``, the family's package folder below an
     import root (its parent): Verify and the list read a recorded path only inside the package
-    folder the family's import read, or the upload folder (SEC-29, SEC-38). Each record names
+    folder the family's import read, or the upload folder. Each record names
     that folder, as the admin page reads it with the row. A test of a file in an object store
     sets the bucket's root instead."""
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path.parent)])
@@ -194,7 +194,7 @@ CRAM_URI = f"gs://{BUCKET}/imports/F1/bams/S1.cram"
 def _remote_record(uri=CRAM_URI, *, size=4, sha256=None, **store_object):
     return {
         "id": "rec-remote",
-        # The family's package folder in the bucket, as its import recorded it (SEC-38).
+        # The family's package folder in the bucket, as its import recorded it.
         "package_folder": uri.split("/imports/F1/")[0] + "/imports/F1",
         "storage_path": uri,
         "sha256": sha256,

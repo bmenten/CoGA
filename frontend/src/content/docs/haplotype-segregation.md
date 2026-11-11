@@ -400,8 +400,7 @@ review opens on, against the thresholds of [Phasing QC at the ROI](#phasing-qc-a
   are imported again: the family page warns, every embryo reads *Uninformative*, the haplotype tracks
   of the genome overview and the chromosome view show *Outdated blocks: no risk state* and draw no risk
   haplotype, and a sign-out records why. A change of affected status does not outdate them, as the
-  calls read it when they are made; nor does a member added who is not in the phased file. Blocks
-  without a record of what they were built for count as outdated too.
+  calls read it when they are made; nor does a member added who is not in the phased file.
 - The **affected and carrier status** of the members that define the disease haplotype.
 - The **inheritance model** and the **ROI**.
 

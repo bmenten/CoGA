@@ -11,7 +11,7 @@ import { CLINVAR_SUPPORT_NOT_RECORDED, clinvarSupportSummary } from '../../lib/c
 import { formatRegionSize } from '../../lib/format';
 import { routePath } from '../../lib/routePath';
 
-// The catalogue request's page size; reaching it means there may be more (#526).
+// The catalogue request's page size; reaching it means there may be more.
 const CATALOG_LIMIT = 1000;
 
 const formatBp = (bp: number) => bp.toLocaleString();
@@ -122,7 +122,7 @@ const ClinicalCnvExplorerPage = () => {
         </form>
 
         {/* A failed or unfinished lookup is not an empty catalogue: "no match" would read
-            as "this syndrome is not in the catalogue" (#526, as #510). */}
+            as "this syndrome is not in the catalogue". */}
         {assembliesLoading ? (
           <p className="table-subtle">Loading assemblies…</p>
         ) : assembliesFailed ? (

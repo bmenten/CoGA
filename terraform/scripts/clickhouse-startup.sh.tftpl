@@ -72,7 +72,7 @@ cat > "$${CONFIG_DIR}/tls.xml" <<'XML'
 XML
 
 # The query memory guards Docker Compose mounts too, from the same file in the repository
-# (clickhouse/users.d/memory-guards.xml, OPS-14): a cap of 4 GB on each query, and GROUP BY
+# (clickhouse/users.d/memory-guards.xml): a cap of 4 GB on each query, and GROUP BY
 # and ORDER BY state spilled to disk past 2 GB.
 cat > "$${USERS_DIR}/memory-guards.xml" <<'XML'
 ${memory_guards_xml}

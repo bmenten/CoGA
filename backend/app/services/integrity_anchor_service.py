@@ -1,4 +1,4 @@
-"""External signed chain-head anchor (#263), the follow-up to the hash chains (#261).
+"""External signed chain-head anchor over the hash chains.
 
 Snapshot every per-family hash-chain HEAD (across ``report_signouts``,
 ``clinical_audit_events`` and ``family_structure_versions``) and seal the snapshot with an Ed25519 signature whose private
@@ -159,7 +159,7 @@ async def create_integrity_anchor(session: AsyncSession) -> dict[str, Any]:
     key = _load_signing_key()
     if key is None and not settings.is_development:
         # An unsigned anchor carries NO anti-owner tamper-evidence (the owner can re-mint
-        # it over doctored state), so a real environment does not write one (#522). The
+        # it over doctored state), so a real environment does not write one. The
         # startup check already refuses to run there without a signing key; this keeps
         # the anchor honest even if that check is ever bypassed.
         raise RuntimeError(

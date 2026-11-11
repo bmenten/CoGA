@@ -37,8 +37,8 @@ def source_error_message(name: str, exc: BaseException) -> str:
     """The error status of a gene reference source (``name``) that could not be read, which
     each gene's record keeps and the gene and admin pages show: CoGA's own refusal as it is
     written (``own_error_message``), any other error by its kind. Such an error's text is not
-    CoGA's sentence and can quote the address it fetched or a line of the file (SEC-39). The
-    log names the source and the kind."""
+    CoGA's sentence and can quote the address it fetched or a line of the file. The log
+    names the source and the kind."""
     logger.warning("Gene reference source %s could not be read (%s)", name, describe_error(exc))
     return own_error_message(exc) or f"{name} could not be read ({describe_error(exc)})."
 
@@ -106,7 +106,7 @@ def _json_key(value: Any) -> str:
 
 # The ClinGen curations a count counts. Each source counts its own (dbNSFP its copy of the
 # haploinsufficiency curation, ClinGen's file its curations), and the merge combines their
-# lists: the count kept beside a gene's two dosage entries was the last source's, 1 (ENG-10).
+# lists, so the count kept beside a gene's entries counts every source's, not the last one's.
 _CURATION_COUNT_LISTS = {
     "dosage_sensitivity": "clingen_dosage_assertions",
     "gene_disease_validity": "clingen_validity_assertions",
@@ -1502,7 +1502,7 @@ def _load_acmg_sf_dataset(path: Path | None = None) -> GeneBulkSourceDataset:
         version, entries = parse_acmg_sf_list(raw.decode("utf-8"))
     except (OSError, ValueError) as exc:
         # The list's own refusal (AcmgSfListError) as it is written; any other error, a
-        # file that cannot be read or decoded, by its kind (SEC-39).
+        # file that cannot be read or decoded, by its kind.
         logger.warning("Gene reference source ACMG SF list could not be read (%s)", describe_error(exc))
         return GeneBulkSourceDataset(
             name="ACMG SF list",
@@ -1571,12 +1571,10 @@ async def load_human_gene_bulk_context(
         {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
     )
     # Every bulk source is consulted for every gene. These are whole-file downloads
-    # parsed once per job, so restricting them buys nothing — and the previous
-    # arrangement, where they were queried only for the genes dbNSFP had missed, threw
-    # away almost all of their content: dbNSFP misses obscure ncRNA and pseudogenes,
-    # while ClinGen/GenCC/ClinVar curate exactly the well-known disease genes dbNSFP
-    # already covers, so the two sets barely intersect. GenCC contributed one gene in
-    # thirty thousand that way.
+    # parsed once per job, so restricting them buys nothing — and querying them only for
+    # the genes dbNSFP misses would throw away almost all of their content: dbNSFP misses
+    # obscure ncRNA and pseudogenes, while ClinGen/GenCC/ClinVar curate exactly the
+    # well-known disease genes dbNSFP already covers, so the two sets barely intersect.
     dbnsfp_gene, online_datasets = await asyncio.gather(
         asyncio.to_thread(_load_dbnsfp_gene_dataset, symbols=normalized_symbols or None),
         _load_online_gene_bulk_datasets(symbols=normalized_symbols or None),

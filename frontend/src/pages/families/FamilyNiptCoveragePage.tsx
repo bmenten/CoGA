@@ -351,8 +351,8 @@ const FamilyNiptCoveragePage: React.FC = () => {
     );
   };
 
-  // The project's reference too: the assembly-scope warning shows nothing while it loads
-  // (#515), so the coverage showed without "Not validated for clinical use" (ENG-12).
+  // The project's reference too: the assembly-scope warning shows nothing while it loads,
+  // and the coverage is never shown without "Not validated for clinical use".
   if (isLoading || familyLoading || referenceLoading) {
     return (
       <PageState

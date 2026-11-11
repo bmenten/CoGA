@@ -1,4 +1,4 @@
-"""The Microsoft sign-in settings and the refusal of a half configuration (SEC-4, REQ-SEC-006).
+"""The Microsoft sign-in settings and the refusal of a half configuration (REQ-SEC-006).
 
 Microsoft sign-in needs the directory (tenant) ID and the application (client) ID of CoGA's
 app registration, both GUIDs: one without the other, a tenant such as ``common`` or a domain

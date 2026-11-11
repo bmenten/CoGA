@@ -92,9 +92,8 @@ NO_DATA_INTERVALS: Dict[str, List[Tuple[int, int]]] = {
 }
 
 
-# Structural-variant volume per inheritance category (downsampled ~20x from the
-# original dense set — every category and per-sample lane still has variants so
-# the inheritance-pattern demo stays intact).
+# Structural-variant volume per inheritance category (small, yet every category and
+# per-sample lane has variants, so the inheritance-pattern demo stays intact).
 STRUCTURAL_CATEGORY_COUNTS: Tuple[Tuple[str, Tuple[str, ...], int], ...] = (
     ("all_shared", ("father", "mother", "son", "daughter"), 140),
     ("father_son", ("father", "son"), 22),

@@ -1,4 +1,4 @@
-"""Each route that had no response model answers what its new model describes (ENG-4), E2E.
+"""Each route that had no response model answers what its new model describes, E2E.
 
 Into real Postgres and ClickHouse, over the real API (an in-process ``httpx.ASGITransport``
 client, one event loop, see test_e2e_api_contract.py), with the seeded admin signed in: a trio
@@ -161,7 +161,7 @@ async def _exercise(run: str) -> dict[str, Any]:
             # --- the administrator's answers -------------------------------------------------
             profile = f"eng4_{run.lower()}"
             r["qc_profile"] = capture(
-                await ac.post("/api/admin/qc-thresholds/profiles", json={"label": f"ENG-4 {run}", "key": profile})
+                await ac.post("/api/admin/qc-thresholds/profiles", json={"label": f"Response models {run}", "key": profile})
             )
             cut_off = {"metric_key": _METRIC, "reason": "e2e: the answer's model"}
             r["qc_set"] = capture(

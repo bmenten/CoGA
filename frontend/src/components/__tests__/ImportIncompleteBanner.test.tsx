@@ -68,9 +68,9 @@ const WHOLE_FAMILY = {
   },
 };
 
-// As family_package_registration.FamilyWriteMark records them (SAFE-28): a structural-variant
+// As family_package_registration.FamilyWriteMark records them: a structural-variant
 // upload's mark, written before its rewrite, naming each sample whose Sniffles calls the
-// rewrite deletes; and a deletion's, written before its first ClickHouse write (SAFE-31).
+// rewrite deletes; and a deletion's, written before its first ClickHouse write.
 const UPLOAD_KEY = 'upload-0a1b2c3d4e5f60718293a4b5c6d7e8f9';
 const UPLOAD_MARK = {
   [UPLOAD_KEY]: {
@@ -121,7 +121,7 @@ describe('ImportIncompleteBanner', () => {
     render(<ImportIncompleteBanner metadata={{ import_unfinished: DELETION_MARK }} />);
 
     const banner = screen.getByRole('alert');
-    // Written before the deletion's first ClickHouse write (SAFE-31): one that is running,
+    // Written before the deletion's first ClickHouse write: one that is running,
     // stopped or failed part-way; not only one whose rewrite could not put the SVs back.
     expect(banner).toHaveTextContent(
       'A deletion of this family’s data (2026-10-14 09:00 UTC) began and has not finished: it is still running, or it stopped or failed part-way. cnv and sv_needlr may be partly written or missing.',
@@ -202,7 +202,7 @@ describe('ImportIncompleteBanner', () => {
     expect(banner).toHaveTextContent(/Import what failed again to complete it\./);
   });
 
-  it('never names a failure no job records under another failure’s job (SAFE-18)', () => {
+  it('never names a failure no job records under another failure’s job', () => {
     render(
       <ImportIncompleteBanner
         metadata={{ import_incomplete: { ...FLAG, failed_jobs: { snv: FLAG.job_id, sv: null } } }}
@@ -242,7 +242,7 @@ describe('ImportIncompleteBanner', () => {
     // Not an import that is running or stopped: one whose restore did not finish.
     expect(banner).not.toHaveTextContent(/still running/);
     // Importing again what failed (coverage, snv) does not complete it; what an upload
-    // brought is uploaded again (SAFE-19).
+    // brought is uploaded again.
     expect(banner).toHaveTextContent(
       'Import this family again in full, with overwrite: every dataset named here, not only those that failed, and upload again what a single-file upload brought. An update keeps the data already there.',
     );
@@ -332,7 +332,7 @@ describe('importUnfinishedFromMetadata', () => {
 
   it('reads the entry a restore that did not finish left as one, every dataset pending', () => {
     // Its datasets, none finished, and marked as the restore's: the signed record and the
-    // sign-out refusal freeze it with `whole_family: true` (SAFE-18).
+    // sign-out refusal freeze it with `whole_family: true`.
     const [entry] = importUnfinishedFromMetadata({ import_unfinished: WHOLE_FAMILY });
     expect(entry).toEqual({
       key: RESTORE_JOB,
@@ -403,9 +403,9 @@ describe('importIncompleteFromMetadata', () => {
     ).toEqual(unknown);
   });
 
-  it('reads a dataset the flag lists with no job as failed outside one (SAFE-18)', () => {
+  it('reads a dataset the flag lists with no job as failed outside one', () => {
     // An upload of sv failed (no job), then an import failed for snv: the flag's job is the
-    // import's. Before: sv was named under it.
+    // import's, and sv is not named under it.
     const flag = { ...FLAG, failed_jobs: { snv: FLAG.job_id, sv: null } };
     const read = importIncompleteFromMetadata({ import_incomplete: flag });
     expect(read?.failedJobs).toEqual({ snv: FLAG.job_id });

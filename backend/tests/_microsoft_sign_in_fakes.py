@@ -1,4 +1,4 @@
-"""A stand-in Microsoft directory for the sign-in tests (SEC-4).
+"""A stand-in Microsoft directory for the sign-in tests.
 
 It makes an RSA key pair when it is created, publishes the public half as the directory's
 signing key set, and signs access tokens with the private half, as Microsoft Entra ID does for

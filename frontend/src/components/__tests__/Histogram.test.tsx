@@ -10,7 +10,7 @@ test('handles large datasets without stack overflow', () => {
   expect(container.querySelectorAll('rect').length).toBeGreaterThan(0);
 });
 
-test('is a named image that says what it counts and where the peak is (#529)', () => {
+test('is a named image that says what it counts and where the peak is', () => {
   render(
     <Histogram
       data={[5, 50, 60, 70, 500]}
@@ -27,14 +27,14 @@ test('is a named image that says what it counts and where the peak is (#529)', (
   ).toBeInTheDocument();
 });
 
-test('an empty histogram says so in text, not as an unlabelled graphic (#529)', () => {
+test('an empty histogram says so in text, not as an unlabelled graphic', () => {
   render(<Histogram data={[]} subject="SV lengths" />);
 
   expect(screen.getByText('No data available for this view.')).toBeInTheDocument();
   expect(screen.queryByRole('img')).not.toBeInTheDocument();
 });
 
-// #602 — each bin keeps its own bar and its own label.
+// Each bin keeps its own bar and its own label.
 // The x axis is the one translated to the bottom of the plot; the y axis has ticks too.
 const xTicks = (container: HTMLElement) =>
   Array.from(container.querySelectorAll('g[transform^="translate(0,"] .tick text')).map(

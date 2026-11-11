@@ -360,7 +360,7 @@ async def family_phenotype_match(
 
 
 # A family's phenotypes are changed by an analyst of its project or an admin: the family
-# checkpoint refuses a reader (SEC-1), and each change is on the clinical audit trail.
+# checkpoint refuses a reader, and each change is on the clinical audit trail.
 @router.post("/{family_id}/members/{sample_id}/hpo", response_model=HpoAnnotationOut)
 async def create_family_member_hpo(
     family_id: str,

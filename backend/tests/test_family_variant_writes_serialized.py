@@ -79,7 +79,7 @@ from backend.tests._kept_manifest import kept_manifest
 _FAMILY = "family-uuid"
 _SAMPLES = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother", "FATHER": "uuid-father"}
 _DEL = "1-30000-31000-DEL---"
-# The golden trio's NeedlR deletion, by the id its coordinates give it (CLIN-43).
+# The golden trio's NeedlR deletion, by the id its coordinates give it.
 _NEEDLR = "1-7000-12000-DEL---"
 
 
@@ -553,7 +553,7 @@ def _admin_family(monkeypatch: pytest.MonkeyPatch, store: _SvStore | None = None
     monkeypatch.setattr(admin_service, "_sample_rows_by_family", rows_by_family)
     monkeypatch.setattr(admin_service, "_family_assembly_contexts", contexts)
     monkeypatch.setattr(admin_service, "count_family_structural_variants", count)
-    # The deletions' marks are test_deletions_mark_the_family.py's (SAFE-31).
+    # The deletions' marks are test_deletions_mark_the_family.py's.
     monkeypatch.setattr(admin_service, "FamilyDeletion", UnmarkedDeletion)
 
 
@@ -718,7 +718,7 @@ async def test_the_sv_upload_holds_the_lock_from_its_read_until_its_commit(sv_st
         (lambda session: admin_service.delete_sample_with_data(session, "FATHER", True), list(VARIANT_TYPES)),
         (lambda session: admin_service.delete_family_with_data(session, "FAM", True, reason="duplicate"), list(VARIANT_TYPES)),
         # A sample's track and its repeat calls, which a package import's restore rewrites too:
-        # both locks, as their single-file uploads hold (SAFE-18).
+        # both locks, as their single-file uploads hold.
         (
             lambda session: admin_service.delete_sample_data_by_type(session, "FATHER", "coverage", True),
             list(VARIANT_TYPES),
@@ -753,7 +753,7 @@ async def test_each_admin_delete_holds_its_familys_locks_from_its_first_read_unt
         monkeypatch.setattr(admin_service, name, _recorder(postgres, name, result))
 
     # A sample's delete reads the family's pedigree before it and records the change after
-    # it (SEC-7), in the same transaction: not what this test reads.
+    # it, in the same transaction: not what this test reads.
     async def no_pedigree(*_args, **_kwargs):
         return {"members": [], "relationships": []}
 
@@ -763,7 +763,7 @@ async def test_each_admin_delete_holds_its_familys_locks_from_its_first_read_unt
     monkeypatch.setattr(admin_service, "lock_family_pedigree", no_change)
     monkeypatch.setattr(admin_service, "read_structure_snapshot", no_pedigree)
     monkeypatch.setattr(admin_service, "record_structure_change", no_change)
-    # A family's deletion records its last clinical audit event first (SEC-7).
+    # A family's deletion records its last clinical audit event first.
     monkeypatch.setattr(admin_service, "record_family_deleted", no_change)
     monkeypatch.setattr(admin_service, "record_phenotypes_deleted_with_family", no_change)
     monkeypatch.setattr(admin_service, "record_phenotypes_deleted_with_sample", no_change)
@@ -848,7 +848,7 @@ async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_de
         ]
 
     async def no_event(*_args, **_kwargs):
-        # Each replaced family's last clinical audit event (SEC-7) is not what this test reads.
+        # Each replaced family's last clinical audit event is not what this test reads.
         return None
 
     monkeypatch.setattr(ped_service, "_existing_family_rows", existing_rows)
@@ -874,7 +874,7 @@ async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_de
     )
 
     # The variants are not deleted yet: the upload deletes them last, before its commit, so
-    # a check that refuses it leaves them (SAFE-25). Each family's phenotypes are recorded
+    # a check that refuses it leaves them. Each family's phenotypes are recorded
     # as removed under its locks, before it is deleted.
     assert postgres.trace("ped") == [
         f"lock {_key(SMALL_VARIANTS, 'uuid-a')}",
@@ -918,7 +918,7 @@ async def test_clearing_a_familys_data_takes_both_locks_before_deleting(monkeypa
         session,  # type: ignore[arg-type]
         family_uuid=_FAMILY,
     )
-    # The ClickHouse data goes last, before the structure change commits (SAFE-28), under
+    # The ClickHouse data goes last, before the structure change commits, under
     # the locks the clear took, which its transaction still holds.
     await family_structure_service._delete_family_clickhouse_data(_FAMILY, assemblies)
 
@@ -945,7 +945,7 @@ async def test_an_import_shell_delete_takes_both_locks_before_deleting(monkeypat
         monkeypatch.setattr(family_package_registration, name, _recorder(postgres, name))
 
     async def no_event(*_args, **_kwargs):
-        # The family's last clinical audit event (SEC-7) is not what this test reads.
+        # The family's last clinical audit event is not what this test reads.
         return None
 
     monkeypatch.setattr(family_package_registration, "record_family_deleted", no_event)
@@ -1247,7 +1247,7 @@ async def test_a_hold_whose_connection_is_lost_keeps_the_blocks_outcome(
     assert lost.held == []
 
 
-# --- A hold whose connection is checked (SAFE-15) --------------------------------------
+# --- A hold whose connection is checked --------------------------------------
 # A package import's hold lives on a connection of its own, and Postgres releases its locks
 # with the connection, and an import that went on would write beside the next writer. The worker's
 # heartbeat checks the hold from another task: SELECT 1 in the hold's transaction.

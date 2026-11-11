@@ -9,7 +9,7 @@ export const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
 
 // How the NIPT quality checks' tokens read (nipt_quality_checks), on the screen's QC panel and
 // in the printed report alike: the report printed the raw tokens, "female_no_chrY_signal"
-// where the panel reads "no chrY signal" (ENG-10).
+// where the panel reads "no chrY signal".
 export const NIPT_FETAL_SEX_LABEL: Record<string, string> = {
   female: 'Female',
   male: 'Male',

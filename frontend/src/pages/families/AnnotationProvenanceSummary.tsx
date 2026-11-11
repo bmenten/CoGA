@@ -26,7 +26,7 @@ export const useAnnotationManifest = (familyId: string | undefined) =>
       (await api.get(apiPath`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
   });
 
-/** The version to show for a module, given the page's modality (issue #294). */
+/** The version to show for a module, given the page's modality. */
 function modalityVersion(module: ApiAnnotationModule, modality?: string): string | null {
   if (modality && module.by_modality?.[modality]) return module.by_modality[modality];
   return module.version;
@@ -46,7 +46,7 @@ function showsOnModality(module: ApiAnnotationModule, modality?: string): boolea
 
 /**
  * Annotation-provenance footer: the tool/database versions a family's data was built
- * from. With `modality` set, it shows that modality's versions (issue #294) — so the
+ * from. With `modality` set, it shows that modality's versions — so the
  * SNV and SV filter pages show their own annotation versions even when they diverge.
  * The full, frozen record lives on the report ([[clinical-traceability]]).
  */
@@ -66,8 +66,8 @@ export default function AnnotationProvenanceSummary({
     .filter((entry): entry is { module: ApiAnnotationModule; version: string } =>
       Boolean(entry.version),
     );
-  // A failed manifest is said in the footer's place: the footer used to vanish, as for a
-  // family whose annotation versions were never recorded (#610).
+  // A failed manifest is said in the footer's place: the footer does not vanish, as for a
+  // family whose annotation versions were never recorded.
   if (isError) {
     return (
       <footer className="surface-card annotation-provenance-footer" data-testid="annotation-provenance" role="alert">

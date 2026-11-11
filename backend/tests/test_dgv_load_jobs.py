@@ -2,9 +2,9 @@
 
 A load streams the release pinned per assembly (``DGV_PINNED_RELEASES``) from DGV, inserts its
 rows in one transaction and commits only once the whole file has been read and
-is the pinned one by size and SHA-256 (TRACE-14); anything else commits nothing. A download that
+is the pinned one by size and SHA-256; anything else commits nothing. A download that
 stalls or drops is resumed from the byte it reached. The job keeps the administrator who asked
-for it and runs, and commits, only while that account is an active administrator (SEC-35); a load
+for it and runs, and commits, only while that account is an active administrator; a load
 a start queues is no account's. The database, DGV and the background task are stood in for here;
 ``integration/test_dgv_load_jobs_postgres.py`` runs the load against real Postgres.
 """

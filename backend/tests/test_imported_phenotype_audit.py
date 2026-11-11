@@ -1,4 +1,4 @@
-"""The phenotypes an import changes are on the family's clinical audit trail (SEC-1).
+"""The phenotypes an import changes are on the family's clinical audit trail.
 
 A phenotype added, changed or removed on screen writes a ``phenotype`` event; so does
 every import that changes a family's phenotypes (HPO terms): a package import's phenotypes, a

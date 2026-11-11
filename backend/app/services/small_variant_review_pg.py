@@ -66,26 +66,14 @@ def _serialize_tag_metadata(
     document: dict[str, Any],
     tags_key: str,
     metadata_key: str,
-    fallback_user_key: str,
-    fallback_time_key: str,
 ) -> dict[str, dict[str, Any]]:
-    raw_metadata = document.get(metadata_key) or {}
-    fallback_user = document.get(fallback_user_key)
-    fallback_time = document.get(fallback_time_key)
-    serialized: dict[str, dict[str, Any]] = {}
-    for tag in _normalize_tags(document.get(tags_key, [])):
-        entry = raw_metadata.get(tag) if isinstance(raw_metadata, dict) else None
-        if isinstance(entry, dict):
-            serialized[tag] = {
-                "updated_by": entry.get("updated_by"),
-                "updated_at": entry.get("updated_at"),
-            }
-        else:
-            serialized[tag] = {
-                "updated_by": fallback_user,
-                "updated_at": fallback_time,
-            }
-    return serialized
+    """Who added each tag and when: every save records it for each tag it writes
+    (``_merge_tag_metadata``)."""
+    metadata = document[metadata_key]
+    return {
+        tag: {"updated_by": metadata[tag].get("updated_by"), "updated_at": metadata[tag].get("updated_at")}
+        for tag in _normalize_tags(document.get(tags_key, []))
+    }
 
 
 def _serialize_compound_het(document: dict[str, Any]) -> SmallVariantCompoundHetReviewOut | None:
@@ -109,8 +97,6 @@ def _serialize_compound_het(document: dict[str, Any]) -> SmallVariantCompoundHet
             document=document,
             tags_key="compound_het_tags",
             metadata_key="compound_het_tag_metadata",
-            fallback_user_key="compound_het_updated_by",
-            fallback_time_key="compound_het_updated_at",
         ),
         note=document.get("compound_het_note"),
         phase_status=document.get("compound_het_phase_status"),
@@ -129,8 +115,6 @@ def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
             document=document,
             tags_key="tags",
             metadata_key="tag_metadata",
-            fallback_user_key="updated_by",
-            fallback_time_key="updated_at",
         ),
         note=document.get("note"),
         updated_by=document.get("updated_by"),
@@ -209,7 +193,7 @@ async def list_matching_small_variant_review_ids(
     keep: a classification, a review tag, a saved note (each set filter must hold).
 
     A classification keeps a review by the class it shows (``review_shows_class``, the family
-    page's rule, CLIN-75): a bare class word in its text, else its most severe class tag, else
+    page's rule): a bare class word in its text, else its most severe class tag, else
     its text, whatever the case. So *Likely pathogenic - class 4* keeps a review
     classified by its class tag alone, and not one whose text says another class beside that
     tag. The pair review is read alike, from its own text and tags. The Variant Explorer's filter
@@ -444,6 +428,7 @@ async def upsert_small_variant_review(
 
     normalized_tags = _normalize_tags(payload.tags)
     normalized_note = (payload.note or "").strip() or None
+    # A class label in another case is stored in the label's own case.
     normalized_classification = _stored_classification(payload.classification)
     compound_het_requested = "compound_het" in payload.model_fields_set
     compound_het_payload: SmallVariantCompoundHetReviewUpdate | None = (
@@ -456,7 +441,7 @@ async def upsert_small_variant_review(
     )
     partner_existing: dict[str, Any] | None = None
     # One save of this variant's review at a time; the version check below then sees
-    # every earlier save, so two reviewers can no longer overwrite each other (#513).
+    # every earlier save, so two reviewers never overwrite each other.
     if compound_het_requested:
         # A pair save writes the partner's review, and the reviews of any pair it breaks
         # up, as well: each is locked too, and the partner's checked like the variant's.
@@ -490,7 +475,7 @@ async def upsert_small_variant_review(
     await _refuse_unknown_added_tags(normalized_tags, (existing or {}).get("tags"))
     compound_het_data: dict[str, Any] | None = None
     # The compound-het pair reviews this save records, removes or changes, each as the
-    # review row of one of its variants held it: audited with the save (SEC-7).
+    # review row of one of its variants held it: audited with the save.
     pair_changes: list[CompoundHetPairChange] = []
 
     # ACMG classification: recompute the class/points server-side from the

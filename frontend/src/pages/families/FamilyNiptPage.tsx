@@ -265,8 +265,8 @@ const FamilyNiptPage: React.FC = () => {
     freshOpenPreset: 'nipt_de_novo',
   });
   // Chipped and counted: the filters the NIPT list applies. A saved search made on the
-  // small-variant list, or a link, may carry others, such as a classification: they showed as
-  // chips the list did not apply (ENG-19). They are named once instead.
+  // small-variant list, or a link, may carry others, such as a classification: the list does
+  // not apply them, so they get no chip and are named once.
   const appliedFilterChips = useMemo(() => activeFilterChips.filter(niptAppliesFilterChip), [activeFilterChips]);
   // Opened without a search in the URL, the page loads the De novo preset on the Mendeliome
   // panel: the form names it as the active filter, marked default, as the small-variant page
@@ -456,7 +456,7 @@ const FamilyNiptPage: React.FC = () => {
     },
   });
 
-  // Unknown, not zero, while the summary could not be loaded (#606).
+  // Unknown, not zero, while the summary could not be loaded.
   const categoryCounts = summaryFailed ? null : (summary?.category_counts ?? {});
   // The variants a sign-out (from the NIPT report) freezes: those tagged report, every other
   // filter cleared (the inheritance view, the categories and the minimum confidence too), each as
@@ -465,8 +465,8 @@ const FamilyNiptPage: React.FC = () => {
   const showReported = () => runSearch({ ...createEmptySmallFilters(), review_tags: REPORT_TAG_KEY });
   const notClassified = variantPage?.not_classified ?? [];
 
-  // The project's reference too: the assembly-scope warning shows nothing while it loads
-  // (#515), so the NIPT analysis showed without "Not validated for clinical use" (ENG-12).
+  // The project's reference too: the assembly-scope warning shows nothing while it loads,
+  // and the NIPT analysis is never shown without "Not validated for clinical use".
   if (familyLoading || referenceLoading) {
     return <PageState loading kicker="Monogenic NIPT" title="Loading family" />;
   }
@@ -562,7 +562,7 @@ const FamilyNiptPage: React.FC = () => {
           <>
             {summaryFailed ? (
               // Not "—": a failed estimate also hides its low-confidence warning
-              // (#606, TF-12 U1).
+              // (TF-12 U1).
               <span className="badge-chip badge-chip--signature" role="alert">
                 Fetal fraction could not be loaded
               </span>
@@ -707,7 +707,7 @@ const FamilyNiptPage: React.FC = () => {
           <NiptRecessiveGenes genes={variantPage.recessive_genes ?? []} />
         ) : null}
         {/* A failed search is said as such: it read "No variants match the current
-            search" (#606). */}
+            search". */}
         {variantsFailed ? (
           <QueryFailure what="the NIPT variants" error={variantsError} onRetry={() => void refetchVariants()} />
         ) : (
@@ -793,7 +793,7 @@ const FamilyNiptPage: React.FC = () => {
               </>
             )
           ) : coverageFailed ? (
-            // It stayed at "Loading coverage…" for good (#606).
+            // It stayed at "Loading coverage…" for good.
             <QueryFailure what="the coverage QC" error={coverageError} onRetry={() => void refetchCoverage()} />
           ) : (
             <p className="table-subtle" role="status">

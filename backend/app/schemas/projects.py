@@ -19,7 +19,7 @@ class ProjectCreate(BaseModel):
     species_id: str
     assembly_id: str
     # The project's members. Each is an analyst, who reads and changes the project's
-    # records, unless reader_user_ids names them: a reader only reads them (SEC-1).
+    # records, unless reader_user_ids names them: a reader only reads them.
     user_ids: List[str] = Field(default_factory=list)
     reader_user_ids: List[str] = Field(default_factory=list)
 
@@ -41,7 +41,7 @@ class ProjectOut(ApiDocumentModel):
     species_id: ApiId
     assembly_id: ApiId
     user_ids: List[ApiId] = Field(default_factory=list)
-    # The members who are readers in the project; the other members are analysts (SEC-1).
+    # The members who are readers in the project; the other members are analysts.
     reader_user_ids: List[ApiId] = Field(default_factory=list)
     # The caller's own access: True when they are a reader in the project, so they may read
     # its records but change none.
@@ -54,7 +54,7 @@ class ProjectDashboardOut(ProjectOut):
     assembly_name: Optional[str] = None
     assembly_version: Optional[str] = None
     # Inside the validated scope (VALIDATED_ASSEMBLIES)? Drives the "not validated for
-    # clinical use" label on family and report pages (TF-06 H12, #515).
+    # clinical use" label on family and report pages (TF-06 H12).
     assembly_validated: bool = False
     families: List[FamilyOut] = Field(default_factory=list)
     samples: List[str] = Field(default_factory=list)

@@ -209,7 +209,7 @@ def package_members() -> list[dict[str, Any]]:
 def package_datasets() -> dict[str, Any]:
     """The datasets: the combined father+cfDNA VCF (``snv``; uncompressed and unindexed, which the
     family-VCF importer accepts) and the plasma's coverage BED, which declares that it holds read
-    depths (TRACE-9): the NIPT coverage check reads a coverage BED as depth only when it says so."""
+    depths: the NIPT coverage check reads a coverage BED as depth only when it says so."""
     return {
         "snv": {"family_vcf": VCF_FILE},
         "coverage": {"per_sample": {CFDNA_SAMPLE: {"bed": COVERAGE_FILE, "content": "read_depth"}}},

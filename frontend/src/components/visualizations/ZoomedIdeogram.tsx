@@ -23,7 +23,7 @@ const BAND_STROKE = 0.5;
 
 // As many decimals as the tick spacing needs, and at least two: at gene-level zoom the
 // ticks are hundreds of bp apart, and two decimals of a Mb made most of them read the
-// same, each up to 5 kb off its position (#526).
+// same, each up to 5 kb off its position.
 const formatBp = (bp: number, tickInterval: number): string => {
   const scaled = (unit: number, suffix: string) => {
     const decimals = Math.max(2, Math.ceil(-Math.log10(tickInterval / unit)));
@@ -49,8 +49,8 @@ const ZoomedIdeogram: React.FC<Props> = ({
     name: string;
   } | null>(null);
 
-  // The surface's name for a screen reader (#529): the cytobands in the region, in ISCN
-  // form (13q13.1) like the band tooltip. A failure is never "none" (#510).
+  // The surface's name for a screen reader: the cytobands in the region, in ISCN
+  // form (13q13.1) like the band tooltip. A failure is never "none".
   const bandsOn = `Cytobands on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
   if (isError) {

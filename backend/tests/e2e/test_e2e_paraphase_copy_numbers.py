@@ -1,4 +1,4 @@
-"""A Paraphase copy number that no Postgres ``integer`` holds fails its dataset cleanly (DATA-7), E2E.
+"""A Paraphase copy number that no Postgres ``integer`` holds fails its dataset cleanly, E2E.
 
 The Paraphase copy numbers (``total_cn``, ``gene_cn``, ``highest_total_cn``) are ``integer``
 columns of ``sample_paraphase_results``, filled from each sample's JSON. A JSON with a value

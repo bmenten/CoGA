@@ -1,18 +1,13 @@
-"""The columns no code reads are dropped, and an import writes no ``unresolved_roi`` (ENG-6).
+"""The schema keeps no column that nothing reads, and no writer fills one.
 
-The owner's decision of 2026-10-28 (ENG-6): the schema keeps no column that nothing reads.
-
-- Postgres: ``auth_login_attempts.last_success_at``,
-  ``small_variant_reviews.compound_het_partner_variant_keys`` and
-  ``structural_variant_reviews.variant_key`` (the sign-out neither reads it nor freezes it).
-  The baselines create none of them; revision 0011 drops them from a database that holds them
-  (``test_postgres_migrations.py`` and its integration test).
-- ClickHouse: ``liftedOverChrom``, ``liftedOverPos`` and ``sample_type``, the annotation
-  index's ``transcript_ids``, ``sift_terms`` and ``polyphen_terms``, and the SV calls'
-  ``calls.gq``. The tables are created without them, and no writer names one.
-- ``families.metadata.unresolved_roi``, which nothing reads: an import that cannot resolve a
-  manifest's ROI writes nothing to the family's metadata, and revision 0011 removes the key
-  from the families that hold it.
+- Postgres: the baselines create no ``auth_login_attempts.last_success_at``, no
+  ``small_variant_reviews.compound_het_partner_variant_keys`` and no
+  ``structural_variant_reviews.variant_key``: the sign-out neither reads an SV review's key nor
+  freezes it.
+- ClickHouse: the variant tables are created without lifted-over positions, a sample type, the
+  annotation index's transcript, SIFT and PolyPhen arrays and the SV calls' ``calls.gq``, and no
+  writer names one.
+- A manifest's ROI the import cannot resolve writes nothing to the family's metadata.
 
 All values are synthetic.
 """
@@ -42,7 +37,7 @@ from backend.app.services.clickhouse_variant_records import (
 
 _SCHEMA_DIR = Path(__file__).resolve().parents[1] / "db" / "schema" / "postgres"
 
-# The ClickHouse columns ENG-6 drops, per table (the suffix under the assembly).
+# The ClickHouse columns no code reads, per table (the suffix under the assembly).
 _DROPPED = {
     "SNV_INDEL/variants/details": ("liftedOverChrom", "liftedOverPos"),
     "SNV_INDEL/variants/annotation_index": ("transcript_ids", "sift_terms", "polyphen_terms"),
@@ -86,8 +81,7 @@ def _columns(create: str) -> set[str]:
 )
 def test_the_baselines_create_no_column_nothing_reads(table: str, column: str) -> None:
     assert column not in _columns(_create_table(table))
-    # Nor does any other statement name it: an index, a grant or an upgrade statement would
-    # fail on the next start once revision 0011 dropped the column.
+    # Nor does any other statement name it (an index, a grant).
     assert not [s for s in _baseline_statements() if f"{table} " in s and re.search(rf"\b{column}\b", s)]
 
 
@@ -136,7 +130,7 @@ class _Session:
         self.commits += 1
 
 
-# An SV review as the table holds it after revision 0011: no ``variant_key``.
+# An SV review as the table holds it: no ``variant_key``.
 _SV_REVIEW = {
     "variant_id": "1-30000-31000-DEL---",
     "classification": "Pathogenic - class 5",
@@ -193,7 +187,7 @@ _FAMILY = types.SimpleNamespace(family_uuid="00000000-0000-0000-0000-00000000f00
 def test_an_roi_the_import_cannot_resolve_writes_nothing_to_the_familys_metadata() -> None:
     # No gene of the assembly has the name: nothing is written to the family's metadata, which no
     # screen or check read. (Its region of interest is cleared, and the import warns of it:
-    # test_manifest_roi_unresolved.py, DATA-10.)
+    # test_manifest_roi_unresolved.py.)
     session = _Session([])
     asyncio.run(registration._apply_manifest_roi(session, bundle=_bundle("NOT_A_GENE"), context=_FAMILY))
 

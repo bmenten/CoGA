@@ -1,4 +1,4 @@
-"""A reader in a project reads its records and changes none; an analyst changes them (E2E, SEC-1).
+"""A reader in a project reads its records and changes none; an analyst changes them (E2E).
 
 Each project member is an analyst (read and write) or a reader (read only, a student say), per
 project; an admin has every right in every project. Over the real API (an in-process
@@ -509,7 +509,7 @@ def test_every_route_that_changes_something_refuses_a_reader_with_the_reason(ran
 
 def test_nothing_of_the_readers_family_changed(ran: dict[str, Any]) -> None:
     # Before the reader's requests the family held only its creation: the pedigree it was made
-    # with is the first event of its clinical audit trail (SEC-7).
+    # with is the first event of its clinical audit trail.
     assert ran["family_b_records_before"] == {
         "individual_hpo": 0,
         "small_variant_reviews": 0,
@@ -561,7 +561,7 @@ def test_an_analyst_changes_phenotypes_and_each_change_is_on_the_audit_trail(ran
     assert added["before"] is None and added["after"]["note"] == "since birth"
     assert (changed["before"]["status"], changed["after"]["status"]) == ("present", "absent")
     assert removed["after"] is None
-    # The chain holds the family's creation (its pedigree, SEC-7) and the three phenotype events.
+    # The chain holds the family's creation (its pedigree) and the three phenotype events.
     assert [event["action"] for event in trail["events"]] == ["phenotype", "phenotype", "phenotype", "pedigree"]
     assert ran["chain"] == (True, 4)
 

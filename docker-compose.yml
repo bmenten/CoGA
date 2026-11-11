@@ -14,7 +14,7 @@ services:
       retries: 30
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Loopback only (#520): reachable from this machine's tools (psql), not the network.
+    # Loopback only: reachable from this machine's tools (psql), not the network.
     ports:
       - "127.0.0.1:5432:5432"
 
@@ -45,7 +45,7 @@ services:
       # cap) so the Chromosome View's concurrent coverage/segment/SV query burst
       # degrades gracefully instead of hitting the server memory cap.
       - ./clickhouse/users.d/memory-guards.xml:/etc/clickhouse-server/users.d/memory-guards.xml:ro
-    # Loopback only (#520), like Postgres.
+    # Loopback only, like Postgres.
     ports:
       - "127.0.0.1:8123:8123"
       - "127.0.0.1:9000:9000"
@@ -75,11 +75,11 @@ services:
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_HTTP_PORT: 8123
       # The backend sits behind the frontend's /api proxy, which sends one clean
-      # X-Forwarded-For: take the client from there (#520).
+      # X-Forwarded-For: take the client from there.
       TRUSTED_PROXY_HOPS: ${BACKEND_TRUSTED_PROXY_HOPS:-1}
       # The package imports run in the import-worker service below, not in the API.
       FAMILY_IMPORT_WORKER_COUNT: 0
-    # Loopback only (#520): the UI reaches the API through the frontend's /api proxy;
+    # Loopback only: the UI reaches the API through the frontend's /api proxy;
     # this port is for local tools and the /docs page.
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ services:
         VITE_GITHUB_RELEASES_URL: ${VITE_GITHUB_RELEASES_URL:-}
         VITE_GITHUB_ISSUES_URL: ${VITE_GITHUB_ISSUES_URL:-}
         VITE_PROBLEM_REPORT_URL: ${VITE_PROBLEM_REPORT_URL:-}
-    # Only what the frontend server reads (#520): passing the whole .env handed the
+    # Only what the frontend server reads: passing the whole .env would hand the
     # backend's database passwords and signing keys to a container that needs none.
     environment:
       BACKEND_URL: http://backend:8000

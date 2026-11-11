@@ -17,7 +17,7 @@ The family here is its own (a new id each run), so the golden trio is never touc
   (the maternal-lineage check of the Sample QC review compares them);
 * a second import in ``overwrite`` mode brings a new proband file and an empty father
   file (its header alone). A chrM VCF without a variant record is a failed analysis (the
-  owner's decision, SAFE-29): the dataset fails before any call is replaced, and every
+  owner's decision): the dataset fails before any call is replaced, and every
   sample's calls and chrM SVs stay as stored;
 * a third import in ``overwrite`` mode brings the new proband file alone: the proband's calls
   are replaced and the mother's and the father's stay exactly as stored;
@@ -433,7 +433,7 @@ def test_mtdna_workspace_shows_each_samples_haplogroup(run) -> None:
 def test_an_empty_chrm_vcf_fails_the_dataset_and_keeps_every_samples_calls(run) -> None:
     second = run["second"]
     father = run["samples"]["father"]
-    # The owner's decision (SAFE-29): a chrM VCF without a variant record is a failed analysis.
+    # The owner's decision: a chrM VCF without a variant record is a failed analysis.
     assert second["completed"] is False, second
     assert second["mito_status"] == "failed", second
     assert f"the chrM VCF of {father} ({father}.vcf) holds no variant record" in second["mito_message"]

@@ -349,7 +349,7 @@
   color: var(--color-text-muted, #64748b);
 }
 
-/* A family on an assembly outside the validated scope (TF-06 H12, #515), or whose
+/* A family on an assembly outside the validated scope (TF-06 H12), or whose
    package import partly failed. Printed too: a printout of such a report must carry the
    label. */
 .assembly-scope-banner,
@@ -421,7 +421,7 @@
 .report-signout-changed .report-signout-status {
   color: #92400e;
 }
-/* The sign-out record itself could not be loaded: neither signed nor a draft (#605). */
+/* The sign-out record itself could not be loaded: neither signed nor a draft. */
 .report-signout-unknown {
   border-left-color: #d97706;
   background: #fffbeb;
@@ -429,7 +429,7 @@
 .report-signout-unknown .report-signout-line {
   color: #92400e;
 }
-/* Parts of the report that could not be loaded (#605). */
+/* Parts of the report that could not be loaded. */
 .report-incomplete {
   border-left: 4px solid #d97706;
   background: #fffbeb;

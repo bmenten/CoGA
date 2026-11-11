@@ -20,8 +20,7 @@ class MitoDNACoverageOut(BaseModel):
 
 class MitoDNAQcOut(BaseModel):
     # Shares the QC vocabulary used by sample-integrity QC (`QcStatus`) and the
-    # sequencing-QC verdict, rather than the `warning`/`unknown` spelling this module
-    # used to have on its own. `skip` means not assessed — no acceptance limit is
+    # sequencing-QC verdict. `skip` means not assessed — no acceptance limit is
     # configured, or there was nothing to measure — and is deliberately not `pass`.
     status: Literal["pass", "warn", "fail", "skip"] = "skip"
     notes: List[str] = Field(default_factory=list)

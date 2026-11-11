@@ -1,8 +1,8 @@
 """The package-import workers in a process of their own (``backend/app/import_worker.py``).
 
-A backfill's imports used one core between them, and the API's event loop with it: every
-worker ran in the API's process. ``python -m app.import_worker`` runs them without the API,
-and ``FAMILY_IMPORT_WORKER_COUNT=0`` leaves the API without any. These tests run the
+``python -m app.import_worker`` runs the package-import workers without the API, so many
+imports do not share the API's one core and its event loop, and
+``FAMILY_IMPORT_WORKER_COUNT=0`` leaves the API without any. These tests run the
 process's start and stop with its datastore steps recorded; the import run end to end by
 such a process, against Postgres and ClickHouse, is in
 ``e2e/test_e2e_import_worker_process.py``.
@@ -353,7 +353,7 @@ def test_the_api_starts_as_many_import_workers_as_it_is_given(monkeypatch, caplo
 
 
 def test_every_worker_is_stopped_one_way() -> None:
-    # ENG-23: the gene-reference refresh, the package imports, the ancestry PCA and the import
+    # The gene-reference refresh, the package imports, the ancestry PCA and the import
     # watcher each kept a copy of this stop; each keeps its name, which the start calls.
     from backend.app.services import ancestry_service, family_package_import, gene_info_jobs_pg, import_watcher
     from backend.app.services.worker_tasks import stop_worker

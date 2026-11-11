@@ -5,7 +5,7 @@ The parser reads VEP's CSQ by the header's own field list, falls back to the INF
 annotators, and reads a VEP table row the same way. Its number helpers read scientific
 notation, and keep only SpliceAI's delta scores, which are probabilities in [0, 1]: a DP
 position (an offset in bases) that lands in a delta-score slot is dropped. A population count
-is read only from its source's own field (CLIN-59, below).
+is read only from its source's own field (below).
 """
 
 import pytest
@@ -217,7 +217,7 @@ def test_parse_spliceai_pred_drops_position_leak() -> None:
     assert all(0.0 <= v <= 1.0 for v in offset.values())
 
 
-# --- CLIN-59: a population count is read only from its source's own field --------------------
+# --- a population count is read only from its source's own field --------------------
 # INFO/AC is the callset's own allele count, a reserved VCF key a joint caller writes (the
 # demo quartet's clair3 VCF has AC=4;AN=8). Read as gnomAD's AC wherever the CSQ has none, it
 # would make a maximum gnomAD AC filter filter on the family's own count. AC_Adj, nhomalt and

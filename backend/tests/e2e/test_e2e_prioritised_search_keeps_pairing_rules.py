@@ -1,4 +1,4 @@
-"""A ranked search keeps what the same search keeps unranked, end to end (CLIN-44).
+"""A ranked search keeps what the same search keeps unranked, end to end.
 
 Imports the golden trio into real Postgres + ClickHouse and opens the family's small-variant
 search with each inheritance mode and with expanded carrier screening (the trio's parents

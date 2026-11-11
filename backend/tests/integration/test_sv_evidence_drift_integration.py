@@ -6,7 +6,7 @@
   show, one on an assembly without SV storage) reads as absent. An uploaded Sniffles call
   of the same deletion, under the same id, is a row of its own: each caller's row is read
   with its own evidence, the named caller's alone when one is named, none for a caller
-  that does not call it (TRACE-11).
+  that does not call it.
 - End to end, through the real writers and readers: an SV imported into ClickHouse is
   classified through the real review save, which freezes its evidence and the SV
   callset's versions (from the real manifest row) into the real
@@ -16,7 +16,7 @@
   which is frozen with the drift and recorded in the audit event. Saving the scoring
   again refreezes the evidence and clears the drift. A reported SV whose scoring froze no
   evidence gates too. The whole signed history is one verified chain.
-- Two callers of one SV (TRACE-11), in a family whose id gives the upload's row the lower
+- Two callers of one SV, in a family whose id gives the upload's row the lower
   storage key (the row a read by the lowest key would take): the real save
   freezes the row of the caller it names, refuses one that names no caller (422) or a
   caller that does not call the SV (404) and writes nothing then, and takes the one row of
@@ -161,7 +161,7 @@ def test_the_evidence_is_read_as_the_sv_page_reads_the_sv() -> None:
             assert (evidence["chrom"], evidence["start"], evidence["end"]) == ("18", 55_000_000, 55_400_000)
 
             # The upload's call of the deletion, under the same id, is a row of its own,
-            # with the upload's evidence (TRACE-11).
+            # with the upload's evidence.
             [upload] = await fetch_structural_variant_records(ctx, _SV_ID, source="sniffles")
             assert structural_evidence(upload) == structural_evidence(page[(_SV_ID, "sniffles")])
             upload_evidence = structural_evidence(upload)
@@ -355,7 +355,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
             assert no_reason.value.status_code == 422
 
             # (c) Acknowledged with a reason and the fingerprint of the drift the refusal listed,
-            # as its dialog sends it (TRACE-19): frozen with the drift, and audited.
+            # as its dialog sends it: frozen with the drift, and audited.
             async with sm() as s:
                 v2 = await rss.sign_out_report(
                     s,
@@ -437,7 +437,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
     asyncio.run(_run())
 
 
-# --- two callers of one SV (TRACE-11) ------------------------------------------------------------
+# --- two callers of one SV ------------------------------------------------------------
 
 
 def _upload_keyed_lower() -> str:

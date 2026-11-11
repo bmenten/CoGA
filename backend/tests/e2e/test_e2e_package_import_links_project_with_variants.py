@@ -2,10 +2,10 @@
 
 ClickHouse stores a family's small and structural variant rows once per project it is linked
 to, and a reader of the family reads the rows of the projects it may see. A package import into
-an existing family links the family to the import's project, and writes only the datasets it
-imports, under each of the family's projects (an update leaves out those stored). It copies the
-family's other callsets to the new project too: left under its first project alone, they would
-be missing for a reader whose only project is the new one.
+an existing family links the family to the import's project, writes the datasets it imports
+under each of the family's projects (an update leaves out those stored), and copies the
+family's other rows under the new project, so a reader whose only project is the new one finds
+them.
 
 Over the golden trio (clair3 SNVs and needlr SVs, in the e2e project A), with a project B on the
 same assembly and a project C on another one, through the real import, Postgres and ClickHouse:
@@ -286,7 +286,8 @@ def test_an_update_into_b_of_one_dataset_leaves_every_callset_under_a_and_b(run)
 
 
 def test_a_reader_of_b_alone_finds_the_familys_small_and_structural_variants(run) -> None:
-    # The small variants too, not only the SVs the import wrote.
+    # The reader of the new project finds the small variants the import did not write, beside
+    # the SVs it wrote.
     for kind in ("small-variants", "structural-variants"):
         assert run["presence_b"][kind]["status"] == 200, run["presence_b"][kind]["text"]
         assert run["presence_b"][kind]["json"]["total"] == 1, kind

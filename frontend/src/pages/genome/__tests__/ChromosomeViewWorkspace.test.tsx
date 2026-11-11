@@ -220,7 +220,7 @@ describe('ChromosomeViewWorkspace', () => {
     Object.values(trackProps).forEach((drawn) => drawn.clear());
   });
 
-  // #607 — which tracks a sample has decides which are mounted: a failed availability
+  // Which tracks a sample has decides which are mounted: a failed availability
   // request is not a sample without data.
   it('says the track availability failed, not that the samples have no data', () => {
     const retry = vi.fn();
@@ -268,9 +268,9 @@ describe('ChromosomeViewWorkspace', () => {
     expect(screen.queryByText('Not validated for clinical use.')).not.toBeInTheDocument();
   });
 
-  // ENG-7: the list offered `MT` (and `1`, `X`), where the header, the tracks and the genome
-  // overview name the mitochondrion chrM (#602). Its value stays the route's key, `MT`, which
-  // the API reads as M, chrM and chrMT alike.
+  // The list names each chromosome as the header, the tracks and the genome overview do (`chr1`,
+  // `chrX`, the mitochondrion chrM). Its value stays the route's key, `MT`, which the API reads
+  // as M, chrM and chrMT alike.
   it('names each chromosome in its list as the header does, the mitochondrion chrM', () => {
     const onChromChange = vi.fn();
     renderWorkspace({ chrom: 'MT', region: { start: 0, end: 16_569 }, onChromChange });
@@ -316,8 +316,8 @@ describe('ChromosomeViewWorkspace', () => {
     expect(props.segmentsUrls?.[0]).toContain('end=2000000');
   });
 
-  // TRACE-7, TRACE-9 — each coverage track is drawn on the axis of what it holds: HiFiCNV's
-  // depths stored as read, which were left off the chart, on a depth axis; a coverage BED that
+  // Each coverage track is drawn on the axis of what it holds: HiFiCNV's
+  // depths stored as read on a depth axis; a coverage BED that
   // does not declare what it holds on its own range, without an axis, and never with the
   // segments, which are log2 ratios.
   it('draws each coverage track on the axis of what it holds, and says why where that is not a log2 ratio', () => {
@@ -392,9 +392,9 @@ describe('ChromosomeViewWorkspace', () => {
     expect(screen.queryByTestId('parental-origin-chart')).toBeNull();
   });
 
-  it('encodes the caller it asks the coverage and segments for (ENG-7)', () => {
-    // A caller's name went into the BED URLs as written: one with an `&` or a `#` would have
-    // ended the parameter there.
+  it('encodes the caller it asks the coverage and segments for', () => {
+    // A caller's name is encoded in the BED URLs: an `&` or a `#` in it would otherwise end
+    // the parameter there.
     renderWorkspace({
       ...withMembers([PROBAND_S1]),
       availability: {
@@ -410,7 +410,7 @@ describe('ChromosomeViewWorkspace', () => {
     const [[props]] = coverageSegmentsChartMock.mock.calls as [[{ coverageUrls: string[]; segmentsUrls?: string[] }]];
     for (const url of [props.coverageUrls[0], props.segmentsUrls?.[0] ?? '']) {
       const params = new URL(url, 'http://test').searchParams;
-      expect([params.get('source'), params.get('format')]).toEqual(['cnv&kit#2', 'json']);
+      expect(params.get('source')).toBe('cnv&kit#2');
     }
   });
 

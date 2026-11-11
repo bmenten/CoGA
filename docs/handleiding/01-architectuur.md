@@ -62,7 +62,7 @@ De repository bevat twee applicatiemappen (`backend/`, `frontend/`), de document
 | `backend/app/main.py` | Bouwt de app: routers, CORS, middleware en de opstartroutine |
 | `backend/app/db_migrate.py` | Schema-migratie en eerste beheerder, ook als losse stap uit te voeren |
 | `backend/db/schema/` | De vijf Postgres-baselines (`01_access` t/m `05_grants`) en de ClickHouse-bootstrap |
-| `backend/db/migrations/` | De Alembic-revisies van het Postgres-schema, bijgehouden in het migratiegrootboek `alembic_version` |
+| `backend/db/migrations/` | De Alembic-revisie `0001`, die een lege databank uit de vijf baselines maakt; het migratiegrootboek `alembic_version` noteert de revisie |
 
 | Map (frontend) | Rol |
 | --- | --- |
@@ -71,7 +71,7 @@ De repository bevat twee applicatiemappen (`backend/`, `frontend/`), de document
 | `frontend/src/lib/` | Niet-visuele hulpcode: API-client, sessie, genotypes, ACMG-logica |
 | `frontend/src/content/docs/` | De in-app documentatie (gebruikersgids en referentiedocs), getoond op `/docs` |
 
-De routering gebruikt `react-router`. Alleen de aanmeldpagina's (`/login` en `/login/emergency`) en `/signup` zijn publiek. Alle andere schermen zitten achter de bewaker `RequireAuth`. De beheerschermen (o.a. `/admin/...` en `/projects`) zitten daarbovenop achter `RequireAdmin`; het beheerdashboard `/admin` en de werkruimtes van een superuser (o.a. `/package-import`) achter `<RequireAdmin superuser />`, die ook een superuser doorlaat. Die bewakers zijn gebruiksgemak, geen beveiliging (hoofdstuk 2).
+De routering gebruikt `react-router`. Alleen de aanmeldpagina's (`/login` en `/login/emergency`) en `/signup` zijn publiek. Alle andere schermen zitten achter de bewaker `RequireAuth`. De beheerschermen (o.a. `/admin/...`, met de projecten onder `/admin/access/projects`) zitten daarbovenop achter `RequireAdmin`; het beheerdashboard `/admin` en de werkruimtes van een superuser (o.a. `/package-import`) achter `<RequireAdmin superuser />`, die ook een superuser doorlaat. Die bewakers zijn gebruiksgemak, geen beveiliging (hoofdstuk 2).
 
 Er is geen navigatiebalk. De hoofdonderdelen (*Projects*, *Variant explorer*, *Gene explorer*, *CNV explorer*, *Panels*, *Report codes*, voor een superuser of beheerder *Admin*, en *User guide*) staan in een menu achter een pijltje rechts in de kopbalk. Onder de kopbalk volgt een kruimelpad de route.
 

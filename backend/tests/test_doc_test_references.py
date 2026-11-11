@@ -4,9 +4,9 @@ The Requirements Traceability Matrix (TF-09b) names each requirement's verifying
 ``test_file.py::test_name``, followed by ``::other_test`` for more tests of the same file, and
 frontend tests as ``File.test.tsx`` or ``File.test.tsx::it name``; TF-09c, docs/testing.md,
 docs/security-posture.md and other documents do the same. A test renamed, merged into a
-parametrised one or deleted left its reference pointing at nothing, and no check noticed: the
-catalogue check (``scripts/check-test-catalogue.sh``) reads only docs/testing.md's file links,
-not test names, and only that one document.
+parametrised one or deleted would leave its reference pointing at nothing, and the catalogue
+check (``scripts/check-test-catalogue.sh``) reads only docs/testing.md's file links, not test
+names, and only that one document.
 
 Here every tracked Markdown document under ``docs/`` and at the repository root is read, and
 each test it names in an inline code span must exist: a backend test file by its name (or its

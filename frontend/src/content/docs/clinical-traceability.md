@@ -473,8 +473,7 @@ version you signed.
 **What a signed version could not capture.** If a lookup fails while the version is frozen (the QC
 cut-offs, or the version of the assembly, the gene loci, Monarch or HPO), sign-out still goes ahead.
 That part is recorded as unavailable, not as empty, and the signed version says so: *Not captured in
-signed version 2: …*. The audit trail lists the same parts. An HPO ontology imported from a file that
-recorded no release is marked the same way (*release not recorded*).
+signed version 2: …*. The audit trail lists the same parts.
 
 **When part of the report cannot be loaded.** The page never shows a part it could not load as empty:
 

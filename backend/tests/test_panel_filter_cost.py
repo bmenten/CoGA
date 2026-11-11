@@ -1,4 +1,4 @@
-"""Applying a gene panel costs the panel once per search, not once per row (ENG-15).
+"""Applying a gene panel costs the panel once per search, not once per row.
 
 The family search applied a panel's regions in SQL by testing each row against every region
 (``arrayExists``), and its record filter (``_kept_small_candidates`` → ``_small_record_matches``)

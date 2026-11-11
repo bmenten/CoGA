@@ -54,7 +54,7 @@
 
 /* Shape and interactivity only. The colour lives in the tone classes below, because
    `.table-chip--warning` / `--critical` set the same three properties and this rule sits
-   later in the file — declaring colours here silently won and the verdict tone was lost.
+   later in the file — colours declared here would silently win and lose the verdict tone.
 
    The min-height reset matters: this chip is a <button>, so without it it takes the
    shared control height and stretches every members-table row. Same reset the
@@ -87,7 +87,7 @@
 /* A toned chip keeps its verdict colour on hover — deepen it instead of replacing it,
    so hovering a failing sample never makes it look neutral. The tone is restated, as for
    the not-run chip below: the shared `button:hover` rule outranks `.table-chip--warning`
-   and `--critical`, and painted the hovered chip dark grey (ENG-10). */
+   and `--critical`, and would paint the hovered chip dark grey. */
 .family-qc-chip.table-chip--warning:hover:not(:disabled),
 .family-qc-chip.table-chip--warning:focus-visible {
   border-color: rgba(180, 125, 45, 0.22);
@@ -143,8 +143,8 @@
 }
 
 /* Edited, the members table's columns are fixed: a chip wider than its column wraps inside
-   it, rather than running under the Remove button beside it (#867). It wraps rather than
-   ending in an ellipsis, which in a narrow column left "…" alone: the verdict word must stay
+   it, rather than running under the Remove button beside it. It wraps rather than
+   ending in an ellipsis, which in a narrow column would leave "…" alone: the verdict word must stay
    readable, as colour never carries it alone. */
 .family-members-table--editing .family-qc-cell {
   grid-template-columns: minmax(0, 100%);

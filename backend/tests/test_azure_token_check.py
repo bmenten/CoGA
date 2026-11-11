@@ -1,4 +1,4 @@
-"""The check of a Microsoft access token for CoGA's API (SEC-4, REQ-SEC-003).
+"""The check of a Microsoft access token for CoGA's API (REQ-SEC-003).
 
 ``core/azure.py`` decides whether a bearer token is an access token Microsoft Entra ID (Azure
 AD) issued for CoGA: signed (RS256) with one of the directory's published keys, a version 2.0

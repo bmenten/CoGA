@@ -79,7 +79,7 @@ test('renders message when no structural variants are available', () => {
   expect(screen.getByText(/no svs for this region \/ sample/i)).toBeInTheDocument();
 });
 
-// The chart's accessible name summarises what it draws now (#529).
+// The chart's accessible name summarises what it draws now.
 const sv = (type: string, start: number, gt = '0/1') => ({
   chr: '13',
   start,
@@ -100,7 +100,7 @@ const brca2Track = (regionStart = 32_300_000) => (
   />
 );
 
-test('names the drawn SVs by type (#529)', () => {
+test('names the drawn SVs by type', () => {
   useQueryMock.mockReturnValue({
     data: {
       variants: [
@@ -122,7 +122,7 @@ test('names the drawn SVs by type (#529)', () => {
   ).toBeInTheDocument();
 });
 
-test('an empty region is named as empty (#529)', () => {
+test('an empty region is named as empty', () => {
   useQueryMock.mockReturnValue({ data: { variants: [] }, isLoading: false });
   render(brca2Track());
 
@@ -131,7 +131,7 @@ test('an empty region is named as empty (#529)', () => {
   ).toBeInTheDocument();
 });
 
-test('a load or a failure is named as such, never as the held window’s count (#510, #529)', () => {
+test('a load or a failure is named as such, never as the held window’s count', () => {
   useQueryMock.mockReturnValue({ data: { variants: [sv('DEL', 32_310_000)] }, isLoading: false });
   const { rerender } = render(brca2Track());
   expect(screen.getByRole('img', { name: /: 1 \(1 DEL\)$/ })).toBeInTheDocument();
@@ -154,7 +154,7 @@ test('a load or a failure is named as such, never as the held window’s count (
   expect(screen.getByText(/Could not load structural variants/)).toBeInTheDocument();
 });
 
-test('a view holding more SVs than one page says too many instead of drawing the page (#585)', () => {
+test('a view holding more SVs than one page says too many instead of drawing the page', () => {
   // The page is the first two by position of five in view: drawn, the right of the view
   // would look free of SVs.
   useQueryMock.mockReturnValue({
@@ -172,7 +172,7 @@ test('a view holding more SVs than one page says too many instead of drawing the
   expect(container.querySelector('[data-variant-type]')).toBeNull();
 });
 
-test('past the backend cap the track says too many as well (#585)', () => {
+test('past the backend cap the track says too many as well', () => {
   useQueryMock.mockReturnValue({
     data: { total: 2, total_is_estimated: true, count_limit: 2, variants: [sv('DEL', 32_310_000), sv('DEL', 32_320_000)] },
     isLoading: false,
@@ -193,7 +193,7 @@ test('a complete page is drawn', () => {
   expect(screen.queryByText(/Too many SVs/)).not.toBeInTheDocument();
 });
 
-test('a failed pan draws nothing from the previous window (#586)', () => {
+test('a failed pan draws nothing from the previous window', () => {
   useQueryMock.mockReturnValue({ data: { variants: [sv('DEL', 32_360_000)] }, isLoading: false });
   const { container, rerender } = render(brca2Track());
   expect(container.querySelectorAll('[data-variant-type]')).toHaveLength(1);
@@ -209,9 +209,9 @@ test('a failed pan draws nothing from the previous window (#586)', () => {
   expect(container.querySelectorAll('[data-variant-type]')).toHaveLength(0);
 });
 
-// CLIN-54: the track drew DEL, DUP, INV, INS and BND by their exact names only, so a DEL:ME, a
-// DUP:TANDEM, an INS:ME, a CNV or a TRA was not drawn, though the SV list showed it.
-test('draws every SV the list shows: by its type without subtypes, a CNV by its copy change, a TRA as a BND, any other type in the Other row (CLIN-54)', () => {
+// The track draws every SV the list shows, not only DEL, DUP, INV, INS and BND by their exact
+// names: a DEL:ME, a DUP:TANDEM, an INS:ME, a CNV and a TRA too.
+test('draws every SV the list shows: by its type without subtypes, a CNV by its copy change, a TRA as a BND, any other type in the Other row', () => {
   useQueryMock.mockReturnValue({
     data: {
       // As the track payload serves them: the copy change is left out when there is none.
@@ -254,7 +254,7 @@ test('draws every SV the list shows: by its type without subtypes, a CNV by its 
   expect(Number(marks[7].getAttribute('y'))).toBeGreaterThan((80 * 5) / 6);
 });
 
-test('names an SV of another type, and a CNV with its copy change and copy number, in its tooltip (CLIN-54)', () => {
+test('names an SV of another type, and a CNV with its copy change and copy number, in its tooltip', () => {
   useQueryMock.mockReturnValue({
     data: {
       variants: [
@@ -275,9 +275,9 @@ test('names an SV of another type, and a CNV with its copy change and copy numbe
   expect(screen.getByText('S1: Het CN:3')).toBeInTheDocument();
 });
 
-// The tooltip wrote the chromosome as the SV is stored (`M:10-30 DEL`, `1:50-70 DUP`), where
-// the viewer names it chrM and chr1 (#602), as the genome overview's SV tooltip does since
-// ENG-20 (found while fixing ENG-20, #1030). The mitochondrial SV dataset (mito_sv) comes as `M`.
+// The tooltip names the chromosome as the viewer and the genome overview's SV tooltip do
+// (chrM, chr1), however the SV is stored (`M:10-30 DEL`, `1:50-70 DUP`). The mitochondrial SV
+// dataset (mito_sv) comes as `M`.
 test.each([
   ['M', 'MT', 'chrM:10-30 DEL'],
   ['chrM', 'MT', 'chrM:10-30 DEL'],

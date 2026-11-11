@@ -16,9 +16,9 @@ from ..schemas import (
 from .access_control import CurrentUser, RecordNotVisible
 from .review_pg_utils import _json_payload
 
-# A small-variant preset is its owner's, reusable in every family they can open (#681). The
+# A small-variant preset is its owner's, reusable in every family they can open. The
 # owner is the account (owner_id), whatever its user name is now; owner, the user name it was
-# last saved under, is what the preset shows (SEC-32).
+# last saved under, is what the preset shows.
 _PRESET_COLUMNS = """
     id::text AS id,
     owner,
@@ -167,7 +167,7 @@ async def delete_small_variant_filter_preset_for_owner(
     if row is None:
         raise HTTPException(status_code=404, detail="Preset not found")
     if row["owner_id"] != user.id:
-        # Another user's preset answers as an unknown one does (SEC-9, REQ-SEC-001).
+        # Another user's preset answers as an unknown one does (REQ-SEC-001).
         raise RecordNotVisible("filter_preset", "Preset not found")
     await session.execute(
         text("DELETE FROM small_variant_filter_presets WHERE id = CAST(:preset_id AS uuid)"),

@@ -72,7 +72,7 @@ async def _get_panelapp_json(path: str, params: dict[str, Any] | None = None) ->
         payload = response.json()
     except ValueError as exc:
         # A 200 whose body is no JSON (a proxy's HTML error page, say): a fault upstream like
-        # a failed request, not a 500 (DATA-4).
+        # a failed request, not a 500.
         raise HTTPException(status_code=502, detail="Unexpected PanelApp response") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=502, detail="Unexpected PanelApp response")

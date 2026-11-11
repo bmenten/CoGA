@@ -129,13 +129,12 @@ class DatasetImportJob:
     ``skipped_samples`` is where an importer that goes sample by sample records each sample
     an update left as it was, its rows being there (all of them, or one of its tracks): an
     import that imported the dataset for other samples counts it as imported again for
-    those only (``imported_dataset_scopes``), so a skip completes no earlier failure
-    (SAFE-20). A dataset an update skips whole ends ``skipped``, and counts for none.
+    those only (``imported_dataset_scopes``), so a skip completes no earlier failure.
+    A dataset an update skips whole ends ``skipped``, and counts for none.
 
     ``scope`` is what the import's bookkeeping records the dataset as replacing, from
     before its first write (``dataset_scopes``), or None for an import without it. The SNV
-    importer stores its family VCF as the callset the scope names, and nothing else
-    (SAFE-23)."""
+    importer stores its family VCF as the callset the scope names, and nothing else."""
 
     session: AsyncSession
     bundle: FamilyPackageBundle
@@ -151,7 +150,7 @@ class DatasetImportJob:
 
 DatasetImporter = Callable[[DatasetImportJob], Awaitable[FamilyImportDatasetSummary]]
 
-# One importer per manifest dataset type, registered where it is defined (#528). A type
+# One importer per manifest dataset type, registered where it is defined. A type
 # in SUPPORTED_DATASETS with no importer here is a bug; the registry test and
 # _import_dataset both say so.
 DATASET_IMPORTERS: dict[str, DatasetImporter] = {}
@@ -182,9 +181,8 @@ def _refusal_naming(file_of: str) -> Iterator[None]:
     """A loader's refusal of a package file (a 4xx) as the dataset's failure, ``file_of``
     before the loader's words: "The coverage BED of S2 (coverage/S2.bed): No valid BED records
     found". The BED and TRGT loaders answer the single-file uploads too, whose user chose the
-    sample and the file, so their refusals name neither: a dataset of one file per sample
-    failed with "400: No valid BED records found" whichever sample's file it was. A family
-    file is named by its path alone: "The family TRGT VCF (trgt/family.vcf): No valid TRGT
+    sample and the file, so their refusals name neither, and a dataset of one file per sample
+    names here whose file it was. A family file is named by its path alone: "The family TRGT VCF (trgt/family.vcf): No valid TRGT
     records found for S2", the loader's words naming the samples. Any other error passes as
     it is."""
     try:
@@ -202,9 +200,9 @@ async def _stored_track_rows(
     update reads to see whether the sample holds the track, as the small-variant and SV
     loaders read their own rows. Not what Postgres records of the track
     (``sample_interval_track_sources``): a failed overwrite's restore that stopped part-way
-    can leave that record for rows it deleted (SAFE-20). Only the dataset's own source: a
+    can leave that record for rows it deleted. Only the dataset's own source: a
     sample can hold several callers' tracks of one type, and another caller's track is no
-    reason to skip this one's (SAFE-22). A family with no single assembly has no track
+    reason to skip this one's. A family with no single assembly has no track
     rows."""
     if not sample_context.assembly_name:
         return 0
@@ -222,7 +220,7 @@ async def _stored_imputed_blocks(family_context: FamilyMetadataContext) -> int:
     what an update of the imputed genotypes reads beside their small variants, as the
     glimpse2 loader writes both and either is the dataset's data. Not what Postgres records
     of the track, which a failed overwrite's restore that stopped part-way can leave for rows
-    it deleted (SAFE-20, SAFE-18). A family with no single assembly has no track rows."""
+    it deleted. A family with no single assembly has no track rows."""
     if not family_context.assembly_name:
         return 0
     return await count_interval_track_rows(
@@ -275,7 +273,7 @@ def _sample_by_sample_outcome(
     """How a dataset imported sample by sample ends, when an update may have skipped some
     of its samples, or of their tracks (``skipped``), their rows being there: ``imported``
     when it imported any of them, ``skipped`` when it imported none, never ``imported`` for
-    a dataset an update skipped whole (SAFE-20). The message is ``imported`` when nothing
+    a dataset an update skipped whole. The message is ``imported`` when nothing
     was skipped, else ``partly`` or ``skipped_all``, followed by what was skipped."""
     names = ", ".join(skipped)
     if not skipped:
@@ -316,7 +314,7 @@ def snv_dataset_callset(bundle: FamilyPackageBundle) -> str:
     the small-variant loader works out from the file (``_small_variant_callset``):
     ``glimpse2`` for imputed genotypes, else ``clair3``. The import's bookkeeping names it
     before anything is written (``dataset_scopes``), so it is read from the file here, as
-    the loader reads it (SAFE-23). ``auto`` (``UNRESOLVED_SNV_SOURCE``) when it cannot be
+    the loader reads it. ``auto`` (``UNRESOLVED_SNV_SOURCE``) when it cannot be
     told: no family VCF, or one that cannot be read, which the import then registers only,
     or fails on before writing any of it."""
     dataset = bundle.manifest.datasets.get("snv")
@@ -357,7 +355,7 @@ def _extra_declares_none(dataset: ManifestDataset, keys: Sequence[str]) -> bool:
 # not import (a per-sample GLIMPSE2 BCF, a family-level APCAD BED, a pipeline run record
 # without its versions or parameters). Such a dataset brings nothing, so nothing of it can be
 # missing: its scope says so (``dataset_scopes``), and an import that registers it brings it
-# again (SAFE-17). Only what the manifest declares is read: a dataset registered because a
+# again. Only what the manifest declares is read: a dataset registered because a
 # file it declares could not be found or read, or because the family has no single assembly,
 # may lack data, and does not carry nothing. Validation refuses most datasets that declare
 # no file at all (and skips a PCF dataset without one, which is then not imported); each
@@ -410,7 +408,7 @@ def _snv_callset_to_store(upload: UploadFile, source_format: str, scope: Mapping
     that no longer reads as that callset changed while the import ran, and is refused, so
     the import never stores a callset its bookkeeping does not name. Without a recorded
     callset (``auto``: the file could not be read then, or an import without bookkeeping)
-    the file's own is stored, as before."""
+    the file's own is stored."""
     if source_format != "auto":
         return source_format
     callset = _small_variant_callset(upload)
@@ -426,7 +424,7 @@ def _snv_callset_to_store(upload: UploadFile, source_format: str, scope: Mapping
 
 def _snv_dataset_source(job: DatasetImportJob, vcf_path: Path, source_format: str) -> str:
     """The callset the SNV importer stores its family VCF as: the rows its update check
-    counts, and the only rows its clean-up after a failure removes (SAFE-27). The
+    counts, and the only rows its clean-up after a failure removes. The
     ``source_format`` the dataset declares, or with ``auto`` the callset the import recorded
     for it before its first write (``job.scope``, from ``snv_dataset_callset``): never
     assumed, so an update of imputed genotypes reads the family's imputed genotypes, not its
@@ -464,12 +462,10 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     # A family holds more than one small-variant callset, apart by source: the update check
     # and the clean-up below read only the callset this dataset stores, so neither touches
     # another. With auto that is the callset the import recorded from the file, never an
-    # assumed clair3: assuming it skipped an update of imputed genotypes when the family
-    # held direct calls, replaced the stored imputed genotypes in an update when it held
-    # none, and made the clean-up of a failed import of imputed genotypes delete the direct
-    # calls (SAFE-27). A declared source_format is used verbatim (hard-coding clair3 for
-    # anything not glimpse2 once wiped the family's direct calls when a differently-sourced
-    # dataset failed).
+    # assumed clair3: an assumed callset would skip an update of imputed genotypes when the
+    # family holds direct calls, replace the stored imputed genotypes in an update when it
+    # holds none, and make the clean-up of a failed import of imputed genotypes delete the
+    # direct calls. A declared source_format is used verbatim.
     snv_source = _snv_dataset_source(job, vcf_path, source_format)
     exclude_filters = _exclude_filters(dataset)
     if conflict_mode == "update":
@@ -481,7 +477,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         )
         # Imputed genotypes come with the haplotype blocks made from them, which the loader
         # writes too: either is the dataset's data, as the haplotypes dataset's update reads
-        # it, so blocks stored without their genotypes are left as they are (SAFE-18).
+        # it, so blocks stored without their genotypes are left as they are.
         existing_blocks = await _stored_imputed_blocks(family_context) if snv_source == "glimpse2" else 0
         if existing_count or existing_blocks:
             what = (
@@ -546,13 +542,13 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     # Whether the loader began writing ClickHouse: the clean-up below deletes the callset
     # only then. A file the loader refused before it replaced anything (an annotation table
     # it cannot read, say) leaves the stored callset as it was, which an overwrite whose
-    # snapshot could not be taken has nothing else to put back from (SAFE-32).
+    # snapshot could not be taken has nothing else to put back from.
     write_state = SmallVariantWriteState()
 
     async def run_upload() -> dict[str, Any]:
         async with _local_upload(vcf_path) as upload:
             # Stored as the callset the import recorded for it before its first write, and
-            # nothing else (SAFE-23): the one the update check counted and the clean-up
+            # nothing else: the one the update check counted and the clean-up
             # removes. One read from the file above (none was recorded) must still be it.
             callset = _snv_callset_to_store(upload, source_format, job.scope)
             if callset != snv_source:
@@ -606,9 +602,9 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         # Only the callset this dataset stores, which the loader replaces and writes (the
         # loader's own clean-up removes the haplotype blocks of imputed genotypes it was
         # writing): a failed import of imputed genotypes leaves the direct calls, and one of
-        # direct calls the imputed genotypes (SAFE-27). The flag the import leaves names
-        # this callset, the dataset's scope. And only once the loader began writing it
-        # (SAFE-32): before that it replaced nothing.
+        # direct calls the imputed genotypes. The flag the import leaves names
+        # this callset, the dataset's scope. And only once the loader began writing it:
+        # before that it replaced nothing.
         if write_state.began:
             with suppress(Exception):
                 await delete_family_small_variants(
@@ -648,7 +644,7 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
             project_ids=family_context.project_ids,
             source="glimpse2",
         )
-        # The stored blocks, not Postgres's record of them, as every update reads (SAFE-18).
+        # The stored blocks, not Postgres's record of them, as every update reads.
         existing_haplotype_count = await _stored_imputed_blocks(family_context)
         if existing_count or existing_haplotype_count:
             return summary.model_copy(
@@ -680,7 +676,7 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
 
     # With overwrite read once, as the SNV dataset's VCF: the import's snapshot puts an
     # existing family back when a dataset fails (check_before_replacing). The clean-up
-    # below runs once the loader began writing, as the SNV dataset's (SAFE-32).
+    # below runs once the loader began writing, as the SNV dataset's.
     write_state = SmallVariantWriteState()
 
     async def run_upload() -> dict[str, Any]:
@@ -708,8 +704,8 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
         # The glimpse2 loader owns the imputed small-variant source and the haplotype
         # interval tracks, so scope the small-variant cleanup to glimpse2 (leaving the
         # annotated clair3 SNVs intact) while still clearing its own haplotype blocks,
-        # of its own source as every track loader's (SAFE-22). Only once the loader began
-        # writing: a file it refused before that replaced nothing (SAFE-32).
+        # of its own source as every track loader's. Only once the loader began
+        # writing: a file it refused before that replaced nothing.
         if write_state.began:
             with suppress(Exception):
                 await delete_family_small_variants(
@@ -1047,7 +1043,7 @@ def _without_extent_clause(skipped: SkippedRecords) -> str:
 
 def _without_extent_note(skipped: SkippedRecords) -> str:
     """What a dataset's message says of the records left out as their extent is not stated
-    (CLIN-39, the owner's decision, 2026-10-27: left out and counted)."""
+    (the owner's decision of 2026-10-27: left out and counted)."""
     if not skipped.without_extent:
         return ""
     return (
@@ -1066,9 +1062,9 @@ async def _needlr_sample_files(job: DatasetImportJob) -> list[tuple[str, Path, s
     family's -- is refused, as a per-sample VCF column is (``per_sample_vcf_column``); a
     query that names no known sample is the entry's.
 
-    So is a file without a record the reader reads (SAFE-29): a sample's structural
-    variants called across its genome are never none, and such a file used to replace the
-    sample's NeedlR calls with none while the other samples' files imported."""
+    So is a file without a record the reader reads: a sample's structural
+    variants called across its genome are never none, and such a file would replace the
+    sample's NeedlR calls with none."""
     bundle, family_context = job.bundle, job.family_context
     files: list[tuple[str, Path, str]] = []
     for sample_id, raw_entry in job.dataset.per_sample.items():
@@ -1141,7 +1137,7 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
         if conflict_mode == "update":
             # One file for every embryo: skipped whole when any embryo's track is stored.
             # This dataset's track, not HiFiCNV's minor allele fraction on the same track
-            # type, nor a BED upload's (SAFE-22).
+            # type, nor a BED upload's.
             existing_by_sample = {
                 sample_id: await _stored_track_rows(sample_context, track_type="apcad", source=APCAD_SOURCE)
                 for sample_id, sample_context in target_sample_contexts.items()
@@ -1238,7 +1234,7 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                 else import_result
             )
         # Read as a BED, into this dataset's own track: a BED upload's APCAD stays. Its
-        # record says a package loaded it, as every package loader's does (TRACE-17). A
+        # record says a package loaded it, as every package loader's does. A
         # refusal names the embryo and its file.
         with _refusal_naming(
             f"The APCAD file of {sample_id} ({_display_path(bundle.root, bed_path)}), read as a BED"
@@ -1256,8 +1252,8 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                 )
 
     # Every embryo's file is checked, as it is checked before its embryo's track is cleared,
-    # before any embryo's track is: a later embryo's file without a value for it failed the
-    # dataset with the earlier embryos' tracks replaced (SAFE-3). The check reads a file up to
+    # before any embryo's track is: a later embryo's file without a value for it fails the
+    # dataset with every embryo's track as it was. The check reads a file up to
     # the embryo's first value (a VCF without a record, read as a BED, whole), so a file is
     # read twice only that far.
     # An embryo's segregation table (nf-cmgg/copgtm), where its entry names one, goes into a
@@ -1313,7 +1309,7 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
     Each file's one sample column is read as its entry's sample, whatever it is named: the
     laboratory maps verified tubes to files named after other tubes. Validation warns of a
     column named neither as the member nor as the entry's ``vcf_sample``
-    (``nipt_vcf_column_warning``, CLIN-13); the summary records each sample's column.
+    (``nipt_vcf_column_warning``); the summary records each sample's column.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
@@ -1346,10 +1342,10 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
         if vcf_path is not None:
             sample_files.append((sample_id, vcf_path))
     # Every file is checked, its one sample column and a record, before the plasma's calls
-    # are written: the father's file was checked after them, so a refused one failed the
-    # dataset with the plasma's calls replaced (SAFE-3). The loader refuses a file without
-    # a record as well; here it is found before anything is written. So is a BGZF file that
-    # does not end with BGZF's end-of-file block, which the loader refuses too (DATA-4).
+    # are written, so a refused father's file fails the dataset with the plasma's calls as
+    # they were. The loader refuses a file without a record as well; here it is found
+    # before anything is written. So is a BGZF file that
+    # does not end with BGZF's end-of-file block, which the loader refuses too.
     sample_columns: dict[str, list[str]] = {}
     for sample_id, vcf_path in sample_files:
         require_bgzf_path_end(vcf_path, label=f"The NIPT SNV file of {sample_id} ({vcf_path.name})")
@@ -1408,7 +1404,7 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
             **result,
             "role": "cfdna" if is_plasma else "paired_sample",
             "vcf": _display_path(bundle.root, vcf_path),
-            # The column read as the sample's calls, whatever it is named (CLIN-13).
+            # The column read as the sample's calls, whatever it is named.
             "vcf_column": sample_columns[sample_id][0],
         }
     if not sample_results:
@@ -1527,9 +1523,8 @@ async def _import_target_coverage_table(
     """Store a per-target coverage table as the sample's ``target_coverage`` track, in
     place of the one stored before (see nipt_target_coverage). The table is read and
     parsed whole first: one that cannot be, or holds no target, is refused with the track
-    as it was, the refusal naming the sample and the table, by its path in the package (it
-    named the table alone, or, for one that is no text or whole gzip, neither). ``check_only``
-    stops there, deleting and storing nothing."""
+    as it was, the refusal naming the sample and the table, by its path in the package.
+    ``check_only`` stops there, deleting and storing nothing."""
     assembly_name = sample_context.assembly_name or ""
     file_of = (
         f"The per-target coverage table of {sample_context.sample_id} "
@@ -1575,7 +1570,7 @@ async def _import_target_coverage_table(
         source=TARGET_COVERAGE_SOURCE,
         filename=table_path.name,
         row_count=len(rows),
-        # Where the table came from, as every package loader's record says (TRACE-17).
+        # Where the table came from, as every package loader's record says.
         metadata={
             "format": "per_target_coverage_table",
             "targets": len(rows),
@@ -1593,20 +1588,19 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
 
     A BED is stored as a BED upload stores it (``upload_bed_data``), under source ``web``:
     it replaces that source's coverage of the sample, and no other caller's (the bins of
-    WisecondorX and QDNAseq, imported before it, and HiFiCNV's depth; SAFE-22). The entry's
+    WisecondorX and QDNAseq, imported before it, and HiFiCNV's depth). The entry's
     ``content`` declares what the BED holds, ``read_depth`` or ``log2_ratio``, and its
     track's record keeps it; an entry without it is stored as ``unknown``, which is never
-    read as depth (TRACE-9). The sample's result names it. A BED of the coverage dataset
-    used to be read as depth whatever it held.
+    read as depth. The sample's result names it.
 
     With ``update`` a sample whose track from this dataset's source is stored is skipped, as
     the store holds it: not as Postgres records it, which a failed overwrite's restore that
     stopped part-way can leave for rows it deleted. A dataset that skipped every sample ends
-    ``skipped`` (SAFE-20).
+    ``skipped``.
 
     Every sample's file is read and checked, as it is before its track is replaced, before
-    any sample's track is: a later sample's refused file failed the dataset with the earlier
-    samples' tracks replaced (SAFE-3)."""
+    any sample's track is: a later sample's refused file fails the dataset with every
+    sample's track as it was."""
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts = job.sample_contexts
     if not dataset.per_sample:
@@ -1734,8 +1728,7 @@ async def _import_pcf_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         samples.append((sample_id, sample_context, role_paths))
 
     # Each table of every sample is read up to its first segment before any sample's track is
-    # deleted: one without a segment fails the dataset with every track as it was (SAFE-29).
-    # A later sample's table failed it with the earlier samples' tracks replaced (SAFE-3).
+    # deleted: one without a segment fails the dataset with every track as it was.
     for _sample_id, sample_context, role_paths in samples:
         for origin, path in role_paths:
             await _import_pcf_segment_file(
@@ -1793,7 +1786,7 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
     family_vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
     if family_vcf_path is not None:
         # A refusal names the file, by its path in the package; the loader's words name the
-        # samples (it named no file).
+        # samples.
         with _refusal_naming(f"The family TRGT VCF ({_display_path(bundle.root, family_vcf_path)})"):
             async with _local_upload(family_vcf_path) as upload:
                 text_value = await decode_repeat_upload_text(upload)
@@ -1840,8 +1833,8 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
         return f"The TRGT VCF of {sample_id} ({_display_path(bundle.root, vcf_path)})"
 
     # Every sample's file is read whole, and refused or accepted, before any sample's calls
-    # are replaced: a later sample's refused file failed the dataset with the earlier
-    # samples' calls already replaced (SAFE-3). Each file is read again to be stored, so only
+    # are replaced: a later sample's refused file fails the dataset with every sample's
+    # calls as they were. Each file is read again to be stored, so only
     # one sample's calls are held at a time: a genome-wide TRGT catalogue is large.
     for sample_id, sample_context, vcf_path, declared in entries:
         with _refusal_naming(file_of(sample_id, vcf_path)):
@@ -1860,8 +1853,7 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
             async with _local_upload(vcf_path) as upload:
                 text_value = await decode_repeat_upload_text(upload)
                 # The sample's stored calls are deleted once its file has been read whole: a
-                # file with no record for it fails the dataset with them as they were
-                # (SAFE-29).
+                # file with no record for it fails the dataset with them as they were.
                 sample_results[sample_id] = await ingest_trgt_text(
                     session,
                     sample_context=sample_context,
@@ -1885,8 +1877,8 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
     sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     sample_results: dict[str, Any] = {}
     # Every sample's JSON is read, and refused or accepted, before any sample's results are
-    # replaced, as a package's TRGT files are (SAFE-3): a later sample's refused JSON failed
-    # the dataset with the earlier samples' results already replaced (DATA-7).
+    # replaced, as a package's TRGT files are: a later sample's refused JSON fails the
+    # dataset with every sample's results as they were.
     checked: list[tuple[str, SampleMetadataContext, Path, list[dict[str, Any]]]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
@@ -1912,16 +1904,15 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
                 payload=payload,
             )
         except ParaphaseValueError as exc:
-            # Refused as a TRGT value that cannot be read as a number is (#985): a copy number
-            # its integer column cannot hold failed the insert with a database error, after the
-            # sample's results were deleted (DATA-7).
+            # Refused, as a TRGT value that cannot be read as a number is, before the
+            # sample's results are deleted: a copy number its integer column cannot hold
+            # would fail the insert with a database error.
             raise ImportRefused(
                 f"Paraphase JSON for {sample_id} holds a value that cannot be read where a number "
                 f"is expected ({exc}); nothing was stored"
             ) from exc
         if not rows:
             # Paraphase reports every region it analysed: a JSON without one is no result.
-            # It used to replace the sample's results with none (SAFE-29).
             raise ImportRefused(
                 f"Paraphase JSON for {sample_id} holds no gene result; its results were not replaced"
             )
@@ -2064,23 +2055,19 @@ async def _import_interval_track_unless_present(
     only in what they read and where it lands. What is there is what the store
     holds (``_stored_track_rows``): Postgres's record of a track can outlive the
     rows a failed overwrite's restore deleted, and an update imports such a track
-    again (SAFE-20).
+    again.
 
     When the import does run, the whole (track_type, source) pair is cleared
     first rather than just the incoming filename. A source owns a track for a
-    sample; a filename-scoped replace silently accumulates rows when the file
-    that feeds a track changes. That is not hypothetical -- HiFiCNV's `coverage`
-    track used to be fed by the copy-number bedgraph and is now fed by the depth
-    bigWig, so a filename-scoped replace would leave the old copy-number rows
-    behind to be averaged into the new depth values. It is cleared when Postgres
-    records the track, which also removes a record whose rows are gone, or when the
-    store holds rows of it that no record names: such rows used to survive beside the
-    new ones (SAFE-18).
+    sample; a filename-scoped replace would silently accumulate rows whenever the
+    file that feeds a track changes, and the earlier file's rows would be averaged
+    into the new values. It is cleared when Postgres records the track, which also
+    removes a record whose rows are gone, or when the store holds rows of it that no
+    record names, so none of them survives beside the new ones.
 
     Before that, ``importer`` reads its file up to the first row it stores
     (``check_only``): a file without one, or one it cannot read, is refused there
-    (``EmptyTrackFileError``), and the dataset fails with the track as it was (SAFE-29).
-    It used to clear the track and store none, the dataset reading as imported.
+    (``EmptyTrackFileError``), and the dataset fails with the track as it was.
     """
 
     if conflict_mode == "update":
@@ -2115,8 +2102,8 @@ async def _check_track_unless_present(
     """``importer``'s file read up to its first row (``check_only``), as
     ``_import_interval_track_unless_present`` reads it before it clears the track, unless an
     update leaves the track as stored. A per-sample dataset checks every sample's files so
-    before it clears any sample's track: a later sample's file without a row failed the
-    dataset with the earlier samples' tracks replaced (SAFE-3)."""
+    before it clears any sample's track: a later sample's file without a row fails the
+    dataset with every sample's track as it was."""
     if conflict_mode == "update" and await _stored_track_rows(
         sample_context, track_type=track_type, source=source
     ):
@@ -2175,12 +2162,12 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     records: list[Any] = []
     sample_results: dict[str, Any] = {}
     # HiFiCNV states its version in its VCF header (``##source=HiFiCNV v1.0.1-…``): it goes
-    # into the family's annotation manifest, as the other callers' versions do (TRACE-8).
+    # into the family's annotation manifest, as the other callers' versions do.
     cnv_modules: dict[str, dict[str, Any]] = {}
     # Every sample's VCF is read and checked (its column, its records), and each of its
     # signal files up to its first value, before anything of the dataset is written: a later
-    # sample's refused file failed the dataset with the earlier samples' tracks already
-    # replaced (SAFE-3). The calls are few, and kept.
+    # sample's refused file fails the dataset with every sample's tracks as they were. The
+    # calls are few, and kept.
     entries: list[tuple[str, SampleMetadataContext, dict[str, Any]]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
@@ -2270,10 +2257,9 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         #   depth.bw          read depth per 2 kb bin  -> `coverage`
         #   copynum.bedgraph  called integer copy number -> `segments`
         #
-        # Before this split the bedgraph was the `coverage` track, which put copy
-        # number on an axis every other caller uses for depth or log2 ratio -- so
-        # a HiFiCNV track could not be compared with the WisecondorX or QDNAseq
-        # track stacked beside it.
+        # As the `coverage` track, the bedgraph would put copy number on an axis every
+        # other caller uses for depth or log2 ratio, and a HiFiCNV track could not be
+        # compared with the WisecondorX or QDNAseq track stacked beside it.
         bedgraph_path = _resolve_package_path(bundle.root, raw_entry.get("copy_number_bedgraph"))
         if bedgraph_path is not None:
             sample_results[sample_id]["copy_number_track"] = await _import_interval_track_unless_present(
@@ -2292,7 +2278,7 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                     # The bedGraph holds an integer copy number; the segments track
                     # holds a log2 ratio, which is what WisecondorX and QDNAseq write
                     # and what the chart's axis is calibrated for. Stored raw, a
-                    # normal CN of 2 plotted above the top of a +-1.5 axis and drew a
+                    # normal CN of 2 would plot above the top of a +-1.5 axis as a
                     # solid line across the genome at the clip boundary.
                     value_transform=_log2_copy_number_transform,
                     extra_metadata={"normalization": "log2_ratio_to_diploid"},
@@ -2333,8 +2319,7 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                     # recorded with the track rather than left to be re-derived. The record
                     # names the transform the stored values went through, not the one
                     # intended: depths stored as read record `none`, which the views read
-                    # as not a log2 ratio (TRACE-7). The track once recorded a log2 ratio
-                    # with a null median over raw depths, and was drawn as one.
+                    # as not a log2 ratio.
                     extra_metadata={
                         "normalization": (
                             "log2_ratio_to_autosomal_median" if depth_transform is not None else "none"
@@ -2395,8 +2380,7 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         return await _register_only(summary, "Registered only; no CNV VCF of a family sample could be found")
     # A VCF that calls no CNV is the caller's answer for its sample, not a file that carries
     # nothing: the dataset is imported, its tracks with it, and the family's earlier HiFiCNV
-    # calls go, as a VCF with calls replaces them. It used to end registered, its tracks not
-    # recorded as imported and the earlier calls left in place (SAFE-18).
+    # calls go, as a VCF with calls replaces them.
     # Held until the commit that records the SV files (the import holds it for its whole run).
     await lock_family_variant_writes(
         session,
@@ -2405,8 +2389,8 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         samples=[sample.sample_uuid for sample in sample_contexts.values()],
     )
     # Replace only this source: a family can carry NeedlR SVs and HiFiCNV calls at once. One
-    # event in two samples' VCFs is one SV with both calls: stored as two records under one
-    # id, a part merge kept one of them (CLIN-39).
+    # event in two samples' VCFs is one SV with both calls, merged into one record: stored as
+    # two records under one id, a part merge would keep one of them.
     await replace_family_structural_variants(
         family_context.assembly_name,
         family_context.family_uuid,
@@ -2529,9 +2513,7 @@ async def _import_mito_calls(
     which can be read, nothing at all) is a failed analysis, not a sample without
     mitochondrial variants: every sample's file is checked for a record before any call is
     replaced, and one without fails the dataset with the family's mitochondrial calls as
-    they were (``_mito_files_without_a_record``). It used to remove the sample's
-    earlier calls and end ``imported``, which counts as importing the dataset again
-    (SAFE-29, the owner's decision).
+    they were (``_mito_files_without_a_record``; the owner's decision).
 
     A member without a chrM VCF may have its rows of one mtDNA-Server table for all samples
     (``table``, ``table_id``; the PGT pipeline's): ``table_calls`` holds them, written as the
@@ -2539,8 +2521,7 @@ async def _import_mito_calls(
 
     The chrM SV calls (``sv_vcf``, Sniffles2 ``--mosaic``) go into the structural-variant
     store under their own ``mito_sv`` source, where the mtDNA workspace and the SV views
-    read them. Discovery and validation always accepted the file, but nothing read it:
-    a large heteroplasmic mtDNA deletion was dropped without a word.
+    read them: a large heteroplasmic mtDNA deletion is one of them.
 
     Only the sample's own column is read (``per_sample_vcf_column``), in the chrM VCF and
     in the chrM SV VCF alike: a file whose column names another sample -- a family member,
@@ -2573,10 +2554,10 @@ async def _import_mito_calls(
 
     # Every file's sample column -- the chrM calls and the chrM SVs of every sample -- is
     # checked before anything is written, so a refused file fails the dataset with none
-    # of it stored (it used to be checked file by file, after the earlier files' writes).
+    # of it stored.
     columns = await _mito_sample_columns(job, table_calls)
     # And that every chrM VCF holds a record: a file without one fails the dataset before
-    # any sample's calls are replaced (SAFE-29).
+    # any sample's calls are replaced.
     empty = _mito_files_without_a_record(job, columns, table_calls)
     if empty:
         raise ImportRefused(
@@ -2586,8 +2567,8 @@ async def _import_mito_calls(
             )
         )
     # And every chrM SV VCF is read before any chrM call is replaced: a file that cannot be
-    # read, or one whose records all lie on other chromosomes, failed the dataset after its
-    # SNV files were written, or removed the sample's chrM SVs as if it called none (SAFE-3).
+    # read, or one whose records all lie on other chromosomes, fails the dataset before any
+    # SNV file is written, and never removes the sample's chrM SVs as if it called none.
     sv_read = _read_mito_structural_variants(
         job,
         sv_columns={
@@ -2713,7 +2694,7 @@ def _mito_files_without_a_record(
     The chrM callers report every mitochondrial variant of a sample against the reference
     (rCRS), and practically every person carries some, so a file without a record is an
     analysis that failed or a file cut short, not a sample without mitochondrial variants
-    (the owner's decision, SAFE-29). Such a file used to remove the sample's earlier calls."""
+    (the owner's decision)."""
     empty: list[tuple[str, str]] = []
     for sample_id, raw_entry in (job.dataset.per_sample or {}).items():
         if sample_id not in columns or not isinstance(raw_entry, dict):
@@ -2804,7 +2785,7 @@ def _read_mito_structural_variants(
 
     A file with no call (no record on chrM, or none Sniffles called) is the sample's answer:
     no chrM SV. A file whose records all lie on other chromosomes is no chrM callset, and
-    fails the dataset: read as one without a call, it removed the sample's chrM SVs (SAFE-3).
+    fails the dataset: read as one without a call, it would remove the sample's chrM SVs.
     """
     bundle, dataset = job.bundle, job.dataset
     if not job.family_context.assembly_name:
@@ -2879,12 +2860,7 @@ async def _import_mito_structural_variants(
         family_context.family_uuid,
         source=MITO_SV_SOURCE,
     )
-    replaced_samples = {
-        value
-        for sample_id in per_sample
-        for value in (sample_id, sample_contexts[sample_id].sample_uuid)
-        if value
-    }
+    replaced_samples = set(per_sample)
     rows = _mito_sv_rows_after_import(
         stored_rows,
         merged,
@@ -2893,7 +2869,7 @@ async def _import_mito_structural_variants(
     )
     try:
         # The rewrite deletes every sample's chrM SVs before it writes them back, and puts
-        # the stored rows back when it fails after that delete (SAFE-28): an update takes no
+        # the stored rows back when it fails after that delete: an update takes no
         # snapshot of the family.
         await rewrite_family_structural_variants(
             family_context.assembly_name,
@@ -2908,11 +2884,7 @@ async def _import_mito_structural_variants(
         raise DatasetLeftMissing(
             "The chrM structural variants could not be written, nor put back as they were: "
             "those of every sample may be partly written or missing",
-            samples={
-                family_context.sample_uuid_to_name.get(call.sample, call.sample)
-                for row in (*stored_rows, *rows)
-                for call in row.record.calls
-            },
+            samples={call.sample for row in (*stored_rows, *rows) for call in row.record.calls},
         ) from exc
     await _update_sv_file_metadata(
         session,
@@ -3132,7 +3104,7 @@ async def _import_alignments_dataset(job: DatasetImportJob) -> FamilyImportDatas
     URI, which is where the endpoint looks first in gcs/s3 mode (routers/cram.py) --
     the package keeps its reads under ``bams/<sample>.cram`` below the import root,
     not where the endpoint's layout probes look. A local package's file is found by
-    the endpoint's data-directory layouts, as before.
+    the endpoint's data-directory layouts.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts = job.sample_contexts
@@ -3272,7 +3244,7 @@ async def _import_phenotypes_dataset(
         )
     if not rows and not issues:
         # Nothing to import: registered, as a dataset that carries nothing is, which an
-        # import counts as brought again (SAFE-17; before: skipped, as an update's skip).
+        # import counts as brought again (not skipped, as an update's skip is).
         return await _register_only(summary, "No HPO phenotype annotation rows were imported")
     if phenotype_import is None:
         # A clinical audit event names who changed a family's phenotypes: none is written

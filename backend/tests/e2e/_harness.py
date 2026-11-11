@@ -66,10 +66,9 @@ async def ensure_postgres_schema() -> None:
     """Bring the database to this version's schema (``init_postgres_schema``) once per test
     process.
 
-    The schema step re-applies the five baseline files and runs the revisions the ledger
-    lacks (about half a second each time, and every module needs it); the modules of a run
-    share one database and none changes its schema, so the modules after the first find it
-    applied. A module that disables a trigger or adds one of its own puts it back in a
+    The schema step makes the empty database from the five baseline files once; the modules
+    of a run share one database and none changes its schema, so the modules after the first
+    find it made. A module that disables a trigger or adds one of its own puts it back in a
     ``finally``. The step itself is verified by the integration suite
     (``test_postgres_migrations.py``)."""
     global _POSTGRES_SCHEMA_APPLIED
@@ -322,7 +321,7 @@ async def seed_hpo_term(session, hpo_id: str, label: str) -> None:
     with that release (``HPO_PINNED_RELEASE``), its date and the file's SHA-256
     (``HPO_PINNED_ONTOLOGY_SHA256``). The signed record reads the loaded release from the
     latest term, so a term without one made every sign-out of the stack record "HPO release
-    not recorded" (ENG-16)."""
+    not recorded"."""
     from backend.app.core.config import HPO_PINNED_ONTOLOGY_SHA256, HPO_PINNED_RELEASE
 
     await session.execute(
@@ -369,7 +368,7 @@ async def login_admin_token(ac) -> str:
 
 
 async def sign_out(ac, url: str, body: dict[str, Any], **kwargs: Any) -> Any:
-    """POST the report sign-out at ``url`` as the sign-out dialogs do (TRACE-19), and return
+    """POST the report sign-out at ``url`` as the sign-out dialogs do, and return
     the last response.
 
     An acknowledgement carries the fingerprint of the concerns its gate's refusal listed, so
@@ -582,7 +581,7 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
 
 async def structural_variant_record_ids(family_uuid: str, source: str = "needlr") -> dict[str, list[Any]]:
     """Each of the family's ``source`` SVs by its stored id, with the record ID each of its
-    annotations keeps (the caller's ID: CLIN-43), read from the details as stored."""
+    annotations keeps (the caller's ID), read from the details as stored."""
     from backend.app.core.clickhouse import execute_clickhouse
     from backend.app.services.clickhouse_variant_ids import _structural_table_name
     from backend.app.services.clickhouse_variant_queries import _collect_annotations, _decode_json_payload

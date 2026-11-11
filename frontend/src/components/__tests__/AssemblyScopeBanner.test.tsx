@@ -1,4 +1,4 @@
-// "Not validated for clinical use" banner — TF-06 H12 / REQ-TRACE-009 (#515).
+// "Not validated for clinical use" banner — TF-06 H12 / REQ-TRACE-009.
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -32,7 +32,7 @@ describe('AssemblyScopeBanner', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // #608 — when the reference could not be loaded the scope is unknown for good, not
+  // When the reference could not be loaded the scope is unknown for good, not
   // "still loading": the banner says it is unconfirmed, with a retry.
   it('says the scope is unconfirmed when the reference could not be loaded', () => {
     const onRetry = vi.fn();

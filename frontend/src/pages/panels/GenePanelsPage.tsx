@@ -89,7 +89,7 @@ const GenePanelsPage: React.FC = () => {
 
   const formatSpan = (total: number) =>
     total >= 1_000_000 ? `${(total / 1_000_000).toFixed(2)} Mb` : `${(total / 1000).toFixed(2)} kb`;
-  // Regions are stored per assembly (#515): one total over all of them would count each
+  // Regions are stored per assembly: one total over all of them would count each
   // gene once per loaded assembly, so the size is given per assembly, in the backend's order:
   // GRCh38, T2T-CHM13, GRCh37, then the rest.
   const formatSize = (regions: GeneLocation[]) => {
@@ -126,7 +126,7 @@ const GenePanelsPage: React.FC = () => {
     }
   };
 
-  // A delete asks first, naming the panel and its version (UI-7): it takes the panel's genes,
+  // A delete asks first, naming the panel and its version: it takes the panel's genes,
   // regions and version history with it. Only the dialog's confirmation sends it.
   const [panelToDelete, setPanelToDelete] = useState<GenePanel | null>(null);
   const [deletingPanel, setDeletingPanel] = useState(false);
@@ -400,7 +400,7 @@ const GenePanelsPage: React.FC = () => {
             className="panel-search-input"
           />
         </div>
-        {/* A failed catalogue is not an empty one: the table used to show no rows unsaid (#610). */}
+        {/* A failed catalogue is not an empty one: it is said, never shown as a table without rows. */}
         {panelsFailed ? (
           <QueryFailure what="the gene panels" error={panelsError} onRetry={() => void refetch()} />
         ) : null}

@@ -294,9 +294,9 @@ def test_the_nipt_variant_page_says_when_its_list_is_capped(
 
 
 def test_the_nipt_variant_page_takes_the_review_tag_filter(family_metadata_client) -> None:
-    # UI-4: the NIPT page could not list the variants tagged report, which its sign-out
-    # freezes. The review tags go to the analysis as sent; the selected variants it does not
-    # classify come back named, with why, as the signed record names a reported one.
+    # The NIPT page lists the variants tagged report, which its sign-out freezes. The review
+    # tags go to the analysis as sent; the selected variants it does not classify come back
+    # named, with why, as the signed record names a reported one.
     client, monkeypatch = family_metadata_client
     seen: list[dict] = []
 

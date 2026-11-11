@@ -97,7 +97,7 @@ describe('FamilyNiptPage', () => {
                 reason: 'low_depth',
               },
             ],
-            // A track of the plasma's the check did not read as depth, and why (TRACE-9).
+            // A track of the plasma's the check did not read as depth, and why.
             coverage_notes: [
               'CFDNA1: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.',
             ],
@@ -434,9 +434,8 @@ describe('FamilyNiptPage', () => {
     });
   });
 
-  // UI-4: a NIPT sign-out freezes the variants tagged report, and the NIPT page could not list
-  // them. It takes the small-variant list's review-tag filter, and "Show reported" lists what a
-  // sign-out freezes.
+  // A NIPT sign-out freezes the variants tagged report. The NIPT page takes the small-variant
+  // list's review-tag filter, and "Show reported" lists what a sign-out freezes.
   describe('the review-tag filter and the reported variants', () => {
     const TAGS = [
       { key: 'excluded', label: 'Excluded', group: 'collaboration', color: '#6b7280', sort_order: 20, scope: 'system', is_custom: false },
@@ -552,7 +551,7 @@ describe('FamilyNiptPage', () => {
       const [params] = variantSearches();
       expect(params.review_tag).toEqual(['report']);
       expect(params.exclude_review_tag).toEqual(['excluded']);
-      // Chipped as the small-variant page chips them, and now applied.
+      // Chipped as the small-variant page chips them, and applied.
       expect(await screen.findByRole('button', { name: 'Review tags: Report' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Exclude review tags: Excluded' })).toBeInTheDocument();
     });
@@ -575,8 +574,8 @@ describe('FamilyNiptPage', () => {
       expect(variantSearches().at(-1)?.inheritance).toBe('de_novo');
     });
 
-    // ENG-19: a saved search, made on the small-variant list, filtered on what the NIPT list does
-    // not apply, and its chips showed as if it did.
+    // A saved search made on the small-variant list may filter on what the NIPT list does not
+    // apply: no chip shows such a filter as if it did.
     it('shows no chip for a saved search’s filters the list does not apply, and says once which they are', async () => {
       serve({
         presets: [
@@ -637,9 +636,9 @@ describe('FamilyNiptPage', () => {
       ).toBeInTheDocument();
     });
 
-    // Found while fixing ENG-19 (#1009): a saved search made on the small-variant list with an
-    // inheritance mode the NIPT list does not offer (dominant, for one) sent it, and the server
-    // refused the whole search, while the mode still showed as an active filter.
+    // A saved search made on the small-variant list may hold an inheritance mode the NIPT list
+    // does not offer (dominant, for one): sent, the server would refuse the whole search. It is
+    // not sent, nor shown as an active filter.
     it('sends no inheritance mode the NIPT list does not offer, shows no chip for it, and names it', async () => {
       serve({
         presets: [
@@ -827,7 +826,7 @@ describe('FamilyNiptPage', () => {
     });
   });
 
-  // #606 — a failed request is said as such: never as no variants, no fetal fraction, or
+  // A failed request is said as such: never as no variants, no fetal fraction, or
   // zero counts.
   describe('when a request fails', () => {
     const failing = (...urls: string[]) =>
@@ -888,7 +887,7 @@ describe('FamilyNiptPage', () => {
       expect(screen.queryByText('Loading coverage…')).not.toBeInTheDocument();
     });
 
-    // #610 — a server error is not a family that does not exist.
+    // A server error is not a family that does not exist.
     it('says the family could not be loaded, not that it was not found', async () => {
       failing('/families/NIPT001');
       renderPage('NIPT001');

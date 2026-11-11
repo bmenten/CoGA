@@ -34,11 +34,10 @@ router = APIRouter(prefix="/cram", tags=["cram"])
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 
 # Where a family's aligned reads may sit, most-specific first, as (the folder of the data
-# directory that holds the family's folder, the folder in the family's folder). The
-# original convention is a flat `<data>/<family>/<sample>.cram`; an imported family
-# package keeps its pipeline layout instead (`<data>/families/<family>/bams/<sample>.cram`),
-# so both are probed rather than requiring the files to be copied or symlinked after
-# import. A file is found only inside the family's own folders: see
+# directory that holds the family's folder, the folder in the family's folder): a flat
+# `<data>/<family>/<sample>.cram`, or an imported family package's own pipeline layout
+# (`<data>/families/<family>/bams/<sample>.cram`), so the files need not be copied or
+# symlinked after import. A file is found only inside the family's own folders: see
 # _alignment_candidate_paths. These are the fallback: where the alignments import recorded
 # the reads, in the package folder the family's import read, comes first
 # (_local_alignment_path), so a package on a share mounted as a second import root is
@@ -58,7 +57,7 @@ def _alignment_candidate_paths(
     """Where the layouts put ``<sample>.<ext><suffix>`` in the family's own folders.
 
     The IDs come from the request, and may hold ``/`` and ``..`` (the ID rule refuses both in
-    a stored ID, SEC-15, but a request is not held to it). Each path is joined
+    a stored ID, but a request is not held to it). Each path is joined
     and normalised as a string, and one that leaves the family's folder (a sample ID such as
     ``../F2/S2``) is dropped before anything is looked up. One that
     stays is kept only when its real path lies inside one of the family's folders too, so
@@ -127,7 +126,7 @@ def _recorded_key(uri: object, suffix: str, package_folder: object) -> str | Non
     family's import read, ``package_folder``), and with the extension of the file it
     stands for. A tampered row can therefore point at most at another object of the
     family's own package, never at another family's package in the import area, other
-    objects of the bucket or another bucket (SEC-27). The endpoints check family
+    objects of the bucket or another bucket. The endpoints check family
     membership before they read the row.
     """
     key = configured_object_key(uri)
@@ -163,7 +162,7 @@ def _recorded_local_path(relative: object, extension: str, folder: str) -> str |
     and, joined to the folder and normalised as a string, stays inside it, and its real path,
     symlinks resolved, lies inside it too (``core/family_folders.py``). A tampered row can
     therefore point at most at another file of that kind in the family's own package, as in
-    remote mode (SEC-27). Blocking: symlinks are resolved on disk.
+    remote mode. Blocking: symlinks are resolved on disk.
     """
     if not isinstance(relative, str) or not relative.lower().endswith(extension):
         return None
@@ -216,7 +215,7 @@ async def _recorded_alignments(
     if not sample_ids:
         return {}
     # Each sample's family's package folder, the folder its import read: a recorded location
-    # is served only from there (SEC-27).
+    # is served only from there.
     result = await session.execute(
         text(
             """
@@ -241,7 +240,7 @@ async def _recorded_alignments(
         if alignment is not None:
             recorded[str(sample_id)] = alignment
         elif isinstance(value, dict) and value.get("uri"):
-            # The line names no sample: logs carry no values (SEC-37).
+            # The line names no sample: logs carry no values.
             logger.warning(
                 "Ignoring a sample's recorded alignment location: it is not an object in the "
                 "configured bucket in its family's package folder"

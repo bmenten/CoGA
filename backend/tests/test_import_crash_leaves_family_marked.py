@@ -300,7 +300,7 @@ async def test_a_stop_while_a_failed_overwrite_is_put_back_leaves_every_dataset_
     await _stopped_in(family, in_restore, conflict_mode="overwrite")
 
     # Nothing counts as finished, snv included, though it had finished before the restore;
-    # and the entry names the SV calls too (SAFE-16).
+    # and the entry names the SV calls too.
     entry = family.unfinished["job-1"]
     assert entry["finished_datasets"] == []
     assert registration.pending_datasets(entry) == {"coverage", "snv", "sv_needlr"}
@@ -540,7 +540,7 @@ async def test_after_a_failed_restore_nothing_the_import_wrote_counts_as_importe
     assert family.incomplete["failed_datasets"] == ["coverage", "snv"]
     assert family.incomplete["imported_datasets"] == []
     # Its restore may have removed the rows of any of its datasets, so the overwrite names
-    # each as failed itself (SAFE-13): snv now with job-2, whose record says why.
+    # each as failed itself: snv now with job-2, whose record says why.
     assert family.incomplete["failed_jobs"] == {"coverage": "job-2", "snv": "job-2"}
 
 

@@ -39,7 +39,7 @@ CLASS_WORD_TAG_KEYS: dict[str, str] = {
 
 def review_class_label(classification: str | None, tags: Iterable[Any] | None = None) -> str | None:
     """The class a review shows, from its classification text and its tags, as the family page
-    reads it (``normalizeReviewClassification`` in smallVariantSearch.ts; CLIN-71).
+    reads it (``normalizeReviewClassification`` in smallVariantSearch.ts).
 
     A bare class word in the text ("VUS", "likely pathogenic") is that class's label; else the
     most severe ACMG class tag the review holds (``acmg_class_5`` … ``acmg_class_1``) is its
@@ -77,7 +77,7 @@ def review_shows_class(
     """Whether a review shows one of the ``requested`` classes (:func:`review_class_filter`).
 
     The rule of the classification filters, the small-variant family search's and the
-    Variant Explorer's (CLIN-75) and the structural-variant search's (CLIN-77), the owner's
+    Variant Explorer's and the structural-variant search's, the owner's
     decisions of 2026-11-10: a review is kept by the class it shows (:func:`review_class_label`),
     so a class filter keeps every review shown with that class, one classified by its class tag
     alone too, and none shown with another. The Explorer applies it in SQL
@@ -175,7 +175,7 @@ def _as_utc(value: Any) -> datetime | None:
 def _save_time(*reviews: dict[str, Any] | None) -> datetime:
     """The time a save stamps on the reviews it writes: now, never before one they hold.
 
-    ``updated_at`` is the version a later save is checked against (#513). Read under the
+    ``updated_at`` is the version a later save is checked against. Read under the
     reviews' locks it is in the past, but a clock that stepped back would make a save older
     than the review it replaces; it is then stamped a microsecond after that review.
     """
@@ -201,10 +201,10 @@ def _raise_on_stale_review(
 ) -> None:
     """Refuse a save made against a review that has changed since the client loaded it.
 
-    Two reviewers saving the same variant used to be last-write-wins, without either
-    being told (#513). The client sends the ``updated_at`` it loaded (null for "no
-    review yet"); anything else now stored means someone saved in between, and the
-    409 carries the current review so the client can show it instead of overwriting.
+    Two reviewers saving the same variant are never last-write-wins: the client sends the
+    ``updated_at`` it loaded (null for "no review yet"); anything else now stored means
+    someone saved in between, and the 409 carries the current review so the client can
+    show it instead of overwriting.
 
     A compound-het pair save writes its partner's review too, and checks it the same way
     from ``expected_field`` (``partner_expected_updated_at``); the 409 then names the
@@ -251,7 +251,7 @@ def _has_stored_record(value: Any) -> bool:
 
 
 def _log_unreadable_classification(kind: str, exc: BaseException) -> None:
-    """Record that a stored classification could not be read back (#514).
+    """Record that a stored classification could not be read back.
 
     The review is still served, with the classification marked unreadable rather than
     failing the page, but never silently: a stored classification dropping out of view
@@ -277,7 +277,7 @@ def _read_stored_classification(
     """The stored classification, or None when there is none or it cannot be read.
 
     ``None`` alone cannot tell those apart, so an unreadable record is logged here and
-    the review serializer marks it (``acmg_unreadable``) instead of dropping it (#514).
+    the review serializer marks it (``acmg_unreadable``) instead of dropping it.
     ``kind`` names the record in that log line ("ACMG classification").
     """
     if not value:
@@ -305,14 +305,14 @@ def _merge_tag_metadata(
     username: str,
     timestamp: datetime,
 ) -> dict[str, dict[str, Any]]:
+    """Who added each of ``next_tags`` and when: a tag the review held keeps its entry, which
+    every save records; a tag it adds is this save's."""
     previous = set(_normalize_tags(previous_tags))
     merged: dict[str, dict[str, Any]] = {}
     for tag in _normalize_tags(next_tags):
-        if tag in previous and isinstance((existing_metadata or {}).get(tag), dict):
-            merged[tag] = {
-                "updated_by": (existing_metadata or {})[tag].get("updated_by"),
-                "updated_at": (existing_metadata or {})[tag].get("updated_at"),
-            }
+        if tag in previous:
+            kept = (existing_metadata or {})[tag]
+            merged[tag] = {"updated_by": kept.get("updated_by"), "updated_at": kept.get("updated_at")}
         else:
             merged[tag] = {
                 "updated_by": username,

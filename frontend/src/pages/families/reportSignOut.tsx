@@ -46,9 +46,9 @@ export interface ReportSignOut {
 }
 
 /**
- * The concerns a Sample-QC refusal names, each group as the 409 lists it (CLIN-58): the checks
+ * The concerns a Sample-QC refusal names, each group as the 409 lists it: the checks
  * that failed, those that could not run, a NIPT family's NIPT quality checks that failed, and
- * the warnings beside them. Each concern names its sample, pair or child (CLIN-8).
+ * the warnings beside them. Each concern names its sample, pair or child.
  */
 interface QcConcerns {
   failed: string[];
@@ -73,7 +73,7 @@ const stringList = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
 /**
- * What a gate's refusal says of the concerns it lists (TRACE-19): their fingerprint, which the
+ * What a gate's refusal says of the concerns it lists: their fingerprint, which the
  * dialog sends back with the acknowledgement, so it covers the concerns the dialog showed and
  * no others; and whether the concerns changed after an earlier dialog showed them, in which case
  * the refusal lists them as they are now for a fresh acknowledgement.
@@ -110,7 +110,7 @@ const NO_FLAG: FamilyImportIncomplete = {
 
 /** What decides whether a page offers the sign-out (`signOutRefusal`). */
 export interface SignOutOffer {
-  /** The family is read-only for the signed-in user: a viewer, or a reader in its project (SEC-1). */
+  /** The family is read-only for the signed-in user: a viewer, or a reader in its project. */
   readOnly: boolean;
   /** The signed-in user may sign the family out: `can_sign_out`, a supervisor or higher who may
    * change the family (TF-06 H15). */
@@ -125,10 +125,10 @@ export interface SignOutOffer {
  * Why a page does not offer the sign-out, or null when it does; the button is disabled with
  * this as its reason. The live report and the NIPT report both read it, so a family is offered
  * the sign-out alike on both: never to a viewer or a reader in its project, who signs nothing out
- * (SEC-1; the server refuses them with 403); never to an analyst, as signing out is a
+ * (the server refuses them with 403); never to an analyst, as signing out is a
  * supervisor's (TF-06 H15; 403 too); never off the validated assembly scope, which the server
- * refuses anyway (#515); and not while the sign-out record is unknown, as the analysis may be
- * signed already (#605). ``subject`` names what is signed out: the report, or the NIPT
+ * refuses anyway; and not while the sign-out record is unknown, as the analysis may be
+ * signed already. ``subject`` names what is signed out: the report, or the NIPT
  * analysis.
  */
 export const signOutRefusal = (offer: SignOutOffer, subject: 'report' | 'analysis'): string | null => {
@@ -148,11 +148,11 @@ export const signOutRefusal = (offer: SignOutOffer, subject: 'report' | 'analysi
  * sign out through one flow, one record per analysis. A gate that refuses opens its dialog,
  * which lists the gate's concerns and is acknowledged with a reason that is frozen into the
  * signed record and with the fingerprint of the concerns it listed, so the acknowledgement
- * covers what the dialog showed (TRACE-19); one that cannot be acknowledged (the assembly
+ * covers what the dialog showed; one that cannot be acknowledged (the assembly
  * scope, data being written) is said in `error`. ``onSigned`` is
  * given the new version. For a viewer or a reader in the family's project (``readOnly``), and for
  * a user below supervisor (``canSignOut`` false), it sends nothing, whatever calls it: they sign
- * nothing out (SEC-1, TF-06 H15).
+ * nothing out (TF-06 H15).
  */
 export const useReportSignOut = (
   familyId: string | undefined,
@@ -165,7 +165,7 @@ export const useReportSignOut = (
   // signed record: evidence drift first, then a failing / unverifiable Sample QC, then an
   // incomplete import. Each dialog keeps the attempt its gate refused (`vars`), so the
   // acknowledgements already given travel on with the next one. Each acknowledgement carries
-  // the fingerprint of the concerns its dialog showed (`fingerprint`, TRACE-19): it covers
+  // the fingerprint of the concerns its dialog showed (`fingerprint`): it covers
   // those, and a sign-out whose concerns are no longer those is refused with them as they are
   // now (`changed`), which reopens the dialog for a fresh acknowledgement.
   type SignOutVars = {
@@ -279,7 +279,7 @@ export const useReportSignOut = (
         detail && typeof detail === 'object' ? (detail as { gate?: string }).gate : undefined;
       closeGates();
       // Off the validated assembly scope: a refusal with no override, never the drift
-      // dialog that a plain 409 would open (#515).
+      // dialog that a plain 409 would open.
       if (gate === 'assembly_scope') {
         setSignOutError(
           (detail as { message?: string }).message ||
@@ -298,7 +298,7 @@ export const useReportSignOut = (
       }
       // Evidence drift returns the classifications it counts, as the signed record freezes
       // them; it needs an acknowledge-WITH-REASON override, so open the dialog, which lists
-      // them (TRACE-19: before, it gave their number only).
+      // them.
       if (gate === 'evidence_drift') {
         const drift = detail as {
           message?: string;
@@ -490,7 +490,7 @@ export const useReportSignOut = (
                 To sign out anyway you must record a reason — it is frozen into the signed record.
               </p>
               {/* Each classification the gate counts, as the signed version will list it: the
-                  acknowledgement covers these (TRACE-19). */}
+                  acknowledgement covers these. */}
               {driftGate.drifted.length || driftGate.structuralDrifted.length || driftGate.findingDrifted.length ? (
                 <>
                   <h3 className="report-subheading" id="drift-concerns">
@@ -574,7 +574,7 @@ export const useReportSignOut = (
                 To sign out anyway you must record a reason — it is frozen into the signed record.
               </p>
               {/* Every concern, each group under its heading, as the 409 lists them and the
-                  sign-out's audit event records them (CLIN-58). */}
+                  sign-out's audit event records them. */}
               {QC_CONCERN_GROUPS.map(({ key, id, heading }) =>
                 qcGate.concerns[key].length ? (
                   <React.Fragment key={key}>
@@ -666,7 +666,7 @@ export const useReportSignOut = (
                     <li>Import job: {importGate.jobId}</li>
                   ) : null}
                   {/* A single-file upload's failure, or an import's run outside a job: no
-                      job records its error, whatever the flag's own job (SAFE-18). */}
+                      job records its error, whatever the flag's own job. */}
                   {importGate.withoutJob.length ? (
                     <li>No import job: {importGate.withoutJob.join(', ')}</li>
                   ) : null}
@@ -675,7 +675,7 @@ export const useReportSignOut = (
                   {importGate.unfinished.map((entry) => (
                     <li key={entry.key}>
                       {/* A failed overwrite whose restore did not finish, not an import that
-                          stopped: the refusal freezes it as such (SAFE-18). */}
+                          stopped: the refusal freezes it as such. */}
                       {entry.wholeFamily ? 'Restore not finished' : 'Not finished'}
                       {unfinishedWriter(entry.key) === 'upload'
                         ? ' (single-file upload)'
@@ -748,7 +748,7 @@ export const useReportSignOut = (
                 To sign out anyway you must record a reason — it is frozen into the signed record.
               </p>
               {/* Each repeat locus and Paraphase region the gate lists: the acknowledgement
-                  covers these (TRACE-19). */}
+                  covers these. */}
               {unreviewedGate.findings.length ? (
                 <ul className="report-drift-list" aria-label="Findings without a review">
                   {unreviewedGate.findings.map((finding) => (

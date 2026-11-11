@@ -258,7 +258,7 @@ def test_the_time_it_was_written_carries_its_time_zone() -> None:
         (b'{"schema": "coga-package/1", "extra": {"value": 1e999}}', "package_number_invalid"),
         (b'{"schema": "coga-package/1", "notes": "a\\u0000b"}', "package_unstorable_text"),
         (b'{"schema": "coga-package/1", "notes": "\\ud800"}', "package_unstorable_text"),
-        (b'{"schema": "coga-ready/1"}', "package_schema_unknown"),
+        (b'{"schema": "coga-package/2"}', "package_schema_unknown"),
         (b"[]", "package_not_json"),
         (b"{", "package_not_json"),
         (b"\xff\xfe", "package_not_json"),

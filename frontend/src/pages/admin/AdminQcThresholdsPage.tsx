@@ -285,8 +285,8 @@ const AdminQcThresholdsPage: React.FC = () => {
                       >
                         {metric.label}
                       </InfoTip>{' '}
-                      {/* Unit and failing side, inline: three former columns in the space
-                          of one, and both belong to the metric rather than to a bound. */}
+                      {/* Unit and failing side, inline: both belong to the metric rather
+                          than to a bound. */}
                       <span className="table-subtle">
                         {metric.unit ? `${metric.unit} ` : ''}
                         {worseWhenLower ? '↓' : '↑'}
@@ -298,9 +298,8 @@ const AdminQcThresholdsPage: React.FC = () => {
                         step="any"
                         className="qc-threshold-input"
                         aria-label={`${metric.label} warning threshold`}
-                        // The stored value as placeholder: a blank input reads as "no
-                        // bound", and the former Stored column existed only to say
-                        // otherwise.
+                        // The stored value as placeholder, so a blank input does not
+                        // read as "no bound".
                         placeholder={stored?.warn ? `${stored.warn}` : 'none'}
                         value={draft.warn}
                         onChange={(event) => setDraft(metric.key, { warn: event.target.value })}
@@ -318,8 +317,7 @@ const AdminQcThresholdsPage: React.FC = () => {
                       />
                     </td>
                     <td>
-                      {/* Only the row being edited offers a Save; 16 permanently disabled
-                          buttons were 16 rows of noise. */}
+                      {/* Only the row being edited offers a Save. */}
                       {dirty ? (
                         <button
                           type="button"
@@ -334,34 +332,6 @@ const AdminQcThresholdsPage: React.FC = () => {
                   </tr>
                 );
               })}
-              {/* A limit whose metric has left the catalogue gates nothing, and the rows above
-                  are the catalogue's: it is listed here so that it can be removed, through the
-                  same confirmation and reason as any change (ENG-12, REQ-QC-003). */}
-              {(activeProfile?.thresholds ?? [])
-                .filter((threshold) => !threshold.known_metric)
-                .map((threshold) => (
-                  <tr key={threshold.metric_key}>
-                    <td>
-                      {threshold.metric_key}{' '}
-                      <span className="table-subtle">no longer in the catalogue: it gates nothing</span>
-                    </td>
-                    <td className="table-subtle">{boundText(threshold.warn_value) || 'none'}</td>
-                    <td className="table-subtle">{boundText(threshold.error_value) || 'none'}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="button-ghost"
-                        disabled={saveMutation.isPending}
-                        onClick={() => {
-                          setDraft(threshold.metric_key, { warn: '', error: '' });
-                          setPendingMetric(threshold.metric_key);
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
             </tbody>
           </table>
         </div>
@@ -370,7 +340,7 @@ const AdminQcThresholdsPage: React.FC = () => {
 
       {pendingMetric && (
         // ModalDialog: Escape, a focus trap and focus restore, and a check before a
-        // typed reason is discarded (#529).
+        // typed reason is discarded.
         <ModalDialog
           onClose={() => {
             setPendingMetric(null);

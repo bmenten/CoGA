@@ -11,7 +11,7 @@
  * across callers. (HiFiCNV reports absolute read depth; the importer normalises
  * it — see `family_package_datasets._log2_ratio_transform` — and records that it
  * did, or that it could not.) A coverage BED holds what it declared when it was
- * loaded, read depth or a log2 ratio (TRACE-9). What each track holds is served
+ * loaded, read depth or a log2 ratio. What each track holds is served
  * with the track availability (`coverage_contents`), and decides its axis:
  * `coverageScale`.
  */
@@ -59,9 +59,8 @@ export const orderCoverageSources = (sources: readonly string[] | undefined): st
 /**
  * The track label for a caller's coverage.
  *
- * A sample with one caller keeps the plain "Coverage" label it has always had —
- * naming the caller only earns its space when there is another to tell it apart
- * from.
+ * A sample with one caller keeps the plain "Coverage" label — naming the caller only
+ * earns its space when there is another to tell it apart from.
  */
 export const coverageTrackLabel = (source: string, totalSources: number): string =>
   totalSources > 1 ? `Coverage · ${coverageSourceLabel(source)}` : 'Coverage';
@@ -69,11 +68,10 @@ export const coverageTrackLabel = (source: string, totalSources: number): string
 /**
  * The axis a caller's coverage track is drawn on: what the track holds, as the track
  * availability serves it (`coverage_contents`), decided once by the backend by the rule the
- * depth readers read it by (`coverage_read_depth`, TRACE-9). Read depth on a depth axis, a
+ * depth readers read it by (`coverage_read_depth`). Read depth on a depth axis, a
  * log2 ratio on the log2-ratio axis, and anything else — a coverage BED that does not declare
  * what it holds, a transform not known, a track the availability says nothing of — on neither:
- * its values on their own range, with a note (`coverageScaleNote`). An undeclared coverage BED
- * used to be drawn on the log2-ratio axis, while the depth readers read it as depth.
+ * its values on their own range, with a note (`coverageScaleNote`).
  */
 export const coverageScale = (content: string | undefined): CoverageContent =>
   content === 'read_depth' || content === 'log2_ratio' ? content : 'unknown';
@@ -91,7 +89,7 @@ export const coverageScaleNote = (
   const scale = coverageScale(content);
   if (scale === 'log2_ratio') return null;
   if (scale === 'read_depth') {
-    // HiFiCNV's depths stored as read: the other callers' tracks are log2 ratios (TRACE-7).
+    // HiFiCNV's depths stored as read: the other callers' tracks are log2 ratios.
     return normalizations?.includes('none')
       ? {
           text: 'Read depth, stored as read: the sample had no usable autosomal median to normalise it by.',

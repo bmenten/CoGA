@@ -811,10 +811,8 @@ def _manifest_relationship_issues(
 ) -> list[FamilyImportValidationIssue]:
     """Errors for ``family.relationships`` entries that name someone who is not a member,
     and for a link of unknown degree (``relatives``) that links a member to itself or
-    repeats a relationship the PED or the manifest records.
-
-    Without this check a typo in a manifest relationship surfaced only when the family
-    was written, after the package had validated."""
+    repeats a relationship the PED or the manifest records, so that a typo in a manifest
+    relationship fails the validation rather than the writing of the family."""
     errors: list[FamilyImportValidationIssue] = []
     relationships = _manifest_relationships(manifest)
     for relationship in relationships:

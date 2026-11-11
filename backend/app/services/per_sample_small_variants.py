@@ -170,7 +170,7 @@ class _PerSampleVcfReader:
         self._handle: io.TextIOBase
         if magic == b"\x1f\x8b" or source.path.name.endswith(".gz"):
             try:
-                # Cut where one of its blocks ends, a BGZF file reads as whole (DATA-4).
+                # Cut where one of its blocks ends, a BGZF file reads as whole.
                 require_bgzf_file_end(self._raw, label=self.label)
             except BaseException:
                 self._raw.close()
@@ -241,7 +241,7 @@ class _PerSampleVcfReader:
             self.records_read += 1
             fields = line.rstrip("\r\n").split("\t")
             # A POS that is no whole number the UInt32 position column holds is malformed
-            # as an unreadable one is (SAFE-30).
+            # as an unreadable one is.
             position = column_int(fields[1], UINT32) if len(fields) > 1 else None
             if len(fields) <= sample_column or position is None:
                 self.skipped_malformed += 1
@@ -257,7 +257,7 @@ class _PerSampleVcfReader:
             sample_field = fields[sample_column]
             genotype = _record_genotype(fmt, sample_field)
             if not is_vcf_genotype(genotype):
-                # A word such as HET, which only a malformed VCF holds (CLIN-16). Any record's:
+                # A word such as HET, which only a malformed VCF holds. Any record's:
                 # an excluded one is kept as its sample's call where another sample has a
                 # variant.
                 raise PerSampleMergeError(
@@ -399,9 +399,9 @@ async def upload_family_per_sample_small_variant_files(
     The callset replaces the family's stored primary callset (``overwrite``; else 409 when
     there is one). It must bring the file of every sample with calls in the stored one: a
     sample left out would lose its calls without a word, so that is refused (409) before
-    anything is deleted, as is a file with no record (SAFE-29) and a BGZF file that does not
-    end with BGZF's end-of-file block (400, DATA-4). A record whose genotype is not VCF's
-    allele notation (a word such as ``HET``) is refused (400, CLIN-16): in a file's first
+    anything is deleted, as is a file with no record and a BGZF file that does not end with
+    BGZF's end-of-file block (400). A record whose genotype is not VCF's
+    allele notation (a word such as ``HET``) is refused (400): in a file's first
     record before anything is deleted, in a later one as the callset is written, which is then
     removed again, as for an unsorted file. ``exclude_filters`` names
     the FILTER values of records that carry no variant (see the module docstring). Each
@@ -437,8 +437,8 @@ async def upload_family_per_sample_small_variant_files(
             order.add_header(reader.contigs, label=reader.label)
         # And each file's first record, before anything is deleted: a file without one (a
         # header alone, or records none of which can be read) is refused with the stored
-        # callset as it was (SAFE-29). It used to be imported beside the others, its sample
-        # left with no call in the callset.
+        # callset as it was, rather than imported beside the others with its sample left
+        # with no call in the callset.
         for reader in readers:
             reader.start(order)
             if reader.next_key is None:
@@ -459,8 +459,7 @@ async def upload_family_per_sample_small_variant_files(
                 raise HTTPException(status_code=409, detail="Small variants already exist for this family")
             replaced = _sample_call_ids([sample_contexts[sample_id] for sample_id in file_samples])
             stored = await family_small_variant_call_samples(assembly_name, context.family_uuid, source=source)
-            uuid_to_id = {sample.sample_uuid: sample.sample_id for sample in sample_contexts.values()}
-            kept = sorted({uuid_to_id.get(sample, sample) for sample in stored if sample not in replaced})
+            kept = sorted(stored - replaced)
             if kept:
                 raise HTTPException(
                     status_code=409,

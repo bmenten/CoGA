@@ -1,4 +1,4 @@
-"""An import stops itself before another write can start (E2E, SAFE-15, TF-06 H16).
+"""An import stops itself before another write can start (E2E, TF-06 H16).
 
 A running import writes its job's heartbeat every minute, and a worker that finds it ten
 minutes old ends the job as interrupted; and the import holds its family's variant-write

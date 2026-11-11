@@ -10,23 +10,21 @@ Covers the fail-clean plumbing without a live database:
     entry and each earlier import's entry it completed; an entry it did not complete (an
     update, or an overwrite without that dataset) stays.
   * After a failed overwrite whose restore failed part-way, `_flag_family_restore_failed`
-    keeps the import's entry naming every dataset of the family (SAFE-16), which each
+    keeps the import's entry naming every dataset of the family, which each
     completed overwrite shrinks and the last removes; what imports imported is recorded
     in `imported_scopes`.
   * Each single-file upload records what it brought in `imported_scopes`, in its own
-    transaction, so such an entry names it, and an upload with overwrite strikes it off
-    (SAFE-19); each upload holds the family's write locks from its first read.
+    transaction, so such an entry names it, and an upload with overwrite strikes it off; each upload holds the family's write locks from its first read.
   * An SNV dataset is recorded as the callset it is stored as, `auto` as its family VCF
     resolves it, so two imports, or an import and an upload, complete each other only for
     the same callset, and a scope still reading `auto` is completed by none; the SNV
-    importer stores the file as that callset (SAFE-23).
+    importer stores the file as that callset.
   * The flag keeps every scope a dataset failed for, each with its job, so a later failure
-    under another callset or other samples never replaces an earlier one (SAFE-26).
+    under another callset or other samples never replaces an earlier one.
   * An `auto` SNV import's update check and clean-up read the callset its import recorded,
-    never an assumed clair3 (SAFE-27).
+    never an assumed clair3.
   * A dataset imported with warnings, or registered when its package carries nothing CoGA
-    imports for it, counts as brought again; nothing else that ends registered does
-    (SAFE-17).
+    imports for it, counts as brought again; nothing else that ends registered does.
 The SQL itself runs against Postgres in
 integration/test_import_crash_bookkeeping_integration.py.
 """
@@ -113,7 +111,7 @@ async def test_delete_family_shell_also_clears_interval_tracks(monkeypatch) -> N
     origin = PhenotypeImport(user=SimpleNamespace(id="u1", username="admin"), via="package_import")
 
     async def no_event(*_args, **_kwargs):
-        # The family's last clinical audit event (SEC-7) is not what this test reads.
+        # The family's last clinical audit event is not what this test reads.
         return None
 
     monkeypatch.setattr("app.services.family_package_registration.record_family_deleted", no_event)
@@ -175,7 +173,7 @@ class _FamilyRow(_FakeSession):
             self.unfinished = {**(self.unfinished or {}), params["import_key"]: json.loads(params["entry"])}
         elif set(params) == {"family_uuid", "import_key"}:
             # An entry removed alone: an import's that was put back, or a write's mark
-            # (SAFE-28).
+            #.
             if isinstance(self.unfinished, dict):
                 self.unfinished.pop(params["import_key"], None)
                 self.unfinished = self.unfinished or None
@@ -402,7 +400,7 @@ async def test_a_flag_not_in_the_shape_an_import_writes_stays(flag) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("flag", ["garbage", True, {"failed_datasets": "snv"}, {}])
 async def test_a_later_failure_keeps_a_flag_not_in_the_shape_an_import_writes(flag) -> None:
-    # SAFE-18: the flag stays as it was, so the family does not read as complete once
+    # the flag stays as it was, so the family does not read as complete once
     # coverage is imported again, whatever the first flag stands for.
     row = _FamilyRow(flag=copy.deepcopy(flag))
     await fpi._flag_family_import_incomplete(
@@ -519,14 +517,14 @@ async def test_a_clear_that_fails_leaves_the_marks_and_says_so(caplog) -> None:
 
     assert await fpi._clear_family_import_incomplete(session, _ctx(), import_key="job-1") is None
     # Nothing is written: the flag and the entry stay, the safe side; the log names the
-    # family by its UUID, never its ID (SEC-39).
+    # family by its UUID, never its ID.
     assert (session.committed, session.rolled_back) == (False, True)
     assert [record.getMessage() for record in caplog.records] == [
         "Failed to clear import-incomplete flag for family uuid-1"
     ]
 
 
-# --- a restore that did not finish: the whole family (SAFE-16) ----------------------------
+# --- a restore that did not finish: the whole family ----------------------------
 
 
 def _one(sample=None, source=None):
@@ -563,7 +561,7 @@ async def test_a_restore_that_failed_part_way_keeps_its_entry_naming_every_datas
         family_samples=["S1", "S2"],
     )
 
-    # The flag (SAFE-13): every dataset of the import failed, none imported.
+    # The flag: every dataset of the import failed, none imported.
     assert (row.flag["failed_datasets"], row.flag["imported_datasets"]) == (["coverage", "snv"], [])
     assert row.flag["failed_jobs"] == {"coverage": "job-2", "snv": "job-2"}
     # The entry stays beside the flag, naming every dataset the family holds as pending, each
@@ -710,7 +708,7 @@ async def test_what_the_family_s_imports_imported_is_recorded_for_it() -> None:
 
 
 def test_the_whole_family_entry_leaves_out_what_postgres_alone_holds_of_other_imports() -> None:
-    # SAFE-18. The restore puts Postgres back in one transaction, which a failure rolls back
+    # The restore puts Postgres back in one transaction, which a failure rolls back
     # whole: a dataset held in Postgres alone that this import did not carry cannot be left
     # partly written, so it is not listed.
     mark = registration.ImportMark.begin(
@@ -795,7 +793,7 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
                 "snv": dataset(family_vcf="snv/family.vcf", extra={"source_format": "deepvariant"}),
                 "haplotypes": dataset(family_vcf="GLIMPSE2/FAM.vcf.gz"),
                 # S2's BED declares what it holds; S1's declares nothing, so it is stored as
-                # unknown (TRACE-9). The scope says so, sample by sample.
+                # unknown. The scope says so, sample by sample.
                 "coverage": dataset(
                     per_sample={"S2": {"bed": "b", "content": "read_depth"}, "S1": {"bed": "a"}, "bad": "x"}
                 ),
@@ -820,13 +818,13 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
         "repeats_trgt": {"source": None, "samples": None},
         "phenotypes": {"source": None, "samples": None},
     }
-    # An SNV callset without a declared source is the one its family VCF holds (SAFE-23,
-    # below); one whose file cannot be read names none: "auto".
+    # An SNV callset without a declared source is the one its family VCF holds (below); one
+    # whose file cannot be read names none: "auto".
     bundle.manifest.datasets["snv"] = dataset(family_vcf="snv/family.vcf")
     assert registration.dataset_scopes(bundle, ["snv"])["snv"]["source"] == "auto"
 
 
-# --- single-file uploads: recorded in what the family holds (SAFE-19) ----------------------
+# --- single-file uploads: recorded in what the family holds ----------------------
 #
 # Each upload's route is driven against the family row (``_UploadFamily``), its stores
 # patched out: what it writes of the family's metadata, and when, is what is tested.
@@ -841,7 +839,7 @@ _UPLOADS = {
     "small_variants": ("snv", {"source": "clair3", "samples": None}),
     "structural_variants": ("sv_manual", _one("S1")),
     "repeats": ("repeats_trgt", _one("S1")),
-    # A coverage BED's scope says what it declared it holds (TRACE-9).
+    # A coverage BED's scope says what it declared it holds.
     "track": ("bed_coverage", {**_one("S1"), "content": "read_depth"}),
 }
 
@@ -876,7 +874,7 @@ class _UploadFamily(_FamilyRow):
 
 class _MarkConnection:
     """The connection a single-file upload writes its mark on
-    (``registration.mark_family_upload``, SAFE-28): its write applies to the family row at
+    (``registration.mark_family_upload``): its write applies to the family row at
     once, committed whatever becomes of the upload's own transaction, and its statements are
     kept apart from the upload's (``row.marks``: each mark's entry, by its key)."""
 
@@ -994,7 +992,7 @@ def uploads(monkeypatch):
     monkeypatch.setattr(trgt_router, "read_trgt_sample_calls", read_trgt_sample_calls)
     monkeypatch.setattr(trgt_router, "store_trgt_sample_calls", store_trgt_sample_calls)
     # The interval-track store; the BED upload's route takes the family's write locks. The
-    # upload counts its source's stored rows (SAFE-22).
+    # upload counts its source's stored rows.
     monkeypatch.setattr(bed_router, "lock_family_variant_writes", lock, raising=False)
     monkeypatch.setattr(
         bed_service, "count_interval_track_rows", recorder("count", lambda: existing["rows"])
@@ -1026,7 +1024,7 @@ def uploads(monkeypatch):
         for module in (sv_router, trgt_router, bed_router):
             monkeypatch.setattr(module, "build_sample_metadata_context", sample_context)
         # The upload's mark, written on a connection of its own before its first ClickHouse
-        # write (SAFE-28), applies to the family row at once.
+        # write, applies to the family row at once.
         monkeypatch.setattr(registration, "get_postgres_sessionmaker", lambda: lambda: _MarkConnection(row))
         if kind == "small_variants":
             glimpse2 = callset == "glimpse2"
@@ -1084,7 +1082,7 @@ def uploads(monkeypatch):
 @pytest.mark.parametrize("kind", sorted(_UPLOADS))
 async def test_a_single_file_upload_records_what_it_brought_with_its_commit(uploads, kind) -> None:
     # The family holds a package import's SNV callset (imputed genotypes, an snv dataset
-    # stored as glimpse2). The upload adds its own scope to imported_scopes (SAFE-19), so
+    # stored as glimpse2). The upload adds its own scope to imported_scopes, so
     # the family records that it holds the upload's data.
     held = {"source": "glimpse2", "samples": None}
     row = _UploadFamily(imported={"snv": [held]})
@@ -1132,7 +1130,7 @@ async def test_a_restore_that_fails_part_way_names_what_an_upload_brought(upload
     dataset, scope = _UPLOADS[kind]
     if not registration.dataset_clickhouse_stores(dataset):
         # The TRGT calls are Postgres's alone, which the restore puts back in one transaction:
-        # it cannot leave them partly written, so the entry does not name them (SAFE-18).
+        # it cannot leave them partly written, so the entry does not name them.
         assert listed == ["coverage"]
         return
     assert listed == sorted({"coverage", dataset})
@@ -1192,7 +1190,7 @@ async def test_an_upload_strikes_off_only_the_samples_and_the_callset_it_brought
     # S2's manual SV calls and the clair3 callset are struck off. S1's calls and the
     # package's imputed callset (an snv dataset stored as glimpse2) are still to bring again.
     # The TRGT calls are not listed: Postgres's alone, which the restore cannot leave partly
-    # written (SAFE-18).
+    # written.
     assert [item for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] != "coverage"] == [
         {"dataset": "snv", "scope": imputed},
         {"dataset": "sv_manual", "scope": _one("S1")},
@@ -1274,8 +1272,8 @@ async def test_an_upload_whose_record_cannot_be_written_fails_and_keeps_none_of_
         assert [name for name, _ in writes] == ["delete", "insert", "delete"]
         assert writes[-1][1] == {"source": "clair3"}
         # It had deleted the callset it replaces: the one commit is the flag that names
-        # it, so that the family does not read as complete (SAFE-25), and the upload's
-        # mark goes with it (SAFE-28).
+        # it, so that the family does not read as complete, and the upload's
+        # mark goes with it.
         assert [sql for sql, _ in row.executed].count("COMMIT") == 1
         assert row.flag["failed_datasets"] == ["snv"]
         assert row.flag["failed_scopes"] == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
@@ -1287,7 +1285,7 @@ async def test_an_upload_whose_record_cannot_be_written_fails_and_keeps_none_of_
         assert row.flag is None and row.marks == {}
         assert writes == []
     else:
-        # The mark written before the record (SAFE-28) goes again, in a transaction of its
+        # The mark written before the record goes again, in a transaction of its
         # own: nothing was written.
         assert [sql for sql, _ in row.executed].count("COMMIT") == 1
         assert len(row.marks) == 1 and row.unfinished is None
@@ -1306,7 +1304,7 @@ def test_each_upload_has_the_dataset_of_the_package_import_that_brings_the_same(
     assert registration.interval_track_upload_scope("apcad_pcf", "S1") == ("bed_apcad_pcf", _one("S1"))
 
 
-# --- an SNV import names the callset it stores, `auto` as it resolves (SAFE-23) -------------
+# --- an SNV import names the callset it stores, `auto` as it resolves -------------
 #
 # A package snv dataset that leaves source_format at auto (the default) is stored as the
 # callset the small-variant loader works out from its family VCF: imputed genotypes (genotype
@@ -1692,11 +1690,11 @@ async def test_an_import_records_the_callset_its_auto_snv_dataset_stores(monkeyp
     assert row.unfinished is None and row.flag is None
 
 
-# --- a failed dataset stays flagged for each scope it failed for (SAFE-26) -----------------
+# --- a failed dataset stays flagged for each scope it failed for -----------------
 #
 # The flag keeps each scope a dataset failed for, with the job that holds its error
 # (`failed_scopes`): a later failure of the same dataset under another scope -- another
-# callset of the small variants (two `auto` SNV imports of different callsets, SAFE-23), other
+# callset of the small variants (two `auto` SNV imports of different callsets), other
 # samples of a per-sample dataset -- never replaces an earlier one, and a dataset leaves the
 # flag only once each scope has been brought again, by an import or an upload.
 
@@ -1813,7 +1811,7 @@ async def test_an_upload_brings_again_only_the_scope_it_brought_of_a_dataset_tha
     imputed = registration.dataset_scopes(_package(tmp_path, "imputed", _IMPUTED_VCF), ["snv"])
     row = _UploadFamily()
     # An import of the imputed genotypes (auto) failed in them; then an upload of direct calls
-    # failed after it had deleted the stored ones (SAFE-25), under no job.
+    # failed after it had deleted the stored ones, under no job.
     await fpi._flag_family_import_incomplete(
         row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-1", scopes=imputed
     )
@@ -1874,7 +1872,7 @@ def test_the_job_log_names_each_job_that_holds_an_error_left() -> None:
 
 
 def test_the_job_log_says_a_failure_no_job_records_failed_outside_one() -> None:
-    # SAFE-18: an upload's failure (SAFE-25) runs in no job.
+    # an upload's failure runs in no job.
     flag = registration.merged_import_failure(
         None, at=_AT, job_id="job-1", failed=["snv"], imported=[], scopes={"snv": _CLAIR3}, imported_scopes={}
     )
@@ -1887,10 +1885,10 @@ def test_the_job_log_says_a_failure_no_job_records_failed_outside_one() -> None:
     assert "in an import" not in message
 
 
-# --- an auto SNV import's update check and clean-up read the callset it stores (SAFE-27) ----
+# --- an auto SNV import's update check and clean-up read the callset it stores ----
 #
 # With source_format auto the SNV importer's update check counts, and its clean-up after a
-# failure deletes, the callset the import recorded (SAFE-23), or, where it recorded none, the
+# failure deletes, the callset the import recorded, or, where it recorded none, the
 # one its file reads as: never the family's direct calls (clair3) whatever its family VCF holds.
 
 
@@ -1898,7 +1896,7 @@ def _snv_store(monkeypatch, *, held=None, fail=False, refuse=False):
     """The family's small variants at the SNV importer's edge: ``held`` rows of each callset,
     counted by source; the loader stores the file as it is told, or with ``fail`` fails after
     it began writing, or with ``refuse`` refuses the file before it began (as it refuses an
-    annotation table it cannot read: SAFE-32). Records what is counted, stored and deleted,
+    annotation table it cannot read). Records what is counted, stored and deleted,
     each by callset."""
     from fastapi import HTTPException
 
@@ -2024,7 +2022,7 @@ async def test_an_snv_file_whose_callset_cannot_be_told_is_refused_before_anythi
     assert store.stored == store.deleted == []
 
 
-# --- a file the loader refused costs no callset (SAFE-32) -------------------------------------
+# --- a file the loader refused costs no callset -------------------------------------
 #
 # With overwrite the loader deletes the callset it replaces before it reads the file once
 # (check_before_replacing=False), and the import's snapshot puts the family back when the
@@ -2128,7 +2126,7 @@ async def test_a_phased_vcf_whose_load_fails_after_it_began_is_cleaned_up(monkey
     assert deleted == ["glimpse2 rows", "haplotype blocks", "block records"]
 
 
-# --- a dataset registered with nothing to bring, or imported with warnings, counts (SAFE-17) -
+# --- a dataset registered with nothing to bring, or imported with warnings, counts -
 #
 # A failed dataset leaves the flag on an import that ends it `imported`, and on one that ends
 # it imported with warnings, or registered when its package carries nothing for it (its scope
@@ -2137,7 +2135,7 @@ async def test_a_phased_vcf_whose_load_fails_after_it_began_is_cleaned_up(monkey
 # nothing CoGA imports: the phenotypes without an HPO row, a per-sample GLIMPSE2 BCF, a
 # family-level APCAD BED -- or that imports with warnings would otherwise need an
 # acknowledgement at every sign-out. Never one registered for want of an assembly or of a file
-# it could read, nor an update's skip (SAFE-20); and a dataset that carries nothing brings
+# it could read, nor an update's skip; and a dataset that carries nothing brings
 # nothing again of data another import brought (the brief's one rule).
 
 _EMPTY_PER_SAMPLE = {"source": None, "samples": ["S1", "S2"], "empty": True}
@@ -2206,7 +2204,7 @@ def test_an_import_brings_again_what_it_imported_with_warnings_or_registered_car
     endings = [
         ("snv", "warning"),  # imported with warnings
         ("haplotypes", "registered"),  # carries nothing CoGA imports
-        ("coverage", "skipped"),  # an update's skip: its rows were there (SAFE-20)
+        ("coverage", "skipped"),  # an update's skip: its rows were there
         ("cnv", "registered"),  # registered for want of what it needs: may lack data
         ("phenotypes", "failed"),
     ]

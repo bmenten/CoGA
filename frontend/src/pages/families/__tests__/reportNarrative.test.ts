@@ -67,8 +67,8 @@ describe('humanizeEffect', () => {
   });
 });
 
-// ENG-10: the draft printed VEP's own spelling, "SIFT deleterious_low_confidence(0.03)", where
-// the cards print "deleterious low confidence (0.03)".
+// The draft prints SIFT and PolyPhen as the cards do ("deleterious low confidence (0.03)"),
+// never in VEP's own spelling ("SIFT deleterious_low_confidence(0.03)").
 describe('describeInSilico', () => {
   it('writes SIFT and PolyPhen as the cards write them', () => {
     const text = describeInSilico(
@@ -260,7 +260,7 @@ describe('buildStructuralVariantSentence', () => {
     });
 
   it('gives a translocation no size, and names its mate', () => {
-    // Before: "A 0 bp breakend / translocation" (CLIN-39).
+    // Never "A 0 bp breakend / translocation".
     expect(
       buildStructuralVariantSentence(
         sv({ type: 'BND', end: 20000, length: null, remote_chr: '5', remote_start: 3000000, gene: null }),
@@ -333,7 +333,7 @@ describe('the frequency and segregation of a structural variant', () => {
   });
 });
 
-// CLIN-80 (the owner's decision of 2026-11-10): the report shows the class a reported variant's
+// The owner's decision of 2026-11-10: the report shows the class a reported variant's
 // review shows, as the family page does, and the scoring's class beside it when that is another.
 describe('the class a reported variant shows on the report', () => {
   const ACMG_CLASS_4 = {

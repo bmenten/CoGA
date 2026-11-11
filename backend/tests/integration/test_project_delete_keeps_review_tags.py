@@ -1,5 +1,5 @@
 """A project's deletion keeps its review tags, inactive and detached; a family lists the tags its
-reviews hold (SAFE-37, real Postgres).
+reviews hold (real Postgres).
 
 The families, their reviews, the signed records and the clinical audit trail hold a tag's key
 and outlive the project it was defined for. Deleting the tags with the project would leave the

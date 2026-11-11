@@ -19,7 +19,7 @@ PREMUTATION_MIN_BY_GENE: dict[str, int] = {"FMR1": 55}
 #
 # Where STRchive has the locus (every row below, today) the row carries STRchive's two
 # thresholds, so a call reads the same whichever row its TRID finds (the owner's decision of
-# 2026-10-09, CLIN-22). Change them together with ``STRchive-loci.json``, never apart:
+# 2026-10-09). Change them together with ``STRchive-loci.json``, never apart:
 # test_repeat_thresholds_follow_strchive.py fails when the two disagree. ``None`` where
 # STRchive gives no such range (SCA31, BEAN1: no intermediate range).
 BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [

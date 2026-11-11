@@ -45,7 +45,7 @@ interface GenomeTrackAvailability {
   coverageSources: string[];
   /** The transforms each caller's coverage track records. */
   coverageNormalizations: Record<string, string[]>;
-  /** What each caller's coverage track holds (TRACE-9); decides the axis it is drawn on. */
+  /** What each caller's coverage track holds; decides the axis it is drawn on. */
   coverageContents: Record<string, string>;
   segmentsSources: string[];
   /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
@@ -112,8 +112,8 @@ interface GenomeOverviewWorkspaceProps {
   trackHeight: number;
   svTrackHeight: number;
   showViewerLoading: boolean;
-  /** A request the tracks need failed: which tracks each sample has (#607), or the
-   * chromosome lengths the view is laid out on (#610). The tracks are not mounted, and that
+  /** A request the tracks need failed: which tracks each sample has, or the
+   * chromosome lengths the view is laid out on. The tracks are not mounted, and that
    * is not "no data". `what` names what could not be loaded. */
   tracksFailure?: { what: string; error: unknown; retry: () => void } | null;
 }
@@ -349,7 +349,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                   // in each and they can be read down the column. A track of read depth
                   // is drawn on a depth axis, and one whose values are of unknown kind
                   // (a coverage BED that does not declare what it holds) on their own
-                  // range, without an axis; its head says why (TRACE-7, TRACE-9).
+                  // range, without an axis; its head says why.
                   orderCoverageSources(availability[member.sample_id]?.coverageSources).map(
                     (coverageSource, _index, allSources) => {
                       const label = coverageTrackLabel(coverageSource, allSources.length);
@@ -575,7 +575,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
               <div
                 className="viz-frame relative h-[120px]"
                 // The tracks' width, but never wider than the panel: the placeholder has no
-                // scroller of its own, so a wider frame pushed the page into a sideways scroll.
+                // scroller of its own, so a wider frame would push the page into a sideways scroll.
                 style={{ width: trackWidth, maxWidth: '100%' }}
               >
                 <VizLoadingOverlay message="Loading selected tracks" />
@@ -614,10 +614,10 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                   const width = (layout.lengths[chrom] / layout.total) * trackWidth;
                   const left = (layout.offsets[chrom] / layout.total) * trackWidth;
                   // The chromosome's name without its chr, which the narrow slots have no
-                  // room for: 1, X. The overview leaves the mitochondrion out (ENG-20).
+                  // room for: 1, X. The overview leaves the mitochondrion out.
                   const name = formatChromosomeLabel(chrom).replace(/^chr/, '');
                   return (
-                    // A button to the keyboard as well as the pointer (#529).
+                    // A button to the keyboard as well as the pointer.
                     <div
                       key={chrom}
                       className="absolute cursor-pointer genome-overview-chrom"

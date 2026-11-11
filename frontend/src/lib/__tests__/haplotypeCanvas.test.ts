@@ -1,5 +1,5 @@
-// The haplotype risk line — #529: it was a red or orange line told from the band, and
-// affected from carrier, by hue alone.
+// The haplotype risk line: told from the band by a light gap, and affected from carrier by a
+// solid or a dashed line, never by hue alone.
 
 import { describe, expect, it } from 'vitest';
 

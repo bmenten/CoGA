@@ -188,7 +188,7 @@ class PgtInputsOut(BaseModel):
     blocks_read: int = 0
     blocks_digest: Optional[str] = None
     # A member's blocks were built for another pedigree or other sexes than the family's now
-    # (CLIN-66, ``pgt_analysis.blocks_outdated``): every embryo is then uninformative until the
+    # (``pgt_analysis.blocks_outdated``): every embryo is then uninformative until the
     # phased genotypes are imported again.
     blocks_outdated: bool = False
     # The window held more sites than the marker review reads, so no embryo QC was counted.

@@ -172,10 +172,10 @@ Stated here so nobody discovers them mid-release:
 
 - **A tag on its own builds nothing.** `build.yml` starts a release build only when a GitHub
   Release is published: publishing is the deliberate, recorded act, and the only tag-borne
-  event that can reach `deploy`. A `push: tags` trigger used to start a second, complete build
-  of the same commit; it raced the release's run to push the same image tags, with an
-  unpredictable winner, and could never deploy. So a tag pushed without its release leaves no
-  images; publish the release (step 2) for the build to run.
+  event that can reach `deploy`. There is no `push: tags` trigger: it would start a second,
+  complete build of the same commit, racing the release's run to push the same image tags, with
+  an unpredictable winner, and it could never deploy. So a tag pushed without its release leaves
+  no images; publish the release (step 2) for the build to run.
 - **A release does not deploy by default.** `deploy` runs on a release only when the
   repository variable `COGA_DEPLOY_TRIGGER` is `release`; otherwise pushes to `main` deploy
   and a release only builds its images. Only one of the two may deploy, because there is one

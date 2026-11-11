@@ -8,7 +8,8 @@ const httpError = (status: number, detail?: string) =>
     response: { status, data: detail ? { detail } : {} },
   });
 
-// #610 — the family pages said "Family not found" for any failure, a server error included.
+// A family page says "Family not found" only for a family the server does not know; any
+// other failure, a server error included, is said as a failure.
 describe('FamilyLoadFailure', () => {
   it('says the family was not found on a 404, with no retry', () => {
     render(

@@ -2,10 +2,10 @@
 
 The family page keeps a variant in one of a panel's regions (the regions PanelApp gave for
 the assembly, and each gene's locus in the gene reference) or annotated with one of its
-genes, whatever the panel's size: a panel of genes with more than 1,000 regions, such as the
-Mendeliome, was matched on gene symbols alone until the owner's decision of 2026-10-14. The
-Variant Explorer read the panel's gene symbols only: a panel of regions only filtered
-nothing, and a variant reached through a region alone was left out (CLIN-48).
+genes, whatever the panel's size, a panel of genes with more than 1,000 regions such as the
+Mendeliome included (the owner's decision of 2026-10-14). The Variant Explorer keeps the same
+variants: a panel of regions only filters, and a variant reached through a region alone is
+kept.
 
 A family is created through the PED upload under a new id each run, and a VEP-annotated VCF
 goes in through the family small-variant upload. Gene-reference rows are seeded for the run
@@ -87,8 +87,7 @@ _EXPECTED: dict[str, set[str]] = {
     "regions only": {_DELETION_INTO_REGION, _INTERGENIC_IN_REGION},
     "genes and regions": {_IN_GENE, _DELETION_INTO_REGION, _INTERGENIC_IN_REGION},
     "a gene reached by its locus": {_IN_LOCUS},
-    # SYN48A by its gene; SYN48LOC's variant by its locus, as for the smaller panel above (it
-    # was matched on gene symbols alone, and left _IN_LOCUS out).
+    # SYN48A by its gene; SYN48LOC's variant by its locus, as for the smaller panel above.
     "more than 1,000 regions": {_IN_GENE, _IN_LOCUS},
 }
 # Filler genes of the panel of more than 1,000 regions, one locus each on chromosome 21.
@@ -105,7 +104,7 @@ def _vcf(sample: str) -> bytes:
 def _panelapp_payload(panelapp_id: int, *, genes: list[str]) -> dict[str, Any]:
     return {
         "id": panelapp_id,
-        "name": f"CLIN-48 e2e {panelapp_id}",
+        "name": f"Explorer panel e2e {panelapp_id}",
         "version": "1.0",
         "stats": {"number_of_genes": len(genes), "number_of_strs": 0, "number_of_regions": 1},
         "genes": [
