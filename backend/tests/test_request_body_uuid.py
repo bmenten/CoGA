@@ -276,13 +276,14 @@ def test_an_auto_seed_by_any_spelling_writes_and_audits_the_canonical_id(
         assert assembly_name == "GRCh38"
         return [("1-100-A-G", 6)]
 
-    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_small_variant_ids", recurrent)
+    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_artifact_candidates", recurrent)
     session = _Session({"FROM assemblies": [("GRCh38",)]})
     result = asyncio.run(
         nipt_artifact_pg.auto_seed_nipt_artifacts(
             session,  # type: ignore[arg-type]
             assembly_id=spelling,
             assay_key="nipt_cfdna",
+            min_unexplained_samples=3,
         )
     )
     assert result["seeded"] == 1

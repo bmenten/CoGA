@@ -242,13 +242,27 @@ event, with the actor and the variants, on a chain of its own
 (`family_identifier = system:nipt-artifacts`);
 `GET /admin/integrity/verify?table=clinical_audit_events&family_id=system:nipt-artifacts` checks it.
 
-Auto-seed (`auto_seed_nipt_artifacts` → `fetch_recurrent_small_variant_ids`) counts carriers only
-among the samples tagged `assay: nipt_cfdna` whose `assay_panel` resolves to the scope. It drops:
+Auto-seed (`auto_seed_nipt_artifacts` → `fetch_recurrent_artifact_candidates`) reads the calls of
+the samples tagged `assay: nipt_cfdna` whose `assay_panel` resolves to the scope
+(`assay_cfdna_carrier_samples`), in every family and project. It counts the mark of a recurrent
+artefact, not the carriers: an allele is listed when it is an unexplained low-VAF call in at least
+`min_unexplained_samples` of them (3 by default, for a start with about 20 families), and that count
+is its `recurrence_count`. Each call is read as the recurrence count on the list reads it
+(`_cfdna_sample_calls`, by `recurrence_rules` with the default thresholds; see
+[Recurrence in other cfDNA samples](#recurrence-in-other-cfdna-samples)), so a call at 0.25 or more
+(maternal) or a lower one the family's father explains (paternal) does not count. A count of every
+carrier would reach any threshold for each 1–5% polymorphism once the database holds about a hundred
+plasmas, and list the paternal sites the fetal fraction is read from. It drops:
 
 - variants with `is_gnomad_gt_5_percent`;
 - variants whose pooled `annotation_index.clinvar_terms` pass `clinvar_may_assert_pathogenic`
   (`variant_prioritization.py`: a whole-word "pathogenic", or any conflicting record, because the
   per-submission `CLNSIGCONF` breakdown is not imported).
+
+The audit event `nipt_artifacts_auto_seeded` names each seeded allele with its count, the threshold
+and the rules the calls were read by. A family without a father's sample, or whose father's call
+fails the quality floors, cannot explain its paternal alleles, so in a large cohort of such families
+a polymorphism can still reach the threshold: review the auto entries.
 
 The import applies the same two protections through `fetch_artifact_protection_flags`
 (`clickhouse_family_variants.py`: a population frequency above 5%, or those ClinVar terms). Both read

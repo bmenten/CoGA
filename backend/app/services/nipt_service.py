@@ -68,7 +68,7 @@ from .genotypes import classify_genotype
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
 from .nipt import NiptTrio, nipt_assay_key, resolve_nipt_trio
-from .nipt_artifact_pg import assay_cfdna_carrier_samples, load_nipt_artifact_ids
+from .nipt_artifact_pg import assay_cfdna_carrier_samples, load_nipt_artifact_ids, recurrence_rules
 from .nipt_coverage import (
     DEFAULT_MIN_DEPTH,
     CoverageInterval,
@@ -1097,21 +1097,6 @@ def _recessive_view(
     wanted = set(order)
     kept = [item for item in classified if item.record.variant_id in wanted]
     return kept, genes
-
-
-def recurrence_rules(qc: NiptQualityThresholds) -> CfdnaRecurrenceRules:
-    """How the recurrence count reads the other cfDNA samples' calls: the quality filter's
-    floors, the maternal boundary (``MATERNAL_ALLELE_VAF_BOUNDARY``) and the father's het
-    or hom-alt class (``derive_father_state``)."""
-    return CfdnaRecurrenceRules(
-        min_alt_reads=qc.min_cf_alt_reads,
-        min_alt_fraction=qc.min_vaf,
-        maternal_vaf_boundary=MATERNAL_ALLELE_VAF_BOUNDARY,
-        father_min_depth=qc.min_father_dp,
-        father_min_alt_reads=qc.min_father_alt_reads,
-        father_min_quality=qc.min_father_qual,
-        father_min_vaf=qc.father_het_min_vaf,
-    )
 
 
 @dataclass(slots=True)

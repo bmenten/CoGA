@@ -2163,16 +2163,20 @@ export interface MonarchStatusOut {
   last_updated_at: string | null;
 }
 
-/** Seed the artifact list from internal cohort recurrence. */
+/**
+ * Seed the artifact list with the alleles that are an unexplained low-VAF call in at
+ * least ``min_unexplained_samples`` cfDNA samples of the assay. The default suits a start
+ * with about 20 families.
+ */
 export interface NiptArtifactAutoSeed {
   assembly_id: string;
   assay_key?: string;
-  min_carrier_samples?: number;
+  min_unexplained_samples?: number;
 }
 
 export interface NiptArtifactAutoSeedOut {
   seeded: number;
-  min_carrier_samples: number;
+  min_unexplained_samples: number;
 }
 
 /**

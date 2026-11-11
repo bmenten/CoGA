@@ -484,8 +484,11 @@ An administrator maintains the list through the API; there is no screen for it. 
 
 - **Import the R pipeline's recurrent list** (`recurrent_cfdna_artifact_filter_*.tsv`): the rows it marks
   `filter_as_recurrent_artifact`, each with the number of cfDNA families that carry it.
-- **Seed it from CoGA's own cfDNA samples:** variants carried by 5 or more cfDNA samples of the same
-  assay (samples marked as maternal-plasma cfDNA).
+- **Seed it from CoGA's own cfDNA samples:** the variants that are an *unexplained low-VAF* call (see
+  *Recurrence in other cfDNA samples*) in at least 3 cfDNA samples of the same assay, in every project
+  (samples marked as maternal-plasma cfDNA; the administrator can ask for another number). Each is
+  listed with that number. A maternal het or the fetus's allele from the father does not count,
+  however many pregnancies carry it: those are the sites the FF estimate relies on.
 
 Neither ever lists:
 
@@ -499,8 +502,10 @@ The protections are checked when an allele is listed, on the annotation of the f
 assembly; an allele no family carried then is listed unchecked. So each family's analysis checks its
 listed alleles again with its own annotation: one it marks common or ClinVar-pathogenic stays in,
 flagged `artifact_list_protected`. A site with no population or ClinVar annotation is not protected,
-and a real recurrent variant that ClinVar does not call pathogenic can still be listed. Review the list
-before use. Every change to the list is a clinical audit event.
+and a real recurrent variant that ClinVar does not call pathogenic can still be listed. A pregnancy
+without the father's sample, or whose father's call is too weak, cannot explain the fetus's paternal
+allele, so with many such pregnancies a polymorphism can still be seeded. Review the list before use.
+Every change to the list is a clinical audit event.
 
 ---
 

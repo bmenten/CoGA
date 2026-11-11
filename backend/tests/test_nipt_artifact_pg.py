@@ -4,11 +4,16 @@ import pytest
 from fastapi import HTTPException
 
 from backend.app.services import clickhouse_family_variants, nipt_artifact_pg
+from backend.app.services.nipt_analysis import NiptQualityThresholds
 from backend.app.services.nipt_artifact_pg import (
     auto_seed_nipt_artifacts,
     bulk_upsert_nipt_artifacts,
     load_nipt_artifact_ids,
+    recurrence_rules,
 )
+
+# How the auto-seed reads a call: the NIPT quality filter's defaults.
+_RULES = recurrence_rules(NiptQualityThresholds())
 
 
 @pytest.fixture(autouse=True)
@@ -68,61 +73,68 @@ async def test_load_nipt_artifact_ids_short_circuits_without_assembly() -> None:
     assert session.executed == []
 
 
-@pytest.mark.asyncio
-async def test_fetch_recurrent_small_variant_ids_parses_rows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_execute(query, params):
-        assert "HAVING carriers >=" in query
-        assert params["min_samples"] == 5
-        # (variant, carriers, the variant's ClinVar terms across its annotations)
-        return [("1-100-A-G", 12, []), ("2-200-C-T", 7, ["uncertain significance"])]
-
-    monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
-    result = await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
-        "GRCh38", min_carrier_samples=5
+def test_recurrence_rules_read_calls_by_the_quality_filter_and_the_fathers_classes() -> None:
+    assert (_RULES.min_alt_reads, _RULES.min_alt_fraction) == (5, 0.01)
+    assert _RULES.maternal_vaf_boundary == 0.25
+    assert (_RULES.father_min_depth, _RULES.father_min_alt_reads, _RULES.father_min_quality, _RULES.father_min_vaf) == (
+        20,
+        5,
+        20.0,
+        0.20,
     )
-    assert result == [("1-100-A-G", 12), ("2-200-C-T", 7)]
+
+
+async def _candidates(**kwargs):
+    return await clickhouse_family_variants.fetch_recurrent_artifact_candidates(
+        "GRCh38",
+        **{"carrier_samples": ["CF2", "CF1"], "rules": _RULES, "min_unexplained_samples": 3, **kwargs},
+    )
 
 
 @pytest.mark.asyncio
-async def test_fetch_recurrent_small_variant_ids_guards() -> None:
-    assert await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
-        "", min_carrier_samples=5
-    ) == []
-
-
-@pytest.mark.asyncio
-async def test_fetch_recurrent_small_variant_ids_counts_only_the_given_samples_and_skips_common(
+async def test_artifact_candidates_count_unexplained_low_vaf_calls_of_the_given_samples(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict = {}
 
     async def fake_execute(query, params):
         captured.update(query=query, params=params)
-        return [("1-100-A-G", 5, [])]
+        # (variant, unexplained low-VAF samples, the variant's ClinVar terms across its annotations)
+        return [("1-100-A-G", 12, []), ("2-200-C-T", 3, ["uncertain significance"])]
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
-    result = await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
-        "GRCh38",
-        min_carrier_samples=5,
-        carrier_samples=["CF1", "CF2"],
-    )
 
-    assert result == [("1-100-A-G", 5)]
-    assert "sample_id IN %(carrier_ids)s" in captured["query"]
-    assert sorted(captured["params"]["carrier_ids"]) == ["CF1", "CF2"]
+    assert await _candidates() == [("1-100-A-G", 12), ("2-200-C-T", 3)]
+    query, params = captured["query"], captured["params"]
+    # Only the assay's cfDNA samples are read, each once per allele.
+    assert "sample_id IN %(carrier_ids)s" in query
+    assert "GROUP BY variantId, sample_id" in query
+    assert params["carrier_ids"] == ("CF1", "CF2")
+    # What counts: a call below the maternal boundary its family's father does not explain,
+    # never every carrier (a maternal het, or the fetus's paternal allele, recurs too).
+    assert "countIf(isNotNull(sample_vaf) AND sample_vaf < %(maternal_vaf)s AND NOT explained)" in query
+    assert "HAVING unexplained >= %(min_samples)s" in query
+    assert "s NOT IN %(carrier_ids)s" in query  # the father is a sample of the row outside the assay
+    assert params["min_samples"] == 3
+    assert (params["min_alt_reads"], params["min_alt_fraction"], params["maternal_vaf"]) == (5, 0.01, 0.25)
+    assert (
+        params["father_min_depth"],
+        params["father_min_alt_reads"],
+        params["father_min_vaf"],
+        params["father_min_quality"],
+    ) == (20, 5, 0.2, 20.0)
     # Every common variant recurs: the import-time > 5% population-frequency flag excludes it.
-    assert "NOT is_gnomad_gt_5_percent" in captured["query"]
+    assert "NOT is_gnomad_gt_5_percent" in query
+    # Every family's calls count: none is left out.
+    assert "family_guid" not in query
 
 
 @pytest.mark.asyncio
-async def test_fetch_recurrent_small_variant_ids_never_returns_a_clinvar_pathogenic_variant(
+async def test_artifact_candidates_never_hold_a_clinvar_pathogenic_variant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A familial founder variant (CFTR F508del is ~1% in gnomAD, so not "common") reaches
-    # five cfDNA samples of a disease-focused panel easily; seeded, it would be excluded
-    # from every analysis of the assay.
+    # A familial founder variant (CFTR F508del is ~1% in gnomAD, so not "common") recurs in
+    # a disease-focused panel; seeded, it would be excluded from every analysis of the assay.
     async def fake_execute(query, params):
         assert "clinvar_terms" in query
         return [
@@ -135,23 +147,26 @@ async def test_fetch_recurrent_small_variant_ids_never_returns_a_clinvar_pathoge
         ]
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
-    result = await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
-        "GRCh38", min_carrier_samples=5
-    )
 
-    assert result == [("1-100-A-G", 9), ("1-500-A-G", 6), ("1-600-A-G", 5)]
+    assert await _candidates() == [("1-100-A-G", 9), ("1-500-A-G", 6), ("1-600-A-G", 5)]
 
 
 @pytest.mark.asyncio
-async def test_fetch_recurrent_small_variant_ids_with_no_carrier_samples_counts_nothing(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"carrier_samples": []}, {"min_unexplained_samples": 0}],
+    ids=["no cfDNA sample in scope", "no threshold"],
+)
+async def test_artifact_candidates_without_samples_or_threshold_read_nothing(
+    monkeypatch: pytest.MonkeyPatch, kwargs: dict
 ) -> None:
     async def no_query(query, params):
-        raise AssertionError("no sample in scope, so there is nothing to count")
+        raise AssertionError("nothing to count")
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", no_query)
-    assert await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
-        "GRCh38", min_carrier_samples=5, carrier_samples=[]
+    assert await _candidates(**kwargs) == []
+    assert await clickhouse_family_variants.fetch_recurrent_artifact_candidates(
+        "", carrier_samples=["CF1"], rules=_RULES, min_unexplained_samples=3
     ) == []
 
 
@@ -189,38 +204,54 @@ class _AutoSeedSession:
 
 
 @pytest.mark.asyncio
-async def test_auto_seed_nipt_artifacts_upserts_recurrent(
+async def test_auto_seed_nipt_artifacts_upserts_the_unexplained_recurrent_alleles(
     monkeypatch: pytest.MonkeyPatch, audit_events: list[dict]
 ) -> None:
-    async def fake_recurrent(assembly_name, *, min_carrier_samples, **_kwargs):
+    async def fake_candidates(assembly_name, *, carrier_samples, rules, min_unexplained_samples):
         assert assembly_name == "GRCh38"
-        assert min_carrier_samples == 5
+        assert (rules, min_unexplained_samples) == (_RULES, 4)
         return [("1-100-A-G", 12), ("2-200-C-T", 7)]
 
-    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_small_variant_ids", fake_recurrent)
+    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_artifact_candidates", fake_candidates)
     session = _AutoSeedSession("GRCh38")
 
     result = await auto_seed_nipt_artifacts(
         session,  # type: ignore[arg-type]
         assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="nipt_cfdna",
-        min_carrier_samples=5,
+        min_unexplained_samples=4,
         actor="curator",
     )
 
-    assert result == {"seeded": 2, "min_carrier_samples": 5}
+    assert result == {"seeded": 2, "min_unexplained_samples": 4}
     assert session.bulk_rows is not None and len(session.bulk_rows) == 2
-    assert session.bulk_rows[0]["source"] == "auto"
-    # One audit event on the list's own chain names every seeded variant, then one commit.
+    # Each entry keeps its unexplained count as its recurrence.
+    assert [(row["variant_id"], row["recurrence_count"], row["source"]) for row in session.bulk_rows] == [
+        ("1-100-A-G", 12, "auto"),
+        ("2-200-C-T", 7, "auto"),
+    ]
+    # One audit event on the list's own chain names every seeded variant, the threshold and
+    # how the calls were read, then one commit.
     [event] = audit_events
     assert event["family_identifier"] == nipt_artifact_pg.NIPT_ARTIFACT_AUDIT_CHAIN
     assert event["action"] == "nipt_artifacts_auto_seeded"
     assert event["actor"] == "curator"
+    assert "an unexplained low-VAF call in at least 4 cfDNA samples" in event["summary"]
     assert event["after"] == {
         "variants": [
             {"variant_id": "1-100-A-G", "recurrence_count": 12},
             {"variant_id": "2-200-C-T", "recurrence_count": 7},
         ]
+    }
+    assert event["metadata"]["min_unexplained_samples"] == 4
+    assert event["metadata"]["rules"] == {
+        "min_alt_reads": 5,
+        "min_alt_fraction": 0.01,
+        "maternal_vaf_boundary": 0.25,
+        "father_min_depth": 20,
+        "father_min_alt_reads": 5,
+        "father_min_quality": 20.0,
+        "father_min_vaf": 0.2,
     }
     assert session.commits == 1
 
@@ -229,15 +260,15 @@ async def test_auto_seed_nipt_artifacts_upserts_recurrent(
 async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Counted over every sample on the assembly, recurrence would qualify all common SNPs
-    # (the paternal sites FF is read from) and every other assay's artifacts.
+    # Counted over every sample on the assembly, recurrence would take in other assays'
+    # artefacts and the germline calls of every other application.
     seen: dict = {}
 
-    async def fake_recurrent(assembly_name, *, min_carrier_samples, carrier_samples=None, **kwargs):
-        seen.update(carrier_samples=carrier_samples, **kwargs)
-        return [("1-100-A-G", 5)]
+    async def fake_candidates(assembly_name, *, carrier_samples, rules, min_unexplained_samples):
+        seen.update(carrier_samples=carrier_samples)
+        return [("1-100-A-G", 3)]
 
-    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_small_variant_ids", fake_recurrent)
+    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_artifact_candidates", fake_candidates)
     cfdna = [
         ("CF1", None),  # no panel: the default scope
         ("CF2", "  PANEL_A "),  # a panel of its own (trimmed, as nipt_assay_key does)
@@ -249,17 +280,17 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
         session,  # type: ignore[arg-type]
         assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="nipt_cfdna",
+        min_unexplained_samples=3,
     )
     assert session.sample_queries == [{"assay": "nipt_cfdna"}]
     assert seen["carrier_samples"] == ["CF1", "CF3"]
-    assert seen["exclude_common"] is True
-    assert seen["exclude_clinvar_pathogenic"] is True
-    assert result == {"seeded": 1, "min_carrier_samples": 5}
+    assert result == {"seeded": 1, "min_unexplained_samples": 3}
 
     await auto_seed_nipt_artifacts(
         _AutoSeedSession("GRCh38", cfdna),  # type: ignore[arg-type]
         assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="PANEL_A",
+        min_unexplained_samples=3,
     )
     assert seen["carrier_samples"] == ["CF2"]
 
@@ -268,32 +299,43 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
 async def test_auto_seed_without_cfdna_samples_for_the_assay_seeds_nothing(
     monkeypatch: pytest.MonkeyPatch, audit_events: list[dict]
 ) -> None:
-    async def fake_recurrent(assembly_name, *, min_carrier_samples, carrier_samples=None, **_kwargs):
+    async def fake_candidates(assembly_name, *, carrier_samples, rules, min_unexplained_samples):
         assert carrier_samples == []
         return []
 
-    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_small_variant_ids", fake_recurrent)
+    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_artifact_candidates", fake_candidates)
     session = _AutoSeedSession("GRCh38", [("CF2", "PANEL_A")])
 
     result = await auto_seed_nipt_artifacts(
         session,  # type: ignore[arg-type]
         assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="nipt_cfdna",
+        min_unexplained_samples=3,
     )
 
-    assert result == {"seeded": 0, "min_carrier_samples": 5}
+    assert result == {"seeded": 0, "min_unexplained_samples": 3}
     assert session.bulk_rows is None
     assert audit_events == []  # nothing changed, nothing to audit
+
+
+def test_the_api_seeds_from_three_unexplained_samples_by_default() -> None:
+    from pydantic import ValidationError
+
+    from backend.app.schemas.nipt import NiptArtifactAutoSeed
+
+    assert NiptArtifactAutoSeed(assembly_id="GRCh38").min_unexplained_samples == 3
+    with pytest.raises(ValidationError):
+        NiptArtifactAutoSeed(assembly_id="GRCh38", min_unexplained_samples=0)
 
 
 @pytest.mark.asyncio
 async def test_auto_seed_nipt_artifacts_missing_assembly_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_recurrent(*_args, **_kwargs):
+    async def fake_candidates(*_args, **_kwargs):
         return []
 
-    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_small_variant_ids", fake_recurrent)
+    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_artifact_candidates", fake_candidates)
     session = _AutoSeedSession(None)
 
     with pytest.raises(HTTPException) as excinfo:
@@ -301,7 +343,7 @@ async def test_auto_seed_nipt_artifacts_missing_assembly_raises(
             session,  # type: ignore[arg-type]
             assembly_id="5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
             assay_key="nipt_cfdna",
-            min_carrier_samples=5,
+            min_unexplained_samples=3,
         )
     assert (excinfo.value.status_code, excinfo.value.detail) == (404, "Assembly not found")
     # Nothing was seeded or committed.

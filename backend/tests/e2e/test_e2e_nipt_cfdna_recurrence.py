@@ -99,7 +99,7 @@ def _record(variant_id: str, calls: list[Call]):
 async def _count() -> dict[str, Any]:
     from backend.app.services.clickhouse_family_variants import count_cfdna_recurrence, count_other_cfdna_samples
     from backend.app.services.nipt_analysis import NiptQualityThresholds
-    from backend.app.services.nipt_service import recurrence_rules
+    from backend.app.services.nipt_artifact_pg import recurrence_rules
 
     return {
         "recurrence": await count_cfdna_recurrence(

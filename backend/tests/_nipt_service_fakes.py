@@ -18,6 +18,7 @@ import pytest
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import nipt_service
+from backend.app.services.nipt_artifact_pg import recurrence_rules
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import SmallVariantRecord
 
@@ -95,7 +96,7 @@ def wire_nipt_reads(
         _assembly: str, variant_ids: Any, *, carrier_samples: Any, exclude_family_uuid: str, rules: Any
     ) -> dict[str, CfdnaRecurrence]:
         assert exclude_family_uuid == "family-uuid"
-        assert rules == nipt_service.recurrence_rules(nipt_service.NiptQualityThresholds())
+        assert rules == recurrence_rules(nipt_service.NiptQualityThresholds())
         counts.append(list(variant_ids))
         return {variant_id: value for variant_id, value in (recurrence or {}).items() if variant_id in variant_ids}
 

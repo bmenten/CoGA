@@ -326,7 +326,7 @@ async def auto_seed_nipt_artifacts_endpoint(
         session,
         assembly_id=payload.assembly_id,
         assay_key=payload.assay_key,
-        min_carrier_samples=payload.min_carrier_samples,
+        min_unexplained_samples=payload.min_unexplained_samples,
         created_by=user.id,
         actor=user.username,
     )

@@ -2,10 +2,10 @@
 
 Artifacts are scoped per ``(assembly_id, assay_key)`` -- recurrent artifacts are
 capture/chemistry-specific, so a new panel starts with a clean list. The list is
-curated through the admin API (no UI), where ``auto-seed`` proposes candidates from
-recurrence in the assay's own cfDNA samples; ``load_nipt_artifact_ids`` provides the
-fast membership set the analysis uses to exclude (and count) artifacts. Every change to
-the list is recorded in the clinical audit trail (``NIPT_ARTIFACT_AUDIT_CHAIN``).
+curated through the admin API (no UI), where ``auto-seed`` proposes the alleles that recur
+as an unexplained low-VAF call in the assay's own cfDNA samples; ``load_nipt_artifact_ids``
+provides the fast membership set the analysis uses to exclude (and count) artifacts. Every
+change to the list is recorded in the clinical audit trail (``NIPT_ARTIFACT_AUDIT_CHAIN``).
 
 See docs/monogenic-nipt.md.
 """
@@ -13,7 +13,7 @@ See docs/monogenic-nipt.md.
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Sequence
 
 from fastapi import HTTPException
@@ -21,10 +21,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import canonical_uuid, require_uuid
-from .clickhouse_family_variants import fetch_artifact_protection_flags, fetch_recurrent_small_variant_ids
+from .clickhouse_family_variants import (
+    CfdnaRecurrenceRules,
+    fetch_artifact_protection_flags,
+    fetch_recurrent_artifact_candidates,
+)
 from .clickhouse_variant_ids import build_small_variant_id
 from .clinical_audit_service import record_clinical_event
 from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_PANEL_KEY, assay_key_for_sample_metadata
+from .nipt_analysis import MATERNAL_ALLELE_VAF_BOUNDARY, NiptQualityThresholds
 
 # A change to the artifact list changes which variants every NIPT analysis of its scope
 # filters out, so each add, update, removal and auto-seed is a hash-chained clinical audit
@@ -353,47 +358,67 @@ async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) 
     ]
 
 
+def recurrence_rules(qc: NiptQualityThresholds) -> CfdnaRecurrenceRules:
+    """How a call of another cfDNA sample of the assay is read, by the recurrence count on
+    the NIPT list and by the auto-seed: the quality filter's floors, the maternal boundary
+    (``MATERNAL_ALLELE_VAF_BOUNDARY``) and the father's het or hom-alt class
+    (``nipt_service.derive_father_state``)."""
+    return CfdnaRecurrenceRules(
+        min_alt_reads=qc.min_cf_alt_reads,
+        min_alt_fraction=qc.min_vaf,
+        maternal_vaf_boundary=MATERNAL_ALLELE_VAF_BOUNDARY,
+        father_min_depth=qc.min_father_dp,
+        father_min_alt_reads=qc.min_father_alt_reads,
+        father_min_quality=qc.min_father_qual,
+        father_min_vaf=qc.father_het_min_vaf,
+    )
+
+
 async def auto_seed_nipt_artifacts(
     session: AsyncSession,
     *,
     assembly_id: str,
     assay_key: str,
-    min_carrier_samples: int = 5,
+    min_unexplained_samples: int,
     created_by: str | None = None,
     actor: str = "system",
 ) -> dict[str, int]:
-    """Seed the artifact list from recurrence among the assay's own cfDNA samples.
+    """Seed the artifact list from the alleles that recur as an artefact does in the
+    assay's own cfDNA samples.
 
-    A variant is upserted as a ``source='auto'`` artifact for the scope when at least
-    ``min_carrier_samples`` distinct cfDNA samples of this assay carry it, it is not
-    common in the population, and ClinVar does not call it pathogenic. The first two
-    limits protect the fetal fraction. FF is read off paternal sites that are mostly
-    common SNPs, and every common variant is carried by many samples, so counting
-    recurrence across the whole assembly -- as this did, every assay and application
-    pooled -- listed the very sites FF relies on (and other assays' artifacts), and the
-    analysis then excluded them.
+    An allele is upserted as a ``source='auto'`` artifact for the scope, with that count as
+    its ``recurrence_count``, when it is an unexplained low-VAF call in at least
+    ``min_unexplained_samples`` cfDNA samples of this assay
+    (``fetch_recurrent_artifact_candidates``): a call below the maternal boundary that its
+    family's father does not explain, read by ``recurrence_rules`` with the default quality
+    thresholds, as the recurrence count on the NIPT list reads it. Every family's calls
+    count. A maternal het or the fetus's paternal allele does not count, however many
+    plasmas hold it: those are the sites the fetal fraction is read from, and a count of
+    every carrier would list each polymorphism of 1 to 5% once the database holds about a
+    hundred plasmas.
 
-    Protected -- never seeded, whatever its recurrence: a variant with a ClinVar
-    pathogenic or likely pathogenic assertion in any of its annotations on the
-    assembly (Pathogenic, Likely_pathogenic, their combinations and low-penetrance
-    forms), and every "conflicting classifications/interpretations" record, which may
-    hold a P/LP submission (``clinvar_may_assert_pathogenic``). A familial founder
-    variant (CFTR F508del is ~1% in gnomAD) reaches five cfDNA samples of a
-    disease-focused panel easily; seeded, it would be excluded from every analysis.
+    Protected, never seeded whatever its count: a variant more than 5% frequent in gnomAD
+    or TopMed (the import-time ``is_gnomad_gt_5_percent`` flag), one with a ClinVar
+    pathogenic or likely pathogenic assertion in any of its annotations on the assembly
+    (Pathogenic, Likely_pathogenic, their combinations and low-penetrance forms), and every
+    "conflicting classifications/interpretations" record, which may hold a P/LP submission
+    (``clinvar_may_assert_pathogenic``). A familial founder variant (CFTR F508del is ~1% in
+    gnomAD) is a maternal or paternal call in a disease-focused panel; seeded, it would be
+    excluded from every analysis.
 
-    Known limits; review the auto entries before relying on them. "Not common" is the
-    import-time gnomAD/TopMed > 5% flag, and the ClinVar protection needs a ClinVar
-    annotation, so a site with neither, or a real recurrent variant that ClinVar has
-    not called pathogenic, can still be seeded, and is then excluded from this assay's
-    NIPT analyses. A cfDNA sample counts only when tagged ``assay: nipt_cfdna``.
+    Known limits; review the auto entries before relying on them. A family without a
+    father's sample, or whose father's call fails the quality floors, cannot explain its
+    paternal alleles, so a polymorphism can still reach the threshold in a large cohort of
+    such families. "Not common" is the import-time flag, and the ClinVar protection needs a
+    ClinVar annotation. A cfDNA sample counts only when tagged ``assay: nipt_cfdna``.
     """
     assembly_uuid, assembly_name = await _require_assembly(session, assembly_id)
-    recurrent = await fetch_recurrent_small_variant_ids(
+    rules = recurrence_rules(NiptQualityThresholds())
+    recurrent = await fetch_recurrent_artifact_candidates(
         assembly_name,
-        min_carrier_samples=min_carrier_samples,
         carrier_samples=await assay_cfdna_carrier_samples(session, assay_key=assay_key),
-        exclude_common=True,
-        exclude_clinvar_pathogenic=True,
+        rules=rules,
+        min_unexplained_samples=min_unexplained_samples,
     )
     seeded = await bulk_upsert_nipt_artifacts(
         session,
@@ -411,7 +436,8 @@ async def auto_seed_nipt_artifacts(
             action="nipt_artifacts_auto_seeded",
             summary=(
                 f"Auto-seeded {seeded} recurrent variant(s) into the NIPT artifact list "
-                f"({assay_key}; carried by at least {min_carrier_samples} cfDNA samples)"
+                f"({assay_key}; an unexplained low-VAF call in at least "
+                f"{min_unexplained_samples} cfDNA samples)"
             ),
             after={
                 "variants": [
@@ -422,11 +448,12 @@ async def auto_seed_nipt_artifacts(
             metadata={
                 "assembly_id": assembly_uuid,
                 "assay_key": assay_key,
-                "min_carrier_samples": min_carrier_samples,
+                "min_unexplained_samples": min_unexplained_samples,
+                "rules": asdict(rules),
             },
         )
         await session.commit()
-    return {"seeded": seeded, "min_carrier_samples": min_carrier_samples}
+    return {"seeded": seeded, "min_unexplained_samples": min_unexplained_samples}
 
 
 # The R NIPT-M pipeline's recurrent-artefact table

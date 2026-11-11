@@ -494,18 +494,6 @@ def test_what_the_recurrence_filter_leaves_out() -> None:
         )
 
 
-def test_the_recurrence_count_reads_calls_by_the_quality_filter_and_the_fathers_classes() -> None:
-    rules = nipt_service.recurrence_rules(nipt_service.NiptQualityThresholds())
-    assert (rules.min_alt_reads, rules.min_alt_fraction) == (5, 0.01)
-    assert rules.maternal_vaf_boundary == 0.25
-    assert (rules.father_min_depth, rules.father_min_alt_reads, rules.father_min_quality, rules.father_min_vaf) == (
-        20,
-        5,
-        20.0,
-        0.20,
-    )
-
-
 @pytest.mark.asyncio
 async def test_a_listed_artefact_the_familys_annotation_protects_stays_in(monkeypatch: pytest.MonkeyPatch) -> None:
     # The artefact table was imported before any family carrying these alleles was
