@@ -235,14 +235,14 @@ async def _exercise(run: str) -> dict[str, Any]:
 @pytest.fixture(scope="module")
 def ran() -> dict[str, Any]:
     from backend.app.core.config import settings
-    from backend.app.services import account_notifications
+    from backend.app.services import outgoing_mail
     from backend.tests.e2e import _harness
 
     run = uuid4().hex[:12]
     _FakeSmtp.sent = []
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(settings, "smtp_host", "mail.e2e.invalid")
-        patch.setattr(account_notifications.smtplib, "SMTP", _FakeSmtp)
+        patch.setattr(outgoing_mail.smtplib, "SMTP", _FakeSmtp)
         return _harness.run_async(lambda: _exercise(run))
 
 

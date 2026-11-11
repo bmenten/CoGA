@@ -14,6 +14,8 @@ of them you can work on the case and move between analyses.
   not viewer, the superusers and the administrators; never a reader or a viewer. Someone chosen before
   they became a reader or a viewer (or left the family's projects) stays shown, marked
   *(not eligible)*, until you change it.
+- The one you choose under **Assigned to** gets an e-mail naming the family, with a link to it,
+  when a mail server is set; not when you assign the family to yourself.
 - *Read-only access* in the header means you only read this family: your role is viewer, or you are a
   reader in its project.
 - A *Not validated for clinical use* banner shows when the family is outside the validated scope.

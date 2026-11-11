@@ -26,6 +26,7 @@ from ..schemas import (
     PhenotypeTermRefOut,
     UserRefOut,
 )
+from ..services.family_assignment_mail import notify_family_assignment
 from ..services.family_metadata_context import build_family_metadata_context
 from ..services.family_service import (
     get_family_for_user,
@@ -86,14 +87,20 @@ async def get_family(
 async def update_family_metadata(
     family_id: str,
     update: FamilyMetadataUpdate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyOut:
+    # Whom the save newly assigns the family to is e-mailed after the answer
+    # (family_assignment_mail.py).
     return await update_family_metadata_for_user(
         session,
         family_id=family_id,
         update=update,
         user=user,
+        on_assignment=lambda assignment: background_tasks.add_task(
+            notify_family_assignment, assignment
+        ),
     )
 
 

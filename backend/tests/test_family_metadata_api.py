@@ -79,7 +79,7 @@ def test_update_family_metadata_endpoint_allows_any_user(family_metadata_client)
     client, monkeypatch = family_metadata_client
     captured: dict = {}
 
-    async def fake_update(session, *, family_id, update, user):
+    async def fake_update(session, *, family_id, update, user, on_assignment):
         captured["family_id"] = family_id
         captured["update"] = update.model_dump(exclude_unset=True)
         captured["role"] = user.role

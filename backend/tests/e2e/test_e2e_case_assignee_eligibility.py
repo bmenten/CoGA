@@ -12,6 +12,9 @@ client on one event loop, see test_e2e_api_contract.py) and Postgres:
 * Ana assigns the case to herself and records Carl as its reviewer; a save that names Rita (a
   reader), Ben (outside the family's projects) or Gil (inactive) is refused with 422 and why,
   and the family keeps what it held;
+* with a mail server set, Ana's assignment of herself mails no one, and the admin's assignment
+  of the case to Carl mails Carl alone, at his address, naming the family
+  (``family_assignment_mail.py``);
 * the admin makes Carl a reader: the family still names him as its reviewer, its list no
   longer holds him, a save that leaves him as he is goes through, and naming him anew is
   refused.
@@ -32,6 +35,22 @@ from backend.tests.e2e._harness import ensure_postgres_schema, status_and_body
 pytestmark = pytest.mark.integration
 
 HINT = "Choose an analyst of one of the family's projects, a superuser or an administrator."
+
+
+class _FakeSmtp:
+    sent: list[Any] = []
+
+    def __init__(self, host: str, port: int = 0, timeout: float | None = None) -> None:
+        self.host = host
+
+    def __enter__(self) -> "_FakeSmtp":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
+
+    def send_message(self, message: Any) -> None:
+        _FakeSmtp.sent.append(message)
 
 
 def _listed(resp: Any) -> tuple[int, Any]:
@@ -89,7 +108,7 @@ async def _exercise(run: str) -> dict[str, Any]:
             ).scalar_one()
         await session.commit()
 
-    out: dict[str, Any] = {"users": users, "admin": admin.id}
+    out: dict[str, Any] = {"users": users, "admin": admin.id, "emails": emails, "family_id": family_id}
     projects: dict[str, str] = {}
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
@@ -141,6 +160,14 @@ async def _exercise(run: str) -> dict[str, Any]:
                 (saved.json().get("assigned_to") or {}).get("id"),
                 (saved.json().get("reviewed_by") or {}).get("id"),
             )
+            # Ana assigned the case to herself: no mail. The admin's assignment to Carl mails
+            # Carl; Ana then takes the case back, which mails no one.
+            out["mails_after_own_assignment"] = len(_FakeSmtp.sent)
+            out["assigned_to_carl"] = (
+                await admin_client.put(f"{path}/metadata", json={"assigned_to": users["carl"]})
+            ).status_code
+            out["taken_back"] = (await ana.put(f"{path}/metadata", json={"assigned_to": users["ana"]})).status_code
+            out["mails"] = [(message["To"], message["Subject"], message.get_content()) for message in _FakeSmtp.sent]
             out["refused"] = {
                 who: status_and_body(await ana.put(f"{path}/metadata", json={field: users[who]}))
                 for who, field in (("rita", "reviewed_by"), ("ben", "assigned_to"), ("gil", "assigned_to"))
@@ -192,8 +219,15 @@ async def _exercise(run: str) -> dict[str, Any]:
 def ran() -> dict[str, Any]:
     from backend.tests.e2e import _harness
 
+    from backend.app.core.config import settings
+    from backend.app.services import outgoing_mail
+
     run = uuid4().hex[:12]
-    return _harness.run_async(lambda: _exercise(run))
+    _FakeSmtp.sent = []
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(settings, "smtp_host", "mail.e2e.invalid")
+        patch.setattr(outgoing_mail.smtplib, "SMTP", _FakeSmtp)
+        return _harness.run_async(lambda: _exercise(run))
 
 
 def test_the_pickers_list_the_familys_analysts_and_the_administrators(ran: dict[str, Any]) -> None:
@@ -233,6 +267,18 @@ def test_a_save_names_an_analyst_and_is_refused_anyone_else(ran: dict[str, Any])
         users["ana"],
         users["carl"],
     )
+
+
+def test_the_new_assignee_alone_is_mailed_naming_the_family(ran: dict[str, Any]) -> None:
+    assert ran["mails_after_own_assignment"] == 0
+    assert (ran["assigned_to_carl"], ran["taken_back"]) == (200, 200)
+    ((to, subject, body),) = ran["mails"]
+    assert to == ran["emails"]["carl"]
+    assert subject == "CoGA: a family is assigned to you"
+    assert ran["family_id"] not in subject
+    assert body.startswith("Dear Carl Test,\n")
+    assert f"Family: {ran['family_id']}\n" in body
+    assert "Assigned by: Ana" not in body
 
 
 def test_a_reviewer_who_became_a_reader_stays_until_changed(ran: dict[str, Any]) -> None:

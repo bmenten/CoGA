@@ -7,7 +7,9 @@ administrator. The pickers read the family's own list
 the family itself: 404 for a family outside the caller's projects. A save that names a reader,
 a viewer, a user outside the family's projects or an inactive account is refused (422, saying why) and
 changes nothing; a value the family already holds is kept as it is, so a save that leaves an
-assignee who has since become a reader is not refused.
+assignee who has since become a reader is not refused. A save that assigns the case to someone the
+family did not name there, other than the user saving it, hands that assignment on once it is
+committed, for the assignee's mail (``family_assignment_mail.py``).
 
 The database is replaced by a session that answers the service's statements from an in-memory
 table of users and memberships; the family checkpoint is the real one, over stubbed family
@@ -28,6 +30,7 @@ from fastapi import HTTPException
 from backend.app.schemas import FamilyMetadataUpdate
 from backend.app.services import family_status_service, metadata_service
 from backend.app.services.access_control import CurrentUser, RecordNotVisible
+from backend.app.services.family_assignment_mail import FamilyAssignment
 
 PROJECT_A = "00000000-0000-4000-8000-00000000000a"
 PROJECT_B = "00000000-0000-4000-8000-00000000000b"
@@ -349,3 +352,71 @@ def test_naming_a_stored_reviewer_as_the_assignee_is_a_change_that_is_checked(da
     database.stored.update(reviewed_by_id=RITA)  # type: ignore[attr-defined]
     refused = _refusal(database, _user(ANA), assigned_to=RITA)
     assert refused.status_code == 422 and refused.detail.startswith("Rita Reader cannot be assigned this case")
+
+
+# --------------------------------------------------------------------------- the assignee's mail
+
+
+def _save_handing_on(
+    database: _Database, user: CurrentUser, family_id: str = "FAM_AB", **fields: Any
+) -> list[tuple[FamilyAssignment, int]]:
+    """Each assignment the save hands on, with the commits made when it was handed on."""
+    handed: list[tuple[FamilyAssignment, int]] = []
+    asyncio.run(
+        family_status_service.update_family_metadata_for_user(
+            database,  # type: ignore[arg-type]
+            family_id=family_id,
+            update=FamilyMetadataUpdate(**fields),
+            user=user.model_copy(update={"changes_records": True}),
+            on_assignment=lambda assignment: handed.append((assignment, database.commits)),
+        )
+    )
+    return handed
+
+
+def test_a_new_assignee_is_handed_on_once_the_save_is_committed(database: _Database) -> None:
+    admin = _user(ADMIN).model_copy(update={"first_name": "Ada", "last_name": "Admin"})
+
+    ((assignment, commits),) = _save_handing_on(database, admin, assigned_to=ANA, reviewed_by=MIXED)
+
+    assert commits == 1
+    assert (assignment.family_id, assignment.assignee_email, assignment.assignee_name, assignment.assigned_by) == (
+        "FAM_AB",
+        f"{_username(ANA)}@example.org",
+        "Ana Lyst",
+        "Ada Admin",
+    )
+    assert assignment.assigned_at.tzinfo is not None
+    # Without a name, the one who assigned it is their user name; so is an assignee without one.
+    ((unnamed, _),) = _save_handing_on(database, _user(ANA), assigned_to=MIXED)
+    assert (unnamed.assignee_name, unnamed.assigned_by) == (_username(MIXED), _username(ANA))
+
+
+def test_no_one_is_handed_on_for_a_kept_or_cleared_assignee_a_reviewer_or_oneself(database: _Database) -> None:
+    database.stored.update(assigned_to_id=ANA)  # type: ignore[attr-defined]
+
+    # The assignee the family holds, however spelled; a status; a reviewer; a clearing.
+    assert _save_handing_on(database, _user(ADMIN), assigned_to=ANA.upper(), status_key="solved") == []
+    assert _save_handing_on(database, _user(ADMIN), reviewed_by=MIXED) == []
+    assert _save_handing_on(database, _user(ADMIN), assigned_to=None) == []
+    # Who assigns the case to themselves is not told of it.
+    database.stored.update(assigned_to_id=None)  # type: ignore[attr-defined]
+    assert _save_handing_on(database, _user(ANA), family_id="FAM_A", assigned_to=ANA) == []
+    assert database.commits == 4
+
+
+def test_a_refused_assignment_hands_on_no_one(database: _Database) -> None:
+    handed: list[FamilyAssignment] = []
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(
+            family_status_service.update_family_metadata_for_user(
+                database,  # type: ignore[arg-type]
+                family_id="FAM_AB",
+                update=FamilyMetadataUpdate(assigned_to=ANA, reviewed_by=RITA),
+                user=_user(ADMIN).model_copy(update={"changes_records": True}),
+                on_assignment=handed.append,
+            )
+        )
+
+    assert refused.value.status_code == 422
+    assert handed == [] and database.commits == 0

@@ -1,8 +1,8 @@
 """The mail to the administrators about an account that waits for approval.
 
 A sign-up and a first CAS sign-in make an inactive account; every active administrator is told
-by e-mail through the mail server ``SMTP_HOST`` names (services/account_notifications.py). These
-pin that:
+by e-mail through the mail server ``SMTP_HOST`` names (services/account_notifications.py,
+services/outgoing_mail.py). These pin that:
 
 * the mail goes through ``SMTP_HOST``:``SMTP_PORT`` from ``SMTP_FROM`` (``ADMIN_EMAIL`` when it
   is not set) to every administrator given, names the account (name, e-mail address,
@@ -35,7 +35,7 @@ from backend.app.core.postgres import get_postgres_session
 from backend.app.dependencies import get_current_admin_user
 from backend.app.main import app
 from backend.app.routers import auth as auth_router
-from backend.app.services import account_notifications
+from backend.app.services import account_notifications, outgoing_mail
 from backend.app.services.access_control import CurrentUser
 
 ADMINS = ["first.admin@example.org", "second.admin@example.org"]
@@ -85,8 +85,8 @@ def _configure(monkeypatch: pytest.MonkeyPatch, smtp: type = _FakeSmtp, **env: A
     _FakeSmtp.sent = []
     _FakeSmtp.calls = []
     configured = Settings(_env_file=None, APP_ENV="test", **env)
-    monkeypatch.setattr(account_notifications, "settings", configured)
-    monkeypatch.setattr(account_notifications.smtplib, "SMTP", smtp)
+    monkeypatch.setattr(outgoing_mail, "settings", configured)
+    monkeypatch.setattr(outgoing_mail.smtplib, "SMTP", smtp)
     return configured
 
 

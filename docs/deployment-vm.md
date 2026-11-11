@@ -26,7 +26,7 @@ worker and the frontend; a reverse proxy on the VM terminates TLS. This is the s
 | Inbound traffic | 443 (and 80 for an ACME certificate) from the institution's network or VPN only; 22 from the administrators' addresses only. Nothing else: Postgres, ClickHouse and the backend listen on loopback |
 | Outbound traffic | HTTPS to the internet: Docker pulls the images from Docker Hub, the image builds fetch packages from PyPI and npm, and the first start downloads the reference data (GENCODE, UCSC, HGNC, NCBI, ClinGen, GenCC, HPO, Monarch) |
 | TLS certificate | from the institution's certificate service when the VM is reachable only from inside, since an ACME HTTP challenge cannot reach it; Let's Encrypt when port 80 is open to the internet |
-| Mail relay (optional) | an SMTP relay CoGA may send through (port 25 without sign-in, or 587 with STARTTLS and an account), for the mail to the administrators about an account that waits for approval |
+| Mail relay (optional) | an SMTP relay CoGA may send through (port 25 without sign-in, or 587 with STARTTLS and an account), for the mail to the administrators about an account that waits for approval and the mail to the user a family is assigned to |
 
 ### At Ghent University
 
@@ -66,6 +66,15 @@ What else to know there:
 - **Network shares** are SMB 3.1.1 on `files.ugent.be`; there is no NFS. Mount them with a
   system account from ICT ([step 8](#a-network-share)), not with a personal UGent account,
   whose password would open that person's own drives too.
+- **Mail.** A UGent server sends mail only through ICT's central relay, `smtprelay.ugent.be`.
+  Ask ICT to let the VM relay through it, and which sender address it accepts: a functional
+  UGent mailbox that someone reads. Then set `SMTP_HOST=smtprelay.ugent.be`,
+  `SMTP_STARTTLS=true` and `SMTP_FROM` to that address (step 4). The relay offers STARTTLS with
+  a certificate for `smtprelay.ugent.be` (GEANT, which the image trusts). On port 587 it also
+  takes a sign-in: when ICT gives a system account instead of relaying by the VM's address, set
+  `SMTP_PORT=587`, `SMTP_USERNAME` and `SMTP_PASSWORD` as well, never a personal account.
+  Check from the VM that the relay answers (`nc -vz smtprelay.ugent.be 25`, or `587`), then
+  send the test mail from *Users* ([step 7](#7-check-it)).
 
 ICT may switch the VM off, so make sure a shutdown stops ClickHouse cleanly (step 2) and the
 back-ups are current.
@@ -218,7 +227,7 @@ EOF
 | `ENABLE_HSTS` | `true`: TLS terminates on this machine |
 | `FRONTEND_TRUSTED_PROXY_HOPS` | `1`: the reverse proxy sits in front of the frontend |
 | `COMPOSE_FILE` | `docker-compose.yml:docker-compose.vm.yml`, so every `docker compose` command uses the override of step 5 |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` | the mail relay, its port (25 by default) and the sender it accepts; leave `SMTP_HOST` unset to send no mail. With a relay that needs an account, also `SMTP_STARTTLS=true`, `SMTP_USERNAME` and `SMTP_PASSWORD`. *Users* shows who gets the mail and sends a test |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` | the mail relay (at Ghent University `smtprelay.ugent.be`, [step 1](#at-ghent-university)), its port (25 by default) and the sender it accepts; leave `SMTP_HOST` unset to send no mail. `SMTP_STARTTLS=true` when the relay offers it; with a relay that needs an account, also `SMTP_USERNAME` and `SMTP_PASSWORD`. The administrators get a mail about each account that waits for approval, and a user one about each family assigned to them. *Users* shows who gets the account mail and sends a test; whether a mail went out is in `docker compose logs backend \| grep "the mail about"`, which names no address and no family |
 | `VITE_PROBLEM_REPORT_URL` | where testers report a problem, an `https://` or `mailto:` address |
 | `FAMILY_IMPORT_ROOTS` | `/data/families`, and `/data/families,/data/share` once a network share is mounted ([step 8](#a-network-share)) |
 | `IMPORT_WORKER_REPLICAS` | the import-worker processes (1 by default); each imports one family at a time on a core of its own, so more of them import families in parallel ([step 10](#10-tuning-at-scale)) |
