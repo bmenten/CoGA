@@ -615,11 +615,33 @@ def _manifest_added_member_entries(manifest: PackageManifest) -> list[tuple[str,
 _ADDED_MEMBER_PHENOTYPE_CODES = {"unknown": "0", "unaffected": "1", "affected": "2"}
 
 
+def ped_related_to(member: PedMember) -> list[str]:
+    """The members a PED row links its member to by an unknown degree: its ``related_to=``
+    column after the sixth (``related_to=MOTHER1``, several separated by commas). A standard PED
+    links a member only to its parents; a PGT index on the affected mother's side (her sister,
+    her parent) is linked so, through her."""
+    value = member.extra.get("relatedto")
+    if not isinstance(value, str):
+        return []
+    return [sample_id for sample_id in (part.strip() for part in value.split(",")) if sample_id not in {"", "0"}]
+
+
+def ped_relatives(ped: ParsedPed) -> list[dict[str, Any]]:
+    """The links the PED's ``related_to=`` columns make, as ``family.relationships.relatives``
+    names them (``ped_related_to``)."""
+    return [
+        {"member": member.iid, "related_to": related_to}
+        for member in ped.members
+        if (related_to := ped_related_to(member))
+    ]
+
+
 def ped_member_entries(ped: ParsedPed) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     """The members of the PED ``ped`` as a manifest names them: each row one ``family.add_members``
     entry (its sex, its parents, its clinical status, and its role when the row gives one), and
     each carrier its rows mark one ``family.members`` entry (carrier status, and type). Discover
-    drafts a folder's PED so, for the package a delivery proposes: the import reads no PED."""
+    drafts a folder's PED so, for the package a delivery proposes: the import reads no PED. A row
+    with a ``related_to=`` column and no role is a relative (``ped_relatives`` names its links)."""
     entries: list[dict[str, Any]] = []
     carriers: dict[str, dict[str, Any]] = {}
     for member in ped.members:
@@ -632,6 +654,8 @@ def ped_member_entries(ped: ParsedPed) -> tuple[list[dict[str, Any]], dict[str, 
             entry["clinical_status"] = member.clinical_status
         if member.role_hint in _PED_ROLE_VALUES:
             entry["role"] = member.role_hint
+        elif ped_related_to(member):
+            entry["role"] = "relative"
         entries.append(entry)
         carrier_type = _ped_carrier_type(member)
         if carrier_type is not None or _ped_is_carrier(member):

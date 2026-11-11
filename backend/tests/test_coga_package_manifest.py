@@ -334,7 +334,7 @@ async def test_the_watcher_imports_a_full_copgtm_package_with_the_files_members(
     # The only issue: CoGA has no project PGT (the session answers no rows).
     assert [issue.code for issue in assessment.issues] == ["package_project_unknown"]
     assert not any(issue.code.endswith("_proposed") for issue in assessment.warnings)
-    # The copgtm PED lacks the index, which the package file names: that is no difference.
+    # The folder's PED holds the members the package file names: no difference.
     assert "package_ped_differs" not in {issue.code for issue in assessment.warnings}
     assert (assessment.run_id, assessment.family_id, assessment.marker) == ("RUN1", FAMILY, body)
     manifest = json.loads(assessment.manifest_text or "")
@@ -342,7 +342,7 @@ async def test_the_watcher_imports_a_full_copgtm_package_with_the_files_members(
     assert sorted(assessment.validation["sample_ids"]) == sorted([FATHER, MOTHER, *EMBRYOS, INDEX])
 
     # A PED that says another father of an embryo is told, but the file's members are read.
-    ped = folder / "ped" / "combined.ped"
+    ped = folder / f"{FAMILY}.ped"
     ped.write_text(ped.read_text().replace(f"EMB2\t{FATHER}", "EMB2\tOTHER1"), encoding="utf-8")
     body["files"] = _files(folder)
     (folder / PACKAGE_FILE_NAME).write_text(json.dumps(body), encoding="utf-8")
@@ -378,8 +378,8 @@ async def test_a_minimal_file_has_its_members_and_datasets_proposed(tmp_path: Pa
     assert "package_members_proposed" in codes and "package_datasets_proposed" in codes
     assert [issue.code for issue in assessment.issues] == ["package_project_unknown"]
     # Discover's draft is written into the package: the folder's PED as members (the embryos'
-    # role, the index it adds from the samplesheet, linked to the mother), the datasets and the
-    # PGT details, so they can be corrected like the pipeline's.
+    # role, the index its related_to column links to the mother), the datasets and the PGT
+    # details, so they can be corrected like the pipeline's.
     package = assessment.package or {}
     roles = {member["sample_id"]: member.get("role") for member in package["members"]}
     assert roles == {FATHER: "father", MOTHER: "mother", "EMB1": "embryo", "EMB2": "embryo", INDEX: "relative"}

@@ -19,11 +19,11 @@ from ..schemas import (
 from .family_identifiers import visible
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, family_id_issue, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
-from .family_package_manifest import _parse_ped_text_strict, ped_member_entries
+from .family_package_manifest import _parse_ped_text_strict, ped_member_entries, ped_relatives
 from .family_package_mito_table import MITO_TABLE_PATTERNS, read_mito_table, table_id_member
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files, nipt_draft_column_issues
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
-from .family_package_pgt import pgt_family_block, pgt_roi_phasing_issue, pgt_run_context, read_pgt_pipeline_roles
+from .family_package_pgt import pgt_ped_indexes, pgt_roi_phasing_issue, pgt_run_context
 from .family_package_source import _ensure_authorized_package_path, package_folder_link_issues, package_folder_path
 
 
@@ -679,20 +679,24 @@ def _detect_ped_path(
     root: Path,
     *,
     family_id: str,
+    pipeline_ped_folder: bool = False,
 ) -> tuple[Path | None, list[FamilyImportValidationIssue], list[FamilyImportValidationIssue]]:
+    """The family's PED: the one at the top of the package folder, ``<family ID>.ped`` or its
+    only ``*.ped``. A PED in the ``ped/`` folder is the PGT pipeline's working copy (it lacks
+    the index and does not mark the embryos), which Discover does not read; with
+    ``pipeline_ped_folder`` it is found when the top holds none, to compare the package file's
+    members with what the pipeline read (``import_watcher._folder_ped_differences``)."""
     errors: list[FamilyImportValidationIssue] = []
     warnings: list[FamilyImportValidationIssue] = []
     preferred = _package_ped(root, f"{family_id}.ped")
     if preferred is not None:
         return preferred, errors, warnings
     ped_files = _package_peds(root, root.glob("*.ped"))
-    if not ped_files:
-        # The PGT pipeline (nf-cmgg/copgtm) writes its PED into a ped/ folder.
-        ped_folder = root / PED_FOLDER
+    ped_folder = root / PED_FOLDER
+    pipeline_peds = _package_peds(root, ped_folder.glob("*.ped")) if not ped_files and ped_folder.is_dir() else []
+    if pipeline_ped_folder and pipeline_peds:
         preferred = _package_ped(root, f"{PED_FOLDER}/{family_id}.ped")
-        if preferred is not None:
-            return preferred, errors, warnings
-        ped_files = _package_peds(root, ped_folder.glob("*.ped")) if ped_folder.is_dir() else []
+        ped_files = [preferred] if preferred is not None else pipeline_peds
     if len(ped_files) == 1:
         return ped_files[0], errors, warnings
     if len(ped_files) > 1:
@@ -704,13 +708,14 @@ def _detect_ped_path(
             )
         )
         return None, errors, warnings
-    errors.append(
-        _issue(
-            "ped_file_missing",
-            "No PED file was found in the family folder",
-            path=root,
+    message = "No PED file was found at the top of the family folder"
+    if pipeline_peds:
+        message = (
+            f"{message}: the PED in {PED_FOLDER}/ is the pipeline's working copy and is not read. Put the "
+            f"family's pedigree at the top of the folder as {family_id}.ped, with the couple, the embryos "
+            "(role=embryo in a column after the sixth) and the index"
         )
-    )
+    errors.append(_issue("ped_file_missing", message, path=root))
     return None, errors, warnings
 
 
@@ -1771,8 +1776,8 @@ def _absent_parent_id_issues(ped: ParsedPed, *, path: Path | None) -> list[Famil
 
 def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest) -> FamilyPackageManifestBuildOut:
     """Discover's draft of the manifest for the package folder ``request.folder_path``: the
-    members from its PED (or from a long-read package's per-sample folders, or the PGT pipeline's
-    samplesheet), the datasets from its layout, for the family ``request.family_id`` (the folder's
+    members from the PED at the top of the folder (or from a long-read package's per-sample
+    folders), the datasets from its layout, for the family ``request.family_id`` (the folder's
     name when None). It proposes what a delivery's package file leaves out
     (``import_watcher._proposal``); it reads no manifest in the folder and writes nothing."""
     try:
@@ -1865,8 +1870,7 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
                 if ped_family_issue is not None:
                     errors.append(ped_family_issue)
 
-    # The family block: a long-read package's per-sample folders, or what the PGT pipeline's
-    # samplesheet says (embryo roles, an index the PED lacks). Members it adds count as
+    # The family block: a long-read package's per-sample folders. Members it adds count as
     # samples for the per-sample datasets below.
     parent_ids = (
         {member.pid for member in parsed_ped.members if member.pid not in {"", "0"}}
@@ -1874,33 +1878,15 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
         if parsed_ped is not None
         else set()
     )
-    pipeline_roles = read_pgt_pipeline_roles(root) if parsed_ped is not None else {}
-    errors.extend(
-        sample_id_issues(
-            [sample_id for sample_id in pipeline_roles if sample_id not in sample_ids],
-            source="in the pipeline's samplesheet",
-        )
-    )
     if any(issue.code in IDENTIFIER_ISSUE_CODES for issue in errors):
         return _no_draft_for_an_id(request, root, family_id=family_id, errors=errors, warnings=warnings)
-    roi, traced_parent, run_warnings = pgt_run_context(
-        root, sample_ids=[*sample_ids, *pipeline_roles], parent_ids=parent_ids
-    )
+    roi, traced_parent, run_warnings = pgt_run_context(root, sample_ids=sample_ids, parent_ids=parent_ids)
     warnings.extend(run_warnings)
     family_block: dict[str, Any] = {}
     added_source = "the name of its per-sample folder"
     if folder_sample_ids:
         family_block, folder_warnings = long_read_family_block(root, folder_sample_ids)
         warnings.extend(folder_warnings)
-    if not family_block and parsed_ped is not None and pipeline_roles:
-        family_block, pgt_warnings = pgt_family_block(
-            root=root,
-            family_id=family_id,
-            ped=parsed_ped,
-            roles=pipeline_roles,
-            affected_parent=traced_parent,
-        )
-        warnings.extend(pgt_warnings)
     added_ids = [sample_id for sample_id in _added_member_ids(family_block) if sample_id not in sample_ids]
     added_issues = sample_id_issues(added_ids, source=added_source)
     if added_issues:
@@ -1917,8 +1903,9 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
         sample_ids=sample_ids,
         # The PGT pipeline's region and traced parent are read from its newest params
         # (pgt_run_context): its run records stay the newest too, so both name one run.
-        newest_run_records=bool(pipeline_roles),
+        newest_run_records=roi is not None or traced_parent is not None,
     )
+    nipt_files: NiptPackageFiles | None = None
     if parsed_ped is not None and not manifest_payload["datasets"].get("snv", {}).get("enabled"):
         # No joint VCF: a monogenic NIPT pair has one VCF per parent instead. A parent's VCF
         # that cannot be read is refused by name.
@@ -1934,11 +1921,13 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
                     dataset="snv",
                 )
             )
-    # The run's index, when it is a member: with the inheritance model set, the import
-    # derives its status as it does the affected parent's.
-    indexes = sorted(
-        sample_id for sample_id, role in pipeline_roles.items() if role == "index" and sample_id in sample_ids
-    )
+    # A PGT family's indexes, from its PED (one with embryos; a NIPT pair's fetus is none): with
+    # the inheritance model set, the import derives their status as it does the affected parent's.
+    index_roles: dict[str, str] = {}
+    indexes: list[str] = []
+    if parsed_ped is not None and nipt_files is None:
+        index_roles, indexes, index_warnings = pgt_ped_indexes(parsed_ped)
+        warnings.extend(index_warnings)
     if traced_parent or indexes:
         metadata_block = manifest_payload.setdefault("metadata", {})
         pgt_block: dict[str, Any] = {}
@@ -1950,16 +1939,19 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
     if roi:
         manifest_payload["roi"] = roi
     if parsed_ped is not None:
-        # The PED's members as the draft names them (the import reads no PED), before the
-        # members the PGT pipeline's samplesheet adds; the carriers its rows mark with them.
+        # The PED's members as the draft names them (the import reads no PED), an index without a
+        # role in the PED with the one its place in the pedigree gives it; the carriers its rows
+        # mark, and the relatives its related_to columns link.
         entries, carriers = ped_member_entries(parsed_ped)
-        added = [entry for entry in family_block.get("add_members") or [] if isinstance(entry, dict)]
-        family_block["add_members"] = [*entries, *added]
-        members_block = family_block.setdefault("members", {})
-        for sample_id, carrier in carriers.items():
-            members_block[sample_id] = {**carrier, **(members_block.get(sample_id) or {})}
-        if not members_block:
-            del family_block["members"]
+        for entry in entries:
+            if "role" not in entry and entry["sample_id"] in index_roles:
+                entry["role"] = index_roles[entry["sample_id"]]
+        family_block["add_members"] = entries
+        if carriers:
+            family_block["members"] = carriers
+        relatives = ped_relatives(parsed_ped)
+        if relatives:
+            family_block["relationships"] = {"relatives": relatives}
     if family_block:
         manifest_payload["family"] = family_block
     # A NIPT file whose one column is named neither as its member nor in its entry, which the
