@@ -415,6 +415,8 @@ with the delivery.
   reason. It ends when the folder is as it was imported again, or when its new delivery is imported
   with overwrite or refused with a reason: a refused folder state is not raised again. Importing it
   with update keeps the notice, as the approval says: an update skips the datasets the family holds.
+  Such a delivery stays listed, and an administrator can **Approve…** it again, with *Overwrite*
+  only, to end the notice.
 - **Confirm archived…** (a superuser's) on a delivery whose folder is gone since its import, with a
   reason: the folder was archived on purpose. Signing out then needs no reason, and every page of the
   family says *Source files archived*: the read files, signal tracks and QC report are no longer

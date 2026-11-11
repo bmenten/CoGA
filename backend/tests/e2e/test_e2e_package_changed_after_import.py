@@ -11,7 +11,8 @@ import folder and one folder added by hand:
   family's record serves the change (the family page's notice), and the deliveries list shows it;
 - a sign-out is refused (409, gate ``package_source_change``) until it is acknowledged with a
   reason; acknowledged, the signed record and its audit event keep the change and the reason;
-- the folder's new delivery imported with update: the family's record names it, but its
+- the folder's new delivery imported with update: it may be approved again, with overwrite only
+  (an update is refused, 400; a dry run with overwrite is queued); the family's record names it, but its
   reference stays the first delivery, which stays changed, so the notice and the gate stay;
 - changed again, its new delivery imported with overwrite: the reference is that delivery, the
   first one's change ends (``overwritten``), and the notice is gone;
@@ -216,6 +217,20 @@ async def _exercise(base: Path, away: Path, run: str) -> dict[str, Any]:
         out["change_after_update"] = await family_change()
         out["record_after_update"] = await record()
         out["signout_after_update"] = capture(await _harness.sign_out(client, url, _OTHER_GATES))
+        # The update-imported delivery may be approved again, to overwrite only (a dry run here:
+        # step 5 imports with overwrite).
+        listed = capture(await client.get("/api/family-imports/deliveries", params={"limit": 200}))
+        out["approvable_again"] = {row["_id"]: row["overwrite_approvable"] for row in listed["json"]}
+        again_url = f"/api/family-imports/deliveries/{second['id']}/approve"
+        out["again_with_update"] = capture(
+            await client.post(again_url, json={"revision": 0, "acknowledge_warnings": True, "conflict_mode": "update"})
+        )
+        out["again_dry_run"] = capture(
+            await client.post(
+                again_url,
+                json={"revision": 0, "acknowledge_warnings": True, "conflict_mode": "overwrite", "dry_run": True},
+            )
+        )
 
         # 5. Changed again; its new delivery imported with overwrite ends the change.
         (folder / "notes" / "second.txt").write_text("another note\n", encoding="utf-8")
@@ -382,6 +397,18 @@ def test_importing_the_folders_new_delivery_with_update_keeps_the_change(ran) ->
     assert ran["change_after_update"]["delivery_id"] == first["id"]
     gated = ran["signout_after_update"]
     assert gated["status"] == 409 and gated["json"]["detail"]["gate"] == "package_source_change", gated
+
+
+def test_an_update_imported_delivery_is_approved_again_only_with_overwrite(ran) -> None:
+    first, second = ran["after_update"]
+    assert ran["approvable_again"][second["id"]] is True
+    assert ran["approvable_again"][first["id"]] is False
+    refused = ran["again_with_update"]
+    assert refused["status"] == 400, refused
+    assert "approved again only to overwrite" in refused["json"]["detail"]
+    dry_run = ran["again_dry_run"]
+    assert dry_run["status"] == 200, dry_run
+    assert dry_run["json"]["delivery"]["state"] == "imported"
 
 
 def test_importing_a_new_delivery_with_overwrite_ends_the_change(ran) -> None:

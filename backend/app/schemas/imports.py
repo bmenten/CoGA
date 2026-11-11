@@ -240,6 +240,10 @@ class ImportDeliveryOut(ApiDocumentModel):
     # (``changed_after_import``), or whose gone folder was confirmed as archived (``archived``):
     # what changed, and the archiving. None in every other state.
     source_change: Optional[PackageSourceChangeOut] = None
+    # An imported delivery that may be approved again, with overwrite only: its family's record
+    # names it as its last import, made with update, while the family's reference delivery is
+    # ``changed_after_import`` (``import_delivery_review.approve_delivery``).
+    overwrite_approvable: bool = False
 
 
 class ImportDeliveryApprove(BaseModel):

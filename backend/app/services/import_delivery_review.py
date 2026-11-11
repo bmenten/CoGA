@@ -10,7 +10,10 @@ route's check, as for every overwrite).
   exists (``existing_family``, with ``existing_samples``) and the approver chooses update or
   overwrite. One whose package's members differ from the family beyond the members it adds
   (``package_members_differ_from_family``) is approved only with overwrite, which makes the
-  package's members the family's pedigree. Its warnings must be acknowledged. Its folder must be
+  package's members the family's pedigree. An ``imported`` delivery is approved again only with
+  overwrite, when its family's record names it as its last import, made with update, while the
+  family's reference delivery is ``changed_after_import``: only an overwrite ends that change (a
+  failed overwrite leaves it ``imported``). Its warnings must be acknowledged. Its folder must be
   as it was checked (the same package fingerprint); one that changed is left to the watcher's next
   round, which makes it a new delivery. The approval names the revision of the package the approver saw
   (``import_delivery_revisions``: 0 when it was not corrected); one corrected since is refused.
@@ -54,7 +57,13 @@ from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
 from .family_package_jobs import queue_family_import_job
 from .coga_package import package_document_sha256
-from .import_watcher import IMPORT_INBOX_CHAIN, WATCHER_ACTOR, get_import_delivery, latest_revision
+from .import_watcher import (
+    IMPORT_INBOX_CHAIN,
+    UPDATE_IMPORT_UNDER_A_CHANGE,
+    WATCHER_ACTOR,
+    get_import_delivery,
+    latest_revision,
+)
 
 DELIVERY_NOT_FOUND = "Delivery not found"
 # The issues an approver resolves by choosing update or overwrite: the family exists.
@@ -75,6 +84,15 @@ DELIVERY_REVISED_SINCE = (
 WARNINGS_NOT_ACKNOWLEDGED = (
     "The delivery has warnings: check them, and confirm that you did (acknowledge_warnings), to "
     "approve it."
+)
+REAPPROVAL_NEEDS_AN_OVERWRITE = (
+    "The delivery is imported: it is approved again only to overwrite its family's data, after an "
+    "update import of it left the family's package folder warning of a change."
+)
+NOT_REAPPROVABLE = (
+    "The delivery is imported. Only a delivery imported with update, whose family's package folder "
+    "still warns of a change since its last import as a new family or with overwrite, can be "
+    "approved again, with overwrite."
 )
 MEMBERS_DIFFER_NEED_AN_OVERWRITE = (
     "The package's members differ from the family in CoGA beyond the members it adds: an update "
@@ -179,12 +197,20 @@ async def approve_delivery(
     delivery = await _locked_delivery(session, delivery_id)
     codes = _issue_codes(delivery["issues"])
     state = delivery["state"]
-    if state not in ("ready", "needs_attention"):
+    # An imported delivery is approved again only to overwrite, after an update import of it left
+    # its family's package folder warning of a change (the owner's decision of 2026-11-11).
+    reapproval = state == "imported"
+    if reapproval:
+        if conflict_mode != "overwrite":
+            raise HTTPException(status_code=400, detail=REAPPROVAL_NEEDS_AN_OVERWRITE)
+        if not await _imported_with_update_under_a_change(session, delivery["id"]):
+            raise HTTPException(status_code=409, detail=NOT_REAPPROVABLE)
+    elif state not in ("ready", "needs_attention"):
         raise HTTPException(
             status_code=409,
             detail=f"The delivery is {state.replace('_', ' ')}: only one that is ready, or whose family exists, can be approved.",
         )
-    existing = "existing_family" in codes
+    existing = reapproval or "existing_family" in codes
     if state == "needs_attention" and not (existing and codes <= _RESOLVED_BY_A_CHOICE | _RESOLVED_BY_AN_OVERWRITE):
         raise HTTPException(
             status_code=409,
@@ -235,6 +261,8 @@ async def approve_delivery(
             "corrections": corrections,
             # ``manual``: a folder a person added by hand, whose package CoGA made.
             "origin": delivery["origin"],
+            # Approved again, to overwrite, after its update import.
+            **({"reapproval": True} if reapproval else {}),
         },
         commit=False,
     )
@@ -267,10 +295,25 @@ async def approve_delivery(
             "marker_sha256": delivery["marker_sha256"],
             "revision": current,
             "warnings_acknowledged": bool(acknowledge_warnings),
+            **({"reapproval": True} if reapproval else {}),
         },
     )
     await session.commit()
     return await _delivery(session, delivery["id"]), job
+
+
+async def _imported_with_update_under_a_change(session: AsyncSession, delivery_id: str) -> bool:
+    """Whether the imported delivery ``delivery_id`` is the one a family's record names as its
+    last import, made with update, while the family's reference delivery (its data's last import
+    as a new family or with overwrite) is ``changed_after_import``: the folder CoGA serves the
+    family's source files from is not the one imported whole, and only an overwrite ends that."""
+    found = (
+        await session.execute(
+            text(f"SELECT {UPDATE_IMPORT_UNDER_A_CHANGE} FROM import_deliveries d WHERE d.id = CAST(:delivery_id AS uuid)"),
+            {"delivery_id": delivery_id},
+        )
+    ).scalar_one_or_none()
+    return bool(found)
 
 
 async def refuse_delivery(session: AsyncSession, *, delivery_id: str, user: CurrentUser, reason: str) -> ImportDeliveryOut:
@@ -319,7 +362,8 @@ async def sync_delivery_jobs(session_factory: async_sessionmaker[AsyncSession]) 
             await session.execute(
                 text(
                     """
-                    SELECT d.id::text AS id, d.folder_name, d.package_fingerprint, j.id::text AS job_id, j.status
+                    SELECT d.id::text AS id, d.folder_name, d.package_fingerprint, j.id::text AS job_id, j.status,
+                           COALESCE((j.metadata -> 'delivery' ->> 'reapproval')::boolean, FALSE) AS reapproval
                     FROM import_deliveries d
                     JOIN family_import_jobs j ON j.id = d.job_id
                     WHERE d.state = 'queued' AND NOT j.dry_run AND j.status IN ('completed', 'failed')
@@ -329,7 +373,15 @@ async def sync_delivery_jobs(session_factory: async_sessionmaker[AsyncSession]) 
             )
         ).mappings().all()
         for row in rows:
-            state = "imported" if row["status"] == "completed" else "failed"
+            completed = row["status"] == "completed"
+            # A delivery approved again to overwrite, whose overwrite failed, is still the one
+            # imported with update: the failed import put the family back as it was.
+            state = "imported" if completed or row["reapproval"] else "failed"
+            action = (
+                "import_delivery_overwrite_failed"
+                if row["reapproval"] and not completed
+                else f"import_delivery_{'imported' if completed else 'failed'}"
+            )
             await session.execute(
                 text("UPDATE import_deliveries SET state = :state, state_changed_at = now() WHERE id = CAST(:id AS uuid)"),
                 {"state": state, "id": row["id"]},
@@ -337,10 +389,10 @@ async def sync_delivery_jobs(session_factory: async_sessionmaker[AsyncSession]) 
             await _record(
                 session,
                 user=None,
-                action=f"import_delivery_{state}",
+                action=action,
                 delivery=dict(row),
-                summary=f"Delivery {row['folder_name']}: {state}",
-                after={"state": state, "job_id": row["job_id"]},
+                summary=f"Delivery {row['folder_name']}: {'its overwrite failed, imported with update still' if action == 'import_delivery_overwrite_failed' else state}",
+                after={"state": state, "job_id": row["job_id"], **({"reapproval": True} if row["reapproval"] else {})},
             )
         await session.commit()
     return len(rows)

@@ -13,6 +13,7 @@ import { AUTH_STORAGE_KEYS } from '../../../lib/auth';
 import { storage } from '../../../lib/storage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import ImportDeliveriesPanel, {
+  approvableAgainToOverwrite,
   isApprovable,
   needsAChoice,
   needsAnOverwrite,
@@ -66,6 +67,11 @@ const existingFamily = delivery('FAMX', {
       path: null,
     },
   ],
+});
+
+const importedWithUpdate = delivery('FAMU', {
+  state: 'imported',
+  overwrite_approvable: true,
 });
 
 const membersDiffer = delivery('FAMY', {
@@ -490,6 +496,49 @@ describe('ImportDeliveriesPanel', () => {
           revision: 0,
           dry_run: false,
           conflict_mode: 'update',
+          acknowledge_warnings: false,
+        }
+      )
+    );
+  });
+
+  it('approves an update-imported delivery again, only to overwrite, while its family warns of a change', async () => {
+    expect(approvableAgainToOverwrite(importedWithUpdate as never)).toBe(true);
+    expect(isApprovable(importedWithUpdate as never)).toBe(true);
+    expect(
+      approvableAgainToOverwrite(delivery('FAMI', { state: 'imported' }) as never)
+    ).toBe(false);
+    vi.mocked(api.get).mockResolvedValue({ data: [importedWithUpdate] });
+    storage.setItem(AUTH_STORAGE_KEYS.role, 'admin');
+    renderPanel();
+    // Listed among the deliveries that wait, not only among the decided ones.
+    fireEvent.click(
+      (await loadedRow('FAMU')).getByRole('button', { name: 'Approve…' })
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Import FAMU?' });
+    const policy = within(dialog).getByRole('combobox', {
+      name: 'Existing data policy',
+    });
+    expect(policy).toHaveValue('overwrite');
+    expect(
+      within(dialog).getByRole('option', {
+        name: 'Update: add the missing datasets and members',
+      })
+    ).toBeDisabled();
+    expect(
+      within(dialog).getByText(/Approve it again with overwrite to end the notice/)
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Approve and import' })
+    );
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/family-imports/deliveries/id-FAMU/approve',
+        {
+          revision: 0,
+          dry_run: false,
+          conflict_mode: 'overwrite',
           acknowledge_warnings: false,
         }
       )

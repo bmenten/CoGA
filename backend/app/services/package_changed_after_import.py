@@ -56,6 +56,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -67,6 +68,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..core.coga_logging import describe_error
+from ..core.config import settings
 from ..core.sql import require_uuid
 from ..schemas import ImportDeliveryOut
 from .access_control import CurrentUser
@@ -804,13 +806,25 @@ async def family_package_source_change(session: AsyncSession, family_uuid: str) 
     return source_change_out(raw)
 
 
+def _checked_folder(folder: str) -> str | None:
+    """The folder a sign-out lists: the family's package folder as CoGA serves files from it
+    (``local_family_package_folder``: its real path, below an import root). In development with no
+    import root configured, any local folder, as the watcher watches any (the owner's decision of
+    2026-11-11): its real path, when the record holds an absolute path without NUL."""
+    if settings.family_import_roots:
+        return local_family_package_folder(folder)
+    if "\x00" in folder or not os.path.isabs(folder):
+        return None
+    return os.path.realpath(folder)
+
+
 def _folder_now_or_unreadable(folder: str) -> FolderNow:
-    """The family's package folder as CoGA serves files from it (``local_family_package_folder``:
-    its real path, below an import root) and as ``_folder_now`` finds it. A folder CoGA serves
-    nothing from (outside every import root, not an absolute path) is one that cannot be read,
-    and is not listed; so is any error reading it (a path the file system refuses)."""
+    """The family's package folder as a sign-out lists it (``_checked_folder``) and as
+    ``_folder_now`` finds it. A folder CoGA serves nothing from (outside every import root, not an
+    absolute path) is one that cannot be read, and is not listed; so is any error reading it (a
+    path the file system refuses)."""
     try:
-        served = local_family_package_folder(folder)
+        served = _checked_folder(folder)
         return _folder_now(served) if served is not None else FolderNow(gone=True)
     except Exception:  # noqa: BLE001 - never fail open: an error reads as a folder that cannot be read
         return FolderNow(gone=True)

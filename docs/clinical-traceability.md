@@ -727,7 +727,8 @@ Seven gates run first, in this order:
    `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`) and also takes the folder's fingerprint itself, stat-only
    and off the event loop: a folder that differs from the reference's fingerprint, that is gone, or
    that cannot be read within 30 seconds (`SIGN_OUT_FOLDER_CHECK_SECONDS`) or at all, or that CoGA
-   serves no file from (outside every import root: it is not listed) is a change, never a pass (`found_at_sign_out`; a folder too large to list in full is still fingerprinted,
+   serves no file from (outside every import root: it is not listed; in development with no import
+   root configured, any local folder is read, as the watcher watches any) is a change, never a pass (`found_at_sign_out`; a folder too large to list in full is still fingerprinted,
    and one too large to fingerprint has changed). Either way the sign-out gets 409
    (`gate: "package_source_change"`, with `package_source_change` and a message saying what
    changed, or that the source files are no longer available), unless the request sets

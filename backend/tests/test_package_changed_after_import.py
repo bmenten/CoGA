@@ -1008,6 +1008,27 @@ async def test_a_sign_out_finds_a_folder_changed_since_its_reference_with_what_c
 
 
 @pytest.mark.asyncio
+async def test_in_development_without_import_roots_a_sign_out_checks_any_local_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The owner's decision of 2026-11-11: with no FAMILY_IMPORT_ROOTS (development), a sign-out
+    # checks the recorded folder itself, as the watcher watches any local folder, so not every
+    # sign-out warns. A relative path or one holding NUL is still one that cannot be read.
+    monkeypatch.setattr(followed.settings, "family_import_roots", [])
+    folder = tmp_path / "anywhere"
+    folder.mkdir()
+    (folder / "a.txt").write_text("a", encoding="utf-8")
+    kept = fingerprints.package_listing(folder)
+
+    assert await followed.check_family_package_folder(_Record(_record(folder, kept.fingerprint.sha256, kept.entries)), "family-uuid") is None  # type: ignore[arg-type]
+    (folder / "b.txt").write_text("b", encoding="utf-8")
+    changed = await followed.check_family_package_folder(_Record(_record(folder, kept.fingerprint.sha256, kept.entries)), "family-uuid")  # type: ignore[arg-type]
+    assert changed is not None and (changed["kind"], changed["added"]) == ("changed", ["b.txt"])
+    assert followed._checked_folder("relative/folder") is None
+    assert followed._checked_folder(str(folder) + "\x00") is None
+
+
+@pytest.mark.asyncio
 async def test_a_sign_out_never_passes_a_folder_gone_unreadable_slow_unrecorded_or_unserved(
     served: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
