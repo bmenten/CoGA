@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from collections import OrderedDict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -622,64 +623,186 @@ async def fetch_recurrent_small_variant_ids(
     ]
 
 
-async def count_cfdna_carriers(
+@dataclass(slots=True, frozen=True)
+class CfdnaRecurrenceRules:
+    """How ``count_cfdna_recurrence`` reads a call: the NIPT quality filter's floors for a
+    plasma call, the allele fraction from which the mother carries the allele, and the
+    father's het or hom-alt class (``nipt_service.derive_father_state``)."""
+
+    min_alt_reads: int
+    min_alt_fraction: float
+    maternal_vaf_boundary: float
+    father_min_depth: int
+    father_min_alt_reads: int
+    father_min_quality: float
+    father_min_vaf: float
+
+
+@dataclass(slots=True, frozen=True)
+class CfdnaRecurrence:
+    """How an allele recurs in the other cfDNA samples of an assay.
+
+    ``carriers`` are the samples with a call of it. Each call with allele depths falls in
+    one of three groups:
+
+    - ``maternal``: an allele fraction at the maternal boundary or above, so that mother
+      carries the allele;
+    - ``paternal_low_vaf``: a lower fraction, and that family's father carries the allele,
+      so it is the fetus's paternal allele;
+    - ``unexplained_low_vaf``: a lower fraction that neither parent explains: an artefact's
+      mark. ``unexplained_median_vaf`` is the median fraction of these calls.
+
+    A call without allele depths counts as a carrier only.
+    """
+
+    carriers: int = 0
+    maternal: int = 0
+    paternal_low_vaf: int = 0
+    unexplained_low_vaf: int = 0
+    unexplained_median_vaf: float | None = None
+
+
+async def count_cfdna_recurrence(
     assembly_name: str,
     variant_ids: Sequence[str],
     *,
     carrier_samples: Collection[str],
     exclude_family_uuid: str,
-    min_alt_reads: int = 5,
-    min_alt_fraction: float = 0.01,
+    rules: CfdnaRecurrenceRules,
     chunk_size: int = 5_000,
-) -> dict[str, int]:
-    """How many of ``carrier_samples`` outside the family carry each of ``variant_ids``.
+) -> dict[str, CfdnaRecurrence]:
+    """How each of ``variant_ids`` recurs in the ``carrier_samples`` outside the family
+    (``CfdnaRecurrence``).
 
     ``carrier_samples`` are sample IDs, as ``fetch_recurrent_small_variant_ids`` takes them:
     the cfDNA samples of the family's assay. A call carries the allele when it has at least
-    ``min_alt_reads`` alt reads and ``min_alt_fraction`` of the reads (the NIPT quality
-    filter's floors), or, without allele depths, an alt genotype. A per-sample cfDNA
-    callset stores every low-level call, so a read or two that crossed over from another
-    sample of the run does not count. Variants nobody else carries are not listed.
+    ``rules.min_alt_reads`` alt reads and ``rules.min_alt_fraction`` of the reads, or,
+    without allele depths, an alt genotype. A per-sample cfDNA callset stores every
+    low-level call, so a read or two that crossed over from another sample of the run does
+    not count. The father of a call's family is any other sample of the family's row: he
+    explains the call when his own call of the allele is het or hom-alt by ``rules``. His
+    call in another representation of the allele (an MNV over it, or its SNVs) is not
+    looked up. A family stored under more than one project counts once. Variants nobody
+    else carries are not listed.
     """
     if not assembly_name or not variant_ids or not carrier_samples:
         return {}
     entries_table = _small_table_name(assembly_name, "entries")
     carrier_ids = tuple(sorted(carrier_samples))
-    counts: dict[str, int] = {}
+    counts: dict[str, CfdnaRecurrence] = {}
     unique_ids = list(dict.fromkeys(str(value) for value in variant_ids if value))
+    reads = "arraySum(arrayMap(x -> ifNull(x, 0), {}))"
     for offset in range(0, len(unique_ids), chunk_size):
         params: dict[str, Any] = {
             "variant_ids": tuple(unique_ids[offset : offset + chunk_size]),
             "carrier_ids": carrier_ids,
             "family_guid": exclude_family_uuid,
-            "min_alt_reads": int(min_alt_reads),
-            "min_alt_fraction": float(min_alt_fraction),
+            "min_alt_reads": int(rules.min_alt_reads),
+            "min_alt_fraction": float(rules.min_alt_fraction),
+            "maternal_vaf": float(rules.maternal_vaf_boundary),
+            "father_min_depth": int(rules.father_min_depth),
+            "father_min_alt_reads": int(rules.father_min_alt_reads),
+            "father_min_quality": float(rules.father_min_quality),
+            "father_min_vaf": float(rules.father_min_vaf),
         }
         has_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
+        father_has_alt = clickhouse_genotype_condition("g", ALT_CLASSES, param="father_gt_alt", params=params)
+        # The father's quality is his TLOD, else his QUAL (nipt_service._call_quality).
+        father_quality = (
+            "if(mapContains(m, 'TLOD'), m['TLOD'], if(mapContains(m, 'QUAL'), m['QUAL'], NULL))"
+        )
+        # A call's alt fraction: its alt reads over every read; none without allele depths.
+        call_vaf = (
+            f"if(length(ad) >= 2 AND {reads.format('ad')} > 0, "
+            f"ifNull(ad[2], 0) / {reads.format('ad')}, NULL)"
+        )
         rows = await _execute_clickhouse(
             f"""
-            SELECT variantId, uniqExact(sample_id)
-            FROM {entries_table}
-            ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt, `calls.ad` AS ad
-            WHERE sign = 1
-              AND family_guid != %(family_guid)s
-              AND variantId IN %(variant_ids)s
-              AND sample_id IN %(carrier_ids)s
-              AND (
-                (
-                  length(ad) >= 2
-                  AND ifNull(ad[2], 0) >= %(min_alt_reads)s
-                  AND ifNull(ad[2], 0) >= %(min_alt_fraction)s * arraySum(arrayMap(x -> ifNull(x, 0), ad))
+            SELECT
+                variantId,
+                count() AS carriers,
+                countIf(isNotNull(sample_vaf) AND sample_vaf >= %(maternal_vaf)s) AS maternal,
+                countIf(isNotNull(sample_vaf) AND sample_vaf < %(maternal_vaf)s AND explained)
+                    AS paternal_low_vaf,
+                countIf(isNotNull(sample_vaf) AND sample_vaf < %(maternal_vaf)s AND NOT explained)
+                    AS unexplained_low_vaf,
+                medianExactIf(sample_vaf, isNotNull(sample_vaf) AND sample_vaf < %(maternal_vaf)s AND NOT explained)
+                    AS unexplained_median_vaf
+            FROM (
+                SELECT variantId, sample_id, any({call_vaf}) AS sample_vaf, max(father_explains) AS explained
+                FROM (
+                    SELECT
+                        variantId,
+                        `calls.sampleId` AS row_samples,
+                        `calls.gt` AS row_gts,
+                        `calls.ad` AS row_ads,
+                        arrayExists(
+                            (s, g, a, m) -> s NOT IN %(carrier_ids)s AND (
+                                (
+                                    length(a) >= 2
+                                    AND ifNull(a[2], 0) >= %(father_min_alt_reads)s
+                                    AND {reads.format('a')} >= %(father_min_depth)s
+                                    AND ifNull(a[2], 0) >= %(father_min_vaf)s * {reads.format('a')}
+                                    AND ifNull({father_quality}, %(father_min_quality)s) >= %(father_min_quality)s
+                                )
+                                OR (length(a) < 2 AND {father_has_alt})
+                            ),
+                            `calls.sampleId`, `calls.gt`, `calls.ad`, `calls.metrics`
+                        ) AS father_explains
+                    FROM {entries_table}
+                    WHERE sign = 1
+                      AND family_guid != %(family_guid)s
+                      AND variantId IN %(variant_ids)s
                 )
-                OR (length(ad) < 2 AND {has_alt})
-              )
+                ARRAY JOIN row_samples AS sample_id, row_gts AS gt, row_ads AS ad
+                WHERE sample_id IN %(carrier_ids)s
+                  AND (
+                    (
+                      length(ad) >= 2
+                      AND ifNull(ad[2], 0) >= %(min_alt_reads)s
+                      AND ifNull(ad[2], 0) >= %(min_alt_fraction)s * {reads.format('ad')}
+                    )
+                    OR (length(ad) < 2 AND {has_alt})
+                  )
+                GROUP BY variantId, sample_id
+            )
             GROUP BY variantId
             """,
             params,
         )
-        for variant_id, carriers in rows:
-            counts[str(variant_id)] = int(carriers or 0)
+        for variant_id, carriers, maternal, paternal, unexplained, median_vaf in rows:
+            median = float(median_vaf) if median_vaf is not None else None
+            counts[str(variant_id)] = CfdnaRecurrence(
+                carriers=int(carriers or 0),
+                maternal=int(maternal or 0),
+                paternal_low_vaf=int(paternal or 0),
+                unexplained_low_vaf=int(unexplained or 0),
+                unexplained_median_vaf=median if median is not None and not math.isnan(median) else None,
+            )
     return counts
+
+
+async def count_other_cfdna_samples(
+    assembly_name: str,
+    *,
+    carrier_samples: Collection[str],
+    exclude_family_uuid: str,
+) -> int:
+    """How many of ``carrier_samples`` outside the family have a call on the assembly: the
+    samples ``count_cfdna_recurrence`` reads, whether or not they cover a given site."""
+    if not assembly_name or not carrier_samples:
+        return 0
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT uniqExact(sample_id)
+        FROM {_small_table_name(assembly_name, 'family_sample_variant_summary')}
+        WHERE sample_id IN %(carrier_ids)s
+          AND family_guid != %(family_guid)s
+          AND non_ref_count > 0
+        """,
+        {"carrier_ids": tuple(sorted(carrier_samples)), "family_guid": exclude_family_uuid},
+    )
+    return int(rows[0][0] or 0) if rows else 0
 
 
 async def fetch_artifact_protection_flags(

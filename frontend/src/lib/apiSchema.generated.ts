@@ -2258,6 +2258,7 @@ export interface NiptClassificationOut {
   father_vaf: number | null;
   father_depth: number | null;
   de_novo: NiptDeNovoTriageOut | null;
+  recurrence: NiptRecurrenceOut;
 }
 
 /** A panel gene / target region flagged as inadequately interrogated. */
@@ -2438,6 +2439,27 @@ export interface NiptRecessiveGeneOut {
   maternal_variant_id: string | null;
   paternal_variant_id: string | null;
   risk_uses_prior: boolean;
+}
+
+/**
+ * How the allele recurs in the other cfDNA samples of the family's assay, every
+ * project's (counts only). ``other_samples`` have a call on the assembly; ``carriers``
+ * call the allele with at least 5 alt reads and 1% of the reads. Of those, ``maternal``
+ * sit at an allele fraction of 0.25 or more (that mother carries it), ``paternal_low_vaf``
+ * lower where that father carries it, and ``unexplained_low_vaf`` lower where no parent
+ * does: the mark of a recurrent artefact, at a median fraction of
+ * ``unexplained_median_vaf``. ``protection`` names why the recurrence filter keeps the
+ * variant whatever its count: ``clinvar`` (a ClinVar record may call it pathogenic) or
+ * ``common`` (a population frequency above 5%).
+ */
+export interface NiptRecurrenceOut {
+  other_samples: number;
+  carriers: number;
+  maternal: number;
+  paternal_low_vaf: number;
+  unexplained_low_vaf: number;
+  unexplained_median_vaf: number | null;
+  protection: "clinvar" | "common" | null;
 }
 
 /**

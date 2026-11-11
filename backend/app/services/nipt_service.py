@@ -36,7 +36,10 @@ from .clickhouse_family_variants import (
     _fetch_small_variant_rows,
     _hydrate_small_variant_outs,
     _small_variant_outs,
-    count_cfdna_carriers,
+    CfdnaRecurrence,
+    CfdnaRecurrenceRules,
+    count_cfdna_recurrence,
+    count_other_cfdna_samples,
     resolve_review_selection,
 )
 from .clickhouse_variant_queries import _parse_interval_regions, _split_gene_terms
@@ -518,6 +521,18 @@ def family_artifact_ids(
 
 
 @dataclass(slots=True)
+class NiptRecurrence:
+    """How a variant's allele recurs in the other cfDNA samples of the family's assay
+    (``count_cfdna_recurrence``): ``other_samples`` is how many of them have a call on the
+    assembly, and ``protection`` why the recurrence filter keeps the variant whatever its
+    count (``artifact_protection``: ``clinvar`` or ``common``)."""
+
+    other_samples: int
+    counts: CfdnaRecurrence
+    protection: str | None
+
+
+@dataclass(slots=True)
 class NiptClassifiedVariant:
     """A family variant record paired with its NIPT classification.
 
@@ -530,6 +545,7 @@ class NiptClassifiedVariant:
     variant_out: "VariantOut | None" = None
     site: NiptSiteObservation | None = None
     de_novo: DeNovoTriage | None = None
+    recurrence: NiptRecurrence | None = None
 
 
 @dataclass(slots=True)
@@ -1083,18 +1099,95 @@ def _recessive_view(
     return kept, genes
 
 
+def recurrence_rules(qc: NiptQualityThresholds) -> CfdnaRecurrenceRules:
+    """How the recurrence count reads the other cfDNA samples' calls: the quality filter's
+    floors, the maternal boundary (``MATERNAL_ALLELE_VAF_BOUNDARY``) and the father's het
+    or hom-alt class (``derive_father_state``)."""
+    return CfdnaRecurrenceRules(
+        min_alt_reads=qc.min_cf_alt_reads,
+        min_alt_fraction=qc.min_vaf,
+        maternal_vaf_boundary=MATERNAL_ALLELE_VAF_BOUNDARY,
+        father_min_depth=qc.min_father_dp,
+        father_min_alt_reads=qc.min_father_alt_reads,
+        father_min_quality=qc.min_father_qual,
+        father_min_vaf=qc.father_het_min_vaf,
+    )
+
+
+@dataclass(slots=True)
+class _RecurrenceScope:
+    """The other cfDNA samples of the family's assay that a recurrence count reads; how
+    many of them have a call on the assembly is read once, on the first count."""
+
+    assembly_name: str | None
+    carrier_samples: Sequence[str]
+    family_uuid: str
+    rules: CfdnaRecurrenceRules
+    other_samples: int | None = None
+
+
+async def _recurrence_scope(
+    session: AsyncSession, context: FamilyMetadataContext, assay_key: str, qc: NiptQualityThresholds
+) -> _RecurrenceScope:
+    return _RecurrenceScope(
+        assembly_name=context.assembly_name,
+        carrier_samples=await assay_cfdna_carrier_samples(session, assay_key=assay_key),
+        family_uuid=context.family_uuid,
+        rules=recurrence_rules(qc),
+    )
+
+
+async def _attach_recurrence(items: Sequence[NiptClassifiedVariant], scope: _RecurrenceScope) -> None:
+    """Give each of ``items`` that has none its recurrence in the other cfDNA samples of the
+    family's assay, in one count."""
+    pending = [item for item in items if item.recurrence is None]
+    if not pending:
+        return
+    counts: dict[str, CfdnaRecurrence] = {}
+    if scope.assembly_name and scope.carrier_samples:
+        counts = await count_cfdna_recurrence(
+            scope.assembly_name,
+            [item.record.variant_id for item in pending],
+            carrier_samples=scope.carrier_samples,
+            exclude_family_uuid=scope.family_uuid,
+            rules=scope.rules,
+        )
+        if scope.other_samples is None:
+            scope.other_samples = await count_other_cfdna_samples(
+                scope.assembly_name,
+                carrier_samples=scope.carrier_samples,
+                exclude_family_uuid=scope.family_uuid,
+            )
+    for item in pending:
+        item.recurrence = NiptRecurrence(
+            other_samples=scope.other_samples or 0,
+            counts=counts.get(item.record.variant_id, CfdnaRecurrence()),
+            protection=artifact_protection(item.record),
+        )
+
+
+def hidden_as_recurrent(item: NiptClassifiedVariant, max_unexplained: int) -> bool:
+    """Whether the recurrence filter leaves ``item`` out: an unexplained low-VAF call in
+    more than ``max_unexplained`` other cfDNA samples of the assay, and nothing protects it
+    (``artifact_protection``: a ClinVar record that may call it pathogenic, such as a de
+    novo hotspot, or a common allele)."""
+    recurrence = item.recurrence
+    if recurrence is None:
+        raise RuntimeError("NIPT variant was filtered on recurrence before its count")
+    return recurrence.protection is None and recurrence.counts.unexplained_low_vaf > max_unexplained
+
+
 async def _triage_de_novo_candidates(
     classified: list[NiptClassifiedVariant],
     ff_estimate: FetalFractionEstimate,
     *,
-    assembly_name: str | None,
-    carrier_samples: Sequence[str],
-    family_uuid: str,
+    scope: _RecurrenceScope,
 ) -> list[NiptClassifiedVariant]:
     """The de novo candidates among ``classified``, each given its triage (nipt_triage) in
-    the family's fetal window, whatever its label; [] without a window. The de novo view
-    lists them from a priority up; the signed record freezes the triage of each reported
-    one."""
+    the family's fetal window, whatever its label; [] without a window. The triage reads how
+    many other cfDNA samples of the assay carry the allele from the candidate's recurrence.
+    The de novo view lists them from a priority up; the signed record freezes the triage of
+    each reported one."""
     window = de_novo_window(ff_estimate)
     candidates = [
         item
@@ -1103,22 +1196,15 @@ async def _triage_de_novo_candidates(
     ]
     if window is None or not candidates:
         return []
-    others: dict[str, int] = {}
-    if assembly_name and carrier_samples:
-        others = await count_cfdna_carriers(
-            assembly_name,
-            [item.record.variant_id for item in candidates],
-            carrier_samples=carrier_samples,
-            exclude_family_uuid=family_uuid,
-        )
+    await _attach_recurrence(candidates, scope)
     triaged: list[NiptClassifiedVariant] = []
     for item in candidates:
-        assert item.site is not None
+        assert item.site is not None and item.recurrence is not None
         triage = triage_de_novo(
             item.site,
             window,
             triage_annotation(item.record),
-            other_cfdna_carriers=others.get(item.record.variant_id, 0),
+            other_cfdna_carriers=item.recurrence.counts.carriers,
         )
         if triage is None:  # pragma: no cover - a window always gives a triage
             continue
@@ -1131,21 +1217,13 @@ async def _de_novo_view(
     classified: list[NiptClassifiedVariant],
     ff_estimate: FetalFractionEstimate,
     *,
-    assembly_name: str | None,
-    carrier_samples: Sequence[str],
-    family_uuid: str,
+    scope: _RecurrenceScope,
     min_priority: str,
 ) -> list[NiptClassifiedVariant]:
     """The de novo candidates in the family's fetal window, triaged (nipt_triage) and
     ranked by score, from ``min_priority`` up."""
     wanted = _DE_NOVO_PRIORITY_LABELS.get(min_priority, _DE_NOVO_PRIORITY_LABELS["low"])
-    triaged = await _triage_de_novo_candidates(
-        classified,
-        ff_estimate,
-        assembly_name=assembly_name,
-        carrier_samples=carrier_samples,
-        family_uuid=family_uuid,
-    )
+    triaged = await _triage_de_novo_candidates(classified, ff_estimate, scope=scope)
     kept: list[NiptClassifiedVariant] = []
     for item in triaged:
         if item.de_novo is None or item.de_novo.label not in wanted:
@@ -1173,6 +1251,7 @@ async def get_family_nipt_variants(
     qc: NiptQualityThresholds | None = None,
     review_tags: list[str] | None = None,
     exclude_review_tags: list[str] | None = None,
+    max_unexplained_recurrence: int | None = None,
 ) -> NiptVariantsResult:
     """The family's cfDNA variants in a search, classified, in an inheritance view:
 
@@ -1190,8 +1269,15 @@ async def get_family_nipt_variants(
     classify is named in ``not_classified``, with why. With ``review_tags=["report"]`` and
     no other filter, the list holds the variants a sign-out freezes, as it classifies them
     (``get_family_nipt_record``).
+
+    Each listed variant carries its recurrence in the other cfDNA samples of the assay
+    (``NiptRecurrence``). ``max_unexplained_recurrence`` leaves out, after the view and the
+    categories, the variants that are an unexplained low-VAF call in more of them
+    (``hidden_as_recurrent``), as recurrent artefacts.
     """
     qc = qc or NiptQualityThresholds()
+    if max_unexplained_recurrence is not None and max_unexplained_recurrence < 0:
+        raise HTTPException(status_code=400, detail="max_unexplained_recurrence must be 0 or more")
     if inheritance and inheritance not in _INHERITANCE_VIEWS:
         raise HTTPException(
             status_code=400,
@@ -1296,6 +1382,7 @@ async def get_family_nipt_variants(
         family_records=data.records,
     )
 
+    recurrence_scope = await _recurrence_scope(session, context, assay_key, qc)
     recessive_genes: list[RecessiveGeneRisk] = []
     if inheritance == RECESSIVE_AT_RISK:
         classified, recessive_genes = _recessive_view(classified, qc)
@@ -1305,19 +1392,20 @@ async def get_family_nipt_variants(
         classified = _maternal_view(classified, include_not_inherited=include_not_inherited)
     elif inheritance == DE_NOVO:
         classified = await _de_novo_view(
-            classified,
-            ff_estimate,
-            assembly_name=context.assembly_name,
-            carrier_samples=await assay_cfdna_carrier_samples(session, assay_key=assay_key),
-            family_uuid=context.family_uuid,
-            min_priority=de_novo_priority,
+            classified, ff_estimate, scope=recurrence_scope, min_priority=de_novo_priority
         )
     if wanted:
         classified = [item for item in classified if item.classification.category in wanted]
+    if max_unexplained_recurrence is not None:
+        await _attach_recurrence(classified, recurrence_scope)
+        classified = [
+            item for item in classified if not hidden_as_recurrent(item, max_unexplained_recurrence)
+        ]
 
     total = len(classified)
     offset = max(0, (page - 1) * page_size)
     page_items = classified[offset : offset + page_size]
+    await _attach_recurrence(page_items, recurrence_scope)
 
     # Serialize the page slice as full small-variant payloads (and hydrate their
     # review / internal-cohort / gene-constraint data) so the NIPT variant list
@@ -1447,6 +1535,10 @@ async def get_family_nipt_record(
         summary.analysis.fetal_fraction,
         qc,
     )
+    # Each reported variant's recurrence, which the record freezes as the list showed it, in
+    # one count that the de novo triage then reads.
+    scope = await _recurrence_scope(session, context, assay_key, qc)
+    await _attach_recurrence(classified, scope)
     candidates = [
         item
         for item in classified
@@ -1454,11 +1546,7 @@ async def get_family_nipt_record(
     ]
     if candidates:
         triaged = await _triage_de_novo_candidates(
-            candidates,
-            summary.analysis.fetal_fraction,
-            assembly_name=context.assembly_name,
-            carrier_samples=await assay_cfdna_carrier_samples(session, assay_key=assay_key),
-            family_uuid=context.family_uuid,
+            candidates, summary.analysis.fetal_fraction, scope=scope
         )
         for item in triaged:
             # A de novo candidate is one in the fetal window (nipt_triage): a maternal

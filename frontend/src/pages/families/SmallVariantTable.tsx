@@ -25,7 +25,7 @@ import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import ReviewTagChip from './ReviewTagChip';
 import VariantScoreCell from './VariantScoreCell';
 import SvSecondHitBadge from './SvSecondHitBadge';
-import { niptEvidenceSummary, pct } from './niptClassification';
+import { niptEvidenceSummary, pct, recurrenceShortText, recurrenceText } from './niptClassification';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 interface SmallVariantTableProps {
@@ -201,6 +201,11 @@ export default function SmallVariantTable({
                         </span>
                         {niptEvidenceSummary(variant.nipt) ? (
                           <span className="nipt-table-detail">{niptEvidenceSummary(variant.nipt)}</span>
+                        ) : null}
+                        {recurrenceShortText(variant.nipt.recurrence) ? (
+                          <span className="nipt-table-detail" title={recurrenceText(variant.nipt.recurrence)}>
+                            {recurrenceShortText(variant.nipt.recurrence)}
+                          </span>
                         ) : null}
                       </div>
                     ) : (

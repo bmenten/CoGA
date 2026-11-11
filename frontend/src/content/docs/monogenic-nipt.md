@@ -448,7 +448,8 @@ signed version shows them:
   coverage tracks it did not read as depth; see *Coverage*);
 - the filter funnel and the category counts;
 - each variant tagged *report*, as this analysis classifies it (its category, reads, inheritance
-  probabilities and, for a de novo candidate in the fetal window, its priority);
+  probabilities, how its allele recurred in the assay's other cfDNA samples and, for a de novo
+  candidate in the fetal window, its priority);
 - the recessive fetal risk of the reported variants' genes;
 - what the analysis ran with (the coverage tables, the artifact list and the model).
 
@@ -500,6 +501,37 @@ listed alleles again with its own annotation: one it marks common or ClinVar-pat
 flagged `artifact_list_protected`. A site with no population or ClinVar annotation is not protected,
 and a real recurrent variant that ClinVar does not call pathogenic can still be listed. Review the list
 before use. Every change to the list is a clinical audit event.
+
+---
+
+## Recurrence in other cfDNA samples
+
+Each variant on the NIPT page says how its allele recurs in the other cfDNA samples of the same assay,
+in every project (*Other cfDNA samples* on the card, *recurrent N/M* in the table). Only counts are
+shown, never which family. A sample counts when its call has at least 5 alt reads and 1% of the reads,
+and each such call is read as one of three:
+
+- **maternal**: an allele fraction of 25% or more: that mother carries the allele;
+- **father's allele**: lower, and that family's father carries the allele (a het or hom-alt call of at
+  least 20 reads, 5 alt reads and 20% of the reads): the fetus inherited it;
+- **unexplained low-VAF**: lower, and no parent explains it. This is the mark of a recurrent artefact,
+  shown with the median allele fraction of these calls. A real polymorphism is almost never
+  unexplained, however many pregnancies carry it.
+
+**Hide recurrent low-VAF calls**, under *Maternal/fetal categories*, leaves out the variants that are an
+unexplained low-VAF call in more than the number you give of the other samples. It never hides a
+variant that a ClinVar record may call pathogenic (a de novo hotspot recurs between pregnancies) or
+that is common in the population (above 5%): the card says *kept by the recurrence filter*. The filter
+only narrows the list. The fetal fraction, the funnel and every classification stay the artifact list's
+(see *Artifact list*), and the report does not apply it.
+
+The count grows as more pregnancies of the assay are imported. Use it to find artefacts, and to
+propose candidates for the artifact list, which stays the reviewed, audited filter of the analysis.
+The signed record holds each reported variant's recurrence counts as they were at sign-out.
+
+Limits: a father's call written as another representation of the allele (an MNV over it, or its
+SNVs) is not matched, so such an allele counts as unexplained; the number of other samples counts
+every sample of the assay with data, not only those that covered the site.
 
 ---
 

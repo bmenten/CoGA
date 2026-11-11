@@ -289,6 +289,27 @@ class NiptClassificationOut(BaseModel):
     father_vaf: Optional[float] = None
     father_depth: Optional[int] = None
     de_novo: Optional["NiptDeNovoTriageOut"] = None
+    recurrence: "NiptRecurrenceOut"
+
+
+class NiptRecurrenceOut(BaseModel):
+    """How the allele recurs in the other cfDNA samples of the family's assay, every
+    project's (counts only). ``other_samples`` have a call on the assembly; ``carriers``
+    call the allele with at least 5 alt reads and 1% of the reads. Of those, ``maternal``
+    sit at an allele fraction of 0.25 or more (that mother carries it), ``paternal_low_vaf``
+    lower where that father carries it, and ``unexplained_low_vaf`` lower where no parent
+    does: the mark of a recurrent artefact, at a median fraction of
+    ``unexplained_median_vaf``. ``protection`` names why the recurrence filter keeps the
+    variant whatever its count: ``clinvar`` (a ClinVar record may call it pathogenic) or
+    ``common`` (a population frequency above 5%)."""
+
+    other_samples: int
+    carriers: int
+    maternal: int
+    paternal_low_vaf: int
+    unexplained_low_vaf: int
+    unexplained_median_vaf: Optional[float] = None
+    protection: Optional[Literal["clinvar", "common"]] = None
 
 
 class NiptDeNovoTriageOut(BaseModel):

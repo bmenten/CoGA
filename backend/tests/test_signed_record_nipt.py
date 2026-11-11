@@ -29,6 +29,7 @@ from backend.app.services import report_signout_service as rss
 from backend.app.services import sample_integrity_service
 from backend.app.services import signed_record_nipt as srn
 from backend.app.services import signed_record_sections as srs
+from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from backend.app.services.coverage_read_depth import SampleCoverageTracks
 from backend.app.services.family_metadata_context import FamilyMetadataContext
@@ -198,14 +199,17 @@ def _wire(
     sites: list[SmallVariantRecord] | None = None,
     targets: list[TargetCoverageRow] | None = None,
     artifacts: set[str] | None = None,
-    other_carriers: dict[str, int] | None = None,
+    recurrence: dict[str, CfdnaRecurrence] | None = None,
     roi: FamilyRegionOfInterestOut | None = None,
     coverage: dict[str, str] | None = None,
+    recurrence_counts: list[list[str]] | None = None,
 ) -> list[list[str]]:
     """The family's data, as the NIPT page and the signed record both read it: with ``roi``
     the family page's region of interest, and with ``coverage`` what each of the plasma's
-    coverage tracks holds, by source. The chromosomes each read of the coverage tracks asked
-    for are returned (appended to as they are read)."""
+    coverage tracks holds, by source; each variant's recurrence in the assay's 12 other cfDNA
+    samples from ``recurrence`` (the ids of each count appended to ``recurrence_counts``). The
+    chromosomes each read of the coverage tracks asked for are returned (appended to as they
+    are read)."""
     filtered = sites if sites is not None else _gene_sites()
     cohort = _ff_sites() + filtered
     rows = targets if targets is not None else _targets()
@@ -252,9 +256,15 @@ def _wire(
     async def carriers(_session, *, assay_key):
         return {"other-cfdna": "OTHER1"}
 
-    async def recurrence(_assembly, variant_ids, *, carrier_samples, exclude_family_uuid):
+    async def count_recurrence(_assembly, variant_ids, *, carrier_samples, exclude_family_uuid, rules):
         assert exclude_family_uuid == FAMILY_UUID
-        return {variant_id: count for variant_id, count in (other_carriers or {}).items() if variant_id in variant_ids}
+        if recurrence_counts is not None:
+            recurrence_counts.append(list(variant_ids))
+        return {variant_id: value for variant_id, value in (recurrence or {}).items() if variant_id in variant_ids}
+
+    async def count_others(_assembly, *, carrier_samples, exclude_family_uuid):
+        assert exclude_family_uuid == FAMILY_UUID
+        return 12
 
     monkeypatch.setattr(nipt_service, "get_family_record", fake_family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_context)
@@ -263,7 +273,8 @@ def _wire(
     monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", listed_artifacts)
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", carriers)
-    monkeypatch.setattr(nipt_service, "count_cfdna_carriers", recurrence)
+    monkeypatch.setattr(nipt_service, "count_cfdna_recurrence", count_recurrence)
+    monkeypatch.setattr(nipt_service, "count_other_cfdna_samples", count_others)
     monkeypatch.setattr(nipt_service, "coverage_tracks_by_sample", fake_coverage_tracks)
     return track_reads
 
@@ -393,11 +404,59 @@ async def test_a_reported_de_novo_candidate_is_frozen_with_its_triage(monkeypatc
 async def test_a_recurrent_de_novo_candidate_keeps_its_triage_in_the_record(monkeypatch: pytest.MonkeyPatch) -> None:
     # Another pregnancy of the assay carries it: the de novo view leaves it out as recurrent,
     # but a reported one is frozen with that triage, not without one.
-    _wire(monkeypatch, other_carriers={"7-500-G-A": 1})
+    _wire(monkeypatch, recurrence={"7-500-G-A": CfdnaRecurrence(carriers=1, unexplained_low_vaf=1)})
     assert await _page_variants(inheritance="de_novo") == {}
     [entry] = (await _section(["7-500-G-A"]))["variants"]
     assert entry["de_novo"]["label"] == "excluded_recurrent"
     assert entry["de_novo"]["other_cfdna_carriers"] == 1
+
+
+@pytest.mark.asyncio
+async def test_each_reported_variant_is_frozen_with_its_recurrence_as_the_list_shows_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recurrence = {
+        "7-500-G-A": CfdnaRecurrence(
+            carriers=5, maternal=1, paternal_low_vaf=0, unexplained_low_vaf=4, unexplained_median_vaf=0.0125
+        ),
+        "7-200-C-T": CfdnaRecurrence(carriers=2, paternal_low_vaf=2),
+    }
+    counts: list[list[str]] = []
+    _wire(monkeypatch, recurrence=recurrence, recurrence_counts=counts)
+    section = await _section(["7-100-A-G", "7-200-C-T", "7-500-G-A"])
+    # One count for every reported variant; the de novo triage reads it, and counts nothing more.
+    assert counts == [["7-100-A-G", "7-200-C-T", "7-500-G-A"]]
+    frozen = {entry["variant_id"]: entry["recurrence"] for entry in section["variants"]}
+    assert frozen["7-500-G-A"] == {
+        "carriers": 5,
+        "maternal": 1,
+        "paternal_low_vaf": 0,
+        "unexplained_low_vaf": 4,
+        "unexplained_median_vaf": 0.0125,
+        "protection": None,
+    }
+    assert frozen["7-200-C-T"]["paternal_low_vaf"] == 2
+    assert frozen["7-100-A-G"] == {
+        "carriers": 0,
+        "maternal": 0,
+        "paternal_low_vaf": 0,
+        "unexplained_low_vaf": 0,
+        "unexplained_median_vaf": None,
+        "protection": None,
+    }
+    [entry] = [entry for entry in section["variants"] if entry["variant_id"] == "7-500-G-A"]
+    assert entry["de_novo"]["other_cfdna_carriers"] == 5
+    # As the variant list shows each of them, which also names how many other samples there
+    # are (12); the record does not, so that a pregnancy imported since that does not carry
+    # a reported allele leaves the record as it was signed.
+    page = await _page_variants()
+    for variant_id, value in frozen.items():
+        shown = page[variant_id].recurrence
+        assert shown is not None and shown.other_samples == 12
+        assert (shown.counts.carriers, shown.counts.unexplained_low_vaf) == (
+            value["carriers"],
+            value["unexplained_low_vaf"],
+        )
 
 
 @pytest.mark.asyncio

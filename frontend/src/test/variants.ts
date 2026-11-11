@@ -238,5 +238,14 @@ export const niptClassification = (
   father_vaf: null,
   father_depth: null,
   de_novo: null,
+  recurrence: {
+    other_samples: 0,
+    carriers: 0,
+    maternal: 0,
+    paternal_low_vaf: 0,
+    unexplained_low_vaf: 0,
+    unexplained_median_vaf: null,
+    protection: null,
+  },
   ...fields,
 });

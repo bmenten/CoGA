@@ -240,8 +240,9 @@ pull request updates this list only when it adds clinical behaviour that no area
     father's X alleles and the plasma's chrY coverage; the maternal-plasma sex profile and the
     per-target coverage check; the fetal-inheritance probabilities; the de novo triage; the
     per-gene recessive risk; an allele written as an MNV in one sample and as SNVs in the
-    other; the audited artifact list and its import from the pipeline's recurrent table; a
-    report that says when it is incomplete.
+    other; the audited artifact list and its import from the pipeline's recurrent table; each
+    allele's recurrence in the assay's other cfDNA samples and the filter on it; a report that
+    says when it is incomplete.
   - PGT embryo calls that are uninformative without supporting data; that carry a warning when
     their phasing QC at the ROI falls below its provisional thresholds over the ROI and 1 Mb on
     each side (informative sites, Mendelian error rate, markers on each flank of the ROI on

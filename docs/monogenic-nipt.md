@@ -160,9 +160,9 @@ it.
   above 1.5 times the tallest other bin cut. Descriptive: the signed record does not hold it. The small-variant statistics name the family's plasma and father
   (`nipt_samples`), whose GT is not a genotype, and the page leaves their het/hom counts out.
 - **De novo triage** — `nipt_triage.py`: `is_de_novo_candidate`, `de_novo_window`, `triage_de_novo`
-  (the R pipeline's score and priorities). Other cfDNA carriers of the assay come from
-  `count_cfdna_carriers` (`clickhouse_family_variants.py`) over `assay_cfdna_carrier_samples`: a call
-  of at least 5 alt reads and 1% of the reads, so crossed-over reads do not count. Unlike the R
+  (the R pipeline's score and priorities). Other cfDNA carriers of the assay are the candidate's
+  recurrence `carriers` (see *Recurrence in other cfDNA samples*): a call of at least 5 alt reads and
+  1% of the reads, so crossed-over reads do not count. Unlike the R
   pipeline, a candidate a ClinVar record may call pathogenic (`triage_annotation`,
   `clinvar_may_assert_pathogenic`) is never `excluded_recurrent`: a de novo hotspot recurs between
   pregnancies.
@@ -206,7 +206,8 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   5. the view (`inheritance`: `de_novo`, `paternal_dominant`, `maternal_dominant`,
      `recessive_at_risk`, with `include_not_inherited` and `de_novo_priority`);
   6. the category filter;
-  7. paging.
+  7. the recurrence filter (`max_unexplained_recurrence`, see *Recurrence in other cfDNA samples*);
+  8. paging, and each listed variant's recurrence.
 
   The recessive view returns `recessive_genes`. The review tags (`review_tag`, `exclude_review_tag`)
   select as on the family small-variant list (`clickhouse_family_variants.resolve_review_selection`:
@@ -256,6 +257,41 @@ Each family's analysis therefore checks its listed alleles again with its own an
 (`nipt_service.artifact_protection`, `family_artifact_ids`; the variant list judges each listed
 record in `_classify_candidates`) and keeps a protected one, flagged `artifact_list_protected`.
 
+## Recurrence in other cfDNA samples
+
+Recurrent artefacts sit at a low allele fraction in many plasmas. Every listed variant carries its
+recurrence in the other cfDNA samples of the family's assay, every project's
+(`nipt_service.NiptRecurrence`, served as `nipt.recurrence`): counts only, never which family.
+`count_cfdna_recurrence` (`clickhouse_family_variants.py`) reads them over
+`assay_cfdna_carrier_samples`, outside the family, by `recurrence_rules`:
+
+- `carriers`: the samples with a call of the allele of at least 5 alt reads and 1% of the reads (the
+  quality filter's floors), or, without allele depths, an alt genotype;
+- `maternal`: those at an allele fraction of 0.25 or more (`MATERNAL_ALLELE_VAF_BOUNDARY`): that
+  mother carries the allele;
+- `paternal_low_vaf`: those lower where another sample of that family's row, the father, calls it
+  het or hom-alt by `derive_father_state`'s classes (20 reads, 5 alt reads, 20% of the reads, a
+  TLOD, else QUAL, of 20): the fetus's paternal allele;
+- `unexplained_low_vaf`: those lower that no parent explains, with their median fraction: the mark
+  of a recurrent artefact. A polymorphism scores about 0 here, however many pregnancies carry it;
+- `other_samples` (`count_other_cfdna_samples`): the cfDNA samples of the assay outside the family
+  with a call on the assembly, from `family_sample_variant_summary`, which every import refreshes.
+
+A family stored under two projects counts once. The page slice is counted in one query; with the
+filter, every classified variant is counted once before the page is cut.
+
+**The recurrence filter** (`max_unexplained_recurrence`, `hidden_as_recurrent`) leaves out a variant
+that is an unexplained low-VAF call in more than that many other samples, unless
+`artifact_protection` keeps it: a ClinVar record that may call it pathogenic (a de novo hotspot recurs
+between pregnancies) or a population frequency above 5%. `recurrence.protection` says which. It
+narrows the list as the category filter does; the analysis, its FF and its funnel are the artifact
+list's alone, so the filter never changes a classification.
+
+**The signed record** holds each reported variant's recurrence (`signed_record_nipt._recurrence`):
+the counts, the median and the protection, not `other_samples`, so that a pregnancy imported since
+changes the record only when it carries a reported allele. `get_family_nipt_record` counts every
+reported variant once; the de novo triage reads that count.
+
 ## Known limits
 
 - The model constants were fitted on six families; the maternal model is weaker on indels (flagged).
@@ -266,6 +302,9 @@ record in `_classify_candidates`) and keeps a protected one, flagged `artifact_l
 - The artifact-list protections need annotation: a site with no population frequency or ClinVar
   record is not protected.
 - The R recurrent table counts the cfDNA families of the R cohort, the index family included.
+- The recurrence count does not look up a father's call in another representation of the allele (an
+  MNV over it, or its SNVs), so such a paternal allele counts as unexplained. `other_samples` counts
+  the samples with any call on the assembly, not those that covered the site.
 
 The in-app reference describes these for lab users.
 

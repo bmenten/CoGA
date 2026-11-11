@@ -1329,7 +1329,14 @@ describe('FamilySmallVariantsPage', () => {
       'xlinked',
       'x_linked_recessive',
     ]);
-    const NIPT_ONLY = ['inheritance', 'category', 'min_confidence', 'include_not_inherited', 'de_novo_priority'];
+    const NIPT_ONLY = [
+      'inheritance',
+      'category',
+      'min_confidence',
+      'include_not_inherited',
+      'de_novo_priority',
+      'max_unexplained_recurrence',
+    ];
     const NIPT_DE_NOVO = {
       _id: 'preset-nipt',
       owner: 'reviewer',
@@ -1343,6 +1350,7 @@ describe('FamilySmallVariantsPage', () => {
         category: ['1'],
         min_confidence: '0.9',
         de_novo_priority: 'medium',
+        max_unexplained_recurrence: '2',
       },
       sample_filters: {},
       sample_templates: {},
@@ -1422,7 +1430,7 @@ describe('FamilySmallVariantsPage', () => {
       // Said once, beside the chips.
       expect(
         screen.getAllByText(
-          'The small-variant list does not apply this search’s “De novo in the fetus” inheritance, maternal/fetal category, minimum-confidence and de novo priority filters.',
+          'The small-variant list does not apply this search’s “De novo in the fetus” inheritance, maternal/fetal category, minimum-confidence, de novo priority and recurrence filters.',
         ),
       ).toHaveLength(1);
 
@@ -1446,6 +1454,7 @@ describe('FamilySmallVariantsPage', () => {
               category: ['1'],
               min_confidence: '0.9',
               de_novo_priority: 'medium',
+              max_unexplained_recurrence: '2',
             }),
           }),
         ),

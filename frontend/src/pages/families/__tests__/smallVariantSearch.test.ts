@@ -113,6 +113,7 @@ describe('smallVariantSearch preset helpers', () => {
         min_confidence: '',
         include_not_inherited: '',
         de_novo_priority: '',
+        max_unexplained_recurrence: '',
       },
       members,
       sampleFilters,
@@ -610,6 +611,7 @@ describe('a NIPT search on the small-variant list', () => {
     min_confidence: '0.9',
     include_not_inherited: 'true',
     de_novo_priority: 'medium',
+    max_unexplained_recurrence: '2',
   });
   const readInheritance = (inheritance: string) =>
     smallVariantListFilters({ ...createEmptySmallFilters(), inheritance }).inheritance;
@@ -622,6 +624,7 @@ describe('a NIPT search on the small-variant list', () => {
       min_confidence: '',
       include_not_inherited: '',
       de_novo_priority: '',
+      max_unexplained_recurrence: '',
     });
     ['de_novo', 'paternal_dominant', 'maternal_dominant', 'recessive_at_risk'].forEach((view) =>
       expect(readInheritance(view), view).toBe(''),
@@ -653,7 +656,7 @@ describe('a NIPT search on the small-variant list', () => {
         chips.filter((chip) => !smallVariantAppliesFilterChip(chip)),
       ),
     ).toBe(
-      'The small-variant list does not apply this search’s “De novo in the fetus” inheritance, maternal/fetal category, minimum-confidence, not-inherited-alleles and de novo priority filters.',
+      'The small-variant list does not apply this search’s “De novo in the fetus” inheritance, maternal/fetal category, minimum-confidence, not-inherited-alleles, de novo priority and recurrence filters.',
     );
     expect(describeUnappliedFilters('small-variant list', [])).toBeNull();
   });
@@ -711,11 +714,17 @@ describe('a NIPT search on the small-variant list', () => {
     expect(url.get('min_confidence')).toBe('0.9');
     expect(url.get('include_not_inherited')).toBe('true');
     expect(url.get('de_novo_priority')).toBe('medium');
+    expect(url.get('max_unexplained_recurrence')).toBe('2');
 
     const request = new URLSearchParams(result.current.requestQueryString);
-    ['inheritance', 'category', 'min_confidence', 'include_not_inherited', 'de_novo_priority'].forEach((name) =>
-      expect(request.has(name), name).toBe(false),
-    );
+    [
+      'inheritance',
+      'category',
+      'min_confidence',
+      'include_not_inherited',
+      'de_novo_priority',
+      'max_unexplained_recurrence',
+    ].forEach((name) => expect(request.has(name), name).toBe(false));
     expect(request.getAll('impact')).toEqual(['HIGH', 'MODERATE']);
     expect(request.get('max_gnomad_af')).toBe('0.01');
     // The two impacts and the gnomAD AF (the ClinVar override is a modifier, not a filter).

@@ -33,6 +33,17 @@ const FETAL_FRACTION = {
   low_confidence: false,
 };
 
+// A variant whose allele no other cfDNA sample of the assay carries.
+const NO_RECURRENCE = {
+  other_samples: 20,
+  carriers: 0,
+  maternal: 0,
+  paternal_low_vaf: 0,
+  unexplained_low_vaf: 0,
+  unexplained_median_vaf: null,
+  protection: null,
+};
+
 const renderPage = (familyId: string) => {
   const queryClient = createTestQueryClient();
   return renderFamilyRoute('/families/:familyId/nipt', `/families/${familyId}/nipt`, <FamilyNiptPage />, queryClient);
@@ -145,6 +156,15 @@ describe('FamilyNiptPage', () => {
                   observed_vaf: 0.05,
                   confidence: 0.97,
                   flags: [],
+                  recurrence: {
+                    other_samples: 20,
+                    carriers: 6,
+                    maternal: 2,
+                    paternal_low_vaf: 1,
+                    unexplained_low_vaf: 3,
+                    unexplained_median_vaf: 0.012,
+                    protection: null,
+                  },
                 },
               },
             ],
@@ -200,6 +220,12 @@ describe('FamilyNiptPage', () => {
     expect((await screen.findAllByText('BRCA1')).length).toBeGreaterThan(0);
     expect(screen.getByText(/paternal, transmitted to fetus/)).toBeInTheDocument();
     expect(screen.getByText('Category 7')).toBeInTheDocument();
+    // How the allele recurs in the assay's other cfDNA samples.
+    expect(
+      screen.getByText(
+        "unexplained low-VAF in 3 of 20 other cfDNA samples (median 1.2%) · father's allele in 1 · maternal in 2",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 1')).toBeInTheDocument();
     // Every variant of the search was classified, so nothing says the list stops short.
     expect(screen.queryByText(/than CoGA classifies at once/)).not.toBeInTheDocument();
@@ -325,6 +351,7 @@ describe('FamilyNiptPage', () => {
                   observed_vaf: 0.05,
                   confidence: 0.97,
                   flags: [],
+                  recurrence: NO_RECURRENCE,
                 },
               },
             ],
@@ -461,6 +488,7 @@ describe('FamilyNiptPage', () => {
         observed_vaf: 0.06,
         confidence: 0.98,
         flags: [],
+        recurrence: NO_RECURRENCE,
       },
     };
     const ARTIFACT = { variant_id: '1-9501-A-G', reason: 'artifact_list' };
@@ -554,6 +582,21 @@ describe('FamilyNiptPage', () => {
       // Chipped as the small-variant page chips them, and applied.
       expect(await screen.findByRole('button', { name: 'Review tags: Report' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Exclude review tags: Excluded' })).toBeInTheDocument();
+    });
+
+    it('sends the recurrence filter as a whole number, chips it, and keeps it in the URL', async () => {
+      serve();
+      renderAt('/families/NIPT001/nipt?max_unexplained_recurrence=2');
+
+      await waitFor(() => expect(variantSearches().length).toBeGreaterThan(0));
+      expect(variantSearches().at(-1)?.max_unexplained_recurrence).toBe(2);
+      expect(await screen.findByRole('button', { name: 'Max unexplained recurrence: 2' })).toBeInTheDocument();
+
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'Max unexplained recurrence' }), {
+        target: { value: '0' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+      await waitFor(() => expect(variantSearches().at(-1)?.max_unexplained_recurrence).toBe(0));
     });
 
     it('offers the review tags, but no classification or saved-notes filter the list does not apply', async () => {

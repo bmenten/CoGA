@@ -31,7 +31,8 @@ must carry FORMAT/AD.
 - **The filters** are the small-variant page's *Pathogenicity*, *Annotations*, *In silico*, *Frequency*,
   *Locations* and *Exclude* filters and its review tags (*Review and curation*: the tags, not the
   classification or saved notes), plus **Maternal/fetal categories** (tick any of the eight; each
-  shows its count), a minimum classification confidence and an **Inheritance** view:
+  shows its count), a minimum classification confidence, **Hide recurrent low-VAF calls** (below) and
+  an **Inheritance** view:
   - *De novo in the fetus*: calls in the fetal window without a supported call in the father, triaged
     and ranked by score. **List de novo candidates of priority** picks high, high and medium, or every
     candidate.
@@ -42,8 +43,16 @@ must carry FORMAT/AD.
     in a table with the fetal risk per gene.
 - **Each variant** carries its category, the plasma reads, the father's genotype, the probabilities
   that the fetus inherited the paternal or maternal allele or is homozygous, a de novo candidate's
-  priority and any flags, next to the usual annotation, tags and ACMG classification. As on the
+  priority, any flags and **Other cfDNA samples**: in how many other cfDNA samples of the assay, in
+  every project, its allele is called, and how (maternal, the father's allele, or an *unexplained
+  low-VAF* call that no parent explains, the mark of a recurrent artefact). This sits next to the usual
+  annotation, tags and ACMG classification. As on the
   small-variant page, the diseases its gene is linked to are named under the card's heading.
+- **Hide recurrent low-VAF calls** leaves out the variants that are an unexplained low-VAF call in more
+  than the number of other cfDNA samples you give. A variant that ClinVar may call pathogenic, or that
+  is common in the population, stays listed, marked *kept by the recurrence filter*. The filter narrows
+  the list only; the fetal fraction and the classifications do not change. The count grows with every
+  pregnancy imported, so it is also how you find candidates for the assay's artifact list.
 - **On-target coverage**, under the variants, gives the median depth over the capture targets of the
   panel and genes you selected (every target without a selection) and how many genes have a weak
   target: a mean below 300× or a base without coverage, where a fetal variant can be missed.
