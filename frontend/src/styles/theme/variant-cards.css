@@ -225,6 +225,23 @@ button.sv-second-hit-badge--del:hover {
   overflow-wrap: anywhere;
 }
 
+/* The diseases the gene is linked to, one line under the heading: the names, how many more
+   there are, and what they rest on. Every link is in the card's expanded detail. */
+.variant-card-diseases {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.5rem;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+.variant-card-diseases-names {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
 /* The priority breakdown reads as one line under the gene: score, rank, the four parts
    and the inheritance it rests on. */
 .variant-card-priority {

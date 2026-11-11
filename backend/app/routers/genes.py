@@ -1,12 +1,17 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
-from ..schemas import GeneOut, GeneProfileOut, GeneSearchResultOut
-from ..services.gene_metadata_service import build_gene_profile, search_genes
+from ..schemas import GeneDiseaseLinksOut, GeneOut, GeneProfileOut, GeneSearchResultOut
+from ..services.gene_metadata_service import (
+    MAX_DISEASE_LINK_SYMBOLS,
+    build_gene_profile,
+    list_gene_disease_links,
+    search_genes,
+)
 from ..services.access_control import CurrentUser
 from ..services.reference_metadata_service import get_gene_region_records
 
@@ -21,6 +26,25 @@ async def search_gene_symbols(
 ) -> List[GeneSearchResultOut]:
     _ = user
     return await search_genes(session, query=q)
+
+
+@router.get("/disease-links", response_model=List[GeneDiseaseLinksOut])
+async def get_gene_disease_links(
+    symbol: List[str] = Query(default_factory=list),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> List[GeneDiseaseLinksOut]:
+    """The diseases each gene of a result page is linked to, in one request for every card.
+
+    Reference data, not project-scoped: a signed-in user reads it, as the gene profile.
+    """
+    _ = user
+    if len(symbol) > MAX_DISEASE_LINK_SYMBOLS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"At most {MAX_DISEASE_LINK_SYMBOLS} genes can be looked up at once",
+        )
+    return await list_gene_disease_links(session, symbols=symbol)
 
 
 @router.get("/profile", response_model=GeneProfileOut)

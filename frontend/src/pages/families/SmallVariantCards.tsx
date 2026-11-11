@@ -44,6 +44,8 @@ import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
+import { geneDiseaseKey, useGeneDiseaseLinks } from './geneDiseaseLinks';
+import { GeneDiseaseSummaryLine, VariantGeneDiseases } from './VariantGeneDiseases';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 const GENOTYPE_COLUMNS: GenotypeColumn[] = [
@@ -248,25 +250,14 @@ const transcriptBadges = (
  */
 type GeneTranscriptDetail = GeneTranscriptOut;
 
-// An OMIM disease as the gene reference sync writes it into the profile's `extra`, which the
-// backend serves as an open object.
-interface GeneOmimDisease {
-  label?: string | null;
-  omim_id?: string | null;
-  href?: string | null;
-}
-
-type GeneProfileSlice = Pick<GeneProfileOut, 'transcripts' | 'monarch_associations'> & {
-  extra: { omim_diseases?: Array<string | GeneOmimDisease> };
-};
+type GeneProfileSlice = Pick<GeneProfileOut, 'transcripts'>;
 
 /**
- * The gene profile for a variant's gene, fetched once and shared.
+ * The gene profile for a variant's gene, for the transcript modal.
  *
- * The transcript modal and a card's expanded detail both want parts of it, so they use
- * one cache entry rather than each fetching the same gene. Only fired on a user action —
- * opening the modal or the disclosure — never as part of the variant list, which is the
- * hot path behind the filter.
+ * Only fired when the modal opens, never as part of the variant list, which is the hot path
+ * behind the filter. The cards' gene–disease links come from one lookup for the whole page
+ * (useGeneDiseaseLinks).
  */
 const useGeneProfileSlice = (symbol?: string | null) =>
   useQuery<GeneProfileSlice>({
@@ -343,98 +334,6 @@ const useGeneTranscriptDetails = (symbol?: string | null) => {
   return { byKey, failed: isError };
 };
 
-
-/**
- * Gene–disease associations for the card's expanded detail.
- *
- * Its own component so the fetch is tied to mounting: the disclosure renders this only
- * when open, so a collapsed card costs nothing and expanding one reuses whatever the
- * transcript modal already cached for the same gene.
- */
-const VariantGeneDiseases = ({ symbol }: { symbol?: string | null }) => {
-  const { data: profile, isError, refetch } = useGeneProfileSlice(symbol);
-  const monarch = (profile?.monarch_associations ?? []).filter((entry) => entry.disease_label);
-  const omim = (profile?.extra?.omim_diseases ?? [])
-    .map((entry) => (typeof entry === 'string' ? { label: entry } : entry))
-    .filter((entry): entry is GeneOmimDisease => Boolean(entry?.label));
-
-  if (!symbol) {
-    return <p className="variant-card-empty-note">No gene assigned to this variant.</p>;
-  }
-  if (isError) {
-    // It stayed at "Loading gene–disease associations…" for good (#610).
-    return (
-      <p className="variant-card-empty-note" role="alert">
-        The gene–disease associations of {symbol} could not be loaded.{' '}
-        <button type="button" className="button-link" onClick={() => void refetch()}>
-          Retry
-        </button>
-      </p>
-    );
-  }
-  if (!profile) {
-    return <p className="variant-card-empty-note">Loading gene–disease associations…</p>;
-  }
-  if (!monarch.length && !omim.length) {
-    return <p className="variant-card-empty-note">No gene–disease associations cached for {symbol}.</p>;
-  }
-
-  return (
-    <div className="variant-card-disease-groups">
-      {monarch.length ? (
-        <div>
-          <p className="variant-card-disease-heading">Monarch ({monarch.length})</p>
-          <ul className="variant-card-disease-list">
-            {monarch.slice(0, 8).map((entry) => (
-              <li key={entry.mondo_id || entry.disease_label}>
-                {entry.monarch_url ? (
-                  <a href={entry.monarch_url} target="_blank" rel="noreferrer">
-                    {entry.disease_label}
-                  </a>
-                ) : (
-                  <span>{entry.disease_label}</span>
-                )}
-                {/* Whether the gene causes the disease or is merely associated changes
-                    how the association should be read, so it is stated. */}
-                {entry.causal ? <span className="variant-card-chip variant-card-chip--strong">causal</span> : null}
-                {entry.sources?.length ? (
-                  <span className="variant-card-disease-source">{entry.sources.join(', ')}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {monarch.length > 8 ? (
-            <p className="variant-card-empty-note">+{monarch.length - 8} more in the Gene Explorer.</p>
-          ) : null}
-        </div>
-      ) : null}
-      {omim.length ? (
-        <div>
-          <p className="variant-card-disease-heading">OMIM ({omim.length})</p>
-          <ul className="variant-card-disease-list">
-            {omim.slice(0, 8).map((entry) => (
-              <li key={entry.omim_id || entry.label}>
-                {entry.href ? (
-                  <a href={entry.href} target="_blank" rel="noreferrer">
-                    {entry.label}
-                  </a>
-                ) : (
-                  <span>{entry.label}</span>
-                )}
-                {entry.omim_id ? (
-                  <span className="variant-card-disease-source">MIM {entry.omim_id}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {omim.length > 8 ? (
-            <p className="variant-card-empty-note">+{omim.length - 8} more in the Gene Explorer.</p>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-};
 
 const TranscriptPopup = ({
   variant,
@@ -691,6 +590,8 @@ export default function SmallVariantCards({
   // detail arrays are built only for those (collapsed is the default).
   const [openCardIds, setOpenCardIds] = useState<Set<string>>(() => new Set());
   const excludedCards = useUnfoldedExcludedCards();
+  // The diseases every card's gene is linked to, in one lookup for the page.
+  const geneDiseases = useGeneDiseaseLinks(variants.map((variant) => variant.gene));
   const handleCardToggle = (variantId: string, open: boolean) => {
     setOpenCardIds((prev) => {
       if (open === prev.has(variantId)) return prev;
@@ -720,6 +621,12 @@ export default function SmallVariantCards({
         const transcripts = getVariantTranscripts(variant);
         const transcriptLabel = variant.transcript_id || transcripts[0]?.transcript_id || 'View transcripts';
         const detailsOpen = openCardIds.has(variant._id);
+        const geneDiseaseState = {
+          symbol: variant.gene,
+          links: geneDiseases.bySymbol.get(geneDiseaseKey(variant.gene)),
+          failed: geneDiseases.failed,
+          onRetry: () => void geneDiseases.retry(),
+        };
         const detailData = detailsOpen
           ? buildVariantDetailData(variant)
           : null;
@@ -885,6 +792,13 @@ export default function SmallVariantCards({
             {/* An excluded variant folds to its heading and the bar above. */}
             {isExcluded && !excludedCards.isUnfolded(variant._id) ? null : (
               <>
+                {/* Which diseases the gene is linked to, at a glance; every link is under
+                    "More annotations & detail". */}
+                <GeneDiseaseSummaryLine
+                  {...geneDiseaseState}
+                  onShowAll={() => handleCardToggle(variant._id, true)}
+                />
+
                 {variant.nipt ? <NiptClassificationBlock nipt={variant.nipt} /> : null}
 
                 {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
@@ -1207,6 +1121,7 @@ export default function SmallVariantCards({
 
                 <details
                   className="variant-card-more"
+                  open={detailsOpen}
                   onToggle={(event) => handleCardToggle(variant._id, event.currentTarget.open)}
                 >
                   <summary>More annotations &amp; detail</summary>
@@ -1225,7 +1140,7 @@ export default function SmallVariantCards({
                     </div>
                     <div className="variant-card-section">
                       <p className="variant-card-section-title">Gene&ndash;disease associations</p>
-                      <VariantGeneDiseases symbol={variant.gene} />
+                      <VariantGeneDiseases {...geneDiseaseState} />
                     </div>
                     <div className="variant-card-section">
                       <p className="variant-card-section-title">Other scores &amp; annotations</p>

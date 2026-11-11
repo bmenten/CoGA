@@ -38,6 +38,10 @@ Het profiel combineert twee Postgres-tabellen: **`genes`** (referentiegenen per 
 
 **Waar in de code:** `backend/app/routers/genes.py` en `build_gene_profile` in `backend/app/services/gene_metadata_service.py`.
 
+**Ziekten op de variantkaarten.** De kaarten van de kleine varianten en van de monogene NIPT halen de ziektekoppelingen van alle genen op de pagina in één verzoek op: `GET /api/genes/disease-links?symbol=…&symbol=…` (hoogstens 200 genen, achter een login). Per gen komen de koppelingen van Monarch (oorzakelijk eerst, dan op naam, zoals in het profiel) en de OMIM-ziekten uit `gene_info` van de eerste menselijke assembly die het gen heeft (GRCh38 eerst). Onder de kop van de kaart staan tot drie ziekten: de oorzakelijke koppelingen van Monarch, anders de OMIM-ziekten, anders de associaties van Monarch, gemarkeerd als *niet oorzakelijk*. *More annotations & detail* toont alle koppelingen, uit hetzelfde antwoord. Mislukt het opvragen, dan zegt de kaart dat, zodat een gen niet zonder ziekte lijkt.
+
+**Waar in de code:** `list_gene_disease_links` in `backend/app/services/gene_metadata_service.py`; `frontend/src/pages/families/geneDiseaseLinks.ts` en `VariantGeneDiseases.tsx`.
+
 ## Transcriptbadges
 
 Niet elk transcript is klinisch gelijkwaardig. **MANE Select** is het aanbevolen referentietranscript, **MANE Plus Clinical** een klinisch belangrijk extra transcript; **Ensembl Canonical** en **CCDS** zijn aanvullende referenties. De badges komen eerst uit de markeringen per transcript in de genannotatie: GENCODE labelt MANE en Canonical, en geeft het CCDS-id. Alleen als die ontbreken, vergelijkt de pagina het transcript-id met de referentietranscripten in het profiel, zonder het versienummer (`NM_007294.4` = `NM_007294`). Geannoteerde transcripten staan bovenaan, MANE eerst.

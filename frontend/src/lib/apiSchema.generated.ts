@@ -1195,6 +1195,34 @@ export interface GeneAssemblyLocationOut {
   is_family_context: boolean;
 }
 
+/**
+ * The diseases one gene is linked to, for the variant cards of a result page.
+ *
+ * ``symbol`` is the symbol as asked. Monarch's links come causal first, then by name, as on
+ * the gene profile; OMIM's in the order the gene reference holds them.
+ */
+export interface GeneDiseaseLinksOut {
+  symbol: string;
+  monarch: GeneDiseaseMonarchOut[];
+  omim: GeneDiseaseOmimOut[];
+}
+
+/** A Monarch gene–disease link as a variant card lists it: causal or merely associated. */
+export interface GeneDiseaseMonarchOut {
+  mondo_id: string;
+  disease_label: string;
+  causal: boolean;
+  sources: string[];
+  monarch_url: string;
+}
+
+/** An OMIM disease of the gene, from the gene reference (dbNSFP, ClinVar). */
+export interface GeneDiseaseOmimOut {
+  label: string;
+  omim_id: string | null;
+  href: string | null;
+}
+
 export interface GeneExonOut {
   start: number;
   end: number;

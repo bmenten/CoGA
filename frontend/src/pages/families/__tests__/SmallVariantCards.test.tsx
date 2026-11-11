@@ -14,15 +14,45 @@ import reviewClassCases from './fixtures/review-class-cases.json';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
+type DiseaseLinks = { monarch?: unknown[]; omim?: unknown[] };
+type ApiConfig = { params?: { symbol?: string[] } };
+
+// GET /genes/disease-links answers one entry per gene asked, with empty lists for a gene
+// without a link, as the server does.
+const diseaseLinksAnswer = (config: ApiConfig | undefined, links: Record<string, DiseaseLinks> = {}) =>
+  Promise.resolve({
+    data: (config?.params?.symbol ?? []).map((symbol) => ({
+      symbol,
+      monarch: links[symbol]?.monarch ?? [],
+      omim: links[symbol]?.omim ?? [],
+    })),
+  });
+
 // The transcript modal reads CCDS and RefSeq from the imported gene annotation, since
 // the VCF annotation carries neither.
 const mockGeneProfile = (transcripts: unknown[]) => {
-  (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+  (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string, config?: ApiConfig) =>
     url === '/genes/profile'
       ? Promise.resolve({ data: { transcripts } })
-      : Promise.resolve({ data: {} }),
+      : url === '/genes/disease-links'
+        ? diseaseLinksAnswer(config)
+        : Promise.resolve({ data: {} }),
   );
 };
+
+const mockDiseaseLinks = (links: Record<string, DiseaseLinks>) => {
+  (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string, config?: ApiConfig) =>
+    url === '/genes/disease-links' ? diseaseLinksAnswer(config, links) : Promise.resolve({ data: {} }),
+  );
+};
+
+const monarchLink = (label: string, causal: boolean, sources: string[] = ['omim'], mondo = label) => ({
+  mondo_id: `MONDO:${mondo}`,
+  disease_label: label,
+  causal,
+  sources,
+  monarch_url: `https://monarchinitiative.org/MONDO:${mondo}`,
+});
 
 const renderCards = (ui: React.ReactElement) =>
   render(
@@ -291,58 +321,122 @@ describe('SmallVariantCards', () => {
     expect(within(dialog).queryByText('NM_000059.4')).not.toBeInTheDocument();
   });
 
-  it('lists Monarch and OMIM associations when the card detail is expanded', async () => {
-    (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
-      url === '/genes/profile'
-        ? Promise.resolve({
-            data: {
-              transcripts: [],
-              monarch_associations: [
-                {
-                  mondo_id: 'MONDO:0700269',
-                  disease_label: 'BRCA2-related cancer predisposition',
-                  causal: true,
-                  sources: ['clingen'],
-                  monarch_url: 'https://monarchinitiative.org/MONDO:0700269',
-                },
-              ],
-              extra: {
-                omim_diseases: [
-                  { label: 'Breast cancer', omim_id: '114480', href: 'https://www.omim.org/entry/114480' },
-                ],
-              },
-            },
-          })
-        : Promise.resolve({ data: {} }),
-    );
-
+  const renderGeneCards = (genes: Array<string | null>) =>
     renderCards(
-        <SmallVariantCards
-          variants={[
-            smallVariant({
-              _id: 'brca2-var',
-              chr: '13',
-              start: 32316461,
-              end: 32316461,
-              type: 'SNV',
-              gene: 'BRCA2',
-              ref: 'G',
-              alt: 'A',
-              genotypes: [],
-            }),
-          ]}
-          members={[]}
-          familyId="F1"
-          projectId="P1"
-          locationSearch=""
-          tags={[]}
-          onEditReview={vi.fn()}
-          onAcmgClassify={vi.fn()}
-          onToggleReviewTag={vi.fn(async () => undefined)}
-        />,
+      <SmallVariantCards
+        variants={genes.map((gene, index) =>
+          smallVariant({
+            _id: `var-${index}`,
+            chr: '13',
+            start: 32316461 + index,
+            end: 32316461 + index,
+            type: 'SNV',
+            gene,
+            ref: 'G',
+            alt: 'A',
+            genotypes: [],
+          }),
+        )}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
     );
 
-    // Collapsed: the section is not rendered, so nothing is fetched for it.
+  const diseaseLine = (container: HTMLElement, index = 0) =>
+    container.querySelectorAll<HTMLElement>('.variant-card-diseases')[index];
+
+  it('names the diseases the gene is linked to under the heading, without opening the detail', async () => {
+    mockDiseaseLinks({
+      BRCA2: {
+        monarch: [
+          monarchLink('BRCA2-related cancer predisposition', true, ['clingen'], '0700269'),
+          monarchLink('Fanconi anemia complementation group D1', true, ['omim', 'orphanet'], '0011366'),
+          monarchLink('Wilms tumor 1', true, ['omim'], '0006058'),
+          monarchLink('breast-ovarian cancer, familial, susceptibility to, 2', true, ['clingen', 'omim'], '0011450'),
+          monarchLink('medulloblastoma', false, ['omim'], '0007959'),
+        ],
+        omim: [{ label: 'Breast cancer', omim_id: '114480', href: 'https://www.omim.org/entry/114480' }],
+      },
+    });
+    const { container } = renderGeneCards(['BRCA2']);
+
+    const line = await within(container).findByText(/Fanconi anemia complementation group D1/);
+    // Causal links first, the better-supported ones first; the line names three and counts
+    // the rest of the same kind.
+    expect(line).toHaveTextContent(
+      'Fanconi anemia complementation group D1 · breast-ovarian cancer, familial, susceptibility to, 2 · BRCA2-related cancer predisposition',
+    );
+    expect(diseaseLine(container)).toHaveTextContent('Monarch, causal');
+    expect(within(diseaseLine(container)).getByRole('button', { name: '+1 more' })).toBeInTheDocument();
+    // The full list stays in the detail, which is still closed.
+    expect(screen.queryByText(/Gene–disease associations/)).not.toBeInTheDocument();
+    expect(screen.queryByText('medulloblastoma')).not.toBeInTheDocument();
+  });
+
+  it('opens the detail with every link from the summary line', async () => {
+    mockDiseaseLinks({
+      BRCA2: {
+        monarch: ['A', 'B', 'C', 'D'].map((name) => monarchLink(`Disease ${name}`, true)),
+      },
+    });
+    const { container } = renderGeneCards(['BRCA2']);
+
+    await userEvent.click(await within(diseaseLine(container)).findByRole('button', { name: '+1 more' }));
+
+    expect(await screen.findByText(/Gene–disease associations/)).toBeInTheDocument();
+    expect(container.querySelector('details.variant-card-more')).toHaveAttribute('open');
+    expect(screen.getByRole('link', { name: 'Disease D' })).toBeInTheDocument();
+  });
+
+  it('falls back to OMIM, then to associations it marks as not causal', async () => {
+    mockDiseaseLinks({
+      GENE1: {
+        monarch: [monarchLink('associated condition', false)],
+        omim: [{ label: 'Some syndrome', omim_id: '100100', href: 'https://www.omim.org/entry/100100' }],
+      },
+      GENE2: { monarch: [monarchLink('susceptibility condition', false)] },
+    });
+    const { container } = renderGeneCards(['GENE1', 'GENE2', 'GENE3']);
+
+    await within(container).findByText('Some syndrome');
+    expect(diseaseLine(container, 0)).toHaveTextContent('Some syndrome');
+    expect(diseaseLine(container, 0)).toHaveTextContent('OMIM');
+    expect(diseaseLine(container, 0)).not.toHaveTextContent('associated condition');
+    expect(diseaseLine(container, 1)).toHaveTextContent('susceptibility condition');
+    expect(diseaseLine(container, 1)).toHaveTextContent('Monarch, associated only, not causal');
+    expect(diseaseLine(container, 2)).toHaveTextContent('No gene–disease link cached for GENE3');
+  });
+
+  it('looks up the page’s genes in one request', async () => {
+    mockDiseaseLinks({});
+    const { container } = renderGeneCards(['FBN1', 'BRCA2', 'FBN1', null]);
+
+    await within(container).findAllByText(/No gene–disease link cached/);
+    const lookups = (api.get as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([url]) => url === '/genes/disease-links',
+    );
+    expect(lookups).toHaveLength(1);
+    expect(lookups[0][1]).toMatchObject({ params: { symbol: ['BRCA2', 'FBN1'] } });
+    // A variant without a gene has no line.
+    expect(container.querySelectorAll('.variant-card-diseases')).toHaveLength(3);
+  });
+
+  it('lists Monarch and OMIM associations when the card detail is expanded', async () => {
+    mockDiseaseLinks({
+      BRCA2: {
+        monarch: [monarchLink('BRCA2-related cancer predisposition', true, ['clingen'], '0700269')],
+        omim: [{ label: 'Breast cancer', omim_id: '114480', href: 'https://www.omim.org/entry/114480' }],
+      },
+    });
+    renderGeneCards(['BRCA2']);
+
+    // Collapsed: the detail's section is not rendered.
     expect(screen.queryByText(/Gene–disease associations/)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByText('More annotations & detail'));
@@ -1017,46 +1111,48 @@ describe('SmallVariantCards', () => {
     expect(screen.getByText(/Congenital hypothyroidism/)).toBeInTheDocument();
   });
 
-  // #610 — a failed gene profile is not a gene without diseases, nor transcripts without
-  // CCDS or RefSeq; the lookup failure lasts until recover() is called.
-  const failGeneProfile = () => {
+  // #610 — a failed lookup is not a gene without diseases, nor transcripts without CCDS or
+  // RefSeq; the failure of the URL given lasts until recover() is called.
+  const failLookup = (failingUrl: '/genes/profile' | '/genes/disease-links') => {
     let failing = true;
-    (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (url !== '/genes/profile') return Promise.resolve({ data: {} });
-      if (failing) {
+    (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string, config?: ApiConfig) => {
+      if (url === failingUrl && failing) {
         return Promise.reject(Object.assign(new Error('HTTP 503'), { response: { status: 503 } }));
       }
-      return Promise.resolve({
-        data: {
-          transcripts: [],
-          monarch_associations: [{ mondo_id: 'MONDO:0700269', disease_label: 'BRCA2-related cancer predisposition' }],
-        },
-      });
+      if (url === '/genes/disease-links') {
+        return diseaseLinksAnswer(config, {
+          BRCA2: { monarch: [monarchLink('BRCA2-related cancer predisposition', true, ['clingen'], '0700269')] },
+        });
+      }
+      return Promise.resolve({ data: url === '/genes/profile' ? { transcripts: [] } : {} });
     });
     return () => {
       failing = false;
     };
   };
 
-  it('says the gene–disease associations could not be loaded, instead of loading for good', async () => {
-    const recover = failGeneProfile();
-    renderBrca2WithTranscript('ENST00000380152.8');
+  it('says the gene–disease links could not be loaded, on the card and in its detail', async () => {
+    const recover = failLookup('/genes/disease-links');
+    const { container } = renderBrca2WithTranscript('ENST00000380152.8');
 
+    expect(
+      await within(diseaseLine(container)).findByText(/The gene–disease links could not be loaded\./),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByText('More annotations & detail'));
-
     expect(
       await screen.findByText(/The gene–disease associations of BRCA2 could not be loaded\./),
     ).toBeInTheDocument();
     expect(screen.queryByText('Loading gene–disease associations…')).not.toBeInTheDocument();
 
     recover();
-    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText('BRCA2-related cancer predisposition')).toBeInTheDocument();
+    await userEvent.click(within(diseaseLine(container)).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('link', { name: 'BRCA2-related cancer predisposition' })).toBeInTheDocument();
+    expect(diseaseLine(container)).toHaveTextContent('BRCA2-related cancer predisposition');
     expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
   });
 
   it('says in the transcript popup that CCDS and RefSeq are unknown when the profile failed', async () => {
-    failGeneProfile();
+    failLookup('/genes/profile');
     renderBrca2WithTranscript('ENST00000380152.8');
 
     await userEvent.click(screen.getByRole('button', { name: /ENST00000380152\.8/i }));

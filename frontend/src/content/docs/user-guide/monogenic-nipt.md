@@ -42,7 +42,8 @@ must carry FORMAT/AD.
     in a table with the fetal risk per gene.
 - **Each variant** carries its category, the plasma reads, the father's genotype, the probabilities
   that the fetus inherited the paternal or maternal allele or is homozygous, a de novo candidate's
-  priority and any flags, next to the usual annotation, tags and ACMG classification.
+  priority and any flags, next to the usual annotation, tags and ACMG classification. As on the
+  small-variant page, the diseases its gene is linked to are named under the card's heading.
 - **On-target coverage**, under the variants, gives the median depth over the capture targets of the
   panel and genes you selected (every target without a selection) and how many genes have a weak
   target: a mean below 300× or a base without coverage, where a fetal variant can be missed.

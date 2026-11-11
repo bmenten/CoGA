@@ -468,3 +468,157 @@ def test_a_gene_no_human_assembly_places_is_not_found(monkeypatch: pytest.Monkey
         _profile(monkeypatch, gene_rows=[])
 
     assert (refused.value.status_code, refused.value.detail) == (404, "Gene not found")
+
+
+# ---- The gene–disease links of a page of variant cards ------------------------------------------
+#
+# ``list_gene_disease_links`` through a session that answers its two reads: Monarch's links and
+# the gene reference's OMIM diseases, each filtered on the upper-cased symbols asked. The SQL
+# itself (case, empty labels, order) runs on real Postgres in
+# integration/test_gene_disease_links_integration.py.
+
+
+def _monarch_row(symbol: str, mondo: str, label: str, causal: bool, sources: list[str]) -> dict:
+    return {"symbol_key": symbol, "mondo_id": mondo, "disease_label": label, "causal": causal, "sources": sources}
+
+
+class _DiseaseLinkSession:
+    """Answers the two reads of ``list_gene_disease_links``; ``reads`` names them in order."""
+
+    def __init__(self, monarch_rows: list[dict], reference_rows: list[dict]) -> None:
+        self.monarch_rows = monarch_rows
+        self.reference_rows = reference_rows
+        self.reads: list[tuple[str, list[str]]] = []
+
+    async def execute(self, statement: Any, params: Any = None) -> _Rows:
+        sql = " ".join(str(statement).split())
+        symbols = list(params["symbols"])
+        if "FROM monarch_gene_disease" in sql:
+            self.reads.append(("monarch", symbols))
+            return _Rows([row for row in self.monarch_rows if row["symbol_key"] in symbols])
+        if "FROM gene_info g JOIN assemblies a" in sql:
+            self.reads.append(("gene_info", symbols))
+            return _Rows([row for row in self.reference_rows if row["symbol_key"] in symbols])
+        raise AssertionError(f"unexpected SQL: {sql}")
+
+
+def _disease_links(session: _DiseaseLinkSession, symbols: list[str]):
+    return asyncio.run(
+        gene_metadata_service.list_gene_disease_links(session, symbols=symbols)  # type: ignore[arg-type]
+    )
+
+
+def test_disease_links_answer_each_gene_asked_once_in_the_order_asked() -> None:
+    session = _DiseaseLinkSession(
+        monarch_rows=[
+            _monarch_row("FBN1", "MONDO:0007947", "Marfan syndrome", True, ["clingen", "omim"]),
+            _monarch_row("FBN1", "MONDO:0011000", "isolated ectopia lentis", False, ["orphanet"]),
+        ],
+        reference_rows=[
+            {
+                "symbol_key": "FBN1",
+                "assembly_name": "GRCh38",
+                "omim_diseases": [{"label": "Marfan syndrome", "omim_id": "154700"}],
+            }
+        ],
+    )
+
+    links = _disease_links(session, ["fbn1", " BRCA2 ", "FBN1", "", "  "])
+
+    # A symbol asked twice, in another case, is answered once under the spelling asked first;
+    # a gene without any link still has its entry, with empty lists.
+    assert [(entry.symbol, len(entry.monarch), len(entry.omim)) for entry in links] == [
+        ("fbn1", 2, 1),
+        ("BRCA2", 0, 0),
+    ]
+    assert session.reads == [("monarch", ["FBN1", "BRCA2"]), ("gene_info", ["FBN1", "BRCA2"])]
+    assert [
+        (link.disease_label, link.causal, link.sources, link.monarch_url) for link in links[0].monarch
+    ] == [
+        ("Marfan syndrome", True, ["clingen", "omim"], "https://monarchinitiative.org/MONDO:0007947"),
+        ("isolated ectopia lentis", False, ["orphanet"], "https://monarchinitiative.org/MONDO:0011000"),
+    ]
+
+
+def test_disease_links_read_omim_from_the_first_human_assembly_that_holds_the_gene() -> None:
+    def reference(symbol: str, assembly: str, label: str) -> dict:
+        return {"symbol_key": symbol, "assembly_name": assembly, "omim_diseases": [{"label": label}]}
+
+    session = _DiseaseLinkSession(
+        monarch_rows=[],
+        reference_rows=[
+            reference("GENE1", "GRCh37", "from GRCh37"),
+            reference("GENE1", "GRCh38", "from GRCh38"),
+            reference("GENE1", "T2T-CHM13v2.0", "from T2T"),
+            reference("GENE2", "GRCh37", "from GRCh37"),
+            reference("GENE2", "T2T-CHM13v2.0", "from T2T"),
+        ],
+    )
+
+    links = _disease_links(session, ["GENE1", "GENE2"])
+
+    # GRCh38 first, then T2T-CHM13, then GRCh37, as the gene profile opens on.
+    assert [[disease.label for disease in entry.omim] for entry in links] == [["from GRCh38"], ["from T2T"]]
+
+
+def test_disease_links_serve_omim_diseases_with_a_label_and_link_an_omim_number_only() -> None:
+    session = _DiseaseLinkSession(
+        monarch_rows=[],
+        reference_rows=[
+            {
+                "symbol_key": "GENE1",
+                "assembly_name": "GRCh38",
+                "omim_diseases": [
+                    # The link is built from the number, never taken as stored.
+                    {"label": " Marfan syndrome ", "omim_id": "154700", "href": "https://example.org/elsewhere"},
+                    {"label": "No number"},
+                    {"label": "Not a number", "omim_id": "MIM:12"},
+                    {"label": "  ", "omim_id": "100100"},
+                    "a bare string",
+                ],
+            },
+            {"symbol_key": "GENE2", "assembly_name": "GRCh38", "omim_diseases": None},
+        ],
+    )
+
+    links = _disease_links(session, ["GENE1", "GENE2"])
+
+    assert [(disease.label, disease.omim_id, disease.href) for disease in links[0].omim] == [
+        ("Marfan syndrome", "154700", "https://www.omim.org/entry/154700"),
+        ("No number", None, None),
+        ("Not a number", "MIM:12", None),
+    ]
+    assert links[1].omim == []
+
+
+def test_disease_links_without_a_symbol_read_nothing() -> None:
+    session = _DiseaseLinkSession(monarch_rows=[], reference_rows=[])
+
+    assert _disease_links(session, []) == []
+    assert _disease_links(session, ["", "  "]) == []
+    assert session.reads == []
+
+
+def test_the_disease_link_lookup_refuses_more_genes_than_a_page_shows() -> None:
+    from backend.app.routers.genes import get_gene_disease_links
+
+    session = _DiseaseLinkSession(monarch_rows=[], reference_rows=[])
+    viewer = CurrentUser(
+        id="00000000-0000-4000-8000-0000000000b1",
+        username="viewer@example.org",
+        email="viewer@example.org",
+        role="viewer",
+        created_at=IMPORTED_AT,
+    )
+    asked = [f"GENE{n}" for n in range(gene_metadata_service.MAX_DISEASE_LINK_SYMBOLS + 1)]
+
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(get_gene_disease_links(symbol=asked, session=session, user=viewer))  # type: ignore[arg-type]
+
+    assert refused.value.status_code == 422
+    assert session.reads == []
+    # A page's worth is answered.
+    answered = asyncio.run(
+        get_gene_disease_links(symbol=asked[:-1], session=session, user=viewer)  # type: ignore[arg-type]
+    )
+    assert len(answered) == gene_metadata_service.MAX_DISEASE_LINK_SYMBOLS

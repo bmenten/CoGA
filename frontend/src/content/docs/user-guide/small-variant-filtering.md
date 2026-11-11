@@ -98,6 +98,11 @@ screening*, *Compound het*, *Recessive hom*, *Recessive broad*, *Any affected* a
 preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
 candidates are shown as pairs. Up to 100 matches show as cards, more as a table.
 
+Under its heading, a card names up to three diseases its gene is linked to: Monarch's causal links,
+those more sources back first; else the gene's OMIM diseases; else Monarch's associations, marked *not
+causal*. **+N more** opens **More annotations & detail**, which lists every Monarch and OMIM link.
+*No gene–disease link cached* means CoGA's copy of Monarch and OMIM holds none for the gene.
+
 *Expanded carrier screening* is for couples only. It keeps:
 
 - the genes where both partners carry a rare (below 1%) high- or moderate-impact variant;
