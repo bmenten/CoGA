@@ -60,7 +60,8 @@ class _Session:
     async def execute(self, statement: Any, params: Any = None) -> Any:
         self.statements.append((str(statement), dict(params or {})))
         row = self.row
-        return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
+        # The changed deliveries a refusal ends (package_changed_after_import.resolve_refused): none.
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row), all=lambda: [])
 
     async def commit(self) -> None:
         self.commits += 1

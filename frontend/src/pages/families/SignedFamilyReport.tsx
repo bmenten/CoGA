@@ -11,6 +11,10 @@ import { formatCnvPoints } from '../../lib/cnvAcmg/format';
 import { sexUnknownWarning } from '../../lib/embryoSegregation';
 import { isNotFoundError } from '../../lib/errorMessage';
 import PageState from '../../components/PageState';
+import {
+  PackageSourceChangePaths,
+  describePackageSourceChange,
+} from '../../components/PackageSourceChangedBanner';
 import FamilyPageHeader from './FamilyPageHeader';
 import { ClassificationMotivationSentence, ReportClassificationChip } from './ReportClassification';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
@@ -94,6 +98,7 @@ import {
   type SignedSmallVariant,
   type SignedStructuralVariant,
   type SignedVariantDescriptions,
+  packageSourceChangeWords,
 } from './signedReportRecord';
 
 // What the live report shows around each reported variant and the signed record does not
@@ -1061,6 +1066,41 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
   </>
 );
 
+/**
+ * Whether the package folder the family's data came from had changed, or gone, since its import
+ * when this version was signed (owner decision of 2026-11-11): what changed, or that the source
+ * files were no longer available, and the acknowledgement that let the sign-out through.
+ */
+const SignedPackageSource: React.FC<{ record: SignedReport }> = ({ record }) => {
+  const change = record.packageSourceChange;
+  if (change === 'absent') return <p className="report-paragraph">Not in the signed record.</p>;
+  if (change === null) {
+    return (
+      <p className="report-paragraph">
+        The package folder the family’s data came from was as it was imported (or the family was not
+        imported from a delivered package).
+      </p>
+    );
+  }
+  const folder = change.folder ? ` (${change.folder})` : '';
+  return (
+    <>
+      <p className="report-paragraph">
+        {change.kind === 'gone'
+          ? `The package folder the family’s data came from${folder} was gone, or could not be read, since its import: the source files (the read files IGV shows, the signal tracks and the QC report) were no longer available.`
+          : `The package folder the family’s data came from${folder} had ${describePackageSourceChange(packageSourceChangeWords(change))} since its import${
+              change.fingerprint ? ` (fingerprint ${change.fingerprint.slice(0, 12)}` : ''
+            }${change.fingerprint && change.importedFingerprint ? `, imported as ${change.importedFingerprint.slice(0, 12)})` : change.fingerprint ? ')' : ''}.`}
+        {change.detectedAt ? ` Found ${formatReportTime(change.detectedAt)}.` : ''}
+      </p>
+      <PackageSourceChangePaths change={packageSourceChangeWords(change)} />
+      <p className="report-paragraph">
+        {acknowledgementLine(record.packageSourceAcknowledgement) ?? 'No acknowledgement is recorded.'}
+      </p>
+    </>
+  );
+};
+
 /** The checks frozen at sign-out: Sample QC, sequencing QC and the import's completeness. */
 const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
   const { sampleQc, sequencingQc, importIncomplete, importUnfinished } = record;
@@ -1151,6 +1191,10 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
             </p>
           </>
         )}
+      </div>
+      <div className="report-section">
+        <h3 className="report-subheading">Package folder after its import</h3>
+        <SignedPackageSource record={record} />
       </div>
       <div className="report-section">
         <h3 className="report-subheading">Data import</h3>

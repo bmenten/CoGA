@@ -48,6 +48,7 @@ const delivery = (name: string, overrides: Record<string, unknown> = {}) => ({
   first_seen_at: '2026-11-05T10:00:00Z',
   last_seen_at: '2026-11-05T10:05:00Z',
   state_changed_at: '2026-11-05T10:00:00Z',
+  source_change: null,
   ...overrides,
 });
 
@@ -235,6 +236,57 @@ describe('ImportDeliveriesPanel', () => {
       screen.getByText('OLD1', { selector: 'td > div' })
     ).toBeInTheDocument();
     expect(within(row('OLD2')).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('lists an imported delivery whose folder changed after its import, with what changed', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: [
+        delivery('FAMC', {
+          state: 'changed_after_import',
+          source_change: {
+            kind: 'changed',
+            fingerprint: 'c'.repeat(64),
+            listed: true,
+            added: ['qc/report.html'],
+            removed: [],
+            changed: ['alignments/PROBAND.cram'],
+            added_count: 1,
+            removed_count: 0,
+            changed_count: 1,
+            detected_at: '2026-11-11T10:00:00Z',
+          },
+        }),
+        delivery('FAMG', {
+          state: 'changed_after_import',
+          origin: 'manual',
+          source_change: {
+            kind: 'gone',
+            fingerprint: null,
+            listed: false,
+            added: [],
+            removed: [],
+            changed: [],
+            added_count: null,
+            removed_count: null,
+            changed_count: null,
+            detected_at: '2026-11-11T10:00:00Z',
+          },
+        }),
+      ],
+    });
+    renderPanel();
+
+    // Shown without asking for the decided ones: it waits for its folder's new delivery.
+    const changed = await loadedRow('FAMC');
+    expect(changed.getByText('Changed after import')).toBeInTheDocument();
+    expect(row('FAMC')).toHaveTextContent(
+      'Its folder has changed: 1 file added and 1 changed in size or time since its import'
+    );
+    expect(row('FAMC')).toHaveTextContent('Import the folder’s new delivery, or refuse it with a reason.');
+    expect(changed.getByText('alignments/PROBAND.cram')).toBeInTheDocument();
+    expect(changed.queryByRole('button', { name: /approve|refuse/i })).not.toBeInTheDocument();
+    expect(row('FAMG')).toHaveTextContent('Its folder is gone, or cannot be read, since its import');
+    expect(row('FAMG')).toHaveTextContent('The source files are no longer available');
   });
 
   it('approves a delivery once its warnings are acknowledged', async () => {

@@ -180,7 +180,7 @@ async def test_a_folder_that_cannot_be_read_whole_is_refused(
     def refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise PermissionError(13, "Permission denied")
 
-    monkeypatch.setattr(manual, "package_fingerprint", refuse)
+    monkeypatch.setattr(manual, "package_listing", refuse)
 
     with pytest.raises(HTTPException) as refused:
         await _add(_Session(project=_GRCH38), folder)

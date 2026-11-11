@@ -37,6 +37,10 @@ even folders without a package file, is mounted and watched. Each change of a de
 clinical audit chain ``system:import-inbox``, by ``system:import-watcher``. Logs name counts,
 never a folder or a family.
 
+After the watched folders, a round follows the folder of each delivery a family's record names,
+whatever its origin: one that changed, or went, after its import is ``changed_after_import``
+(``package_changed_after_import``).
+
 One watcher looks at a time, wherever import workers run: it holds a Postgres advisory lock on a
 connection of its own (``WatcherLeadership``), and another process's watcher skips its rounds
 until that connection is gone.
@@ -67,6 +71,7 @@ from ..schemas import (
     FamilyPackageValidationOut,
     ImportDeliveryIssue,
     ImportDeliveryOut,
+    PackageSourceChangeOut,
 )
 from .clinical_audit_service import record_clinical_event
 from .coga_package import (
@@ -83,7 +88,7 @@ from .coga_package_manifest import package_manifest, proposed_package, proposed_
 from .family_identifiers import identifier_problem
 from .family_package_common import _json_list, manifest_text_sha256
 from .family_package_discovery import _detect_ped_path, discover_family_package_manifest
-from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
+from .family_package_fingerprint import PackageFolderTooLarge, PackageListing, package_fingerprint, package_listing
 from .family_package_manifest import (
     _manifest_carrier_types,
     _manifest_member_overrides,
@@ -261,6 +266,8 @@ class DeliveryAssessment:
     # reading the folder found, which a check again reuses (``assess_content``).
     package: dict[str, Any] | None = None
     package_check: dict[str, Any] | None = None
+    # The listing the delivery's fingerprint was taken over (``package_listing``), kept with it.
+    file_listing: dict[str, list[object]] | None = None
 
 
 def _issue(code: str, message: str, path: str | None = None) -> DeliveryIssue:
@@ -674,6 +681,15 @@ async def _fingerprint(folder: Path) -> str | None:
         return None
 
 
+async def _listing(folder: Path) -> PackageListing | None:
+    """The folder's fingerprint and its listing, from one walk (``package_listing``); None when it
+    cannot be read whole."""
+    try:
+        return await asyncio.to_thread(package_listing, folder)
+    except (OSError, PackageFolderTooLarge):
+        return None
+
+
 def _json_object(value: Any) -> dict[str, Any] | None:
     if isinstance(value, str):
         try:
@@ -785,7 +801,10 @@ async def _assess_again(
 
 
 async def look_at_folder(
-    session_factory: async_sessionmaker[AsyncSession], root: Path, folder: Path
+    session_factory: async_sessionmaker[AsyncSession],
+    root: Path,
+    folder: Path,
+    seen_fingerprints: dict[str, str] | None = None,
 ) -> tuple[str, str] | None:
     """Look at one package folder: one whose package file says its run is under way, or failed, is
     no delivery, and the open deliveries of the folder before it are superseded
@@ -794,14 +813,21 @@ async def look_at_folder(
     when it is open (``ready`` or ``needs_attention``) and what CoGA holds has changed in what its
     check read (``_coga_side_changed``). Returns ``("new", state)``, ``("checked_again", state)``
     or ``("superseded", count)`` with the number superseded for a run, or None when the delivery
-    was only seen again or the folder changed while it was checked (the next round takes it)."""
+    was only seen again or the folder changed while it was checked (the next round takes it).
+    The fingerprint taken is put in ``seen_fingerprints`` by the folder's path: the round's
+    following of imported deliveries does not list a folder seen as it was imported again
+    (``package_changed_after_import``). A new delivery keeps the listing its fingerprint was
+    taken over (``file_listing``)."""
     read = await asyncio.to_thread(read_package_file, folder)
     if not read.offered:
         superseded = await _supersede_for_run(session_factory, folder, read)
         return ("superseded", str(superseded)) if superseded else None
-    fingerprint = await _fingerprint(folder)
-    if fingerprint is None:
+    listing = await _listing(folder)
+    if listing is None:
         return None
+    fingerprint = listing.fingerprint.sha256
+    if seen_fingerprints is not None:
+        seen_fingerprints[str(folder)] = fingerprint
     async with session_factory() as session:
         found = (
             await session.execute(
@@ -839,6 +865,7 @@ async def look_at_folder(
     # Changed while it was checked: what was checked is not what is there.
     if await _fingerprint(folder) != fingerprint:
         return None
+    assessment.file_listing = listing.entries
     stored = await _store_new_delivery(session_factory, root, folder, fingerprint, assessment)
     return ("new", stored) if stored is not None else None
 
@@ -900,6 +927,7 @@ async def _store_new_delivery(
     unstored = DeliveryAssessment(
         state="needs_attention",
         issues=[_issue("watch_store_failed", "CoGA could not keep what the delivery's check found; it checks again when the folder changes.")],
+        file_listing=assessment.file_listing,
     )
     try:
         return await _store_delivery(session_factory, root, folder, fingerprint, unstored)
@@ -928,13 +956,13 @@ async def _store_delivery(
                     INSERT INTO import_deliveries (
                         watch_root, folder_path, folder_name, package_fingerprint, marker_sha256,
                         marker, run_id, family_id, project_id, state, issues, warnings, validation,
-                        manifest_text, manifest_sha256, package, package_check
+                        manifest_text, manifest_sha256, package, package_check, file_listing
                     )
                     VALUES (
                         :root, :folder, :name, :fingerprint, :marker_sha256, CAST(:marker AS jsonb),
                         :run_id, :family_id, CAST(:project_id AS uuid), :state, CAST(:issues AS jsonb),
                         CAST(:warnings AS jsonb), CAST(:validation AS jsonb), :manifest_text, :manifest_sha256,
-                        CAST(:package AS jsonb), CAST(:package_check AS jsonb)
+                        CAST(:package AS jsonb), CAST(:package_check AS jsonb), CAST(:file_listing AS jsonb)
                     )
                     ON CONFLICT (folder_path, package_fingerprint) WHERE origin = 'watched' DO NOTHING
                     RETURNING id::text
@@ -960,6 +988,7 @@ async def _store_delivery(
                     ),
                     "package": json.dumps(assessment.package) if assessment.package is not None else None,
                     "package_check": json.dumps(assessment.package_check) if assessment.package_check is not None else None,
+                    "file_listing": json.dumps(assessment.file_listing) if assessment.file_listing is not None else None,
                 },
             )
         ).first()
@@ -1172,6 +1201,11 @@ class WatchRound:
     superseded_for_run: int = 0
     gone: int = 0
     jobs_ended: int = 0
+    # Imported deliveries whose folder changed, or went, after their import, and changes that
+    # ended (package_changed_after_import).
+    changed_after_import: int = 0
+    gone_after_import: int = 0
+    changes_ended: int = 0
 
 
 async def _open_deliveries(session_factory: async_sessionmaker[AsyncSession], root: Path) -> int:
@@ -1191,12 +1225,18 @@ async def _open_deliveries(session_factory: async_sessionmaker[AsyncSession], ro
 
 async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roots: list[Path]) -> WatchRound:
     """One round over the watched folders ``roots`` (see the module's docstring). It first records
-    the end of each queued delivery's import job (``import_delivery_review.sync_delivery_jobs``)."""
-    # Imported here: the review module reads this one's chain and list.
+    the end of each queued delivery's import job (``import_delivery_review.sync_delivery_jobs``),
+    and last follows the folder of each delivery a family's record names, whatever its origin
+    (``package_changed_after_import.follow_imported_deliveries``)."""
+    # Imported here: the review module and the following of imported deliveries read this one's
+    # chain and list.
     from .import_delivery_review import sync_delivery_jobs
+    from .package_changed_after_import import follow_imported_deliveries
 
     result = WatchRound()
     result.jobs_ended = await sync_delivery_jobs(session_factory)
+    skipped: set[str] = set()
+    seen_fingerprints: dict[str, str] = {}
     for root in roots:
         listing = await asyncio.to_thread(marked_folders, root)
         # Nothing is decided on a folder that cannot be read, or that lists nothing while it had
@@ -1204,11 +1244,12 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
         # mounted, so a delivery whose folder or package file is not in it is missing.
         if listing is None or (listing.empty and await _open_deliveries(session_factory, root)):
             result.roots_skipped += 1
+            skipped.add(str(root))
             continue
         folders = listing.folders
         result.roots_watched += 1
         for folder in folders:
-            looked = await look_at_folder(session_factory, root, folder)
+            looked = await look_at_folder(session_factory, root, folder, seen_fingerprints)
             if looked is not None:
                 kind, state = looked
                 if kind == "superseded":
@@ -1217,6 +1258,12 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
                 counts = result.deliveries if kind == "new" else result.checked_again
                 counts[state] = counts.get(state, 0) + 1
         result.gone += await mark_missing(session_factory, root, {str(folder) for folder in folders})
+    followed = await follow_imported_deliveries(
+        session_factory, skipped_roots=skipped, seen_fingerprints=seen_fingerprints
+    )
+    result.changed_after_import = followed.changed
+    result.gone_after_import = followed.gone
+    result.changes_ended = sum(followed.resolved.values())
     return result
 
 
@@ -1292,10 +1339,14 @@ async def import_watcher(stop: asyncio.Event) -> None:
                         or done.gone
                         or done.roots_skipped
                         or done.jobs_ended
+                        or done.changed_after_import
+                        or done.gone_after_import
+                        or done.changes_ended
                     ):
                         logger.info(
                             "Import watch round: new deliveries %s, checked again %s, %d superseded by a "
-                            "run, %d gone, %d import job(s) ended, %d of %d import folder(s) skipped",
+                            "run, %d gone, %d import job(s) ended, %d of %d import folder(s) skipped; "
+                            "after their import %d folder(s) changed, %d gone, %d change(s) ended",
                             dict(sorted(done.deliveries.items())),
                             dict(sorted(done.checked_again.items())),
                             done.superseded_for_run,
@@ -1303,6 +1354,9 @@ async def import_watcher(stop: asyncio.Event) -> None:
                             done.jobs_ended,
                             done.roots_skipped,
                             len(roots),
+                            done.changed_after_import,
+                            done.gone_after_import,
+                            done.changes_ended,
                         )
             except asyncio.CancelledError:
                 raise
@@ -1327,7 +1381,7 @@ _DELIVERY_COLUMNS = """
     d.id::text AS id, d.watch_root, d.folder_path, d.folder_name, d.state, d.package_fingerprint,
     d.marker_sha256, d.marker, d.run_id, d.family_id, d.project_id::text AS project_id, d.issues,
     d.warnings, d.manifest_sha256, d.job_id::text AS job_id, d.first_seen_at, d.last_seen_at,
-    d.state_changed_at, d.origin, d.package, j.status AS job_status, j.dry_run AS job_dry_run,
+    d.state_changed_at, d.origin, d.package, d.source_change, j.status AS job_status, j.dry_run AS job_dry_run,
     (SELECT COALESCE(max(r.revision), 0) FROM import_delivery_revisions r WHERE r.delivery_id = d.id) AS revision
 """
 
@@ -1371,7 +1425,14 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
         first_seen_at=row["first_seen_at"],
         last_seen_at=row["last_seen_at"],
         state_changed_at=row["state_changed_at"],
+        source_change=_source_change(row.get("source_change")),
     )
+
+
+def _source_change(value: Any) -> PackageSourceChangeOut | None:
+    """What changed of an imported delivery's folder after its import; None while it is as imported."""
+    change = _json_object(value)
+    return PackageSourceChangeOut.model_validate(change) if change is not None else None
 
 
 async def list_import_deliveries(

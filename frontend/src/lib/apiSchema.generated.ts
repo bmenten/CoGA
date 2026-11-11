@@ -898,6 +898,7 @@ export interface FamilyOut {
   metadata: Record<string, unknown>;
   read_only: boolean;
   can_sign_out: boolean;
+  package_source_change: FamilyPackageSourceChangeOut | null;
 }
 
 /** A package folder under the import roots that can be added to Deliveries by hand. */
@@ -932,6 +933,28 @@ export interface FamilyPackageImportJobOut {
   error: string | null;
   manifest_sha256: string | null;
   package_fingerprint: string | null;
+}
+
+/**
+ * The change after its import of the package folder a family's data came from: the delivery
+ * its record names (its id and folder's name, and the fingerprint it was imported with), which
+ * is ``changed_after_import``. The change ends only when the folder is as imported again, or its
+ * new delivery is imported or refused.
+ */
+export interface FamilyPackageSourceChangeOut {
+  kind: "changed" | "gone";
+  fingerprint: string | null;
+  listed: boolean;
+  added: string[];
+  removed: string[];
+  changed: string[];
+  added_count: number | null;
+  removed_count: number | null;
+  changed_count: number | null;
+  detected_at: string | null;
+  delivery_id: string;
+  folder: string;
+  imported_fingerprint: string | null;
 }
 
 export interface FamilyParaphaseTableOut {
@@ -1805,6 +1828,7 @@ export interface ImportDeliveryOut {
   first_seen_at: string;
   last_seen_at: string;
   state_changed_at: string;
+  source_change: PackageSourceChangeOut | null;
 }
 
 /**
@@ -2642,6 +2666,28 @@ export interface NiptVariantStatisticsOut {
   chromosome_mark_min_sites: number;
   father_genotypes: Record<string, number>;
   artifacts: NiptArtifactCountsOut;
+}
+
+/**
+ * What changed of an imported delivery's package folder after its import
+ * (package_changed_after_import.py): ``changed``, its fingerprint now (None for a folder too large
+ * to fingerprint) and the paths added, removed and changed (in size or modification time), each
+ * list to 50 paths with its count (None, with ``listed`` false, when the folder holds more
+ * entries than a listing keeps); or ``gone``, its folder gone or unreadable, so the source files
+ * (read files, signal tracks, QC report) are no longer available. ``detected_at`` is when the
+ * watcher found it.
+ */
+export interface PackageSourceChangeOut {
+  kind: "changed" | "gone";
+  fingerprint: string | null;
+  listed: boolean;
+  added: string[];
+  removed: string[];
+  changed: string[];
+  added_count: number | null;
+  removed_count: number | null;
+  changed_count: number | null;
+  detected_at: string | null;
 }
 
 /**
@@ -3589,8 +3635,9 @@ export interface ReportSignoutListOut {
  * Sign out the current report.
  *
  * Evidence drift, a failing sample-integrity QC, an incomplete import (a family
- * package import that partly failed) and an abnormal repeat or Paraphase call without a
- * review must each be explicitly acknowledged, and each
+ * package import that partly failed), a package folder that changed or went after its import
+ * and an abnormal repeat or Paraphase call without a review must each be explicitly
+ * acknowledged, and each
  * acknowledgement requires a reason and the fingerprint of the concerns it covers: the
  * ``concerns_fingerprint`` of the 409 that listed them. A sign-out whose
  * concerns are no longer those is refused with them as they are now.
@@ -3605,6 +3652,9 @@ export interface ReportSignoutRequest {
   acknowledge_import_incomplete?: boolean;
   import_incomplete_acknowledgement_reason?: string | null;
   import_incomplete_concerns_fingerprint?: string | null;
+  acknowledge_package_source_change?: boolean;
+  package_source_change_acknowledgement_reason?: string | null;
+  package_source_change_concerns_fingerprint?: string | null;
   acknowledge_unreviewed_findings?: boolean;
   unreviewed_findings_acknowledgement_reason?: string | null;
   unreviewed_findings_concerns_fingerprint?: string | null;

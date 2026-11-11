@@ -59,3 +59,34 @@ export const findAssemblyScopeBanner = async (): Promise<HTMLElement> => {
   expect(banner).toHaveTextContent(/GRCh37 is outside the reference assemblies CoGA is validated on/);
   return banner as HTMLElement;
 };
+
+/**
+ * A family record's `package_source_change`: the package folder its data came from changed after
+ * its import. Every family page warns *Package folder changed after import*.
+ */
+export const PACKAGE_SOURCE_CHANGE = {
+  delivery_id: 'delivery-1',
+  folder: 'F1',
+  imported_fingerprint: 'a'.repeat(64),
+  kind: 'changed' as const,
+  fingerprint: 'b'.repeat(64),
+  listed: true,
+  added: ['notes/added.txt'],
+  removed: [],
+  changed: [],
+  added_count: 1,
+  removed_count: 0,
+  changed_count: 0,
+  detected_at: '2026-11-11T10:00:00+00:00',
+};
+
+/** The *Package folder changed after import* banner of a family with {@link PACKAGE_SOURCE_CHANGE}. */
+export const findPackageSourceChangedBanner = async (): Promise<HTMLElement> => {
+  const banner = (await screen.findByText('Package folder changed after import.')).closest<HTMLElement>(
+    '[role="alert"]',
+  );
+  expect(banner).not.toBeNull();
+  expect(banner).toHaveTextContent(/has changed: 1 file added since its import/);
+  expect(banner).toHaveTextContent('notes/added.txt');
+  return banner as HTMLElement;
+};

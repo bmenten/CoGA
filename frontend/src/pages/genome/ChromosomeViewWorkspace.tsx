@@ -31,6 +31,7 @@ import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansio
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
 import QueryFailure from '../../components/QueryFailure';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
+import type { FamilyPackageSourceChangeOut } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { normalizeHaplotypeChrom, resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
@@ -96,6 +97,8 @@ interface ChromosomeViewWorkspaceProps {
   assemblyValidated?: boolean;
   /** The family record's metadata, where an import records what it left incomplete. */
   familyMetadata?: unknown;
+  /** The family record's `package_source_change` (FamilyPageBanners). */
+  familyPackageSourceChange?: FamilyPackageSourceChangeOut | null;
   projectId?: string;
   trackAreaRef: React.Ref<HTMLElement>;
   region: { start: number; end: number };
@@ -182,6 +185,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   assemblyId,
   assemblyValidated,
   familyMetadata,
+  familyPackageSourceChange,
   projectId,
   trackAreaRef,
   region,
@@ -356,6 +360,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
         </div>
         <FamilyPageBanners
           metadata={familyMetadata}
+          packageSourceChange={familyPackageSourceChange}
           assemblyScope={{ name: assembly, validated: assemblyValidated }}
         />
         <div className="analysis-toolbar mt-5 items-end">

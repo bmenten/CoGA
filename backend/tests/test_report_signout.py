@@ -90,6 +90,13 @@ def _record_sections(monkeypatch):
 
     monkeypatch.setattr(rss, "build_record_sections", _sections)
     monkeypatch.setattr(rss, "_report_code_taken", _code_free)
+    # The package folder the family's data came from is as it was imported (a test of the gate
+    # stubs its own change; the reader itself is tested against a database in e2e).
+    monkeypatch.setattr(rss, "_package_source_change_state", _source_as_imported)
+
+
+async def _source_as_imported(session, family_uuid):
+    return None
 
 
 def test_canonical_hash_is_stable_and_order_independent() -> None:
@@ -2141,6 +2148,156 @@ def test_the_import_state_is_bound_into_the_content_hash(monkeypatch) -> None:
     assert _body_hash(None) == _body_hash(None)  # deterministic
     assert _body_hash(None) != _body_hash(_INCOMPLETE)
     assert _body_hash(_INCOMPLETE) != _body_hash({**_INCOMPLETE, "failed_datasets": ["snv"]})
+
+
+# ---------------------------------------------------------------------------
+# The package folder the family came from, changed or gone after its import (owner, 2026-11-11)
+# ---------------------------------------------------------------------------
+
+_DELIVERY_ID = "00000000-0000-4000-8000-0000000000d1"
+# The change as the watcher records it and the sign-out freezes it
+# (package_changed_after_import.source_change_out).
+_SOURCE_CHANGED = {
+    "delivery_id": _DELIVERY_ID,
+    "folder": "FAM1",
+    "kind": "changed",
+    "imported_fingerprint": "a" * 64,
+    "fingerprint": "b" * 64,
+    "listed": True,
+    "added": ["qc/report.html"],
+    "removed": [],
+    "changed": ["alignments/PROBAND.cram"],
+    "added_count": 1,
+    "removed_count": 0,
+    "changed_count": 1,
+    "detected_at": "2026-11-11T10:00:00+00:00",
+}
+_SOURCE_GONE = {
+    **_SOURCE_CHANGED,
+    "kind": "gone",
+    "fingerprint": None,
+    "listed": False,
+    "added": [],
+    "changed": [],
+    "added_count": None,
+    "removed_count": None,
+    "changed_count": None,
+}
+_SOURCE_ACK_REASON = "The CRAM was re-aligned with the same reads; the reported variants are unaffected."
+
+
+def _patch_source_change(monkeypatch, change) -> None:
+    async def _change(session, family_uuid):
+        assert family_uuid == "u1"
+        return change
+
+    monkeypatch.setattr(rss, "_package_source_change_state", _change)
+
+
+def test_a_package_folder_changed_after_its_import_gates_the_sign_out(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_source_change(monkeypatch, _SOURCE_CHANGED)
+    captured = _capture_audit(monkeypatch)
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+
+    assert excinfo.value.status_code == 409
+    detail = excinfo.value.detail
+    assert detail["gate"] == "package_source_change"
+    assert detail["package_source_change"] == _SOURCE_CHANGED
+    assert "(FAM1) has changed since its import: 1 file(s) added, 1 changed in size or time" in detail["message"]
+    assert "read files (IGV), signal tracks and QC report" in detail["message"]
+    # The fingerprint covers the change without when the watcher found it.
+    assert detail["concerns_fingerprint"] == rss.concerns_fingerprint(
+        "package_source_change",
+        {"package_source_change": {key: value for key, value in _SOURCE_CHANGED.items() if key != "detected_at"}},
+    )
+    assert _inserts(session) == [] and captured == {}
+
+
+def test_a_package_folder_gone_after_its_import_says_the_source_files_are_not_available(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_source_change(monkeypatch, _SOURCE_GONE)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    message = excinfo.value.detail["message"]
+    assert "is gone, or cannot be read, since its import" in message
+    assert "(the read files IGV shows, the signal tracks and the QC report) are no longer available" in message
+
+
+def test_a_changed_package_folder_acknowledged_without_a_reason_is_422(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_source_change(monkeypatch, _SOURCE_CHANGED)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            _through_the_dialogs(
+                _Session(),
+                family_id="FAM1",
+                user=_user(),
+                acknowledge_package_source_change=True,
+                package_source_change_acknowledgement_reason="  ",
+            )
+        )
+    assert excinfo.value.status_code == 422
+    assert "reason" in str(excinfo.value.detail)
+
+
+def test_an_acknowledged_package_folder_change_is_frozen_and_audited(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_source_change(monkeypatch, _SOURCE_CHANGED)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        _through_the_dialogs(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_package_source_change=True,
+            package_source_change_acknowledgement_reason=f"  {_SOURCE_ACK_REASON}  ",
+        )
+    )
+
+    snapshot = out["snapshot"]
+    assert snapshot["package_source_change"] == _SOURCE_CHANGED
+    assert snapshot["acknowledged_package_source_change"] is True
+    assert snapshot["package_source_change_acknowledgement_reason"] == _SOURCE_ACK_REASON
+    assert out["content_hash"] == rss._canonical_hash(snapshot)
+    after = captured["after"]
+    assert after["package_source_change"] == _SOURCE_CHANGED
+    assert after["acknowledged_package_source_change"] is True
+    assert after["package_source_change_acknowledgement_reason"] == _SOURCE_ACK_REASON
+    assert after["package_source_change_concerns_fingerprint"] == rss.concerns_fingerprint(
+        "package_source_change",
+        {"package_source_change": {key: value for key, value in _SOURCE_CHANGED.items() if key != "detected_at"}},
+    )
+    assert ", changed package folder acknowledged" in captured["summary"]
+
+
+def test_a_package_folder_as_imported_needs_no_acknowledgement(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), acknowledge_package_source_change=True)
+    )
+    assert out["snapshot"]["package_source_change"] is None
+    assert out["snapshot"]["acknowledged_package_source_change"] is False
+    assert out["snapshot"]["package_source_change_acknowledgement_reason"] is None
+    assert captured["after"]["package_source_change_concerns_fingerprint"] is None
+    assert "changed package folder" not in captured["summary"]
+
+
+def test_the_package_folder_change_is_bound_into_the_content_hash_and_compared(monkeypatch) -> None:
+    def _body(change):
+        _patch_common(monkeypatch, drifted_count=0)
+        _patch_source_change(monkeypatch, change)
+        return asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+
+    assert rss._canonical_hash(_body(None)) == rss._canonical_hash(_body(None))
+    assert rss._canonical_hash(_body(None)) != rss._canonical_hash(_body(_SOURCE_CHANGED))
+    assert rss._canonical_hash(_body(_SOURCE_CHANGED)) != rss._canonical_hash(_body(_SOURCE_GONE))
+    # The sign-out check compares it as a section of its own.
+    assert "package_source_change" in rss.REPORT_CONTENT_SECTIONS
 
 
 class _ScalarSession:

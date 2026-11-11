@@ -18,6 +18,7 @@ from ..schemas import (
     AssemblyOut,
     FamilyMemberOut,
     FamilyOut,
+    FamilyPackageSourceChangeOut,
     FamilyRegionOfInterestOut,
     FamilyRelationshipOut,
     FamilyStatusRef,
@@ -1674,7 +1675,24 @@ async def get_family_record(
         user,
     )
     await _attach_sequencing_qc_verdicts(session, family_uuid=str(family_row["id"]), family=family_out)
+    await _attach_package_source_change(session, family_uuid=str(family_row["id"]), family=family_out)
     return family_out
+
+
+async def _attach_package_source_change(session: AsyncSession, *, family_uuid: str, family: FamilyOut) -> None:
+    """The change after its import of the package folder the family's data came from, which every
+    family page shows (package_changed_after_import.py). Only a family whose record names the
+    delivery it was imported from is looked up; not best-effort: the notice is never left out
+    silently."""
+    package_import = family.metadata.get("package_import")
+    if not isinstance(package_import, dict) or not isinstance(package_import.get("delivery"), dict):
+        return
+    from .package_changed_after_import import family_package_source_change
+
+    change = await family_package_source_change(session, family_uuid)
+    family.package_source_change = (
+        FamilyPackageSourceChangeOut.model_validate(change) if change is not None else None
+    )
 
 
 async def _attach_sequencing_qc_verdicts(

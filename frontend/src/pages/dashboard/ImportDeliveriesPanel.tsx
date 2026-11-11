@@ -11,6 +11,10 @@ import { isAdmin } from '../../lib/auth';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatTimestamp } from '../../lib/format';
 import ModalDialog from '../../components/ModalDialog';
+import {
+  PackageSourceChangePaths,
+  describePackageSourceChange,
+} from '../../components/PackageSourceChangedBanner';
 import QueryFailure from '../../components/QueryFailure';
 import AddDeliveryForm from './AddDeliveryForm';
 import DeliveryCorrectionDialog from './DeliveryCorrectionDialog';
@@ -18,12 +22,15 @@ import DeliveryCorrectionDialog from './DeliveryCorrectionDialog';
 type Delivery = ImportDeliveryOut;
 type ConflictMode = 'cancel' | 'update' | 'overwrite';
 
-// The deliveries still waiting for someone, or for their import.
+// The deliveries still waiting for someone, or for their import, and the imported ones whose
+// folder changed, or went, after their import, until the folder's new delivery is imported or
+// refused (or the folder is as imported again).
 const OPEN_STATES = new Set([
   'incomplete',
   'ready',
   'needs_attention',
   'queued',
+  'changed_after_import',
 ]);
 const REFUSABLE_STATES = new Set(['incomplete', 'ready', 'needs_attention']);
 // The deliveries whose package is corrected before approval: open, and their package read.
@@ -51,9 +58,39 @@ const STATE_LABELS: Record<string, string> = {
 const stateClass = (state: string) =>
   state === 'ready' || state === 'imported'
     ? 'badge-chip badge-chip--success'
-    : state === 'needs_attention' || state === 'failed'
+    : state === 'needs_attention' ||
+        state === 'failed' ||
+        state === 'changed_after_import'
       ? 'badge-chip badge-chip--danger'
       : 'badge-chip';
+
+/**
+ * What changed of an imported delivery's folder after its import, as its row says it: what the
+ * watcher found, the paths it named, and what ends it.
+ */
+const SourceChange: React.FC<{ delivery: Delivery }> = ({ delivery }) => {
+  const change = delivery.source_change;
+  if (!change) return null;
+  return (
+    <div className="text-xs text-(--color-variant-del)">
+      <div>
+        {change.kind === 'gone'
+          ? 'Its folder is gone, or cannot be read, since its import'
+          : `Its folder has ${describePackageSourceChange(change)} since its import`}
+        {change.detected_at
+          ? ` (found ${formatTimestamp(change.detected_at)})`
+          : ''}
+        .{' '}
+        {change.kind === 'gone'
+          ? 'The source files are no longer available: put the folder back as it was imported.'
+          : delivery.origin === 'manual'
+            ? 'Add the folder again by hand, and import or refuse that delivery.'
+            : 'Import the folder’s new delivery, or refuse it with a reason.'}
+      </div>
+      <PackageSourceChangePaths change={change} />
+    </div>
+  );
+};
 
 /** A delivery whose only issue is that its family exists: approved with update or overwrite
  * (only overwrite when its package's members differ from the family's, `needsAnOverwrite`). */
@@ -541,6 +578,7 @@ const ImportDeliveriesPanel: React.FC = () => {
                     {delivery.issues.length > 0 ? (
                       <IssueList issues={delivery.issues} tone="issue" />
                     ) : null}
+                    <SourceChange delivery={delivery} />
                     {delivery.warnings.length > 0 ? (
                       <details className="text-xs">
                         <summary>{delivery.warnings.length} warning(s)</summary>

@@ -1,7 +1,8 @@
 // Every family page warns of what keeps the family's data from being read as complete and
 // validated: an import of the family that partly failed or has not finished (*Import
-// incomplete*), and a reference assembly outside the validated scope (*Not validated for
-// clinical use*). A page that left them out would show a partly imported family as complete,
+// incomplete*), a reference assembly outside the validated scope (*Not validated for
+// clinical use*), and a package folder the family came from that changed after its import
+// (*Package folder changed after import*). A page that left them out would show a partly imported family as complete,
 // and the NIPT report would print it so, with no sign-out to stop it.
 //
 // This walks the app's routes (src/index.tsx): every route whose path holds `:familyId` is
@@ -25,8 +26,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestQueryClient } from '../test/createTestQueryClient';
 import {
   INCOMPLETE_IMPORT_METADATA,
+  PACKAGE_SOURCE_CHANGE,
   findAssemblyScopeBanner,
   findImportIncompleteBanner,
+  findPackageSourceChangedBanner,
   offScopeProject,
 } from '../test/familyPageBanners';
 import { held, settle } from '../test/settle';
@@ -189,6 +192,7 @@ const FAMILY = {
   assigned_to: null,
   reviewed_by: null,
   metadata: INCOMPLETE_IMPORT_METADATA,
+  package_source_change: PACKAGE_SOURCE_CHANGE,
 };
 
 const serverError = () =>
@@ -264,12 +268,13 @@ describe('the family routes', () => {
   });
 
   it.each(FAMILY_ROUTES)(
-    '$routePath ($page) warns of the incomplete import and the off-scope assembly',
+    '$routePath ($page) warns of the incomplete import, the off-scope assembly and the changed package folder',
     async (route) => {
       await renderRoute(route);
 
       await findImportIncompleteBanner();
       await findAssemblyScopeBanner();
+      await findPackageSourceChangedBanner();
     },
   );
 

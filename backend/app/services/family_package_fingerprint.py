@@ -115,17 +115,7 @@ def _records(folder: str) -> Iterator[list[object]]:
                 yield [path, "other", stat.S_IFMT(info.st_mode)]
 
 
-def package_fingerprint(root: str | os.PathLike[str], *, kept_manifest_sha256: str | None) -> PackageFingerprint:
-    """The fingerprint of the package folder ``root`` (its symlinks resolved first), read with
-    the manifest CoGA keeps for the import (``kept_manifest_sha256``) or, given None, with the
-    folder's own.
-
-    Raises OSError when the folder cannot be listed, and PackageFolderTooLarge when it holds
-    more than PACKAGE_FINGERPRINT_MAX_ENTRIES entries. A name is hashed as the file system
-    gives it (a name that is no UTF-8 as its escapes), each record as JSON: no name can make
-    two folders' records read the same."""
-    folder = os.path.realpath(root)
-    found = list(_records(folder))
+def _fingerprint_of(found: list[list[object]], kept_manifest_sha256: str | None) -> PackageFingerprint:
     records = sorted(json.dumps(record) for record in found)
     digest = hashlib.sha256()
     digest.update(FINGERPRINT_FORMAT.encode("ascii") + b"\n")
@@ -135,3 +125,52 @@ def package_fingerprint(root: str | os.PathLike[str], *, kept_manifest_sha256: s
         digest.update(record.encode("ascii") + b"\n")
     files = sum(1 for record in found if record[1] == "file")
     return PackageFingerprint(sha256=digest.hexdigest(), files=files)
+
+
+def package_fingerprint(root: str | os.PathLike[str], *, kept_manifest_sha256: str | None) -> PackageFingerprint:
+    """The fingerprint of the package folder ``root`` (its symlinks resolved first), read with
+    the manifest CoGA keeps for the import (``kept_manifest_sha256``) or, given None, with the
+    folder's own.
+
+    Raises OSError when the folder cannot be listed, and PackageFolderTooLarge when it holds
+    more than PACKAGE_FINGERPRINT_MAX_ENTRIES entries. A name is hashed as the file system
+    gives it (a name that is no UTF-8 as its escapes), each record as JSON: no name can make
+    two folders' records read the same."""
+    return _fingerprint_of(list(_records(os.path.realpath(root))), kept_manifest_sha256)
+
+
+# The most entries a listing kept with a delivery holds (``package_listing``): a folder that holds
+# more is kept without one, and a change of it after its import is told without naming its files.
+PACKAGE_LISTING_MAX_ENTRIES = 5_000
+
+
+@dataclass(frozen=True, slots=True)
+class PackageListing:
+    """A package folder's fingerprint, read with its own manifest, and the records it was taken
+    over, by path: ``[kind, ...]`` as the fingerprint hashes them (a file's size and modification
+    time in nanoseconds, a link's target, what another entry is). ``entries`` is None when the
+    folder holds more than PACKAGE_LISTING_MAX_ENTRIES entries."""
+
+    fingerprint: PackageFingerprint
+    entries: dict[str, list[object]] | None
+
+
+def package_listing(root: str | os.PathLike[str]) -> PackageListing:
+    """The fingerprint of the package folder ``root``, read with its own manifest (as a delivery
+    is recorded with: ``package_fingerprint(root, kept_manifest_sha256=None)``), and its listing,
+    from one walk of the folder: what each file's size and modification time were. Raises as
+    ``package_fingerprint`` does. Nothing is read of a file's content."""
+    found = list(_records(os.path.realpath(root)))
+    fingerprint = _fingerprint_of(found, None)
+    if len(found) > PACKAGE_LISTING_MAX_ENTRIES:
+        return PackageListing(fingerprint=fingerprint, entries=None)
+    return PackageListing(
+        fingerprint=fingerprint,
+        entries={str(_storable(record[0])): [_storable(value) for value in record[1:]] for record in found},
+    )
+
+
+def _storable(value: object) -> object:
+    """A name as the listing keeps it: one that is no UTF-8 with its bytes written as escapes, so
+    the database can store it (a fingerprint hashes it as JSON escapes)."""
+    return value.encode("utf-8", "backslashreplace").decode("utf-8") if isinstance(value, str) else value

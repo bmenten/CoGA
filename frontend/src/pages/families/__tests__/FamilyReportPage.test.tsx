@@ -1405,6 +1405,7 @@ describe('FamilyReportPage', () => {
       },
     },
     import_incomplete: null,
+    package_source_change: null,
     reported_variants: [
       {
         variant_id: '17-43000000-A-G',
@@ -1571,6 +1572,7 @@ describe('FamilyReportPage', () => {
         'PROBAND: Warning — Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×); Allele drop-out (ADO) 17.5%',
       );
       expect(checks).toHaveTextContent('The family’s data had imported completely.');
+      expect(checks).toHaveTextContent('The package folder the family’s data came from was as it was imported');
       expect(screen.getByText(/No reported classification had changed evidence/)).toHaveTextContent(
         'No reported classification had changed evidence when this version was signed (1 checked).',
       );
@@ -2412,8 +2414,8 @@ describe('FamilyReportPage', () => {
         'Signed version 2 records 1 reported small variant and no list of reported structural variants in family F1.',
       );
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
-      // Sample QC, sequencing QC, the calls without a review and the import.
-      expect(within(checks).getAllByText('Not in the signed record.')).toHaveLength(4);
+      // Sample QC, sequencing QC, the calls without a review, the package folder and the import.
+      expect(within(checks).getAllByText('Not in the signed record.')).toHaveLength(5);
       expect(
         screen.getByText('Not in the signed record: the reviews of repeat loci and Paraphase regions.'),
       ).toBeInTheDocument();
@@ -3467,6 +3469,126 @@ describe('FamilyReportPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/Not signed out\. database unavailable/);
+  });
+
+  // The package folder a family was imported from changed after its import (the owner's decision
+  // of 2026-11-11): the report warns while it does, sign-out needs it acknowledged with a reason,
+  // and the signed version keeps the change with the acknowledgement.
+  describe('when the family’s package folder changed after its import', () => {
+    const CHANGE = {
+      delivery_id: 'd1',
+      folder: 'F1',
+      imported_fingerprint: 'a'.repeat(64),
+      kind: 'changed',
+      fingerprint: 'b'.repeat(64),
+      listed: true,
+      added: [],
+      removed: [],
+      changed: ['alignments/PROBAND.cram'],
+      added_count: 0,
+      removed_count: 0,
+      changed_count: 1,
+      detected_at: '2026-11-11T10:00:00+00:00',
+    };
+    const SOURCE_FINGERPRINT = 'd'.repeat(64);
+    const SOURCE_409 = {
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            gate: 'package_source_change',
+            message:
+              "The package folder this family's data was imported from (F1) has changed since its import: 1 changed in size or time. CoGA serves the family's read files (IGV), signal tracks and QC report from that folder, so they may no longer be the ones imported and analysed. Import the folder's new delivery (update or overwrite), or refuse it with a reason, or acknowledge with a reason to sign out anyway.",
+            package_source_change: CHANGE,
+            concerns_fingerprint: SOURCE_FINGERPRINT,
+            concerns_changed: false,
+          },
+        },
+      },
+    };
+    const REASON = 'The CRAM was re-aligned from the same reads; no reported variant rests on it.';
+
+    function mockChangedFamily() {
+      mockUnsignedFamily();
+      const base = apiMock.get.getMockImplementation()!;
+      apiMock.get.mockImplementation((url: string, config?: unknown) =>
+        url === '/families/F1'
+          ? Promise.resolve({
+              data: {
+                family_id: 'F1',
+                members: [],
+                projects: [],
+                can_sign_out: true,
+                metadata: {},
+                package_source_change: CHANGE,
+              },
+            })
+          : base(url, config),
+      );
+    }
+
+    it('warns on the report while the folder differs from what was imported', async () => {
+      mockChangedFamily();
+      renderPage();
+
+      const banner = (await screen.findByText(/Package folder changed after import\./)).closest('[role="alert"]');
+      expect(banner).toHaveTextContent('has changed: 1 changed in size or time since its import');
+      expect(banner).toHaveTextContent('alignments/PROBAND.cram');
+      // In the header card, which prints with the report.
+      expect(banner?.closest('.report-header')).not.toBeNull();
+    });
+
+    it('requires a reason to sign out, and posts the acknowledgement with the change it was shown', async () => {
+      mockChangedFamily();
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        return posts.length === 1 ? Promise.reject(SOURCE_409) : Promise.resolve({ data: { version: 1 } });
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Changed package folder: acknowledgement required/i,
+      });
+      expect(within(dialog).getByText(/has changed since its import: 1 changed in size or time/)).toBeInTheDocument();
+      expect(within(dialog).getByText('alignments/PROBAND.cram')).toBeInTheDocument();
+
+      const confirm = within(dialog).getByRole('button', { name: /Sign out anyway/ });
+      expect(confirm).toBeDisabled();
+      fireEvent.change(within(dialog).getByLabelText(/despite the changed package folder/), {
+        target: { value: `  ${REASON}  ` },
+      });
+      fireEvent.click(confirm);
+
+      await waitFor(() => expect(posts).toHaveLength(2));
+      expect(posts[0]).toMatchObject({ acknowledge_package_source_change: false });
+      expect(posts[1]).toMatchObject({
+        acknowledge_package_source_change: true,
+        package_source_change_acknowledgement_reason: REASON,
+        package_source_change_concerns_fingerprint: SOURCE_FINGERPRINT,
+      });
+    });
+
+    it('renders the change and its acknowledgement in the signed version', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          package_source_change: CHANGE,
+          acknowledged_package_source_change: true,
+          package_source_change_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        'The package folder the family’s data came from (F1) had changed: 1 changed in size or time since its import (fingerprint bbbbbbbbbbbb, imported as aaaaaaaaaaaa). Found 2026-11-11 10:00 UTC.',
+      );
+      expect(checks).toHaveTextContent('Changed in size or time: alignments/PROBAND.cram');
+      expect(checks).toHaveTextContent(REASON);
+    });
   });
 
   // A family-package import that partly failed leaves the family flagged import_incomplete.

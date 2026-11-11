@@ -57,12 +57,14 @@ const GenomeOverviewPage: React.FC = () => {
   const location = useLocation();
 
   const { data, isLoading, isError, error, refetch } = useQuery<
-    Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>
+    Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'> &
+      Partial<Pick<ApiFamilyRecord, 'package_source_change'>>
   >({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}`);
-      return response.data as Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>;
+      return response.data as Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'> &
+      Partial<Pick<ApiFamilyRecord, 'package_source_change'>>;
     },
   });
 
@@ -540,6 +542,7 @@ const GenomeOverviewPage: React.FC = () => {
         assembly={assemblyName}
         assemblyValidated={assemblyValidated}
         familyMetadata={data.metadata}
+        familyPackageSourceChange={data.package_source_change}
         projectId={resolvedProjectId}
         backDest={routePath`/families/${familyId}/structural-variants${raw(backSearch ? `?${backSearch}` : '')}`}
         visibleRoi={visibleRoi}

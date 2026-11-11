@@ -14,6 +14,7 @@ import {
   type FamilyImportIncomplete,
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
+import type { PackageSourceChange } from '../../components/PackageSourceChangedBanner';
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
 import { cnvCriterionMap } from '../../lib/cnvAcmg';
 import { formatQcLimit, formatQcMetricValue } from '../../lib/qcMetricValue';
@@ -729,6 +730,41 @@ export interface SignedPackageIntake {
   } | null;
 }
 
+/**
+ * The change after its import of the package folder the family's data came from, as the record
+ * froze it (`report_signout_service._package_source_change_state`, owner decision of 2026-11-11):
+ * `changed`, with the paths added, removed and changed (each list as recorded, at most 50, with
+ * its count; none named when `listed` is false), or `gone`, the source files no longer available.
+ */
+export interface SignedPackageSourceChange {
+  deliveryId: string | null;
+  folder: string | null;
+  kind: 'changed' | 'gone';
+  importedFingerprint: string | null;
+  fingerprint: string | null;
+  listed: boolean;
+  added: string[];
+  removed: string[];
+  changed: string[];
+  addedCount: number | null;
+  removedCount: number | null;
+  changedCount: number | null;
+  detectedAt: string | null;
+}
+
+/** The change as the banner and the dialog word it (`PackageSourceChangedBanner`). */
+export const packageSourceChangeWords = (change: SignedPackageSourceChange): PackageSourceChange => ({
+  folder: change.folder,
+  kind: change.kind,
+  listed: change.listed,
+  added: change.added,
+  removed: change.removed,
+  changed: change.changed,
+  added_count: change.addedCount,
+  removed_count: change.removedCount,
+  changed_count: change.changedCount,
+});
+
 /** A parental homolog as the PGT analysis names it: its side and its label ('0', '1'). */
 export interface SignedPgtHaplotype {
   origin: 'paternal' | 'maternal' | null;
@@ -973,6 +1009,12 @@ export interface SignedReport {
   /** The imports that had begun writing the family and not finished; `absent`: not in the record. */
   importUnfinished: FamilyImportUnfinished[] | 'absent';
   importAcknowledgement: SignedAcknowledgement;
+  /**
+   * The package folder the family came from, changed or gone after its import; null: as
+   * imported (or no delivery's); `absent`: not in the record.
+   */
+  packageSourceChange: SignedPackageSourceChange | null | 'absent';
+  packageSourceAcknowledgement: SignedAcknowledgement;
   reportedVariants: SignedSmallVariant[] | null;
   /** Null: the record holds no list of reported SVs. */
   reportedStructuralVariants: SignedStructuralVariant[] | null;
@@ -2003,6 +2045,32 @@ const parseNipt = (value: Json): SignedNipt => {
   };
 };
 
+const pathList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+const countOrNull = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isInteger(value) ? value : null;
+
+/** The record's package-folder change: null when it froze none, as for a folder as imported. */
+export const parsePackageSourceChange = (value: unknown): SignedPackageSourceChange | null => {
+  if (!isObject(value)) return null;
+  return {
+    deliveryId: text(value.delivery_id),
+    folder: text(value.folder),
+    kind: value.kind === 'gone' ? 'gone' : 'changed',
+    importedFingerprint: text(value.imported_fingerprint),
+    fingerprint: text(value.fingerprint),
+    listed: value.listed === true,
+    added: pathList(value.added),
+    removed: pathList(value.removed),
+    changed: pathList(value.changed),
+    addedCount: countOrNull(value.added_count),
+    removedCount: countOrNull(value.removed_count),
+    changedCount: countOrNull(value.changed_count),
+    detectedAt: text(value.detected_at),
+  };
+};
+
 /** The signed version's frozen snapshot, read; null when there is no readable snapshot. */
 export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
   if (!isObject(snapshot)) return null;
@@ -2027,6 +2095,14 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
       snapshot,
       'acknowledged_import_incomplete',
       'import_incomplete_acknowledgement_reason',
+    ),
+    packageSourceChange: has(snapshot, 'package_source_change')
+      ? parsePackageSourceChange(snapshot.package_source_change)
+      : 'absent',
+    packageSourceAcknowledgement: acknowledgement(
+      snapshot,
+      'acknowledged_package_source_change',
+      'package_source_change_acknowledgement_reason',
     ),
     reportedVariants: Array.isArray(snapshot.reported_variants)
       ? (snapshot.reported_variants as unknown[]).map(parseSmallVariant)
@@ -2109,6 +2185,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   sequencing_qc: 'sequencing QC cut-offs',
   import_incomplete: 'import completeness',
   import_unfinished: 'unfinished imports',
+  package_source_change: 'package folder after its import',
   variant_descriptions: 'variant descriptions',
   gene_panels: 'gene panels applied',
   reference_data: 'reference-data releases',

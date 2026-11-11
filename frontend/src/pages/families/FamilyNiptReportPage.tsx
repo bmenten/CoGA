@@ -493,6 +493,7 @@ const FamilyNiptReportPage: React.FC = () => {
               this live report prints without one, so the printout itself must say so. */}
           <FamilyPageBanners
             metadata={family?.metadata}
+            packageSourceChange={family?.package_source_change}
             assemblyScope={{
               name: assemblyName,
               validated: assemblyValidated,

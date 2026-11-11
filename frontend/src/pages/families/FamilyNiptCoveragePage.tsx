@@ -262,12 +262,12 @@ const FamilyNiptCoveragePage: React.FC = () => {
     isError: familyFailed,
     error: familyError,
     refetch: refetchFamily,
-  } = useQuery<Pick<FamilyOut, 'projects' | 'metadata'>>({
+  } = useQuery<Pick<FamilyOut, 'projects' | 'metadata'> & Partial<Pick<FamilyOut, 'package_source_change'>>>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
-      return res.data as Pick<FamilyOut, 'projects' | 'metadata'>;
+      return res.data as Pick<FamilyOut, 'projects' | 'metadata'> & Partial<Pick<FamilyOut, 'package_source_change'>>;
     },
   });
   const {
@@ -339,6 +339,7 @@ const FamilyNiptCoveragePage: React.FC = () => {
         </div>
         <FamilyPageBanners
           metadata={family?.metadata}
+          packageSourceChange={family?.package_source_change}
           assemblyScope={{
             name: assemblyName,
             validated: assemblyValidated,

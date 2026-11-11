@@ -28,6 +28,11 @@ GATE_FIELDS: dict[str, tuple[str, str, str]] = {
         "import_incomplete_acknowledgement_reason",
         "import_incomplete_concerns_fingerprint",
     ),
+    "package_source_change": (
+        "acknowledge_package_source_change",
+        "package_source_change_acknowledgement_reason",
+        "package_source_change_concerns_fingerprint",
+    ),
     "unreviewed_findings": (
         "acknowledge_unreviewed_findings",
         "unreviewed_findings_acknowledgement_reason",

@@ -44,6 +44,11 @@ It refers to exactly one signed version: the one it rests on.
     structure change that clears its data.
 
   The warning shows on every family page until an import or an upload has brought those datasets again.
+- A **Package folder changed after import** warning at the top when the folder the family was imported
+  from has changed since its import, naming the files added, removed or changed; or **Package folder
+  gone** when it is gone or cannot be read, so the read files, signal tracks and QC report shown from it
+  are no longer available. It shows until the folder is as it was imported again, or its new delivery is
+  imported or refused with a reason.
 
 ### Signing out
 
@@ -64,7 +69,7 @@ version also holds what the analysis looked at:
   chapter).
 
 The EPD refers to the signed version by its **report code** (for example `7KQM2X-2-4PHT`). Sign-out
-stops for six things:
+stops for seven things:
 
 1. **An assembly outside the validated scope** (*Not validated for clinical use*): the report cannot be
    signed out.
@@ -90,7 +95,10 @@ stops for six things:
      warning names.
    - After an administrator's unfinished deletion of a sample, deleting the sample again also removes
      what the warning names of it.
-6. **Repeat and Paraphase calls without a review** (no tag, note or classification at the locus or
+6. **A changed package folder** (*Package folder changed after import*, or *gone*): import or refuse
+   the folder's new delivery, or acknowledge with a reason. The dialog lists the files that changed; the
+   signed version keeps them with your reason.
+7. **Repeat and Paraphase calls without a review** (no tag, note or classification at the locus or
    region): a repeat call reading *Pathogenic*, *Premutation*, *Review* or *Not assessed*, a count *Near
    a boundary*, or a Paraphase call reading *pathogenic*, *carrier* or *review*. Review it, or acknowledge
    with a reason. A grey-zone call alone does not stop sign-out.

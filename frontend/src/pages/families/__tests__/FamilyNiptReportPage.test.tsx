@@ -750,6 +750,8 @@ describe('FamilyNiptReportPage', () => {
         qc_acknowledgement_reason: undefined,
         acknowledge_import_incomplete: false,
         import_incomplete_acknowledgement_reason: undefined,
+        acknowledge_package_source_change: false,
+        package_source_change_acknowledgement_reason: undefined,
         acknowledge_unreviewed_findings: false,
         unreviewed_findings_acknowledgement_reason: undefined,
       });

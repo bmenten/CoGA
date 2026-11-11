@@ -26,12 +26,14 @@ const FamilyIgvPage: React.FC = () => {
   const backPathParam = familyPagePath(searchParams.get('back_path')) ?? undefined;
 
   const { data, isLoading, isError, error, refetch } = useQuery<
-    Pick<ApiFamilyRecord, 'members' | 'projects' | 'metadata'>
+    Pick<ApiFamilyRecord, 'members' | 'projects' | 'metadata'> &
+      Partial<Pick<ApiFamilyRecord, 'package_source_change'>>
   >({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
-      return res.data as Pick<ApiFamilyRecord, 'members' | 'projects' | 'metadata'>;
+      return res.data as Pick<ApiFamilyRecord, 'members' | 'projects' | 'metadata'> &
+      Partial<Pick<ApiFamilyRecord, 'package_source_change'>>;
     },
     enabled: !!familyId,
   });
@@ -152,6 +154,7 @@ const FamilyIgvPage: React.FC = () => {
         </div>
         <FamilyPageBanners
           metadata={data.metadata}
+          packageSourceChange={data.package_source_change}
           assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
         />
       </section>
