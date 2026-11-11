@@ -2043,11 +2043,12 @@ async def get_report_signout(
     recomputed = _canonical_hash(record["snapshot"])
     record["verified"] = recomputed == record["content_hash"]
     if not record["verified"]:
+        # Every field names the stored record, never the request: the version is the row's.
         logger.error(
             "report_signout content hash mismatch on read (possible tampering)",
             extra={
                 "family_uuid": context.family_uuid,
-                "signout_version": version,
+                "signout_version": record["version"],
                 "stored_content_hash": record["content_hash"],
                 "recomputed_content_hash": recomputed,
             },
