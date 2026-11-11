@@ -77,7 +77,10 @@ class _FamilySession:
             }
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
         assert sql.startswith("UPDATE families"), f"unmodelled statement: {sql}"
-        if "entry" in params:
+        if "previous_import" in sql:
+            # A restore puts the family's package record back with its data.
+            family.events.append(("record put back",))
+        elif "entry" in params:
             family.unfinished[params["import_key"]] = json.loads(params["entry"])
             family.events.append(("marked", sorted(family.unfinished[params["import_key"]]["finished_datasets"])))
         elif "payload" in params:

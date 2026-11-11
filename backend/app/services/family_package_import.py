@@ -966,14 +966,17 @@ async def _import_family_datasets(
                     family_identifier=family_context.family_id,
                     phenotype_import=phenotype_import,
                 )
-            if package_changed:
-                await put_back_family_package_record(session, family_context.family_uuid)
+            # The family's package record goes back with its data: it names the delivery the
+            # family's data was imported from, which a sign-out compares the package folder with
+            # (package_changed_after_import).
+            await put_back_family_package_record(session, family_context.family_uuid)
             restored = True
             logs.append(
                 "The package changed while it was imported; restored the family's data, and its "
                 "package record, to their state before the import."
                 if package_changed
-                else "Import failed; atomically restored the family's data to its pre-import state."
+                else "Import failed; atomically restored the family's data, and its package record, "
+                "to their pre-import state."
             )
         except Exception as exc:  # restore failed; fall back to the flag
             # A restore refused for a missing backup table deleted nothing (and the Postgres

@@ -180,13 +180,13 @@ ImportDeliveryState = Literal[
     "incomplete",
     "ready",
     "needs_attention",
-    "approved",
     "queued",
     "imported",
     "failed",
     "refused",
     "superseded",
     "changed_after_import",
+    "archived",
     "gone",
 ]
 
@@ -236,8 +236,9 @@ class ImportDeliveryOut(ApiDocumentModel):
     first_seen_at: datetime
     last_seen_at: datetime
     state_changed_at: datetime
-    # An imported delivery whose folder changed, or went, after its import (``changed_after_import``):
-    # what changed. None in every other state.
+    # An imported delivery whose followed folder changed, or went, after its import
+    # (``changed_after_import``), or whose gone folder was confirmed as archived (``archived``):
+    # what changed, and the archiving. None in every other state.
     source_change: Optional[PackageSourceChangeOut] = None
 
 
@@ -268,6 +269,12 @@ class ImportDeliveryAdd(BaseModel):
 
 class ImportDeliveryRefuse(BaseModel):
     """A delivery refused, and why."""
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class ImportDeliveryArchive(BaseModel):
+    """A gone package folder confirmed as deliberately gone (archived), and why."""
 
     reason: str = Field(min_length=1, max_length=2000)
 

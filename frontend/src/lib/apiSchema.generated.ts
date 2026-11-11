@@ -936,10 +936,12 @@ export interface FamilyPackageImportJobOut {
 }
 
 /**
- * The change after its import of the package folder a family's data came from: the delivery
- * its record names (its id and folder's name, and the fingerprint it was imported with), which
- * is ``changed_after_import``. The change ends only when the folder is as imported again, or its
- * new delivery is imported or refused.
+ * The change of the package folder a family's source files are served from, against the
+ * delivery its data was last imported from whole (its id, its folder's name, and the fingerprint
+ * it was imported with), which is ``changed_after_import`` or, for a gone folder confirmed as
+ * deliberately gone, ``archived``. The change ends when the folder is as so imported again, when
+ * a delivery of the family is imported with overwrite, or when the folder's new delivery is
+ * refused with a reason; an update import keeps it.
  */
 export interface FamilyPackageSourceChangeOut {
   kind: "changed" | "gone";
@@ -952,6 +954,8 @@ export interface FamilyPackageSourceChangeOut {
   removed_count: number | null;
   changed_count: number | null;
   detected_at: string | null;
+  found_at_sign_out: boolean;
+  archived: PackageSourceArchivedOut | null;
   delivery_id: string;
   folder: string;
   imported_fingerprint: string | null;
@@ -1775,6 +1779,11 @@ export interface ImportDeliveryApproveOut {
   job: FamilyPackageImportJobOut;
 }
 
+/** A gone package folder confirmed as deliberately gone (archived), and why. */
+export interface ImportDeliveryArchive {
+  reason: string;
+}
+
 /**
  * One field of a delivery's package set to a value, or removed (``value`` null). ``path``
  * names it: ``["project"]``, ``["analysis_type"]``, ``["family", "roi"]``, ``["family", "pgt"]``
@@ -1806,7 +1815,7 @@ export interface ImportDeliveryOut {
   watch_root: string;
   folder_path: string;
   folder_name: string;
-  state: "incomplete" | "ready" | "needs_attention" | "approved" | "queued" | "imported" | "failed" | "refused" | "superseded" | "changed_after_import" | "gone";
+  state: "incomplete" | "ready" | "needs_attention" | "queued" | "imported" | "failed" | "refused" | "superseded" | "changed_after_import" | "archived" | "gone";
   package_fingerprint: string;
   marker_sha256: string | null;
   run_id: string | null;
@@ -2695,13 +2704,26 @@ export interface NiptVariantStatisticsOut {
 }
 
 /**
- * What changed of an imported delivery's package folder after its import
- * (package_changed_after_import.py): ``changed``, its fingerprint now (None for a folder too large
- * to fingerprint) and the paths added, removed and changed (in size or modification time), each
- * list to 50 paths with its count (None, with ``listed`` false, when the folder holds more
+ * A gone package folder a superuser confirmed as deliberately gone (archived): when, by whom
+ * and why (package_changed_after_import.archive_gone_delivery).
+ */
+export interface PackageSourceArchivedOut {
+  archived_at: string;
+  archived_by: string;
+  reason: string;
+}
+
+/**
+ * What changed of the package folder CoGA serves a family's source files from, against the
+ * delivery the family's data was last imported from whole, as a new family or with overwrite
+ * (package_changed_after_import.py): ``changed``, its fingerprint now (None for a folder too
+ * large to fingerprint) and the paths added, removed and changed (in size or modification time),
+ * each list to 50 paths with its count (None, with ``listed`` false, when the folder holds more
  * entries than a listing keeps); or ``gone``, its folder gone or unreadable, so the source files
- * (read files, signal tracks, QC report) are no longer available. ``detected_at`` is when the
- * watcher found it.
+ * (read files, signal tracks, QC report) are no longer available. ``archived``: a gone folder a
+ * superuser confirmed as deliberately gone, which no longer gates a sign-out. ``detected_at`` is
+ * when the watcher found it; ``found_at_sign_out``: found by a sign-out's own check of the
+ * folder, before the watcher (``detected_at`` is then None).
  */
 export interface PackageSourceChangeOut {
   kind: "changed" | "gone";
@@ -2714,6 +2736,8 @@ export interface PackageSourceChangeOut {
   removed_count: number | null;
   changed_count: number | null;
   detected_at: string | null;
+  found_at_sign_out: boolean;
+  archived: PackageSourceArchivedOut | null;
 }
 
 /**

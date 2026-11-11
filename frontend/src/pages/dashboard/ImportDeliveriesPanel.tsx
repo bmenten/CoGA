@@ -13,6 +13,7 @@ import { formatTimestamp } from '../../lib/format';
 import ModalDialog from '../../components/ModalDialog';
 import {
   PackageSourceChangePaths,
+  describeArchiving,
   describePackageSourceChange,
 } from '../../components/PackageSourceChangedBanner';
 import QueryFailure from '../../components/QueryFailure';
@@ -23,8 +24,9 @@ type Delivery = ImportDeliveryOut;
 type ConflictMode = 'cancel' | 'update' | 'overwrite';
 
 // The deliveries still waiting for someone, or for their import, and the imported ones whose
-// folder changed, or went, after their import, until the folder's new delivery is imported or
-// refused (or the folder is as imported again).
+// folder changed, or went, after their import, until a delivery of the family is imported with
+// overwrite, the folder's new delivery is refused, the folder is as imported again, or a gone
+// folder is confirmed as archived.
 const OPEN_STATES = new Set([
   'incomplete',
   'ready',
@@ -45,15 +47,20 @@ const STATE_LABELS: Record<string, string> = {
   incomplete: 'Still copying',
   ready: 'Ready',
   needs_attention: 'Needs attention',
-  approved: 'Approved',
   queued: 'Import queued',
   imported: 'Imported',
   failed: 'Import failed',
   refused: 'Refused',
   superseded: 'Superseded',
   changed_after_import: 'Changed after import',
+  archived: 'Archived',
   gone: 'Gone',
 };
+
+/** An imported delivery whose folder is gone since its import: a superuser confirms it as
+ * deliberately gone (archived), with a reason. */
+export const isArchivable = (delivery: Delivery) =>
+  delivery.state === 'changed_after_import' && delivery.source_change?.kind === 'gone';
 
 const stateClass = (state: string) =>
   state === 'ready' || state === 'imported'
@@ -66,11 +73,26 @@ const stateClass = (state: string) =>
 
 /**
  * What changed of an imported delivery's folder after its import, as its row says it: what the
- * watcher found, the paths it named, and what ends it.
+ * watcher found, the paths it named, and what ends it; for a gone folder confirmed as archived,
+ * who confirmed it, when and why.
  */
 const SourceChange: React.FC<{ delivery: Delivery }> = ({ delivery }) => {
   const change = delivery.source_change;
   if (!change) return null;
+  if (change.kind === 'gone' && change.archived) {
+    return (
+      <div className="text-xs text-(--color-text-muted)">
+        <div>
+          Its folder is gone since its import, confirmed as archived{' '}
+          {describeArchiving(change.archived)}. The family&rsquo;s source files
+          are no longer available.
+        </div>
+        {change.archived.reason ? (
+          <div>Reason: {change.archived.reason}</div>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div className="text-xs text-(--color-variant-del)">
       <div>
@@ -82,10 +104,10 @@ const SourceChange: React.FC<{ delivery: Delivery }> = ({ delivery }) => {
           : ''}
         .{' '}
         {change.kind === 'gone'
-          ? 'The source files are no longer available: put the folder back as it was imported.'
+          ? 'The source files are no longer available: put the folder back as it was imported, or confirm it as archived if it was archived on purpose.'
           : delivery.origin === 'manual'
-            ? 'Add the folder again by hand, and import or refuse that delivery.'
-            : 'Import the folder’s new delivery, or refuse it with a reason.'}
+            ? 'Add the folder again by hand, and import that delivery with overwrite, or refuse it; an update keeps this.'
+            : 'Import the folder’s new delivery with overwrite, or refuse it with a reason; an update keeps this.'}
       </div>
       <PackageSourceChangePaths change={change} />
     </div>
@@ -129,11 +151,15 @@ const IssueList: React.FC<{
 type Decision =
   | { kind: 'approve'; deliveries: Delivery[]; dryRun: boolean }
   | { kind: 'refuse'; delivery: Delivery }
+  | { kind: 'archive'; delivery: Delivery }
   | { kind: 'correct'; delivery: Delivery };
 
 interface ApproveDialogProps {
   deliveries: Delivery[];
   dryRun: boolean;
+  // The delivery is the new state of a package folder that changed after its import: only an
+  // overwrite ends the family's notice.
+  changedFolder?: boolean;
   busy: boolean;
   onCancel: () => void;
   onConfirm: (choice: {
@@ -148,6 +174,7 @@ interface ApproveDialogProps {
 const ApproveDialog: React.FC<ApproveDialogProps> = ({
   deliveries,
   dryRun,
+  changedFolder = false,
   busy,
   onCancel,
   onConfirm,
@@ -220,6 +247,14 @@ const ApproveDialog: React.FC<ApproveDialogProps> = ({
           The package&apos;s members differ from the family in CoGA: an update
           changes none of the family&apos;s members. Correct the package, or
           overwrite, which makes its members the family&apos;s pedigree.
+        </p>
+      ) : null}
+      {existing && changedFolder ? (
+        <p className="status-note">
+          This is the new state of a package folder that changed after its
+          import. Only an overwrite ends the family&apos;s notice: an update
+          skips the datasets the family holds, so the changed files are not the
+          ones imported, and the notice and the sign-out warning stay.
         </p>
       ) : null}
       {overwriteRefused ? (
@@ -317,6 +352,70 @@ const RefuseDialog: React.FC<{
   );
 };
 
+/** Asks for the reason a gone package folder is confirmed as deliberately gone (archived). */
+const ArchiveDialog: React.FC<{
+  delivery: Delivery;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}> = ({ delivery, busy, onCancel, onConfirm }) => {
+  const headingId = useId();
+  const [reason, setReason] = useState('');
+  return (
+    <ModalDialog
+      onClose={() => {
+        if (!busy) onCancel();
+      }}
+      labelledBy={headingId}
+      className="modal-surface surface-card confirm-delete-modal"
+      closeOnBackdrop={false}
+      isDirty={() => reason.trim().length > 0}
+    >
+      <div className="space-y-2">
+        <p className="page-kicker">Confirm archived</p>
+        <h2 id={headingId} className="section-title">
+          Confirm {delivery.folder_name} as archived?
+        </h2>
+      </div>
+      <p className="text-sm">
+        The package folder is gone since its import. Confirm it only if it was
+        archived on purpose: signing out no longer asks for a reason, but the
+        family page says its source files (the read files in IGV, the signal
+        tracks and the QC report) are archived and no longer available, and a
+        signed record says so too. If the folder comes back changed, it is a
+        change again. The reason is on the audit trail.
+      </p>
+      <label className="field-label">
+        Reason
+        <textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={3}
+          maxLength={2000}
+        />
+      </label>
+      <div className="inline-actions modal-actions">
+        <button
+          type="button"
+          className="button-secondary"
+          onClick={onCancel}
+          disabled={busy}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="form-button"
+          disabled={busy || reason.trim().length === 0}
+          onClick={() => onConfirm(reason.trim())}
+        >
+          {busy ? 'Saving…' : 'Confirm archived'}
+        </button>
+      </div>
+    </ModalDialog>
+  );
+};
+
 /** The packages pipelines delivered into the watched import folders, waiting for a decision. */
 const ImportDeliveriesPanel: React.FC = () => {
   const queryClient = useQueryClient();
@@ -349,6 +448,18 @@ const ImportDeliveriesPanel: React.FC = () => {
   ).length;
   const selectable = shown.filter((delivery) => delivery.state === 'ready');
   const chosen = selectable.filter((delivery) => selected.has(delivery._id));
+  // The folder states an imported delivery's change was found in: a delivery of that state is
+  // the new state of a folder that changed after its import.
+  const changedFolderStates = useMemo(
+    () =>
+      new Set(
+        deliveries
+          .filter((delivery) => delivery.state === 'changed_after_import')
+          .map((delivery) => delivery.source_change?.fingerprint)
+          .filter((fingerprint): fingerprint is string => Boolean(fingerprint))
+      ),
+    [deliveries]
+  );
 
   const refresh = () => {
     setSelected(new Set());
@@ -430,6 +541,29 @@ const ImportDeliveriesPanel: React.FC = () => {
       setStatusTone('error');
       setStatusMessage(
         getErrorMessage(error, 'The delivery could not be refused.')
+      );
+      setDecision(null);
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: async (input: { delivery: Delivery; reason: string }) => {
+      await api.post(
+        apiPath`/family-imports/deliveries/${input.delivery._id}/archive`,
+        { reason: input.reason }
+      );
+      return input.delivery;
+    },
+    onSuccess: (delivery) => {
+      setStatusTone('success');
+      setStatusMessage(`Confirmed the folder of ${delivery.folder_name} as archived.`);
+      setDecision(null);
+      refresh();
+    },
+    onError: (error) => {
+      setStatusTone('error');
+      setStatusMessage(
+        getErrorMessage(error, 'The folder could not be confirmed as archived.')
       );
       setDecision(null);
     },
@@ -651,6 +785,17 @@ const ImportDeliveriesPanel: React.FC = () => {
                           Refuse…
                         </button>
                       ) : null}
+                      {isArchivable(delivery) ? (
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          onClick={() =>
+                            setDecision({ kind: 'archive', delivery })
+                          }
+                        >
+                          Confirm archived…
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -672,6 +817,9 @@ const ImportDeliveriesPanel: React.FC = () => {
         <ApproveDialog
           deliveries={decision.deliveries}
           dryRun={decision.dryRun}
+          changedFolder={decision.deliveries.some((delivery) =>
+            changedFolderStates.has(delivery.package_fingerprint)
+          )}
           busy={approveMutation.isPending}
           onCancel={() => setDecision(null)}
           onConfirm={({ conflictMode, acknowledged }) =>
@@ -705,6 +853,16 @@ const ImportDeliveriesPanel: React.FC = () => {
           onCancel={() => setDecision(null)}
           onConfirm={(reason) =>
             refuseMutation.mutate({ delivery: decision.delivery, reason })
+          }
+        />
+      ) : null}
+      {decision?.kind === 'archive' ? (
+        <ArchiveDialog
+          delivery={decision.delivery}
+          busy={archiveMutation.isPending}
+          onCancel={() => setDecision(null)}
+          onConfirm={(reason) =>
+            archiveMutation.mutate({ delivery: decision.delivery, reason })
           }
         />
       ) : null}

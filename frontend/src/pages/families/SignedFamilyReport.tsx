@@ -1078,11 +1078,24 @@ const SignedPackageSource: React.FC<{ record: SignedReport }> = ({ record }) => 
     return (
       <p className="report-paragraph">
         The package folder the family’s data came from was as it was imported (or the family was not
-        imported from a delivered package).
+        imported from a delivered package), by the import watcher and the sign-out’s own check.
       </p>
     );
   }
   const folder = change.folder ? ` (${change.folder})` : '';
+  if (change.kind === 'gone' && change.archived) {
+    const { archivedAt, archivedBy, reason } = change.archived;
+    return (
+      <>
+        <p className="report-paragraph">
+          {`The package folder the family’s data came from${folder} was gone since its import, and had been confirmed as archived by ${archivedBy ?? 'unknown'}${
+            archivedAt ? ` on ${formatReportTime(archivedAt)}` : ''
+          }. The family’s source files (the read files IGV shows, the signal tracks and the QC report) were archived and no longer available; no acknowledgement was needed.`}
+        </p>
+        {reason ? <p className="report-paragraph">Reason: {reason}</p> : null}
+      </>
+    );
+  }
   return (
     <>
       <p className="report-paragraph">
@@ -1092,6 +1105,7 @@ const SignedPackageSource: React.FC<{ record: SignedReport }> = ({ record }) => 
               change.fingerprint ? ` (fingerprint ${change.fingerprint.slice(0, 12)}` : ''
             }${change.fingerprint && change.importedFingerprint ? `, imported as ${change.importedFingerprint.slice(0, 12)})` : change.fingerprint ? ')' : ''}.`}
         {change.detectedAt ? ` Found ${formatReportTime(change.detectedAt)}.` : ''}
+        {change.foundAtSignOut ? ' Found by the sign-out’s own check of the folder.' : ''}
       </p>
       <PackageSourceChangePaths change={packageSourceChangeWords(change)} />
       <p className="report-paragraph">

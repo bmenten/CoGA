@@ -366,15 +366,18 @@ in the EPD refers to the signed version by its report code (*The report code* be
   overwrite whose restore did not finish, that is every dataset of the family still to import
   again, none finished; for a single-file upload or a deletion that did not finish, no job, under
   its `upload-…` or `deletion-…` key;
-- the package folder after its import (`package_source_change`, gate 6; owner decision of
-  2026-11-11): null when the folder the family's data came from is as it was imported, or the
-  family was not imported from a delivery; otherwise the delivery the family's record names (its
-  id and folder's name), the fingerprint it was imported with and the folder's now, and what the
-  watcher found: `changed`, with the paths added, removed and changed in size or modification time
-  (each list to 50 paths, with its count; none named when `listed` is false), or `gone`, the
-  source files no longer available; and when it was found
-  ([data-import.md](data-import.md#after-the-import-a-package-folder-that-changes)). It is read
-  outside any savepoint: a read that fails stops the sign-out, never lets the gate pass;
+- the package folder after its import (`package_source_change`, gate 6; owner decisions of
+  2026-11-11): null when the folder CoGA serves the family's source files from is as the family's
+  reference delivery (the one its data was last imported from whole, as a new family or with
+  overwrite) was imported, or the family was not imported from a delivery; otherwise that delivery
+  (its id), the name of the folder, the fingerprint the reference was imported with and the
+  folder's now, and what was found: `changed`, with the paths added, removed and changed in size
+  or modification time (each list to 50 paths, with its count; none named when `listed` is false),
+  or `gone`, the source files no longer available; when the watcher found it, or
+  `found_at_sign_out` when the sign-out's own check of the folder did; and, for a gone folder a
+  superuser confirmed as deliberately gone, `archived` (when, by whom and why), which needs no
+  acknowledgement ([data-import.md](data-import.md#after-the-import-a-package-folder-that-changes)).
+  It is read outside any savepoint: a read that fails stops the sign-out, never lets the gate pass;
 - what the analysis looked at (`services/signed_record_sections.py`, one section each):
   - `variant_descriptions` (REQ-TRACE-007): each reported variant as the analyst reviewed it,
     read from the family's variant lists as the report page reads them (`review_tag=report`),
@@ -715,17 +718,27 @@ Seven gates run first, in this order:
      removes from it what it brought again. Deleting a sample removes that sample's items, and
      the sample from the import-incomplete flag's failures and from a stopped import's entry;
      each goes once it names nothing else.
-6. **Package folder changed after its import** (REQ-TRACE-018; owner decision of 2026-11-11).
+6. **Package folder changed after its import** (REQ-TRACE-018; owner decisions of 2026-11-11).
    CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder its
-   import read. When the watcher found that folder changed, or gone, since its import (the
-   delivery the family's record names is `changed_after_import`), the sign-out gets 409
+   record names. That folder must be as the family's reference delivery was imported: the
+   delivery its data was last imported from whole, as a new family or with overwrite (an update
+   skips the datasets the family holds, so it keeps the reference it had). The sign-out reads what
+   the import watcher last found (the reference is `changed_after_import`, each
+   `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`) and also takes the folder's fingerprint itself, stat-only
+   and off the event loop: a folder that differs from the reference's fingerprint, that is gone, or
+   that cannot be read within 30 seconds (`SIGN_OUT_FOLDER_CHECK_SECONDS`) or at all, or that CoGA
+   serves no file from (outside every import root: it is not listed) is a change, never a pass (`found_at_sign_out`; a folder too large to list in full is still fingerprinted,
+   and one too large to fingerprint has changed). Either way the sign-out gets 409
    (`gate: "package_source_change"`, with `package_source_change` and a message saying what
    changed, or that the source files are no longer available), unless the request sets
    `acknowledge_package_source_change` with a `package_source_change_acknowledgement_reason`
    (422 without). A warning: the sign-out stays possible. Every family page shows *Package folder
-   changed after import* (or *gone*) while it holds. It ends only when the folder is as it was
-   imported again, or its new delivery is imported or refused with a reason. The sign-out reads
-   what the watcher last found (each `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`), not the folder.
+   changed after import* (or *gone*) while the watcher's finding holds. It ends only when the
+   folder is as the reference was imported again, when a delivery of the family is imported with
+   overwrite, or when the folder's new delivery is refused with a reason. A gone folder a superuser
+   confirmed as deliberately gone (`archived`) does not gate: the snapshot freezes it, and the
+   family page says the source files are archived; a check that finds that folder back otherwise
+   gates again.
 7. **Findings without a review** (REQ-TRACE-016). A repeat locus or Paraphase region with an
    abnormal call and no review gets 409 (`gate: "unreviewed_findings"`), unless the request sets
    `acknowledge_unreviewed_findings` with an `unreviewed_findings_acknowledgement_reason` (422
@@ -749,7 +762,7 @@ its concerns as the 409 lists them, each list sorted (`concerns_fingerprint` in
 incomplete import, `import_incomplete` and `import_unfinished`, each without its `at` (the
 message names the time; the jobs and datasets say which failure it is); for a changed package
 folder, `package_source_change` without `detected_at` (a change found again, as it was, is the
-same concern); for findings without a review, `unreviewed_findings`. It holds no time and nothing that changes while the concerns do
+same concern; a change the sign-out's own check found has none); for findings without a review, `unreviewed_findings`. It holds no time and nothing that changes while the concerns do
 not, so the same concerns give the same fingerprint. The dialog sends it back with the
 acknowledgement (`drift_concerns_fingerprint`, `qc_concerns_fingerprint`,
 `import_incomplete_concerns_fingerprint`, `package_source_change_concerns_fingerprint`,

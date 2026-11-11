@@ -70,7 +70,12 @@ from .family_variant_write_lock import try_share_family_variant_writes
 from .hash_chain import ChainVerification, canonical_hash, canonical_json, chain_row_hash, verify_chain
 from .access_control import CurrentUser, RecordNotVisible, require_sign_out_authority
 from .nipt_service import SharedNiptAnalysis
-from .package_changed_after_import import family_package_source_change
+from .package_changed_after_import import (
+    check_family_package_folder,
+    family_package_source_change,
+    gates_a_sign_out,
+    sign_out_source_change,
+)
 from .report_code import (
     ReportCodeError,
     content_hash_prefix,
@@ -727,17 +732,24 @@ def _import_gate_message(
 async def _package_source_change_state(
     session: AsyncSession, family_uuid: str
 ) -> dict[str, Any] | None:
-    """The change after its import of the package folder the family's data came from, or None
-    when the folder is as it was imported (or the family was not imported from a delivery).
+    """The change of the package folder the family's source files are served from, against the
+    delivery its data was last imported from whole (as a new family or with overwrite), or None
+    when the folder is as so imported (or the family was not imported from a delivery).
 
     CoGA serves the family's read files (IGV), signal tracks and QC report from that folder, where
-    it lies. The import watcher follows it after the import and marks the delivery the family's
-    record names ``changed_after_import`` when its fingerprint differs (the files added, removed
-    and changed) or it is gone (``package_changed_after_import``). Frozen into the snapshot and
-    gating sign-out, so a record is never signed over source files that are no longer those
-    imported without a warning (the owner's decision of 2026-11-11). Read outside any savepoint:
-    a read that fails stops the sign-out, never lets the gate pass."""
-    return await family_package_source_change(session, family_uuid)
+    it lies. The import watcher follows it after the import and marks the reference delivery
+    ``changed_after_import`` when the folder's fingerprint differs (the files added, removed and
+    changed) or it is gone, or ``archived`` once a superuser confirmed a gone folder as
+    deliberately gone (``package_changed_after_import``). The sign-out also takes the folder's
+    fingerprint itself (``check_family_package_folder``), so a change the watcher has not seen
+    yet, or a folder that cannot be read now, warns as well (``sign_out_source_change``). Frozen
+    into the snapshot, and gating sign-out unless archived, so a record is never signed over source
+    files that are no longer those imported without a warning (the owner's decisions of
+    2026-11-11). Read outside any savepoint: a read that fails stops the sign-out, never lets the
+    gate pass."""
+    watcher = await family_package_source_change(session, family_uuid)
+    own = await check_family_package_folder(session, family_uuid)
+    return sign_out_source_change(watcher, own)
 
 
 def _count_phrase(count: Any, noun: str) -> str | None:
@@ -746,12 +758,19 @@ def _count_phrase(count: Any, noun: str) -> str | None:
 
 def _package_source_gate_message(change: Mapping[str, Any]) -> str:
     folder = f" ({change['folder']})" if change.get("folder") else ""
+    found = (
+        " This sign-out's own check of the folder found it; the import watcher has not yet."
+        if change.get("found_at_sign_out")
+        else ""
+    )
     if change.get("kind") == "gone":
         return (
             f"The package folder this family's data was imported from{folder} is gone, or cannot "
             "be read, since its import: the source files CoGA serves from it (the read files IGV "
             "shows, the signal tracks and the QC report) are no longer available. Put the folder "
-            "back as it was imported, or acknowledge with a reason to sign out anyway."
+            "back as it was imported, or, if it was archived on purpose, have a superuser confirm "
+            "it as archived in Deliveries, or acknowledge with a reason to sign out anyway."
+            f"{found}"
         )
     if change.get("listed"):
         parts = [
@@ -770,8 +789,9 @@ def _package_source_gate_message(change: Mapping[str, Any]) -> str:
         f"The package folder this family's data was imported from{folder} has changed since its "
         f"import{what}. CoGA serves the family's read files (IGV), signal tracks and QC report "
         "from that folder, so they may no longer be the ones imported and analysed. Import the "
-        "folder's new delivery (update or overwrite), or refuse it with a reason, or acknowledge "
-        "with a reason to sign out anyway."
+        "folder's new delivery with overwrite (an update skips the datasets the family holds, so "
+        "this warning stays), or refuse it with a reason, or acknowledge with a reason to sign out "
+        f"anyway.{found}"
     )
 
 
@@ -1318,9 +1338,10 @@ async def build_report_snapshot(
         # The imports that began writing the family and stopped part-way ({}: none), with
         # the datasets each had not finished, which may be partly written or missing.
         "import_unfinished": import_unfinished,
-        # The package folder the family's data came from, changed or gone since its import
-        # (None: as imported, or no delivery's): the files added, removed and changed, or that
-        # the source files are no longer available.
+        # The package folder the family's source files are served from, changed or gone since
+        # its data was imported whole (None: as imported, or no delivery's): the files added,
+        # removed and changed, or that the source files are no longer available, or, once a
+        # superuser confirmed a gone folder as archived, when, by whom and why.
         "package_source_change": package_source_change,
         REPORTED_VARIANTS_SECTION: reported,
         REPORTED_STRUCTURAL_SECTION: reported_structural,
@@ -1609,17 +1630,21 @@ async def sign_out_report(
         _refuse_unless_shown(
             IMPORT_GATE, import_incomplete_concerns_fingerprint, import_refusal, import_concerns
         )
-    # Package-folder gate (the owner's decision of 2026-11-11): the folder the family's data was
-    # imported from changed, or went, after its import, so the read files, signal tracks and QC
-    # report CoGA serves from it may not be those imported. A warning to acknowledge with a
-    # reason, frozen into the content hash; the sign-out stays possible.
+    # Package-folder gate (the owner's decisions of 2026-11-11): the folder the family's source
+    # files are served from is no longer as its data was imported whole, or is gone or cannot be
+    # read, so the read files, signal tracks and QC report CoGA serves from it may not be those
+    # imported. A warning to acknowledge with a reason, frozen into the content hash; the sign-out
+    # stays possible. A gone folder a superuser confirmed as archived does not warn: the snapshot
+    # records it.
     package_source_change: Mapping[str, Any] | None = snapshot_body.get("package_source_change")
-    package_source_gated = package_source_change is not None
-    package_source_concerns = _package_source_concerns(package_source_change)
+    package_source_gated = gates_a_sign_out(package_source_change)
+    package_source_concerns = _package_source_concerns(
+        package_source_change if package_source_gated else None
+    )
     package_source_refusal = {
         "message": (
             _package_source_gate_message(package_source_change)
-            if package_source_change is not None
+            if package_source_change is not None and package_source_gated
             else ""
         ),
         "package_source_change": package_source_change,
@@ -1799,6 +1824,7 @@ async def sign_out_report(
             f"{', QC override acknowledged' if snapshot['acknowledged_qc'] else ''}"
             f"{', incomplete import acknowledged' if import_acknowledged else ''}"
             f"{', changed package folder acknowledged' if package_source_acknowledged else ''}"
+            f"{', package source files archived' if package_source_change is not None and not package_source_gated else ''}"
             f"{', findings without a review acknowledged' if unreviewed_acknowledged else ''}"
             f"{f', {len(gaps)} part(s) not captured' if gaps else ''}"
         ),
@@ -2128,6 +2154,19 @@ def _section_fingerprint(value: Any) -> str:
     return _canonical_hash(json.loads(json.dumps(value, default=str)))
 
 
+# The keys of a package folder's change that say who found it and when, not what changed: a
+# change a sign-out's own check found, which the watcher then finds as it was, is the same change.
+_PACKAGE_SOURCE_FINDING_KEYS = frozenset({"detected_at", "found_at_sign_out"})
+
+
+def _comparable(section: str, value: Any) -> Any:
+    """A section as the sign-out check compares it: the package folder's change without who
+    found it and when; every other section whole."""
+    if section == "package_source_change" and isinstance(value, Mapping):
+        return {key: item for key, item in value.items() if key not in _PACKAGE_SOURCE_FINDING_KEYS}
+    return value
+
+
 async def compare_report_with_latest_signout(
     session: AsyncSession,
     *,
@@ -2190,7 +2229,8 @@ async def compare_report_with_latest_signout(
         if (
             section not in signed
             or section not in current
-            or _section_fingerprint(signed[section]) != _section_fingerprint(current[section])
+            or _section_fingerprint(_comparable(section, signed[section]))
+            != _section_fingerprint(_comparable(section, current[section]))
         ):
             changed.append(section)
     return {

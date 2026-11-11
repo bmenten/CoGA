@@ -430,6 +430,7 @@ The API behind the page:
 | `POST /family-imports/deliveries/{id}/revisions` | corrects a delivery's package before it is approved (`revision`, `reason`, `changes`) |
 | `POST /family-imports/deliveries/{id}/approve` | queues the import, or a dry run, of a delivery that is ready or whose family exists (`revision`, `dry_run`, `conflict_mode`, `acknowledge_warnings`) |
 | `POST /family-imports/deliveries/{id}/refuse` | refuses an open delivery, with a `reason` |
+| `POST /family-imports/deliveries/{id}/archive` | confirms an imported delivery's gone package folder as deliberately gone (archived), with a `reason` ([below](#after-the-import-a-package-folder-that-changes)) |
 | `GET /family-imports`, `GET /family-imports/{job_id}` | job status, logs, validation errors and warnings, and a summary per dataset |
 
 #### A manifest kept in CoGA
@@ -838,9 +839,10 @@ be read, or whose check could not run or be stored, is checked again only when i
 newer delivery of the same folder came before anyone decided, or its pipeline runs again in the
 folder), `gone` (its folder, or its package file, missing for two rounds while the watched folder
 could be read); and, once a person decided,
-`queued`, `imported`, `failed` or `refused` (below); and `changed_after_import`, an imported
-delivery whose folder changed, or went, after its import ([below](#after-the-import-a-package-folder-that-changes)).
-`approved` is not used. A watched folder that cannot be read, or that
+`queued`, `imported`, `failed` or `refused` (below); and `changed_after_import`, the reference
+delivery of a family whose package folder changed, or went, after its import, and `archived`, one
+whose gone folder a superuser confirmed as deliberately gone
+([below](#after-the-import-a-package-folder-that-changes)). A watched folder that cannot be read, or that
 lists nothing but hidden entries while it had open deliveries (a share that is not mounted reads as
 an empty folder), is skipped for the round: nothing is decided on it. A watched folder that lists
 anything else, even only folders without a package file, is mounted: it is watched, so a delivery whose
@@ -966,6 +968,9 @@ Nothing is imported until a superuser decides, on the Package Import page or thr
 - `POST /family-imports/deliveries/{id}/refuse` with a `reason` (plain text, at most 2,000
   characters) refuses an open delivery (`incomplete`, `ready`, `needs_attention`): the watcher
   leaves its folder as it is until it changes.
+- `POST /family-imports/deliveries/{id}/archive` with a `reason` (plain text, at most 2,000
+  characters) confirms the gone folder of a delivery `changed_after_import` as deliberately gone:
+  it is `archived` ([below](#after-the-import-a-package-folder-that-changes)).
 - At the start of each round the watcher records the end of each queued delivery's import job:
   `imported` when it completed, `failed` when it failed.
 
@@ -978,41 +983,64 @@ request audit.
 CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder its
 import read, where it lies. So after the import the watcher follows that folder
 ([package_changed_after_import.py](../backend/app/services/package_changed_after_import.py); the
-owner's decisions of 2026-11-11). Each round it looks at the folder of every delivery a family's
-record names (`families.metadata.package_import.delivery`), whether it was delivered into a watched
-folder or added by hand, by its package fingerprint alone: each file's size and modification time,
-nothing of its content, so a slow share costs one listing of the folder. A delivery keeps the
-listing its fingerprint was taken over (`import_deliveries.file_listing`, at most 5,000 entries;
-a larger folder is kept without one), so a change says which files changed.
+owner's decisions of 2026-11-11).
 
-- **Changed.** A fingerprint that differs from the one the delivery was imported with makes the
-  delivery `changed_after_import`, with what changed (`source_change`): the files added, removed
-  and changed in size or modification time, each list to 50 paths with its count (a folder kept
-  without a listing is said to have changed, without its files). A watched folder that changed is
-  also a new delivery of the folder, as before; its family exists, so it needs an update or
-  overwrite.
+- **The reference.** An import with update skips the datasets the family holds already, so only an
+  import that read the family's data whole, as a new family or with overwrite, says what its source
+  files were. The family's record keeps that delivery as its reference
+  (`families.metadata.package_import.reference_delivery`) with the import's mode (`import_mode`:
+  `new_family`, `update` or `overwrite`); an update keeps the reference the record had. A family's
+  first package import is its reference, whatever its mode.
+- **The rule.** The folder CoGA serves the family's source files from (that of the delivery its
+  record names, `package_import.delivery`) must be as the reference was imported. Each round the
+  watcher compares it, for every family imported from a delivery, delivered into a watched folder or
+  added by hand, by its package fingerprint alone: each file's size and modification time, nothing
+  of its content, so a slow share costs one listing of the folder. A delivery keeps the listing its
+  fingerprint was taken over (`import_deliveries.file_listing`, at most 5,000 entries; a larger
+  folder is kept without one), so a change says which files changed.
+- **Changed.** A fingerprint that differs from the reference's makes the reference delivery
+  `changed_after_import`, with what changed (`source_change`): the files added, removed and changed
+  in size or modification time against the reference's listing, each list to 50 paths with its
+  count (a folder kept without a listing is said to have changed, without its files). A watched
+  folder that changed is also a new delivery of the folder; its family exists, so it needs an update
+  or overwrite. Importing it with update keeps the change: the family's record then names the new
+  delivery, but its reference stays the one before, and the folder still differs from it. An update
+  from another folder is a change too: CoGA then serves the source files from that folder.
 - **Gone.** A folder that cannot be listed for two rounds, while the folder it lies under (its
   watched folder; the import root of one added by hand) lists something, is `changed_after_import`
   too, saying that the source files are no longer available. A folder it lies under that cannot be
   read, or that lists nothing (a share that is not mounted), decides nothing.
-- **What it shows.** Every page of the family shows *Package folder changed after import* (or *Package
-  folder gone*), with what changed (`GET /families/{family_id}`, `package_source_change`, which
-  answers 404 for a family outside the caller's projects as the family does). The Deliveries list
-  shows the delivery as *Changed after import*, with what changed, among the deliveries that wait.
-  A sign-out warns of it, to acknowledge with a reason, which the signed record keeps with the
-  change ([clinical-traceability.md](clinical-traceability.md#sign-out)).
-- **How it ends.** Only so: when the folder is as it was imported again (the same fingerprint), by
-  itself; when the folder's new delivery is imported with update or overwrite, after which the
-  family's record names that delivery; or when that new delivery is refused with a reason, which
-  ends the change at once. A folder state a refused delivery of the folder has is never raised
-  again; a state neither imported nor refused is. A folder added by hand is added again by hand,
-  and that delivery imported or refused. A folder that is gone has no new delivery: it ends when
-  the folder is back as it was imported.
+- **Archived.** A superuser confirms a gone folder as deliberately gone in Deliveries (*Confirm
+  archived…*, `POST /api/family-imports/deliveries/{delivery_id}/archive`, with a reason of 1 to
+  2,000 characters; 409 unless the delivery is `changed_after_import` with its folder gone). The
+  delivery is `archived`, its change keeping who confirmed it, when and why. A sign-out no longer
+  warns of it, but every page of the family says *Source files archived*, and the record of a later
+  sign-out freezes it. A folder that comes back as it was imported ends it; one that comes back
+  otherwise is a change again.
+- **What it shows.** Every page of the family shows *Package folder changed after import* (or
+  *Package folder gone*, or *Source files archived*), with what changed (`GET /families/{family_id}`,
+  `package_source_change`, which answers 404 for a family outside the caller's projects as the
+  family does). The Deliveries list shows the reference delivery as *Changed after import*, with
+  what changed and what ends it, among the deliveries that wait, and asks before an approval of the
+  changed folder's new delivery that only an overwrite ends the notice. A sign-out warns of it, to
+  acknowledge with a reason, which the signed record keeps with the change
+  ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out also takes the
+  folder's fingerprint itself, so a change the watcher has not seen yet warns too.
+- **How it ends.** Only so: when the folder is as the reference was imported again (the same
+  fingerprint), by itself; when a delivery of the family is imported with overwrite, which makes it
+  the reference; or when the folder's new delivery is refused with a reason, which ends the change
+  at once. A folder state a refused delivery of the folder has is never raised again; a state
+  neither imported nor refused is. A folder added by hand is added again by hand, and that delivery
+  imported with overwrite or refused. A folder that is gone has no new delivery: it ends when the
+  folder is back as it was imported, or is confirmed as archived. A delivery imported with update
+  cannot be approved again: its notice stays until the folder is delivered again and imported with
+  overwrite, or is back as the reference was imported.
 - **The record.** Each transition is an event on the `system:import-inbox` chain:
   `import_delivery_changed_after_import` (by `system:import-watcher`, with the change and the one
-  it replaced) and `import_delivery_change_resolved` (with how it ended: `as_imported`, `refused`
-  with the refused delivery and the reason, by the person who refused it, `imported` with the
-  delivery the family's record names now, or `not_named` when no family names it any more).
+  it replaced), `import_delivery_archived` (by the superuser, with the reason) and
+  `import_delivery_change_resolved` (with how it ended: `as_imported`, `refused` with the refused
+  delivery and the reason, by the person who refused it, `overwritten` with the delivery the
+  family's record names as its reference now, or `not_named` when no family names it any more).
 
 ## 4. Package layout and manifest
 

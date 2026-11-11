@@ -37,9 +37,10 @@ even folders without a package file, is mounted and watched. Each change of a de
 clinical audit chain ``system:import-inbox``, by ``system:import-watcher``. Logs name counts,
 never a folder or a family.
 
-After the watched folders, a round follows the folder of each delivery a family's record names,
-whatever its origin: one that changed, or went, after its import is ``changed_after_import``
-(``package_changed_after_import``).
+After the watched folders, a round follows, for each family's reference delivery (the one its data
+was last imported from whole, as a new family or with overwrite), whatever its origin, the folder
+CoGA serves the family's source files from: one that is no longer as the reference was imported,
+or is gone, makes the reference ``changed_after_import`` (``package_changed_after_import``).
 
 One watcher looks at a time, wherever import workers run: it holds a Postgres advisory lock on a
 connection of its own (``WatcherLeadership``), and another process's watcher skips its rounds
@@ -1241,8 +1242,8 @@ async def _open_deliveries(session_factory: async_sessionmaker[AsyncSession], ro
 async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roots: list[Path]) -> WatchRound:
     """One round over the watched folders ``roots`` (see the module's docstring). It first records
     the end of each queued delivery's import job (``import_delivery_review.sync_delivery_jobs``),
-    and last follows the folder of each delivery a family's record names, whatever its origin
-    (``package_changed_after_import.follow_imported_deliveries``)."""
+    and last follows the package folder of each family imported from a delivery, against its
+    reference delivery (``package_changed_after_import.follow_imported_deliveries``)."""
     # Imported here: the review module and the following of imported deliveries read this one's
     # chain and list.
     from .import_delivery_review import sync_delivery_jobs

@@ -273,7 +273,7 @@ Sign-out stops at each of these, in this order:
 | **Evidence drift** | A reported classification (small variant, structural variant or CNV) drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
 | **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data: a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample no relatedness check covers (such as a NIPT parent). For a NIPT family, also a failed NIPT quality check: no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA given as the maternal plasma. | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Import what failed again, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
-| **Package folder changed** | The package folder the family was imported from changed, or is gone, since its import, so the read files, signal tracks and QC report shown from it may not be those imported. The pages carry *Package folder changed after import* (below). | Import or refuse the folder's new delivery, or acknowledge with a reason (*Package folder changed after import — acknowledgement required*). |
+| **Package folder changed** | The package folder the family was imported from changed, or is gone, since its import, so the read files, signal tracks and QC report shown from it may not be those imported. The sign-out also checks the folder itself, so a change found only then counts too. The pages carry *Package folder changed after import* (below). | Import the folder's new delivery with overwrite, or refuse it, or acknowledge with a reason (*Package folder changed after import — acknowledgement required*). A gone folder confirmed as archived needs no reason. |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail.
 So "signed out over a known problem, and why" is part of the permanent record.
@@ -315,13 +315,21 @@ with **Retry**, and none of the family's data (a report: *Report could not be lo
 ### Package folder changed after import
 
 CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder its import
-read, and keeps watching that folder after the import. When a file in it is added, removed or changed
-in size or time, every family page shows *Package folder changed after import*, naming the files; when
-the folder is gone or cannot be read, *Package folder gone*: the source files are no longer available.
-The warning prints with the report. It ends only when the folder is as it was imported again, or when
-the folder's new delivery is imported (update or overwrite) or refused with a reason under
-*Deliveries*. Signing out meanwhile asks for a reason, which the signed version keeps with what had
-changed.
+read, and keeps watching that folder after the import, against the import that read the family's data
+whole (as a new family or with overwrite). When a file in it is added, removed or changed in size or
+time, every family page shows *Package folder changed after import*, naming the files; when the folder
+is gone or cannot be read, *Package folder gone*: the source files are no longer available. The warning
+prints with the report. It ends only when the folder is as it was imported again, or when the folder's
+new delivery is imported with overwrite or refused with a reason under *Deliveries*. An import with
+update keeps it: an update skips the datasets the family holds, so the changed files are not the ones
+imported. Signing out meanwhile asks for a reason, which the signed version keeps with what had
+changed; the sign-out also checks the folder itself, so a change made just before it counts too.
+
+When a superuser confirms a gone folder as archived on purpose (*Confirm archived…* under
+*Deliveries*, with a reason), every family page says *Source files archived* instead: the read files,
+signal tracks and QC report are no longer available. Signing out then needs no reason, and the signed
+version says the source files were archived, by whom, when and why. A folder that comes back changed is
+a change again.
 
 ### Import incomplete
 

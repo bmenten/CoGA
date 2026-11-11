@@ -857,6 +857,7 @@ async def test_a_package_imports_status_refresh_is_checked_for_a_pedigree_change
         family_uuid="fam-uuid",
         family_identifier=FAMILY,
         user=_admin(),
+        import_mode="update",
     )
 
     [change, commit] = calls

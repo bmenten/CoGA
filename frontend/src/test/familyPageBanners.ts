@@ -78,6 +78,8 @@ export const PACKAGE_SOURCE_CHANGE = {
   removed_count: 0,
   changed_count: 0,
   detected_at: '2026-11-11T10:00:00+00:00',
+  found_at_sign_out: false,
+  archived: null,
 };
 
 /** The *Package folder changed after import* banner of a family with {@link PACKAGE_SOURCE_CHANGE}. */

@@ -311,7 +311,10 @@ def test_a_family_linked_to_b_without_a_copy_gets_its_variants_at_its_next_impor
 def test_a_failed_import_into_b_is_put_back_with_bs_copy(run) -> None:
     failed = run["failed_into_b"]
     assert failed["completed"] is False and failed["error"], failed
-    assert "Import failed; atomically restored the family's data to its pre-import state." in failed["logs"]
+    assert (
+        "Import failed; atomically restored the family's data, and its package record, to their pre-import state."
+        in failed["logs"]
+    )
     # The link stays (the restore puts back the rows, not the links), and so does the copy
     # made before the snapshot: B holds every row.
     assert run["projects_after_failed_into_b"] == sorted([run["project_a"], run["project_b"]])

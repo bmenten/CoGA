@@ -3489,6 +3489,23 @@ describe('FamilyReportPage', () => {
       removed_count: 0,
       changed_count: 1,
       detected_at: '2026-11-11T10:00:00+00:00',
+      found_at_sign_out: false,
+      archived: null,
+    };
+    const ARCHIVED = {
+      ...CHANGE,
+      kind: 'gone',
+      fingerprint: null,
+      listed: false,
+      changed: [],
+      added_count: null,
+      removed_count: null,
+      changed_count: null,
+      archived: {
+        archived_at: '2026-11-11T11:00:00+00:00',
+        archived_by: 'superuser',
+        reason: 'The run folder was archived to tape.',
+      },
     };
     const SOURCE_FINGERPRINT = 'd'.repeat(64);
     const SOURCE_409 = {
@@ -3498,7 +3515,7 @@ describe('FamilyReportPage', () => {
           detail: {
             gate: 'package_source_change',
             message:
-              "The package folder this family's data was imported from (F1) has changed since its import: 1 changed in size or time. CoGA serves the family's read files (IGV), signal tracks and QC report from that folder, so they may no longer be the ones imported and analysed. Import the folder's new delivery (update or overwrite), or refuse it with a reason, or acknowledge with a reason to sign out anyway.",
+              "The package folder this family's data was imported from (F1) has changed since its import: 1 changed in size or time. CoGA serves the family's read files (IGV), signal tracks and QC report from that folder, so they may no longer be the ones imported and analysed. Import the folder's new delivery with overwrite (an update skips the datasets the family holds, so this warning stays), or refuse it with a reason, or acknowledge with a reason to sign out anyway.",
             package_source_change: CHANGE,
             concerns_fingerprint: SOURCE_FINGERPRINT,
             concerns_changed: false,
@@ -3508,7 +3525,7 @@ describe('FamilyReportPage', () => {
     };
     const REASON = 'The CRAM was re-aligned from the same reads; no reported variant rests on it.';
 
-    function mockChangedFamily() {
+    function mockChangedFamily(change: Record<string, unknown> = CHANGE) {
       mockUnsignedFamily();
       const base = apiMock.get.getMockImplementation()!;
       apiMock.get.mockImplementation((url: string, config?: unknown) =>
@@ -3520,7 +3537,7 @@ describe('FamilyReportPage', () => {
                 projects: [],
                 can_sign_out: true,
                 metadata: {},
-                package_source_change: CHANGE,
+                package_source_change: change,
               },
             })
           : base(url, config),
@@ -3588,6 +3605,51 @@ describe('FamilyReportPage', () => {
       );
       expect(checks).toHaveTextContent('Changed in size or time: alignments/PROBAND.cram');
       expect(checks).toHaveTextContent(REASON);
+    });
+
+    it('says on the report that an archived folder’s source files are no longer available, without a warning', async () => {
+      mockChangedFamily(ARCHIVED);
+      renderPage();
+
+      const notice = (await screen.findByText(/Source files archived\./)).closest('[role="status"]');
+      expect(notice).toHaveTextContent('was confirmed as archived by superuser on 2026-11-11 11:00 UTC.');
+      expect(notice).toHaveTextContent('Reason: The run folder was archived to tape.');
+      expect(screen.queryByText(/Package folder changed after import\./)).toBeNull();
+    });
+
+    it('renders an archived folder in the signed version, with no acknowledgement needed', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          package_source_change: ARCHIVED,
+          acknowledged_package_source_change: false,
+          package_source_change_acknowledgement_reason: null,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        'The package folder the family’s data came from (F1) was gone since its import, and had been confirmed as archived by superuser on 2026-11-11 11:00 UTC. The family’s source files (the read files IGV shows, the signal tracks and the QC report) were archived and no longer available; no acknowledgement was needed.',
+      );
+      expect(checks).toHaveTextContent('Reason: The run folder was archived to tape.');
+    });
+
+    it('says in the signed version when the sign-out’s own check found the change', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          package_source_change: { ...CHANGE, detected_at: null, found_at_sign_out: true },
+          acknowledged_package_source_change: true,
+          package_source_change_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent('Found by the sign-out’s own check of the folder.');
     });
   });
 
