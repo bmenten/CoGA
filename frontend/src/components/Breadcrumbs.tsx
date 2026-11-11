@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { ApiClinicalCnv, GenePanel } from '../lib/apiTypes';
+import type { ApiClinicalCnv, ApiProjectRecord, GenePanel } from '../lib/apiTypes';
+import { useProjectCatalog } from '../lib/reference';
 
 /** Words a route spells in lower case that read as acronyms or brand names. */
 const ROUTE_WORDS: Record<string, string> = {
@@ -37,6 +38,32 @@ const idLabel = (segment: string): string => {
 };
 
 /**
+ * The project a family workspace works in, as `useFamilyReference` chooses it: the
+ * `project_id` its link carries when the family is linked to that project, otherwise the
+ * family's first linked project in the catalog. Undefined for a family the catalog does not
+ * list under a project.
+ */
+const familyProject = (
+  projects: ApiProjectRecord[],
+  familyId: string,
+  preferredProjectId: string | null,
+): ApiProjectRecord | undefined => {
+  const linked = projects.filter((project) =>
+    project.families.some((family) => family.family_id === familyId),
+  );
+  const preferred = linked.find((project) => project.id === preferredProjectId);
+  if (preferred) {
+    return preferred;
+  }
+  const familyProjectIds =
+    linked[0]?.families.find((family) => family.family_id === familyId)?.projects ?? [];
+  const firstLinkedId = familyProjectIds.find((projectId) =>
+    linked.some((project) => project.id === projectId),
+  );
+  return linked.find((project) => project.id === firstLinkedId) ?? linked[0];
+};
+
+/**
  * Renders a breadcrumb trail based on the current route.
  * Always begins with a link back to the dashboard and
  * skips rendering on auth pages.
@@ -66,6 +93,19 @@ const Breadcrumbs: React.FC = () => {
       throw new Error('disabled');
     },
   });
+
+  // On a family workspace, the project it works in stands between "Families" and the family.
+  // The catalog is the one the dashboard and the workspace's own reference read.
+  const workspaceFamilyId = segments[0] === 'families' && segments[1] ? idLabel(segments[1]) : null;
+  const { data: projectCatalog } = useProjectCatalog(workspaceFamilyId !== null);
+  const workspaceProject =
+    workspaceFamilyId && projectCatalog
+      ? familyProject(
+          projectCatalog,
+          workspaceFamilyId,
+          new URLSearchParams(search).get('project_id'),
+        )
+      : undefined;
 
   if (segments.length === 0 || ['login', 'signup'].includes(segments[0])) {
     return null;
@@ -155,6 +195,22 @@ const Breadcrumbs: React.FC = () => {
         )}
       </React.Fragment>
     );
+
+    // The project leads to the dashboard with that project's families shown.
+    if (path === '/families' && workspaceProject) {
+      crumbs.push(
+        <React.Fragment key="/families?project">
+          <span className="mx-2 breadcrumb-separator">/</span>
+          <Link
+            to={`/dashboard?${new URLSearchParams({ project_id: workspaceProject.id })}`}
+            className="subtle-link breadcrumb-link"
+            {...(comingFromIgv ? { reloadDocument: true } : {})}
+          >
+            {workspaceProject.name}
+          </Link>
+        </React.Fragment>,
+      );
+    }
   });
 
   return (

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import api from '../lib/api';
@@ -23,6 +23,11 @@ interface ProjectCatalogWorkspaceProps {
   onSelectFamily?: (familyId: string) => void;
   /** Highlights the currently selected family when in selection mode. */
   selectedFamilyId?: string | null;
+  /**
+   * A project shown open, its families in view, when the catalog first shows: the one a
+   * family workspace's breadcrumb leads back to.
+   */
+  openProjectId?: string;
 }
 
 const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
@@ -31,6 +36,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
   onSearchTermChange,
   onSelectFamily,
   selectedFamilyId,
+  openProjectId,
 }) => {
   const {
     data = [],
@@ -52,7 +58,17 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
   });
 
   const [localSearch, setLocalSearch] = useState('');
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
+    openProjectId ? { [openProjectId]: true } : {},
+  );
+  // Brought into view once, when its families first show; not again as the user works.
+  const openProjectShown = useRef(false);
+  const showOpenProject = useCallback((row: HTMLTableRowElement | null) => {
+    if (row && !openProjectShown.current) {
+      openProjectShown.current = true;
+      row.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, []);
   const [sampleTooltip, setSampleTooltip] = useState<{ ids: string[]; x: number; y: number } | null>(
     null,
   );
@@ -335,7 +351,10 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
                       <td className="family-catalog-reference-cell">{referenceLabel}</td>
                     </tr>
                     {projectExpanded && (
-                      <tr className="family-catalog-detail-row">
+                      <tr
+                        className="family-catalog-detail-row"
+                        ref={project.id === openProjectId ? showOpenProject : undefined}
+                      >
                         <td colSpan={2}>
                           {project.visibleFamilies.length === 0 ? (
                             <p className="table-empty">No families</p>
