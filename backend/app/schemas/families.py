@@ -86,14 +86,26 @@ class FamilyStatusRef(BaseModel):
     color: str
 
 
+class PackageSourceArchivedOut(BaseModel):
+    """A gone package folder a superuser confirmed as deliberately gone (archived): when, by whom
+    and why (package_changed_after_import.archive_gone_delivery)."""
+
+    archived_at: str
+    archived_by: str
+    reason: str
+
+
 class PackageSourceChangeOut(BaseModel):
-    """What changed of an imported delivery's package folder after its import
-    (package_changed_after_import.py): ``changed``, its fingerprint now (None for a folder too large
-    to fingerprint) and the paths added, removed and changed (in size or modification time), each
-    list to 50 paths with its count (None, with ``listed`` false, when the folder holds more
+    """What changed of the package folder CoGA serves a family's source files from, against the
+    delivery the family's data was last imported from whole, as a new family or with overwrite
+    (package_changed_after_import.py): ``changed``, its fingerprint now (None for a folder too
+    large to fingerprint) and the paths added, removed and changed (in size or modification time),
+    each list to 50 paths with its count (None, with ``listed`` false, when the folder holds more
     entries than a listing keeps); or ``gone``, its folder gone or unreadable, so the source files
-    (read files, signal tracks, QC report) are no longer available. ``detected_at`` is when the
-    watcher found it."""
+    (read files, signal tracks, QC report) are no longer available. ``archived``: a gone folder a
+    superuser confirmed as deliberately gone, which no longer gates a sign-out. ``detected_at`` is
+    when the watcher found it; ``found_at_sign_out``: found by a sign-out's own check of the
+    folder, before the watcher (``detected_at`` is then None)."""
 
     kind: Literal["changed", "gone"]
     fingerprint: Optional[str] = None
@@ -105,13 +117,17 @@ class PackageSourceChangeOut(BaseModel):
     removed_count: Optional[int] = None
     changed_count: Optional[int] = None
     detected_at: Optional[str] = None
+    found_at_sign_out: bool = False
+    archived: Optional[PackageSourceArchivedOut] = None
 
 
 class FamilyPackageSourceChangeOut(PackageSourceChangeOut):
-    """The change after its import of the package folder a family's data came from: the delivery
-    its record names (its id and folder's name, and the fingerprint it was imported with), which
-    is ``changed_after_import``. The change ends only when the folder is as imported again, or its
-    new delivery is imported or refused."""
+    """The change of the package folder a family's source files are served from, against the
+    delivery its data was last imported from whole (its id, its folder's name, and the fingerprint
+    it was imported with), which is ``changed_after_import`` or, for a gone folder confirmed as
+    deliberately gone, ``archived``. The change ends when the folder is as so imported again, when
+    a delivery of the family is imported with overwrite, or when the folder's new delivery is
+    refused with a reason; an update import keeps it."""
 
     delivery_id: str
     folder: str
@@ -139,9 +155,11 @@ class FamilyOut(ApiDocumentModel):
     # Whether the caller may sign the family's analysis out: they may change the family, and
     # their role is supervisor or higher (TF-06 H15).
     can_sign_out: bool = False
-    # The package folder the family's data came from changed, or went, after its import: the family
-    # page says so, and a sign-out warns of it (package_changed_after_import.py). None: as imported,
-    # or the family was not imported from a delivery.
+    # The package folder the family's source files are served from is no longer as its data was
+    # imported whole (as a new family or with overwrite), or is gone: the family page says so, and a
+    # sign-out warns of it; or that gone folder was confirmed as archived (``archived``), which the
+    # page says and a sign-out records (package_changed_after_import.py). None: as imported, or the
+    # family was not imported from a delivery.
     package_source_change: Optional[FamilyPackageSourceChangeOut] = None
 
 

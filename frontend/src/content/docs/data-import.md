@@ -413,7 +413,12 @@ with the delivery.
   listed as *Changed after import*, with the files that changed, and every page of the family shows
   *Package folder changed after import* (or *Package folder gone*); signing out its report asks for a
   reason. It ends when the folder is as it was imported again, or when its new delivery is imported
-  (update or overwrite) or refused with a reason: a refused folder state is not raised again.
+  with overwrite or refused with a reason: a refused folder state is not raised again. Importing it
+  with update keeps the notice, as the approval says: an update skips the datasets the family holds.
+- **Confirm archived…** (a superuser's) on a delivery whose folder is gone since its import, with a
+  reason: the folder was archived on purpose. Signing out then needs no reason, and every page of the
+  family says *Source files archived*: the read files, signal tracks and QC report are no longer
+  available. A folder that comes back changed is a change again.
 - A delivery whose folder is moved out of the watched folder leaves the list after two looks at the
   folders (it is *gone*). A watched folder that holds nothing at all is taken for a share that is not
   mounted: its deliveries stay listed until something is back in it.

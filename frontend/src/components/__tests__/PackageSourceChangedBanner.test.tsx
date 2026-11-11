@@ -20,6 +20,8 @@ const CHANGED = {
   removed_count: 1,
   changed_count: 1,
   detected_at: '2026-11-11T10:00:00+00:00',
+  found_at_sign_out: false,
+  archived: null,
 };
 
 describe('PackageSourceChangedBanner', () => {
@@ -36,7 +38,9 @@ describe('PackageSourceChangedBanner', () => {
       'Package folder changed after import. The package folder this family was imported from (FAM1) has changed: 3 files added, 1 removed and 1 changed in size or time since its import.',
     );
     expect(banner).toHaveTextContent('read files (IGV), signal tracks and QC report');
-    expect(banner).toHaveTextContent('Import the folder’s new delivery (update or overwrite), or refuse it with a reason');
+    expect(banner).toHaveTextContent(
+      'Import the folder’s new delivery with overwrite, or refuse it with a reason, in Deliveries: an update skips the datasets the family holds, so this notice stays.',
+    );
     expect(banner).toHaveTextContent('Added: qc/report.html, qc/extra.txt, and 1 more');
     expect(banner).toHaveTextContent('Removed: coverage/PROBAND.bw');
     expect(banner).toHaveTextContent('Changed in size or time: alignments/PROBAND.cram');
@@ -56,6 +60,38 @@ describe('PackageSourceChangedBanner', () => {
       'the source files CoGA showed from it (the read files in IGV, the signal tracks and the QC report) are no longer available',
     );
     expect(banner).not.toHaveTextContent('Added:');
+    expect(banner).toHaveTextContent('if it was archived on purpose, have a superuser confirm it as archived in Deliveries');
+  });
+
+  it('says a gone folder confirmed as archived holds source files no longer available, without a warning', () => {
+    render(
+      <PackageSourceChangedBanner
+        change={{
+          ...CHANGED,
+          kind: 'gone',
+          listed: false,
+          added: [],
+          removed: [],
+          changed: [],
+          archived: {
+            archived_at: '2026-11-11T11:00:00+00:00',
+            archived_by: 'superuser',
+            reason: 'Archived to tape after the report.',
+          },
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    const notice = screen.getByRole('status');
+    expect(notice).toHaveTextContent('Source files archived.');
+    expect(notice).toHaveTextContent(
+      'was confirmed as archived by superuser on 2026-11-11 11:00 UTC. Reason: Archived to tape after the report.',
+    );
+    expect(notice).toHaveTextContent(
+      'source files (the read files in IGV, the signal tracks and the QC report) are archived and no longer available',
+    );
+    expect(notice).not.toHaveTextContent('signing out asks for a reason');
   });
 
   it('says a folder of more files than CoGA lists changed without naming them', () => {

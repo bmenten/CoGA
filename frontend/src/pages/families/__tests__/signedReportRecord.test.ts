@@ -790,6 +790,8 @@ describe('parseSignedReport', () => {
       removedCount: 0,
       changedCount: 1,
       detectedAt: '2026-11-11T10:00:00+00:00',
+      foundAtSignOut: false,
+      archived: null,
     });
     expect(record.packageSourceAcknowledgement).toEqual({
       acknowledged: true,
@@ -800,6 +802,28 @@ describe('parseSignedReport', () => {
     // Recorded as none (as imported), and not in a record at all, read apart.
     expect(parseSignedReport({ ...SNAPSHOT, package_source_change: null })!.packageSourceChange).toBeNull();
     expect(parseSignedReport(SNAPSHOT)!.packageSourceChange).toBe('absent');
+  });
+
+  it('reads a gone folder confirmed as archived, and a change the sign-out found itself', () => {
+    const archived = parseSignedReport({
+      ...SNAPSHOT,
+      package_source_change: {
+        kind: 'gone',
+        listed: false,
+        archived: { archived_at: '2026-11-11T11:00:00+00:00', archived_by: 'superuser', reason: 'Archived to tape.' },
+      },
+      acknowledged_package_source_change: false,
+    })!;
+    expect(archived.packageSourceChange).toMatchObject({
+      kind: 'gone',
+      archived: { archivedAt: '2026-11-11T11:00:00+00:00', archivedBy: 'superuser', reason: 'Archived to tape.' },
+    });
+    // Only a gone folder is archived.
+    const changed = parseSignedReport({
+      ...SNAPSHOT,
+      package_source_change: { kind: 'changed', found_at_sign_out: true, archived: { reason: 'no' } },
+    })!;
+    expect(changed.packageSourceChange).toMatchObject({ kind: 'changed', foundAtSignOut: true, archived: null });
   });
 
   it('reads an import that had not finished when the version was signed', () => {

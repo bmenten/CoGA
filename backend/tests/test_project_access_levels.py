@@ -467,6 +467,7 @@ SUPERUSER_CHANGE_ROUTES = {
     ("DELETE", "/api/panels/{panel_id}"),
     ("POST", "/api/family-imports/deliveries"),
     ("POST", "/api/family-imports/deliveries/{delivery_id}/approve"),
+    ("POST", "/api/family-imports/deliveries/{delivery_id}/archive"),
     ("POST", "/api/family-imports/deliveries/{delivery_id}/refuse"),
     ("POST", "/api/family-imports/deliveries/{delivery_id}/revisions"),
 }

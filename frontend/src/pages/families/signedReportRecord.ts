@@ -731,10 +731,14 @@ export interface SignedPackageIntake {
 }
 
 /**
- * The change after its import of the package folder the family's data came from, as the record
- * froze it (`report_signout_service._package_source_change_state`, owner decision of 2026-11-11):
+ * The change of the package folder the family's source files were served from, against the
+ * delivery its data was last imported from whole, as the record froze it
+ * (`report_signout_service._package_source_change_state`, owner decisions of 2026-11-11):
  * `changed`, with the paths added, removed and changed (each list as recorded, at most 50, with
- * its count; none named when `listed` is false), or `gone`, the source files no longer available.
+ * its count; none named when `listed` is false), or `gone`, the source files no longer available;
+ * `archived` when a superuser had confirmed that gone folder as deliberately gone (when, by whom,
+ * why), which needed no acknowledgement; `foundAtSignOut` when the sign-out's own check of the
+ * folder found it, before the import watcher.
  */
 export interface SignedPackageSourceChange {
   deliveryId: string | null;
@@ -750,6 +754,8 @@ export interface SignedPackageSourceChange {
   removedCount: number | null;
   changedCount: number | null;
   detectedAt: string | null;
+  foundAtSignOut: boolean;
+  archived: { archivedAt: string | null; archivedBy: string | null; reason: string | null } | null;
 }
 
 /** The change as the banner and the dialog word it (`PackageSourceChangedBanner`). */
@@ -763,6 +769,14 @@ export const packageSourceChangeWords = (change: SignedPackageSourceChange): Pac
   added_count: change.addedCount,
   removed_count: change.removedCount,
   changed_count: change.changedCount,
+  found_at_sign_out: change.foundAtSignOut,
+  archived: change.archived
+    ? {
+        archived_at: change.archived.archivedAt ?? '',
+        archived_by: change.archived.archivedBy ?? '',
+        reason: change.archived.reason ?? '',
+      }
+    : null,
 });
 
 /** A parental homolog as the PGT analysis names it: its side and its label ('0', '1'). */
@@ -2104,6 +2118,15 @@ export const parsePackageSourceChange = (value: unknown): SignedPackageSourceCha
     removedCount: countOrNull(value.removed_count),
     changedCount: countOrNull(value.changed_count),
     detectedAt: text(value.detected_at),
+    foundAtSignOut: value.found_at_sign_out === true,
+    archived:
+      value.kind === 'gone' && isObject(value.archived)
+        ? {
+            archivedAt: text(value.archived.archived_at),
+            archivedBy: text(value.archived.archived_by),
+            reason: text(value.archived.reason),
+          }
+        : null,
   };
 };
 

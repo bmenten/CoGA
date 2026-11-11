@@ -254,6 +254,8 @@ describe('ImportDeliveriesPanel', () => {
             removed_count: 0,
             changed_count: 1,
             detected_at: '2026-11-11T10:00:00Z',
+            found_at_sign_out: false,
+            archived: null,
           },
         }),
         delivery('FAMG', {
@@ -270,6 +272,8 @@ describe('ImportDeliveriesPanel', () => {
             removed_count: null,
             changed_count: null,
             detected_at: '2026-11-11T10:00:00Z',
+            found_at_sign_out: false,
+            archived: null,
           },
         }),
       ],
@@ -282,11 +286,120 @@ describe('ImportDeliveriesPanel', () => {
     expect(row('FAMC')).toHaveTextContent(
       'Its folder has changed: 1 file added and 1 changed in size or time since its import'
     );
-    expect(row('FAMC')).toHaveTextContent('Import the folder’s new delivery, or refuse it with a reason.');
+    expect(row('FAMC')).toHaveTextContent(
+      'Import the folder’s new delivery with overwrite, or refuse it with a reason; an update keeps this.'
+    );
     expect(changed.getByText('alignments/PROBAND.cram')).toBeInTheDocument();
-    expect(changed.queryByRole('button', { name: /approve|refuse/i })).not.toBeInTheDocument();
+    expect(changed.queryByRole('button', { name: /approve|refuse|archived/i })).not.toBeInTheDocument();
     expect(row('FAMG')).toHaveTextContent('Its folder is gone, or cannot be read, since its import');
     expect(row('FAMG')).toHaveTextContent('The source files are no longer available');
+    expect(row('FAMG')).toHaveTextContent('confirm it as archived if it was archived on purpose');
+    expect(
+      within(row('FAMG')).getByRole('button', { name: 'Confirm archived…' })
+    ).toBeInTheDocument();
+  });
+
+  it('confirms a gone folder as archived with a reason, and says who archived one and why', async () => {
+    const gone = {
+      kind: 'gone',
+      fingerprint: null,
+      listed: false,
+      added: [],
+      removed: [],
+      changed: [],
+      added_count: null,
+      removed_count: null,
+      changed_count: null,
+      detected_at: '2026-11-11T10:00:00Z',
+      found_at_sign_out: false,
+      archived: null,
+    };
+    vi.mocked(api.get).mockResolvedValue({
+      data: [
+        delivery('FAMG', { state: 'changed_after_import', source_change: gone }),
+        delivery('FAMA', {
+          state: 'archived',
+          source_change: {
+            ...gone,
+            archived: {
+              archived_at: '2026-11-11T11:00:00Z',
+              archived_by: 'superuser',
+              reason: 'Archived to tape.',
+            },
+          },
+        }),
+      ],
+    });
+    renderPanel();
+
+    fireEvent.click(
+      (await loadedRow('FAMG')).getByRole('button', { name: 'Confirm archived…' })
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Confirm FAMG as archived?' });
+    expect(dialog).toHaveTextContent('signing out no longer asks for a reason');
+    expect(dialog).toHaveTextContent('are archived and no longer available');
+    const confirm = within(dialog).getByRole('button', { name: 'Confirm archived' });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText('Reason'), {
+      target: { value: '  Run archived after the report.  ' },
+    });
+    fireEvent.click(confirm);
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/family-imports/deliveries/id-FAMG/archive',
+        { reason: 'Run archived after the report.' }
+      )
+    );
+    expect(
+      await screen.findByText('Confirmed the folder of FAMG as archived.')
+    ).toBeInTheDocument();
+
+    // An archived delivery is decided: shown when asked, with who archived it, when and why.
+    fireEvent.click(screen.getByRole('checkbox', { name: /Show decided/ }));
+    const archived = await loadedRow('FAMA');
+    expect(archived.getByText('Archived')).toBeInTheDocument();
+    expect(row('FAMA')).toHaveTextContent(
+      'confirmed as archived by superuser on 2026-11-11 11:00 UTC. The family’s source files are no longer available.'
+    );
+    expect(row('FAMA')).toHaveTextContent('Reason: Archived to tape.');
+    expect(archived.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('says an update of a changed folder’s new delivery keeps the family’s notice', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: [
+        delivery('FAMX', {
+          state: 'changed_after_import',
+          package_fingerprint: 'e'.repeat(64),
+          source_change: {
+            kind: 'changed',
+            fingerprint: 'f'.repeat(64),
+            listed: true,
+            added: ['notes/added.txt'],
+            removed: [],
+            changed: [],
+            added_count: 1,
+            removed_count: 0,
+            changed_count: 0,
+            detected_at: '2026-11-11T10:00:00Z',
+            found_at_sign_out: false,
+            archived: null,
+          },
+        }),
+        { ...existingFamily, _id: 'id-FAMX-new', folder_name: 'FAMX-new', package_fingerprint: 'f'.repeat(64) },
+      ],
+    });
+    renderPanel();
+    fireEvent.click(
+      (await loadedRow('FAMX-new')).getByRole('button', { name: 'Approve…' })
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Import FAMX-new?' });
+    expect(dialog).toHaveTextContent(
+      "This is the new state of a package folder that changed after its import. Only an overwrite ends the family's notice"
+    );
+    expect(dialog).toHaveTextContent('the notice and the sign-out warning stay');
   });
 
   it('approves a delivery once its warnings are acknowledged', async () => {

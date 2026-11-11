@@ -48,7 +48,8 @@ It refers to exactly one signed version: the one it rests on.
   from has changed since its import, naming the files added, removed or changed; or **Package folder
   gone** when it is gone or cannot be read, so the read files, signal tracks and QC report shown from it
   are no longer available. It shows until the folder is as it was imported again, or its new delivery is
-  imported or refused with a reason.
+  imported with overwrite or refused with a reason; an import with update keeps it. A gone folder a
+  superuser confirmed as archived shows **Source files archived** instead, which needs no reason.
 
 ### Signing out
 
@@ -95,9 +96,11 @@ stops for seven things:
      warning names.
    - After an administrator's unfinished deletion of a sample, deleting the sample again also removes
      what the warning names of it.
-6. **A changed package folder** (*Package folder changed after import*, or *gone*): import or refuse
-   the folder's new delivery, or acknowledge with a reason. The dialog lists the files that changed; the
-   signed version keeps them with your reason.
+6. **A changed package folder** (*Package folder changed after import*, or *gone*): import the
+   folder's new delivery with overwrite, or refuse it, or acknowledge with a reason. Signing out also
+   checks the folder itself, so a change made just before counts too. The dialog lists the files that
+   changed; the signed version keeps them with your reason. A gone folder confirmed as archived needs
+   no reason: the signed version says the source files were archived.
 7. **Repeat and Paraphase calls without a review** (no tag, note or classification at the locus or
    region): a repeat call reading *Pathogenic*, *Premutation*, *Review* or *Not assessed*, a count *Near
    a boundary*, or a Paraphase call reading *pathogenic*, *carrier* or *review*. Review it, or acknowledge

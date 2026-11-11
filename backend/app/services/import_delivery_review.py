@@ -25,6 +25,10 @@ route's check, as for every overwrite).
   Refusing the new delivery of a folder that changed after its import refuses that change: the
   imported delivery whose change is to the refused fingerprint is ``imported`` again, and the
   watcher never raises that folder state again (``package_changed_after_import.resolve_refused``).
+  Approving it instead ends the change only with overwrite: an update skips the datasets the family
+  holds, so the family's record keeps the delivery its data was imported from whole as the one the
+  folder is compared with, and the change stays raised. A gone folder is confirmed as archived
+  apart (``package_changed_after_import.archive_gone_delivery``).
 - **The job's end.** A queued delivery whose import job has ended is ``imported`` or ``failed``
   (``sync_delivery_jobs``, at the start of each watch round).
 

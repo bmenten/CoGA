@@ -15,12 +15,14 @@ All values here are synthetic.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 
 from backend.app.services import family_package_fingerprint as fingerprints
 from backend.app.services import package_changed_after_import as followed
@@ -395,6 +397,8 @@ async def test_refusing_the_new_delivery_of_a_changed_folder_ends_the_change_wit
     assert ended == 1
     statement, params = session.statements[0]
     assert "source_change ->> 'fingerprint' = :fingerprint" in statement
+    # Matched by the folder the change was found in, which may be another than the reference's.
+    assert "source_change ->> 'folder_path' = :folder" in statement
     assert (params["folder"], params["fingerprint"]) == ("/imports/WGS/FAM1", _B)
     (event,) = recorded
     assert event["family_identifier"] == "system:import-inbox" and event["action"] == "import_delivery_change_resolved"
@@ -448,6 +452,8 @@ def test_a_change_is_read_in_one_shape_with_its_lists_sorted() -> None:
         "removed_count": None,
         "changed_count": None,
         "detected_at": None,
+        "found_at_sign_out": False,
+        "archived": None,
     }
     assert followed.source_change_out(None) is None
 
@@ -612,8 +618,8 @@ async def test_a_change_no_family_names_any_more_ends_naming_the_delivery_import
     recorded: list[dict[str, Any]],
 ) -> None:
     rows = [
-        {"id": "d1", "folder_path": "/imports/WGS/FAM1", "folder_name": "FAM1", "package_fingerprint": _A},
-        {"id": "d3", "folder_path": "/imports/WGS/FAM3", "folder_name": "FAM3", "package_fingerprint": _C},
+        {"id": "d1", "folder_path": "/imports/WGS/FAM1", "folder_name": "FAM1", "package_fingerprint": _A, "family_id": "FAM1"},
+        {"id": "d3", "folder_path": "/imports/WGS/FAM3", "folder_name": "FAM3", "package_fingerprint": _C, "family_id": "FAM3"},
     ]
     session = _Unnamed(rows, {"/imports/WGS/FAM1": ("d2", "FAM1")})
 
@@ -621,10 +627,10 @@ async def test_a_change_no_family_names_any_more_ends_naming_the_delivery_import
 
     assert ended == 2
     assert [(event["after"]["resolution"], event["after"]["imported_delivery_id"]) for event in recorded] == [
-        ("imported", "d2"),
+        ("overwritten", "d2"),
         ("not_named", None),
     ]
-    assert recorded[0]["summary"] == "Delivery FAM1: the change of its folder ended, its new delivery was imported"
+    assert recorded[0]["summary"] == "Delivery FAM1: the change of its folder ended, the family was imported again with overwrite"
 
 
 @pytest.mark.asyncio
@@ -652,7 +658,7 @@ async def test_a_round_counts_what_it_raised_and_ended(tmp_path: Path, monkeypat
     done = await followed.follow_imported_deliveries(lambda: _Rows(rows))  # type: ignore[arg-type,return-value]
 
     assert (done.followed, done.changed, done.gone) == (4, 1, 1)
-    assert done.resolved == {"imported_or_not_named": 2, "refused": 1}
+    assert done.resolved == {"overwritten_or_not_named": 2, "refused": 1}
 
 
 @pytest.mark.asyncio
@@ -673,8 +679,452 @@ async def test_a_family_reads_the_change_of_the_delivery_its_record_names() -> N
 
     change = await followed.family_package_source_change(_Scalar(), "family-uuid")  # type: ignore[arg-type]
 
-    assert calls == [{"family_uuid": "family-uuid", "changed": "changed_after_import"}]
+    assert calls == [{"family_uuid": "family-uuid", "raised": ["changed_after_import", "archived"]}]
     assert change is not None and (change["kind"], change["folder"], change["listed"]) == ("gone", "FAM1", False)
     assert followed._describe({"kind": "gone"}) == "its folder is gone or cannot be read"
     assert followed._describe({"kind": "changed", "listed": False}) == "its folder changed"
     assert followed._json_object("not json") is None
+
+
+# --- the reference: the delivery the family's data was last imported from whole ----------------
+
+
+def test_a_new_family_or_an_overwrite_makes_its_delivery_the_reference_and_an_update_keeps_it() -> None:
+    first = {"id": "d1", "package_fingerprint": _A}
+    second = {"id": "d2", "package_fingerprint": _B}
+
+    assert followed.reference_delivery(import_mode="new_family", delivery=first, previous_reference=None) == first
+    # An update skips the datasets the family holds: the reference stays the one the record had.
+    assert followed.reference_delivery(import_mode="update", delivery=second, previous_reference=first) == first
+    assert followed.reference_delivery(import_mode="overwrite", delivery=second, previous_reference=first) == second
+    # A family's first package import is its reference, whatever its mode.
+    assert followed.reference_delivery(import_mode="update", delivery=second, previous_reference=None) == second
+
+
+class _Registration:
+    """A session for ``_register_package_provenance``: it answers the read of the record's reference
+    with ``previous`` and keeps the metadata the family's update writes."""
+
+    def __init__(self, previous: Any) -> None:
+        self.previous = previous
+        self.written: dict[str, Any] | None = None
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        sql = str(statement)
+        previous = self.previous
+        if "-> 'reference_delivery' FROM families" in sql:
+            return SimpleNamespace(scalar_one_or_none=lambda: previous)
+        if sql.lstrip().startswith("UPDATE families") and params and "metadata" in params:
+            self.written = json.loads(params["metadata"])
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: []))
+
+    async def commit(self) -> None:
+        return None
+
+
+@pytest.mark.parametrize(
+    ("import_mode", "previous", "reference"),
+    [
+        ("new_family", None, "d2"),
+        ("overwrite", {"id": "d1", "package_fingerprint": _A}, "d2"),
+        ("update", {"id": "d1", "package_fingerprint": _A}, "d1"),
+        ("update", None, "d2"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_an_imports_record_keeps_its_mode_and_the_reference_delivery(
+    monkeypatch: pytest.MonkeyPatch, import_mode: str, previous: Any, reference: str
+) -> None:
+    from backend.app.services import family_package_registration as registration
+
+    async def nothing(*_args: Any, **_kwargs: Any) -> Any:
+        return None
+
+    for name in ("lock_family_pedigree", "read_structure_snapshot", "record_structure_change", "_record_package_raw_files"):
+        monkeypatch.setattr(registration, name, nothing)
+    for name, value in (
+        ("_manifest_pgt_metadata", {}),
+        ("_normalize_manifest_samples", {}),
+        ("_sample_provenance", {}),
+        ("_manifest_carrier_types", {}),
+        ("_dataset_provenance", []),
+    ):
+        monkeypatch.setattr(registration, name, lambda *_args, value=value: value)
+    monkeypatch.setattr(registration, "_manifest_member_status_overrides", lambda *_args: {})
+    delivery = {"id": "d2", "package_fingerprint": _B}
+    bundle = SimpleNamespace(
+        manifest=SimpleNamespace(schema_version=1, metadata={}, analysis_type=None, samples={}),
+        ped=SimpleNamespace(members=[], text=""),
+        root=Path("/imports/WGS/FAM1"),
+        manifest_sha256=None,
+        package_fingerprint=None,
+        delivery=delivery,
+    )
+    session = _Registration(previous)
+
+    await registration._register_package_provenance(
+        session,  # type: ignore[arg-type]
+        bundle=bundle,  # type: ignore[arg-type]
+        validation=SimpleNamespace(family_id="FAM1"),  # type: ignore[arg-type]
+        family_uuid="family-uuid",
+        family_identifier="FAM1",
+        user=SimpleNamespace(id="u1", username="superuser"),  # type: ignore[arg-type]
+        import_mode=import_mode,
+    )
+
+    assert session.written is not None
+    record = session.written["package_import"]
+    assert (record["import_mode"], record["delivery"]["id"], record["reference_delivery"]["id"]) == (
+        import_mode,
+        "d2",
+        reference,
+    )
+
+
+# --- an archived folder ---------------------------------------------------------------------------
+
+_ARCHIVED = {"kind": "gone", "fingerprint": None, "archived": {"archived_at": "t", "archived_by": "superuser", "reason": "r"}}
+
+
+def test_an_archived_folder_still_gone_is_kept_and_one_back_as_imported_ends() -> None:
+    kept = decide(state="archived", imported_fingerprint=_A, change=_ARCHIVED, missing_rounds=2, now=FolderNow(gone=True), refused=False)
+    back = decide(state="archived", imported_fingerprint=_A, change=_ARCHIVED, missing_rounds=2, now=_now(_A), refused=False)
+
+    assert (kept.action, kept.missing_rounds) == ("keep", 2)
+    assert (back.action, back.resolution, back.missing_rounds) == ("resolve", "as_imported", 0)
+
+
+def test_an_archived_folder_back_otherwise_is_a_change_again_unless_its_state_was_refused() -> None:
+    again = decide(
+        state="archived",
+        imported_fingerprint=_A,
+        change=_ARCHIVED,
+        missing_rounds=2,
+        now=_now(_B),
+        refused=False,
+        difference=listing_difference({}, {"a": ["file", 1, 1]}),
+    )
+    refused = decide(state="archived", imported_fingerprint=_A, change=_ARCHIVED, missing_rounds=2, now=_now(_B), refused=True)
+
+    assert again.action == "raise" and again.change is not None
+    assert (again.change["kind"], again.change["fingerprint"], again.change["added"]) == ("changed", _B, ["a"])
+    assert (refused.action, refused.resolution) == ("resolve", "refused")
+
+
+class _Archive:
+    """A session for ``archive_gone_delivery``: it answers the locked read with ``row``, keeps every
+    statement and commits, and answers the read of the delivery after it with ``out``."""
+
+    def __init__(self, row: dict[str, Any] | None) -> None:
+        self.row = row
+        self.statements: list[tuple[str, dict[str, Any]]] = []
+        self.commits = 0
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        sql = str(statement)
+        self.statements.append((sql, dict(params or {})))
+        row = self.row
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
+_SUPERUSER = SimpleNamespace(id="00000000-0000-4000-8000-0000000000aa", username="superuser", email="superuser@example.org")
+_DELIVERY = "00000000-0000-4000-8000-0000000000d1"
+
+
+def _gone_row(**fields: Any) -> dict[str, Any]:
+    return {
+        "id": _DELIVERY,
+        "folder_name": "FAM1",
+        "package_fingerprint": _A,
+        "state": "changed_after_import",
+        "source_change": {"kind": "gone", "fingerprint": None, "listed": False, "detected_at": "t0", "folder": "FAM1"},
+        "family_id": "FAM1",
+        **fields,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_gone_folder_is_confirmed_as_archived_with_who_when_and_why(
+    monkeypatch: pytest.MonkeyPatch, recorded: list[dict[str, Any]]
+) -> None:
+    out = SimpleNamespace(id=_DELIVERY, state="archived")
+
+    async def delivery(_session: Any, delivery_id: str) -> Any:
+        assert delivery_id == _DELIVERY
+        return out
+
+    monkeypatch.setattr(followed, "get_import_delivery", delivery)
+    session = _Archive(_gone_row())
+
+    archived = await followed.archive_gone_delivery(
+        session, delivery_id=_DELIVERY.upper(), user=_SUPERUSER, reason="The run was archived to tape."  # type: ignore[arg-type]
+    )
+
+    assert archived is out and session.commits == 1
+    update = next(params for sql, params in session.statements if "SET state = :archived" in sql)
+    assert update["archived"] == "archived" and update["id"] == _DELIVERY
+    kept = json.loads(update["change"])
+    assert kept["kind"] == "gone" and kept["detected_at"] == "t0"
+    assert (kept["archived"]["archived_by"], kept["archived"]["reason"]) == ("superuser", "The run was archived to tape.")
+    assert kept["archived"]["archived_at"]
+    (event,) = recorded
+    assert (event["family_identifier"], event["action"], event["actor"], event["actor_id"]) == (
+        "system:import-inbox",
+        "import_delivery_archived",
+        "superuser",
+        _SUPERUSER.id,
+    )
+    assert event["after"]["reason"] == "The run was archived to tape."
+    assert (event["after"]["state"], event["after"]["previous_state"]) == ("archived", "changed_after_import")
+    assert event["metadata"] == {"delivery_id": _DELIVERY}
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        _gone_row(state="imported", source_change=None),
+        _gone_row(source_change={"kind": "changed", "fingerprint": _B}),
+        _gone_row(state="archived", source_change=_ARCHIVED),
+        _gone_row(state="needs_attention", source_change=None),
+    ],
+    ids=["imported", "changed-not-gone", "archived-already", "open"],
+)
+@pytest.mark.asyncio
+async def test_only_a_delivery_changed_after_import_with_its_folder_gone_can_be_archived(
+    row: dict[str, Any], recorded: list[dict[str, Any]]
+) -> None:
+    session = _Archive(row)
+
+    with pytest.raises(HTTPException) as refused:
+        await followed.archive_gone_delivery(session, delivery_id=_DELIVERY, user=_SUPERUSER, reason="r")  # type: ignore[arg-type]
+
+    assert refused.value.status_code == 409
+    assert not any("SET state" in sql for sql, _params in session.statements)
+    assert recorded == [] and session.commits == 0
+
+
+@pytest.mark.parametrize("delivery_id", [_DELIVERY, "not-a-uuid"])
+@pytest.mark.asyncio
+async def test_archiving_no_such_delivery_is_not_found(delivery_id: str) -> None:
+    session = _Archive(None)
+
+    with pytest.raises(HTTPException) as missing:
+        await followed.archive_gone_delivery(session, delivery_id=delivery_id, user=_SUPERUSER, reason="r")  # type: ignore[arg-type]
+
+    assert missing.value.status_code == 404
+
+
+def test_the_archive_route_is_a_superusers_with_a_reason_of_at_most_2000_characters() -> None:
+    from backend.app import dependencies
+    from backend.app.schemas import ImportDeliveryArchive
+    from backend.tests._app_routes import dependency_calls, route_operations
+
+    route = route_operations()[("POST", "/api/family-imports/deliveries/{delivery_id}/archive")]
+    assert dependencies.get_current_superuser in dependency_calls(route.dependant)
+    ImportDeliveryArchive(reason="x" * 2000)
+    for reason in ("", "x" * 2001):
+        with pytest.raises(ValueError):
+            ImportDeliveryArchive(reason=reason)
+
+
+def test_an_archived_change_is_read_with_its_archiving_and_does_not_gate_a_sign_out() -> None:
+    out = followed.source_change_out({**_ARCHIVED, "delivery_id": "d1", "folder": "FAM1"})
+    raised = followed.source_change_out({"kind": "gone", "delivery_id": "d1"})
+
+    assert out is not None and out["archived"] == {"archived_at": "t", "archived_by": "superuser", "reason": "r"}
+    assert followed.gates_a_sign_out(out) is False
+    assert raised is not None and raised["archived"] is None and followed.gates_a_sign_out(raised) is True
+    assert followed.gates_a_sign_out(None) is False
+
+
+# --- a sign-out's own check of the folder ---------------------------------------------------------
+
+
+class _Record:
+    """A session for ``check_family_package_folder``: it answers the read of the family's record."""
+
+    def __init__(self, row: dict[str, Any] | None) -> None:
+        self.row = row
+
+    async def execute(self, _statement: Any, _params: Any = None) -> Any:
+        row = self.row
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
+
+
+def _record(folder: Path | str | None, fingerprint: str, listing: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "reference": {"id": "d1", "package_fingerprint": fingerprint},
+        "folder_path": str(folder) if folder is not None else None,
+        "file_listing": listing,
+    }
+
+
+@pytest.fixture
+def served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A family's package folder below the import root CoGA serves files from."""
+    from backend.app.core.config import settings
+
+    root = tmp_path / "imports"
+    folder = root / "WGS" / "FAM1"
+    folder.mkdir(parents=True)
+    monkeypatch.setattr(settings, "family_import_roots", [str(root)])
+    return folder
+
+
+@pytest.mark.asyncio
+async def test_a_sign_out_finds_a_folder_as_imported_and_a_family_without_a_delivery_has_nothing(served: Path) -> None:
+    (served / "a.txt").write_text("a", encoding="utf-8")
+    imported = fingerprints.package_fingerprint(served, kept_manifest_sha256=None).sha256
+
+    assert await followed.check_family_package_folder(_Record(_record(served, imported)), "family-uuid") is None  # type: ignore[arg-type]
+    unimported = {"reference": None, "folder_path": str(served), "file_listing": None}
+    assert await followed.check_family_package_folder(_Record(unimported), "family-uuid") is None  # type: ignore[arg-type]
+    assert await followed.check_family_package_folder(_Record(None), "family-uuid") is None  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_a_sign_out_finds_a_folder_changed_since_its_reference_with_what_changed(served: Path) -> None:
+    (served / "a.txt").write_text("a", encoding="utf-8")
+    kept = fingerprints.package_listing(served)
+    (served / "b.txt").write_text("b", encoding="utf-8")
+
+    change = await followed.check_family_package_folder(
+        _Record(_record(served, kept.fingerprint.sha256, kept.entries)), "family-uuid"  # type: ignore[arg-type]
+    )
+
+    assert change is not None
+    assert (change["kind"], change["found_at_sign_out"], change["detected_at"]) == ("changed", True, None)
+    assert (change["delivery_id"], change["folder"], change["imported_fingerprint"]) == (
+        "d1",
+        served.name,
+        kept.fingerprint.sha256,
+    )
+    assert change["fingerprint"] == fingerprints.package_fingerprint(served, kept_manifest_sha256=None).sha256
+    assert (change["listed"], change["added"], change["changed"]) == (True, ["b.txt"], [])
+    assert followed.gates_a_sign_out(change) is True
+
+
+@pytest.mark.asyncio
+async def test_a_sign_out_never_passes_a_folder_gone_unreadable_slow_unrecorded_or_unserved(
+    served: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gone = await followed.check_family_package_folder(_Record(_record(served / "missing", _A)), "family-uuid")  # type: ignore[arg-type]
+    unrecorded = await followed.check_family_package_folder(_Record(_record(None, _A)), "family-uuid")  # type: ignore[arg-type]
+    # A folder CoGA serves no file from (outside every import root) is not listed.
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    listed: list[str] = []
+
+    def listing(folder: str) -> Any:
+        listed.append(str(folder))
+        return fingerprints.PackageListing(fingerprints.PackageFingerprint(sha256=_A, files=0), {})
+
+    monkeypatch.setattr(followed, "package_listing", listing)
+    unserved = await followed.check_family_package_folder(_Record(_record(outside, _A)), "family-uuid")  # type: ignore[arg-type]
+    assert listed == []
+
+    def fails(_folder: str) -> Any:
+        raise ValueError("embedded null byte")
+
+    monkeypatch.setattr(followed, "package_listing", fails)
+    unreadable = await followed.check_family_package_folder(_Record(_record(served, _A)), "family-uuid")  # type: ignore[arg-type]
+
+    def slow(_folder: str) -> Any:
+        import time
+
+        time.sleep(0.5)
+        return fingerprints.PackageListing(fingerprints.PackageFingerprint(sha256=_A, files=0), {})
+
+    monkeypatch.setattr(followed, "package_listing", slow)
+    monkeypatch.setattr(followed, "SIGN_OUT_FOLDER_CHECK_SECONDS", 0.05)
+    timed_out = await followed.check_family_package_folder(_Record(_record(served, _A)), "family-uuid")  # type: ignore[arg-type]
+
+    for change in (gone, unrecorded, unserved, unreadable, timed_out):
+        assert change is not None and change["kind"] == "gone" and change["found_at_sign_out"] is True
+        assert followed.gates_a_sign_out(change) is True
+
+
+@pytest.mark.asyncio
+async def test_a_sign_out_takes_a_folder_too_large_to_fingerprint_as_changed(
+    served: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def too_large(_folder: str) -> Any:
+        raise fingerprints.PackageFolderTooLarge(1)
+
+    monkeypatch.setattr(followed, "package_listing", too_large)
+
+    change = await followed.check_family_package_folder(_Record(_record(served, _A)), "family-uuid")  # type: ignore[arg-type]
+
+    assert change is not None and (change["kind"], change["fingerprint"], change["listed"]) == ("changed", None, False)
+
+
+def _out(**fields: Any) -> dict[str, Any]:
+    out = followed.source_change_out({"delivery_id": "d1", "folder": "FAM1", **fields})
+    assert out is not None
+    return out
+
+
+def test_a_sign_out_keeps_the_watchers_finding_unless_its_own_check_finds_something_else() -> None:
+    watcher = _out(kind="changed", fingerprint=_B, detected_at="t0")
+    archived = _out(**_ARCHIVED)
+    own_same = _out(kind="changed", fingerprint=_B, found_at_sign_out=True)
+    own_other = _out(kind="changed", fingerprint=_C, found_at_sign_out=True)
+    own_gone = _out(kind="gone", found_at_sign_out=True)
+
+    combine = followed.sign_out_source_change
+    # The watcher's finding alone, or as the own check finds it too.
+    assert combine(watcher, None) == watcher and combine(watcher, own_same) == watcher
+    assert combine(None, None) is None
+    # A change the watcher has not seen yet.
+    assert combine(None, own_other) == own_other and combine(watcher, own_other) == own_other
+    assert combine(watcher, own_gone) == own_gone
+    # An archived folder still gone stays archived; one back otherwise is a change.
+    assert combine(archived, own_gone) == archived and combine(archived, None) == archived
+    assert combine(archived, own_other) == own_other
+    assert followed.gates_a_sign_out(combine(archived, own_gone)) is False
+
+
+# --- an update keeps the change: the reference is followed in the folder the record names now ---
+
+
+@pytest.mark.asyncio
+async def test_the_reference_is_compared_with_the_folder_its_familys_record_names_now(
+    tmp_path: Path, recorded: list[dict[str, Any]]
+) -> None:
+    # The family's last import, an update, read another folder: CoGA serves the source files from
+    # it, so it is compared with the reference's fingerprint, and the change raised on the
+    # reference names the folder it was found in.
+    served = tmp_path / "WGS" / "FAM1-rerun"
+    served.mkdir(parents=True)
+    (served / "a.txt").write_text("changed", encoding="utf-8")
+    session = _Locked(_locked())
+    row = {**_row(tmp_path, served), "folder_name": "FAM1", "followed_name": served.name}
+
+    step = await followed._follow_one(lambda: session, row, followed._folder_now(str(served)))  # type: ignore[arg-type,return-value]
+
+    assert step is not None and step.action == "raise"
+    update = next(params for sql, params in session.statements if "SET state = :changed" in sql)
+    change = json.loads(update["change"])
+    assert (change["folder"], change["folder_path"]) == (served.name, str(served))
+    assert change["changed"] == ["a.txt"]
+    (event,) = recorded
+    assert event["after"]["folder"] == "FAM1" and event["after"]["package_fingerprint"] == _A
+    # The look-up of a refused state is of the folder followed.
+    refused_lookup = next(params for sql, params in session.statements if "state = 'refused'" in sql)
+    assert refused_lookup["folder"] == str(served)
+
+
+def test_the_followed_deliveries_are_the_references_and_a_change_waits_for_the_new_references_import() -> None:
+    import inspect
+
+    follow = inspect.getsource(followed.follow_imported_deliveries)
+    ended = inspect.getsource(followed.end_changes_no_family_names)
+    # Followed: each family's reference, in the folder of the delivery its record names.
+    assert "_REFERENCE_OF_A_FAMILY" in follow and "_NAMED_BY_THE_RECORD" in follow
+    assert "'reference_delivery'" in followed._REFERENCE_OF_A_FAMILY
+    # A change no family's record names as its reference ends, unless the family's new reference
+    # is still being imported (a failed import that puts the family back puts its record back).
+    assert "q.state = 'queued'" in ended

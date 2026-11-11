@@ -400,11 +400,18 @@ async def _register_package_provenance(
     family_uuid: str,
     family_identifier: str,
     user: CurrentUser,
+    import_mode: str,
 ) -> None:
     """Record the package's provenance on the family and refresh its members' affected and
     carrier status from the PED and the manifest. A refresh that changes the pedigree is
     stored as the family's next structure version and recorded on its clinical audit
-    trail as made by ``user``."""
+    trail as made by ``user``.
+
+    ``import_mode`` is the import's: ``new_family`` (it created the family), ``update`` or
+    ``overwrite``. The record keeps it, and, for an import of a delivery, the reference delivery:
+    the one the family's data was last imported from whole (``package_changed_after_import.
+    reference_delivery``), whose fingerprint the folder CoGA serves the family's source files
+    from is compared with after the import."""
     now = datetime.now(timezone.utc).isoformat()
     await lock_family_pedigree(session, family_identifier)
     pedigree_before = await read_structure_snapshot(session, family_uuid)
@@ -431,10 +438,34 @@ async def _register_package_provenance(
         "datasets": _dataset_provenance(validation),
         "registered_at": now,
     }
+    # Imported here: the module follows the import watcher, which imports this one.
+    from .package_changed_after_import import IMPORT_MODE_KEY, REFERENCE_KEY, reference_delivery
+
+    # How the import read the family's data: as a new family, with update (the datasets the family
+    # holds are skipped) or with overwrite.
+    family_metadata["package_import"][IMPORT_MODE_KEY] = import_mode
     if bundle.delivery is not None:
         # The delivery of a watched import folder it came from: its id, the pipeline's run, the
         # package file's SHA-256 and the package fingerprint the delivery was checked with.
         family_metadata["package_import"]["delivery"] = bundle.delivery
+        # The delivery the family's data was last imported from whole: this one for a new family
+        # or an overwrite, the one the record named for an update (the owner's decision of
+        # 2026-11-11). Read under the family's pedigree lock, which every import's registration
+        # takes.
+        previous_reference = (
+            await session.execute(
+                text(
+                    "SELECT metadata -> 'package_import' -> 'reference_delivery' FROM families "
+                    "WHERE id = CAST(:family_uuid AS uuid)"
+                ),
+                {"family_uuid": family_uuid},
+            )
+        ).scalar_one_or_none()
+        if isinstance(previous_reference, str):
+            previous_reference = json.loads(previous_reference)
+        family_metadata["package_import"][REFERENCE_KEY] = reference_delivery(
+            import_mode=import_mode, delivery=bundle.delivery, previous_reference=previous_reference
+        )
     # Promote a declared analysis type (e.g. monogenic_nipt) to the top level so
     # the workspace surfaces the matching analysis section.
     analysis_type = bundle.manifest.analysis_type
@@ -1943,6 +1974,7 @@ async def _ensure_family_from_ped(
         family_uuid=context.family_uuid,
         family_identifier=context.family_id,
         user=user,
+        import_mode="new_family" if created else conflict_mode,
     )
     roi_issue = await _apply_manifest_roi(session, bundle=bundle, context=context)
     if roi_issue is not None and warnings is not None:

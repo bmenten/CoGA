@@ -12,6 +12,7 @@ from ..schemas import (
     ImportDeliveryAdd,
     ImportDeliveryApprove,
     ImportDeliveryApproveOut,
+    ImportDeliveryArchive,
     ImportDeliveryOut,
     ImportDeliveryPackageOut,
     ImportDeliveryRefuse,
@@ -30,6 +31,7 @@ from ..services.import_delivery_revisions import delivery_package, revise_delive
 from ..services.import_manual_delivery import add_manual_delivery
 from ..services.import_watcher import list_import_deliveries
 from ..services.imported_package_folders import folders_changed_during_import, imported_package_folders
+from ..services.package_changed_after_import import archive_gone_delivery
 from ..services.access_control import CurrentUser, is_admin_user
 
 router = APIRouter(prefix="/family-imports", tags=["family_imports"])
@@ -176,6 +178,23 @@ async def refuse_family_package_delivery(
     if not reason or manifest_text_problem(reason) is not None:
         raise HTTPException(status_code=400, detail="Give a reason in plain text to refuse the delivery.")
     return await refuse_delivery(session, delivery_id=delivery_id, user=user, reason=reason)
+
+
+@router.post("/deliveries/{delivery_id}/archive", response_model=ImportDeliveryOut)
+async def archive_family_package_delivery(
+    delivery_id: str,
+    payload: ImportDeliveryArchive,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_superuser),
+) -> ImportDeliveryOut:
+    """Confirm the gone package folder of an imported delivery as deliberately gone (archived), with
+    a reason the audit trail keeps: a sign-out is no longer warned of it, and the family page and a
+    signed record say the source files are archived (package_changed_after_import.py). 409 unless
+    the delivery is changed after import with its folder gone."""
+    reason = payload.reason.strip()
+    if not reason or manifest_text_problem(reason) is not None:
+        raise HTTPException(status_code=400, detail="Give a reason in plain text to confirm the folder as archived.")
+    return await archive_gone_delivery(session, delivery_id=delivery_id, user=user, reason=reason)
 
 
 @router.get("/{job_id}", response_model=FamilyPackageImportJobOut)

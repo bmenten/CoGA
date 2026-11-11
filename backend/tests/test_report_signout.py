@@ -76,8 +76,9 @@ _RECORD_SECTIONS = {
 }
 
 
-# The real reader, kept before the fixture below stands a stub in for it.
+# The real readers, kept before the fixture below stands a stub in for them.
 _REPORT_CODE_TAKEN = rss._report_code_taken
+_REAL_PACKAGE_SOURCE_STATE = rss._package_source_change_state
 
 
 @pytest.fixture(autouse=True)
@@ -2298,6 +2299,96 @@ def test_the_package_folder_change_is_bound_into_the_content_hash_and_compared(m
     assert rss._canonical_hash(_body(_SOURCE_CHANGED)) != rss._canonical_hash(_body(_SOURCE_GONE))
     # The sign-out check compares it as a section of its own.
     assert "package_source_change" in rss.REPORT_CONTENT_SECTIONS
+
+
+_SOURCE_ARCHIVED = {
+    **_SOURCE_GONE,
+    "found_at_sign_out": False,
+    "archived": {
+        "archived_at": "2026-11-11T11:00:00+00:00",
+        "archived_by": "superuser",
+        "reason": "The run folder was archived to tape after the report.",
+    },
+}
+
+
+def test_an_archived_package_folder_does_not_gate_and_is_frozen_without_an_acknowledgement(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_source_change(monkeypatch, _SOURCE_ARCHIVED)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    snapshot = out["snapshot"]
+    # The signed record says the source files were archived, who confirmed it, when and why.
+    assert snapshot["package_source_change"] == _SOURCE_ARCHIVED
+    assert snapshot["acknowledged_package_source_change"] is False
+    assert snapshot["package_source_change_acknowledgement_reason"] is None
+    assert captured["after"]["package_source_change"] == _SOURCE_ARCHIVED
+    assert captured["after"]["package_source_change_concerns_fingerprint"] is None
+    assert ", package source files archived" in captured["summary"]
+    assert "changed package folder acknowledged" not in captured["summary"]
+
+
+def test_a_change_only_the_sign_outs_own_check_found_gates_it_and_says_so(monkeypatch) -> None:
+    found = {**_SOURCE_CHANGED, "detected_at": None, "found_at_sign_out": True, "archived": None}
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_source_change(monkeypatch, found)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    detail = excinfo.value.detail
+    assert detail["gate"] == "package_source_change"
+    assert "This sign-out's own check of the folder found it; the import watcher has not yet." in detail["message"]
+    assert "Import the folder's new delivery with overwrite (an update skips" in detail["message"]
+
+
+def test_the_sign_out_check_compares_a_folder_change_by_what_changed_not_who_found_it() -> None:
+    found_at_sign_out = {**_SOURCE_CHANGED, "detected_at": None, "found_at_sign_out": True}
+    found_by_the_watcher = {**_SOURCE_CHANGED, "found_at_sign_out": False}
+    other = {**found_by_the_watcher, "fingerprint": "c" * 64}
+
+    def same(signed, current):
+        return rss._section_fingerprint(rss._comparable("package_source_change", signed)) == rss._section_fingerprint(
+            rss._comparable("package_source_change", current)
+        )
+
+    assert same(found_at_sign_out, found_by_the_watcher)
+    assert not same(found_by_the_watcher, other)
+    assert not same(found_by_the_watcher, None)
+    # Every other section is compared whole.
+    assert rss._comparable("import_incomplete", {"at": "t"}) == {"at": "t"}
+
+
+def test_the_sign_out_reads_the_watchers_finding_and_checks_the_folder_itself(monkeypatch) -> None:
+    calls: list[str] = []
+    watcher_found = {**_SOURCE_CHANGED, "found_at_sign_out": False, "archived": None}
+    own_found = {**_SOURCE_CHANGED, "fingerprint": "c" * 64, "detected_at": None, "found_at_sign_out": True, "archived": None}
+
+    def _state(watcher, own):
+        async def _watcher(session, family_uuid):
+            calls.append(f"watcher {family_uuid}")
+            return watcher
+
+        async def _own(session, family_uuid):
+            calls.append(f"own {family_uuid}")
+            return own
+
+        monkeypatch.setattr(rss, "family_package_source_change", _watcher)
+        monkeypatch.setattr(rss, "check_family_package_folder", _own)
+        return asyncio.run(_REAL_PACKAGE_SOURCE_STATE(None, "u1"))
+
+    # As imported, and the watcher found nothing: nothing to warn of.
+    assert _state(None, None) is None
+    assert calls == ["watcher u1", "own u1"]
+    # The watcher's finding, which the folder still shows.
+    assert _state(watcher_found, {**watcher_found, "detected_at": None, "found_at_sign_out": True}) == watcher_found
+    # A change the watcher has not seen yet, and a folder gone or unreadable now: each warns.
+    assert _state(None, own_found) == own_found
+    assert _state(watcher_found, own_found) == own_found
+    gone_now = {**_SOURCE_GONE, "detected_at": None, "found_at_sign_out": True, "archived": None}
+    assert _state(None, gone_now) == gone_now
+    # An archived folder the check finds still gone stays archived.
+    assert _state(_SOURCE_ARCHIVED, gone_now) == _SOURCE_ARCHIVED
 
 
 class _ScalarSession:
