@@ -59,8 +59,15 @@ PACKAGE_SCHEMA = "coga-package/1"
 PACKAGE_MAX_BYTES = 20 * 1024 * 1024
 
 PackageStatus = Literal["running", "complete", "failed"]
-# The analyses a package may name.
-AnalysisType = Literal["wgs", "wgs_trio", "pgt_m", "monogenic_nipt", "long_read_wgs", "long_read_couple"]
+# The analyses a package may name: the laboratory's LR-WGS, LR-AS (long-read adaptive sampling),
+# PGT, expanded carrier screening and mNIPT (the owner's list of 2026-11-11).
+AnalysisType = Literal[
+    "long_read_wgs",
+    "long_read_adaptive_sampling",
+    "pgt",
+    "expanded_carrier_screening",
+    "monogenic_nipt",
+]
 # The datasets the import reads (family_package_common.SUPPORTED_DATASETS).
 DatasetName = Literal[
     "snv",

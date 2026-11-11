@@ -130,7 +130,7 @@ async def _collect(base: Path) -> dict[str, Any]:
         out["added"] = capture(
             await ac.post(
                 "/api/family-imports/deliveries",
-                json={"folder_path": str(couple), "project_id": project_id, "analysis_type": "long_read_couple"},
+                json={"folder_path": str(couple), "project_id": project_id, "analysis_type": "expanded_carrier_screening"},
             )
         )
         delivery = out["added"]["json"]
@@ -139,7 +139,7 @@ async def _collect(base: Path) -> dict[str, Any]:
         out["added_ped"] = capture(
             await ac.post(
                 "/api/family-imports/deliveries",
-                json={"folder_path": str(trio), "project_id": project_id, "analysis_type": "wgs_trio"},
+                json={"folder_path": str(trio), "project_id": project_id, "analysis_type": "long_read_wgs"},
             )
         )
     out["after"] = await _counts()

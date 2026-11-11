@@ -304,7 +304,7 @@ def _complete_file(folder: Path, **fields: Any) -> None:
         "pipeline": {"name": "p", "version": "1", "run_id": "RUN1"},
         "project": "WGS",
         "assembly": "GRCh38",
-        "analysis_type": "wgs",
+        "analysis_type": "long_read_wgs",
         "family": {"family_id": folder.name},
         "files": files,
         **fields,
@@ -389,7 +389,7 @@ async def test_a_folder_discover_cannot_draft_for_needs_attention(tmp_path: Path
     folder = _package(tmp_path, "FAM1")
     (folder / PACKAGE_FILE_NAME).write_text(
         '{"schema": "coga-package/1", "status": "complete", "written_at": "2026-11-10T09:00:00Z",'
-        ' "family": {"family_id": "FAM1"}, "analysis_type": "wgs", "assembly": "GRCh38",'
+        ' "family": {"family_id": "FAM1"}, "analysis_type": "long_read_wgs", "assembly": "GRCh38",'
         ' "pipeline": {"name": "p", "version": "1", "run_id": "r"}, "files": []}',
         encoding="utf-8",
     )

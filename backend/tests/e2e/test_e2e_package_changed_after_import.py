@@ -303,7 +303,7 @@ async def _exercise(base: Path, away: Path, run: str) -> dict[str, Any]:
         added = capture(
             await client.post(
                 "/api/family-imports/deliveries",
-                json={"project_id": project_id, "folder_path": str(hand_folder), "analysis_type": "wgs"},
+                json={"project_id": project_id, "folder_path": str(hand_folder), "analysis_type": "long_read_wgs"},
             )
         )
         assert added["status"] == 200, added

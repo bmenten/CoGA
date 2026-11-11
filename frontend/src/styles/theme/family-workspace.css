@@ -475,15 +475,17 @@
   font-weight: 700;
 }
 
-/* Phenotype and carrier status sit side by side, each taking half the cell. */
+/* Affected and carrier status sit side by side, sharing the cell; a carrier's type wraps
+   below them when the cell is too narrow for three. */
 .family-member-status-controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem;
 }
 
 .family-member-status-controls select {
-  flex: 1 1 0;
+  flex: 1 1 5.5rem;
 }
 
 .family-member-status-chips {
@@ -492,17 +494,20 @@
   gap: 0.25rem;
 }
 
-.family-members-editor {
-  margin-top: 0.25rem;
-  padding-top: 0.5625rem;
-  border-top: 1px solid var(--color-border);
+/* Edited, a member taken out on save reads dimmed and struck through, its controls disabled;
+   its Restore button stays as it is. */
+.family-members-row--removed td:not(:last-child) {
+  opacity: 0.55;
 }
 
-.family-member-subsection-title {
-  margin: 0;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--color-text-muted);
+.family-members-row--removed .family-member-name-button {
+  text-decoration: line-through;
+}
+
+/* The row a new member is entered in, set off from the members above it. */
+.family-members-add-row td {
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.5rem;
 }
 
 .family-hpo-controls {

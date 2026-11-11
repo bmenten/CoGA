@@ -103,6 +103,8 @@ page is an administrator's alone.
 - **Family & sample data** — the inventory of families and samples. Open a family's members and data,
   change its projects, download and verify the original import files, or delete a data layer, a sample
   or a family.
+  - A family's members are edited in its **Family members** table, the same as on the family page:
+    **Edit members**, then **Save changes** (see [Family workspace](#family-workspace)).
   - A family's small and structural variants move with its projects: each project it is added to
     gets them, and a project it leaves no longer holds them. A project on another assembly than
     the family's variants is refused. **Save project access** waits while the family is being

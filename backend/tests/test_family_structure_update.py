@@ -264,8 +264,8 @@ async def test_family_structure_update_query_reason_parameter_is_typed(monkeypat
     _patch(monkeypatch, data_counts=DATA, members=FATHER_AND_CHILD)
     session = _RecordingSession()
 
-    await _update(session, remove_members=["FATHER"], change_reason="family_detail_page")
+    await _update(session, remove_members=["FATHER"], change_reason="family_members_edit")
 
     sql, params = session.family_update()
     assert "'reason', CAST(:reason AS text)" in sql
-    assert params["reason"] == "family_detail_page"
+    assert params["reason"] == "family_members_edit"

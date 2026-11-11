@@ -359,10 +359,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                   element={routeElement(<DataManagementPage />)}
                 />
                 <Route
-                  path="/admin/data/families/:familyId/structure"
-                  element={routeElement(<FamilyDetailPage editable />)}
-                />
-                <Route
                   path="/admin/data/family-statuses"
                   element={routeElement(<AdminFamilyStatusesPage />)}
                 />

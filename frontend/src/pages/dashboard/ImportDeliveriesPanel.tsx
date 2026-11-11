@@ -18,6 +18,7 @@ import {
 } from '../../components/PackageSourceChangedBanner';
 import QueryFailure from '../../components/QueryFailure';
 import AddDeliveryForm from './AddDeliveryForm';
+import { analysisTypeLabel } from './analysisTypes';
 import DeliveryCorrectionDialog, {
   PackageFileDialog,
 } from './DeliveryCorrectionDialog';
@@ -703,7 +704,7 @@ const ImportDeliveriesPanel: React.FC = () => {
                         ? `Family ${delivery.family_id}`
                         : 'No family named'}
                       {delivery.analysis_type
-                        ? ` · ${delivery.analysis_type}`
+                        ? ` · ${analysisTypeLabel(delivery.analysis_type)}`
                         : ''}
                       {delivery.request_id
                         ? ` · request ${delivery.request_id}`

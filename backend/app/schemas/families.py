@@ -214,6 +214,9 @@ class FamilyStructureMemberCreate(BaseModel):
 
 class FamilyStructureMemberUpdate(BaseModel):
     sample_id: str = Field(min_length=1)
+    # The member's new sample ID, when the edit renames it. The rest of the structure update
+    # names the member by its stored ID, `sample_id`.
+    new_sample_id: Optional[str] = None
     sex: Optional[Literal["male", "female", "und"]] = None
     role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "relative"]] = None
     clinical_status: Optional[Literal["unknown", "unaffected", "affected"]] = None

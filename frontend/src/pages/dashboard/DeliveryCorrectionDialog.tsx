@@ -14,6 +14,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { formatTimestamp } from '../../lib/format';
 import ModalDialog from '../../components/ModalDialog';
 import QueryFailure from '../../components/QueryFailure';
+import { ANALYSIS_TYPES, analysisTypeLabel } from './analysisTypes';
 
 // The package as CoGA keeps it (docs/coga-package.md): only the parts the form shows.
 interface PackageHpo {
@@ -71,14 +72,7 @@ export interface CorrectionForm {
   enabled: Record<string, boolean>;
 }
 
-const ANALYSIS_TYPES = [
-  'wgs',
-  'wgs_trio',
-  'pgt_m',
-  'monogenic_nipt',
-  'long_read_wgs',
-  'long_read_couple',
-];
+const ANALYSIS_TYPE_VALUES = ANALYSIS_TYPES.map(([value]) => value);
 const INHERITANCE_MODELS = ['AD', 'AR', 'XLD', 'XLR', 'mitochondrial'];
 const ROLES = ['proband', 'father', 'mother', 'sibling', 'embryo', 'relative'];
 const CLINICAL_STATUSES = ['affected', 'unaffected', 'unknown'];
@@ -281,16 +275,17 @@ const History: React.FC<{ revisions: ImportDeliveryRevisionOut[] }> = ({
   </details>
 );
 
-/** A choice among the format's values (shown with spaces for underscores), or among sample IDs
- * (`verbatim`: an ID is shown as it is). */
+/** A choice among the format's values (shown with spaces for underscores, or by `name`), or
+ * among sample IDs (`verbatim`: an ID is shown as it is). */
 const Select: React.FC<{
   label: string;
   value: string;
   options: string[];
   blank?: string;
   verbatim?: boolean;
+  name?: (option: string) => string;
   onChange: (value: string) => void;
-}> = ({ label, value, options, blank, verbatim = false, onChange }) => (
+}> = ({ label, value, options, blank, verbatim = false, name, onChange }) => (
   <select
     aria-label={label}
     value={value}
@@ -299,7 +294,11 @@ const Select: React.FC<{
     {blank !== undefined ? <option value="">{blank}</option> : null}
     {options.map((option) => (
       <option key={option} value={option}>
-        {verbatim ? option : option.replaceAll('_', ' ')}
+        {name
+          ? name(option)
+          : verbatim
+            ? option
+            : option.replaceAll('_', ' ')}
       </option>
     ))}
   </select>
@@ -690,7 +689,8 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
               <Select
                 label="Analysis"
                 value={current.analysis_type}
-                options={ANALYSIS_TYPES}
+                options={ANALYSIS_TYPE_VALUES}
+                name={analysisTypeLabel}
                 blank="Not set"
                 onChange={(value) =>
                   update((draft) => {

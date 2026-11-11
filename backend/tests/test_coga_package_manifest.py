@@ -47,7 +47,7 @@ def _package(**fields: Any) -> CogaPackage:
         "pipeline": {"name": "p", "version": "1", "run_id": "RUN1"},
         "project": "WGS",
         "assembly": "GRCh38",
-        "analysis_type": "wgs_trio",
+        "analysis_type": "long_read_wgs",
         "family": {"family_id": "FAM001"},
         "files": [{"path": "snv/FAM001.vcf.gz", "size": 1, "sha256": "0" * 64}],
     }
@@ -65,7 +65,7 @@ def test_a_full_pgt_package_file_is_the_whole_manifest() -> None:
 
     assert proposed_sections(package) == []
     assert "ped" not in manifest
-    assert (manifest["family_id"], manifest["analysis_type"], manifest["roi"]) == ("FAM001", "pgt_m", "CFTR")
+    assert (manifest["family_id"], manifest["analysis_type"], manifest["roi"]) == ("FAM001", "pgt", "CFTR")
     assert manifest["metadata"] == {
         "pgt": {"inheritance_model": "AR", "affected_parents": ["MOTHER"], "indexes": ["INDEX1"]}
     }
@@ -138,7 +138,7 @@ def test_what_a_minimal_file_leaves_out_is_taken_from_the_draft_and_what_it_give
     assert manifest == {
         "schema_version": 1,
         "family_id": "FAM001",
-        "analysis_type": "wgs_trio",
+        "analysis_type": "long_read_wgs",
         "roi": "chr7:1000-2000",
         "metadata": {"pgt": {"inheritance_model": "AD", "affected_parents": ["MOTHER"]}, "other": 1},
         "ped": "FAM001.ped",
@@ -220,8 +220,8 @@ def test_what_discover_proposes_is_written_into_the_package() -> None:
 def test_an_analysis_discover_names_is_taken_where_the_package_names_none() -> None:
     package = _package(analysis_type=None, family={"family_id": "FAM001"})
     assert proposed_package(package, {"analysis_type": "monogenic_nipt"}, []).analysis_type == "monogenic_nipt"
-    named = _package(analysis_type="wgs", family={"family_id": "FAM001"})
-    assert proposed_package(named, {"analysis_type": "monogenic_nipt"}, []).analysis_type == "wgs"
+    named = _package(analysis_type="long_read_wgs", family={"family_id": "FAM001"})
+    assert proposed_package(named, {"analysis_type": "monogenic_nipt"}, []).analysis_type == "long_read_wgs"
 
 
 def test_a_file_that_gives_its_members_and_datasets_keeps_them() -> None:
@@ -318,7 +318,7 @@ async def test_the_watcher_imports_a_full_copgtm_package_with_the_files_members(
         "pipeline": {"name": "nf-cmgg/copgtm", "version": "1.1.0", "run_id": "RUN1"},
         "project": "PGT",
         "assembly": "GRCh38",
-        "analysis_type": "pgt_m",
+        "analysis_type": "pgt",
         "family": {"family_id": FAMILY, "roi": "chr7:1000-2000", "pgt": {"inheritance_model": "AR", "affected_parents": [MOTHER], "indexes": [INDEX]}},
         "members": members,
         "couples": [{"partners": [FATHER, MOTHER], "context": "reproductive"}],
@@ -365,7 +365,7 @@ async def test_a_minimal_file_has_its_members_and_datasets_proposed(tmp_path: Pa
         "pipeline": {"name": "nf-cmgg/copgtm", "version": "1.1.0", "run_id": "RUN1"},
         "project": "PGT",
         "assembly": "GRCh38",
-        "analysis_type": "pgt_m",
+        "analysis_type": "pgt",
         # Discover drafts for the family the file names, not for the folder's name.
         "family": {"family_id": FAMILY},
         "files": _files(folder),
@@ -390,5 +390,5 @@ async def test_a_minimal_file_has_its_members_and_datasets_proposed(tmp_path: Pa
     assert (assessment.package_check or {})["proposed"] == ["members", "datasets"]
     manifest = json.loads(assessment.manifest_text or "")
     assert "ped" not in manifest
-    assert manifest["analysis_type"] == "pgt_m"
+    assert manifest["analysis_type"] == "pgt"
     assert INDEX in assessment.validation["sample_ids"]

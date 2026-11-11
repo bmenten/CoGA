@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
@@ -8,6 +8,7 @@ import type {
 } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
+import { ANALYSIS_TYPES } from './analysisTypes';
 
 /** A folder whose families all imported completely, and whose latest import was not undone: the
  * list leaves it out unless imported folders are shown. */
@@ -19,15 +20,6 @@ export const isImportedFolder = (pkg: FamilyPackageCandidateOut) => {
     !pkg.changed_during_import
   );
 };
-
-const ANALYSIS_TYPES: [string, string][] = [
-  ['wgs', 'WGS'],
-  ['wgs_trio', 'WGS trio'],
-  ['pgt_m', 'PGT-M'],
-  ['monogenic_nipt', 'Monogenic NIPT'],
-  ['long_read_wgs', 'Long-read WGS'],
-  ['long_read_couple', 'Long-read couple'],
-];
 
 /**
  * Adds a package folder to Deliveries by hand (docs/data-import.md, "Adding a folder by hand"):
@@ -43,6 +35,7 @@ const AddDeliveryForm: React.FC<{
   const [familyId, setFamilyId] = useState('');
   const [analysisType, setAnalysisType] = useState('');
   const [showImported, setShowImported] = useState(false);
+  const familyIdHint = useId();
   const { data: projects = [], isLoading: projectsLoading } =
     useProjectCatalog();
   const packagesQuery = useQuery<FamilyPackageCandidateOut[]>({
@@ -87,6 +80,11 @@ const AddDeliveryForm: React.FC<{
       setProjectId(project.id);
     }
   };
+  // The family ID CoGA takes when none is typed: the folder's name.
+  const folderName =
+    packages.find((pkg) => pkg.folder_path === folderPath)?.name ??
+    folderPath.trim().replace(/\/+$/, '').split('/').pop() ??
+    '';
   const canAdd =
     !addMutation.isPending &&
     folderPath.trim().length > 0 &&
@@ -184,14 +182,26 @@ const AddDeliveryForm: React.FC<{
               ))}
             </select>
           </label>
-          <label className="field-label">
-            Family ID of the folder
-            <input
-              value={familyId}
-              placeholder="The folder's name"
-              onChange={(event) => setFamilyId(event.target.value)}
-            />
-          </label>
+          <div className="space-y-1">
+            <label className="field-label">
+              Family ID
+              <input
+                value={familyId}
+                placeholder={
+                  folderName
+                    ? `${folderName} (the folder's name)`
+                    : "The folder's name"
+                }
+                aria-describedby={familyIdHint}
+                onChange={(event) => setFamilyId(event.target.value)}
+              />
+            </label>
+            <p id={familyIdHint} className="field-hint">
+              Left empty, the family ID is the folder&apos;s name. Type one
+              only when the family&apos;s ID differs from it: it cannot be
+              changed after adding.
+            </p>
+          </div>
         </div>
         {addMutation.isError ? (
           <p className="status-note status-note--error">

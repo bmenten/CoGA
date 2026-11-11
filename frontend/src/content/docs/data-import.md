@@ -357,7 +357,7 @@ the repository (`docs/coga-package.md`, `docs/schemas/`). A short one:
   "pipeline": { "name": "example-pipeline", "version": "1.4.0", "run_id": "RUN-0042" },
   "project": "Rare disease WGS",
   "assembly": "GRCh38",
-  "analysis_type": "wgs_trio",
+  "analysis_type": "long_read_wgs",
   "family": { "family_id": "FAM001" },
   "members": [
     { "sample_id": "PROBAND", "sex": "male", "father": "FATHER1", "mother": "MOTHER", "clinical_status": "affected" },
@@ -427,7 +427,9 @@ with the delivery.
   - Someone else may have corrected the delivery since you opened it: the save is refused, and you
     open it again.
 - **Add a folder by hand** (above the list) adds a folder no pipeline delivered: choose it (or type
-  its path), its project and its analysis, and, when it is not the folder's name, its family ID. CoGA
+  its path), its project and its analysis (LR-WGS, LR-AS, PGT, Expanded Carrier Screening or mNIPT),
+  and, when it is not the folder's name, its family ID: left empty, the family ID is the folder's
+  name, and it cannot be changed once the folder is added. CoGA
   makes its package from the folder, with the members and datasets it proposes from the folder's PED
   and layout, and checks it as a pipeline's delivery; it is listed as *Added by hand*. Check and correct
   it with **Correct…**, then approve it. CoGA writes nothing in the folder and computes no checksums:

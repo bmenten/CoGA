@@ -35,7 +35,7 @@ const delivery = (name: string, overrides: Record<string, unknown> = {}) => ({
   family_id: name,
   project_id: 'p1',
   project: 'PROJECT1',
-  analysis_type: 'wgs_trio',
+  analysis_type: 'long_read_wgs',
   pipeline_name: 'nf-core/example',
   pipeline_version: '1.0.0',
   request_id: null,
@@ -219,6 +219,10 @@ describe('ImportDeliveriesPanel', () => {
       await screen.findByText('FAM1', { selector: 'td > div' })
     ).toBeInTheDocument();
     expect(screen.getByText('4 waiting')).toBeInTheDocument();
+    // The analysis by the laboratory's name, not the package's code.
+    expect(
+      within(row('FAM1')).getByText('Family FAM1 · LR-WGS')
+    ).toBeInTheDocument();
     expect(
       screen.queryByText('OLD1', { selector: 'td > div' })
     ).not.toBeInTheDocument();

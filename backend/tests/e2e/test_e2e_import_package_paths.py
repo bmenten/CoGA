@@ -111,7 +111,7 @@ async def _collect(base: Path) -> dict[str, Any]:
             return capture(
                 await ac.post(
                     "/api/family-imports/deliveries",
-                    json={"folder_path": str(folder), "project_id": project_id, "analysis_type": "wgs_trio"},
+                    json={"folder_path": str(folder), "project_id": project_id, "analysis_type": "long_read_wgs"},
                 )
             )
 

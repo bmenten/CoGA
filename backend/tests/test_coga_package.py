@@ -48,7 +48,7 @@ def _complete(**changes: Any) -> dict[str, Any]:
         "pipeline": {"name": "pipeline", "version": "1.0", "run_id": "RUN1"},
         "project": "PGT",
         "assembly": "GRCh38",
-        "analysis_type": "pgt_m",
+        "analysis_type": "pgt",
         "family": {"family_id": "FAM001"},
         "members": [
             {"sample_id": "FATHER1", "sex": "male", "role": "father"},

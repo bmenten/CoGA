@@ -947,8 +947,11 @@ with its SHA-256. The import reads the latest.
 A folder no pipeline delivered, or delivered without a package file, goes the same way
 ([import_manual_delivery.py](../backend/app/services/import_manual_delivery.py)). On the Package
 Import page, **Add a folder by hand** under **Deliveries** (or `POST /family-imports/deliveries`, superuser) takes a folder under the import
-roots, the project it belongs to, its analysis and, where it is not the folder's name, its family
-ID. CoGA makes the package a pipeline's `coga-package.json` would hold: the project and its
+roots, the project it belongs to, its analysis (LR-WGS, LR-AS (long-read adaptive sampling), PGT,
+Expanded Carrier Screening or mNIPT: the package's `analysis_type`,
+[coga-package.md](coga-package.md)) and, where it is not the folder's name, its family ID. Left
+empty, the family ID is the folder's name; it is fixed once the folder is added, as a pipeline's
+is. CoGA makes the package a pipeline's `coga-package.json` would hold: the project and its
 assembly, the analysis, the family, and the members and datasets Discover proposes from the folder
 (from its PED or per-sample folders, and its layout), written into the package. It is checked as a
 delivered package is, and is a delivery of origin `manual` (`import_deliveries.origin`), listed as
@@ -961,8 +964,8 @@ family's record names it as added by hand.
 - No file list with checksums is made (the owner's decision of 2026-11-10; the warning
   `added_by_hand` says so): the folder's fingerprint guards it until the import, which records each
   file it reads with its SHA-256 (`raw_import_files`).
-- An analysis is needed: Discover names one only where the folder shows it (a NIPT pair, a PGT
-  run); without one, the delivery needs attention until it is corrected.
+- An analysis is needed: Discover names one only where the folder shows it (a NIPT pair); without
+  one, the delivery needs attention until it is corrected.
 - No watcher looks at it before its import, also when the folder lies in a watched folder: it is
   never superseded or gone by a round, and is not checked again when what CoGA holds changes; a
   correction checks it. After its import the watcher follows its folder as it does a watched

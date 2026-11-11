@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { hasSuperuserRights, isAdmin } from '../../lib/auth';
 import ProjectCatalogWorkspace from '../../components/ProjectCatalogWorkspace';
 
@@ -8,6 +8,9 @@ const Dashboard: React.FC = () => {
   // A superuser has the admin dashboard too, with its own workspaces there.
   const userHasAdminDashboard = hasSuperuserRights();
   const [catalogSearch, setCatalogSearch] = useState('');
+  // A family's breadcrumb leads back here with its project (`?project_id=`) shown open.
+  const [searchParams] = useSearchParams();
+  const openProjectId = searchParams.get('project_id') || undefined;
 
   return (
     <div className="page-shell space-y-8 dashboard-page">
@@ -53,6 +56,7 @@ const Dashboard: React.FC = () => {
         <div className="dashboard-top-card-catalog">
           <ProjectCatalogWorkspace
             embedded
+            openProjectId={openProjectId}
             searchTerm={catalogSearch}
             onSearchTermChange={setCatalogSearch}
           />

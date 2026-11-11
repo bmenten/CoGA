@@ -1049,6 +1049,10 @@ async def _update_family_structure(
     deletions: list[FamilyDeletion],
     source: str = STRUCTURE_EDIT,
 ) -> FamilyStructureUpdateOut:
+    # A member's new sample ID is written before this update, which then names the member by
+    # it (update_family_structure_with_renames_for_admin): one still here would go unwritten.
+    if any(member.new_sample_id for member in update.members):
+        raise ValueError("A member's new_sample_id is applied before the structure update")
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = str(family_row["id"])
     # One change of the family's pedigree at a time, from before its state is read until

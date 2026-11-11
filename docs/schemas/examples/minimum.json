@@ -3,13 +3,13 @@
   "status": "complete",
   "written_at": "2026-11-10T16:30:00+01:00",
   "pipeline": {
-    "name": "nf-core/sarek",
-    "version": "3.5.0",
+    "name": "example-pipeline",
+    "version": "1.0.0",
     "run_id": "RUN-2026-0004"
   },
-  "project": "WGS",
+  "project": "LR-WGS",
   "assembly": "GRCh38",
-  "analysis_type": "wgs_trio",
+  "analysis_type": "long_read_wgs",
   "family": {
     "family_id": "FAM002"
   },
