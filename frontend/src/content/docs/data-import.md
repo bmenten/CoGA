@@ -222,9 +222,9 @@ PGT packages from the PGT pipeline (nf-cmgg/copgtm) are laid out per tool:
 
 ```text
 FAM001/
-  ped/            combined.ped                                 the couple and the embryos
-  dashboard/      samplesheet.csv, pedigree.csv                each sample's role (newer runs:
-                  samplesheet_FAM001_10x.csv, the run's own name)
+  FAM001.ped                                                   the family's pedigree (you put it there)
+  ped/            combined.ped                                 the pipeline's own PED: not read
+  dashboard/      samplesheet*.csv, pedigree.csv               the pipeline's input: not read
   qdnaseq/        EMBRYO1_cnv.csv                              CNV bins and segments
   apcad/          EMBRYO1_APCAD_parental_data.csv              APCAD: the sites the run read, when it writes them
   apcad/          EMBRYO1_APCAD_segregation_data.csv           the sites where one parent is heterozygous
@@ -237,17 +237,33 @@ FAM001/
   pipeline_info/  params_*.json, copgtm_software_mqc_versions.yml
 ```
 
-Added by hand, CoGA reads the samplesheet: the embryos get the embryo role, and an index the PED lacks
-is added. The pipeline does not say how the index is related, so CoGA proposes a link from what KING
-measured against the couple:
+The family's pedigree is the PED at the top of the folder (`FAM001.ped`): CoGA reads no other. The
+pipeline's own PED in `ped/` lacks the index and gives the embryos a sex, so CoGA cannot tell them from
+born children; its samplesheet is not read either. A folder with only `ped/combined.ped` says
+*No PED file was found at the top of the family folder*. Write the family's PED with the six standard
+columns, and what a standard PED cannot say in a column after the sixth:
 
-- the couple's child, when it is first-degree to both parents;
-- otherwise a relative of unknown degree (**Related to**, a dotted arc in the pedigree) of the parent it
-  is related to, or of the affected parent.
+```text
+FAM001  FATHER1  0        0        1  -9  role=father   carrier=1
+FAM001  MOTHER1  0        0        2  -9  role=mother   carrier=1
+FAM001  INDEX1   FATHER1  MOTHER1  1  2   role=proband
+FAM001  EMB1     FATHER1  MOTHER1  0  -9  role=embryo
+FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
+```
 
-The warning says which link it proposed. Change it with **Correct…** before you approve the delivery,
-or afterwards in **Admin → Family & sample data**. Without a link, the index's haplotype stays grey and does not help
-find the risk haplotype.
+- `role=` gives a member's role (`father`, `mother`, `proband`, `embryo`, `relative`); without it, the
+  pedigree gives it. The sixth column is the clinical status (`2` affected), and `carrier=1` marks a
+  carrier.
+- An embryo has sex `0`, unknown before the analysis, and `role=embryo`.
+- The index is every member but the couple and the embryos who is no one's parent. The couple's child,
+  as above, is the proband.
+- An index that is not the couple's child is a relative: linked through its parents in the PED, or,
+  when you do not know the degree, through the member `related_to=` names:
+  `FAM001 INDEX1 0 0 2 -9 related_to=MOTHER1` (**Related to**, a dotted arc in the pedigree).
+
+The warning says how CoGA read each index. An index linked neither way stays grey and does not help find
+the risk haplotype: link it with **Correct…** before you approve the delivery, or afterwards in
+**Admin → Family & sample data**.
 
 The parent the pipeline traced is recorded as the affected parent (`metadata.pgt.affected_parents`), and
 its index as the index (`metadata.pgt.indexes`). Set the inheritance model
@@ -392,7 +408,7 @@ with the delivery.
   - The run, the assembly, the family and sample IDs and the files are the pipeline's and are not
     offered: a wrong one is refused, and the pipeline delivers again.
   - A sample the package's files name and no member is, such as an affected relative in the phased
-    family VCF read for segregation, or a PGT index the samplesheet did not name, is offered under
+    family VCF read for segregation, or a PGT index the PED lacks, is offered under
     **Add a member**: add it, give its sex, role and status, and how it is related (its parents,
     or under **Related to** the member it is related to; a PGT index without a link stays grey).
     A member added here can be removed again; a member the package delivered cannot.

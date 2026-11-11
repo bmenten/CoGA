@@ -1,13 +1,13 @@
 """Discovery, validation and import of the PGT pipeline's (nf-cmgg/copgtm) package layout.
 
-The pipeline writes one folder per tool: the PED under ``ped/``, the QDNAseq bins under
+The pipeline writes one folder per tool: its PED under ``ped/``, the QDNAseq bins under
 ``qdnaseq/``, a trio VCF per embryo under ``split_trio/filter_trio/`` (the APCAD input),
 the SHAPEIT5-phased family VCF under ``phasing/shapeit_filter/``, and its QC per tool
 (Picard ADO/ADI, RTG Tools concordance, mean coverage, KING, ngs-bits, Qualimap). Its PED
-gives the embryos a sex, so CoGA cannot read them as embryos from the PED alone, and it
-lacks the index, which the samplesheet the pipeline copies to ``dashboard/`` names. These
-tests pin what makes such a package import: the roles and the added index, the file
-patterns, the QC parsers and the importers that read them.
+gives the embryos a sex and lacks the index, so CoGA reads the family's own PED at the top of
+the folder instead: the couple, the embryos (``role=embryo``) and the index, a relative linked
+through a parent by a ``related_to=`` column. These tests pin what makes such a package import:
+the roles and the index, the file patterns, the QC parsers and the importers that read them.
 
 Every identifier and number here is synthetic.
 """
@@ -43,6 +43,8 @@ from backend.app.services.family_package_manifest import (
     _manifest_relationships,
     _parse_ped_text_strict,
     _ped_members_for_import,
+    ped_member_entries,
+    ped_relatives,
 )
 from backend.app.services.family_package_qc import (
     parse_ado_adi_text,
@@ -60,14 +62,15 @@ FAMILY = "PGT01"
 FATHER, MOTHER, INDEX = "FATHER1", "MOTHER1", "INDEX1"
 EMBRYOS = ("EMB1", "EMB2")
 SAMPLES = (FATHER, MOTHER, *EMBRYOS, INDEX)
-# The members of the package's PED (``ped/combined.ped``) as Discover names them under
-# ``family.add_members``, before the members it adds itself: the import reads no PED.
+# The couple and the embryos of the family's PED (``<family>.ped``) as Discover names them under
+# ``family.add_members``, before the index: the import reads no PED.
 PED_MEMBERS = [
     {"sample_id": FATHER, "sex": "male"},
     {"sample_id": MOTHER, "sex": "female"},
-    {"sample_id": "EMB1", "sex": "male", "father": FATHER, "mother": MOTHER},
-    {"sample_id": "EMB2", "sex": "female", "father": FATHER, "mother": MOTHER},
+    {"sample_id": "EMB1", "sex": "male", "father": FATHER, "mother": MOTHER, "role": "embryo"},
+    {"sample_id": "EMB2", "sex": "female", "father": FATHER, "mother": MOTHER, "role": "embryo"},
 ]
+GRANDPARENTS = ("GRANDPA1", "GRANDMA1")
 
 
 @pytest.fixture(autouse=True)
@@ -117,24 +120,46 @@ QUALIMAP = """BamQC report
 """
 
 
-def _write_copgtm_package(
-    root: Path, *, index_in_ped: bool = False, index_parents: tuple[str, str] = (FATHER, MOTHER)
-) -> Path:
-    """A minimal nf-cmgg/copgtm output folder: a couple, two embryos and an index. With
-    ``index_in_ped`` the PED holds the index, as the child of ``index_parents``; parents
-    other than the couple are the mother's parents, and are in the PED too."""
-    grandparents = index_parents if index_parents not in {(FATHER, MOTHER), ("0", "0")} else None
-    ped_rows = [
+def _family_ped_rows(index: str) -> list[str]:
+    """The family's PED: the couple, their embryos (``role=embryo``, with the sex ngs-bits read)
+    and the index as ``index`` says: ``relative`` (no parents, ``related_to=`` the mother),
+    ``child`` (the couple's child), ``aunt`` (the mother's sister, under the mother's parents,
+    who are in the PED to link her), ``unlinked`` (no parents, no ``related_to``) or ``absent``."""
+    grandparents = GRANDPARENTS if index == "aunt" else ("0", "0")
+    rows = [
         f"{FAMILY}\t{FATHER}\t0\t0\t1\t-9",
-        f"{FAMILY}\t{MOTHER}\t{grandparents[0] if grandparents else 0}\t{grandparents[1] if grandparents else 0}\t2\t-9",
-        f"{FAMILY}\tEMB1\t{FATHER}\t{MOTHER}\t1\t-9",
-        f"{FAMILY}\tEMB2\t{FATHER}\t{MOTHER}\t2\t-9",
+        f"{FAMILY}\t{MOTHER}\t{grandparents[0]}\t{grandparents[1]}\t2\t-9",
+        f"{FAMILY}\tEMB1\t{FATHER}\t{MOTHER}\t1\t-9\trole=embryo",
+        f"{FAMILY}\tEMB2\t{FATHER}\t{MOTHER}\t2\t-9\trole=embryo",
     ]
-    if grandparents:
-        ped_rows += [f"{FAMILY}\t{grandparents[0]}\t0\t0\t1\t-9", f"{FAMILY}\t{grandparents[1]}\t0\t0\t2\t-9"]
-    if index_in_ped:
-        ped_rows.append(f"{FAMILY}\t{INDEX}\t{index_parents[0]}\t{index_parents[1]}\t2\t-9")
-    _write(root / "ped/combined.ped", "\n".join(ped_rows) + "\n")
+    if index == "aunt":
+        rows += [f"{FAMILY}\t{GRANDPARENTS[0]}\t0\t0\t1\t-9", f"{FAMILY}\t{GRANDPARENTS[1]}\t0\t0\t2\t-9"]
+    index_rows = {
+        "relative": f"{FAMILY}\t{INDEX}\t0\t0\t2\t-9\trelated_to={MOTHER}",
+        "child": f"{FAMILY}\t{INDEX}\t{FATHER}\t{MOTHER}\t2\t-9",
+        "aunt": f"{FAMILY}\t{INDEX}\t{GRANDPARENTS[0]}\t{GRANDPARENTS[1]}\t2\t-9",
+        "unlinked": f"{FAMILY}\t{INDEX}\t0\t0\t2\t-9",
+    }
+    if index in index_rows:
+        rows.append(index_rows[index])
+    return rows
+
+
+def _write_copgtm_package(root: Path, *, index: str = "relative", family_ped: bool = True) -> Path:
+    """A minimal nf-cmgg/copgtm output folder: a couple, two embryos and an index, and, with
+    ``family_ped``, the family's PED at its top (:func:`_family_ped_rows`, ``index`` as it says).
+    The pipeline's own PED (``ped/combined.ped``: the couple and the embryos, with their sex),
+    its samplesheet and its pedigree table are there as the pipeline writes them; Discover reads
+    none of them."""
+    _write(
+        root / "ped/combined.ped",
+        f"{FAMILY}\t{FATHER}\t0\t0\t1\t-9\n"
+        f"{FAMILY}\t{MOTHER}\t0\t0\t2\t-9\n"
+        f"{FAMILY}\tEMB1\t{FATHER}\t{MOTHER}\t1\t-9\n"
+        f"{FAMILY}\tEMB2\t{FATHER}\t{MOTHER}\t2\t-9\n",
+    )
+    if family_ped:
+        _write(root / f"{FAMILY}.ped", "\n".join(_family_ped_rows(index)) + "\n")
     _write(
         root / "dashboard/samplesheet.csv",
         "id,fam,role,alignment,alignment_index,vcf,tbi\n"
@@ -253,8 +278,8 @@ def test_discovery_reads_the_copgtm_layout(tmp_path: Path) -> None:
     result = _discover(root)
 
     assert result.valid is True, result.errors
-    assert result.ped_path == "ped/combined.ped"
-    # The index is a sample of the family although the PED lacks it.
+    # The family's PED at the top of the folder, not the pipeline's in ped/.
+    assert result.ped_path == f"{FAMILY}.ped"
     assert result.sample_ids == [FATHER, MOTHER, *EMBRYOS, INDEX]
     manifest = yaml.safe_load(result.manifest_yaml)
     assert manifest["roi"] == "chr7:1000-2000"
@@ -262,10 +287,8 @@ def test_discovery_reads_the_copgtm_layout(tmp_path: Path) -> None:
     # inheritance model, which decides their statuses.
     assert manifest["metadata"] == {"pgt": {"affected_parents": [MOTHER], "indexes": [INDEX]}}
     assert manifest["family"] == {
-        "members": {"EMB1": {"role": "embryo"}, "EMB2": {"role": "embryo"}},
-        # The PED's members, then the index the samplesheet adds.
         "add_members": [*PED_MEMBERS, {"sample_id": INDEX, "sex": "female", "role": "relative"}],
-        # KING measured the index related to the mother only: a relative of unknown degree.
+        # The PED's related_to column: a relative of unknown degree on the mother's side.
         "relationships": {"relatives": [{"member": INDEX, "related_to": [MOTHER]}]},
     }
     datasets = manifest["datasets"]
@@ -350,155 +373,35 @@ def test_pcf_segments_are_read_from_the_pcf_table_and_not_from_the_plot(tmp_path
     }
 
 
-def test_discovery_says_what_the_user_still_has_to_supply(tmp_path: Path) -> None:
+def test_discovery_says_how_it_reads_the_index(tmp_path: Path) -> None:
     root = _write_copgtm_package(tmp_path / FAMILY)
 
     warnings = {warning.code: warning for warning in _discover(root).warnings}
 
-    index_warning = warnings["pgt_index_added"]
+    index_warning = warnings["pgt_index"]
     assert index_warning.sample_id == INDEX
-    assert "family.relationships" in index_warning.message
+    assert f"Index {INDEX} is a relative linked through {MOTHER} by an unknown degree (related_to)" in index_warning.message
     assert "recorded under metadata.pgt.indexes" in index_warning.message
-    assert "around the ROI, where it shares one of them on both sides of it" in index_warning.message
-    # What KING measured against the couple, closest first.
-    assert (
-        f"KING (king/{FAMILY}.kin0) measured {INDEX} as first-degree to {MOTHER} "
-        f"(kinship 0.240, IBS0 0.0002) and unrelated to {FATHER}"
-    ) in index_warning.message
     affected = warnings["pgt_affected_parent"]
     assert affected.sample_id == MOTHER
     assert "pipeline_info/params_2026-01-02_10-00-00.json" in affected.message
 
 
-def test_discovery_reads_an_index_in_the_ped_as_the_couples_proband(tmp_path: Path) -> None:
-    root = _write_copgtm_package(tmp_path / FAMILY, index_in_ped=True)
+def test_discovery_reads_the_couples_child_as_the_proband_and_the_index(tmp_path: Path) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY, index="child")
 
     result = _discover(root)
 
     manifest = yaml.safe_load(result.manifest_yaml)
     assert manifest["family"] == {
-        "members": {"EMB1": {"role": "embryo"}, "EMB2": {"role": "embryo"}, INDEX: {"role": "proband"}},
-        # The index is one of the PED's members, the couple's child.
-        "add_members": [*PED_MEMBERS, {"sample_id": INDEX, "sex": "female", "father": FATHER, "mother": MOTHER}],
+        "add_members": [
+            *PED_MEMBERS,
+            {"sample_id": INDEX, "sex": "female", "father": FATHER, "mother": MOTHER, "role": "proband"},
+        ],
     }
-    # An index the PED holds is the run's index too.
     assert manifest["metadata"]["pgt"]["indexes"] == [INDEX]
-    assert "pgt_index_added" not in {warning.code for warning in result.warnings}
-
-
-def test_an_index_under_other_parents_in_the_ped_is_a_relative_linked_through_them(tmp_path: Path) -> None:
-    # The affected mother's sister, under the grandparents: linked by the PED, not the couple's child.
-    root = _write_copgtm_package(tmp_path / FAMILY, index_in_ped=True, index_parents=("GRANDPA1", "GRANDMA1"))
-
-    result = _discover(root)
-
-    family = yaml.safe_load(result.manifest_yaml)["family"]
-    assert family["members"][INDEX] == {"role": "relative"}
-    assert "relationships" not in family
-    assert {"pgt_index_added", "pgt_index_unlinked"}.isdisjoint(warning.code for warning in result.warnings)
-
-
-def test_an_index_the_ped_holds_without_parents_gets_a_proposed_link(tmp_path: Path) -> None:
-    root = _write_copgtm_package(tmp_path / FAMILY, index_in_ped=True, index_parents=("0", "0"))
-
-    result = _discover(root)
-
-    family = yaml.safe_load(result.manifest_yaml)["family"]
-    assert family["members"][INDEX] == {"role": "relative"}
-    assert family["relationships"] == {"relatives": [{"member": INDEX, "related_to": [MOTHER]}]}
-    unlinked = next(warning for warning in result.warnings if warning.code == "pgt_index_unlinked")
-    assert f"linked under family.relationships.relatives to {MOTHER}" in unlinked.message
-
-
-def test_discovery_reports_a_samplesheet_sample_the_ped_lacks(tmp_path: Path) -> None:
-    root = _write_copgtm_package(tmp_path / FAMILY)
-    sheet = root / "dashboard/samplesheet.csv"
-    sheet.write_text(sheet.read_text(encoding="utf-8") + f"EMB9,{FAMILY},embryo,,,,\n", encoding="utf-8")
-
-    result = _discover(root)
-
-    missing = [warning for warning in result.warnings if warning.code == "pgt_sample_not_in_ped"]
-    assert [warning.sample_id for warning in missing] == ["EMB9"]
-    assert "EMB9" not in result.sample_ids
-
-
-def _rename_samplesheet(root: Path, name: str) -> Path:
-    sheet = root / "dashboard/samplesheet.csv"
-    return sheet.rename(sheet.with_name(name))
-
-
-def test_a_samplesheet_kept_under_the_runs_own_name_is_read(tmp_path: Path) -> None:
-    # Newer runs copy the samplesheet under the name of the file they read.
-    root = _write_copgtm_package(tmp_path / FAMILY)
-    sheet = _rename_samplesheet(root, f"samplesheet_{FAMILY}_10x.csv")
-    sheet.write_text(sheet.read_text(encoding="utf-8") + f"EMB9,{FAMILY},embryo,,,,\n", encoding="utf-8")
-
-    result = _discover(root)
-
-    assert result.valid is True, result.errors
-    assert yaml.safe_load(result.manifest_yaml)["family"]["members"] == {
-        "EMB1": {"role": "embryo"},
-        "EMB2": {"role": "embryo"},
-    }
-    warnings = {warning.code: warning for warning in result.warnings}
-    # The warnings name the file the roles came from.
-    assert f"Index {INDEX} (dashboard/samplesheet_{FAMILY}_10x.csv)" in warnings["pgt_index_added"].message
-    # A sample only the samplesheet lists: it was read, not the pedigree alone.
-    assert warnings["pgt_sample_not_in_ped"].message.startswith(
-        f"dashboard/samplesheet_{FAMILY}_10x.csv lists embryo EMB9"
-    )
-
-
-def test_of_several_samplesheets_the_one_the_run_read_is_used(tmp_path: Path) -> None:
-    root = _write_copgtm_package(tmp_path / FAMILY)
-    sheet = _rename_samplesheet(root, f"samplesheet_{FAMILY}_10x.csv")
-    # An older sheet that names another embryo, beside the one the run read.
-    _write(
-        root / f"dashboard/samplesheet_{FAMILY}_1x.csv",
-        sheet.read_text(encoding="utf-8") + f"EMB8,{FAMILY},embryo,,,,\n",
-    )
-    sheet.write_text(sheet.read_text(encoding="utf-8") + f"EMB9,{FAMILY},embryo,,,,\n", encoding="utf-8")
-    assert family_package_pgt.pgt_samplesheet_path(root) is None
-    _write(
-        root / "pipeline_info/params_2026-01-03_10-00-00.json",
-        f'{{"affected_parent": "{MOTHER}", "roi": "chr7:1000-2000", "input": "/hpc/user/samplesheet_{FAMILY}_10x.csv"}}',
-    )
-
-    result = _discover(root)
-
-    missing = [warning.sample_id for warning in result.warnings if warning.code == "pgt_sample_not_in_ped"]
-    assert missing == ["EMB9"]
-
-
-def _write_index_kinship(root: Path, *, father: float, mother: float) -> None:
-    _write(
-        root / f"king/{FAMILY}.kin0",
-        "FID1\tID1\tFID2\tID2\tN_SNP\tHetHet\tIBS0\tKinship\n"
-        f"{INDEX}\t{INDEX}\t{FATHER}\t{FATHER}\t5000\t0.0170\t0.0002\t{father}\n"
-        f"{INDEX}\t{INDEX}\t{MOTHER}\t{MOTHER}\t5000\t0.0170\t0.0002\t{mother}\n",
-    )
-
-
-def test_an_index_first_degree_to_both_parents_is_added_as_their_child(tmp_path: Path) -> None:
-    root = _write_copgtm_package(tmp_path / FAMILY)
-    _write_index_kinship(root, father=0.24, mother=0.25)
-
-    result = _discover(root)
-
-    family = yaml.safe_load(result.manifest_yaml)["family"]
-    assert family["add_members"] == [
-        *PED_MEMBERS,
-        {
-            "sample_id": INDEX,
-            "sex": "female",
-            "father": FATHER,
-            "mother": MOTHER,
-            "role": "proband",
-        },
-    ]
-    assert "relationships" not in family
-    index_warning = next(warning for warning in result.warnings if warning.code == "pgt_index_added")
-    assert "as the couple's child, the proband" in index_warning.message
+    index_warning = next(warning for warning in result.warnings if warning.code == "pgt_index")
+    assert f"Index {INDEX} is the couple's child, as proband" in index_warning.message
 
     # The pedigree the import reads holds it as their child.
     validation, bundle = _validated(root, result.manifest_yaml)
@@ -518,59 +421,142 @@ def test_an_index_first_degree_to_both_parents_is_added_as_their_child(tmp_path:
     )
 
 
-def test_an_index_king_finds_unrelated_is_linked_through_the_affected_parent(tmp_path: Path) -> None:
-    # A relative beyond the third degree: KING sees nothing, the run's affected parent
-    # gives the side.
+def test_the_roles_and_statuses_the_ped_gives_are_the_drafts(tmp_path: Path) -> None:
+    # The laboratory's PED before the analysis: the roles, the affected proband, the carrier
+    # parents, and the embryos of unknown sex.
     root = _write_copgtm_package(tmp_path / FAMILY)
-    _write_index_kinship(root, father=-0.01, mother=0.01)
+    _write(
+        root / f"{FAMILY}.ped",
+        f"{FAMILY}\t{FATHER}\t0\t0\t1\t-9\trole=father\tcarrier=1\n"
+        f"{FAMILY}\t{MOTHER}\t0\t0\t2\t-9\trole=mother\tcarrier=1\n"
+        f"{FAMILY}\t{INDEX}\t{FATHER}\t{MOTHER}\t1\t2\trole=proband\n"
+        + "".join(f"{FAMILY}\t{embryo}\t{FATHER}\t{MOTHER}\t0\t-9\trole=embryo\n" for embryo in EMBRYOS),
+    )
+
+    result = _discover(root)
+
+    manifest = yaml.safe_load(result.manifest_yaml)
+    assert manifest["family"] == {
+        "add_members": [
+            {"sample_id": FATHER, "sex": "male", "role": "father"},
+            {"sample_id": MOTHER, "sex": "female", "role": "mother"},
+            {"sample_id": INDEX, "sex": "male", "father": FATHER, "mother": MOTHER, "clinical_status": "affected", "role": "proband"},
+            *(
+                {"sample_id": embryo, "sex": "unknown", "father": FATHER, "mother": MOTHER, "role": "embryo"}
+                for embryo in EMBRYOS
+            ),
+        ],
+        "members": {FATHER: {"carrier_status": "carrier"}, MOTHER: {"carrier_status": "carrier"}},
+    }
+    assert manifest["metadata"]["pgt"] == {"affected_parents": [MOTHER], "indexes": [INDEX]}
+    # Under AR the recorded statuses are what the model asks: nothing is derived, nothing conflicts.
+    manifest["metadata"]["pgt"]["inheritance_model"] = "AR"
+    validation, _bundle = _validated(root, manifest)
+    assert validation.valid is True, validation.errors
+    assert [warning.code for warning in validation.warnings if warning.code.startswith("pgt_")] == []
+
+
+def test_an_index_under_other_parents_in_the_ped_is_a_relative_linked_through_them(tmp_path: Path) -> None:
+    # The affected mother's sister, under the grandparents: linked by the PED, not the couple's
+    # child. The grandparents are in the PED to link her, and are no index.
+    root = _write_copgtm_package(tmp_path / FAMILY, index="aunt")
+
+    result = _discover(root)
+
+    manifest = yaml.safe_load(result.manifest_yaml)
+    index = next(entry for entry in manifest["family"]["add_members"] if entry["sample_id"] == INDEX)
+    assert (index["role"], index["father"], index["mother"]) == ("relative", *GRANDPARENTS)
+    assert "relationships" not in manifest["family"]
+    assert manifest["metadata"]["pgt"]["indexes"] == [INDEX]
+    assert "pgt_index_unlinked" not in {warning.code for warning in result.warnings}
+
+
+def test_an_index_the_ped_links_to_no_one_is_warned_about(tmp_path: Path) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY, index="unlinked")
 
     result = _discover(root)
 
     family = yaml.safe_load(result.manifest_yaml)["family"]
-    assert family["relationships"] == {"relatives": [{"member": INDEX, "related_to": [MOTHER]}]}
-    index_warning = next(warning for warning in result.warnings if warning.code == "pgt_index_added")
-    assert "the affected parent the run traced" in index_warning.message
-
-
-def test_an_index_nothing_links_is_added_without_a_link(tmp_path: Path) -> None:
-    root = _write_copgtm_package(tmp_path / FAMILY)
-    (root / f"king/{FAMILY}.kin0").unlink()
-    for params in (root / "pipeline_info").glob("params_*.json"):
-        params.unlink()
-
-    result = _discover(root)
-
-    family = yaml.safe_load(result.manifest_yaml)["family"]
-    *from_ped, index = family["add_members"]
-    assert from_ped == PED_MEMBERS
-    assert (index["sample_id"], index["role"]) == (INDEX, "relative")
+    assert family["add_members"][-1] == {"sample_id": INDEX, "sex": "female", "role": "relative"}
     assert "relationships" not in family
-    index_warning = next(warning for warning in result.warnings if warning.code == "pgt_index_added")
-    assert "Declare how it is related under family.relationships" in index_warning.message
+    unlinked = next(warning for warning in result.warnings if warning.code == "pgt_index_unlinked")
+    assert unlinked.sample_id == INDEX
+    assert "related_to=<the parent's ID>" in unlinked.message
 
 
-def test_a_family_id_with_a_line_break_cannot_forge_a_log_line(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    # The PGT reader logs a package file it cannot read, such as the KING table named after
-    # the family ID. A line break in that path must not start a new log line; the line names
-    # the file by its kind, never by its path, which holds the family ID.
-    forged = f"{FAMILY}\nERROR forged entry"
+def test_discovery_reads_no_samplesheet_and_no_kinship_for_the_pedigree(tmp_path: Path) -> None:
+    # The samplesheet names another embryo, and KING finds the index first-degree to both
+    # parents: the family's PED alone says who is who.
     root = _write_copgtm_package(tmp_path / FAMILY)
-    (root / f"king/{forged}.kin0").write_bytes(b"\xff not UTF-8")
+    sheet = root / "dashboard/samplesheet.csv"
+    sheet.write_text(sheet.read_text(encoding="utf-8") + f"EMB9,{FAMILY},embryo,,,,\n", encoding="utf-8")
+    _write(
+        root / f"king/{FAMILY}.kin0",
+        "FID1\tID1\tFID2\tID2\tN_SNP\tHetHet\tIBS0\tKinship\n"
+        f"{INDEX}\t{INDEX}\t{FATHER}\t{FATHER}\t5000\t0.0170\t0.0002\t0.24\n"
+        f"{INDEX}\t{INDEX}\t{MOTHER}\t{MOTHER}\t5000\t0.0170\t0.0002\t0.25\n",
+    )
+
+    result = _discover(root)
+
+    assert result.sample_ids == [FATHER, MOTHER, *EMBRYOS, INDEX]
+    family = yaml.safe_load(result.manifest_yaml)["family"]
+    assert family["add_members"][-1] == {"sample_id": INDEX, "sex": "female", "role": "relative"}
+    assert family["relationships"] == {"relatives": [{"member": INDEX, "related_to": [MOTHER]}]}
+
+
+def test_the_pipelines_own_ped_is_not_read(tmp_path: Path) -> None:
+    # Only ped/combined.ped: it lacks the index and gives the embryos a sex.
+    root = _write_copgtm_package(tmp_path / FAMILY, family_ped=False)
+
+    result = _discover(root)
+
+    assert result.valid is False
+    missing = next(error for error in result.errors if error.code == "ped_file_missing")
+    assert "the PED in ped/ is the pipeline's working copy and is not read" in missing.message
+    assert f"at the top of the folder as {FAMILY}.ped" in missing.message
+
+
+def test_a_related_to_column_links_a_member_by_an_unknown_degree() -> None:
+    ped, errors = _parse_ped_text_strict(
+        f"{FAMILY} {FATHER} 0 0 1 -9\n"
+        f"{FAMILY} {MOTHER} 0 0 2 -9\n"
+        f"{FAMILY} {INDEX} 0 0 2 2 related_to={MOTHER},{FATHER}\n"
+        f"{FAMILY} INDEX2 0 0 1 2 role=proband Related-To={MOTHER}\n"
+    )
+    assert ped is not None and errors == []
+
+    entries, _carriers = ped_member_entries(ped)
+
+    roles = {entry["sample_id"]: entry.get("role") for entry in entries}
+    # Without a role in the PED it is a relative; a role it gives wins.
+    assert (roles[INDEX], roles["INDEX2"]) == ("relative", "proband")
+    assert ped_relatives(ped) == [
+        {"member": INDEX, "related_to": [MOTHER, FATHER]},
+        {"member": "INDEX2", "related_to": [MOTHER]},
+    ]
+
+
+def test_a_line_break_in_a_name_cannot_forge_a_log_line(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    # The PGT reader logs a package file it cannot read, such as the run's newest parameters,
+    # found by listing the folder. A line break in that file's name must not start a new log
+    # line: the line names the file by its kind, never by its path.
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    (root / "pipeline_info/params_2026-12-31\nERROR forged entry.json").write_bytes(b"\xff not UTF-8")
+    forged = f"{FAMILY}\nERROR forged entry"
 
     with caplog.at_level(logging.WARNING, logger=family_package_pgt.__name__):
-        assert family_package_pgt._read_package_file(root, f"king/{forged}.kin0", kind="KING kinship") is None
-        # Discover refuses such a family ID before it reads any file named after it
-        # (test_family_package_identifiers.py), so it logs nothing here.
+        assert family_package_pgt.pgt_run_context(root, sample_ids=[], parent_ids=set()) == (None, None, [])
+        # Discover refuses a family ID with a line break before it reads any file named after
+        # it (test_family_package_identifiers.py), so it logs nothing here.
         out = family_package_discovery.discover_family_package_manifest(
             FamilyPackageManifestBuildRequest(folder_path=str(root), family_id=forged)
         )
 
     assert [issue.code for issue in out.errors] == ["family_id_invalid"]
     messages = [record.getMessage() for record in caplog.records if record.name == family_package_pgt.__name__]
-    # One line, naming the file by its kind and not the family ID.
-    assert messages == ["Could not read the package's KING kinship file"]
+    # One line, naming the file by its kind and not its name.
+    assert messages == ["Could not read the package's Pipeline params file"]
 
 
 @pytest.mark.parametrize(
@@ -607,7 +593,8 @@ def test_a_relative_link_must_add_to_what_the_family_records(
 
 
 def test_package_list_finds_a_folder_whose_ped_is_in_its_ped_folder(tmp_path: Path) -> None:
-    _write_copgtm_package(tmp_path / FAMILY)
+    # Listed, so that adding it by hand says the family's PED is missing at the top.
+    _write_copgtm_package(tmp_path / FAMILY, family_ped=False)
 
     packages = family_package_source.scan_family_import_packages()
 

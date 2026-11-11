@@ -403,7 +403,9 @@ left out until **Show imported folders** is ticked; one whose import did not com
 *import incomplete*, and one whose latest import was undone *import undone*. The folders listed
 are those holding a `*.ped` file, at its top or in its `ped/` folder, or laid out per sample as
 the long-read pipeline writes its output, and holding no `coga-package.json` of its own (a
-pipeline delivers that one through a watched folder). The list reads nothing in a folder the
+pipeline delivers that one through a watched folder). Discover reads only the PED at the top: a
+folder whose only PED is the PGT pipeline's in `ped/` is listed, and its delivery says the
+family's PED is missing (`ped_file_missing`). The list reads nothing in a folder the
 import would refuse: a package folder that is a symlink leading out of the roots, or one that
 loops (`_listed_package_folder` checks each folder with the import's own folder guard before
 looking into it). A symlink that stays under the roots is followed, and its target listed. A
@@ -788,7 +790,7 @@ file, as JSON so that every ID stays text:
   folders), the datasets from its layout. The warnings `package_members_proposed` and
   `package_datasets_proposed` say so, with Discover's own notes: check them before approving.
   A dataset the PED's members do not cover (a phased family VCF with a column for a PGT index
-  or an affected relative the PED lacks, its samplesheet not kept) does not stop the proposal:
+  or an affected relative the PED lacks) does not stop the proposal:
   the members are read from the PED alone, the datasets are proposed all the same, and the
   delivery needs attention (`dataset_vcf_sample_unknown`) until that sample is added as a member
   ([Correcting a delivery](#correcting-a-delivery)). Only a draft whose members themselves do not
@@ -916,7 +918,7 @@ with its SHA-256. The import reads the latest.
 - **Members added and removed** (the owner's decision of 2026-11-11). A sample the package's files
   name and no member is, a column of the phased family VCF (`dataset_vcf_sample_unknown`, one
   issue per column, naming it), is added as a member: an affected relative read for segregation,
-  or a PGT index the samplesheet did not name. Its sample ID is the file's: no other is added to a
+  or a PGT index the PED lacks. Its sample ID is the file's: no other is added to a
   pipeline's package (400). Give its sex, role, status and how it is related (its parents, or the
   member it is related to by an unknown degree; a PGT index without one stays grey). A member
   added in CoGA is removed again; a member the package delivered is not (400). A member added
@@ -1151,11 +1153,9 @@ each dataset:
 
 ```text
 FAM001/
-  manifest.yaml
-  ped/combined.ped                       the couple and the embryos
-  dashboard/samplesheet.csv              the pipeline's input: each sample's role (newer runs
-                                         keep the run's own name, samplesheet_FAM001_10x.csv)
-  dashboard/pedigree.csv                 father, mother, index and embryo per row
+  FAM001.ped                             the family's pedigree: the couple, the embryos, the index
+  ped/combined.ped                       the pipeline's own PED: not read
+  dashboard/samplesheet*.csv, pedigree.csv  the pipeline's input and pedigree table: not read
   qdnaseq/SAMPLE_cnv.csv                 QDNAseq bins (copynumber) and segments (segmented)
   apcad/EMBRYO1_APCAD_parental_data.csv APCAD: the sites the run's APCAD read, when it writes them
   split_trio/filter_trio/EMBRYO1.trio_filtered.vcf.gz (+ .tbi)          APCAD otherwise
@@ -1170,28 +1170,48 @@ FAM001/
   pipeline_info/params_*.json, copgtm_software_mqc_versions.yml
 ```
 
-Its PED gives the embryos the sex ngs-bits read, so CoGA cannot tell them from the couple's other
-children. It also lacks the index: the relative whose haplotypes tell the affected parent's two
-haplotypes apart. Discover takes both from the samplesheet (the one the newest `params_*.json`
-names as its `input`, when the run kept it under that name): each embryo gets the embryo role
-under `family.members`, and an index the PED lacks is added under `family.add_members` with the
-sex ngs-bits read. No pipeline file says how the index is related, so Discover proposes a link
-from what KING measured against the couple:
+The family's pedigree is the PED at the top of the folder (`FAM001.ped`), which the laboratory
+puts there; Discover reads no other. The pipeline's own PED (`ped/combined.ped`) lacks the index,
+the relative whose haplotypes tell the affected parent's two haplotypes apart, and gives the
+embryos the sex ngs-bits read, so that CoGA cannot tell them from born children; its samplesheet,
+`dashboard/pedigree.csv` and KING table do not make the pedigree either. The family's PED holds
+every member in the six standard columns, and what a standard PED cannot say in `key=value`
+columns after the sixth:
 
-- first-degree to both parents: the couple's child (the proband);
-- otherwise a relative of unknown degree (`family.relationships.relatives`) of the parent or
-  parents KING measures it related to or, when KING sees no relationship, of the affected parent
-  the run traced.
+```text
+FAM001  FATHER1  0        0        1  -9  role=father   carrier=1
+FAM001  MOTHER1  0        0        2  -9  role=mother   carrier=1
+FAM001  INDEX1   FATHER1  MOTHER1  1  2   role=proband
+FAM001  EMB1     FATHER1  MOTHER1  0  -9  role=embryo
+FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
+```
 
-The warning quotes KING and says which link it proposed. Change the link before the manifest is
-written, or on the family page after the import. Without a link the index's haplotype stays grey
-and is not used to find the risk haplotype.
+- **Roles and statuses.** `role=` gives a member's role (`father`, `mother`, `proband`,
+  `embryo`, `relative`, `sibling`); without one, the pedigree gives it. The sixth column gives
+  the clinical status (`2` affected, `1` unaffected, `0` or `-9` unknown), and `carrier=1` (with
+  `carrier_type=obligate` or `proven` when known) a carrier.
+- **Embryos** have sex `0`, unknown before the analysis, and `role=embryo`; a child of the couple
+  of unknown sex is read as an embryo without it.
+- **The index** is every member but the couple (the embryos' parents) and the embryos who is no
+  one's parent. The couple's child, as above, is the proband. Any other index is a relative,
+  linked through its parents in the PED (the affected mother's sister under the mother's parents,
+  who are then in the PED too), or, when its degree is not known, through the member a
+  `related_to=` column names: `FAM001 INDEX1 0 0 2 -9 related_to=MOTHER1` links the index to the
+  mother by an unknown degree (`family.relationships.relatives`; several members separated by
+  commas). A member with `related_to=` and no `role=` is a relative in any family's PED. A
+  standard PED has no column for such a link, and tools that read only the first six columns
+  ignore it.
+- Discover's `pgt_index` warning says how it read each index. An index linked neither way is
+  warned about (`pgt_index_unlinked`): its haplotype stays grey and is not used to find the risk
+  haplotype until it is linked, with **Correct…** in Deliveries or on the family page after the
+  import.
 
 Discover also sets `roi` to the region of the newest `params_*.json`, and records the parent the
-run traced (`affected_parent`) under `metadata.pgt.affected_parents` and the samplesheet's index
-under `metadata.pgt.indexes`. The run does not record the inheritance model: set
+run traced (`affected_parent`) under `metadata.pgt.affected_parents` and the PED's indexes under
+`metadata.pgt.indexes`. The run does not record the inheritance model: set
 `metadata.pgt.inheritance_model`, and the import records that parent and the index as affected
-or as proven carriers, as the model asks (see the manifest below). Not imported: the embryo-only
+or as proven carriers, as the model asks (see the manifest below); a clinical status in the PED's
+sixth column wins. Not imported: the embryo-only
 VCFs (`split_trio/extract_embryo/`), the pipeline's HTML plots and the `dashboard/` copies. The
 PCF segmentation is read from its table only: a run that only draws it in
 `apcad/EMBRYO1_pcf_apcad_plot.html` gets no PCF track, and Discover leaves the `pcf` dataset off.
@@ -1404,8 +1424,8 @@ or none:
 
 `metadata.pgt.affected_parents` names the parent whose condition the PGT tests for (the PGT
 pipeline's `affected_parent`, which Discover copies). `metadata.pgt.indexes` names the index, the
-relative whose haplotypes the risk haplotype is read from (the samplesheet's `index`, which
-Discover copies). Each gets the status the inheritance model asks, which the haplotype analysis
+relative whose haplotypes the risk haplotype is read from (for a folder's PED, Discover names
+every member but the couple and the embryos who is no one's parent). Each gets the status the inheritance model asks, which the haplotype analysis
 reads to find the risk haplotype:
 
 | Model | Affected parent | Index |
@@ -2503,7 +2523,8 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
 | `dataset_vcf_index_missing` | A compressed VCF has no `.tbi`, `.csi` or `.idx`. |
 | `manifest_relationship_unknown_member` | A `family.relationships` entry names someone in neither the PED nor `family.add_members`. |
-| `dataset_vcf_sample_unknown` | The phased family VCF has a sample column no member is, such as an affected relative or a PGT index the samplesheet did not name: add it as a member with **Correct…** in Deliveries, or leave the haplotypes out of the import. |
+| `dataset_vcf_sample_unknown` | The phased family VCF has a sample column no member is, such as an affected relative or a PGT index the PED lacks: add it as a member with **Correct…** in Deliveries, or leave the haplotypes out of the import. |
+| `ped_file_missing` | The package folder holds no PED at its top (`<family>.ped`). A PGT folder whose only PED is the pipeline's `ped/combined.ped` needs the family's PED put at its top: the couple, the embryos (`role=embryo`) and the index ([PGT package](#4-package-layout-and-manifest)). |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
 | A job stays `queued` | No worker is running: the API runs none (`FAMILY_IMPORT_WORKER_COUNT=0`, as with Docker Compose) and no import-worker process is up. Check `docker compose ps import-worker` and `docker compose logs import-worker`: a process that refuses to start says why (another schema revision, `FAMILY_IMPORT_WORKER_COUNT` 0 for the worker). |
 | "Not run: the account that requested this import has been deactivated …", "Not run: the account that requested this import is no longer an administrator …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, given another role than administrator, or deleted before a worker ran it; a job runs only as the active administrator who queued it. Nothing was written: queue the import again as an active administrator. |

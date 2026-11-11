@@ -15,10 +15,10 @@ Through the app over HTTP, as the e2e administrator:
   added as a relative of the affected father, the PGT index, it is ready;
 - approved, the import runs: the family holds the index as an affected relative of the father,
   and the family's record names the member added among the corrections;
-- a folder added by hand whose PED lacks the index its phased family VCF holds (the samplesheet
-  that named it was not kept): CoGA still proposes the PED's members and the datasets, the
-  delivery offers the index; corrected as JSON, the index and a member in no file are added, the
-  revision lists each whole, and the index's column is no issue any more.
+- a folder added by hand whose PED lacks the index its phased family VCF holds: CoGA still
+  proposes the PED's members and the datasets, the delivery offers the index; corrected as
+  JSON, the index and a member in no file are added, the revision lists each whole, and the
+  index's column is no issue any more.
 
 The values are synthetic: the families are new and uniquely named. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py).

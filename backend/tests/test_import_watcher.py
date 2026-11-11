@@ -920,9 +920,9 @@ async def test_stopping_the_watcher_ends_its_task() -> None:
 def test_a_draft_whose_phased_vcf_names_a_sample_the_ped_lacks_still_proposes_its_members_and_datasets(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The PGT index is in the phased family VCF, not in the PED (the samplesheet that named it was
-    # not kept): the draft does not validate, but the package still gets the PED's members and the
-    # datasets, so the person adds the index in Deliveries; the delivery's check reports it.
+    # The PGT index is in the phased family VCF, not in the PED: the draft does not validate, but
+    # the package still gets the PED's members and the datasets, so the person adds the index in
+    # Deliveries; the delivery's check reports it.
     from backend.app.core.config import settings
     from backend.tests.e2e._pgt_package import write_pgt_package
 

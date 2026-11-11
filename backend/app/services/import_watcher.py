@@ -373,7 +373,9 @@ def _folder_ped_differences(folder: Path, package: CogaPackage) -> DeliveryIssue
     members, never the PED. None when there is no PED, or it agrees."""
     if package.members is None or package.family is None:
         return None
-    ped_path, _errors, _warnings = _detect_ped_path(folder, family_id=package.family.family_id)
+    ped_path, _errors, _warnings = _detect_ped_path(
+        folder, family_id=package.family.family_id, pipeline_ped_folder=True
+    )
     if ped_path is None:
         return None
     try:
