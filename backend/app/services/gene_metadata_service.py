@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -11,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
 from ..schemas import (
     GeneAssemblyLocationOut,
+    GeneDiseaseLinksOut,
+    GeneDiseaseMonarchOut,
+    GeneDiseaseOmimOut,
     GeneExternalLinkOut,
     GeneHomologOut,
     GeneInfoSourceStatusOut,
@@ -22,7 +26,7 @@ from ..schemas import (
     PhenotypeTermRefOut,
 )
 from .data_scope import is_primary_chromosome
-from .gene_info_jobs_pg import _get_human_context
+from .gene_info_jobs_pg import _assembly_priority, _get_human_context
 from .metadata_service import get_accessible_family_mapping
 from .access_control import CurrentUser, RecordNotVisible, user_can_access_metadata_projects
 from .monarch_ingest import (
@@ -401,6 +405,113 @@ async def search_genes(
             )
         )
     return payload
+
+
+# How many genes one disease-link lookup may ask for: a result page shows at most 100 cards.
+MAX_DISEASE_LINK_SYMBOLS = 200
+
+_OMIM_ID_PATTERN = re.compile(r"\d{5,}")
+
+
+def _omim_disease_entries(value: Any) -> list[GeneDiseaseOmimOut]:
+    """The OMIM diseases the gene reference holds, each with a label, in their stored order.
+
+    The link is built from the OMIM number, as the Monarch link is from the MONDO id.
+    """
+    if not isinstance(value, list):
+        return []
+    entries: list[GeneDiseaseOmimOut] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        label = str(entry.get("label") or "").strip()
+        if not label:
+            continue
+        omim_id = str(entry.get("omim_id") or "").strip() or None
+        href = (
+            f"https://www.omim.org/entry/{omim_id}"
+            if omim_id is not None and _OMIM_ID_PATTERN.fullmatch(omim_id)
+            else None
+        )
+        entries.append(GeneDiseaseOmimOut(label=label, omim_id=omim_id, href=href))
+    return entries
+
+
+async def list_gene_disease_links(
+    session: AsyncSession,
+    *,
+    symbols: list[str],
+) -> list[GeneDiseaseLinksOut]:
+    """The diseases each gene is linked to, in Monarch and in OMIM, for a page of variant cards.
+
+    One entry per symbol asked, in the order asked and matched without regard to case; a
+    symbol asked twice gets one entry. A gene with no link has empty lists. Monarch's links are
+    read as the gene profile reads them (causal first, then by name). OMIM's come from the gene
+    reference of the first human assembly that holds the gene, GRCh38 first.
+    """
+    asked: dict[str, str] = {}
+    for symbol in symbols:
+        cleaned = symbol.strip()
+        if cleaned and cleaned.upper() not in asked:
+            asked[cleaned.upper()] = cleaned
+    if not asked:
+        return []
+    keys = list(asked)
+
+    monarch_result = await session.execute(
+        text(
+            """
+            SELECT upper(gene_symbol) AS symbol_key, mondo_id, disease_label, sources, causal
+            FROM monarch_gene_disease
+            WHERE upper(gene_symbol) = ANY(CAST(:symbols AS text[]))
+              AND coalesce(disease_label, '') <> ''
+            ORDER BY upper(gene_symbol), causal DESC, lower(disease_label), mondo_id
+            """
+        ),
+        {"symbols": keys},
+    )
+    monarch: dict[str, list[GeneDiseaseMonarchOut]] = defaultdict(list)
+    for row in monarch_result.mappings().all():
+        monarch[str(row["symbol_key"])].append(
+            GeneDiseaseMonarchOut(
+                mondo_id=str(row["mondo_id"]),
+                disease_label=str(row["disease_label"]),
+                causal=bool(row["causal"]),
+                sources=[str(source) for source in row.get("sources") or []],
+                monarch_url=f"https://monarchinitiative.org/{row['mondo_id']}",
+            )
+        )
+
+    reference_result = await session.execute(
+        text(
+            """
+            SELECT
+                upper(g.hgnc_symbol) AS symbol_key,
+                a.assembly_name,
+                g.extra->'omim_diseases' AS omim_diseases
+            FROM gene_info g
+            JOIN assemblies a ON a.id = g.assembly_id
+            WHERE upper(g.hgnc_symbol) = ANY(CAST(:symbols AS text[]))
+            """
+        ),
+        {"symbols": keys},
+    )
+    reference_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in reference_result.mappings().all():
+        reference_rows[str(row["symbol_key"])].append(dict(row))
+    omim: dict[str, list[GeneDiseaseOmimOut]] = {}
+    for key, rows in reference_rows.items():
+        first = min(rows, key=lambda row: _assembly_priority(str(row["assembly_name"])))
+        omim[key] = _omim_disease_entries(first.get("omim_diseases"))
+
+    return [
+        GeneDiseaseLinksOut(
+            symbol=symbol,
+            monarch=monarch.get(key, []),
+            omim=omim.get(key, []),
+        )
+        for key, symbol in asked.items()
+    ]
 
 
 async def build_gene_profile(

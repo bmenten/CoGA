@@ -126,6 +126,36 @@ class GeneMonarchAssociationOut(BaseModel):
     matched_phenotypes: List[PhenotypeTermRefOut] = Field(default_factory=list)
 
 
+class GeneDiseaseMonarchOut(BaseModel):
+    """A Monarch gene–disease link as a variant card lists it: causal or merely associated."""
+
+    mondo_id: str
+    disease_label: str
+    causal: bool = False
+    sources: List[str] = Field(default_factory=list)
+    monarch_url: str
+
+
+class GeneDiseaseOmimOut(BaseModel):
+    """An OMIM disease of the gene, from the gene reference (dbNSFP, ClinVar)."""
+
+    label: str
+    omim_id: Optional[str] = None
+    href: Optional[str] = None
+
+
+class GeneDiseaseLinksOut(BaseModel):
+    """The diseases one gene is linked to, for the variant cards of a result page.
+
+    ``symbol`` is the symbol as asked. Monarch's links come causal first, then by name, as on
+    the gene profile; OMIM's in the order the gene reference holds them.
+    """
+
+    symbol: str
+    monarch: List[GeneDiseaseMonarchOut] = Field(default_factory=list)
+    omim: List[GeneDiseaseOmimOut] = Field(default_factory=list)
+
+
 class GeneProfileOut(BaseModel):
     assembly_id: str
     assembly_name: str
