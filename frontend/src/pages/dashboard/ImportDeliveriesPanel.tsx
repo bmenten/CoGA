@@ -18,7 +18,9 @@ import {
 } from '../../components/PackageSourceChangedBanner';
 import QueryFailure from '../../components/QueryFailure';
 import AddDeliveryForm from './AddDeliveryForm';
-import DeliveryCorrectionDialog from './DeliveryCorrectionDialog';
+import DeliveryCorrectionDialog, {
+  PackageFileDialog,
+} from './DeliveryCorrectionDialog';
 
 type Delivery = ImportDeliveryOut;
 type ConflictMode = 'cancel' | 'update' | 'overwrite';
@@ -160,7 +162,8 @@ type Decision =
   | { kind: 'approve'; deliveries: Delivery[]; dryRun: boolean }
   | { kind: 'refuse'; delivery: Delivery }
   | { kind: 'archive'; delivery: Delivery }
-  | { kind: 'correct'; delivery: Delivery };
+  | { kind: 'correct'; delivery: Delivery }
+  | { kind: 'package'; delivery: Delivery };
 
 interface ApproveDialogProps {
   deliveries: Delivery[];
@@ -795,6 +798,18 @@ const ImportDeliveriesPanel: React.FC = () => {
                           Correct…
                         </button>
                       ) : null}
+                      {!CORRECTABLE_STATES.has(delivery.state) &&
+                      delivery.state !== 'incomplete' ? (
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          onClick={() =>
+                            setDecision({ kind: 'package', delivery })
+                          }
+                        >
+                          Package…
+                        </button>
+                      ) : null}
                       {REFUSABLE_STATES.has(delivery.state) ? (
                         <button
                           type="button"
@@ -865,6 +880,12 @@ const ImportDeliveriesPanel: React.FC = () => {
             setDecision(null);
             refresh();
           }}
+        />
+      ) : null}
+      {decision?.kind === 'package' ? (
+        <PackageFileDialog
+          delivery={decision.delivery}
+          onClose={() => setDecision(null)}
         />
       ) : null}
       {decision?.kind === 'refuse' ? (

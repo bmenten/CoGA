@@ -31,6 +31,17 @@ const packages = [
     changed_during_import: false,
   },
 ];
+// A folder whose last import did not complete: listed with the others.
+packages.push({
+  folder_path: '/data/families/FAM003',
+  name: 'FAM003',
+  family_id: 'FAM003',
+  has_ped: true,
+  imported_families: [
+    { family_id: 'FAM003', registered_at: null, import_incomplete: true },
+  ],
+  changed_during_import: false,
+});
 // A folder in the project folder of a project CoGA has.
 packages.push({
   folder_path: '/data/families/Rare disease/FAM002',
@@ -113,12 +124,21 @@ describe('AddDeliveryForm', () => {
     );
   });
 
-  it('marks an imported folder, and takes a typed path', async () => {
+  it('hides an imported folder until asked, marks it, and takes a typed path', async () => {
     vi.mocked(api.post).mockResolvedValue({ data: { _id: 'd2' } });
     renderForm();
 
     expect(
-      await screen.findByRole('option', { name: 'NIPT1 · imported' })
+      await screen.findByRole('option', { name: 'FAM003 · import incomplete' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('option', { name: 'NIPT1 · imported' })
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Show imported folders (1)' })
+    );
+    expect(
+      screen.getByRole('option', { name: 'NIPT1 · imported' })
     ).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'Folder to add' }), {
       target: { value: '/data/families/NIPT1' },

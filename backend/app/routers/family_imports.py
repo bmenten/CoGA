@@ -154,15 +154,23 @@ async def revise_family_package_delivery(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_superuser),
 ) -> ImportDeliveryRevisedOut:
-    """Correct the package of a delivery that is ready or needs attention, with a reason the audit
-    trail keeps; the delivery is checked again at once (import_delivery_revisions.py)."""
+    """Correct the package of a delivery that is ready or needs attention, with its changes or the
+    whole package as edited, and a reason the audit trail keeps; the delivery is checked again at
+    once (import_delivery_revisions.py)."""
     reason = payload.reason.strip()
     if not reason or manifest_text_problem(reason) is not None:
         raise HTTPException(status_code=400, detail="Give a reason in plain text to correct the delivery.")
-    if manifest_text_problem(json.dumps([change.model_dump() for change in payload.changes], ensure_ascii=False)) is not None:
+    held = [change.model_dump() for change in payload.changes] if payload.package is None else payload.package
+    if manifest_text_problem(json.dumps(held, ensure_ascii=False)) is not None:
         raise HTTPException(status_code=400, detail="A correction holds a NUL or a lone surrogate, which CoGA cannot keep.")
     return await revise_delivery(
-        session, delivery_id=delivery_id, user=user, revision=payload.revision, changes=payload.changes, reason=reason
+        session,
+        delivery_id=delivery_id,
+        user=user,
+        revision=payload.revision,
+        changes=payload.changes,
+        package=payload.package,
+        reason=reason,
     )
 
 

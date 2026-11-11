@@ -407,6 +407,20 @@
   min-width: 9rem;
 }
 
+/* The package as coga-package.json, shown or edited: it scrolls inside the dialog. */
+.delivery-package-json {
+  max-height: 24rem;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre;
+}
+
+textarea.delivery-package-json {
+  width: 100%;
+  max-height: none;
+}
+
 /* An account's project access (UserProjectAccessDialog): a long project list scrolls inside the
    dialog, never past the window. */
 .user-project-access-modal {

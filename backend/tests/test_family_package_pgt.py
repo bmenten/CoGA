@@ -696,10 +696,11 @@ def test_a_phased_vcf_sample_the_family_lacks_fails_validation_before_anything_i
     validation, _bundle = _validated(root, manifest)
 
     assert validation.valid is False
-    assert [(error.code, error.dataset) for error in validation.errors] == [
-        ("dataset_vcf_sample_unknown", "haplotypes")
+    # One issue per column the members lack, naming it: Deliveries offers it as a member to add.
+    assert [(error.code, error.dataset, error.sample_id) for error in validation.errors] == [
+        ("dataset_vcf_sample_unknown", "haplotypes", INDEX)
     ]
-    assert INDEX in validation.errors[0].message
+    assert validation.errors[0].message.startswith(f"The phased family VCF has a sample column {INDEX} that is no member")
 
 
 def _write_indexed_phased_vcf(root: Path, *, chromosomes: tuple[str, ...]) -> None:

@@ -397,8 +397,11 @@ left), and on **View** its report: the datasets, validation errors and warnings,
 SHA-256 of the manifest CoGA kept and the package fingerprint, and a link to the imported family.
 
 **Add a folder by hand** chooses from the folders under the roots that can be added
-(`GET /family-imports/packages`, [family_package_source.py](../backend/app/services/family_package_source.py)):
-each one holding a `*.ped` file, at its top or in its `ped/` folder, or laid out per sample as
+(`GET /family-imports/packages`, [family_package_source.py](../backend/app/services/family_package_source.py));
+a folder whose families were all imported completely, and whose latest import was not undone, is
+left out until **Show imported folders** is ticked; one whose import did not complete is marked
+*import incomplete*, and one whose latest import was undone *import undone*. The folders listed
+are those holding a `*.ped` file, at its top or in its `ped/` folder, or laid out per sample as
 the long-read pipeline writes its output, and holding no `coga-package.json` of its own (a
 pipeline delivers that one through a watched folder). The list reads nothing in a folder the
 import would refuse: a package folder that is a symlink leading out of the roots, or one that
@@ -784,6 +787,12 @@ file, as JSON so that every ID stays text:
   folder, for the family the file names: the members from the folder's PED (or its per-sample
   folders), the datasets from its layout. The warnings `package_members_proposed` and
   `package_datasets_proposed` say so, with Discover's own notes: check them before approving.
+  A dataset the PED's members do not cover (a phased family VCF with a column for a PGT index
+  or an affected relative the PED lacks, its samplesheet not kept) does not stop the proposal:
+  the members are read from the PED alone, the datasets are proposed all the same, and the
+  delivery needs attention (`dataset_vcf_sample_unknown`) until that sample is added as a member
+  ([Correcting a delivery](#correcting-a-delivery)). Only a draft whose members themselves do not
+  validate is refused (`discover_failed`), and the package then keeps no members.
 - What the file gives wins over Discover's draft: the family ID, the analysis, the region of
   interest and the PGT details.
 - What Discover proposes is written into the package the delivery keeps (`import_deliveries.package`):
@@ -876,17 +885,25 @@ with its SHA-256. The import reads the latest.
 
 - On the Package Import page, **Correct…** on a delivery that is ready or needs attention opens
   the package as a form: the project, the analysis, the region of interest, the PGT details, each
-  member's sex, parents, role, clinical status, carrier fields and HPO terms, and which datasets
-  are in the import, with a reason; the corrections made so far are listed with it. The other
-  fields, `related_to`, assays, couples and a dataset's options, change through the API.
+  member's sex, parents, the member it is related to (`related_to`), role, clinical status,
+  carrier fields and HPO terms, the members added or removed, and which datasets are in the
+  import, with a reason; the corrections made so far are listed with it, and the package as
+  `coga-package.json` (**Download coga-package.json** saves it). The other fields, assays,
+  couples and a dataset's options, change through the API, and for a folder added by hand also
+  with **Edit as JSON**. **Package…** shows the package of a delivery that is no longer corrected,
+  with its corrections.
 - `GET /family-imports/deliveries/{id}/package` (superuser) gives the package as the import would
   read it now (`revision` 0 when it was not corrected), the pipeline's file as written
-  (`original`), the sections CoGA proposed, and every revision.
+  (`original`), the sections CoGA proposed, every revision, the delivery's `origin`, the samples
+  that may be added as members (`addable_members`) and the members of the package as checked
+  (`members_as_checked`).
 - `POST /family-imports/deliveries/{id}/revisions` (superuser) with `revision` (the latest the
-  person saw), `reason` (plain text, at most 2,000 characters) and `changes`: each a `path` and a
-  `value`, null to remove a field (a list is emptied). A path is `["project"]`,
-  `["analysis_type"]`, `["family", "roi"]`, `["family", "pgt"]` or one of its fields,
-  `["members", <sample ID>, <field>]`, `["couples"]` or `["datasets", <dataset>]`.
+  person saw), `reason` (plain text, at most 2,000 characters) and either `changes`, each a `path`
+  and a `value`, null to remove a field (a list is emptied), or `package`, the whole package as
+  edited, whose changes CoGA works out field by field under the same rules. A path is
+  `["project"]`, `["analysis_type"]`, `["family", "roi"]`, `["family", "pgt"]` or one of its
+  fields, `["members", <sample ID>]` (a member added, its fields as the value, or removed with
+  null), `["members", <sample ID>, <field>]`, `["couples"]` or `["datasets", <dataset>]`.
 - **Which fields change.** The laboratory's: the project, the analysis type, a member's role,
   clinical status, carrier fields, HPO terms, `related_to`, assay and panel, the family's region of
   interest and PGT details, and each dataset's entry (in or out of the import, its options,
@@ -894,8 +911,18 @@ with its SHA-256. The import reads the latest.
   couples; while a dataset the pipeline computed with them (`pipeline_used_pedigree`) is in the
   import, the delivery needs attention (`package_pedigree_changed`) and is not approved: leave
   those datasets out, or put the value back. Every other field is the pipeline's and is refused
-  (400): the format, status and run, the assembly, the family ID, every sample ID (no member is
-  added or removed), the files, the QC, the request, the reference, the notes and `extra`.
+  (400): the format, status and run, the assembly, the family ID, every sample ID, the files, the
+  QC, the request, the reference, the notes and `extra`.
+- **Members added and removed** (the owner's decision of 2026-11-11). A sample the package's files
+  name and no member is, a column of the phased family VCF (`dataset_vcf_sample_unknown`, one
+  issue per column, naming it), is added as a member: an affected relative read for segregation,
+  or a PGT index the samplesheet did not name. Its sample ID is the file's: no other is added to a
+  pipeline's package (400). Give its sex, role, status and how it is related (its parents, or the
+  member it is related to by an unknown degree; a PGT index without one stays grey). A member
+  added in CoGA is removed again; a member the package delivered is not (400). A member added
+  with parents, or removed, needs attention while a dataset the pipeline computed with the
+  pedigree is in the import, as a parent changed does. A folder added by hand has no pipeline:
+  any member is added or removed there.
 - Refused too: a correction made on another revision than the latest (409), of a delivery that is
   not ready or needing attention, whose package CoGA could not read, or whose folder changed (409),
   a correction that changes nothing or names a field twice, and a package the format refuses (400).
@@ -926,7 +953,9 @@ delivered package is, and is a delivery of origin `manual` (`import_deliveries.o
 *Added by hand*. It is then corrected (**Correct…**), approved or refused like any delivery, and the
 family's record names it as added by hand.
 
-- CoGA writes nothing in the folder: the package it made is kept with the delivery.
+- CoGA writes nothing in the folder: the package it made is kept with the delivery, shown as
+  `coga-package.json` and saved from Deliveries, and corrected in **Correct…** as a form or as
+  JSON (**Edit as JSON**), members added and removed too, each save a revision with its reason.
 - No file list with checksums is made (the owner's decision of 2026-11-10; the warning
   `added_by_hand` says so): the folder's fingerprint guards it until the import, which records each
   file it reads with its SHA-256 (`raw_import_files`).
@@ -2474,7 +2503,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
 | `dataset_vcf_index_missing` | A compressed VCF has no `.tbi`, `.csi` or `.idx`. |
 | `manifest_relationship_unknown_member` | A `family.relationships` entry names someone in neither the PED nor `family.add_members`. |
-| "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
+| `dataset_vcf_sample_unknown` | The phased family VCF has a sample column no member is, such as an affected relative or a PGT index the samplesheet did not name: add it as a member with **Correct…** in Deliveries, or leave the haplotypes out of the import. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
 | A job stays `queued` | No worker is running: the API runs none (`FAMILY_IMPORT_WORKER_COUNT=0`, as with Docker Compose) and no import-worker process is up. Check `docker compose ps import-worker` and `docker compose logs import-worker`: a process that refuses to start says why (another schema revision, `FAMILY_IMPORT_WORKER_COUNT` 0 for the worker). |
 | "Not run: the account that requested this import has been deactivated …", "Not run: the account that requested this import is no longer an administrator …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, given another role than administrator, or deleted before a worker ran it; a job runs only as the active administrator who queued it. Nothing was written: queue the import again as an active administrator. |

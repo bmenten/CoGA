@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .common import (
     ApiDocumentModel,
@@ -291,8 +291,9 @@ class ImportDeliveryApproveOut(BaseModel):
 class ImportDeliveryChange(BaseModel):
     """One field of a delivery's package set to a value, or removed (``value`` null). ``path``
     names it: ``["project"]``, ``["analysis_type"]``, ``["family", "roi"]``, ``["family", "pgt"]``
-    or one of its fields, ``["members", <sample ID>, <field>]``, ``["couples"]``, or
-    ``["datasets", <dataset>]`` (import_delivery_revisions.py says which may change)."""
+    or one of its fields, ``["members", <sample ID>]`` (a member added, its fields the value, or
+    removed), ``["members", <sample ID>, <field>]``, ``["couples"]``, or ``["datasets", <dataset>]``
+    (import_delivery_revisions.py says which may change)."""
 
     path: List[str] = Field(min_length=1, max_length=3)
     value: Any = None
@@ -300,11 +301,19 @@ class ImportDeliveryChange(BaseModel):
 
 class ImportDeliveryRevise(BaseModel):
     """A correction of a delivery's package: made on ``revision`` (the latest the person saw, 0
-    when there is none), with its reason."""
+    when there is none), with its reason. It is the ``changes``, or the whole ``package`` as the
+    person edited it, whose changes CoGA works out field by field: one of the two."""
 
     revision: int = Field(ge=0)
     reason: str = Field(min_length=1, max_length=2000)
-    changes: List[ImportDeliveryChange] = Field(min_length=1, max_length=200)
+    changes: List[ImportDeliveryChange] = Field(default_factory=list, max_length=200)
+    package: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def _changes_or_package(self) -> "ImportDeliveryRevise":
+        if bool(self.changes) == (self.package is not None):
+            raise ValueError("give the changes or the edited package, one of the two")
+        return self
 
 
 class ImportDeliveryRevisionChange(BaseModel):
@@ -341,6 +350,13 @@ class ImportDeliveryPackageOut(BaseModel):
     original: Optional[Dict[str, Any]] = None
     proposed: List[str] = Field(default_factory=list)
     revisions: List[ImportDeliveryRevisionOut] = Field(default_factory=list)
+    # ``manual``: a folder added by hand, whose package CoGA made: members are added and removed
+    # freely, and the package is edited as JSON.
+    origin: Literal["watched", "manual"] = "watched"
+    # The samples the package's files name and no member is: the members a correction may add.
+    addable_members: List[str] = Field(default_factory=list)
+    # The members of the package as checked: a pipeline's members are not removed in CoGA.
+    members_as_checked: List[str] = Field(default_factory=list)
 
 
 class ImportDeliveryRevisedOut(BaseModel):

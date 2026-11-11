@@ -30,6 +30,7 @@ interface PackageMember {
   carrier_status?: string | null;
   carrier_type?: string | null;
   hpo?: PackageHpo | null;
+  related_to?: string[] | null;
 }
 interface PackagePgt {
   inheritance_model?: string | null;
@@ -56,7 +57,9 @@ interface MemberForm {
   carrier_type: string;
   hpo_present: string;
   hpo_absent: string;
+  related_to: string[];
 }
+type MemberTextField = Exclude<keyof MemberForm, 'related_to'>;
 export interface CorrectionForm {
   project: string;
   analysis_type: string;
@@ -112,6 +115,7 @@ export const toForm = (pkg: PackageDocument): CorrectionForm => ({
     carrier_type: text(member.carrier_type),
     hpo_present: (member.hpo?.present ?? []).join(', '),
     hpo_absent: (member.hpo?.absent ?? []).join(', '),
+    related_to: [...(member.related_to ?? [])],
   })),
   enabled: Object.fromEntries(
     Object.entries(pkg.datasets ?? {}).map(([name, entry]) => [
@@ -123,6 +127,42 @@ export const toForm = (pkg: PackageDocument): CorrectionForm => ({
 
 const hpoValue = (present: string[], absent: string[]) =>
   present.length || absent.length ? { present, absent } : null;
+
+const MEMBER_TEXT_FIELDS = [
+  'father',
+  'mother',
+  'role',
+  'clinical_status',
+  'carrier_status',
+  'carrier_type',
+] as const;
+
+/** A member the form adds: with no field set but its sex, a relative. */
+export const newMember = (sampleId: string): MemberForm => ({
+  sample_id: sampleId,
+  sex: 'unknown',
+  father: '',
+  mother: '',
+  role: 'relative',
+  clinical_status: '',
+  carrier_status: '',
+  carrier_type: '',
+  hpo_present: '',
+  hpo_absent: '',
+  related_to: [],
+});
+
+/** A member the form adds, as the package holds it: the fields set. */
+const memberValue = (member: MemberForm): Record<string, unknown> => {
+  const value: Record<string, unknown> = { sex: member.sex };
+  for (const name of MEMBER_TEXT_FIELDS) {
+    if (member[name]) value[name] = member[name];
+  }
+  const hpo = hpoValue(terms(member.hpo_present), terms(member.hpo_absent));
+  if (hpo) value.hpo = hpo;
+  if (member.related_to.length) value.related_to = sorted(member.related_to);
+  return value;
+};
 
 /** What the form changes in the package, as the correction the API takes: each field changed,
  * set to its new value or removed (null). */
@@ -155,19 +195,18 @@ export const changesBetween = (
       });
     }
   }
-  (pkg.members ?? []).forEach((member, index) => {
-    const edited = form.members[index];
-    if (!edited) return;
+  const editedMembers = new Map(
+    form.members.map((member) => [member.sample_id, member])
+  );
+  for (const member of pkg.members ?? []) {
+    const edited = editedMembers.get(member.sample_id);
+    if (!edited) {
+      changes.push({ path: ['members', member.sample_id], value: null });
+      continue;
+    }
     const path = (name: string) => ['members', member.sample_id, name];
     field(path('sex'), member.sex, edited.sex);
-    for (const name of [
-      'father',
-      'mother',
-      'role',
-      'clinical_status',
-      'carrier_status',
-      'carrier_type',
-    ] as const) {
+    for (const name of MEMBER_TEXT_FIELDS) {
       field(path(name), member[name], edited[name] || null);
     }
     field(
@@ -175,7 +214,26 @@ export const changesBetween = (
       hpoValue(member.hpo?.present ?? [], member.hpo?.absent ?? []),
       hpoValue(terms(edited.hpo_present), terms(edited.hpo_absent))
     );
-  });
+    const relatedBefore = sorted(member.related_to ?? []);
+    const relatedAfter = sorted(edited.related_to);
+    if (!same(relatedBefore, relatedAfter)) {
+      changes.push({
+        path: path('related_to'),
+        value: relatedAfter.length ? relatedAfter : null,
+      });
+    }
+  }
+  const delivered = new Set(
+    (pkg.members ?? []).map((member) => member.sample_id)
+  );
+  for (const member of form.members) {
+    if (!delivered.has(member.sample_id)) {
+      changes.push({
+        path: ['members', member.sample_id],
+        value: memberValue(member),
+      });
+    }
+  }
   for (const [name, entry] of Object.entries(pkg.datasets ?? {})) {
     if (form.enabled[name] === isEnabled(entry)) continue;
     const next: Record<string, unknown> = { ...entry };
@@ -223,13 +281,16 @@ const History: React.FC<{ revisions: ImportDeliveryRevisionOut[] }> = ({
   </details>
 );
 
+/** A choice among the format's values (shown with spaces for underscores), or among sample IDs
+ * (`verbatim`: an ID is shown as it is). */
 const Select: React.FC<{
   label: string;
   value: string;
   options: string[];
   blank?: string;
+  verbatim?: boolean;
   onChange: (value: string) => void;
-}> = ({ label, value, options, blank, onChange }) => (
+}> = ({ label, value, options, blank, verbatim = false, onChange }) => (
   <select
     aria-label={label}
     value={value}
@@ -238,11 +299,177 @@ const Select: React.FC<{
     {blank !== undefined ? <option value="">{blank}</option> : null}
     {options.map((option) => (
       <option key={option} value={option}>
-        {option.replaceAll('_', ' ')}
+        {verbatim ? option : option.replaceAll('_', ' ')}
       </option>
     ))}
   </select>
 );
+
+// The order the format lists a package's fields and a member's in (docs/coga-package.md): the
+// package is shown and saved in it, whatever order it was kept in.
+const PACKAGE_FIELD_ORDER = [
+  'schema',
+  'status',
+  'written_at',
+  'pipeline',
+  'project',
+  'assembly',
+  'analysis_type',
+  'family',
+  'members',
+  'couples',
+  'datasets',
+  'pipeline_used_pedigree',
+  'files',
+  'qc',
+  'request_id',
+  'reference',
+  'notes',
+  'extra',
+];
+const MEMBER_FIELD_ORDER = [
+  'sample_id',
+  'sex',
+  'father',
+  'mother',
+  'role',
+  'clinical_status',
+  'carrier_status',
+  'carrier_type',
+  'assay',
+  'assay_panel',
+  'hpo',
+  'related_to',
+];
+const inOrder = (
+  value: Record<string, unknown>,
+  order: string[]
+): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(value).sort(([left], [right]) => {
+      const rank = (key: string) =>
+        order.includes(key) ? order.indexOf(key) : order.length;
+      return rank(left) - rank(right) || left.localeCompare(right);
+    })
+  );
+
+/** The package as coga-package.json: its fields in the format's order, two spaces deep. */
+export const packageJson = (pkg: PackageDocument): string => {
+  const ordered = inOrder(pkg as Record<string, unknown>, PACKAGE_FIELD_ORDER);
+  if (Array.isArray(ordered.members)) {
+    ordered.members = ordered.members.map((member) =>
+      member && typeof member === 'object'
+        ? inOrder(member as Record<string, unknown>, MEMBER_FIELD_ORDER)
+        : member
+    );
+  }
+  return JSON.stringify(ordered, null, 2);
+};
+
+/** Saves the package as coga-package.json. */
+export const downloadPackage = (pkg: PackageDocument) => {
+  const url = window.URL.createObjectURL(
+    new Blob([`${packageJson(pkg)}\n`], {
+      type: 'application/json',
+    })
+  );
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'coga-package.json';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+/** The package as the import would read it now, as coga-package.json: shown and saved. */
+const PackageJson: React.FC<{
+  pkg: PackageDocument;
+  open?: boolean;
+  onEdit?: () => void;
+}> = ({ pkg, open = false, onEdit }) => (
+  <details className="text-sm" open={open}>
+    <summary>The package as coga-package.json</summary>
+    <div className="space-y-2">
+      <div className="inline-actions">
+        <button
+          type="button"
+          className="button-secondary"
+          onClick={() => downloadPackage(pkg)}
+        >
+          Download coga-package.json
+        </button>
+        {onEdit ? (
+          <button type="button" className="button-secondary" onClick={onEdit}>
+            Edit as JSON
+          </button>
+        ) : null}
+      </div>
+      <pre className="delivery-package-json">{packageJson(pkg)}</pre>
+    </div>
+  </details>
+);
+
+const usePackage = (deliveryId: string) =>
+  useQuery<ImportDeliveryPackageOut>({
+    queryKey: ['family-import-delivery-package', deliveryId],
+    queryFn: async () =>
+      (await api.get(apiPath`/family-imports/deliveries/${deliveryId}/package`))
+        .data as ImportDeliveryPackageOut,
+  });
+
+/** Shows a delivery's package as coga-package.json, with the corrections made to it, for a
+ * delivery no longer corrected (docs/data-import.md, "Correcting a delivery"). */
+export const PackageFileDialog: React.FC<{
+  delivery: ImportDeliveryOut;
+  onClose: () => void;
+}> = ({ delivery, onClose }) => {
+  const headingId = useId();
+  const packageQuery = usePackage(delivery._id);
+  const pkg = (packageQuery.data?.package ?? null) as PackageDocument | null;
+  return (
+    <ModalDialog
+      onClose={onClose}
+      labelledBy={headingId}
+      className="modal-surface surface-card delivery-correction-modal"
+      confirmDiscard={false}
+    >
+      <div className="space-y-2">
+        <p className="page-kicker">The package</p>
+        <h2 id={headingId} className="section-title">
+          Package of {delivery.folder_name}
+        </h2>
+        <p className="text-sm">
+          The package as its import reads it
+          {packageQuery.data?.revision
+            ? `: revision ${packageQuery.data.revision}, corrected in CoGA`
+            : ''}
+          .
+        </p>
+      </div>
+      {packageQuery.isError ? (
+        <QueryFailure what="the package" error={packageQuery.error} />
+      ) : null}
+      {packageQuery.isLoading ? (
+        <p className="table-subtle">Loading the package…</p>
+      ) : null}
+      {packageQuery.data && !pkg ? (
+        <p className="status-note">
+          CoGA could not read this delivery&apos;s package.
+        </p>
+      ) : null}
+      {pkg ? <PackageJson pkg={pkg} open /> : null}
+      {packageQuery.data?.revisions.length ? (
+        <History revisions={packageQuery.data.revisions} />
+      ) : null}
+      <div className="inline-actions modal-actions">
+        <button type="button" className="button-secondary" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </ModalDialog>
+  );
+};
 
 interface DeliveryCorrectionDialogProps {
   delivery: ImportDeliveryOut;
@@ -250,27 +477,46 @@ interface DeliveryCorrectionDialogProps {
   onSaved: (result: ImportDeliveryRevisedOut) => void;
 }
 
+/** The edited JSON as a package, or why it is not one. */
+const parsePackage = (
+  value: string
+): { package: Record<string, unknown> } | { error: string } => {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return { error: 'The package is one JSON object.' };
+    }
+    return { package: parsed as Record<string, unknown> };
+  } catch (error) {
+    return {
+      error: `This is no JSON: ${error instanceof Error ? error.message : 'it cannot be read'}.`,
+    };
+  }
+};
+
 /** Corrects a delivered package before its approval (docs/data-import.md, "Correcting a
  * delivery"): what the laboratory knows and the pipeline did not, or what it got wrong. Each save
  * is a revision with its reason; the delivery is checked again at once. The pipeline's own fields
- * and the sample IDs are not offered: a wrong one is a refused delivery. */
+ * and the sample IDs are not offered: a wrong one is a refused delivery. A sample the package's
+ * files name and no member is can be added as a member; the package of a folder added by hand,
+ * which CoGA made, takes any member and is also edited as JSON. */
 const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
   delivery,
   onCancel,
   onSaved,
 }) => {
   const headingId = useId();
-  const packageQuery = useQuery<ImportDeliveryPackageOut>({
-    queryKey: ['family-import-delivery-package', delivery._id],
-    queryFn: async () =>
-      (
-        await api.get(
-          apiPath`/family-imports/deliveries/${delivery._id}/package`
-        )
-      ).data as ImportDeliveryPackageOut,
-  });
+  const packageQuery = usePackage(delivery._id);
   const pkg = (packageQuery.data?.package ?? null) as PackageDocument | null;
+  // Known from the delivery while its package loads.
+  const byHand = (packageQuery.data?.origin ?? delivery.origin) === 'manual';
   const [form, setForm] = useState<CorrectionForm | null>(null);
+  const [jsonText, setJsonText] = useState<string | null>(null);
+  const [newMemberId, setNewMemberId] = useState('');
   const [reason, setReason] = useState('');
   const current = form ?? (pkg ? toForm(pkg) : null);
   const changes = useMemo(
@@ -278,7 +524,16 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
     [pkg, current]
   );
   const usedBy = pkg?.pipeline_used_pedigree ?? [];
-  const memberIds = (pkg?.members ?? []).map((member) => member.sample_id);
+  const memberIds = (current?.members ?? []).map((member) => member.sample_id);
+  const asChecked = new Set(packageQuery.data?.members_as_checked ?? []);
+  const offered = (packageQuery.data?.addable_members ?? []).filter(
+    (sampleId) => !memberIds.includes(sampleId)
+  );
+  const removable = (sampleId: string) => byHand || !asChecked.has(sampleId);
+  const edited = jsonText === null ? null : parsePackage(jsonText);
+  const jsonChanged =
+    jsonText !== null && pkg !== null && jsonText !== packageJson(pkg);
+  const newId = newMemberId.trim();
 
   const saveMutation = useMutation({
     mutationFn: async () =>
@@ -288,7 +543,9 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
           {
             revision: packageQuery.data?.revision ?? 0,
             reason: reason.trim(),
-            changes,
+            ...(edited && 'package' in edited
+              ? { package: edited.package }
+              : { changes }),
           }
         )
       ).data as ImportDeliveryRevisedOut,
@@ -303,6 +560,32 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
   };
   const toggleIn = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
+  const addMember = (sampleId: string) =>
+    update((draft) => {
+      draft.members.push(newMember(sampleId));
+    });
+  // A member removed, and every place the form names it.
+  const removeMember = (sampleId: string) =>
+    update((draft) => {
+      draft.members = draft.members
+        .filter((member) => member.sample_id !== sampleId)
+        .map((member) => ({
+          ...member,
+          father: member.father === sampleId ? '' : member.father,
+          mother: member.mother === sampleId ? '' : member.mother,
+          related_to: member.related_to.filter((id) => id !== sampleId),
+        }));
+      draft.affected_parents = draft.affected_parents.filter(
+        (id) => id !== sampleId
+      );
+      draft.indexes = draft.indexes.filter((id) => id !== sampleId);
+    });
+  const canSave =
+    !saveMutation.isPending &&
+    reason.trim().length > 0 &&
+    (jsonText !== null
+      ? jsonChanged && edited !== null && 'package' in edited
+      : changes.length > 0);
 
   return (
     <ModalDialog
@@ -312,20 +595,33 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
       labelledBy={headingId}
       className="modal-surface surface-card delivery-correction-modal"
       closeOnBackdrop={false}
-      isDirty={() => changes.length > 0 || reason.trim().length > 0}
+      isDirty={() =>
+        changes.length > 0 || jsonChanged || reason.trim().length > 0
+      }
     >
       <div className="space-y-2">
         <p className="page-kicker">Correct the package</p>
         <h2 id={headingId} className="section-title">
           Correct {delivery.folder_name}
         </h2>
-        <p className="text-sm">
-          The pipeline&apos;s file stays as it is: each correction is kept
-          beside it with its reason, on the audit trail, and the delivery is
-          checked again at once. The run, the assembly, the family and sample
-          IDs and the files are the pipeline&apos;s: a wrong one is a refused
-          delivery.
-        </p>
+        {byHand ? (
+          <p className="text-sm">
+            CoGA made this package from the folder, which was added by hand:
+            correct it here, members added and removed too, or edit it as JSON.
+            Each correction is kept with its reason, on the audit trail, and the
+            delivery is checked again at once. The family ID, the assembly and
+            the files stay as CoGA read them; CoGA writes nothing in the folder.
+          </p>
+        ) : (
+          <p className="text-sm">
+            The pipeline&apos;s file stays as it is: each correction is kept
+            beside it with its reason, on the audit trail, and the delivery is
+            checked again at once. The run, the assembly, the family and sample
+            IDs and the files are the pipeline&apos;s: a wrong one is a refused
+            delivery. A sample the package&apos;s files name and no member is
+            can be added as a member.
+          </p>
+        )}
       </div>
 
       {packageQuery.isError ? (
@@ -341,7 +637,34 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
         </p>
       ) : null}
 
-      {pkg && current ? (
+      {pkg && current && jsonText !== null ? (
+        <>
+          <label className="field-label">
+            The package as JSON
+            <textarea
+              className="delivery-package-json"
+              value={jsonText}
+              onChange={(event) => setJsonText(event.target.value)}
+              rows={24}
+              spellCheck={false}
+            />
+          </label>
+          {edited && 'error' in edited ? (
+            <p className="status-note status-note--error">{edited.error}</p>
+          ) : null}
+          <div className="inline-actions">
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setJsonText(null)}
+            >
+              Back to the form
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {pkg && current && jsonText === null ? (
         <>
           {packageQuery.data?.proposed.length ? (
             <p className="status-note">
@@ -408,8 +731,8 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
           {usedBy.length ? (
             <p className="text-sm">
               The pipeline computed {usedBy.join(', ')} with the sex and parents
-              below: a change to them needs attention while those datasets are
-              in the import.
+              below: a change to them, or a member added with parents or
+              removed, needs attention while those datasets are in the import.
             </p>
           ) : null}
           <div className="data-table-shell overflow-x-auto">
@@ -420,25 +743,34 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
                   <th>Sex</th>
                   <th>Father</th>
                   <th>Mother</th>
+                  <th>Related to</th>
                   <th>Role</th>
                   <th>Status</th>
                   <th>Carrier</th>
                   <th>HPO present</th>
                   <th>HPO absent</th>
                   <th>PGT</th>
+                  <th>
+                    <span className="sr-only">Remove</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {current.members.map((member, index) => {
                   const id = member.sample_id;
                   const others = memberIds.filter((other) => other !== id);
-                  const set = (name: keyof MemberForm) => (value: string) =>
+                  const set = (name: MemberTextField) => (value: string) =>
                     update((draft) => {
                       draft.members[index][name] = value;
                     });
                   return (
                     <tr key={id}>
-                      <td className="font-mono">{id}</td>
+                      <td className="font-mono">
+                        {id}
+                        {asChecked.has(id) ? null : (
+                          <div className="table-subtle">added in CoGA</div>
+                        )}
+                      </td>
                       <td>
                         <Select
                           label={`Sex of ${id}`}
@@ -452,6 +784,7 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
                           label={`Father of ${id}`}
                           value={member.father}
                           options={others}
+                          verbatim
                           blank="—"
                           onChange={set('father')}
                         />
@@ -461,9 +794,32 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
                           label={`Mother of ${id}`}
                           value={member.mother}
                           options={others}
+                          verbatim
                           blank="—"
                           onChange={set('mother')}
                         />
+                      </td>
+                      <td>
+                        {member.related_to.length > 1 ? (
+                          <span className="font-mono">
+                            {member.related_to.join(', ')}
+                          </span>
+                        ) : (
+                          <Select
+                            label={`Member ${id} is related to`}
+                            value={member.related_to[0] ?? ''}
+                            options={others}
+                            verbatim
+                            blank="—"
+                            onChange={(value) =>
+                              update((draft) => {
+                                draft.members[index].related_to = value
+                                  ? [value]
+                                  : [];
+                              })
+                            }
+                          />
+                        )}
                       </td>
                       <td>
                         <Select
@@ -547,12 +903,81 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
                           Index
                         </label>
                       </td>
+                      <td>
+                        {removable(id) ? (
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            aria-label={`Remove ${id}`}
+                            onClick={() => removeMember(id)}
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+
+          {byHand || offered.length ? (
+            <div className="space-y-1">
+              <div className="inline-actions">
+                <label className="field-label">
+                  Add a member
+                  {byHand ? (
+                    <input
+                      value={newMemberId}
+                      list={`${headingId}-offered`}
+                      placeholder="Sample ID"
+                      onChange={(event) => setNewMemberId(event.target.value)}
+                    />
+                  ) : (
+                    <select
+                      value={newMemberId}
+                      onChange={(event) => setNewMemberId(event.target.value)}
+                    >
+                      <option value="">Select a sample…</option>
+                      {offered.map((sampleId) => (
+                        <option key={sampleId} value={sampleId}>
+                          {sampleId}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                {byHand ? (
+                  <datalist id={`${headingId}-offered`}>
+                    {offered.map((sampleId) => (
+                      <option key={sampleId} value={sampleId} />
+                    ))}
+                  </datalist>
+                ) : null}
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={!newId || memberIds.includes(newId)}
+                  onClick={() => {
+                    addMember(newId);
+                    setNewMemberId('');
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+              <p className="table-subtle">
+                {offered.length
+                  ? `The package's files name ${offered.join(', ')}, which no member is: add it to import its data, such as an affected relative read for segregation or a PGT index. `
+                  : ''}
+                Give the member&apos;s sex, role and status, and how it is
+                related: its parents, or the member it is related to by an
+                unknown degree (a PGT index: the affected parent, or the parent
+                on whose side it is).
+              </p>
+            </div>
+          ) : null}
 
           <h3 className="eyebrow-label">Datasets</h3>
           <ul className="space-y-1 text-sm">
@@ -580,6 +1005,19 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
             ))}
           </ul>
 
+          <PackageJson
+            pkg={pkg}
+            onEdit={
+              byHand && changes.length === 0
+                ? () => setJsonText(packageJson(pkg))
+                : undefined
+            }
+          />
+        </>
+      ) : null}
+
+      {pkg && current ? (
+        <>
           {packageQuery.data?.revisions.length ? (
             <History revisions={packageQuery.data.revisions} />
           ) : null}
@@ -593,9 +1031,13 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
             />
           </label>
           <p className="table-subtle">
-            {changes.length === 0
-              ? 'Nothing changed yet.'
-              : `${changes.length} field(s) changed: ${changes.map((change) => change.path.join('.')).join(', ')}.`}
+            {jsonText !== null
+              ? jsonChanged
+                ? 'The package as JSON is edited: CoGA works out what changed when you save.'
+                : 'Nothing changed yet.'
+              : changes.length === 0
+                ? 'Nothing changed yet.'
+                : `${changes.length} field(s) changed: ${changes.map((change) => change.path.join('.')).join(', ')}.`}
           </p>
           {saveMutation.isError ? (
             <p className="status-note status-note--error">
@@ -620,11 +1062,7 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
         <button
           type="button"
           className="form-button"
-          disabled={
-            saveMutation.isPending ||
-            changes.length === 0 ||
-            reason.trim().length === 0
-          }
+          disabled={!canSave}
           onClick={() => saveMutation.mutate()}
         >
           {saveMutation.isPending ? 'Saving…' : 'Save the correction'}

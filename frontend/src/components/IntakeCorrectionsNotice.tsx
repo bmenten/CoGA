@@ -53,6 +53,21 @@ export const intakeCorrectionsFromMetadata = (
   }));
 };
 
+/**
+ * A member added (`added`) or removed (`removed`) at intake, which the change holds whole as its
+ * value after or before; null for a change of a field.
+ */
+export const memberAddedOrRemoved = (change: {
+  before: unknown;
+  after: unknown;
+}): 'added' | 'removed' | null => {
+  const isMember = (value: unknown) =>
+    isObject(value) && typeof value.sample_id === 'string';
+  if (isMember(change.after) && !change.before) return 'added';
+  if (isMember(change.before) && !change.after) return 'removed';
+  return null;
+};
+
 const shown = (value: unknown): string =>
   value === null || value === undefined
     ? 'not set'
@@ -63,7 +78,8 @@ const shown = (value: unknown): string =>
 /**
  * Says that the package the family was imported from was corrected in CoGA before its import, and
  * lists each correction: what changed, why, by whom and when. A change to a member's sex or
- * parents, which the pipeline used, is marked. The signed record keeps the same list.
+ * parents, which the pipeline used, and a member added or removed are marked. The signed record
+ * keeps the same list.
  */
 const IntakeCorrectionsNotice: React.FC<{ metadata?: unknown }> = ({
   metadata,
@@ -71,7 +87,10 @@ const IntakeCorrectionsNotice: React.FC<{ metadata?: unknown }> = ({
   const corrections = intakeCorrectionsFromMetadata(metadata);
   if (!corrections.length) return null;
   const pedigree = corrections.some((correction) =>
-    correction.changes.some((change) => change.kind === 'pipeline_used')
+    correction.changes.some(
+      (change) =>
+        change.kind === 'pipeline_used' || memberAddedOrRemoved(change) !== null
+    )
   );
   return (
     <details className="status-note">
@@ -79,7 +98,7 @@ const IntakeCorrectionsNotice: React.FC<{ metadata?: unknown }> = ({
         <strong>Corrected at intake.</strong> The delivered package this family
         was imported from was corrected in CoGA before its import (
         {corrections.length} correction{corrections.length === 1 ? '' : 's'}
-        {pedigree ? ', the pedigree or a sex among them' : ''}).
+        {pedigree ? ', the pedigree, a member or a sex among them' : ''}).
       </summary>
       <ol>
         {corrections.map((correction, index) => (
@@ -95,6 +114,9 @@ const IntakeCorrectionsNotice: React.FC<{ metadata?: unknown }> = ({
                   {shown(change.after)}
                   {change.kind === 'pipeline_used'
                     ? ' (the pipeline used it)'
+                    : ''}
+                  {memberAddedOrRemoved(change)
+                    ? ` (a member ${memberAddedOrRemoved(change)})`
                     : ''}
                 </li>
               ))}

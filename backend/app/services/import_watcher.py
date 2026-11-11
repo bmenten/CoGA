@@ -138,6 +138,9 @@ class DeliveryIssue(BaseModel):
     code: str
     message: str
     path: str | None = None
+    # The sample it is about, where the delivery offers it: a sample the package's files name and
+    # no member is (import_delivery_revisions.ADDABLE_SAMPLE_ISSUE), added in Correct….
+    sample_id: str | None = None
 
 
 def watch_roots() -> list[Path]:
@@ -276,8 +279,12 @@ def _issue(code: str, message: str, path: str | None = None) -> DeliveryIssue:
 
 
 def _as_issue(issue: Any) -> DeliveryIssue:
-    """A validation or Discover issue as a delivery keeps it: its code and message."""
-    return DeliveryIssue(code=str(issue.code), message=str(issue.message), path=None)
+    """A validation or Discover issue as a delivery keeps it: its code and message, and the sample
+    of one that offers a sample as a member to add."""
+    sample_id = getattr(issue, "sample_id", None) if issue.code == "dataset_vcf_sample_unknown" else None
+    return DeliveryIssue(
+        code=str(issue.code), message=str(issue.message), path=None, sample_id=str(sample_id) if sample_id else None
+    )
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -402,15 +409,23 @@ def _folder_ped_differences(folder: Path, package: CogaPackage) -> DeliveryIssue
 
 def _pedigree_change_issue(base: CogaPackage, effective: CogaPackage) -> DeliveryIssue | None:
     """An issue when the package was corrected in CoGA in what the pipeline used (a member's sex or
-    parents, the couples) while a dataset the pipeline computed with them (its
+    parents, a member added with parents or removed, the couples) while a dataset the pipeline computed with them (its
     ``pipeline_used_pedigree``) is still in the import: the correction does not change what the
     pipeline computed (H4). None when nothing such changed, or none of those datasets is read."""
     base_members = {member.sample_id: member for member in base.members or []}
+    effective_ids = {member.sample_id for member in effective.members or []}
+    # A member corrected in its sex or parents, one added with parents, and one removed.
     changed = sorted(
-        member.sample_id
-        for member in effective.members or []
-        if (previous := base_members.get(member.sample_id)) is not None
-        and (member.sex, member.father, member.mother) != (previous.sex, previous.father, previous.mother)
+        {
+            member.sample_id
+            for member in effective.members or []
+            if (
+                (previous := base_members.get(member.sample_id)) is not None
+                and (member.sex, member.father, member.mother) != (previous.sex, previous.father, previous.mother)
+            )
+            or (previous is None and (member.father or member.mother))
+        }
+        | (set(base_members) - effective_ids)
     )
     couples_changed = [sorted(couple.partners) for couple in base.couples] != [
         sorted(couple.partners) for couple in effective.couples
@@ -575,6 +590,21 @@ async def _proposal(
     loaded = yaml.safe_load(draft.manifest_yaml)
     draft_manifest = loaded if isinstance(loaded, dict) else {}
     validation, bundle = await asyncio.to_thread(load_validated_family_package, folder, manifest_text=draft.manifest_yaml)
+    if bundle is None and isinstance(draft_manifest.get("datasets"), dict):
+        # A dataset the draft's members do not cover (a phased family VCF with a column no member
+        # is) keeps the draft from validating. Its members are read without the datasets, so the
+        # package still gets its members and datasets: the delivery's check reports the dataset
+        # again, and the person corrects it in Deliveries (adds the member).
+        members_only = {
+            **draft_manifest,
+            "datasets": {
+                name: {**entry, "enabled": False} if isinstance(entry, dict) else entry
+                for name, entry in draft_manifest["datasets"].items()
+            },
+        }
+        _members_validation, bundle = await asyncio.to_thread(
+            load_validated_family_package, folder, manifest_text=json.dumps(members_only, default=str)
+        )
     if bundle is None:
         return package, [], [*failed, *(_as_issue(issue) for issue in validation.errors)]
     members = _ped_members_for_import(

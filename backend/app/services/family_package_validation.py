@@ -998,21 +998,22 @@ def _validate_haplotypes_dataset(
                     path=family_vcf_path,
                 )
             )
-        unknown_columns = [column for column in (columns or []) if column not in ped_sample_ids]
-        if unknown_columns:
-            # The loader binds every column to a member and stops at the first it cannot:
-            # a PGT index the PED lacks would otherwise fail the import after the other
-            # datasets were written.
-            errors.append(
-                _issue(
-                    "dataset_vcf_sample_unknown",
-                    f"The phased family VCF has sample column(s) {', '.join(unknown_columns)} that "
-                    "are not members of the family; add a member the PED lacks under "
-                    "family.add_members",
-                    dataset="haplotypes",
-                    path=family_vcf_path,
-                )
+        # The loader binds every column to a member and stops at the first it cannot: a PGT
+        # index the members lack would otherwise fail the import after the other datasets were
+        # written. One issue per column, naming it: Deliveries offers each as a member to add.
+        errors.extend(
+            _issue(
+                "dataset_vcf_sample_unknown",
+                f"The phased family VCF has a sample column {column} that is no member of the "
+                "family: add it as a member (Correct… in Deliveries), or leave the haplotypes out "
+                "of the import",
+                dataset="haplotypes",
+                sample_id=column,
+                path=family_vcf_path,
             )
+            for column in dict.fromkeys(columns or [])
+            if column not in ped_sample_ids
+        )
         extra = dataset.model_extra or {}
         for role in HAPLOTYPE_ORIGIN_ROLES:
             if extra.get(role):

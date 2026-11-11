@@ -9,6 +9,17 @@ import type {
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
 
+/** A folder whose families all imported completely, and whose latest import was not undone: the
+ * list leaves it out unless imported folders are shown. */
+export const isImportedFolder = (pkg: FamilyPackageCandidateOut) => {
+  const families = pkg.imported_families ?? [];
+  return (
+    families.length > 0 &&
+    families.every((family) => !family.import_incomplete) &&
+    !pkg.changed_during_import
+  );
+};
+
 const ANALYSIS_TYPES: [string, string][] = [
   ['wgs', 'WGS'],
   ['wgs_trio', 'WGS trio'],
@@ -31,6 +42,7 @@ const AddDeliveryForm: React.FC<{
   const [projectId, setProjectId] = useState('');
   const [familyId, setFamilyId] = useState('');
   const [analysisType, setAnalysisType] = useState('');
+  const [showImported, setShowImported] = useState(false);
   const { data: projects = [], isLoading: projectsLoading } =
     useProjectCatalog();
   const packagesQuery = useQuery<FamilyPackageCandidateOut[]>({
@@ -40,6 +52,10 @@ const AddDeliveryForm: React.FC<{
         FamilyPackageCandidateOut[] | null) || [],
   });
   const packages = packagesQuery.data ?? [];
+  const importedCount = packages.filter(isImportedFolder).length;
+  const listed = showImported
+    ? packages
+    : packages.filter((pkg) => !isImportedFolder(pkg));
 
   const addMutation = useMutation({
     mutationFn: async () =>
@@ -88,31 +104,49 @@ const AddDeliveryForm: React.FC<{
           writes nothing in the folder.
         </p>
         <div className="delivery-correction-grid">
-          <label className="field-label">
-            Folder to add
-            <select
-              value={
-                packages.some((pkg) => pkg.folder_path === folderPath)
-                  ? folderPath
-                  : ''
-              }
-              onChange={(event) => choose(event.target.value)}
-              disabled={packagesQuery.isLoading}
-            >
-              <option value="">
-                {packagesQuery.isLoading
-                  ? 'Scanning the import folder…'
-                  : 'Select a folder…'}
-              </option>
-              {packages.map((pkg) => (
-                <option key={pkg.folder_path} value={pkg.folder_path}>
-                  {pkg.project_folder ? `${pkg.project_folder} / ` : ''}
-                  {pkg.name}
-                  {(pkg.imported_families ?? []).length ? ' · imported' : ''}
+          <div className="space-y-1">
+            <label className="field-label">
+              Folder to add
+              <select
+                value={
+                  listed.some((pkg) => pkg.folder_path === folderPath)
+                    ? folderPath
+                    : ''
+                }
+                onChange={(event) => choose(event.target.value)}
+                disabled={packagesQuery.isLoading}
+              >
+                <option value="">
+                  {packagesQuery.isLoading
+                    ? 'Scanning the import folder…'
+                    : 'Select a folder…'}
                 </option>
-              ))}
-            </select>
-          </label>
+                {listed.map((pkg) => (
+                  <option key={pkg.folder_path} value={pkg.folder_path}>
+                    {pkg.project_folder ? `${pkg.project_folder} / ` : ''}
+                    {pkg.name}
+                    {isImportedFolder(pkg)
+                      ? ' · imported'
+                      : pkg.changed_during_import
+                        ? ' · import undone'
+                        : (pkg.imported_families ?? []).length
+                          ? ' · import incomplete'
+                          : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {importedCount > 0 ? (
+              <label className="inline-flex items-center gap-2 text-xs text-(--color-text-muted)">
+                <input
+                  type="checkbox"
+                  checked={showImported}
+                  onChange={(event) => setShowImported(event.target.checked)}
+                />
+                Show imported folders ({importedCount})
+              </label>
+            ) : null}
+          </div>
           <label className="field-label">
             Or the path of the folder to add
             <input
