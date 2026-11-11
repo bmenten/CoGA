@@ -55,7 +55,7 @@ De repository bevat twee applicatiemappen (`backend/`, `frontend/`), de document
 
 | Map of bestand (backend) | Rol |
 | --- | --- |
-| `backend/app/core/` | Verbindingen en runtime: instellingen (`config.py`), Postgres, ClickHouse, Azure, logging, objectopslag |
+| `backend/app/core/` | Verbindingen en runtime: instellingen (`config.py`), Postgres, ClickHouse, Azure, logging, mappen van een familie |
 | `backend/app/routers/` | De API: één bestand per domein, gebundeld in `routers/__init__.py` |
 | `backend/app/services/` | De klinische en bedrijfslogica, inclusief de traceerbaarheidsstack |
 | `backend/app/middleware/` | Tussenlagen voor client-IP, security-headers en request-logging |

@@ -418,7 +418,7 @@ De ankers dekken de Postgres-ketens. De variantopslag in ClickHouse bewaakt een 
 
 ## De volledige traceerbaarheidsketen
 
-1. **Ruw bestand → hash.** Elk bronbestand staat in `raw_import_files`, met zijn SHA-256 of, voor een alignment in een bucket, het record van de opslag (hoofdstuk 6).
+1. **Ruw bestand → hash.** Elk bronbestand staat in `raw_import_files`, met zijn SHA-256 (hoofdstuk 6).
 2. **Annotatiemanifest.** De tool- en databankversies uit de VCF-headers staan per familie in `family_annotation_manifest` (hoofdstuk 6); een vervanging door een beheerder komt in het klinische auditspoor.
 3. **Variant in ClickHouse.** Elke variant draagt de hash van de annotatieset waarmee hij werd geannoteerd (hoofdstuk 3).
 4. **Classificatie en bewijs.** Elke ACMG-classificatie van een small variant bevriest de annotatieversie, de hash van de annotatieset, het bewijs van het primaire transcript (ClinVar, consequentie, frequenties, in-silicoscores, bij missense de missense-Z met zijn bron) en het tijdstip. Elke CNV-classificatie bevriest het bewijs van de SV, een hash van zijn annotatie en de versies erachter (hoofdstuk 10).

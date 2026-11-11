@@ -90,11 +90,11 @@ caller. The sort keys and how storage keys are built are in
    access, reading in each family's rows the calls of the members the family shows (its
    active members, read from Postgres), as the family search does.
 5. Uploads and package imports write metadata to Postgres and the variant and interval rows
-   to ClickHouse. They record each source file with its SHA-256 checksum; an alignment that
-   stays in a bucket is recorded with the bucket's record of it instead.
-   - Alignments (BAM/CRAM) and package sources are read from local disk or object storage
-     (S3 or Google Cloud Storage), as `STORAGE_BACKEND` sets. A package in a bucket is copied
-     for the import, except its alignments: the genome browser reads those from the bucket.
+   to ClickHouse. They record each source file with its SHA-256 checksum.
+   - Package sources are read from local folders under `FAMILY_IMPORT_ROOTS`, where they lie: a
+     share or a bucket is mounted as a folder (on Google Cloud, a read-only Cloud Storage volume).
+     The backend serves the genome browser's alignments (BAM/CRAM), signal tracks and the QC
+     report from the package folder the import read.
    - Writes of one family's variants (uploads, package imports, and the admin, PED and
      structure-change deletes) run one at a time. Each holds the family's write lock in
      Postgres from its first read of the rows it replaces until it commits, whichever worker

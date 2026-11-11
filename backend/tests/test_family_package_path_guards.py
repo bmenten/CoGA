@@ -13,9 +13,9 @@ runs with this Python's ``Path.resolve`` and with 3.12's, which raises RuntimeEr
 emulated here when the tests run on 3.13. A symlink that stays in the package is followed.
 
 The package list checks each folder with selection's guard before it looks anything up in it,
-and leaves out one selection refuses (a symlink out of the import roots, or one that loops) and
-one in the staging root; a symlink that stays under the roots is followed, so every folder the
-list shows is one selection takes.
+and leaves out one selection refuses (a symlink out of the import roots, or one that loops); a
+symlink that stays under the roots is followed, so every folder the list shows is one selection
+takes.
 
 All packages, IDs and files are synthetic.
 """
@@ -523,110 +523,6 @@ def test_the_package_list_follows_a_package_folder_linked_under_the_import_roots
     # And selection takes it.
     assert validation.valid, validation.errors
     assert bundle is not None
-
-
-def test_the_package_list_leaves_out_a_package_folder_linked_into_the_staging_root(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path
-) -> None:
-    from backend.app.services import family_package_source
-
-    # Where a package from a bucket is downloaded for its import. Selection takes a folder
-    # there, but it is no import root.
-    staging = tmp_path / "staging"
-    staging.mkdir()
-    monkeypatch.setattr(family_package_source, "_staging_root", lambda: staging.resolve())
-    staged = _foreign_package(staging / "pkg-1").resolve()
-    (imports / "STAGED").symlink_to(staged)
-    _package(imports)
-
-    with _opened(monkeypatch) as opened:
-        listed = scan_family_import_packages()
-
-    # STAGED is left out, and nothing in the staging root is read.
-    assert [item["name"] for item in listed] == [FAMILY]
-    assert [path for path in opened if _within(path, staged)] == []
-
-
-def test_a_typed_path_into_the_staging_root_is_refused(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path
-) -> None:
-    # Under the staging root the guard admits only the package the running import staged from
-    # a bucket: a typed path there would read another import's staged copy.
-    import tempfile
-
-    from backend.app.services import family_package_source
-
-    (tmp_path / "tmp").mkdir()
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))
-    other = _foreign_package(family_package_source._staging_root() / "pkg-other")
-
-    with _opened(monkeypatch) as opened:
-        discovered = _discover(other)
-        validation, bundle = load_validated_family_package(other, manifest_text=KEPT_MANIFEST)
-
-    assert _codes(discovered.errors) == ["package_folder_not_allowed"]
-    assert (_codes(validation.errors), bundle) == (["package_folder_not_allowed"], None)
-    assert [path for path in opened if _within(path, other.resolve())] == []
-
-
-def test_only_the_package_the_running_import_staged_is_read(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path
-) -> None:
-    # The import or validation that staged a package from a bucket reads it, and nothing else
-    # under the staging root; once it ends, not that package either.
-    import asyncio
-    import itertools
-    import tempfile
-
-    from backend.app.services import family_package_source as source
-
-    (tmp_path / "tmp").mkdir()
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))
-    staging = source._staging_root()
-    numbers = itertools.count()
-    monkeypatch.setattr(
-        source,
-        "_stage_s3_package",
-        lambda uri: source.StagedPackage(root=str(_package(staging, f"pkg-{next(numbers)}")), source_uri=uri),
-    )
-    other = _package(staging, "pkg-other")
-
-    def admitted(path: Path) -> bool:
-        try:
-            source._ensure_authorized_package_path(path)
-        except HTTPException:
-            return False
-        return True
-
-    with source.staged_package_source("gs://phi/imports/FAM1") as staged:
-        assert (admitted(Path(staged.root)), admitted(other)) == (True, False)
-    assert source._CURRENT_STAGED_ROOT.get() is None
-    # Once its import ends, not that package either.
-    assert admitted(Path(staged.root)) is False
-
-    async def in_an_import() -> tuple[str, bool, bool]:
-        async with source.staged_package_source_async("gs://phi/imports/FAM1") as staged:
-            return staged.root, admitted(Path(staged.root)), admitted(other)
-
-    root, *admissions = asyncio.run(in_an_import())
-    assert admissions == [True, False]
-    assert source._CURRENT_STAGED_ROOT.get() is None
-    assert admitted(Path(root)) is False
-
-
-def test_a_staging_folder_that_is_a_link_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # A link planted at <tmp>/coga-family-imports on a shared temp dir would put what it leads
-    # to under the staging root.
-    import tempfile
-
-    from backend.app.services import family_package_source
-
-    (tmp_path / "elsewhere").mkdir()
-    (tmp_path / "coga-family-imports").symlink_to(tmp_path / "elsewhere")
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-
-    with pytest.raises(PermissionError, match="is not this process's own folder"):
-        family_package_source._staging_root()
 
 
 def test_selection_takes_each_folder_the_package_list_shows_and_refuses_each_it_leaves_out(

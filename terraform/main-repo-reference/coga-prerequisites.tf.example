@@ -51,7 +51,6 @@ resource "google_project_service" "coga" {
     "storage.googleapis.com",
     "artifactregistry.googleapis.com",
     "iam.googleapis.com",
-    "iamcredentials.googleapis.com", # keyless V4 signed URLs (SignBlob)
     "logging.googleapis.com",
     "monitoring.googleapis.com",
     "certificatemanager.googleapis.com",
@@ -114,13 +113,6 @@ resource "google_project_iam_member" "backend_metric_writer" {
   project = var.project_id
   role    = "roles/monitoring.metricWriter"
   member  = "serviceAccount:${google_service_account.backend.email}"
-}
-
-# Backend signs blobs as itself — V4 signed URLs to GCS without a JSON key.
-resource "google_service_account_iam_member" "backend_token_creator" {
-  service_account_id = google_service_account.backend.name
-  role               = "roles/iam.serviceAccountTokenCreator"
-  member             = "serviceAccount:${google_service_account.backend.email}"
 }
 
 # Schema migration job: Cloud SQL client only (logs from a Cloud Run job need no role).

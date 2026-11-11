@@ -161,7 +161,7 @@ describe('IgvViewer', () => {
     ]);
   });
 
-  it('uses presigned S3 URLs directly, without attaching auth headers', async () => {
+  it('uses an absolute URL as given, without the session token', async () => {
     localStorage.setItem('token', 'token-123');
     apiGetMock.mockImplementation((url: string) =>
       Promise.resolve({
@@ -171,8 +171,8 @@ describe('IgvViewer', () => {
               {
                 sample_id: 'S1',
                 format: 'cram',
-                url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram?sig=abc',
-                index_url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram.crai?sig=def',
+                url: 'https://elsewhere.example/F1/S1.cram',
+                index_url: 'https://elsewhere.example/F1/S1.cram.crai',
               },
             ],
       }),
@@ -189,8 +189,8 @@ describe('IgvViewer', () => {
         name: 'S1',
         type: 'alignment',
         format: 'cram',
-        url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram?sig=abc',
-        indexURL: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram.crai?sig=def',
+        url: 'https://elsewhere.example/F1/S1.cram',
+        indexURL: 'https://elsewhere.example/F1/S1.cram.crai',
       },
     ]);
   });
@@ -414,8 +414,8 @@ describe('IgvViewer', () => {
                 {
                   sample_id: 'S2',
                   format: 'cram',
-                  url: 'https://bucket.s3.amazonaws.com/families/F1/S2.cram?sig=abc',
-                  index_url: 'https://bucket.s3.amazonaws.com/families/F1/S2.cram.crai?sig=def',
+                  url: 'https://elsewhere.example/F1/S2.cram',
+                  index_url: 'https://elsewhere.example/F1/S2.cram.crai',
                 },
               ],
         }),
@@ -449,8 +449,8 @@ describe('IgvViewer', () => {
       expect(tracks.map((track) => [track.url, typeof track.oauthToken, track.headers])).toEqual([
         ['http://api.test/signal-tracks/F1/S1/hificnv/depth_bigwig', 'function', undefined],
         ['http://api.test/cram/F1/S1.cram', 'function', undefined],
-        // A presigned URL carries its own authorisation, and gets no session token.
-        ['https://bucket.s3.amazonaws.com/families/F1/S2.cram?sig=abc', 'undefined', undefined],
+        // An absolute URL, on another host, gets no session token.
+        ['https://elsewhere.example/F1/S2.cram', 'undefined', undefined],
       ]);
       expect(await backendTokens(tracks)).toEqual([held, held]);
 

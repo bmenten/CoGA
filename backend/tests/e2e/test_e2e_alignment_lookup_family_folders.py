@@ -1,6 +1,6 @@
 """The alignment endpoints serve a sample's reads only from its own family's folders (E2E).
 
-In local storage mode the CRAM endpoints look for a sample's reads in its family's folders,
+The CRAM endpoints look for a sample's reads in its family's folders,
 ``<data>/<family>`` and ``<data>/families/<family>``, and only there: a folder linked into
 another family's folder serves none of that family's files.
 
@@ -59,7 +59,6 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
 
-    from backend.app.core.config import settings
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.routers import cram
@@ -82,8 +81,8 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
 
     out: dict[str, Any] = {}
-    saved = cram.DATA_DIR, settings.storage_backend
-    cram.DATA_DIR, settings.storage_backend = data, "local"
+    saved = cram.DATA_DIR
+    cram.DATA_DIR = data
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
         async with AsyncClient(transport=transport, base_url="http://e2e") as admin:
@@ -130,7 +129,7 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
             out["f2_manifest"] = (status, [entry["sample_id"] for entry in entries])
             out["f2_reads"] = [await follow(entry[key]) for entry in entries for key in ("url", "index_url")]
     finally:
-        cram.DATA_DIR, settings.storage_backend = saved
+        cram.DATA_DIR = saved
         async with sessionmaker() as session:
             await session.execute(
                 text("DELETE FROM families WHERE family_id IN (:f1, :f2)"), {"f1": f1, "f2": f2}

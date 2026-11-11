@@ -13,14 +13,13 @@ below a local import root, as the IGV endpoints serve a sample's files) or the u
 which holds every managed copy (an upload, a manifest kept for an import); the file is then
 read by that real path. Any other path, another family's package in the import area among
 them, is refused before anything is read: the download and Verify answer 403 and log it, and the
-list shows the file unavailable. The store is asked about a recorded object only in the family's
-bucket package folder. A purge unlinks a managed copy only inside the upload folder, skips any
+list shows the file unavailable. A purge unlinks a managed copy only inside the upload folder, skips any
 other row with a log line, and never unlinks its path. A package folder need not be named after
 its family, nor an upload folder after the family's present ID.
 
 The paths and IDs are synthetic, under ``tmp_path``: ``imports`` is the import root, holding
-F1's package ``run-2026-10`` and F2's ``run-other``; ``staging`` the staging folder, ``data`` the
-data directory and ``elsewhere`` a folder the backend may read and write that is none of them.
+F1's package ``run-2026-10`` and F2's ``run-other``; ``data`` the data directory and
+``elsewhere`` a folder the backend may read and write that is none of them.
 """
 
 from __future__ import annotations
@@ -42,17 +41,13 @@ from backend.app.core.postgres import get_postgres_session
 from backend.app.main import app
 from backend.app.middleware import request_logging
 from backend.app.routers import admin
-from backend.app.services import admin_service, family_package_source
+from backend.app.services import admin_service
 from backend.app.services import raw_import_files_pg as rif
 from backend.app.services.access_control import CurrentUser
 
 OUTSIDE = (
     "The file's recorded storage path lies outside its family's package folder (below "
     "FAMILY_IMPORT_ROOTS) and CoGA's upload folder, so the file is not read."
-)
-OUTSIDE_THE_PACKAGE = (
-    "The file's recorded storage path names no object in its family's package folder below "
-    "FAMILY_IMPORT_ROOTS, so the object store is not asked about it."
 )
 
 
@@ -66,21 +61,18 @@ def _place(path: Path, content: str) -> Path:
 def where(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """The folders, with a file in each: F1's package file in a package folder that is not
     named after its family, F2's package file beside it, a file at the import root itself, an
-    upload in the family's upload folder, a staged copy, and a secret elsewhere; a link in the
+    upload in the family's upload folder, and a secret elsewhere; a link in the
     package to the secret, one to the package file and one to F2's package file. ``folder`` is
     F1's package folder, as its import recorded it."""
     base = Path(os.path.realpath(tmp_path))
-    imports, staging, data, elsewhere = (base / name for name in ("imports", "staging", "data", "elsewhere"))
-    staging.mkdir()
+    imports, data, elsewhere = (base / name for name in ("imports", "data", "elsewhere"))
     monkeypatch.setattr(settings, "family_import_roots", [str(imports)])
-    monkeypatch.setattr(family_package_source, "_staging_root", lambda: staging)
     monkeypatch.setattr(rif, "DATA_DIR", data)
     found = SimpleNamespace(
         package=_place(imports / "run-2026-10" / "F1.vcf.gz", "package file"),
         other_package=_place(imports / "run-other" / "F2.vcf.gz", "another family's package"),
         at_root=_place(imports / "loose.vcf.gz", "a file at the import root"),
         upload=_place(data / "raw_imports" / "F1" / "0a1b2c__upload.vcf", "upload"),
-        staged=_place(staging / "pkg-x" / "qc" / "S1.txt", "staged copy"),
         secret=_place(elsewhere / "secret.txt", "secret"),
         folder=str(imports / "run-2026-10"),
         imports=imports,
@@ -119,14 +111,13 @@ OUTSIDE_CASES = [
 
 
 # Recorded paths in the import area outside the family's own package, as an edited row could
-# hold them: below the import root, or, the staged copy, in the staging folder.
+# hold them: below the import root.
 def _other_package_paths(where: SimpleNamespace) -> dict[str, str]:
     return {
         "another family's package": str(where.other_package),
         "`..` from the package into another's": str(where.imports / "run-2026-10" / ".." / "run-other" / "F2.vcf.gz"),
         "a symlink in the package into another's": str(where.imports / "run-2026-10" / "linked-across.vcf.gz"),
         "a file at the import root": str(where.at_root),
-        "a staged copy": str(where.staged),
     }
 
 
@@ -135,7 +126,6 @@ OTHER_PACKAGE_CASES = [
     "`..` from the package into another's",
     "a symlink in the package into another's",
     "a file at the import root",
-    "a staged copy",
 ]
 
 
@@ -245,7 +235,6 @@ async def test_a_family_whose_package_folder_is_unusable_has_only_its_uploads_re
         None,  # never imported from a package (a family made in the Family Builder)
         str(where.imports),  # the import root itself, with every family's package below it
         str(where.elsewhere),  # outside the import roots
-        "gs://phi/imports/F1",  # a bucket folder: its files are named by their URIs
         "run-2026-10",  # a relative path
         42,  # not text
     ):
@@ -282,7 +271,6 @@ async def test_a_recorded_path_outside_the_folders_is_not_downloaded(
     [
         ("/data/families/OTHER_FAMILY/snv/OTHER_FAMILY.vcf.gz", "an absolute local path"),
         ("OTHER_FAMILY/snv.vcf.gz", "a relative local path"),
-        ("gs://bucket/packages/OTHER_FAMILY/snv.vcf.gz", "an object-store URI"),
         ("", "no path"),
         (None, "no path"),
     ],
@@ -293,7 +281,7 @@ def test_a_refused_path_is_logged_by_its_kind_never_as_written(storage_path: obj
     assert rif._storage_path_kind(storage_path) == kind
 
 @pytest.mark.asyncio
-async def test_a_missing_file_and_a_file_in_an_object_store_keep_their_answers(
+async def test_a_missing_file_is_gone(
     where: SimpleNamespace, records: dict[str, dict[str, Any]]
 ) -> None:
     assert await _download(records, str(where.imports / "run-2026-10" / "gone.vcf.gz"), where.folder) == (
@@ -301,10 +289,6 @@ async def test_a_missing_file_and_a_file_in_an_object_store_keep_their_answers(
         "The source file is no longer available at its storage path.",
     )
     assert await _download(records, "", where.folder) == (410, "The source file is no longer available at its storage path.")
-    assert await _download(records, "gs://phi/imports/F1/bams/S1.cram", "gs://phi/imports/F1") == (
-        409,
-        "The file is kept in an object store at its gs:// or s3:// URI; it is not downloaded through CoGA.",
-    )
 
 
 @pytest.mark.asyncio
@@ -313,14 +297,12 @@ async def test_with_no_import_roots_only_the_upload_folder_is_read(
 ) -> None:
     # FAMILY_IMPORT_ROOTS empty: the import takes a package folder anywhere (development
     # mode). A recorded path is still bounded: by the upload folder alone, as the IGV
-    # endpoints serve nothing from a package folder no root lists. The staging folder is not
-    # read either.
+    # endpoints serve nothing from a package folder no root lists.
     monkeypatch.setattr(settings, "family_import_roots", [])
 
     assert await _download(records, str(where.package), where.folder) == (403, OUTSIDE)
     assert await _download(records, str(where.secret), where.folder) == (403, OUTSIDE)
     assert await _download(records, str(where.upload), where.folder) == (200, "upload")
-    assert await _download(records, str(where.staged), where.folder) == (403, OUTSIDE)
 
 
 # --------------------------------------------------------------------------- #
@@ -389,62 +371,6 @@ async def test_verify_through_the_app_answers_403_for_a_path_outside_the_folders
     assert (across.status_code, across.json()) == (403, {"detail": OUTSIDE})
 
 
-# Objects named by a recorded URI, with the import root gs://phi/imports and the family's
-# package folder gs://phi/imports/F1.
-REMOTE_OUTSIDE = {
-    # below the import root, outside the family's package. The store is not asked.
-    "another family's package": "gs://phi/imports/F2/bams/S2.cram",
-    "a folder beside the package sharing its name": "gs://phi/imports/F1-old/bams/S1.cram",
-    "`..` from the package into another's": "gs://phi/imports/F1/../F2/bams/S2.cram",
-    # outside the import root.
-    "another prefix of the bucket": "gs://phi/reports/F1/report.pdf",
-    "a prefix beside the root sharing its name": "gs://phi/imports-old/F1/S1.cram",
-    "another bucket": "gs://other/imports/F1/S1.cram",
-    "another store": "s3://phi/imports/F1/S1.cram",
-    "`..` that climbs out of the root": "gs://phi/imports/../reports/F1/report.pdf",
-    "an empty segment": "gs://phi/imports/F1//S1.cram",
-    "a query": "gs://phi/imports/F1/S1.cram?generation=1",
-}
-
-
-@pytest.mark.asyncio
-async def test_verify_asks_the_store_only_about_an_object_in_the_familys_package(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    asked: list[str] = []
-
-    def identity(uri: str) -> dict[str, Any]:
-        asked.append(uri)
-        return {"store": "gcs", "uri": uri, "size": 4, "generation": "7"}
-
-    monkeypatch.setattr(settings, "family_import_roots", ["gs://phi/imports"])
-    monkeypatch.setattr(rif, "remote_object_identity", identity)
-    inside = "gs://phi/imports/F1/bams/S1.cram"
-    record = {
-        **_record(inside, package_folder="gs://phi/imports/F1"),
-        "file_size": 4,
-        "metadata": {"store_object": {"generation": "7"}},
-    }
-
-    assert (await rif.verify_raw_import_file(record))["status"] == "verified"
-    refusals = {}
-    for case, uri in REMOTE_OUTSIDE.items():
-        with pytest.raises(HTTPException) as refused:
-            await rif.verify_raw_import_file({**record, "storage_path": uri})
-        refusals[case] = (refused.value.status_code, refused.value.detail)
-    # The family's package folder is data too: one that is no package folder below the root
-    # admits no object, as for the IGV endpoints.
-    for package_folder in (None, "gs://phi/imports", "gs://phi/elsewhere/F1", "gs://phi/imports/F1/..", 42):
-        with pytest.raises(HTTPException) as refused:
-            await rif.verify_raw_import_file({**record, "package_folder": package_folder})
-        refusals[f"package folder {package_folder!r}"] = (refused.value.status_code, refused.value.detail)
-
-    # The store is asked about the object inside the family's package alone.
-    assert set(refusals.values()) == {(403, OUTSIDE_THE_PACKAGE)}
-    assert len(refusals) == len(REMOTE_OUTSIDE) + 5
-    assert asked == [inside]
-
-
 # --------------------------------------------------------------------------- #
 # The list
 # --------------------------------------------------------------------------- #
@@ -473,29 +399,12 @@ async def test_the_list_shows_a_file_outside_the_folders_unavailable(where: Simp
 
     listed = await rif.list_raw_import_files(_ListSession(rows), "family-uuid")  # type: ignore[arg-type]
 
-    availability = [(row["exists"], row["download_available"], row["in_object_store"]) for row in listed]
+    availability = [(row["exists"], row["download_available"]) for row in listed]
     # A file outside the folders is listed neither present nor downloadable, whether it lies
-    # outside the import area or in another family's package, at the import root or in
-    # the staging folder.
-    assert availability == [(True, True, False), (True, True, False)] + [(False, False, False)] * (1 + len(cases))
+    # outside the import area, in another family's package or at the import root.
+    assert availability == [(True, True), (True, True)] + [(False, False)] * (1 + len(cases))
     # And the row says why: a file that is gone is not a location CoGA does not read.
     assert [row["outside_read_folders"] for row in listed] == [False, False, False] + [True] * len(cases)
-
-
-@pytest.mark.asyncio
-async def test_the_list_marks_an_object_outside_the_familys_package(
-    where: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(settings, "family_import_roots", [str(where.imports), "gs://phi/imports"])
-    uris = ["gs://phi/imports/F1/bams/S1.cram", *REMOTE_OUTSIDE.values()]
-    rows = [{"storage_path": uri, "created_at": None, "package_folder": "gs://phi/imports/F1"} for uri in uris]
-
-    listed = await rif.list_raw_import_files(_ListSession(rows), "family-uuid")  # type: ignore[arg-type]
-
-    # Each is listed as kept in the object store, and marked outside the folders Verify reads
-    #.
-    assert [row["in_object_store"] for row in listed] == [True] * len(uris)
-    assert [row["outside_read_folders"] for row in listed] == [False] + [True] * len(REMOTE_OUTSIDE)
 
 
 # --------------------------------------------------------------------------- #

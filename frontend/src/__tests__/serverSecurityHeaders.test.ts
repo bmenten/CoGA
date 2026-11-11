@@ -27,7 +27,7 @@ describe('SPA securityHeaders middleware', () => {
     // Enforcing but widened where the app genuinely needs it.
     expect(CSP).toContain("frame-ancestors 'none'"); // clickjacking
     expect(CSP).toContain("'wasm-unsafe-eval'"); // IGV/CRAM WebAssembly
-    expect(CSP).toContain('connect-src'); // presigned S3 / remote tracks
+    expect(CSP).toContain('connect-src'); // remote IGV genomes and tracks
     expect(next).toHaveBeenCalledOnce();
   });
 
@@ -74,8 +74,8 @@ describe('SPA hardening', () => {
   });
 
   it('lets a deployment narrow connect-src, but not add directives', () => {
-    expect(buildCsp({ CSP_CONNECT_SRC: "'self' https://storage.googleapis.com" })).toContain(
-      "connect-src 'self' https://storage.googleapis.com;",
+    expect(buildCsp({ CSP_CONNECT_SRC: "'self' https://*.igv.org" })).toContain(
+      "connect-src 'self' https://*.igv.org;",
     );
     expect(buildCsp({})).toContain("connect-src 'self' https:;");
     // A ';' would smuggle in another directive, so the value is refused.

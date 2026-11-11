@@ -122,39 +122,23 @@ async def test_no_samples_means_no_query(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 # ---------------------------------------------------------------------------
-# Remote mode (STORAGE_BACKEND=gcs/s3): a package imported from a bucket
+# The importer and the endpoints
 # ---------------------------------------------------------------------------
-#
-# The staged copies of a bucket package are deleted after the import, so the signal
-# files are served from their objects: the location the import recorded first -- under
-# the CRAM endpoint's rules, so a tampered row cannot get any other object signed --
-# then the package layout under the storage prefix, as the CRAM probes look.
 
 from types import SimpleNamespace  # noqa: E402
 from typing import Any  # noqa: E402
 
-from fastapi import HTTPException  # noqa: E402
-
-from app.core.config import settings  # noqa: E402
 from app.services import family_package_datasets  # noqa: E402
 from app.services.family_package_common import FamilyPackageBundle, PackageManifest, ParsedPed  # noqa: E402
-from backend.tests._object_store_fakes import BUCKET, use_store  # noqa: E402
 
 DEPTH = "cnv/HG002/HG002.Sample0.depth.bw"
-DEPTH_KEY = f"imports/pacbio/{DEPTH}"
-
-
-def _recorded(uri: Any = f"gs://{BUCKET}/{DEPTH_KEY}", path: str = DEPTH) -> dict[str, Any]:
-    """``samples.metadata['signal_tracks']`` as the importer writes it for a bucket package."""
-    return {"hificnv": {"depth_bigwig": path, "uris": {"depth_bigwig": uri}}}
 
 
 class _RowsSession:
     """Answers the query for each sample's ``signal_tracks`` and its family's package folder,
-    ``families.metadata.package_import.folder_path`` (the ``pacbio`` package's in the store
-    ``use_store`` sets up, unless given)."""
+    ``families.metadata.package_import.folder_path`` (none, unless given)."""
 
-    def __init__(self, rows: dict[str, Any], package_folder: Any = f"gs://{BUCKET}/imports/pacbio") -> None:
+    def __init__(self, rows: dict[str, Any], package_folder: Any = None) -> None:
         self.rows = rows
         self.package_folder = package_folder
         self.sql: list[str] = []
@@ -173,188 +157,37 @@ def _members(monkeypatch: pytest.MonkeyPatch, *sample_ids: str) -> None:
     monkeypatch.setattr(signal_tracks, "get_family_record", family_record)
 
 
-def _sign(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    signed: list[str] = []
-
-    def presign(key: str, *, filename: str | None = None, expires: int | None = None) -> str:
-        signed.append(key)
-        return f"https://signed.example/{key}"
-
-    monkeypatch.setattr(signal_tracks, "presigned_get_url", presign)
-    return signed
-
-
-def test_the_importer_records_the_objects_of_a_bucket_package(tmp_path: Path) -> None:
+def test_the_importer_records_the_package_relative_path_of_each_file_present(tmp_path: Path) -> None:
     depth = tmp_path / DEPTH
     depth.parent.mkdir(parents=True)
     depth.write_bytes(b"bigwig")
     paths = {"depth_bigwig": depth, "maf_bigwig": None, "copy_number_bedgraph": tmp_path / "cnv/HG002/gone.bedgraph"}
-
-    def bundle(source_uri: str | None) -> FamilyPackageBundle:
-        return FamilyPackageBundle(
-            root=tmp_path,
-            manifest=PackageManifest(schema_version=1),
-            ped=ParsedPed(family_ids=["pacbio"], members=[], sample_ids=["HG002"], text=""),
-            kept_manifest_text='{"schema_version": 1}',
-            source_uri=source_uri,
-        )
-
-    assert family_package_datasets._signal_track_entry(bundle(f"gs://{BUCKET}/imports/pacbio"), paths) == {
-        "depth_bigwig": DEPTH,
-        "uris": {"depth_bigwig": f"gs://{BUCKET}/{DEPTH_KEY}"},
-    }
-    # A local package records the relative path only.
-    assert family_package_datasets._signal_track_entry(bundle(None), paths) == {"depth_bigwig": DEPTH}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("scheme", ["gs", "s3"])
-async def test_the_remote_manifest_signs_the_recorded_object(
-    monkeypatch: pytest.MonkeyPatch, scheme: str
-) -> None:
-    use_store(monkeypatch, scheme, {DEPTH_KEY: "bigwig"})
-    _members(monkeypatch, "HG002")
-    _sign(monkeypatch)
-    session: Any = _RowsSession(
-        {"HG002": _recorded(uri=f"{scheme}://{BUCKET}/{DEPTH_KEY}")}, package_folder=f"{scheme}://{BUCKET}/imports/pacbio"
+    bundle = FamilyPackageBundle(
+        root=tmp_path,
+        manifest=PackageManifest(schema_version=1),
+        ped=ParsedPed(family_ids=["pacbio"], members=[], sample_ids=["HG002"], text=""),
+        kept_manifest_text='{"schema_version": 1}',
     )
 
-    entries = await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=session, user=object())
-
-    assert [(entry.sample_id, entry.kind, entry.url) for entry in entries] == [
-        ("HG002", "depth_bigwig", f"https://signed.example/{DEPTH_KEY}")
-    ]
+    assert family_package_datasets._signal_track_entry(bundle, paths) == {"depth_bigwig": DEPTH}
 
 
 @pytest.mark.asyncio
-async def test_remote_get_redirects_and_head_reports_the_objects_size(monkeypatch: pytest.MonkeyPatch) -> None:
-    use_store(monkeypatch, "gs", {DEPTH_KEY: "bigwig"})
-    _members(monkeypatch, "HG002")
-    _sign(monkeypatch)
-    session: Any = _RowsSession({"HG002": _recorded()})
-
-    response = await signal_tracks.get_signal_track(
-        "pacbio", "HG002", "hificnv", "depth_bigwig", session=session, user=object()
-    )
-    head = await signal_tracks.head_signal_track(
-        "pacbio", "HG002", "hificnv", "depth_bigwig", session=session, user=object()
-    )
-
-    assert response.status_code == 302
-    assert response.headers["location"] == f"https://signed.example/{DEPTH_KEY}"
-    # A HEAD cannot follow a URL signed for GET, so it answers the size itself.
-    assert head.status_code == 200
-    assert head.headers["content-length"] == str(len(b"bigwig"))
-    assert head.headers["accept-ranges"] == "bytes"
-
-
-# Recorded locations a tampered or stale row could carry; the bucket holds an object at
-# each one's key, so only the check on the location keeps it from being signed.
-UNTRUSTED_TRACK_LOCATIONS = {
-    "outside FAMILY_IMPORT_ROOTS": "gs://phi/elsewhere/HG002.depth.bw",
-    "another bucket": f"gs://other-bucket/{DEPTH_KEY}",
-    "another store's scheme": f"s3://{BUCKET}/{DEPTH_KEY}",
-    "dot segments": "gs://phi/imports/pacbio/../../secrets/x.bw",
-    "a query string": f"gs://{BUCKET}/{DEPTH_KEY}?generation=1",
-    "an extension that is not the kind's": "gs://phi/imports/pacbio/cnv/HG002/HG002.copynum.bedgraph",
-    "not a URI": 42,
-}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("uri", UNTRUSTED_TRACK_LOCATIONS.values(), ids=UNTRUSTED_TRACK_LOCATIONS.keys())
-async def test_an_untrusted_recorded_signal_track_is_never_signed(
-    monkeypatch: pytest.MonkeyPatch, uri: Any
+async def test_the_endpoints_serve_the_recorded_file_with_its_size(
+    data_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from app.core import object_storage
-
-    key = object_storage.parse_remote_uri(uri).key if isinstance(uri, str) else DEPTH_KEY
-    use_store(monkeypatch, "gs", {key: "bigwig"})
     _members(monkeypatch, "HG002")
-    signed = _sign(monkeypatch)
-    session: Any = _RowsSession({"HG002": _recorded(uri=uri)})
-
-    assert await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=session, user=object()) == []
-    with pytest.raises(HTTPException) as exc:
-        await signal_tracks.get_signal_track("pacbio", "HG002", "hificnv", "depth_bigwig", session=session, user=object())
-    assert exc.value.status_code == 404
-    assert signed == []
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "package_folder",
-    [f"gs://{BUCKET}/imports/other-family", None, f"gs://{BUCKET}/imports", f"gs://{BUCKET}/imports/pacbio/.."],
-    ids=["another family's package", "none recorded", "the import root itself", "a dot segment"],
-)
-async def test_a_track_outside_the_familys_own_package_is_never_signed(
-    monkeypatch: pytest.MonkeyPatch, package_folder: Any
-) -> None:
-    # the recorded URI was checked against the import area alone, so a row naming
-    # another family's package there was signed. It must lie in the package folder the
-    # sample's family's import read.
-    use_store(monkeypatch, "gs", {DEPTH_KEY: "bigwig"})
-    _members(monkeypatch, "HG002")
-    signed = _sign(monkeypatch)
-    session: Any = _RowsSession({"HG002": _recorded()}, package_folder=package_folder)
-
-    assert await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=session, user=object()) == []
-    with pytest.raises(HTTPException) as exc:
-        await signal_tracks.get_signal_track("pacbio", "HG002", "hificnv", "depth_bigwig", session=session, user=object())
-    assert exc.value.status_code == 404
-    assert signed == []
-    # The family's package folder is read with each sample's row, from the sample's family.
-    assert "JOIN families f ON f.id = s.family_id" in session.sql[0]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("prefix", ["", "imports"])
-async def test_a_track_recorded_without_a_uri_is_found_at_the_package_layout(
-    monkeypatch: pytest.MonkeyPatch, prefix: str
-) -> None:
-    # A row that records no URI (a package imported from a local folder): the probe looks
-    # where the CRAM probes look, <storage prefix>/<family>/..., at the recorded relative path.
-    probe_key = "/".join(part for part in (prefix, "pacbio", DEPTH) if part)
-    use_store(monkeypatch, "gs", {probe_key: "bigwig"})
-    monkeypatch.setattr(settings, "gcs_prefix", prefix)
-    _members(monkeypatch, "HG002")
-    _sign(monkeypatch)
     session: Any = _RowsSession({"HG002": {"hificnv": {"depth_bigwig": DEPTH}}})
 
     entries = await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=session, user=object())
-
-    assert [entry.url for entry in entries] == [f"https://signed.example/{probe_key}"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("path", ["../other-family/x.bw", "cnv/../../other-family/x.bw", "/abs/x.bw", "cnv//x.bw"])
-async def test_the_layout_probe_stays_in_the_family_folder(monkeypatch: pytest.MonkeyPatch, path: str) -> None:
-    use_store(monkeypatch, "gs", {f"pacbio/{path.lstrip('/')}": "bigwig", "other-family/x.bw": "bigwig"})
-    _members(monkeypatch, "HG002")
-    signed = _sign(monkeypatch)
-    session: Any = _RowsSession({"HG002": {"hificnv": {"depth_bigwig": path}}})
-
-    assert await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=session, user=object()) == []
-    assert signed == []
-
-
-@pytest.mark.parametrize("family_id", ["other-family/cnv", "other-family/cnv/", "/other-family/cnv", ".."])
-def test_the_layout_probe_takes_a_family_id_only_when_it_is_one_folder_name(family_id: str) -> None:
-    # `<prefix>/<family>/<recorded path>`: a family ID holding `/` would name another family's
-    # folder, here its object `cnv/x.bw`, from a recorded path of its own.
-    assert signal_tracks._probed_track_key(family_id, "x.bw", "depth_bigwig") is None
-
-
-@pytest.mark.asyncio
-async def test_local_mode_still_serves_the_data_directory(
-    data_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(settings, "storage_backend", "local")
-    _members(monkeypatch, "HG002")
-    session: Any = _RowsSession({"HG002": _recorded()})
-
-    entries = await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=session, user=object())
     response = await signal_tracks.get_signal_track("pacbio", "HG002", "hificnv", "depth_bigwig", session=session, user=object())
+    head = await signal_tracks.head_signal_track("pacbio", "HG002", "hificnv", "depth_bigwig", session=session, user=object())
 
     assert [entry.url for entry in entries] == ["/signal-tracks/pacbio/HG002/hificnv/depth_bigwig"]
     assert Path(response.path) == data_root / "families/pacbio" / DEPTH
+    # A HEAD answers the headers the GET would send: a client sizes the file before it ranges.
+    assert head.status_code == 200
+    assert head.headers["content-length"] == str(len(b"bigwig"))
+    assert head.headers["accept-ranges"] == "bytes"
+    # The family's package folder is read with each sample's row, from the sample's family.
+    assert "JOIN families f ON f.id = s.family_id" in session.sql[0]

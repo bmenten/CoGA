@@ -42,7 +42,7 @@ from .ancestry_callsets import MarkerRow
 from .ancestry_projection import AncestryInputError, AncestryReference
 from .data_scope import normalize_chromosome
 from .family_package_common import FamilyPackageBundle, _resolve_package_path
-from .family_package_source import _ensure_authorized_package_path, staged_package_source_async
+from .family_package_source import _ensure_authorized_package_path
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ async def register_declared_files(session: AsyncSession, *, bundle: FamilyPackag
                 VALUES (CAST(:family AS uuid), :identifier, CAST(:project AS uuid), CAST(:job AS uuid),
                         :package, :relative, :label)
             """), {"family": family_uuid, "identifier": family_identifier, "project": project, "job": job_id,
-                    "package": bundle.source_uri or str(root), "relative": str(path.relative_to(root)),
+                    "package": str(root), "relative": str(path.relative_to(root)),
                     "label": item["label"]})
             recorded += 1
         await session.commit()
@@ -231,15 +231,12 @@ def scan_vcf_markers(path: Path, reference: AncestryReference) -> dict[str, Any]
 
 @asynccontextmanager
 async def package_file(package_path: str, relative_path: str) -> AsyncIterator[Path]:
-    """A declared file on local disk while the block runs: from its package folder, or from a
-    gs:// or s3:// package staged to a temporary folder."""
-    if "://" not in package_path:
-        await asyncio.to_thread(_ensure_authorized_package_path, Path(package_path))
-    async with staged_package_source_async(package_path) as staged:
-        path = await asyncio.to_thread(_resolve_package_path, Path(staged.root), relative_path)
-        if path is None:
-            raise AncestryInputError(SCAN_FAILED)
-        yield path
+    """A declared file in its package folder, below FAMILY_IMPORT_ROOTS, while the block runs."""
+    await asyncio.to_thread(_ensure_authorized_package_path, Path(package_path))
+    path = await asyncio.to_thread(_resolve_package_path, Path(package_path), relative_path)
+    if path is None:
+        raise AncestryInputError(SCAN_FAILED)
+    yield path
 
 
 async def scan_next_file(session: AsyncSession, reference: AncestryReference) -> bool:

@@ -1,11 +1,10 @@
-"""File and object-store lookups of a request run in a worker thread, not on the event loop.
+"""File lookups of a request run in a worker thread, not on the event loop.
 
-The backend runs one uvicorn worker, so a blocking call on the event loop stalls every request.
-The QC-report link and report asked the object store whether the report is there and signed
-its URL on the loop (with Google Cloud Storage, signing is itself a request), and read the
-file system on it in local mode; the admin's raw-file list looked up each row's file on it.
-These pin that each lookup runs on another thread than the request's coroutine. IDs and paths
-are synthetic.
+The backend runs one uvicorn worker, so a blocking call on the event loop stalls every request,
+and a package folder may lie on a network share or a mounted bucket, which answer slowly. The
+QC-report link and report look the report up in the file system, and the admin's raw-file list
+looks up each row's file. These pin that each lookup runs on another thread than the request's
+coroutine. IDs and paths are synthetic.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from typing import Any
 import uuid
 
 import pytest
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 
 from backend.app.core.config import settings
 from backend.app.routers import family_qc_reports
@@ -52,32 +51,6 @@ async def _link_and_report() -> tuple[Any, Any]:
     return link, report
 
 
-def test_the_qc_report_routes_ask_the_object_store_off_the_event_loop(
-    monkeypatch: pytest.MonkeyPatch, recorded_report: set[int]
-) -> None:
-    calls: list[tuple[str, int]] = []
-
-    def exists(key: str) -> bool:
-        calls.append(("exists", threading.get_ident()))
-        return True
-
-    def presign(key: str, *, filename: str) -> str:
-        calls.append(("presign", threading.get_ident()))
-        return f"https://objects.example/{key}"
-
-    monkeypatch.setattr(family_qc_reports, "storage_is_remote", lambda: True)
-    monkeypatch.setattr(family_qc_reports, "object_key", lambda family_id, path: f"{family_id}/{path}")
-    monkeypatch.setattr(family_qc_reports, "object_exists", exists)
-    monkeypatch.setattr(family_qc_reports, "presigned_get_url", presign)
-
-    link, report = asyncio.run(_link_and_report())
-
-    assert link.url == f"https://objects.example/F1/{_REPORT}"
-    assert isinstance(report, RedirectResponse) and report.status_code == 302
-    assert [name for name, _ in calls] == ["exists", "presign", "exists", "presign"]
-    assert recorded_report.isdisjoint(thread for _, thread in calls), "the object store was asked on the event loop"
-
-
 def test_the_qc_report_routes_read_the_file_system_off_the_event_loop(
     monkeypatch: pytest.MonkeyPatch, recorded_report: set[int], tmp_path: Path
 ) -> None:
@@ -89,7 +62,6 @@ def test_the_qc_report_routes_read_the_file_system_off_the_event_loop(
         lookups.append(threading.get_ident())
         return report_file
 
-    monkeypatch.setattr(family_qc_reports, "storage_is_remote", lambda: False)
     monkeypatch.setattr(family_qc_reports, "_resolve_report_file", resolve)
 
     _link, report = asyncio.run(_link_and_report())

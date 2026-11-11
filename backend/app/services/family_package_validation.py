@@ -10,7 +10,6 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 import yaml
 
-from ..core.object_storage import join_remote_uri, remote_folder_name
 from ..schemas import (
     FamilyImportDatasetSummary,
     FamilyImportValidationIssue,
@@ -75,10 +74,8 @@ def _require_file(
     errors: list[FamilyImportValidationIssue],
     files: list[str],
     sample_id: str | None = None,
-    remote_only_files: frozenset[str] = frozenset(),
 ) -> Path | None:
-    """Resolve a manifest path and require the file. ``remote_only_files`` are package
-    files staging left in the object store; they count as present."""
+    """Resolve a manifest path and require the file."""
     path = _resolve_package_path(root, value)
     if path is None:
         errors.append(
@@ -91,7 +88,7 @@ def _require_file(
         )
         return None
     files.append(_display_path(root, path))
-    if not path.is_file() and _display_path(root, path) not in remote_only_files:
+    if not path.is_file():
         errors.append(
             _issue(
                 "dataset_file_missing",
@@ -1165,7 +1162,6 @@ def _validate_per_sample_file_dataset(
     dataset: ManifestDataset,
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
-    remote_only_files: frozenset[str] = frozenset(),
     warnings: list[FamilyImportValidationIssue] | None = None,
 ) -> FamilyImportDatasetSummary:
     """Validate a dataset declared as ``per_sample: {<sample_id>: {<role>: <path>}}``.
@@ -1173,8 +1169,7 @@ def _validate_per_sample_file_dataset(
     Shared by the long-read datasets (cnv, mito, alignments, qc), which the pipeline
     all writes per sample. Required roles must resolve to an existing file; optional
     roles are only checked when declared, so a package that ran without (say) mosdepth
-    still validates. A file in ``remote_only_files`` exists in the object store without
-    having been staged.
+    still validates.
     """
     required_roles, optional_roles = _PER_SAMPLE_DATASET_ROLES[dataset_type]
     files: list[str] = []
@@ -1222,7 +1217,7 @@ def _validate_per_sample_file_dataset(
         from_table = dataset_type == "mito" and bool(entry.get("table")) and not (entry.get("vcf") or entry.get("file"))
         if from_table:
             _check_mito_table_entry(
-                root=root, sample_id=sample_id, entry=entry, errors=errors, files=files, remote_only_files=remote_only_files
+                root=root, sample_id=sample_id, entry=entry, errors=errors, files=files
             )
         for role in () if from_table else required_roles:
             path = _require_file(
@@ -1233,7 +1228,6 @@ def _validate_per_sample_file_dataset(
                 errors=errors,
                 files=files,
                 sample_id=sample_id,
-                remote_only_files=remote_only_files,
             )
             if dataset_type in _RECORD_REQUIRED_DATASETS:
                 _warn_file_without_a_record(
@@ -1249,7 +1243,6 @@ def _validate_per_sample_file_dataset(
                     errors=errors,
                     files=files,
                     sample_id=sample_id,
-                    remote_only_files=remote_only_files,
                 )
         if dataset_type == "qc" and not any(entry.get(role) for role in optional_roles):
             errors.append(
@@ -1276,7 +1269,6 @@ def _check_mito_table_entry(
     entry: dict[str, Any],
     errors: list[FamilyImportValidationIssue],
     files: list[str],
-    remote_only_files: frozenset[str],
 ) -> None:
     """A mito entry reading the mtDNA-Server table names the table and the ID of its
     sample's rows (``table_id``), and the table holds a row for that ID the loader stores: the
@@ -1289,7 +1281,6 @@ def _check_mito_table_entry(
         errors=errors,
         files=files,
         sample_id=sample_id,
-        remote_only_files=remote_only_files,
     )
     table_id = entry.get("table_id")
     if not isinstance(table_id, str) or not table_id.strip():
@@ -1373,7 +1364,6 @@ def _validate_dataset(
     dataset: ManifestDataset,
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
-    remote_only_files: frozenset[str] = frozenset(),
     warnings: list[FamilyImportValidationIssue] | None = None,
     ped: ParsedPed | None = None,
     analysis_type: str | None = None,
@@ -1421,9 +1411,6 @@ def _validate_dataset(
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
             errors=errors,
-            # Only the alignments importer never reads its files, so only its files may
-            # stay in the object store; every other dataset needs a staged copy.
-            remote_only_files=remote_only_files if dataset_type == "alignments" else frozenset(),
             warnings=warnings,
         )
     if dataset_type == "pipeline_info":
@@ -1651,17 +1638,8 @@ def load_validated_family_package(
     folder_path: str | Path,
     *,
     manifest_text: str,
-    remote_only_files: frozenset[str] = frozenset(),
-    source_uri: str | None = None,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     """Validate the package at ``folder_path`` and load it for import.
-
-    For a package staged from a bucket (``StagedPackage``), ``source_uri`` is the folder
-    it was staged from and ``remote_only_files`` the files staging left in the store,
-    which an alignments dataset may reference. The staging copy is deleted after the
-    import, so the report -- which the import job stores and the import panel shows --
-    names the source folder's objects rather than staged paths, and the bundle carries
-    ``source_uri`` for the records the import writes.
 
     ``manifest_text`` is the manifest CoGA keeps for the import's job, the one a delivery's
     package makes (``_validate_and_load_package``): the import reads no file of the folder as its
@@ -1671,32 +1649,17 @@ def load_validated_family_package(
     validation reads anything in it (``take_package_fingerprint``), and given with the report
     (``package_fingerprint``) and the bundle: a change while the validation reads the folder
     then shows as a fingerprint the folder no longer has. A folder too large to be a package,
-    or one that cannot be listed, is refused before anything in it is read. A package staged
-    from a bucket has none.
+    or one that cannot be listed, is refused before anything in it is read.
     """
-    fingerprint: PackageFingerprint | None = None
-    if source_uri is None:
-        fingerprint, refusal = take_package_fingerprint(folder_path, manifest_text=manifest_text)
-        if refusal is not None:
-            return FamilyPackageValidationOut(valid=False, errors=[refusal]), None
-    validation, bundle = _validate_and_load_package(
-        folder_path,
-        remote_only_files=remote_only_files,
-        manifest_text=manifest_text,
-        # A manifest without family_id names the family after its folder: for a bucket,
-        # the source folder, never the staging directory the copy sits in (pkg-...).
-        folder_name=remote_folder_name(source_uri) if source_uri else None,
-    )
-    if source_uri is None:
-        if fingerprint is not None:
-            validation = validation.model_copy(update={"package_fingerprint": fingerprint.sha256})
-            if bundle is not None:
-                bundle.package_fingerprint = fingerprint.sha256
-        return validation, bundle
-    if bundle is not None:
-        bundle.source_uri = source_uri
-    staged_root = Path(folder_path).expanduser().resolve()
-    return _report_staged_paths_as_objects(validation, staged_root, source_uri), bundle
+    fingerprint, refusal = take_package_fingerprint(folder_path, manifest_text=manifest_text)
+    if refusal is not None:
+        return FamilyPackageValidationOut(valid=False, errors=[refusal]), None
+    validation, bundle = _validate_and_load_package(folder_path, manifest_text=manifest_text)
+    if fingerprint is not None:
+        validation = validation.model_copy(update={"package_fingerprint": fingerprint.sha256})
+        if bundle is not None:
+            bundle.package_fingerprint = fingerprint.sha256
+    return validation, bundle
 
 
 def take_package_fingerprint(
@@ -1727,39 +1690,9 @@ def take_package_fingerprint(
         return None, _issue("package_folder_unreadable", f"The package folder could not be listed: {reason}", path=root)
 
 
-def _staged_path_as_object(path: str | None, staged_root: Path, source_uri: str) -> str | None:
-    """A path inside the staging copy, as the URI of the object it is a copy of."""
-    if path is None:
-        return None
-    try:
-        relative = Path(path).relative_to(staged_root)
-    except ValueError:
-        return path
-    return join_remote_uri(source_uri, relative.as_posix()) if relative.parts else source_uri
-
-
-def _report_staged_paths_as_objects(
-    validation: FamilyPackageValidationOut, staged_root: Path, source_uri: str
-) -> FamilyPackageValidationOut:
-    def relabel(issues: list[FamilyImportValidationIssue]) -> list[FamilyImportValidationIssue]:
-        return [
-            issue.model_copy(update={"path": _staged_path_as_object(issue.path, staged_root, source_uri)})
-            for issue in issues
-        ]
-
-    return validation.model_copy(
-        update={
-            "errors": relabel(validation.errors),
-            "warnings": relabel(validation.warnings),
-        }
-    )
-
-
 def _validate_and_load_package(
     folder_path: str | Path,
     *,
-    remote_only_files: frozenset[str],
-    folder_name: str | None,
     manifest_text: str,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     """Validate the package at ``folder_path`` and load it for import.
@@ -1840,7 +1773,7 @@ def _validate_and_load_package(
             )
         )
 
-    family_id = (manifest.family_id or folder_name or root.name).strip()
+    family_id = (manifest.family_id or root.name).strip()
     family_issue = family_id_issue(
         family_id, source="the manifest's family_id" if manifest.family_id else "the folder name"
     )
@@ -1937,7 +1870,6 @@ def _validate_and_load_package(
                     dataset=dataset,
                     ped_sample_ids=ped_sample_ids,
                     errors=errors,
-                    remote_only_files=remote_only_files,
                     warnings=warnings,
                     ped=ped,
                     analysis_type=manifest.analysis_type,
@@ -1978,7 +1910,6 @@ def _validate_and_load_package(
         manifest=manifest,
         ped=ped,
         kept_manifest_text=manifest_text,
-        remote_only_files=remote_only_files,
         manifest_sha256=manifest_sha256,
     )
 

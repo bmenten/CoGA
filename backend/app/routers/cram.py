@@ -1,33 +1,23 @@
 import asyncio
 from dataclasses import dataclass
-import logging
 import os
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 import pysam
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.family_folders import PACKAGES_FOLDER, family_folders, path_in_family_folder
-from ..core.object_storage import (
-    configured_object_key,
-    object_exists,
-    object_key,
-    presigned_get_url,
-    storage_is_remote,
-)
 from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import AlignmentManifestEntryOut
-from ..services.family_package_source import local_family_package_folder, within_family_package
+from ..services.family_package_source import local_family_package_folder
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cram", tags=["cram"])
 
@@ -40,8 +30,7 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 # symlinked after import. A file is found only inside the family's own folders: see
 # _alignment_candidate_paths. These are the fallback: where the alignments import recorded
 # the reads, in the package folder the family's import read, comes first
-# (_local_alignment_path), so a package on a share mounted as a second import root is
-# served where it lies.
+# (_local_alignment_path), so a package on a mounted share or bucket is served where it lies.
 _ALIGNMENT_LAYOUTS: tuple[tuple[str, str], ...] = (
     ("", ""),  # <data>/<family>/<sample>.cram
     (PACKAGES_FOLDER, "bams"),  # <data>/families/<family>/bams/<sample>.cram
@@ -94,20 +83,14 @@ def _alignment_path(
     )
 
 
-# ---------------------------------------------------------------------------
-# Remote mode (STORAGE_BACKEND=gcs/s3)
-# ---------------------------------------------------------------------------
-
 # The index each alignment format is served with.
 _INDEX_SUFFIXES = {"cram": ".crai", "bam": ".bai"}
 
 
 @dataclass(frozen=True, slots=True)
 class _RecordedAlignment:
-    """A sample's alignment where the import recorded it, checked. In remote mode the
-    locations are keys in the configured bucket that passed ``_recorded_key``; in local
-    mode they are file paths in the family's package folder, ``folder``, that passed
-    ``_recorded_local_path``."""
+    """A sample's alignment where the import recorded it, checked: file paths in the family's
+    package folder, ``folder``, that passed ``_recorded_local_path``."""
 
     format: str
     location: str
@@ -115,54 +98,17 @@ class _RecordedAlignment:
     folder: str | None = None
 
 
-def _recorded_key(uri: object, suffix: str, package_folder: object) -> str | None:
-    """The key a recorded location names, when it may be served; ``None`` otherwise.
-
-    The location comes back from ``samples.metadata``, which the import writes but which
-    is read here as data. It is served only when it names an object in the configured
-    bucket (``configured_object_key``: that bucket and scheme, nothing but scheme,
-    bucket and key, no empty/``.``/``..`` segment), in the family's own package folder
-    below the remote FAMILY_IMPORT_ROOTS (``within_family_package``: the bucket folder the
-    family's import read, ``package_folder``), and with the extension of the file it
-    stands for. A tampered row can therefore point at most at another object of the
-    family's own package, never at another family's package in the import area, other
-    objects of the bucket or another bucket. The endpoints check family
-    membership before they read the row.
-    """
-    key = configured_object_key(uri)
-    if key is None or not key.lower().endswith(suffix) or not within_family_package(str(uri), package_folder):
-        return None
-    return key
-
-
-def _recorded_alignment(value: object, package_folder: object) -> _RecordedAlignment | None:
-    """Parse ``samples.metadata['alignment']``; ``None`` unless it is usable, in the
-    family's package folder ``package_folder``."""
-    if not isinstance(value, dict):
-        return None
-    fmt = value.get("format")
-    if not isinstance(fmt, str) or fmt not in _INDEX_SUFFIXES:
-        return None
-    key = _recorded_key(value.get("uri"), f".{fmt}", package_folder)
-    if key is None:
-        return None
-    return _RecordedAlignment(
-        format=fmt,
-        location=key,
-        index_location=_recorded_key(value.get("index_uri"), _INDEX_SUFFIXES[fmt], package_folder),
-    )
-
-
 def _recorded_local_path(relative: object, extension: str, folder: str) -> str | None:
     """The file a package-relative path the import recorded names in the family's package
-    folder ``folder`` (local mode), when it may be served; ``None`` otherwise.
+    folder ``folder``, when it may be served; ``None`` otherwise.
 
     The path comes back from ``samples.metadata`` as data: an edited row can hold ``..`` or
     an absolute path. It is served only when it has the extension of the file it stands for
     and, joined to the folder and normalised as a string, stays inside it, and its real path,
     symlinks resolved, lies inside it too (``core/family_folders.py``). A tampered row can
-    therefore point at most at another file of that kind in the family's own package, as in
-    remote mode. Blocking: symlinks are resolved on disk.
+    therefore point at most at another file of that kind in the family's own package, never
+    at another family's package in the import area. The endpoints check family membership
+    before they read the row. Blocking: symlinks are resolved on disk.
     """
     if not isinstance(relative, str) or not relative.lower().endswith(extension):
         return None
@@ -170,9 +116,9 @@ def _recorded_local_path(relative: object, extension: str, folder: str) -> str |
 
 
 def _recorded_local_alignment(value: object, package_folder: object) -> _RecordedAlignment | None:
-    """Parse ``samples.metadata['alignment']`` as the import of a local package wrote it
-    (``path``, ``index_path``: relative to the package); ``None`` unless it is usable, in the
-    family's package folder ``package_folder`` below a local FAMILY_IMPORT_ROOTS entry
+    """Parse ``samples.metadata['alignment']`` as the import wrote it (``path``,
+    ``index_path``: relative to the package); ``None`` unless it is usable, in the family's
+    package folder ``package_folder`` below a FAMILY_IMPORT_ROOTS entry
     (``local_family_package_folder``). Blocking."""
     if not isinstance(value, dict):
         return None
@@ -207,10 +153,9 @@ def _recorded_local_alignments(rows: list[tuple[Any, ...]]) -> dict[str, _Record
 async def _recorded_alignments(
     session: AsyncSession, sample_ids: list[str]
 ) -> dict[str, _RecordedAlignment]:
-    """Where the import recorded each sample's alignment: an object in the store (remote
-    mode), or a file in the local package folder the family's import read (local mode), such
-    as a package on a share mounted as a second import root. Callers check first that the
-    samples belong to the family and the user may read it.
+    """Where the import recorded each sample's alignment: a file in the package folder the
+    family's import read, such as a package on a mounted share or bucket. Callers check first
+    that the samples belong to the family and the user may read it.
     """
     if not sample_ids:
         return {}
@@ -231,80 +176,13 @@ async def _recorded_alignments(
         {"sample_ids": list(sample_ids)},
     )
     rows = [tuple(row) for row in result.all()]
-    if not storage_is_remote():
-        # Resolving the folder's symlinks reads the disk, a network share's too.
-        return await asyncio.to_thread(_recorded_local_alignments, rows)
-    recorded: dict[str, _RecordedAlignment] = {}
-    for sample_id, value, package_folder in rows:
-        alignment = _recorded_alignment(value, package_folder)
-        if alignment is not None:
-            recorded[str(sample_id)] = alignment
-        elif isinstance(value, dict) and value.get("uri"):
-            # The line names no sample: logs carry no values.
-            logger.warning(
-                "Ignoring a sample's recorded alignment location: it is not an object in the "
-                "configured bucket in its family's package folder"
-            )
-    return recorded
-
-
-def _alignment_candidate_keys(
-    family_id: str, sample_id: str, ext: str, suffix: str = ""
-) -> list[str]:
-    file_name = f"{sample_id}.{ext}{suffix}"
-    return [
-        object_key(family_id, file_name),
-        object_key(family_id, "bams", file_name),
-        object_key(family_id, "alignments", file_name),
-    ]
-
-
-def _probed_alignment_key(family_id: str, sample_id: str, ext: str, suffix: str = "") -> str | None:
-    """The first layout probe that holds the file, if any."""
-    return next(
-        (
-            candidate
-            for candidate in _alignment_candidate_keys(family_id, sample_id, ext, suffix)
-            if object_exists(candidate)
-        ),
-        None,
-    )
-
-
-def _recorded_index_key(recorded: _RecordedAlignment) -> str | None:
-    """The recorded alignment's index: the one the import recorded, else the one stored
-    next to the alignment."""
-    beside = f"{recorded.location}{_INDEX_SUFFIXES[recorded.format]}"
-    candidates = dict.fromkeys(key for key in (recorded.index_location, beside) if key)
-    return next((key for key in candidates if object_exists(key)), None)
-
-
-def _remote_alignment_key(
-    family_id: str,
-    sample_id: str,
-    ext: str,
-    suffix: str = "",
-    recorded: _RecordedAlignment | None = None,
-) -> str | None:
-    """The object to serve as ``<sample>.<ext><suffix>``, or ``None``.
-
-    The recorded location comes first, and when its alignment is in the store it alone
-    answers for the sample: the alignment and its index both come from it, so a
-    recorded CRAM is never paired with an index a layout probe found elsewhere (IGV
-    would read the reads at the wrong offsets), and the other format is not probed for.
-    The layout probes are the fallback when nothing usable was recorded or the recorded
-    object is gone.
-    """
-    if recorded is not None and object_exists(recorded.location):
-        if ext != recorded.format:
-            return None
-        return _recorded_index_key(recorded) if suffix else recorded.location
-    return _probed_alignment_key(family_id, sample_id, ext, suffix)
+    # Resolving the folder's symlinks reads the disk, a network share's or a mounted bucket's too.
+    return await asyncio.to_thread(_recorded_local_alignments, rows)
 
 
 def _recorded_local_index(recorded: _RecordedAlignment) -> Path | None:
-    """The recorded alignment's index (local mode): the one the import recorded, else the one
-    next to the alignment, in the family's package folder as the alignment is."""
+    """The recorded alignment's index: the one the import recorded, else the one next to the
+    alignment, in the family's package folder as the alignment is."""
     beside = None
     if recorded.folder is not None:
         beside = path_in_family_folder(
@@ -321,14 +199,14 @@ def _local_alignment_path(
     suffix: str = "",
     recorded: _RecordedAlignment | None = None,
 ) -> Path | None:
-    """The file to serve as ``<sample>.<ext><suffix>`` (local mode), or ``None``.
+    """The file to serve as ``<sample>.<ext><suffix>``, or ``None``.
 
-    As in remote mode, the location the import recorded comes first (a package read where it
-    lies, on a share mounted as a second import root, keeps its reads there), and when its
-    alignment is on disk it alone answers for the sample: alignment and index both come from
-    it, never an index a layout probe found elsewhere, and the other format is not probed
-    for. The layouts in the family's own folders are the fallback when nothing usable was
-    recorded or the recorded file is gone.
+    The location the import recorded comes first (a package is read where it lies, on a
+    mounted share or bucket too, and keeps its reads there), and when its alignment is on disk
+    it alone answers for the sample: alignment and index both come from it, never an index a
+    layout probe found elsewhere (IGV would read the reads at the wrong offsets), and the other
+    format is not probed for. The layouts in the family's own folders are the fallback when
+    nothing usable was recorded or the recorded file is gone.
     """
     if recorded is not None and os.path.isfile(recorded.location):
         if ext != recorded.format:
@@ -345,14 +223,7 @@ def _serve_alignment(
     not_found_detail: str,
     recorded: _RecordedAlignment | None = None,
 ) -> Response:
-    """Stream a local file, or redirect to a presigned/signed object URL in remote mode."""
-    file_name = f"{sample_id}.{ext}{suffix}"
-    if storage_is_remote():
-        key = _remote_alignment_key(family_id, sample_id, ext, suffix, recorded)
-        if key is None:
-            raise HTTPException(status_code=404, detail=not_found_detail)
-        # IGV follows the 302 and reads bytes (with HTTP range) straight from the store.
-        return RedirectResponse(presigned_get_url(key, filename=file_name), status_code=302)
+    """Stream the file; IGV reads it with HTTP range requests."""
     path = _local_alignment_path(family_id, sample_id, ext, suffix, recorded)
     if path is None:
         raise HTTPException(status_code=404, detail=not_found_detail)
@@ -367,11 +238,7 @@ def _head_alignment(
     not_found_detail: str,
     recorded: _RecordedAlignment | None = None,
 ) -> Response:
-    if storage_is_remote():
-        found = _remote_alignment_key(family_id, sample_id, ext, suffix, recorded) is not None
-    else:
-        found = _local_alignment_path(family_id, sample_id, ext, suffix, recorded) is not None
-    if not found:
+    if _local_alignment_path(family_id, sample_id, ext, suffix, recorded) is None:
         raise HTTPException(status_code=404, detail=not_found_detail)
     return Response(status_code=200)
 
@@ -381,29 +248,13 @@ def _resolve_alignment_manifest_entry(
     sample_id: str,
     recorded: _RecordedAlignment | None = None,
 ) -> AlignmentManifestEntryOut | None:
-    """In remote mode the URLs are short-lived presigned/signed URLs (absolute);
-    otherwise they are backend-relative paths the frontend prefixes with the API base,
-    with each ID percent-encoded as one segment (it may hold `?`, `#`, `%` or `..`)."""
+    """The URLs are backend-relative paths the frontend prefixes with the API base, with
+    each ID percent-encoded as one segment (it may hold `?`, `#`, `%` or `..`)."""
     formats: tuple[tuple[Literal["cram", "bam"], str, str], ...] = (
         ("cram", "cram", ".crai"),
         ("bam", "bam", ".bai"),
     )
     for fmt, ext, index_suffix in formats:
-        if storage_is_remote():
-            data_key = _remote_alignment_key(family_id, sample_id, ext, "", recorded)
-            index_key = (
-                _remote_alignment_key(family_id, sample_id, ext, index_suffix, recorded)
-                if data_key is not None
-                else None
-            )
-            if data_key is None or index_key is None:
-                continue
-            return AlignmentManifestEntryOut(
-                sample_id=sample_id,
-                format=fmt,
-                url=presigned_get_url(data_key, filename=f"{sample_id}.{ext}"),
-                index_url=presigned_get_url(index_key, filename=f"{sample_id}.{ext}{index_suffix}"),
-            )
         if (
             _local_alignment_path(family_id, sample_id, ext, "", recorded) is None
             or _local_alignment_path(family_id, sample_id, ext, index_suffix, recorded) is None
@@ -445,8 +296,8 @@ async def _accessible_recorded_alignment(
     user: CurrentUser,
 ) -> _RecordedAlignment | None:
     """Check the user may read the sample's reads, then look up where the import
-    recorded them (remote mode). The check runs first, so nothing about a sample the
-    user may not see is read, and a failure answers before any URL is issued."""
+    recorded them. The check runs first, so nothing about a sample the user may not see
+    is read, and a failure answers before any file is looked up."""
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
     return (await _recorded_alignments(session, [sample_id])).get(sample_id)
 
@@ -468,9 +319,10 @@ async def get_alignment_manifest(
         ordered_samples.append(sample_id)
     # One query for where the import recorded every requested sample's reads.
     recorded = await _recorded_alignments(session, ordered_samples)
-    # Resolving each sample does several blocking S3 HEAD + presign calls; run them
-    # in worker threads concurrently instead of serially stalling the event loop.
-    # asyncio.gather preserves input order, so the manifest order is unchanged.
+    # Resolving each sample does several blocking file-system look-ups, on a share or a
+    # mounted bucket too; run them in worker threads concurrently instead of serially
+    # stalling the event loop. asyncio.gather preserves input order, so the manifest order is
+    # unchanged.
     entries = await asyncio.gather(
         *(
             asyncio.to_thread(
@@ -591,17 +443,9 @@ def _read_alignment_header(
 ) -> dict:
     """Open the sample's CRAM/BAM and return its header dict.
 
-    Blocking work (pysam open + S3/htslib byte-range I/O), so callers must run
-    it via ``asyncio.to_thread`` to avoid stalling the event loop.
+    Blocking work (pysam open + header read), so callers must run it via
+    ``asyncio.to_thread`` to avoid stalling the event loop.
     """
-    if storage_is_remote():
-        for ext, mode in (("cram", "rc"), ("bam", "rb")):
-            key = _remote_alignment_key(family_id, sample_id, ext, "", recorded)
-            if key is not None:
-                # htslib reads the presigned https URL directly (with range requests).
-                with pysam.AlignmentFile(presigned_get_url(key, filename=f"{sample_id}.{ext}"), mode) as af:
-                    return af.header.to_dict()
-        raise HTTPException(status_code=404, detail="No CRAM/BAM found for sample")
     cram_path = _local_alignment_path(family_id, sample_id, "cram", "", recorded)
     if cram_path is not None:
         with pysam.AlignmentFile(str(cram_path), "rc") as af:
@@ -622,6 +466,6 @@ async def get_cram_header(
 ):
     """Return alignment header for quick M5/SN/LN inspection."""
     recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
-    # Offload the blocking pysam open + header parse so a slow S3/htslib read
-    # cannot stall the event loop (matches the manifest handler's pattern).
+    # Offload the blocking pysam open + header parse so a slow read from a share or a
+    # mounted bucket cannot stall the event loop (matches the manifest handler's pattern).
     return await asyncio.to_thread(_read_alignment_header, family_id, sample_id, recorded)

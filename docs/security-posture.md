@@ -228,27 +228,21 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   assembly or project (404) before anything is written, so the artifact list's audit chain holds
   no event for it; each audit event records the canonical id (`test_request_body_uuid.py`,
   `e2e/test_e2e_request_body_uuid.py`, which also sweeps every UUID a request body carries).
-- ✅ **Scoped downloads.** The CRAM/BAM and signal-track endpoints check family and sample
-  access before they hand out a signed URL (`routers/cram.py`, `routers/signal_tracks.py`).
-  They sign a location the import recorded only when it names an object in the configured
-  bucket, in the package folder the family's own import read
-  (`families.metadata.package_import.folder_path`, below `FAMILY_IMPORT_ROOTS`;
-  `within_family_package` in `services/family_package_source.py`). So a changed database row
-  cannot point them at any other object, another family's package in the import area
-  included. A location recorded
-  for a family without such a folder is not signed: the layout probes are tried instead.
-
-  With local storage, the CRAM/BAM, signal-track and QC-report endpoints
-  (`routers/family_qc_reports.py`) look a file up first at the path the import recorded on the
-  sample, in the package folder the family's own import read, and then in the family's own
-  folders, `data/<family>/` and `data/families/<family>/` (`core/family_folders.py`): a
-  sample's reads by the layouts, its signal files and QC report at the recorded path.
+- ✅ **Scoped downloads.** The CRAM/BAM, signal-track and QC-report endpoints
+  (`routers/cram.py`, `routers/signal_tracks.py`, `routers/family_qc_reports.py`) check family
+  and sample access before they serve a byte, and the backend serves every file itself: no
+  browser gets a bucket's or a share's address. They look a file up first at the path the
+  import recorded on the sample, in the package folder the family's own import read, and then
+  in the family's own folders, `data/<family>/` and `data/families/<family>/`
+  (`core/family_folders.py`): a sample's reads by the layouts, its signal files and QC report
+  at the recorded path.
   - The package folder (`families.metadata.package_import.folder_path`) is used only when it
-    lies, symlinks resolved, below a local `FAMILY_IMPORT_ROOTS` entry, and is not the root
-    itself (`local_family_package_folder`). With no local root configured, nothing is served
-    from it. A recorded file must lie, symlinks resolved, inside it, and a recorded CRAM/BAM
-    or index must have that file's extension: a changed row can point at most at another file
-    of that kind in the family's own package, as in a bucket.
+    lies, symlinks resolved, below a `FAMILY_IMPORT_ROOTS` entry, and is not the root itself
+    (`local_family_package_folder` in `services/family_package_source.py`). With no root
+    configured, nothing is served from it. A recorded file must lie, symlinks resolved, inside
+    it, and a recorded CRAM/BAM or index must have that file's extension: a changed database
+    row can point at most at another file of that kind in the family's own package, never at
+    another family's package in the import area.
   - A path built from the IDs or read back from `samples.metadata` is normalised, and dropped
     before any look-up when it leaves the family's folder: a sample ID such as `../F2/S2`, a
     recorded path holding `..` or naming an absolute path elsewhere, a family ID that is no
@@ -262,19 +256,20 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 
   The admin page's raw-file download and **Verify** read the path recorded in
   `raw_import_files` only when its real path, symlinks resolved, lies inside the package folder
-  the family's own import read (`families.metadata.package_import.folder_path`, below a local
+  the family's own import read (`families.metadata.package_import.folder_path`, below a
   `FAMILY_IMPORT_ROOTS` entry, as for the endpoints above) or the upload folder
   `data/raw_imports`, which holds every managed copy (`services/raw_import_files_pg.py`). Any
   other path answers 403 and is logged, and the file list shows it unavailable without looking
-  it up. Verify asks the object store only about an object in the family's bucket package
-  folder. The list marks a row of either kind as recorded outside what CoGA reads
+  it up. The list marks such a row as recorded outside what CoGA reads
   (`outside_read_folders`), and the page gives the reason a Verify was refused. A family
   or sample delete unlinks a managed copy only inside the upload folder, and skips any other
   path a managed row names, with a log line. Otherwise an edited row could download any file the
   backend can read, and make a delete remove any file it may write. An edited row of one family
   cannot name another family's package.
 - ✅ **A package import reads only its own folder.** Package Import takes a folder only below
-  `FAMILY_IMPORT_ROOTS` (`package_folder_not_allowed`). The package list leaves out, and reads
+  `FAMILY_IMPORT_ROOTS` (`package_folder_not_allowed`), local folders only: a bucket is read
+  through the folder it is mounted on, and a root with a scheme (`gs://`, `s3://`) stops the
+  backend at start. The package list leaves out, and reads
   nothing in, a folder that is a symlink leading out of the roots. Every path a manifest names
   must lie inside the package folder (`_resolve_package_path` in
   `services/family_package_common.py`). Validation refuses with 400, before anything is read:
@@ -283,12 +278,6 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   - The import opens no file of the package folder as its manifest, and no PED: it reads the
     manifest CoGA keeps, made from the delivery's package. CoGA writes nothing into a package
     folder ([data-import.md](data-import.md)).
-  - A package staged from a bucket is read only by the import or validation that staged it. A
-    typed folder in the staging folder, or an import root linked there, is refused
-    (`package_folder_not_allowed`).
-  - The staging folder, `coga-family-imports` in the temp folder, is private to the backend
-    (mode 0700). One found there that is a symlink, no folder or another user's is refused, not
-    followed, so a link planted in a shared temp folder cannot widen the rule.
   - A package's `ped/` folder or long-read folder (a dataset's, a sample's) that is a symlink
     is followed wherever it leads, by the package list and by Discover, which may propose a
     member from it; the owner chose a warning over a refusal. Discover and validation report
@@ -627,13 +616,13 @@ roster (owner's decision, 2026-10-28).
     gives `family_uuid` in its fields, name no family ID. An ambiguous pedigree's warning gives
     the counts of its couples and their children.
   - A path that holds an ID is not logged either. A package file that cannot be read is
-    named by its kind (the PGT reader's KING table is named after the family ID), a remote
-    package file by its dataset, and a raw-file provenance record that was not written by its
-    family's UUID and dataset, without the file's name. A managed copy left behind is named
+    named by its kind (the PGT reader's KING table is named after the family ID), and a
+    raw-file provenance record that was not written by its family's UUID and dataset, without
+    the file's name. A managed copy left behind is named
     by the random prefix of its name, which finds it in the upload folder.
   - The two lines that refuse a recorded storage path outside the folders CoGA reads or
     deletes a raw file in name the record by its ID and the kind of place the path names (an
-    absolute or relative local path, an object-store URI), never the path: it can name another
+    absolute or a relative path), never the path: it can name another
     family's package folder (the owner, 2026-11-10). The record, by its ID, still holds the
     path, so an edited row leaves its trace (`raw_import_files_pg.py`).
   - A unit test reads every logging call in `backend/app` and refuses one that reads a value
@@ -650,9 +639,11 @@ roster (owner's decision, 2026-10-28).
   shows each character a reader cannot see as its escape (`visible`).
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
-- ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the
-  browser fetches the bytes from the bucket directly. The bucket's data-access audit log is
-  configured only in the central infra template, and no PHI is served from a bucket yet (§4).
+- ⛔ **Byte-level downloads (S-4).** The browser reads no bucket: the backend serves every
+  byte of a CRAM/BAM, signal track or QC report itself, and each request (IGV's byte ranges
+  included) is a row of `audit_log_events`, with its user, route and status. The
+  backend reads the mounted PHI bucket as its own service account; the bucket's data-access
+  audit log of those reads is configured only in the central infra template (§4).
 
 The clinical audit trail is separate: classifications, tags and notes, phenotype changes,
 compound-het pair reviews, pedigree and member changes, a family's deletion and sign-outs. It
@@ -661,7 +652,7 @@ of their own; see [clinical-traceability.md](clinical-traceability.md).
 
 ## 3. Encryption
 
-- ✅ **Passwords** are bcrypt-hashed. Signed URLs are HTTPS.
+- ✅ **Passwords** are bcrypt-hashed.
 - 🟡 **To the datastores (S-2).** The backend supports TLS to both: `POSTGRES_SSLMODE`
   (for example `require` or `verify-full`) and `CLICKHOUSE_SECURE=true` with
   `CLICKHOUSE_HTTP_PORT=8443` and `CLICKHOUSE_VERIFY=true`. The defaults stay plain for local
@@ -693,20 +684,21 @@ yet. So each item below is written and reviewable, without deployed evidence.
 | S-1 encryption at rest | 🟡 CMEK on the database, the disks and both buckets, in Terraform |
 | S-2 TLS to the datastores | 🟡 supported by the app; set in Terraform |
 | S-3 secrets | 🟡 seven application secrets in Secret Manager (the metrics token among them), values added by hand, plus the ClickHouse TLS key and certificate that Terraform generates; Cloud Run reads them by reference; the Terraform state and plan hold no password or private key (the owner's password and the TLS keys pass through write-only arguments); no rotation automation |
-| S-4 byte-level download audit | ⛔ open: configured only in the central infra template, and PHI is not yet served from a bucket |
+| S-4 byte-level download audit | ⛔ open: the bucket's data-access audit log is configured only in the central infra template; every byte a user gets is served by the backend, one audited request each |
 | S-8 network | 🟡 private database and ClickHouse, no SSH, Cloud Run reachable only through the load balancer, Cloud Armor; the WAF enforcement, the institutional IP allowlist and the ClickHouse egress lockdown are go-live switches |
 
 What the application relies on there:
 
-- **Buckets.** A PHI bucket (family data and packages) and a reference-data bucket, both with
-  uniform bucket-level access, public access prevention and CMEK.
+- **Buckets.** A PHI bucket (the import packages, under `imports/<project>/<package>`) and a
+  reference-data bucket, both with uniform bucket-level access, public access prevention and
+  CMEK. Neither has a CORS policy: no browser reads them.
 - **Least privilege.** The backend's service account holds `roles/storage.objectViewer`
-  (read-only) on both buckets. The reference-data bucket is mounted read-only at
-  `/data/ref-data`, and nothing in the app writes to either bucket; the operator loads the
-  reference files. The grant covers the whole bucket, not a prefix.
-- **Signed URLs** (`S3_PRESIGN_EXPIRY_SECONDS`, default 1 hour; GCS uses the same setting) are
-  bearer links: anyone who has one can fetch the object until it expires. Keep the time short;
-  access is checked before a URL is issued.
+  (read-only) on both buckets, and the backend mounts each as a read-only Cloud Storage
+  volume: the PHI bucket's `imports/` folder at `/data/imports` (`FAMILY_IMPORT_ROOTS`,
+  `FAMILY_IMPORT_WATCH_ROOTS`), the reference data at `/data/ref-data`. Nothing in the app
+  writes to either bucket; the pipelines deliver the packages and the operator loads the
+  reference files. The grant covers the whole bucket, not a prefix. The account signs no URL,
+  so it needs no token-creator role on itself.
 - **Client address.** Behind the load balancer the backend takes the client address
   `TRUSTED_PROXY_HOPS` entries from the right of `X-Forwarded-For` (Terraform sets 2), never the
   left-most entry, which a client can set. The audit log and the sign-up and login throttles
@@ -778,7 +770,7 @@ What the application relies on there:
     matches. A guard test finds any route template left raw.
   - The IGV page's Back link takes its `back_path` only when it is one of the family pages, as
     the HPO page's does: a link could send it to another site.
-  - A file named after an ID (the PED download, a variant export, a signed URL's file) carries
+  - A file named after an ID (the PED download, a variant export, a CRAM or QC report) carries
     its name in `Content-Disposition` encoded as RFC 6266 has it
     (`backend/app/core/content_disposition.py`). A name with a quote, a backslash, a percent
     sign or a character outside ASCII goes in `filename*`, with an ASCII stand-in in
@@ -808,7 +800,7 @@ What the application relies on there:
   `ENABLE_HSTS=true` adds the HSTS header the API sends (§3). The frontend server reads the
   setting as the backend does, so `1`, `True` or `yes` turn on both headers.
 - 🟡 **CSP `connect-src`** is `'self' https:` by default, because IGV loads genomes from a
-  changing set of hosts and a signed CRAM URL points at the object store. A deployment that
+  changing set of hosts. A deployment that
   knows its hosts narrows it with `CSP_CONNECT_SRC`, keeping
   `https://login.microsoftonline.com` with Microsoft sign-in (the browser fetches its tokens
   there). `style-src` keeps `'unsafe-inline'` because IGV injects inline styles.

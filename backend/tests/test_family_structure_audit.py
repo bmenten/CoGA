@@ -836,7 +836,6 @@ async def test_a_package_imports_status_refresh_is_checked_for_a_pedigree_change
         ),
         ped=SimpleNamespace(members=[], text=""),
         root=Path("/packages/F1"),
-        source_uri=None,
         manifest_path=Path("/packages/F1/manifest.yaml"),
         ped_path=None,
         manifest_sha256=None,

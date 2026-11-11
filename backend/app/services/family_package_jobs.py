@@ -10,7 +10,6 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.object_storage import is_remote_uri
 from ..core.sql import require_uuid, rows_matched
 from ..schemas import (
     ApiId,
@@ -107,10 +106,8 @@ async def _require_import_project(session: AsyncSession, project_id: str) -> str
 
 async def _queued_package_fingerprint(folder_path: str, *, manifest_text: str) -> PackageFingerprint | None:
     """The fingerprint of the local package folder ``folder_path`` as the job is queued, read with
-    the kept manifest ``manifest_text``; None for a package in a bucket and a folder that cannot be
-    read, whose validation reports why. Taken in a worker thread: it lists the whole folder."""
-    if is_remote_uri(folder_path):
-        return None
+    the kept manifest ``manifest_text``; None for a folder that cannot be read, whose validation
+    reports why. Taken in a worker thread: it lists the whole folder."""
     fingerprint, _refusal = await asyncio.to_thread(take_package_fingerprint, folder_path, manifest_text=manifest_text)
     return fingerprint
 
@@ -142,9 +139,8 @@ async def queue_family_import_job(
     The job keeps the fingerprint of a local package folder as it is queued, read with that
     manifest (``package_fingerprint``): the worker imports nothing when the folder's differs as
     the job starts. (A delivery's approval refuses a folder whose fingerprint differs from the
-    one it was checked with before it queues the job: import_delivery_review.py.) A package in a
-    bucket, and a folder the queue cannot read, are queued without one; the job's validation
-    reports such a folder.
+    one it was checked with before it queues the job: import_delivery_review.py.) A folder the
+    queue cannot read is queued without one; the job's validation reports it.
 
     ``delivery`` is the delivery of a watched import folder the job imports (its id, run,
     marker's SHA-256 and package fingerprint; import_delivery_review.py), kept in the job's

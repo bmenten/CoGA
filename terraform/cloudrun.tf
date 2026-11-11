@@ -8,9 +8,11 @@
 # reachable on its run.app URL.
 
 locals {
-  family_import_roots = length(var.family_import_roots) > 0 ? var.family_import_roots : (
-    var.storage_backend == "gcs" ? ["gs://${google_storage_bucket.phi.name}/imports"] : []
-  )
+  # Where the import bucket's imports/ folder is mounted, read-only (the imports volume below):
+  # the folder package import reads, and the watched import folder, which holds a folder per
+  # project (<project>/<package>). The backend reads it like any local folder; it never reads
+  # the bucket by its gs:// URI.
+  import_mount_path = "/data/imports"
 
   # Every container that runs the backend image gets these: the API below and the db-migrate
   # job (migrate.tf). Production mode, and the cross-origin settings that mode requires: the
@@ -76,6 +78,11 @@ resource "google_cloud_run_v2_service" "backend" {
         name       = "refdata"
         mount_path = "/data/ref-data"
       }
+      # The import packages, read where they lie (the imports volume below).
+      volume_mounts {
+        name       = "imports"
+        mount_path = local.import_mount_path
+      }
 
       startup_probe {
         http_get {
@@ -119,28 +126,17 @@ resource "google_cloud_run_v2_service" "backend" {
         value = tostring(var.trusted_proxy_hops)
       }
 
-      # --- Object storage (PHI family data) ---
-      # Defaults to local; flip var.storage_backend to "gcs" once the PHI bucket is
-      # populated. GCS_BUCKET is always wired so activation is a single var change.
-      # Signed URLs use IAM SignBlob via the backend SA (serviceAccountTokenCreator
-      # on itself, granted in the central infra repo; see
-      # main-repo-reference/coga-prerequisites.tf.example).
+      # --- Package import (the imports volume) ---
+      # The folder package import may read, and the watched import folder: the mounted
+      # imports/ folder of the import bucket. This service runs the imports and the watcher
+      # (FAMILY_IMPORT_WORKER_COUNT defaults to 1), so it alone mounts the bucket.
       env {
-        name  = "STORAGE_BACKEND"
-        value = var.storage_backend
+        name  = "FAMILY_IMPORT_ROOTS"
+        value = local.import_mount_path
       }
       env {
-        name  = "GCS_BUCKET"
-        value = google_storage_bucket.phi.name
-      }
-      # Where Package Import may read family folders from. Without it, gs:// imports
-      # would be refused, though section 11 of docs/deployment-gcp.md enables them.
-      dynamic "env" {
-        for_each = length(local.family_import_roots) > 0 ? [1] : []
-        content {
-          name  = "FAMILY_IMPORT_ROOTS"
-          value = join(",", local.family_import_roots)
-        }
+        name  = "FAMILY_IMPORT_WATCH_ROOTS"
+        value = local.import_mount_path
       }
 
       # --- Postgres ---
@@ -375,6 +371,18 @@ resource "google_cloud_run_v2_service" "backend" {
       gcs {
         bucket    = google_storage_bucket.refdata.name
         read_only = true
+      }
+    }
+    # The import packages: the PHI bucket's imports/ folder alone (only-dir), read-only. The
+    # pipelines, or the step that copies their output, write it out of band; CoGA writes
+    # nothing into a package folder. Mounted with implicit directories (implicit-dirs), so a
+    # folder made by `gcloud storage cp -r` lists without a placeholder object.
+    volumes {
+      name = "imports"
+      gcs {
+        bucket        = google_storage_bucket.phi.name
+        read_only     = true
+        mount_options = ["only-dir=imports", "implicit-dirs"]
       }
     }
   }

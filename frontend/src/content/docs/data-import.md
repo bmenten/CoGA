@@ -301,8 +301,8 @@ few minutes (5 by default), checks each new delivery once and lists it under **D
 top of the page, with how many wait. Nothing is imported until a superuser approves it.
 
 **The watched folder.** The server's administrator names the watched folders
-(`FAMILY_IMPORT_WATCH_ROOTS`). They lie under the import folder, on the server's disk or a mounted
-share; a storage bucket is not watched. The watched folder holds a folder per project, named exactly
+(`FAMILY_IMPORT_WATCH_ROOTS`). They lie under the import folder, on the server's disk, a mounted
+share or a mounted storage bucket. The watched folder holds a folder per project, named exactly
 as the project in CoGA, and each delivery is one family folder in the folder of its project:
 
 ```text

@@ -201,10 +201,9 @@ CREATE INDEX IF NOT EXISTS idx_family_structure_versions_chain ON family_structu
 -- keeps for the job, which its validation and import read instead of the package folder's own
 -- (a folder CoGA cannot write, such as a share mounted read-only), with its SHA-256; both are
 -- NULL for a job that reads the folder's manifest. package_fingerprint is the fingerprint of the
--- local package folder when the job was queued (family_package_fingerprint.py: SHA-256 over each
--- file's path, size and modification time, and the kept manifest's SHA-256); the job imports
--- nothing when the folder's differs as it starts. NULL for a package in a bucket and for one the
--- queue could not read.
+-- package folder when the job was queued (family_package_fingerprint.py: SHA-256 over each file's
+-- path, size and modification time, and the kept manifest's SHA-256); the job imports nothing
+-- when the folder's differs as it starts. NULL for a folder the queue could not read.
 CREATE TABLE IF NOT EXISTS family_import_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     submitted_path text NOT NULL,

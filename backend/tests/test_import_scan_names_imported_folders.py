@@ -5,7 +5,7 @@ report from it), so the import page's list would keep every folder ever imported
 one that waits. The list gives each folder the families whose package record names it
 (``families.metadata.package_import.folder_path``), when their last import registered them, and
 whether that import did not complete or still runs; the page hides a folder whose families all
-imported completely. A bucket folder's URI is matched with or without the ``/`` it may end with.
+imported completely. A folder is matched with or without the ``/`` it may end with.
 
 All samples and values here are synthetic.
 """
@@ -72,17 +72,17 @@ async def test_each_folder_gets_the_families_imported_from_it() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_bucket_folder_is_matched_with_or_without_its_closing_slash() -> None:
-    session = _Session([_row("FAM1", "gs://bucket/packages/FAM1/")])
+async def test_a_folder_is_matched_with_or_without_its_closing_slash() -> None:
+    session = _Session([_row("FAM1", "/data/share/FAM1/")])
 
     found = await imported.imported_package_folders(
         session,  # type: ignore[arg-type]
-        ["gs://bucket/packages/FAM1", "gs://bucket/packages/FAM1/"],
+        ["/data/share/FAM1", "/data/share/FAM1/"],
     )
 
-    assert session.asked == [["gs://bucket/packages/FAM1"]]
-    assert [family.family_id for family in found["gs://bucket/packages/FAM1"]] == ["FAM1"]
-    assert [family.family_id for family in found["gs://bucket/packages/FAM1/"]] == ["FAM1"]
+    assert session.asked == [["/data/share/FAM1"]]
+    assert [family.family_id for family in found["/data/share/FAM1"]] == ["FAM1"]
+    assert [family.family_id for family in found["/data/share/FAM1/"]] == ["FAM1"]
 
 
 @pytest.mark.asyncio

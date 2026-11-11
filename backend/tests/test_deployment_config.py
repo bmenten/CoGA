@@ -205,19 +205,29 @@ def test_terraform_mounts_reference_data_read_only_and_requires_modern_tls() -> 
     assert re.search(r"ssl_policy\s*=\s*google_compute_ssl_policy\.", lb)
 
 
-def test_the_browser_may_read_the_phi_bucket_only_from_the_app() -> None:
-    # In gcs mode IGV reads aligned reads straight from the PHI bucket through signed
-    # URLs, with range requests. Without a CORS policy naming the app's origin the
-    # browser withholds every response; the policy must not open the bucket wider.
+def test_terraform_mounts_the_import_packages_read_only_where_the_imports_read_them() -> None:
+    # The backend reads a package where it lies, through a read-only Cloud Storage volume of the
+    # PHI bucket's imports/ folder, which is both the import root and the watched folder; it
+    # never reads a bucket by its URI, and no browser reads the bucket, so it has no CORS policy.
+    cloudrun = _terraform("cloudrun.tf")
+    volume = re.search(r'volumes\s*\{\s*name\s*=\s*"imports"\s*gcs\s*\{([^}]*)\}', cloudrun)
+    assert volume, "the imports volume is not declared"
+    assert re.search(r"bucket\s*=\s*google_storage_bucket\.phi\.name", volume.group(1))
+    assert re.search(r"read_only\s*=\s*true", volume.group(1)), "the imports volume must be read-only"
+    options = re.search(r"mount_options\s*=\s*\[([^\]]*)\]", volume.group(1))
+    assert options, "the imports volume names no mount options"
+    named = {option.strip().strip('"') for option in options.group(1).split(",")}
+    # Only the imports/ folder, and a folder copied without placeholder objects still lists.
+    assert named == {"only-dir=imports", "implicit-dirs"}
+    mount = re.search(r'volume_mounts\s*\{\s*name\s*=\s*"imports"\s*mount_path\s*=\s*local\.import_mount_path\s*\}', cloudrun)
+    assert mount, "the backend does not mount the imports volume"
+    api = _environment(_backend_containers()["google_cloud_run_v2_service.backend"], optional=True)
+    mounted = _evaluate("local.import_mount_path")
+    assert api["FAMILY_IMPORT_ROOTS"] == api["FAMILY_IMPORT_WATCH_ROOTS"] == mounted
+    assert "://" not in mounted
     phi = re.search(r'resource "google_storage_bucket" "phi" \{(.*?)\n\}', _terraform("storage.tf"), re.S)
     assert phi, "no PHI bucket"
-    cors = re.search(r"\n  cors \{(.*?)\n  \}", phi.group(1), re.S)
-    assert cors, "the PHI bucket has no CORS policy, so IGV cannot read alignments in the browser"
-    policy = cors.group(1)
-    assert re.search(r'origin\s*=\s*\["https://\$\{var\.app_domain\}"\]', policy), "only the app's origin"
-    assert re.search(r'method\s*=\s*\["GET", "HEAD"\]', policy), "reads only"
-    exposed = re.search(r"response_header\s*=\s*\[([^\]]*)\]", policy)
-    assert exposed and {'"Range"', '"Content-Range"', '"Content-Length"'} <= {h.strip() for h in exposed.group(1).split(",")}
+    assert "cors" not in phi.group(1), "no browser reads the PHI bucket"
 
 
 def _backend_bucket_roles() -> dict[str, list[str]]:
@@ -704,8 +714,6 @@ _COMPUTED: dict[str, object] = {
     # db_runtime_role = "coga_app", the mode in which the db-migrate job exists.
     "local.app_db_user": "coga_app",
     "local.app_runs_migrations": False,
-    "local.family_import_roots": ["gs://coga-phi/imports"],
-    "google_storage_bucket.phi.name": "coga-phi",
     "google_sql_database.coga.name": "coga",
     "google_sql_user.coga.name": "coga_admin",
     "google_sql_database_instance.postgres.private_ip_address": "10.10.0.3",
@@ -874,7 +882,7 @@ def _backend_containers() -> dict[str, str]:
 def _environment(container: str, *, optional: bool) -> dict[str, str]:
     """The environment Terraform gives ``container``, with a strong stand-in for each value read
     from Secret Manager. ``optional`` sets the entries repeated over `<condition> ? [1] : []`
-    (the metrics token, the import roots), as their conditions do when they hold."""
+    (the metrics token), as their conditions do when they hold."""
     environment: dict[str, str] = {}
     for for_each, entry in _blocks(container, "env"):
         if for_each is None:
@@ -964,22 +972,6 @@ def _accepted(variable: str) -> list[str]:
     accepted = re.search(rf"condition\s*=\s*contains\((\[[^\]]*\]),\s*var\.{variable}\)", block.group(1))
     assert accepted, f"variable {variable} is not validated against a list"
     return json.loads(accepted.group(1))
-
-
-def test_the_api_starts_with_every_storage_backend_terraform_accepts(monkeypatch) -> None:
-    # storage_backend accepted "s3", which nothing in the configuration wires (no bucket, no
-    # S3_BUCKET), so an apply with it gave an API that refused to start (OPS-15). The API,
-    # given each value the variable admits as cloudrun.tf gives it, loads its settings.
-    api = _backend_containers()["google_cloud_run_v2_service.backend"]
-    environment = {**_image_environment(), **_environment(api, optional=True)}
-    assert environment["STORAGE_BACKEND"] == json.loads(_variable_default("storage_backend"))
-    accepted = _accepted("storage_backend")
-    assert "gcs" in accepted
-    for backend in accepted:
-        try:
-            _load_settings(monkeypatch, {**environment, "STORAGE_BACKEND": backend})
-        except ValidationError as error:
-            pytest.fail(f"storage_backend = {backend!r}: the API cannot start: {error}")
 
 
 def test_the_migration_job_reaches_the_database_and_seeds_the_administrator_the_api_uses() -> None:

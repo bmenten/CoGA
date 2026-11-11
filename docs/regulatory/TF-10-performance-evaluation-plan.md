@@ -266,7 +266,7 @@ pull request updates this list only when it adds clinical behaviour that no area
       embryo's segregation table, drawn as the parental-origin view of an aneuploid chromosome;
     - the monogenic NIPT pair: one VCF per sample with the father's noise left out, and the
       per-target coverage tables;
-    - bucket sources; snapshot/restore.
+    - a package read where it lies, on a share or a bucket mounted as a folder; snapshot/restore.
   - Coverage BEDs that declare whether they hold read depth or a log2 ratio: read as depth
     only when declared so; an undeclared one drawn without an axis.
   - Serialised per-family variant writes.

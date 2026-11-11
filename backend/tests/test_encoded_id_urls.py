@@ -77,7 +77,6 @@ def test_url_path_values_come_back_as_they_went_in(family_id: str, sample_id: st
 def test_the_alignment_manifest_names_the_family_and_sample_it_was_issued_for(
     monkeypatch: pytest.MonkeyPatch, family_id: str, sample_id: str, _source: str
 ) -> None:
-    monkeypatch.setattr(cram, "storage_is_remote", lambda: False)
     monkeypatch.setattr(
         cram, "_alignment_path", lambda family, sample, ext, suffix="": Path(f"{ext}{suffix}") if ext == "cram" else None
     )
@@ -93,7 +92,6 @@ def test_the_alignment_manifest_names_the_family_and_sample_it_was_issued_for(
 def test_the_signal_track_manifest_names_the_family_sample_and_source_it_was_issued_for(
     monkeypatch: pytest.MonkeyPatch, family_id: str, sample_id: str, source: str
 ) -> None:
-    monkeypatch.setattr(signal_tracks, "storage_is_remote", lambda: False)
     monkeypatch.setattr(signal_tracks, "_resolve_track_path", lambda family, relative, folder=None: Path("depth.bw"))
 
     url = signal_tracks._track_url(family_id, sample_id, source, "depth_bigwig", "cnv/depth.bw", None)
@@ -107,7 +105,6 @@ def test_the_signal_track_manifest_names_the_family_sample_and_source_it_was_iss
 async def test_the_qc_report_link_names_the_family_and_sample_it_was_issued_for(
     monkeypatch: pytest.MonkeyPatch, family_id: str, sample_id: str, _source: str
 ) -> None:
-    monkeypatch.setattr(settings, "storage_backend", "local")
     monkeypatch.setattr(settings, "secret_key", "x" * 40)
 
     async def recorded_report_path(session: Any, **_: Any) -> Any:
@@ -165,10 +162,9 @@ class _Families:
 
 @pytest.fixture()
 def families(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Families:
-    """The app in local storage mode over a data directory in ``tmp_path``, a signed-in
+    """The app over a data directory in ``tmp_path``, a signed-in
     viewer, and the family lookups and recorded paths read from ``_Families``."""
     store = _Families(tmp_path)
-    monkeypatch.setattr(settings, "storage_backend", "local")
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
     monkeypatch.setattr(settings, "secret_key", "x" * 40)
     for module in (cram, signal_tracks, family_qc_reports):

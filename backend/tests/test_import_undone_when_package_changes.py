@@ -80,19 +80,19 @@ async def test_a_folder_whose_latest_import_was_undone_is_offered_again() -> Non
         [
             {"folder": "/data/families/FAM1", "changed": True},
             {"folder": "/data/families/FAM2", "changed": False},
-            {"folder": "gs://bucket/packages/FAM3", "changed": True},
+            {"folder": "/data/share/FAM3", "changed": True},
         ]
     )
 
     changed = await imported_package_folders.folders_changed_during_import(
         session,  # type: ignore[arg-type]
-        ["/data/families/FAM1", "/data/families/FAM2", "gs://bucket/packages/FAM3/"],
+        ["/data/families/FAM1", "/data/families/FAM2", "/data/share/FAM3/"],
     )
 
-    assert changed == {"/data/families/FAM1", "gs://bucket/packages/FAM3/"}
+    assert changed == {"/data/families/FAM1", "/data/share/FAM3/"}
     [(sql, params)] = session.statements
     assert "NOT dry_run" in sql and "DISTINCT ON" in sql
-    assert params["folders"] == ["/data/families/FAM1", "/data/families/FAM2", "gs://bucket/packages/FAM3"]
+    assert params["folders"] == ["/data/families/FAM1", "/data/families/FAM2", "/data/share/FAM3"]
     assert json.loads(params["changed"]) == [{"code": "package_changed_during_import"}]
 
 

@@ -25,7 +25,7 @@ are not optional. There is no production deployment yet.
 8. [Point your domain at it + TLS](#8-dns--tls)
 9. [Verify it works](#9-verify-it-works)
 10. [Deploying through CI/CD (the normal path)](#10-cicd-the-normal-path)
-11. [Turning on the GCS storage backend](#11-gcs-storage-backend)
+11. [Import packages and reference data](#11-import-packages-and-reference-data)
 12. [Day-2 operations (runbooks)](#12-day-2-operations)
 13. [Security & compliance mapping](#13-security--compliance)
 14. [Rough cost overview](#14-cost-overview)
@@ -76,7 +76,7 @@ Terraform creates one self-contained CoGA environment in a GCP project:
 |-------|--------------|---------|
 | **PostgreSQL** | Users, projects, families, samples, review state, audit logs. | Cloud SQL (managed) |
 | **ClickHouse** | High-volume variant rows (SNV/SV, interval tracks). | Self-hosted on a Compute Engine VM (GCP has no managed ClickHouse) |
-| **Object storage** | Raw family data (CRAM/BAM for IGV, import packages) + reference data. | Google Cloud Storage (GCS) buckets |
+| **Object storage** | The import packages (VCFs, CRAM/BAM for IGV, QC) + reference data, each bucket mounted read-only into the backend as a folder. | Google Cloud Storage (GCS) buckets |
 
 **The supporting infrastructure** (created for you): a private network (VPC), a load balancer
 with a managed TLS certificate, a Web Application Firewall (Cloud Armor), secret storage
@@ -142,9 +142,10 @@ Everything lives in **`europe-west1` (Belgium)** by default, for EU data residen
 4. The backend talks to **PostgreSQL** (via the Cloud SQL Connector, encrypted) and
    **ClickHouse** (HTTPS on port 8443) over the **private VPC**; none of that traffic
    touches the public internet.
-5. For genome viewing (IGV), once the GCS backend is on, the backend gives the browser a
-   short-lived **signed URL**, so the browser streams CRAM/BAM bytes and the CNV caller's
-   signal files directly from the bucket.
+5. For genome viewing (IGV), the browser asks the backend for a sample's CRAM/BAM and the CNV
+   caller's signal files, byte range by byte range. The backend checks the user's access to the
+   family and serves them from the package folder the import read, on the mounted PHI bucket
+   (Section 11). The browser never reads a bucket.
 
 ---
 
@@ -348,7 +349,6 @@ The variables you will most likely set:
 | `db_availability_type` | `ZONAL` (cheaper) or `REGIONAL` (HA) | `ZONAL` |
 | `clickhouse_machine_type` | ClickHouse VM size | `e2-standard-4` (4 vCPU / 16 GB) |
 | `clickhouse_data_disk_gb` | ClickHouse data disk | `200` |
-| `storage_backend` | `local` or `gcs` | `local` (flip to `gcs` later — Section 11) |
 | `enable_cloud_armor` | Edge WAF/DDoS | `true` |
 | `cloud_armor_waf_enforce` | Block (vs log-only) WAF matches | `false` (log-only first) |
 | `azure_ad_tenant_id` / `azure_ad_client_id` | Microsoft sign-in (12.11): the directory (tenant) ID and the application (client) ID IT gives you; both or neither | empty (password sign-in) |
@@ -537,7 +537,7 @@ And these **variables**:
 | `GCP_REGION_SHORT` | repository | e.g. `euw1`, used in the SA names |
 | `COGA_DEPLOY_TRIGGER` | repository | `main` (default) or `release`: which event deploys |
 | `COGA_PROBLEM_REPORT_URL` | repository | Where **Report a problem** in the app goes: the CMGGMC probleemmelding route, as an `https://` or `mailto:` address without commas. CI builds it into the frontend image; without it the app shows no problem-report link. |
-| `COGA_TFVARS` | `gcp-deploy` environment | Every other Terraform variable, as HCL (for example `storage_backend = "gcs"`, `app_domain = "..."`). CI writes it to `ci.auto.tfvars` before planning, so the next deploy does not revert a value set once; the five values CI passes with `-var` still win. No secrets here: they live in Secret Manager. |
+| `COGA_TFVARS` | `gcp-deploy` environment | Every other Terraform variable, as HCL (for example `app_domain = "..."`, `db_tier = "..."`). CI writes it to `ci.auto.tfvars` before planning, so the next deploy does not revert a value set once; the five values CI passes with `-var` still win. No secrets here: they live in Secret Manager. |
 
 Once configured, merging to `main` deploys automatically, after approval. The deploy job runs
 in the `gcp-deploy` environment and **refuses to run until that environment has at least one
@@ -546,57 +546,50 @@ infrastructure apply never runs without a person approving it.
 
 ---
 
-## 11. GCS storage backend
+## 11. Import packages and reference data
 
-By default `storage_backend = "local"`: the app does **not** read family data from a bucket
-yet. The code, bucket and permissions are in place; turning it on takes two steps:
+The backend reads both buckets as folders: each is mounted into the `coga-backend` service as a
+**read-only** Cloud Storage volume (`terraform/cloudrun.tf`). The backend never reads a bucket
+by its `gs://` address, and its account can read the buckets but not write them.
 
-1. **Upload the family packages** to the PHI bucket, one folder per family with its
-   manifest, CRAM/BAM files included ([data-import.md](data-import.md), section 3):
+**Import packages.** The PHI bucket's `imports/` folder is mounted at `/data/imports`
+(`only-dir=imports`, with `implicit-dirs`, so a folder copied with `gcloud storage cp -r` lists
+without a placeholder object). That folder is both `FAMILY_IMPORT_ROOTS` and `FAMILY_IMPORT_WATCH_ROOTS`:
+package import reads it, and the import watcher looks into it
+([data-import.md](data-import.md#watched-import-folders)). It holds a folder per project, named
+exactly as the project in CoGA, with the package folders in it. A pipeline, or the step that
+copies its output, writes each package there with its package file `coga-package.json`
+([coga-package.md](coga-package.md)), and sets its `status` to `complete` last:
 
-   ```bash
-   BUCKET=$(terraform output -raw phi_bucket)
-   gcloud storage cp -r FAM001 "gs://${BUCKET}/imports/"   # -> imports/FAM001/...
-   ```
+```bash
+BUCKET=$(terraform output -raw phi_bucket)
+gcloud storage cp -r FAM001 "gs://${BUCKET}/imports/PROJECT/"   # -> /data/imports/PROJECT/FAM001
+```
 
-2. **Flip the switch** and apply:
+A folder without a package file can be added to **Deliveries** by hand, from the Package Import
+page. Either way a person approves the delivery before it is imported.
 
-   ```bash
-   terraform apply -var="storage_backend=gcs"   # plus your other -vars
-   ```
+A package is read where it lies, and nothing is copied out of the bucket first. The import
+records where each alignment, CNV signal file and QC report lies in the package folder, and
+the backend serves those files from there after its access checks: IGV reads the CRAM/BAM and
+the signal tracks through the backend's endpoints, with HTTP range requests, and the QC report
+opens through a short-lived link to the backend. CoGA writes nothing into a package folder, and
+the mount is read-only.
 
-Package Import then reads from `gs://<phi bucket>/imports`, unless the `family_import_roots`
-variable names other locations (`FAMILY_IMPORT_ROOTS`). It stages a package to the backend's
-temporary folder, except the aligned reads, which stay in the bucket. It records where each
-alignment and CNV signal file lies, and IGV reads those files through short-lived **signed
-URLs** (keyless, via IAM `SignBlob`). The backend signs a recorded location only when it is
-in the PHI bucket under `FAMILY_IMPORT_ROOTS`: a package imported from a root in another
-bucket is imported, but IGV cannot show its reads. Alignments that no import recorded are
-looked for at `<family_id>/<sample_id>.cram` (with `.crai`), or the same under
-`<family_id>/bams/` or `<family_id>/alignments/`, at the top of the bucket (under
-`GCS_PREFIX` when that is set).
+**Sizing.** `/tmp` on Cloud Run is memory, and counts against `backend_memory` (2 GiB by default).
 
-**Sizing.** The temporary folder is `/tmp`, which on Cloud Run is memory: a staged package
-counts against `backend_memory` (2 GiB by default).
-
-- The aligned reads and their indexes stay in the bucket. Every other object under the
-  package folder is staged, whether the manifest names it or not. For a whole-genome trio,
-  the SNV VCF and its VEP table alone can take several GB.
-- The import also parses the VEP table into a temporary database in `/tmp`, and reads each
-  SV and CNV VCF whole into memory (up to `MAX_UPLOAD_BYTES`, 1 GiB, and
+- The import parses the VEP table into a temporary database in `/tmp`, and reads each SV and
+  CNV VCF whole into memory (up to `MAX_UPLOAD_BYTES`, 1 GiB, and
   `MAX_DECOMPRESSED_UPLOAD_BYTES`, 2 GiB once decompressed).
-- Each import job stages its own copy and deletes it when the import ends, succeeded or
-  failed. Each backend instance runs up to `FAMILY_IMPORT_WORKER_COUNT` jobs at once (1 by
-  default), all on its one core: `terraform/` runs the imports in the API's instances, not
-  in import-worker processes of their own as Docker Compose does
+- Each backend instance runs up to `FAMILY_IMPORT_WORKER_COUNT` jobs at once (1 by default),
+  all on its one core: `terraform/` runs the imports and the watcher in the API's instances,
+  not in import-worker processes of their own as Docker Compose does
   ([application-scheme.md](application-scheme.md#import-worker-processes)).
-- A dry run is an import job and stages the package the same way.
 
-Set `backend_memory` to fit the largest package without its alignments, plus that parsing,
-for every import that may run at once.
+Set `backend_memory` to fit that parsing for every import that may run at once.
 
-The **reference-data** bucket (`refdata`) is always mounted into the backend at
-`/data/ref-data`, **read-only**, whatever this setting is. The backend image holds no
+**Reference data.** The **reference-data** bucket (`refdata`) is mounted into the backend at
+`/data/ref-data`, **read-only**. The backend image holds no
 reference files, so upload all of `data/ref-data/` from the repository, plus the dbNSFP gene
 file ([data-import.md](data-import.md), section 2):
 
@@ -829,7 +822,8 @@ Everything logs to **Cloud Logging**. Useful filters:
 gcloud logging read 'resource.type="cloud_run_revision" resource.labels.service_name="coga-backend"' --limit 50
 # Cloud Armor / WAF decisions (to review before enforcing):
 gcloud logging read 'resource.type="http_load_balancer" jsonPayload.enforcedSecurityPolicy.name="coga-armor"' --limit 50
-# Byte-level PHI object reads (GCS data-access audit, security item S-4):
+# Byte-level PHI object reads, the backend's reads through the mount (GCS data-access audit,
+# security item S-4):
 gcloud logging read 'protoPayload.serviceName="storage.googleapis.com" protoPayload.methodName="storage.objects.get"' --limit 50
 ```
 
@@ -1012,7 +1006,7 @@ This deployment closes the deployment-level security items tracked in
 | **S-1** encryption at rest | CMEK on Cloud SQL, both disks, and both GCS buckets |
 | **S-2** TLS to datastores | Postgres via the Cloud SQL Connector (mTLS, verify-full grade); ClickHouse over HTTPS:8443 with a private CA the backend verifies |
 | **S-3** secrets management | Secret Manager; values injected at runtime, not baked into images; no password or private key in the Terraform state or plan (write-only arguments, 12.4) |
-| **S-4** byte-level PHI audit | GCS Data Access audit logs (set in the central infra repo) |
+| **S-4** byte-level PHI audit | GCS Data Access audit logs (set in the central infra repo) of the backend's reads of the mounted buckets; no browser reads a bucket |
 | **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist (12.9) and ClickHouse egress lockdown (12.10) |
 | DB privilege separation | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
 | Sign-in | Microsoft Entra ID (12.11): MFA, password policy and leavers by IT, the app assigned to the lab's group; one local emergency administrator, whose password sign-in is off unless `azure_admin_override` is switched on |
@@ -1036,7 +1030,8 @@ calculator):
 - **Cloud Run** — cheap: the backend keeps `min_instance_count = 1` (background workers), the
   frontend scales to zero when idle; plus traffic.
 - **Load balancer + Cloud Armor** — small fixed fee + per-request.
-- **Storage + egress** — GCS for CRAM/BAM (can be large) + signed-URL download egress.
+- **Storage** — GCS for the import packages, CRAM/BAM included (can be large), read through
+  the backend's mount; the genome browser's reads leave through the load balancer.
 - **Metrics collector** — a second container in each backend instance, 1 vCPU and 512 MiB always
   allocated (`metrics_collector_cpu`, `metrics_collector_memory`), plus Managed Service for
   Prometheus ingestion: a few thousand series scraped every minute, a few euros a month.

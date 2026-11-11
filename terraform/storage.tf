@@ -2,9 +2,11 @@
 # OBJECT STORAGE (PHI family data + reference data)
 # ==========================================
 #
-# Both buckets are read-only to the app:
-#  - phi: raw family data (CRAM/BAM + family packages), read through the native GCS
-#    backend (backend/app/core/object_storage.py) once var.storage_backend = "gcs".
+# Both buckets are read-only to the app, and each is mounted into the backend as a folder
+# (cloudrun.tf); the app never reads a bucket by its gs:// URI:
+#  - phi: the import packages (VCFs, CRAM/BAM, QC), under imports/<project>/<package>,
+#    mounted at /data/imports. Package import reads them, and IGV's reads and tracks are
+#    served from them, where they lie.
 #  - refdata: reference data (dbNSFP, HPO, clinical CNVs), mounted at /data/ref-data.
 
 resource "google_storage_bucket" "phi" {
@@ -41,17 +43,6 @@ resource "google_storage_bucket" "phi" {
       type = "AbortIncompleteMultipartUpload"
     }
   }
-
-  # IGV runs in the browser and reads aligned reads straight from this bucket, through
-  # the short-lived signed URLs the CRAM endpoint hands out, with range requests. A
-  # browser lets the page read those responses only when the bucket's CORS policy names
-  # the page's origin, so it names the app's origin alone, for reads alone.
-  cors {
-    origin          = ["https://${var.app_domain}"]
-    method          = ["GET", "HEAD"]
-    response_header = ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Range"]
-    max_age_seconds = 3600
-  }
 }
 
 resource "google_storage_bucket" "refdata" {
@@ -77,7 +68,8 @@ resource "google_storage_bucket" "refdata" {
 # here (granting IAM on your own bucket cannot escalate to project-level roles). The
 # runtime SA itself is created in the central infra repo; we grant it by email.
 
-# PHI bucket: the app only READS family bytes (presigned/streamed). Viewer only.
+# PHI bucket: the backend mounts its imports/ folder read-only (cloudrun.tf) and the packages
+# are written into it out of band, so the app only READS family bytes. Viewer only.
 resource "google_storage_bucket_iam_member" "backend_phi_reader" {
   bucket = google_storage_bucket.phi.name
   role   = "roles/storage.objectViewer"
@@ -92,8 +84,9 @@ resource "google_storage_bucket_iam_member" "backend_refdata_reader" {
   member = "serviceAccount:${local.backend_sa_email}"
 }
 
-# NOTE (S-4: byte-level PHI download audit): presigned/direct object reads bypass the
-# app, so they are captured via project-wide GCS Data Access audit logs
-# (storage.googleapis.com DATA_READ/DATA_WRITE). That is a project-level IAM audit
-# config and now lives in the central infra repo (terraform/main-repo-reference/), not
-# here, so this pipeline needs no project-IAM-admin rights.
+# NOTE (S-4: byte-level PHI download audit): no browser reads the PHI bucket; the backend
+# reads it through the mount, as its own service account, and those object reads are captured
+# via project-wide GCS Data Access audit logs (storage.googleapis.com DATA_READ/DATA_WRITE).
+# That is a project-level IAM audit config and lives in the central infra repo
+# (terraform/main-repo-reference/), not here, so this pipeline needs no project-IAM-admin
+# rights.

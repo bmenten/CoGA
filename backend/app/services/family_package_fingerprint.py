@@ -20,9 +20,6 @@ Left out are the files an operating system or a file browser writes into a folde
 which no import reads: ``.DS_Store``, ``Thumbs.db``, ``desktop.ini`` and AppleDouble files
 (``._*``, hidden from every glob a package is read by). Browsing the share does not change a
 package's fingerprint.
-
-The fingerprint of a package staged from a bucket is not taken: the job downloads it again,
-and the copy's times are the download's.
 """
 
 from __future__ import annotations

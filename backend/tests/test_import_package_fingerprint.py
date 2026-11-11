@@ -255,16 +255,6 @@ def test_the_validation_reports_the_fingerprint_read_with_its_kept_manifest(pack
     assert other.package_fingerprint != validation.package_fingerprint
 
 
-def test_a_package_staged_from_a_bucket_has_no_fingerprint(package: Path) -> None:
-    validation, bundle = load_validated_family_package(
-        package, manifest_text=_MANIFEST, source_uri="gs://bucket/packages/FAM1"
-    )
-
-    assert validation.valid, validation.errors
-    assert validation.package_fingerprint is None
-    assert bundle is not None and bundle.package_fingerprint is None
-
-
 def test_a_folder_too_large_is_refused_before_anything_in_it_is_read(
     package: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -364,13 +354,12 @@ async def test_the_job_keeps_the_fingerprint_of_the_folder_as_it_is_queued(packa
 
 
 @pytest.mark.asyncio
-async def test_a_folder_the_queue_cannot_read_and_a_bucket_are_queued_without_a_fingerprint(package: Path) -> None:
+async def test_a_folder_the_queue_cannot_read_is_queued_without_a_fingerprint(package: Path) -> None:
     session = _JobSession()
 
     missing = await _queue(session, str(package / "gone"))
-    remote = await _queue(session, "gs://bucket/packages/FAM1")
 
-    assert (missing.package_fingerprint, remote.package_fingerprint) == (None, None)
+    assert missing.package_fingerprint is None
 
 
 def _validation(fingerprint: str | None, *, errors: list[Any] | None = None) -> FamilyPackageValidationOut:
@@ -381,7 +370,7 @@ def test_a_job_whose_folder_is_as_it_was_queued_goes_on() -> None:
     logs: list[str] = []
 
     checked = family_package_import._check_queued_package_fingerprint(
-        _validation("a" * 64), logs, source_uri=None, queued="a" * 64
+        _validation("a" * 64), logs, queued="a" * 64
     )
 
     assert checked.valid and checked.errors == []
@@ -392,7 +381,7 @@ def test_a_job_whose_folder_changed_since_it_was_queued_imports_nothing() -> Non
     logs: list[str] = []
 
     checked = family_package_import._check_queued_package_fingerprint(
-        _validation("b" * 64), logs, source_uri=None, queued="a" * 64
+        _validation("b" * 64), logs, queued="a" * 64
     )
 
     assert checked.valid is False
@@ -406,24 +395,11 @@ def test_a_job_queued_without_a_fingerprint_says_there_is_none_to_compare() -> N
     logs: list[str] = []
 
     checked = family_package_import._check_queued_package_fingerprint(
-        _validation("a" * 64), logs, source_uri=None, queued=None
+        _validation("a" * 64), logs, queued=None
     )
 
     assert checked.valid
     assert logs == [f"Package fingerprint {'a' * 12}; there is no earlier fingerprint to compare it with."]
-
-
-def test_a_job_from_a_bucket_says_it_is_not_checked() -> None:
-    logs: list[str] = []
-
-    checked = family_package_import._check_queued_package_fingerprint(
-        _validation(None), logs, source_uri="gs://bucket/packages/FAM1", queued=None
-    )
-
-    assert checked.valid
-    assert logs == [
-        "A package staged from a bucket has no fingerprint: whether it changed since the job was queued is not checked."
-    ]
 
 
 def test_a_folder_the_validation_refused_keeps_that_refusal_alone() -> None:
@@ -431,7 +407,7 @@ def test_a_folder_the_validation_refused_keeps_that_refusal_alone() -> None:
     logs: list[str] = []
     validation = _validation(None, errors=[gone])
 
-    checked = family_package_import._check_queued_package_fingerprint(validation, logs, source_uri=None, queued="a" * 64)
+    checked = family_package_import._check_queued_package_fingerprint(validation, logs, queued="a" * 64)
 
     assert checked.errors == [gone]
     assert logs == []
@@ -482,16 +458,3 @@ async def test_a_folder_that_can_no_longer_be_read_counts_as_changed(package: Pa
         f"The package folder changed while it was imported: its fingerprint is unreadable, "
         f"not {bundle.package_fingerprint[:12]}."
     ]
-
-
-@pytest.mark.asyncio
-async def test_a_package_from_a_bucket_is_not_read_again(package: Path) -> None:
-    _validation_out, bundle = load_validated_family_package(
-        package, manifest_text=_MANIFEST, source_uri="gs://bucket/packages/FAM1"
-    )
-    assert bundle is not None
-    (package / "late.txt").write_text("changed", encoding="utf-8")
-    logs: list[str] = []
-
-    assert await family_package_import._package_changed_since_validation(bundle, logs) is False
-    assert logs == []

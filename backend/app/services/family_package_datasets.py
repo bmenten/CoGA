@@ -13,7 +13,6 @@ from typing import Any, Awaitable, Callable, Iterator, Mapping, Sequence
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.object_storage import join_remote_uri, remote_object_exists
 from ..schemas import (
     FamilyImportDatasetSummary,
 )
@@ -2112,21 +2111,14 @@ async def _check_track_unless_present(
 
 
 def _signal_track_entry(bundle: FamilyPackageBundle, paths: dict[str, Path | None]) -> dict[str, Any]:
-    """Where a sample's signal files sit, for the browser to stream: their
-    package-relative paths and, for a package imported from a bucket, the objects' URIs
-    under ``uris``. The staged copies are deleted after the import, so the endpoint
-    serves those objects (routers/signal_tracks.py). Only files the package holds are
-    recorded; staging downloads these, so a staged copy shows that the object exists."""
-    entry: dict[str, Any] = {
+    """Where a sample's signal files sit, for the browser to stream: their package-relative
+    paths, which the endpoint serves from the family's package folder
+    (routers/signal_tracks.py). Only files the package holds are recorded."""
+    return {
         kind: _display_path(bundle.root, path)
         for kind, path in paths.items()
         if path is not None and path.is_file()
     }
-    if entry and bundle.source_uri:
-        entry["uris"] = {
-            kind: join_remote_uri(bundle.source_uri, relative) for kind, relative in entry.items()
-        }
-    return entry
 
 
 @_dataset_importer("cnv")
@@ -3072,39 +3064,13 @@ def _local_alignment_entry(
     return entry
 
 
-def _remote_alignment_entry(
-    root: Path, source_uri: str, alignment_path: Path, index_path: Path | None
-) -> dict[str, str] | None:
-    """The entry for a package staged from a bucket. Staging left the alignment in the
-    store, so the store is asked whether it exists, and its URI is recorded: the staged
-    copy of the package is deleted after the import. Blocking (store requests)."""
-    relative = _display_path(root, alignment_path)
-    uri = join_remote_uri(source_uri, relative)
-    if not remote_object_exists(uri):
-        return None
-    entry = {
-        "path": relative,
-        "format": "cram" if alignment_path.name.endswith(".cram") else "bam",
-        "uri": uri,
-    }
-    if index_path is not None:
-        index_relative = _display_path(root, index_path)
-        index_uri = join_remote_uri(source_uri, index_relative)
-        if remote_object_exists(index_uri):
-            entry.update(index_path=index_relative, index_uri=index_uri)
-    return entry
-
-
 @_dataset_importer("alignments")
 async def _import_alignments_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Record each sample's aligned-reads file so the CRAM/IGV endpoint can find it.
 
-    The alignment itself is never copied or re-read. The package-relative path is
-    recorded on the sample; for a package imported from a bucket, so is the object's
-    URI, which is where the endpoint looks first in gcs/s3 mode (routers/cram.py) --
-    the package keeps its reads under ``bams/<sample>.cram`` below the import root,
-    not where the endpoint's layout probes look. A local package's file is found by
-    the endpoint's data-directory layouts.
+    The alignment itself is never copied or re-read. Its package-relative path, and its
+    index's, is recorded on the sample: the endpoint serves the file from the family's
+    package folder, where the import read it (routers/cram.py).
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts = job.sample_contexts
@@ -3119,12 +3085,7 @@ async def _import_alignments_dataset(job: DatasetImportJob) -> FamilyImportDatas
         if alignment_path is None:
             continue
         index_path = _resolve_package_path(bundle.root, raw_entry.get("index"))
-        if bundle.source_uri:
-            entry = await asyncio.to_thread(
-                _remote_alignment_entry, bundle.root, bundle.source_uri, alignment_path, index_path
-            )
-        else:
-            entry = _local_alignment_entry(bundle.root, alignment_path, index_path)
+        entry = _local_alignment_entry(bundle.root, alignment_path, index_path)
         if entry is None:
             continue
         await _record_sample_alignment_metadata(

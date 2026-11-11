@@ -143,24 +143,6 @@ describe('SampleQcCell', () => {
     );
   });
 
-  it('uses an absolute presigned link unchanged (object-storage mode)', async () => {
-    mockedGet.mockResolvedValue({
-      data: { url: 'https://bucket.s3.amazonaws.com/families/pacbio/qc.html?sig=abc' },
-    });
-    const user = userEvent.setup();
-    render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
-
-    await user.click(screen.getByRole('button', { name: /18.6x/ }));
-
-    await waitFor(() =>
-      expect(window.open).toHaveBeenCalledWith(
-        'https://bucket.s3.amazonaws.com/families/pacbio/qc.html?sig=abc',
-        '_blank',
-        'noopener,noreferrer',
-      ),
-    );
-  });
-
   it('surfaces an error instead of opening a tab when the link cannot be issued', async () => {
     mockedGet.mockRejectedValue(new Error('QC report service is unavailable'));
     const user = userEvent.setup();

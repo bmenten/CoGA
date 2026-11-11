@@ -1,7 +1,7 @@
 """The import watcher's parts that need no database: what it watches, what it reads, its loop.
 
 The watcher looks into the folders of FAMILY_IMPORT_WATCH_ROOTS that lie under FAMILY_IMPORT_ROOTS
-(never a bucket), at each package folder there that holds a package file, coga-package.json. A
+at each package folder there that holds a package file, coga-package.json. A
 file that says its run is under way, or failed, is no delivery, and supersedes the open ones of its
 folder. The watcher compares the files the import reads with the ones the package file lists, and
 warns when the folder's PED says otherwise than the file's members; a check that fails is recorded
@@ -57,12 +57,12 @@ def test_only_local_folders_under_the_import_roots_are_watched(tmp_path: Path, m
     monkeypatch.setattr(
         settings,
         "family_import_watch_roots",
-        [str(imports / "share"), str(imports / "share"), str(outside), "gs://bucket/share"],
+        [str(imports / "share"), str(imports / "share"), str(outside)],
     )
     caplog.set_level(logging.WARNING, logger=watcher.logger.name)
 
     assert watcher.watch_roots() == [(imports / "share").resolve()]
-    assert "2 of FAMILY_IMPORT_WATCH_ROOTS is not watched" in caplog.text
+    assert "1 of FAMILY_IMPORT_WATCH_ROOTS is not watched" in caplog.text
     assert str(outside) not in caplog.text
 
 

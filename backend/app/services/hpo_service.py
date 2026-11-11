@@ -2184,7 +2184,7 @@ class PhenotypeImport:
     """An import that changes a family's phenotypes, as their clinical audit events name it:
     who ran it, how (``via``: ``PACKAGE_IMPORT``, ``PED_UPLOAD``, ``FAMILY_BUILDER`` or, for a
     deletion, ``ADMIN_DELETION``), what
-    it read (``source``: the package's folder or bucket URI, or the uploaded PED file's name;
+    it read (``source``: the package's folder, or the uploaded PED file's name;
     ``files``: the package's phenotype files) and the import job that ran it, if any."""
 
     # None for an administrator's deletion made without a signed-in user (a script).
@@ -2260,8 +2260,8 @@ def _bounded_phrases(phrases: list[str]) -> str:
 
 
 def _package_name(source: str | None) -> str:
-    """The package as a summary names it: its folder's name (the whole path, or bucket URI,
-    is in the event's metadata)."""
+    """The package as a summary names it: its folder's name (the whole path is in the event's
+    metadata)."""
     text_value = visible_text(source or "").rstrip("/")
     return text_value.rsplit("/", 1)[-1] or "unknown package"
 

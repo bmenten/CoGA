@@ -368,8 +368,8 @@ names the publication, how the list was transcribed and checked, and how to upda
 
 ### Where packages live
 
-`FAMILY_IMPORT_ROOTS` lists the local folders Package Import may read (comma-separated). The
-default is `/data/families`, which Docker Compose mounts from `./data`:
+`FAMILY_IMPORT_ROOTS` lists the local folders Package Import may read (comma-separated or a JSON
+list). The default is `/data/families`, which Docker Compose mounts from `./data`:
 
 ```env
 FAMILY_IMPORT_ROOTS=/data/families
@@ -380,10 +380,12 @@ cannot be followed: one through a symlink loop, or starting with `~` for a home 
 does not have.
 
 A package reaches an import only as a delivery: delivered into a watched import folder, or added
-to Deliveries by hand ([below](#watched-import-folders)). Both read local folders only, so a
-package in a bucket is not imported: mount the bucket as a local folder under
-`FAMILY_IMPORT_ROOTS` instead. CoGA writes nothing into a package folder, so a share mounted
-read-only serves as it is: the import reads the manifest CoGA keeps
+to Deliveries by hand ([below](#watched-import-folders)). Both read local folders only. A bucket is
+read through a folder it is mounted on, named in `FAMILY_IMPORT_ROOTS` like any other: on Google
+Cloud, the PHI bucket's `imports/` folder is mounted read-only at `/data/imports`
+([deployment-gcp.md](deployment-gcp.md#11-import-packages-and-reference-data)). An entry with a
+scheme (`gs://`, `s3://`) stops the backend at start. CoGA writes nothing into a package folder,
+so a share or bucket mounted read-only serves as it is: the import reads the manifest CoGA keeps
 ([below](#a-manifest-kept-in-coga)).
 
 ### The import job
@@ -740,8 +742,9 @@ finds it, checks it once and records where it stands. It imports nothing by itse
 approves each delivery, on the Package Import page, and only then is its import queued (below).
 
 **Settings.** `FAMILY_IMPORT_WATCH_ROOTS` names the watched folders: local folders under
-`FAMILY_IMPORT_ROOTS`, comma-separated or a JSON list (a bucket, or a folder outside the import
-roots, is not watched, and the log says how many). A watched folder holds a folder per project,
+`FAMILY_IMPORT_ROOTS`, comma-separated or a JSON list (a folder outside the import roots is not
+watched, and the log says how many; an entry with a scheme, `gs://` or `s3://`, stops the backend
+at start: name the folder a bucket is mounted on). A watched folder holds a folder per project,
 named exactly as the project in CoGA, and each package folder lies in the folder of its project
 (the owner's decision of 2026-11-10). The watcher looks into each project folder; a package folder
 directly in the watched folder is found too, and its delivery needs attention
@@ -922,8 +925,7 @@ family's record names it as added by hand.
   run); without one, the delivery needs attention until it is corrected.
 - No watcher looks at it, also when the folder lies in a watched folder: it is never superseded or
   gone by a round, and is not checked again when what CoGA holds changes; a correction checks it.
-- Refused: a package in a bucket (400; it keeps its own manifest), a folder outside the import
-  roots, a family ID no family can be stored under (400), a project CoGA does not have (404), a
+- Refused: a folder outside the import roots, a family ID no family can be stored under (400), a project CoGA does not have (404), a
   folder that holds its own `coga-package.json` (409: deliver it through a watched import folder,
   whose watcher checks its checksums) and a second open delivery of the same folder (409). A folder
   imported before can be added again: its family exists, and the approval asks update or overwrite.
@@ -1385,7 +1387,7 @@ declares nothing: it holds each target's depth.
 | `cnv` (HiFiCNV) | structural variants, source `hificnv`, each named by its coordinates, type and source, never by the record's ID (its annotation keeps it); one event in two samples' VCFs is one SV with both calls. The depth bigWig as `coverage` and the copy-number bedGraph as `segments`, both stored as log2 ratios like the other callers, each with its transform recorded in its `sample_interval_track_sources` row ([database.md](database.md)); a depth file without autosomal depth gives no median to normalise by, so its depths are stored as read, recorded as `none`. The MAF bigWig as `apcad` |
 | `mito` | chrM small variants, source `mito`, annotated from the mutserve table, from a chrM VCF per sample or a sample's rows of one mtDNA-Server table for all samples (`table`, `table_id`); each sample's mtDNA haplogroup is the one most of its annotated variants name. The chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
-| `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI. IGV reads the file there, under any name, in the package folder the import read (a local one below `FAMILY_IMPORT_ROOTS`, such as a share mounted as a second root) |
+| `alignments` | the CRAM/BAM location, used by IGV: the package-relative path of the file and its index. IGV reads the file there, under any name, in the package folder the import read (below `FAMILY_IMPORT_ROOTS`, such as a share or bucket mounted as a second root) |
 | `pipeline_info` | tool versions in the annotation manifest; run parameters on the family (for the PGT pipeline also the affected parent, the ROI, the QDNAseq bin size, and the callset and phasing panel it started from) |
 
 Each caller's rows carry their own source tag, so re-importing one callset never removes another,
@@ -1562,10 +1564,9 @@ rule, below):
   their own range, without an axis, and the track's head says so in the warning tone.
 
 The three HiFiCNV files are also served
-unchanged to the genome browser (IGV). With local storage they come from the package folder
-the family's import read, at the path the import recorded, then from `data/families/<family>/`,
-and never from outside that folder (a recorded path or a symlink that leads elsewhere names no
-file); for a package in a bucket, from the bucket.
+unchanged to the genome browser (IGV). They come from the package folder the family's import
+read, at the path the import recorded, then from `data/families/<family>/`, and never from
+outside that folder (a recorded path or a symlink that leads elsewhere names no file).
 
 The readers that take coverage as read depth (the mtDNA coverage with its depth verdict, and the
 NIPT coverage check without a per-target table) read one coverage track per sample whose values
@@ -1766,8 +1767,7 @@ Discover, dry run and import check:
 - **Phenotypes**: a phenotype file named in the manifest exists and uses `format: hpo_tsv`.
 - **Files**: every file the manifest names lies in the package (a path that leads out of it,
   starts with `~` or runs through a symlink loop is refused with 400, see
-  [the manifest](#the-manifest)) and exists (for a package in a bucket, an alignment exists in the
-  bucket). A compressed family VCF has its index (`.tbi`, `.csi` or `.idx`, next to it or given as
+  [the manifest](#the-manifest)) and exists. A compressed family VCF has its index (`.tbi`, `.csi` or `.idx`, next to it or given as
   `index:`); a plain `.vcf` needs none.
 - **Per-sample SNV callsets** (`snv.per_sample` without `family_vcf`) are read for a family with
   `analysis_type: monogenic_nipt`, or as the primary callset of germline calls made one sample at

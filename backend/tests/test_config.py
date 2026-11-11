@@ -97,7 +97,7 @@ def test_build_identity_reads_from_env() -> None:
     ("variable", "field", "raw", "expected"),
     [
         ("FAMILY_IMPORT_ROOTS", "family_import_roots", "/data/families", ["/data/families"]),
-        ("FAMILY_IMPORT_ROOTS", "family_import_roots", "/a, s3://b/families", ["/a", "s3://b/families"]),
+        ("FAMILY_IMPORT_ROOTS", "family_import_roots", "/a, /b/families", ["/a", "/b/families"]),
         ("CORS_ORIGINS", "cors_origins", "https://a.example,https://b.example", ["https://a.example", "https://b.example"]),
         ("CORS_ORIGINS", "cors_origins", '["https://a.example"]', ["https://a.example"]),
         ("VALIDATED_ASSEMBLIES", "validated_assemblies", "GRCh38", ["GRCh38"]),
@@ -110,6 +110,16 @@ def test_list_settings_parse_from_the_real_environment(monkeypatch, variable, fi
     # the environment source, which must read the comma form without JSON-decoding it.
     monkeypatch.setenv(variable, raw)
     assert getattr(Settings(_env_file=None), field) == expected
+
+
+@pytest.mark.parametrize("variable", ["FAMILY_IMPORT_ROOTS", "FAMILY_IMPORT_WATCH_ROOTS"])
+@pytest.mark.parametrize("uri", ["gs://phi/imports", "s3://phi/imports"])
+def test_an_import_folder_named_by_a_bucket_uri_is_refused(monkeypatch, variable, uri) -> None:
+    # The import reads local folders only: a bucket is mounted as a folder, and that folder is
+    # named. The backend refuses to start on a URI rather than read it as a relative path.
+    monkeypatch.setenv(variable, f"/data/families, {uri}")
+    with pytest.raises(ValueError, match="names local folders only"):
+        Settings(_env_file=None)
 
 
 def test_validated_assemblies_default_to_grch38_only() -> None:

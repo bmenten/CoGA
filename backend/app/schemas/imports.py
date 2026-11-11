@@ -75,9 +75,8 @@ class FamilyPackageValidationOut(BaseModel):
     warnings: List[FamilyImportValidationIssue] = Field(default_factory=list)
     datasets: List[FamilyImportDatasetSummary] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    # The fingerprint of the local package folder, taken before the validation read it
-    # (family_package_fingerprint.py); None for a package in a bucket, and for one that could not
-    # be read.
+    # The fingerprint of the package folder, taken before the validation read it
+    # (family_package_fingerprint.py); None for one that could not be read.
     package_fingerprint: Optional[str] = None
 
 
@@ -171,9 +170,8 @@ class FamilyPackageImportJobOut(ApiDocumentModel):
     # The SHA-256 of the manifest CoGA keeps for the job: the one an approved delivery's package
     # makes (import_delivery_review.py).
     manifest_sha256: Optional[str] = None
-    # The fingerprint of the local package folder when the job was queued: the job imports nothing
-    # when the folder's differs as it starts. None for a package in a bucket, and one the queue
-    # could not read.
+    # The fingerprint of the package folder when the job was queued: the job imports nothing
+    # when the folder's differs as it starts. None for a folder the queue could not read.
     package_fingerprint: Optional[str] = None
 
 
@@ -370,14 +368,12 @@ class RawImportFileOut(BaseModel):
     sha256: Optional[str] = None
     source: str = ""
     created_at: Optional[str] = None
-    # Whether the file is at its local storage path. None for a file kept in an object
-    # store (``in_object_store``): the list does not ask the store; Verify does.
-    exists: Optional[bool] = None
+    # Whether the file is at its storage path.
+    exists: bool = False
     download_available: bool = False
-    in_object_store: bool = False
     # Whether the recorded location lies outside the folders CoGA reads the family's source
-    # files from (its package folder, local or in a bucket, and the upload folder): such a file
-    # is neither downloaded nor verified.
+    # files from (its package folder and the upload folder): such a file is neither downloaded
+    # nor verified.
     outside_read_folders: bool = False
 
 

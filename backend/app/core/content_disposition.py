@@ -1,7 +1,7 @@
 """Content-Disposition values for a file named after values that are data.
 
-A download is named after a family or sample ID: ``F1.ped``, ``family-F1-small-variants.csv``,
-a signed URL's ``S1.cram``. A family or sample ID is printable text without spaces
+A download is named after a family ID: ``F1.ped``, ``family-F1-small-variants.csv``. A family
+or sample ID is printable text without spaces
 (``services/family_identifiers.py``), so it may hold a ``"`` that ends the quoted name early, a
 ``%`` a client may decode, or a character outside ASCII; a ``\\`` (which the ID rule
 refuses) would escape within the name. Put into the header as it is, such a name is misread, or

@@ -102,7 +102,7 @@ reference, so no absence has to be assumed:
   per file inside the package (at most 8), reading none. It never fails or delays the import; what
   goes wrong leaves a line in the import's log.
 - **Scanned** once by the ancestry worker when no run waits (`scan_next_file`): the file is read in
-  full, staged first if the package is in an object store, its SHA-256 taken as it is read, and
+  full in its package folder, its SHA-256 taken as it is read, and
   only its calls at the reference markers kept (`ancestry_file_scans`, with the reference's
   checksum: a new reference scans it again). A record at a marker keeps its alleles, a gVCF's
   `<NON_REF>` dropped; a reference block (`END=`) is an explicit call of the marker's own alleles

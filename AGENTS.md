@@ -52,7 +52,7 @@
 ## Backend Guidelines
 
 - Runtime utilities live in `backend/app/core/` (e.g. `config.py`, `postgres.py`,
-  `clickhouse.py`, `object_storage.py`, `http_resilience.py`, `sql.py`).
+  `clickhouse.py`, `family_folders.py`, `http_resilience.py`, `sql.py`).
 - Postgres through SQLAlchemy async sessions, ClickHouse through direct clients. **All
   queries are parameterized**; `ORDER BY` is allowlisted and `LIMIT`/`OFFSET` int-coerced —
   keep it that way (no string interpolation into SQL or ClickHouse).

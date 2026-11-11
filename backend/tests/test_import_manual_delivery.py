@@ -2,8 +2,8 @@
 
 CoGA makes the folder's package (the project and its assembly, the family, the analysis, and the
 members and datasets Discover proposes), checks it as a pipeline's delivery without a file list
-with checksums, and records it as a delivery of origin ``manual``. Refused: a bucket package, a
-folder that holds its own package file, a family ID no family can be stored under, a project CoGA
+with checksums, and records it as a delivery of origin ``manual``. Refused: a folder that holds
+its own package file, a family ID no family can be stored under, a project CoGA
 does not have, and a second open delivery of the folder. The paths through the real stores are in
 e2e/test_e2e_import_manual_delivery.py.
 
@@ -140,7 +140,6 @@ async def test_the_family_id_given_is_used_and_a_project_without_assembly_names_
 @pytest.mark.parametrize(
     ("change", "status", "detail"),
     [
-        ({"folder_path": "gs://bucket/imports/FAM001"}, 400, "A package in a bucket keeps its own manifest"),
         ({"family_id": "FAM 001"}, 400, "The family ID contains a space."),
         ({"project": None}, 404, "Project not found"),
         ({"project_id": "nope"}, 404, "Project not found"),
@@ -152,7 +151,7 @@ async def test_what_is_not_added_by_hand(
     folder: Path, checked: list[dict[str, Any]], change: dict[str, Any], status: int, detail: str
 ) -> None:
     session = _Session(project=change.pop("project", _GRCH38), open_id=change.pop("open_id", None))
-    target: Path | str = change.pop("folder_path", folder)
+    target = folder
     if "folder_name" in change:
         target = folder.parent / change.pop("folder_name")
 

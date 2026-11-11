@@ -62,7 +62,7 @@ from .family_package_common import (
     _json_list,
 )
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
-from .family_package_source import package_folder_path, staged_package_source_async
+from .family_package_source import package_folder_path
 from .raw_import_files_pg import unlink_managed_files
 from .stored_values import json_object
 from .family_package_validation import load_validated_family_package
@@ -362,7 +362,6 @@ def _check_queued_package_fingerprint(
     validation: FamilyPackageValidationOut,
     logs: list[str],
     *,
-    source_uri: str | None,
     queued: str | None,
 ) -> FamilyPackageValidationOut:
     """The validation, refused (``package_changed_since_queued``) when the fingerprint its
@@ -370,15 +369,9 @@ def _check_queued_package_fingerprint(
     one the job was queued with: the import then writes nothing. The log says which fingerprint
     the import read the folder with, and what it was compared with.
 
-    A package staged from a bucket has none, and is not checked. A folder the validation refuses
-    for another reason (gone, outside the import folders) has none either: that refusal says why.
+    A folder the validation refuses for another reason (gone, outside the import folders) has
+    none: that refusal says why.
     """
-    if source_uri is not None:
-        logs.append(
-            "A package staged from a bucket has no fingerprint: whether it changed since the job "
-            "was queued is not checked."
-        )
-        return validation
     current = validation.package_fingerprint
     if current is not None and queued is None:
         logs.append(f"Package fingerprint {current[:12]}; there is no earlier fingerprint to compare it with.")
@@ -406,8 +399,7 @@ async def _package_changed_since_validation(
 ) -> bool:
     """Whether the local package folder's fingerprint, taken now, differs from the one the
     validation took before reading it, or the folder can no longer be read; said in ``logs``
-    when it does, and with ``say_unchanged`` when it does not. A package staged from a bucket
-    has no fingerprint, and never changes here."""
+    when it does, and with ``say_unchanged`` when it does not."""
     if bundle.package_fingerprint is None:
         return False
     try:
@@ -459,8 +451,7 @@ async def execute_family_package_import(
     queued_package_fingerprint: str | None = None,
     delivery: dict[str, Any] | None = None,
 ) -> PackageExecutionResult:
-    """Run an import, staging the package to a temp dir first when the source is a
-    gs:// or s3:// URI (cleaned up afterwards; its alignments stay in the store).
+    """Run an import of the package in the local folder ``folder_path``, read where it lies.
     ``job_id`` is the import job running it, if any: an incomplete-import flag names it.
     ``record_family``, if given, is awaited with the family's identifier before anything
     of the family is written; if it raises, the import writes nothing. The job's runner
@@ -472,53 +463,10 @@ async def execute_family_package_import(
     import writes nothing when the folder's differs (``_check_queued_package_fingerprint``).
     ``delivery`` is the delivery of a watched import folder the job imports, which the family's
     package record names."""
-    async with staged_package_source_async(folder_path) as staged:
-        return await _execute_family_package_import_local(
-            session,
-            folder_path=staged.root,
-            source_uri=staged.source_uri,
-            remote_only_files=staged.remote_only_files,
-            project_id=project_id,
-            dry_run=dry_run,
-            user=user,
-            requested_family_id=requested_family_id,
-            conflict_mode=conflict_mode,
-            progress=progress,
-            job_id=job_id,
-            record_family=record_family,
-            manifest_text=manifest_text,
-            queued_package_fingerprint=queued_package_fingerprint,
-            delivery=delivery,
-        )
-
-
-async def _execute_family_package_import_local(
-    session: AsyncSession | None,
-    *,
-    folder_path: str | Path,
-    source_uri: str | None,
-    project_id: str | None,
-    dry_run: bool,
-    user: CurrentUser | None,
-    requested_family_id: str | None = None,
-    conflict_mode: str = "cancel",
-    progress: ProgressCallback | None = None,
-    job_id: str | None = None,
-    remote_only_files: frozenset[str] = frozenset(),
-    record_family: FamilyRecordCallback | None = None,
-    manifest_text: str,
-    queued_package_fingerprint: str | None = None,
-    delivery: dict[str, Any] | None = None,
-) -> PackageExecutionResult:
     # The existing family the request names, read as every ID is: without the whitespace
     # around it.
     requested_family_id = (requested_family_id or "").strip() or None
-    validation, bundle = load_validated_family_package(
-        folder_path,
-        remote_only_files=remote_only_files,
-        source_uri=source_uri,
-        manifest_text=manifest_text,
-    )
+    validation, bundle = load_validated_family_package(folder_path, manifest_text=manifest_text)
     conflict_mode = _normalized_conflict_mode(conflict_mode)
     request_metadata = _execution_metadata(
         requested_family_id=requested_family_id,
@@ -529,12 +477,8 @@ async def _execute_family_package_import_local(
     if delivery is not None:
         request_metadata["delivery"] = delivery
     validation = _merge_validation_metadata(validation, request_metadata)
-    # A package staged from a bucket is named by its source folder: the staging copy
-    # is gone once the import ends.
-    logs = [f"Validated package path {source_uri or package_folder_path(folder_path)}."]
-    validation = _check_queued_package_fingerprint(
-        validation, logs, source_uri=source_uri, queued=queued_package_fingerprint
-    )
+    logs = [f"Validated package path {package_folder_path(folder_path)}."]
+    validation = _check_queued_package_fingerprint(validation, logs, queued=queued_package_fingerprint)
     if delivery is not None:
         logs.append(
             f"The package was delivered into a watched import folder (delivery {str(delivery.get('id'))[:8]}, "
@@ -775,11 +719,11 @@ async def _import_family_datasets(
     with ``package_changed_during_import``, and the package list offers the folder again."""
     import_key = import_mark.key if import_mark is not None else None
     # The import as the phenotypes' audit events name it: who runs it, the package (by the
-    # folder or bucket it was read from, as its log says) and its job.
+    # folder it was read from, as its log says) and its job.
     phenotype_import = PhenotypeImport(
         user=user,
         via=PACKAGE_IMPORT,
-        source=bundle.source_uri or package_folder_path(bundle.root),
+        source=package_folder_path(bundle.root),
         job_id=job_id,
     )
     # What the import records each dataset as replacing (dataset_scopes), from before its
