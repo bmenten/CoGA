@@ -201,7 +201,7 @@ pull request updates this list only when it adds clinical behaviour that no area
     chrX outside the pseudo-autosomal regions, a female partner's variant on its own (never a
     mitochondrial variant). Its preset reads rare high- or moderate-impact variants with the
     ClinVar P/LP frequency override, so a long-read genome's screen reaches chrX within the
-    candidate window.
+    candidate window, and leaves out ClinVar benign and likely benign variants.
 - **Structural variants, CNVs and repeats**
   - SV gene and panel filters before the candidate cap. A gene panel of any size, the
     Mendeliome included, keeps the SVs whose annotation names one of its genes as well as

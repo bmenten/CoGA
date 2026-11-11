@@ -110,7 +110,8 @@ causal*. **+N more** opens **More annotations & detail**, which lists every Mona
   at risk on their own.
 
 A ClinVar pathogenic or likely pathogenic call overrides the frequency cut-off, so a common founder
-variant stays in. A partner whose sex is not recorded counts as female. Mitochondrial variants are not
+variant stays in. A ClinVar benign or likely benign variant is left out, so it never makes a gene one
+both partners carry a variant in. A partner whose sex is not recorded counts as female. Mitochondrial variants are not
 part of it, as mtDNA passes from the mother alone.
 
 Your saved searches are shared with the monogenic NIPT page. A search saved there can carry filters
