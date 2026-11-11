@@ -541,93 +541,12 @@ async def _fetch_internal_cohort_map(
     return result
 
 
-async def fetch_recurrent_small_variant_ids(
-    assembly_name: str,
-    *,
-    min_carrier_samples: int,
-    carrier_samples: Collection[str] | None = None,
-    exclude_common: bool = True,
-    exclude_clinvar_pathogenic: bool = True,
-    project_ids: Sequence[str] | None = None,
-    limit: int = 100_000,
-) -> list[tuple[str, int]]:
-    """Variant ids carried (non-ref) by >= ``min_carrier_samples`` distinct
-    samples -- recurrent-artifact candidates.
-
-    ``carrier_samples`` limits the carriers counted to those sample IDs (``None``: every
-    sample on the assembly; empty: none). ``exclude_common`` drops variants flagged
-    at import as more than 5% frequent in gnomAD/TopMed (``is_gnomad_gt_5_percent``):
-    every common variant recurs, and recurrence is no sign of an artifact.
-    ``exclude_clinvar_pathogenic`` drops every variant whose ClinVar record, in any of
-    its annotations on the assembly, carries or may carry a pathogenic or likely
-    pathogenic assertion (``clinvar_may_assert_pathogenic``: P, LP and every
-    conflicting record): a familial founder variant recurs in a disease-focused panel,
-    below 5%, and is the last thing an artifact list may hold.
-
-    Returns ``(variant_id, carrier_count)`` pairs ordered by recurrence. Counts
-    each carrier sample once via ``sign = 1`` over the ``entries`` table.
-    """
-    if not assembly_name or min_carrier_samples < 1:
-        return []
-    if carrier_samples is not None and not carrier_samples:
-        return []
-    entries_table = _small_table_name(assembly_name, "entries")
-    params: dict[str, Any] = {
-        "min_samples": int(min_carrier_samples),
-        "limit": int(limit),
-    }
-    clauses = ["sign = 1", clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)]
-    if carrier_samples is not None:
-        params["carrier_ids"] = tuple(sorted(carrier_samples))
-        clauses.append("sample_id IN %(carrier_ids)s")
-    if exclude_common:
-        clauses.append("NOT is_gnomad_gt_5_percent")
-    if project_ids:
-        clauses.append("project_guid IN %(project_ids)s")
-        params["project_ids"] = tuple(project_ids)
-    recurrent = f"""
-        SELECT variantId, uniqExact(sample_id) AS carriers
-        FROM {entries_table}
-        ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
-        WHERE {' AND '.join(clauses)}
-        GROUP BY variantId
-        HAVING carriers >= %(min_samples)s
-    """
-    if not exclude_clinvar_pathogenic:
-        rows = await _execute_clickhouse(
-            f"{recurrent} ORDER BY carriers DESC LIMIT %(limit)s", params
-        )
-        return [(str(variant_id), int(carriers or 0)) for variant_id, carriers in rows]
-    # Each candidate's ClinVar terms, pooled across its annotations, read by the one
-    # Python ClinVar rule rather than a second copy of it in SQL.
-    annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
-    rows = await _execute_clickhouse(
-        f"""
-        SELECT recurrent.variantId, recurrent.carriers, clinvar.terms
-        FROM ({recurrent}) AS recurrent
-        LEFT JOIN (
-            SELECT variantId, groupUniqArrayArray(clinvar_terms) AS terms
-            FROM {annotation_index}
-            WHERE notEmpty(clinvar_terms)
-            GROUP BY variantId
-        ) AS clinvar ON clinvar.variantId = recurrent.variantId
-        ORDER BY recurrent.carriers DESC
-        LIMIT %(limit)s
-        """,
-        params,
-    )
-    return [
-        (str(variant_id), int(carriers or 0))
-        for variant_id, carriers, terms in rows
-        if not clinvar_may_assert_pathogenic([str(term) for term in terms or []])
-    ]
-
-
 @dataclass(slots=True, frozen=True)
 class CfdnaRecurrenceRules:
-    """How ``count_cfdna_recurrence`` reads a call: the NIPT quality filter's floors for a
-    plasma call, the allele fraction from which the mother carries the allele, and the
-    father's het or hom-alt class (``nipt_service.derive_father_state``)."""
+    """How the recurrence count and the artifact list's auto-seed read a call
+    (``_cfdna_sample_calls``): the NIPT quality filter's floors for a plasma call, the
+    allele fraction from which the mother carries the allele, and the father's het or
+    hom-alt class (``nipt_service.derive_father_state``)."""
 
     min_alt_reads: int
     min_alt_fraction: float
@@ -662,6 +581,91 @@ class CfdnaRecurrence:
     unexplained_median_vaf: float | None = None
 
 
+# A call's reads: the sum of its allele depths, a missing depth read as 0.
+_READS = "arraySum(arrayMap(x -> ifNull(x, 0), {}))"
+# A sample's call of the allele below the maternal boundary that its family's father does
+# not explain (``_cfdna_sample_calls``): the mark of a recurrent artefact.
+_UNEXPLAINED_LOW_VAF = "isNotNull(sample_vaf) AND sample_vaf < %(maternal_vaf)s AND NOT explained"
+
+
+def _cfdna_sample_calls(
+    entries_table: str, row_filter: str, rules: CfdnaRecurrenceRules, params: dict[str, Any]
+) -> str:
+    """A subquery with one row per allele and per sample of ``params["carrier_ids"]`` whose
+    call carries it, in the ``entries`` rows that ``row_filter`` keeps; it adds the
+    thresholds of ``rules`` to ``params``.
+
+    A call carries the allele when it has at least ``rules.min_alt_reads`` alt reads and
+    ``rules.min_alt_fraction`` of the reads, or, without allele depths, an alt genotype. A
+    per-sample cfDNA callset stores every low-level call, so a read or two that crossed over
+    from another sample of the run does not count. Each row holds:
+
+    - ``sample_vaf``: the call's alt reads over all its reads; NULL without allele depths;
+    - ``explained``: whether the father of the call's family explains it. He is any sample
+      of the family's row outside ``carrier_ids``, and explains the call when his own call
+      of the allele is het or hom-alt by ``rules`` (``nipt_service.derive_father_state``).
+      His call in another representation of the allele (an MNV over it, or its SNVs) is not
+      looked up.
+
+    A family stored under more than one project gives one row.
+    """
+    params.update(
+        {
+            "min_alt_reads": int(rules.min_alt_reads),
+            "min_alt_fraction": float(rules.min_alt_fraction),
+            "maternal_vaf": float(rules.maternal_vaf_boundary),
+            "father_min_depth": int(rules.father_min_depth),
+            "father_min_alt_reads": int(rules.father_min_alt_reads),
+            "father_min_quality": float(rules.father_min_quality),
+            "father_min_vaf": float(rules.father_min_vaf),
+        }
+    )
+    has_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
+    father_has_alt = clickhouse_genotype_condition("g", ALT_CLASSES, param="father_gt_alt", params=params)
+    # The father's quality is his TLOD, else his QUAL (nipt_service._call_quality).
+    father_quality = "if(mapContains(m, 'TLOD'), m['TLOD'], if(mapContains(m, 'QUAL'), m['QUAL'], NULL))"
+    call_vaf = (
+        f"if(length(ad) >= 2 AND {_READS.format('ad')} > 0, "
+        f"ifNull(ad[2], 0) / {_READS.format('ad')}, NULL)"
+    )
+    return f"""
+        SELECT variantId, sample_id, any({call_vaf}) AS sample_vaf, max(father_explains) AS explained
+        FROM (
+            SELECT
+                variantId,
+                `calls.sampleId` AS row_samples,
+                `calls.gt` AS row_gts,
+                `calls.ad` AS row_ads,
+                arrayExists(
+                    (s, g, a, m) -> s NOT IN %(carrier_ids)s AND (
+                        (
+                            length(a) >= 2
+                            AND ifNull(a[2], 0) >= %(father_min_alt_reads)s
+                            AND {_READS.format('a')} >= %(father_min_depth)s
+                            AND ifNull(a[2], 0) >= %(father_min_vaf)s * {_READS.format('a')}
+                            AND ifNull({father_quality}, %(father_min_quality)s) >= %(father_min_quality)s
+                        )
+                        OR (length(a) < 2 AND {father_has_alt})
+                    ),
+                    `calls.sampleId`, `calls.gt`, `calls.ad`, `calls.metrics`
+                ) AS father_explains
+            FROM {entries_table}
+            WHERE sign = 1 AND {row_filter}
+        )
+        ARRAY JOIN row_samples AS sample_id, row_gts AS gt, row_ads AS ad
+        WHERE sample_id IN %(carrier_ids)s
+          AND (
+            (
+              length(ad) >= 2
+              AND ifNull(ad[2], 0) >= %(min_alt_reads)s
+              AND ifNull(ad[2], 0) >= %(min_alt_fraction)s * {_READS.format('ad')}
+            )
+            OR (length(ad) < 2 AND {has_alt})
+          )
+        GROUP BY variantId, sample_id
+    """
+
+
 async def count_cfdna_recurrence(
     assembly_name: str,
     variant_ids: Sequence[str],
@@ -674,16 +678,10 @@ async def count_cfdna_recurrence(
     """How each of ``variant_ids`` recurs in the ``carrier_samples`` outside the family
     (``CfdnaRecurrence``).
 
-    ``carrier_samples`` are sample IDs, as ``fetch_recurrent_small_variant_ids`` takes them:
-    the cfDNA samples of the family's assay. A call carries the allele when it has at least
-    ``rules.min_alt_reads`` alt reads and ``rules.min_alt_fraction`` of the reads, or,
-    without allele depths, an alt genotype. A per-sample cfDNA callset stores every
-    low-level call, so a read or two that crossed over from another sample of the run does
-    not count. The father of a call's family is any other sample of the family's row: he
-    explains the call when his own call of the allele is het or hom-alt by ``rules``. His
-    call in another representation of the allele (an MNV over it, or its SNVs) is not
-    looked up. A family stored under more than one project counts once. Variants nobody
-    else carries are not listed.
+    ``carrier_samples`` are sample IDs: the cfDNA samples of the family's assay. Each call is
+    read by ``rules`` as ``_cfdna_sample_calls`` reads it: whether it carries the allele, its
+    allele fraction and whether that family's father explains it. A family stored under
+    more than one project counts once. Variants nobody else carries are not listed.
     """
     if not assembly_name or not variant_ids or not carrier_samples:
         return {}
@@ -691,30 +689,17 @@ async def count_cfdna_recurrence(
     carrier_ids = tuple(sorted(carrier_samples))
     counts: dict[str, CfdnaRecurrence] = {}
     unique_ids = list(dict.fromkeys(str(value) for value in variant_ids if value))
-    reads = "arraySum(arrayMap(x -> ifNull(x, 0), {}))"
     for offset in range(0, len(unique_ids), chunk_size):
         params: dict[str, Any] = {
             "variant_ids": tuple(unique_ids[offset : offset + chunk_size]),
             "carrier_ids": carrier_ids,
             "family_guid": exclude_family_uuid,
-            "min_alt_reads": int(rules.min_alt_reads),
-            "min_alt_fraction": float(rules.min_alt_fraction),
-            "maternal_vaf": float(rules.maternal_vaf_boundary),
-            "father_min_depth": int(rules.father_min_depth),
-            "father_min_alt_reads": int(rules.father_min_alt_reads),
-            "father_min_quality": float(rules.father_min_quality),
-            "father_min_vaf": float(rules.father_min_vaf),
         }
-        has_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
-        father_has_alt = clickhouse_genotype_condition("g", ALT_CLASSES, param="father_gt_alt", params=params)
-        # The father's quality is his TLOD, else his QUAL (nipt_service._call_quality).
-        father_quality = (
-            "if(mapContains(m, 'TLOD'), m['TLOD'], if(mapContains(m, 'QUAL'), m['QUAL'], NULL))"
-        )
-        # A call's alt fraction: its alt reads over every read; none without allele depths.
-        call_vaf = (
-            f"if(length(ad) >= 2 AND {reads.format('ad')} > 0, "
-            f"ifNull(ad[2], 0) / {reads.format('ad')}, NULL)"
+        sample_calls = _cfdna_sample_calls(
+            entries_table,
+            "family_guid != %(family_guid)s AND variantId IN %(variant_ids)s",
+            rules,
+            params,
         )
         rows = await _execute_clickhouse(
             f"""
@@ -724,48 +709,9 @@ async def count_cfdna_recurrence(
                 countIf(isNotNull(sample_vaf) AND sample_vaf >= %(maternal_vaf)s) AS maternal,
                 countIf(isNotNull(sample_vaf) AND sample_vaf < %(maternal_vaf)s AND explained)
                     AS paternal_low_vaf,
-                countIf(isNotNull(sample_vaf) AND sample_vaf < %(maternal_vaf)s AND NOT explained)
-                    AS unexplained_low_vaf,
-                medianExactIf(sample_vaf, isNotNull(sample_vaf) AND sample_vaf < %(maternal_vaf)s AND NOT explained)
-                    AS unexplained_median_vaf
-            FROM (
-                SELECT variantId, sample_id, any({call_vaf}) AS sample_vaf, max(father_explains) AS explained
-                FROM (
-                    SELECT
-                        variantId,
-                        `calls.sampleId` AS row_samples,
-                        `calls.gt` AS row_gts,
-                        `calls.ad` AS row_ads,
-                        arrayExists(
-                            (s, g, a, m) -> s NOT IN %(carrier_ids)s AND (
-                                (
-                                    length(a) >= 2
-                                    AND ifNull(a[2], 0) >= %(father_min_alt_reads)s
-                                    AND {reads.format('a')} >= %(father_min_depth)s
-                                    AND ifNull(a[2], 0) >= %(father_min_vaf)s * {reads.format('a')}
-                                    AND ifNull({father_quality}, %(father_min_quality)s) >= %(father_min_quality)s
-                                )
-                                OR (length(a) < 2 AND {father_has_alt})
-                            ),
-                            `calls.sampleId`, `calls.gt`, `calls.ad`, `calls.metrics`
-                        ) AS father_explains
-                    FROM {entries_table}
-                    WHERE sign = 1
-                      AND family_guid != %(family_guid)s
-                      AND variantId IN %(variant_ids)s
-                )
-                ARRAY JOIN row_samples AS sample_id, row_gts AS gt, row_ads AS ad
-                WHERE sample_id IN %(carrier_ids)s
-                  AND (
-                    (
-                      length(ad) >= 2
-                      AND ifNull(ad[2], 0) >= %(min_alt_reads)s
-                      AND ifNull(ad[2], 0) >= %(min_alt_fraction)s * {reads.format('ad')}
-                    )
-                    OR (length(ad) < 2 AND {has_alt})
-                  )
-                GROUP BY variantId, sample_id
-            )
+                countIf({_UNEXPLAINED_LOW_VAF}) AS unexplained_low_vaf,
+                medianExactIf(sample_vaf, {_UNEXPLAINED_LOW_VAF}) AS unexplained_median_vaf
+            FROM ({sample_calls})
             GROUP BY variantId
             """,
             params,
@@ -780,6 +726,78 @@ async def count_cfdna_recurrence(
                 unexplained_median_vaf=median if median is not None and not math.isnan(median) else None,
             )
     return counts
+
+
+async def fetch_recurrent_artifact_candidates(
+    assembly_name: str,
+    *,
+    carrier_samples: Collection[str],
+    rules: CfdnaRecurrenceRules,
+    min_unexplained_samples: int,
+    limit: int = 100_000,
+) -> list[tuple[str, int]]:
+    """The alleles that are an unexplained low-VAF call in at least
+    ``min_unexplained_samples`` of ``carrier_samples``, the artifact list's auto-seed
+    candidates, as ``(variant_id, unexplained_samples)`` pairs, most recurrent first.
+
+    ``carrier_samples`` are the cfDNA samples of an assay; every family's calls count.
+    Each call is read by ``rules`` as ``_cfdna_sample_calls`` reads it, and only a call
+    below the maternal boundary that its family's father does not explain counts
+    (``CfdnaRecurrence.unexplained_low_vaf``). A maternal het or the fetus's paternal
+    allele is no sign of an artefact, and a polymorphism of 1 to 5% is one in many plasmas, so a
+    count of every carrier would reach any threshold as the database grows and list the
+    paternal sites the fetal fraction is read from.
+
+    Never listed, whatever its count:
+
+    - a variant flagged at import as more than 5% frequent in gnomAD or TopMed
+      (``is_gnomad_gt_5_percent``);
+    - a variant whose ClinVar record, in any of its annotations on the assembly, carries or
+      may carry a pathogenic or likely pathogenic assertion (``clinvar_may_assert_pathogenic``:
+      P, LP and every conflicting record). A familial founder variant recurs in a
+      disease-focused panel below 5%, and is the last thing an artifact list may hold.
+    """
+    if not assembly_name or min_unexplained_samples < 1 or not carrier_samples:
+        return []
+    params: dict[str, Any] = {
+        "carrier_ids": tuple(sorted(carrier_samples)),
+        "min_samples": int(min_unexplained_samples),
+        "limit": int(limit),
+    }
+    sample_calls = _cfdna_sample_calls(
+        _small_table_name(assembly_name, "entries"),
+        "NOT is_gnomad_gt_5_percent AND arrayExists(s -> s IN %(carrier_ids)s, `calls.sampleId`)",
+        rules,
+        params,
+    )
+    # Each candidate's ClinVar terms, pooled across its annotations, read by the one
+    # Python ClinVar rule rather than a second copy of it in SQL.
+    annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT recurrent.variantId, recurrent.unexplained, clinvar.terms
+        FROM (
+            SELECT variantId, countIf({_UNEXPLAINED_LOW_VAF}) AS unexplained
+            FROM ({sample_calls})
+            GROUP BY variantId
+            HAVING unexplained >= %(min_samples)s
+        ) AS recurrent
+        LEFT JOIN (
+            SELECT variantId, groupUniqArrayArray(clinvar_terms) AS terms
+            FROM {annotation_index}
+            WHERE notEmpty(clinvar_terms)
+            GROUP BY variantId
+        ) AS clinvar ON clinvar.variantId = recurrent.variantId
+        ORDER BY recurrent.unexplained DESC, recurrent.variantId
+        LIMIT %(limit)s
+        """,
+        params,
+    )
+    return [
+        (str(variant_id), int(unexplained or 0))
+        for variant_id, unexplained, terms in rows
+        if not clinvar_may_assert_pathogenic([str(term) for term in terms or []])
+    ]
 
 
 async def count_other_cfdna_samples(

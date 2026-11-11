@@ -2394,8 +2394,9 @@ stopped.
 The recurrent-artifact list of monogenic NIPT is kept per assembly and assay
 (`nipt_artifact_variants`; see [monogenic-nipt.md](monogenic-nipt.md)). Admins maintain it through
 the API; there is no screen for it. Besides adding or removing one allele
-(`POST /admin/nipt/artifacts`, `DELETE /admin/nipt/artifacts/{artifact_id}`) and seeding it from
-the cohort's cfDNA samples (`POST /admin/nipt/artifacts/auto-seed`), an admin can import the
+(`POST /admin/nipt/artifacts`, `DELETE /admin/nipt/artifacts/{artifact_id}`) and seeding it with
+the alleles that are an unexplained low-VAF call in at least `min_unexplained_samples` (default 3)
+of the assay's cfDNA samples (`POST /admin/nipt/artifacts/auto-seed`), an admin can import the
 NIPT-M pipeline's recurrent table with `POST /admin/nipt/artifacts/import`: a multipart form with
 the table as `file`, the `assembly_id`, and the `assay_key` (default `nipt_cfdna`; a list for a
 capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).

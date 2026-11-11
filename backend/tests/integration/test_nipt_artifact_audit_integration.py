@@ -35,10 +35,10 @@ def test_each_artifact_list_change_is_audited_on_its_own_chain(monkeypatch: pyte
     tag = uuid4().hex[:8].upper()
     assay = f"AUDIT_{tag}"
 
-    async def fake_recurrent(assembly_name, *, min_carrier_samples, **_kwargs):
+    async def fake_candidates(assembly_name, *, min_unexplained_samples, **_kwargs):
         return [(f"2-200-C-T-{tag}", 6), (f"3-300-G-A-{tag}", 5)]
 
-    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_small_variant_ids", fake_recurrent)
+    monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_artifact_candidates", fake_candidates)
 
     async def _events(session, since) -> list[dict]:
         rows = await session.execute(
@@ -78,7 +78,7 @@ def test_each_artifact_list_change_is_audited_on_its_own_chain(monkeypatch: pyte
                     label="recurrent in the run", actor="curator",
                 )
                 seeded = await nipt_artifact_pg.auto_seed_nipt_artifacts(
-                    s, assembly_id=assembly_id, assay_key=assay, actor="curator",
+                    s, assembly_id=assembly_id, assay_key=assay, min_unexplained_samples=3, actor="curator",
                 )
                 assert seeded["seeded"] == 2
                 assert await nipt_artifact_pg.delete_nipt_artifact(

@@ -605,7 +605,7 @@ def test_each_spelling_of_the_assembly_id_names_the_assembly(snap: dict[str, Any
     # The entry is stored, and answered, under the canonical id.
     assert added["json"]["assembly_id"] == snap["assembly"]
     assert added["json"]["variant_id"] == f"1-100-A-G-{snap['run']}-{name}"
-    assert _status(r["seed"][name]) == (200, {"seeded": 0, "min_carrier_samples": 5})
+    assert _status(r["seed"][name]) == (200, {"seeded": 0, "min_unexplained_samples": 3})
     assert r["import"][name]["status"] == 200, r["import"][name]
     assert r["import"][name]["json"]["imported"] == 1
 

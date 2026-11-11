@@ -452,16 +452,18 @@ class NiptArtifactCreate(BaseModel):
 
 
 class NiptArtifactAutoSeed(BaseModel):
-    """Seed the artifact list from internal cohort recurrence."""
+    """Seed the artifact list with the alleles that are an unexplained low-VAF call in at
+    least ``min_unexplained_samples`` cfDNA samples of the assay. The default suits a start
+    with about 20 families."""
 
     assembly_id: str
     assay_key: str = "nipt_cfdna"
-    min_carrier_samples: int = Field(default=5, ge=1)
+    min_unexplained_samples: int = Field(default=3, ge=1)
 
 
 class NiptArtifactAutoSeedOut(BaseModel):
     seeded: int
-    min_carrier_samples: int
+    min_unexplained_samples: int
 
 
 class NiptArtifactImportOut(BaseModel):

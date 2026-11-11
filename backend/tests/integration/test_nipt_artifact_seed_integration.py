@@ -1,13 +1,14 @@
 """Auto-seeding the NIPT artifact list counts only the assay's own cfDNA samples and skips
 common and ClinVar pathogenic variants — real Postgres + ClickHouse.
 
-A list of every variant carried by five samples anywhere on the assembly would hold every
-common SNP, so the paternal sites the fetal fraction is read from, and every other assay's
-recurrent artifacts, which the NIPT analysis then excludes. A rare pathogenic founder variant
-recurs in a disease-focused panel too, and listing it would drop it from every analysis. This
-seeds a fixture with one variant of each kind and checks that each assay lists only its own
-recurrent, non-common variants without a ClinVar P/LP (or conflicting) record, counting a
-sample once however many rows hold its call.
+Counted over every sample on the assembly, recurrence would take in every other assay's
+recurrent artifacts, which the NIPT analysis then excludes. A common SNP recurs too, and a
+rare pathogenic founder variant recurs in a disease-focused panel; listing either would drop
+it from every analysis. Every call here is a low-VAF call (5%) that no father explains, the
+mark the auto-seed counts (how maternal and paternal calls are read:
+``e2e/test_e2e_nipt_artifact_auto_seed.py``). This seeds a fixture with one variant of each
+kind and checks that each assay lists only its own recurrent, non-common variants without a
+ClinVar P/LP (or conflicting) record, counting a sample once however many rows hold its call.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -171,10 +172,10 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
 
             async with sm() as session:
                 default = await auto_seed_nipt_artifacts(
-                    session, assembly_id=assembly_id, assay_key="nipt_cfdna", min_carrier_samples=5
+                    session, assembly_id=assembly_id, assay_key="nipt_cfdna", min_unexplained_samples=5
                 )
                 panel = await auto_seed_nipt_artifacts(
-                    session, assembly_id=assembly_id, assay_key="PANEL_X", min_carrier_samples=5
+                    session, assembly_id=assembly_id, assay_key="PANEL_X", min_unexplained_samples=5
                 )
                 default_rows = await list_nipt_artifacts(
                     session, assembly_id=assembly_id, assay_key="nipt_cfdna"
@@ -183,13 +184,13 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
                     session, assembly_id=assembly_id, assay_key="PANEL_X"
                 )
 
-            assert default == {"seeded": 2, "min_carrier_samples": 5}
+            assert default == {"seeded": 2, "min_unexplained_samples": 5}
             assert [(r["variant_id"], r["recurrence_count"], r["source"]) for r in default_rows] == [
                 ("1-100-A-G", 5, "auto"),
                 ("1-900-A-G", 5, "auto"),
             ]
             # The other panel's own recurrence is its artifact; the WGS carriers never count.
-            assert panel == {"seeded": 1, "min_carrier_samples": 5}
+            assert panel == {"seeded": 1, "min_unexplained_samples": 5}
             assert [(r["variant_id"], r["recurrence_count"]) for r in panel_rows] == [("1-300-A-G", 5)]
         finally:
             await close_postgres_engine()
