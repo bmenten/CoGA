@@ -122,7 +122,7 @@ def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
 # A structural-variant preset is its owner's, for the family it is saved in (scope 'family')
 # or, reusable, for every family they can open (scope 'global', no family): one per family,
 # scope, owner and name. The owner is the account (owner_id), whatever its user name is now;
-# owner, the user name it was last saved under, is what the preset shows (SEC-32).
+# owner, the user name it was last saved under, is what the preset shows.
 _PRESET_COLUMNS = """
     id::text AS id,
     family_id::text AS family_id,
@@ -198,7 +198,7 @@ async def get_structural_variant_review_map(
         return {}
     # The ids go as one text[] parameter, not one parameter per id (an expanding IN): a CSV
     # export reads up to 50,001 rows, and asyncpg refuses a statement with more than 32,767
-    # parameters, so every export of a larger result failed before its row cap (DATA-3).
+    # parameters, so every export of a larger result failed before its row cap.
     result = await session.execute(
         text(
             """
@@ -239,7 +239,7 @@ async def list_matching_structural_variant_review_ids(
     tag, a saved note (each set filter must hold).
 
     A classification keeps a review by the class the SV table and cards show for it
-    (``review_shows_class``, the small-variant filters' rule; CLIN-77, the owner's decision of
+    (``review_shows_class``, the small-variant filters' rule, the owner's decision of
     2026-11-10): a bare class word in its text, else its most severe class tag, else its text,
     whatever the case. So *Likely pathogenic - class 4* keeps a review classified by its
     class tag alone, and not one whose text says another class beside that tag. A CNV (ClinGen)
@@ -327,11 +327,10 @@ def _classified_row(rows: Sequence[StructuralVariantRecord]) -> StructuralVarian
     when it names none, the SV's one row.
 
     Several callers can call one SV under one id and share its review, each with its own
-    genes, pLI and inheritance, and the scoring rests on the row it was made on (TRACE-11).
+    genes, pLI and inheritance, and the scoring rests on the row it was made on.
     A save that names no caller cannot say which row that was when several callers call the
     SV, so it is refused rather than freezing another caller's evidence: 422, since the
-    request lacks what the server needs, not 409, which here means another reviewer's save
-    (#513).
+    request lacks what the server needs, not 409, which here means another reviewer's save.
     """
     if not rows:
         raise HTTPException(status_code=404, detail="Structural variant not found")
@@ -382,7 +381,7 @@ async def upsert_structural_variant_review(
             await read_structural_evidence_versions(session, context=context, user=user),
         )
     # One save of this variant's review at a time, checked against the version the
-    # client loaded (#513).
+    # client loaded.
     await _lock_review(
         session, scope="strv", family_uuid=context.family_uuid, variant_id=normalized_variant_id
     )
@@ -412,7 +411,7 @@ async def upsert_structural_variant_review(
                 detail=f"Unknown structural-variant tag(s): {', '.join(sorted(unknown_tags))}",
             )
     if not cnv_requested and existing is not None:
-        # Kept exactly as stored, an unreadable record included (#514).
+        # Kept exactly as stored, an unreadable record included.
         cnv_blob = existing.get("cnv_acmg") or None
         cnv_point_total = existing.get("cnv_point_total")
         cnv_class = existing.get("cnv_class")
@@ -677,7 +676,7 @@ async def delete_structural_variant_filter_preset(
     if row is None:
         raise HTTPException(status_code=404, detail="Preset not found")
     if row["owner_id"] != user.id:
-        # Another user's preset answers as an unknown one does (SEC-9, REQ-SEC-001).
+        # Another user's preset answers as an unknown one does (REQ-SEC-001).
         raise RecordNotVisible("filter_preset", "Preset not found")
     if row["scope"] == "family" and row["family_id"] != family_uuid:
         raise HTTPException(status_code=404, detail="Preset not found")

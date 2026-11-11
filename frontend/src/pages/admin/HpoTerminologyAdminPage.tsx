@@ -14,7 +14,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { formatDate, formatDateTime } from '../../lib/format';
 
 // As the backend serves them, the summary with the ontology file it is configured to load, a
-// sync with the release its file states and the SHA-256 of its bytes (TRACE-18).
+// sync with the release its file states and the SHA-256 of its bytes.
 type HpoAdminTerm = HpoAdminTermOut;
 type HpoAdminSummary = HpoAdminSummaryOut;
 type HpoSyncResult = HpoOntologySyncOut;
@@ -44,8 +44,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   // The path the admin typed, if any. Until then the field holds the file the backend is
-  // configured to load, from the summary: the page's own copy of that default had drifted
-  // from the backend's (hpo.obo against hp.obo).
+  // configured to load, from the summary: the page keeps no copy of that default.
   const [syncPathDraft, setSyncPathDraft] = useState<string | null>(null);
   // Where the ontology comes from: a release HPO publishes, downloaded from its own PURL, or a
   // file on the server.
@@ -56,8 +55,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
   const [selectedTermId, setSelectedTermId] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<HpoSyncResult | null>(null);
   // The request the shown result answers. Apply goes out only for exactly the previewed
-  // file and overrides: it used to take whatever the fields held, with or without a
-  // preview, while the preview of another file stayed on screen (#526).
+  // file and overrides.
   const [resultRequest, setResultRequest] = useState<string | null>(null);
 
   useEffect(() => {
@@ -149,7 +147,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
       const response = await api.post('/admin/hpo/sync', {
         ...syncRequest,
         // Apply imports exactly the bytes the preview showed: a file changed since, or a
-        // release HPO serves anew, is refused (TRACE-18).
+        // release HPO serves anew, is refused.
         ...(previewOnly ? {} : { expected_sha256: shownResult?.release_sha256 ?? null }),
         preview_only: previewOnly,
       });

@@ -10,9 +10,7 @@ import { useAnnotationManifest } from './AnnotationProvenanceSummary';
  *
  * The two belong together and are shown together, grouped by the *job* they describe:
  * which reference, which caller at which version produced which variant class, which
- * annotation cache. Listing 27 tools in one flat table said nothing about what any of
- * them did, and put the parameter that configures a tool in a different block from that
- * tool's version.
+ * annotation cache, each tool's version in the block of the parameter that configures it.
  */
 
 /**
@@ -192,7 +190,7 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
 
   const versioned = (manifest?.modules ?? []).filter((module) => module.version);
   // A failed manifest is not a run without tool versions: the panel says so rather than
-  // vanishing, and it is printed on the report (#610).
+  // vanishing, and it is printed on the report.
   if (!settings && !versioned.length && !manifestFailed) return null;
 
   const resolved = settings ?? {};
@@ -250,7 +248,7 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
       const named = scalarText(resolved[key]);
       if (!named || claimedTools.has(normalizeToolKey(named))) continue;
       // The manifest that holds the versions may have failed to load: then the version is
-      // unknown, not unreported, and the panel is printed on the report (#610).
+      // unknown, not unreported, and the panel is printed on the report.
       rows.push({
         label: named,
         value: manifestFailed ? 'version could not be loaded' : 'version not reported',

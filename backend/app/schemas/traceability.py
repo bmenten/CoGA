@@ -14,7 +14,7 @@ class AnnotationModuleOut(BaseModel):
     version: Optional[str] = None
     detail: Optional[str] = None
     layer: str  # "pipeline" (per-family upstream) | "reference" (platform-loaded)
-    # Per-modality versions (issue #294): {modality: version} when the same database
+    # Per-modality versions: {modality: version} when the same database
     # was cited at different releases by different pipelines (e.g. SNV vs SV GENCODE).
     by_modality: Optional[Dict[str, str]] = None
 
@@ -33,10 +33,8 @@ class AnnotationManifestOut(BaseModel):
 class AnnotationManifestUpdate(BaseModel):
     """Record/override a family's upstream annotation module versions."""
 
+    # A replacement is always recorded as 'manual'.
     modules: Dict[str, Any] = Field(default_factory=dict)
-    # Ignored: a replacement is always recorded as 'manual'. Kept so the request schema
-    # and the generated API types stay stable.
-    source: Optional[str] = "manual"
 
 
 class ClassificationDriftItem(BaseModel):
@@ -51,14 +49,14 @@ class ClassificationDriftItem(BaseModel):
     annotation_version_to: Optional[str] = None
     clinvar_from: Optional[str] = None
     clinvar_to: Optional[str] = None
-    # What moved (CLIN-7): "clinvar"; "transcript_id" (the primary transcript the values
+    # What moved: "clinvar"; "transcript_id" (the primary transcript the values
     # are read from); its consequence ("effect", "impact", "lof": the LOFTEE call); a
     # population frequency ("gnomad_af", "gnomad_exomes_af", "gnomad_genomes_af",
     # "gnomad_popmax_af", "topmed_af", "gnomad_ac", "gnomad_hom_count",
     # "gnomad_hemi_count"); an in-silico score ("cadd_phred", "revel", "spliceai_max",
     # "sift", "polyphen", "alpha_missense_class", "alpha_missense_pathogenicity"); a
     # missense variant's gene "gene_missense_z" and its source "gene_missense_z_source"
-    # ("gene_profile" or "vcf", TRACE-15); or "annotations", the annotation set.
+    # ("gene_profile" or "vcf"); or "annotations", the annotation set.
     changed: List[str] = Field(default_factory=list)
     # The transcript, consequence, frequencies, in-silico scores and (a missense variant's)
     # gene missense Z and its source as frozen and as they are now (None when the variant is
@@ -145,7 +143,7 @@ class ReportSignoutRequest(BaseModel):
     package import that partly failed) and an abnormal repeat or Paraphase call without a
     review must each be explicitly acknowledged, and each
     acknowledgement requires a reason and the fingerprint of the concerns it covers: the
-    ``concerns_fingerprint`` of the 409 that listed them (TRACE-19). A sign-out whose
+    ``concerns_fingerprint`` of the 409 that listed them. A sign-out whose
     concerns are no longer those is refused with them as they are now.
     """
 
@@ -169,7 +167,7 @@ class ReportSignoutRequest(BaseModel):
 
 
 class ReportSnapshotGapOut(BaseModel):
-    """A part of a signed snapshot that was frozen as unavailable, and why (#514)."""
+    """A part of a signed snapshot that was frozen as unavailable, and why."""
 
     section: str
     item: str

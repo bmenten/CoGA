@@ -3,8 +3,8 @@
 A pipeline that delivers a package to CoGA describes it in one file, `coga-package.json`, at the
 top of the package folder. The file says which run made the package, where it belongs (the
 project, the assembly, the analysis), who is in the family, which datasets the import reads, and
-every file with its checksum. It takes the place of three files: the PED, the manifest
-(`manifest.yaml`) and the ready marker (`coga-ready.json`).
+every file with its checksum. It holds what a PED and a manifest (`manifest.yaml`) give the import
+of a typed folder, and says itself when the package is complete.
 
 This page is for the people who maintain the pipelines. It defines the format `coga-package/1`.
 The format is fixed in code, in [coga_package.py](../backend/app/services/coga_package.py), which
@@ -12,31 +12,19 @@ CoGA reads the file with. Its JSON Schema is
 [schemas/coga-package-1.schema.json](schemas/coga-package-1.schema.json), and
 [schemas/examples/](schemas/examples/) holds a synthetic example of each kind of package.
 
-**Where this stands (2026-11-10).** The watched import folders read `coga-package.json`, not a
-`coga-ready.json` ([data-import.md](data-import.md#watched-import-folders)). The
-owner approved the plan on 2026-11-10, in phases:
+**Where the file is read.** The watched import folders read `coga-package.json`
+([data-import.md](data-import.md#watched-import-folders)); what a minimal file leaves out, CoGA
+proposes from the folder, as Discover does. A delivery can be completed and corrected before it is
+approved, within the limits below, each change with its reason on the record: through the API
+([data-import.md](data-import.md#correcting-a-delivery)) and **Correct…** in **Deliveries**; the
+family page (*Corrected at intake*) and every signed record (*Package intake*) list the
+corrections. Adding a family by hand makes the same package: CoGA drafts it from the folder, a PED
+if there is one, and what the person adds, and keeps it with a delivery of origin `manual`, which
+goes through Deliveries like a pipeline's
+([data-import.md](data-import.md#adding-a-folder-by-hand)). CoGA computes no checksums for it: the
+import records each file's SHA-256 (the owner's decision of 2026-11-10).
 
-1. Done: CoGA reads `coga-package.json` in the watched folders, in place of `coga-ready.json` and
-   a folder manifest. What a minimal file leaves out, CoGA proposes from the folder, as Discover
-   does.
-2. A delivery can be completed and corrected before it is approved, within the limits below,
-   each change with its reason on the record. Done, through the API
-   ([data-import.md](data-import.md#correcting-a-delivery)) and **Correct…** in **Deliveries**;
-   the family page (*Corrected at intake*) and every signed record (*Package intake*) list the
-   corrections.
-3. Done: adding a family by hand makes the same package: CoGA drafts it from the folder, a PED
-   if there is one, and what the person adds, and keeps it with a delivery of origin `manual`,
-   which goes through Deliveries like a pipeline's
-   ([data-import.md](data-import.md#adding-a-folder-by-hand)). The owner decided on 2026-11-10 that
-   CoGA computes no checksums for it (the import records each file's SHA-256).
-4. In progress: a delivery is the only way into an import. Done: the earlier form of the Package
-   Import page and its routes are gone; the import reads only the manifest CoGA keeps, never a
-   PED or a manifest file in the folder, and Discover proposes members, not a PED; an update
-   adds the package's new members to its existing family and changes none it holds, and an
-   overwrite makes the package's members the family's pedigree; the demo NIPT family is a package
-   folder with its package file, delivered as a pipeline's
-   ([demo/nipt_family](../demo/nipt_family/README.md)). Still to come: a bucket mounted as a local
-   folder.
+**Still to do** (the owner's decisions of 2026-11-10): a bucket mounted as a local folder.
 
 ## Writing the file
 
@@ -105,9 +93,9 @@ them, and otherwise they are added in CoGA before the import.
 
 ### Members
 
-`members` is the only place the file describes a member: it replaces the PED's rows, the
-manifest's `family.members`, `family.add_members` and `individuals`, and the ready marker's
-`samples`. List every member, also one without data of their own (a fetus).
+`members` is the only place the file describes a member: it holds what the PED's rows and the
+manifest's `family.members`, `family.add_members` and `individuals` give a typed folder's import.
+List every member, also one without data of their own (a fetus).
 
 | Field | Required | What it holds |
 | --- | --- | --- |
@@ -177,7 +165,7 @@ the members (a warning when it says otherwise: the pipeline's tools may have rea
 package's validation with the manifest made from the file, every file the import reads listed,
 and the family and samples CoGA already holds.
 
-## What can be changed in CoGA (phase 2)
+## What can be changed in CoGA
 
 The pipeline's file is never changed: CoGA keeps its bytes and their SHA-256. A change made in
 CoGA is a revision kept beside it (`import_delivery_revisions`, append-only), with its reason, who

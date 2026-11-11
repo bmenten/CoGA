@@ -9,7 +9,7 @@ applies neither filter, so a search with one is answered from the rows filtered 
 matching SVs alone. A deletion of more than 10 Mb is found by a 10 Mb minimum and listed
 with its length.
 
-What a length filter measures (CLIN-25): the length the SV list shows, as a positive
+What a length filter measures: the length the SV list shows, as a positive
 number. That is the call's SVLEN, and END minus POS only for a call without one. Most
 callers write an insertion with its END at its POS and its length in SVLEN: a 5 kb
 insertion is 5 kb to the filters, as in the list, not 0 bp. A translocation (BND, TRA) has
@@ -274,7 +274,7 @@ async def test_a_type_search_lists_counts_and_summarises_the_matching_svs_alone(
     ("filters", "expected"),
     [
         ({"length": 5_000}, ["dup-tandem"]),
-        # The breakend passes any minimum (CLIN-25), though its END minus POS is 0.
+        # The breakend passes any minimum, though its END minus POS is 0.
         ({"min_length": 15_000_000}, ["del-15mb", "bnd"]),
         ({"variant_type": "inv"}, ["inv"]),
     ],
@@ -289,7 +289,7 @@ async def test_any_one_length_or_type_filter_is_applied_to_the_list(
 
 
 # --------------------------------------------------------------------------- #
-# What a length filter measures (CLIN-25)
+# What a length filter measures
 # --------------------------------------------------------------------------- #
 
 # SVs as their callers write them. Sniffles2 and pbsv write an insertion with its END at its

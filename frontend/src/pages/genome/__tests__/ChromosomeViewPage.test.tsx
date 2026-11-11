@@ -193,7 +193,7 @@ describe('ChromosomeViewPage', () => {
     expect(latestAvailabilityCall).toContain('end=180');
   });
 
-  // #608 — with the project catalogue failed the reference is unknown, not missing: the page
+  // With the project catalogue failed the reference is unknown, not missing: the page
   // says it could not be loaded, and retries, instead of "Reference not linked".
   it('says the reference could not be loaded, not that it is not linked', async () => {
     const retry = vi.fn();
@@ -219,7 +219,7 @@ describe('ChromosomeViewPage', () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
-  // #607 — the page hands a failed availability request to the workspace as a failure,
+  // The page hands a failed availability request to the workspace as a failure,
   // which it says instead of "No BED data for selected samples".
   it('passes a failed track-availability request on as a failure, and retries it', async () => {
     let availabilityAsked = 0;
@@ -239,8 +239,8 @@ describe('ChromosomeViewPage', () => {
     await waitFor(() => expect(availabilityAsked).toBeGreaterThan(requestsBefore));
   });
 
-  // #610 — without the chromosome's length the viewer waited for good on a region that
-  // never came; the failure is handed on to be said in place of the tracks.
+  // Without the chromosome's length there is no region to wait for: the failure is handed on
+  // to be said in place of the tracks.
   it('passes a failed chromosome-length request on as a failure, not an endless load', async () => {
     let lengthAsked = 0;
     serve({
@@ -303,8 +303,8 @@ describe('ChromosomeViewPage', () => {
     expect(chromosomeCall).toBe('/chromosomes/GRCh38/MT');
 
     // The track-availability request can fire after the workspace first renders
-    // (separate query), so poll for it rather than reading mock.calls once — this
-    // was an intermittent CI failure (availabilityCall undefined under load).
+    // (separate query), so poll for it rather than reading mock.calls once, which under
+    // load can run before it.
     await waitFor(() => expect(availabilityRequests()[0]).toContain('chrom=MT'));
 
     expect(lastWorkspaceProps().chrom).toBe('MT');
@@ -348,7 +348,7 @@ describe('ChromosomeViewPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select region' }));
     await waitFor(() => expect(screen.getByTestId('chromosome-workspace')).toHaveTextContent('120:180'));
 
-    // MOTHER must stay unselected (regression: it used to be re-selected here).
+    // MOTHER stays unselected.
     expect(visibleSamples()).toEqual(['PROBAND', 'FATHER']);
   });
 });

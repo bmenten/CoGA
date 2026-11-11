@@ -406,7 +406,7 @@ async def test_a_samples_context_holds_the_projects_the_user_sees_and_their_asse
 
 
 def test_each_member_is_a_samples_context_of_the_family() -> None:
-    # ENG-23: the upload route and the package import each built these with a copy of their own.
+    # The upload route and the package import each built these with a copy of their own.
     family = FamilyMetadataContext(
         family_uuid="family-uuid",
         family_id="FAM1",

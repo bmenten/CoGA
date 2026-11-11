@@ -37,7 +37,7 @@ const SUMMARY = {
   obsolete_terms: 1052,
   release_version: 'hp/releases/2026-06-06',
   release_date: '2026-06-06',
-  // The SHA-256 of the file the terms came from (TRACE-18).
+  // The SHA-256 of the file the terms came from.
   release_sha256: '8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd',
   last_sync_date: '2026-07-01T09:30:00Z',
   ontology_loaded: true,
@@ -181,7 +181,7 @@ describe('HpoTerminologyAdminPage', () => {
       expect(screen.queryByText(/No HPO terminology is installed/)).not.toBeInTheDocument();
     });
 
-    it('shows a date-only release date on its own day, also west of UTC (#526)', async () => {
+    it('shows a date-only release date on its own day, also west of UTC', async () => {
       // 2026-06-06 parsed as UTC midnight read as 6/5/2026 in New York.
       const previousTz = process.env.TZ;
       process.env.TZ = 'America/New_York';
@@ -225,7 +225,7 @@ describe('HpoTerminologyAdminPage', () => {
 
     it('says a loaded ontology without a recorded release is unknown, not "Not installed"', async () => {
       // The summary describes the latest import; one from a file without a release has none,
-      // and still names the file's SHA-256 (TRACE-18).
+      // and still names the file's SHA-256.
       summaryReply = () => ({ ...SUMMARY, release_version: null, release_date: null });
       renderPage();
 
@@ -513,8 +513,8 @@ describe('HpoTerminologyAdminPage', () => {
 
   describe('synchronization', () => {
     it('starts from the file the backend is configured to load, also as the placeholder', async () => {
-      // The page used to prefill its own copy of the path, and it had drifted: hpo.obo while
-      // the backend loads hp.obo, and a placeholder in a directory that does not exist.
+      // The page keeps no copy of the path of its own, which could drift from the file the
+      // backend loads.
       const user = userEvent.setup();
       summaryReply = () => ({ ...SUMMARY, ontology_path: '/srv/ref-data/hpo/hp.obo' });
       mockedPost.mockResolvedValue({
@@ -593,7 +593,7 @@ describe('HpoTerminologyAdminPage', () => {
       expect(path).toHaveValue('/data/ref-data/hpo/hp.obo');
       await user.clear(path);
       await user.type(path, '  /data/ref-data/hpo/hp-2026-09-01.obo  ');
-      // What the admin expects the file to be: the release is the one the file states (TRACE-18).
+      // What the admin expects the file to be: the release is the one the file states.
       await user.type(screen.getByLabelText('Expected release'), '  hp/releases/2026-09-01 ');
       fireEvent.change(screen.getByLabelText('Expected release date'), { target: { value: '2026-09-01' } });
       await user.click(screen.getByRole('button', { name: 'Preview changes' }));
@@ -611,7 +611,7 @@ describe('HpoTerminologyAdminPage', () => {
         'status-note--success',
       );
       const preview = screen.getByRole('columnheader', { name: 'Change' }).closest('table') as HTMLElement;
-      // The file's own release and the SHA-256 of its bytes (TRACE-18).
+      // The file's own release and the SHA-256 of its bytes.
       expect(
         screen.getByText(/^File: release hp\/releases\/2026-09-01 \(2026-09-01\), SHA-256/),
       ).toHaveTextContent(`SHA-256 ${'ab'.repeat(32)}.`);
@@ -638,13 +638,12 @@ describe('HpoTerminologyAdminPage', () => {
       },
     };
 
-    it('applies only what was previewed: no Apply before a preview, nor after the path changes (#526)', async () => {
+    it('applies only what was previewed: no Apply before a preview, nor after the path changes', async () => {
       const user = userEvent.setup();
       mockedPost.mockResolvedValue(PREVIEW_REPLY);
       renderPage();
 
       const apply = await screen.findByRole('button', { name: 'Apply sync' });
-      // Apply used to send whatever the fields held, with or without a preview.
       expect(apply).toBeDisabled();
       expect(screen.getByText(/Preview these settings first/)).toBeInTheDocument();
 
@@ -711,7 +710,7 @@ describe('HpoTerminologyAdminPage', () => {
           path: '/data/ref-data/hpo/hp.obo',
           release_version: null,
           release_date: null,
-          // Only the file the preview showed is imported (TRACE-18).
+          // Only the file the preview showed is imported.
           expected_sha256: 'ab'.repeat(32),
           preview_only: false,
         }),

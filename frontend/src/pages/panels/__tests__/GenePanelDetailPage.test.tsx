@@ -96,7 +96,7 @@ describe('GenePanelDetailPage', () => {
     expect(within(regionsTable).getByText('BRCA2')).toBeInTheDocument();
   });
 
-  it('shows which assembly each region belongs to (#515)', async () => {
+  it('shows which assembly each region belongs to', async () => {
     vi.mocked(api.get).mockImplementation((url: string) =>
       url.endsWith('/versions')
         ? Promise.resolve({ data: versionsPayload })
@@ -309,8 +309,8 @@ describe('GenePanelDetailPage', () => {
     expect(within(screen.getByRole('list', { name: 'Genes to remove in version 3' })).getByText('NOTAGENE1')).toBeInTheDocument();
   });
 
-  // #610 — a failed panel request stayed at "Loading gene panel" for good, and a failed
-  // version history was hidden.
+  // A failed panel request, or a failed version history, is said as such, never as a page
+  // still loading or a panel without versions.
   describe('when a request fails', () => {
     const failWith = (matches: (url: string) => boolean) => {
       let failing = true;

@@ -102,7 +102,7 @@ def test_a_run_under_way_or_failed_is_not_offered(package: Path, status: str) ->
     [
         # A run under way that breaks the format is still a run under way.
         ({"schema": "coga-package/1", "status": "running"}, False),
-        ({"schema": "coga-ready/1", "status": "running"}, False),
+        ({"schema": "coga-package/2", "status": "running"}, False),
         # A status the format does not know is offered, with what is wrong with it.
         ({"schema": "coga-package/1", "status": "done"}, True),
         ({"schema": "coga-package/1"}, True),

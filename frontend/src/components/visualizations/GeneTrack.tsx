@@ -22,7 +22,7 @@ interface Props {
 const GENE_HEIGHT = 8;
 const LINE_HEIGHT = GENE_HEIGHT + 4;
 
-// How many genes are in view and the first three, in the order drawn (#529).
+// How many genes are in view and the first three, in the order drawn.
 const describeGenes = (genes: GeneOut[]): string => {
   const names = genes.slice(0, 3).map((gene) => gene.hgnc_symbol).join(", ");
   return `${genes.length.toLocaleString()} (${names}${genes.length > 3 ? ", …" : ""})`;
@@ -82,9 +82,9 @@ const GeneTrack: React.FC<Props> = ({
   const { genesWithLines, svgHeight } = useMemo(() => {
     if (!genes) return { genesWithLines: [], svgHeight: 0 };
     const lines: number[] = [];
-    // Only what overlaps the region: while a pan loads, the previous window's genes are
-    // held, and one left of the new window was drawn at its left edge under its own name,
-    // as if that gene lay there (#586; the other interval tracks since #526).
+    // Only what overlaps the region, as on the other interval tracks: while a pan loads, the
+    // previous window's genes are held, and one left of the new window would be drawn at its
+    // left edge under its own name, as if that gene lay there.
     const sortedGenes = genes
       .filter((g) => g.end > regionStart && g.start < regionEnd)
       .sort((a, b) => a.start - b.start);
@@ -101,10 +101,10 @@ const GeneTrack: React.FC<Props> = ({
   const hasGenes = (genes?.length || 0) > 0;
   const containerHeight = Math.max(svgHeight, 24);
 
-  // The track's name for a screen reader (#529): the genes in the region. A failure is
-  // never "none" (#510), and neither is a pan whose window has not arrived yet: the
+  // The track's name for a screen reader: the genes in the region. A failure is
+  // never "none", and neither is a pan whose window has not arrived yet: the
   // held genes are named, like they are drawn, only where they lie in the new region.
-  // A view with no width asks for nothing, so it is not "loading" either (#602).
+  // A view with no width asks for nothing, so it is not "loading" either.
   const genesInView = genesWithLines.map(({ g }) => g);
   const geneSummary = isError
     ? "failed to load"
@@ -189,7 +189,7 @@ const GeneTrack: React.FC<Props> = ({
 
       // The gene's whole extent in view, under the exons. Drawn once, it also covers a
       // view that falls inside an intron: with lines only between neighbouring exons in
-      // view, such a view showed no gene, as if the region were intergenic (#526).
+      // view, such a view would show no gene, as if the region were intergenic.
       g.append("line")
         .attr("class", "gene-body")
         .attr("x1", 0)

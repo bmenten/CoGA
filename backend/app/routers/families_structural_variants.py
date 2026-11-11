@@ -91,7 +91,7 @@ async def _family_structural_variant_filters(
     """The SV filters of a request to the family SV list or its CSV export.
 
     Both routes read their filters here, and only here, so the file holds the SVs the list
-    shows: a filter declared on one route alone would make the two differ (ENG-2). The page
+    shows: a filter declared on one route alone would make the two differ. The page
     is no filter: the search sets it (the list's page, the export's single page), so the
     ``page`` and ``page_size`` given here only hold their places.
     """
@@ -182,7 +182,7 @@ async def get_family_structural_variants(
 # CSV column order for the family structural-variant export. Mirrors the on-screen
 # table plus the annotation fields that don't fit in the UI. A breakend's mate, under
 # the SV list's names (Remote chr, Remote start) and empty for an SV without one, stands
-# beside the locus, where the reader of a translocation looks for its partner (DATA-5).
+# beside the locus, where the reader of a translocation looks for its partner.
 # The file is read by its header, not by position: the ranked export already shifts
 # every column by its Priority and Rank.
 _FAMILY_SV_EXPORT_COLUMNS: list[tuple[str, str]] = [
@@ -227,13 +227,13 @@ async def export_family_structural_variants_csv(
     prioritize: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
-    # The list's filters, read by the same dependency (ENG-2), after the user as there.
+    # The list's filters, read by the same dependency, after the user as there.
     filters: StructuralVariantQueryFilters = Depends(_family_structural_variant_filters),
 ) -> StreamingResponse:
     """Download the filtered structural variants for this family as a CSV file.
 
     Up to the export cap (50,000 rows). A larger result is not cut silently: the
-    file name says TRUNCATED and the X-CoGA-Export-* headers report it (#512). So is a
+    file name says TRUNCATED and the X-CoGA-Export-* headers report it. So is a
     result drawn from a capped candidate read (X-CoGA-Export-Truncated-Reason:
     candidate-limit), which can miss matches however few rows it holds.
     """

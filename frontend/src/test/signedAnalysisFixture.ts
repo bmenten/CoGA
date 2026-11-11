@@ -1,4 +1,4 @@
-// What the analysis looked at, as a signed record freezes it since 2026-10-14
+// What the analysis looked at, as a signed record freezes it
 // (backend/app/services/signed_record_sections.py): shared by the tests of the record's
 // reading (signedReportRecord.test.ts) and of its signed view (FamilyReportPage.test.tsx).
 
@@ -239,7 +239,7 @@ export const SIGNED_ANALYSIS = {
       { gene: 'GBA', region_id: 'gba', region: 'GBA/GBAP1', medically_relevant: true, status_rule: null, samples: [] },
     ],
   },
-  // What each coverage track held, frozen since 2026-10-20 (signed_record_sections.coverage_tracks).
+  // What each coverage track held (signed_record_sections.coverage_tracks).
   coverage_tracks: {
     tracks: [
       {
@@ -412,6 +412,7 @@ export const SIGNED_PGT_ANALYSIS = {
     ],
     blocks_read: 6,
     blocks_digest: 'abcdef0123456789',
+    blocks_outdated: false,
     markers_truncated: false,
   },
   rules: {

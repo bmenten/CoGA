@@ -1,4 +1,4 @@
-// The small-variant filter form's sections (#528): the shell each one shares, and one
+// The small-variant filter form's sections: the shell each one shares, and one
 // component per section. Each reads what it needs from the form through
 // FilterSectionForm and computes its own summary count and quick filters.
 import { useState } from 'react';
@@ -385,7 +385,7 @@ export const GT_GROUP_OPTIONS = [
 export type GtGroupId = (typeof GT_GROUP_OPTIONS)[number]['id'];
 
 /**
- * One of the form's collapsible filter sections (#528): its title, a one-line summary of
+ * One of the form's collapsible filter sections: its title, a one-line summary of
  * what is set, any quick controls in the summary bar, and the section's own fields.
  */
 const FilterSection = ({
@@ -628,7 +628,7 @@ export const DEFAULT_OPEN_SECTIONS = {
 export type OpenSections = typeof DEFAULT_OPEN_SECTIONS;
 type FilterOption = { value: string; label: string };
 
-/** What the section components read from the form (#528). */
+/** What the section components read from the form. */
 export interface FilterSectionForm
   extends Pick<
     SmallVariantSearchState,
@@ -665,7 +665,7 @@ export interface FilterSectionForm
   customTagOptions: FilterOption[];
   /** The selected tags no option offers (a deleted tag), to be shown so they can be unticked. */
   selectedHeldTagOptions: (selected: string[]) => FilterOption[];
-  /** Draft location filters that cannot be read, shown under their fields (#604). */
+  /** Draft location filters that cannot be read, shown under their fields. */
   draftLocationProblems?: LocationProblems | null;
 }
 
@@ -2088,7 +2088,7 @@ export const LocationsFilterSection = ({ form }: { form: FilterSectionForm }) =>
                 </option>
               ))}
               {/* An applied panel missing from the list (it failed to load) still shows as
-                  applied, not as "Any gene panel" (#606). */}
+                  applied, not as "Any gene panel". */}
               {draftFilters.panel_id && !panels.some((panel) => panel._id === draftFilters.panel_id) ? (
                 <option value={draftFilters.panel_id}>{`Panel ${draftFilters.panel_id} (not in the panel list)`}</option>
               ) : null}

@@ -137,8 +137,8 @@ def test_clinical_audit_hash_chain_holds_and_detects_tampering() -> None:
                 gap = await verify_clinical_audit_chain(s, label_b)
                 assert not gap.verified and "prev_hash" in (gap.reason or ""), gap
 
-            # (d) An event added without the writer (no hashes; the trigger lets an INSERT
-            # through) is on the chain too, and breaks it where it stands.
+            # (d) An event added without the writer (a hash of its own and no predecessor; the
+            # trigger lets an INSERT through) is on the chain too, and breaks it where it stands.
             label_c = f"p1-4-cae-c-{uuid4()}"
             async with sm() as s:
                 fam_c = await fresh_family(s, label_c)
@@ -147,8 +147,9 @@ def test_clinical_audit_hash_chain_holds_and_detects_tampering() -> None:
                     await s.execute(
                         text(
                             "INSERT INTO clinical_audit_events (family_id, family_identifier, actor, action, "
-                            "summary, created_at) SELECT CAST(:f AS uuid), :fl, 'p1-4-test', 'classification', "
-                            "'no hash', max(created_at) + interval '1 second' FROM clinical_audit_events "
+                            "summary, created_at, row_hash) SELECT CAST(:f AS uuid), :fl, 'p1-4-test', "
+                            "'classification', 'forged', max(created_at) + interval '1 second', 'forged' "
+                            "FROM clinical_audit_events "
                             "WHERE family_identifier = :fl RETURNING id::text"
                         ),
                         {"f": fam_c, "fl": label_c},
@@ -628,8 +629,8 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
 
     async def _stub_snapshot(session, *, family_id, user, project_id=None):
         # Minimal snapshot_body with the keys sign_out_report reads — incl. a large
-        # integral float to exercise the JSONB-normalisation fix through the real writer.
-        # The drift lists too: the drift gate's refusal lists them (TRACE-19).
+        # integral float to exercise the JSONB normalisation through the real writer.
+        # The drift lists too: the drift gate's refusal lists them.
         return {
             "drift": {"drifted_count": 0, "drifted": []},
             "structural_drift": {"drifted_count": 0, "drifted": []},

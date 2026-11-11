@@ -3,7 +3,7 @@ ClickHouse storage listing, and the deletion of a sample's data.
 
 The inventory counts each family's variants with one query per assembly, not one per family
 and assembly, each family under its own project and a project-less one unscoped; its members
-lookup binds the families as one uuid[] parameter (DATA-6). The ClickHouse listing names an
+lookup binds the families as one uuid[] parameter. The ClickHouse listing names an
 assembly by its dataset key, so a Postgres name with a space is listed, not skipped, and appears
 once beside the key ClickHouse derives. A sample's interval track is counted and deleted per
 caller; a source the delete cannot scope to is refused before anything is locked, read or
@@ -99,7 +99,7 @@ async def test_sample_rows_by_family_uses_uuid_family_filter() -> None:
     assert rows[family_uuid][0]["sample_id"] == "proband"
     assert session.sql is not None
     # The families go as one uuid[] parameter, compared with the uuid column itself: one
-    # parameter per family failed past the 32,767 asyncpg takes (DATA-6).
+    # parameter per family failed past the 32,767 asyncpg takes.
     assert "fm.family_id = ANY(CAST(:family_uuids AS uuid[]))" in session.sql
     assert "POSTCOMPILE" not in session.sql
     assert "::text = ANY" not in session.sql

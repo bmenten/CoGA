@@ -28,7 +28,7 @@ const TRACKS: Array<[key: GenomeTrackKey, label: string]> = [
   ['repeatExpansions', 'Repeat expansions'],
 ];
 
-// The genome overview's chromosomes: 1–22, X and Y (ENG-20).
+// The genome overview's chromosomes: 1–22, X and Y.
 const allChroms = (on: boolean): Record<string, boolean> =>
   Object.fromEntries(NUCLEAR_CHROMOSOMES.map((chrom) => [chrom, on]));
 
@@ -111,9 +111,9 @@ describe('GenomeOverviewSidebar', () => {
     expect(props.onToggleSample).not.toHaveBeenCalled();
   });
 
-  // Named as the viewer header and the tracks name them (#602). The mitochondrion is not
+  // Named as the viewer header and the tracks name them. The mitochondrion is not
   // offered: about 0.006 px wide on the overview, it is left out there as on the Circos plot,
-  // and the chromosome view's list and the mtDNA page show it (owner decision, 2026-10-28; ENG-20).
+  // and the chromosome view's list and the mtDNA page show it (owner decision, 2026-10-28).
   it('lists chr1–chr22, chrX and chrY, not chrM, ticked from the chromosome selection', () => {
     renderSidebar();
     const chromosomes = sectionHeaded('Chromosomes');

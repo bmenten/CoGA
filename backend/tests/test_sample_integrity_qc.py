@@ -156,7 +156,7 @@ def test_mendelian_single_parent_flags_no_shared_allele() -> None:
 
 
 def test_one_shared_allele_rule_for_allele_indices_and_alleles() -> None:
-    # ENG-23: the Sample QC (allele indices) and the phased markers (the alleles) kept a copy
+    # the Sample QC (allele indices) and the phased markers (the alleles) kept a copy
     # each of the single-parent rule.
     from backend.app.services import phased_marker_service
 
@@ -459,7 +459,7 @@ def test_nipt_profile_summary_names_the_checks_it_runs() -> None:
     assert "chrx" in lowered and "father" in lowered and "cfdna sample" in lowered
     # What genuinely does not run on a maternal/fetal mixture is said.
     assert "relatedness" in lowered and "mendelian" in lowered
-    # What the paternity check counts (ENG-4, below): the father's alleles in the plasma,
+    # What the paternity check counts (below): the father's alleles in the plasma,
     # homozygous and heterozygous apart, not the classification's categories 7 and 8.
     assert "categories 7/8" not in summary
     assert "paternal-transmitted" not in summary
@@ -500,20 +500,20 @@ def test_evaluate_paternity_supported_vs_mixup() -> None:
 
 
 def test_a_paternity_check_is_pass_warn_or_fail_never_skip() -> None:
-    # ENG-23: the check's status allowed "skip", which evaluate_paternity never gives (too few
+    # the check's status allowed "skip", which evaluate_paternity never gives (too few
     # sites warns), so the NIPT route had to silence the type it serves (pass, warn or fail).
     # The signed record freezes it the same way.
     assert set(get_args(get_type_hints(PaternityCheck)["status"])) == {"pass", "warn", "fail"}
 
 
-# --- The NIPT paternity check's totals say what they count (ENG-4) ----------------------
+# --- The NIPT paternity check's totals say what they count ----------------------
 #
 # The check reads the father's alleles in the plasma, at the autosomal sites where the mother
 # does not carry them and the depth leaves a transmitted allele all but impossible to miss: his
 # homozygous alleles must all be seen, about half of his heterozygous ones. Its totals are
 # ``transmitted_sites`` (the sites where his allele is seen, homozygous and heterozygous) and
 # ``hom_alt_not_transmitted`` (his homozygous sites where it is not), each served once, under
-# the name the check's other counts and the signed record share (ENG-4), never as
+# the name the check's other counts and the signed record share, never as
 # ``cat7_transmitted``, ``cat8_absent`` or ``hom_alt_absent_sites``. The NIPT summary does not
 # count the classification's categories 7 and 8 (checked with the other NIPT checks it names,
 # above). No signed record holds a total: the snapshot keeps the check's four counts, which the

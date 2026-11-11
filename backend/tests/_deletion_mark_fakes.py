@@ -1,7 +1,7 @@
 """A deletion of a family's data without its mark, for the tests of what else a deletion does.
 
 A deletion that deletes or rewrites the family's ClickHouse rows marks the family before its
-first write there (``family_package_registration.FamilyDeletion``, SAFE-31): it reads the
+first write there (``family_package_registration.FamilyDeletion``): it reads the
 family's ``imported_scopes`` in the request's transaction, writes the mark on a connection of
 its own, and removes it with its commit. Tests of a deletion's locks, its audit events or the
 rows it writes back run it against fakes of the request's transaction that answer only the

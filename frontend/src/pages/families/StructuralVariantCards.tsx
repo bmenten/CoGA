@@ -59,7 +59,7 @@ const parseHpoTerms = (value?: string | number | boolean | string[]) => {
 };
 
 // `from` is this SV page with its query (project and filters), so "Back to SVs" returns
-// to it: the link used to drop the project, which scopes review saves and tags (#526).
+// to it with the project, which scopes review saves and tags.
 const GENOTYPE_COLUMNS: GenotypeColumn[] = [
   { key: 'qual', label: 'QUAL', numeric: true },
   { key: 'reads', label: 'Reads', numeric: true },
@@ -102,7 +102,7 @@ export default function StructuralVariantCards({
   onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantCardsProps) {
-  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
   const excludedCards = useUnfoldedExcludedCards();
   const location = useLocation();

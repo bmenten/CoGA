@@ -1,4 +1,4 @@
-"""A download named after a family or sample ID keeps its name in Content-Disposition (SEC-15).
+"""A download named after a family or sample ID keeps its name in Content-Disposition.
 
 The PED download, the variant CSV exports and the signed URLs of a CRAM, a signal track or a
 QC report name the file after a family or sample ID. Such an ID is printable text without

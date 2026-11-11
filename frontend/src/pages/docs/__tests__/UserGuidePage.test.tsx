@@ -35,7 +35,7 @@ describe('UserGuidePage', () => {
     expect(variantExplorerLinks[0]).toHaveAttribute('href', '/variant-explorer');
   });
 
-  // #528: the sections render from Markdown. The content test holds the words; these
+  // The sections render from Markdown. The content test holds the words; these
   // hold the pieces the Markdown conventions stand for.
   it('renders the Markdown conventions as the guide’s own blocks', () => {
     const { container } = render(

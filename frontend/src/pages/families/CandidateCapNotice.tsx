@@ -1,5 +1,5 @@
 /**
- * Says when a family variant search read only part of the callset (#725 follow-up).
+ * Says when a family variant search read only part of the callset.
  *
  * Two backend caps can cut a search short, and the table alone cannot show either: its
  * total just reads as an estimate. `candidates_capped` means the search read a capped

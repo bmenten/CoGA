@@ -1,11 +1,10 @@
-"""The family search's small-variant filters as its SQL reads them (ENG-1; One filter definition).
+"""The family search's small-variant filters as its SQL reads them.
 
 The family search's SQL (``_small_query_filter_parts``) is the one definition of every
 small-variant filter: the plain page reads it, and so does every view that pairs, ranks or
-samples the rows it returns. A second, Python reading of the same filters, which those views
-applied again and which read some of them more narrowly, is gone (the roadmap's *One filter
-definition*). These tests pin, without a database, the SQL for each rule the two readings had
-read apart; ``integration/test_small_variant_filter_parity_clickhouse.py`` holds the SQL to
+samples the rows it returns; no second, Python reading of the same filters applies them again.
+These tests pin, without a database, the SQL for each rule such a reading could read apart;
+``integration/test_small_variant_filter_parity_clickhouse.py`` holds the SQL to
 the documented rule on real ClickHouse, in every view of the family page.
 """
 
@@ -82,7 +81,7 @@ def test_regions_compare_chromosomes_as_the_sql_does() -> None:
 
 
 def test_a_region_is_read_from_its_lower_coordinate_to_its_higher_as_the_sql_reads_it() -> None:
-    # A region written end first missed every variant in it, where the SQL kept them (CLIN-50).
+    # A region written end first keeps every variant in it, as the SQL does (CLIN-50).
     assert _variant_overlaps_regions("1", 100, 100, [Region("1", 150, 50)])
     assert _variant_overlaps_regions("1", 40, 60, [Region("1", 150, 50)])
     assert not _variant_overlaps_regions("1", 151, 160, [Region("1", 150, 50)])
@@ -92,8 +91,8 @@ def test_a_region_is_read_from_its_lower_coordinate_to_its_higher_as_the_sql_rea
 
 
 def test_an_overlapping_location_from_a_start_reads_the_variants_end() -> None:
-    # With overlap and a start alone, the SQL read the variant's start (and the xpos range
-    # from the start), so a deletion from 140 to 142 was out from 141 (ENG-1).
+    # With overlap and a start alone, the SQL reads the variant's end, not its start (nor the
+    # xpos range from the start), so a deletion from 140 to 142 is in from 141.
     clauses, params = _where(chromosome="11", start=95_100_141, overlap=True)
     assert "(e.pos + length(e.ref) - 1) >= %(start)s" in clauses
     assert "e.pos >= %(start)s" not in clauses
@@ -157,7 +156,7 @@ def test_the_rsid_filter_searches_the_entrys_and_the_indexs_rsid() -> None:
 
 def test_an_excluded_gene_leaves_out_every_variant_annotated_with_it() -> None:
     # By the entry's genes or the gene index (symbol or Ensembl id, any capitals), besides
-    # those in its loci (ENG-1).
+    # those in its loci.
     clauses, params = _parts(exclude_gene="SYNC", exclude_gene_terms=["SYNC"])
     (condition,) = [clause for clause in clauses if "entry_exclude_gene" in clause]
     assert condition.startswith("NOT (") and "gi.gene_term" in condition

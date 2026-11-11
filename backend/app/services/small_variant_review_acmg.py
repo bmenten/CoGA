@@ -37,7 +37,7 @@ EVIDENCE_CONSEQUENCE_FIELDS: tuple[str, ...] = ("effect", "impact", "lof", "lof_
 # scores are of, frozen in the consequence group. The transcript alone does not say which
 # allele's annotation the classification read.
 EVIDENCE_ALLELE_FIELD = "alt_allele"
-# The population frequencies a small-variant classification rests on (CLIN-7), in the order
+# The population frequencies a small-variant classification rests on, in the order
 # a reviewer reads them: the gnomAD allele frequency the frequency criteria read (PM2, BS1,
 # BA1), and the other frequencies and the gnomAD allele, homozygote and hemizygote counts
 # the filters read (BS2 reads the homozygote count). Each is frozen, also without a value,
@@ -81,7 +81,7 @@ EVIDENCE_IN_SILICO_FIELDS: tuple[str, ...] = (
 # The gene's missense constraint the PP2 suggestion reads (missense in a gene with a gnomAD
 # missense Z of 3.09 or more), and where it comes from (``pp2_gene_missense_z``): the gene
 # profile's, looked up as the variant list looks it up (``evidence_gene_missense_z``), else
-# the VCF's own MISSENSE_Z (TRACE-15). Frozen only for a missense variant, the one variant PP2
+# the VCF's own MISSENSE_Z. Frozen only for a missense variant, the one variant PP2
 # reads it for (``reads_gene_missense_z``): for any other variant the group is left out, so a
 # refresh of the gene profiles is never its drift.
 EVIDENCE_GENE_CONSTRAINT_FIELDS: tuple[str, ...] = ("gene_missense_z", "gene_missense_z_source")
@@ -237,7 +237,7 @@ def vcf_gene_missense_z(record: Any) -> float | None:
 
 def pp2_gene_missense_z(record: Any, *, gene_profile_missense_z: float | None) -> tuple[float | None, str | None]:
     """The gnomAD missense Z the PP2 suggestion reads for ``record``, and where it comes from
-    (TRACE-15, the owner's decision of 2026-10-28): the gene profile's
+    (the owner's decision of 2026-10-28): the gene profile's
     (``gene_profile_missense_z``, as ``evidence_gene_missense_z`` looks it up), else the VCF's
     own MISSENSE_Z (``vcf_gene_missense_z``); ``(None, None)`` when neither holds a finite one.
 
@@ -257,7 +257,7 @@ def pp2_gene_missense_z(record: Any, *, gene_profile_missense_z: float | None) -
 
 def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dict[str, Any]:
     """The consequence, population frequencies and in-silico scores a classification of
-    ``record`` reads, the transcript they are read from (CLIN-7), and, for a missense
+    ``record`` reads, the transcript they are read from, and, for a missense
     variant, its gene's missense constraint.
 
     Read from the variant's primary transcript (MANE Select, then canonical, then the most
@@ -281,12 +281,12 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
         missense_z, source = pp2_gene_missense_z(record, gene_profile_missense_z=gene_missense_z)
         constraint = {"gene_constraint": {"gene_missense_z": missense_z, "gene_missense_z_source": source}}
     return {
-        "transcript_id": _annotation_text(annotation, "transcript_id", "transcriptId"),
+        "transcript_id": _annotation_text(annotation, "transcript_id"),
         "consequence": {
             "effect": _annotation_effect(annotation),
             "impact": _annotation_text(annotation, "impact"),
             "lof": _annotation_text(annotation, "lof"),
-            "lof_flags": _annotation_text(annotation, "lof_flags", "lofFlags"),
+            "lof_flags": _annotation_text(annotation, "lof_flags"),
             "nmd": _annotation_text(annotation, "nmd"),
             **(
                 {EVIDENCE_ALLELE_FIELD: _annotation_text(annotation, "alt_allele")}
@@ -295,7 +295,7 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
             ),
         },
         "frequencies": {
-            "gnomad_af": _frozen_float(annotation, "gnomad_af", "gnomadAf"),
+            "gnomad_af": _frozen_float(annotation, "gnomad_af"),
             "gnomad_exomes_af": _population("gnomad_exomes_af"),
             "gnomad_genomes_af": _population("gnomad_genomes_af"),
             "gnomad_popmax_af": _population("gnomad_popmax_af"),
@@ -303,7 +303,7 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
             "gnomad_faf95_af": _population("gnomad_faf95_af"),
             "topmed_af": _population("topmed_af"),
             "gnomad_ac": _frozen_int(annotation, "gnomad_ac"),
-            "gnomad_hom_count": _frozen_int(annotation, "gnomad_hom_count", "gnomadHomCount"),
+            "gnomad_hom_count": _frozen_int(annotation, "gnomad_hom_count"),
             "gnomad_hemi_count": _frozen_int(annotation, "gnomad_hemi_count"),
             **(
                 {
@@ -317,16 +317,16 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
             ),
         },
         "in_silico": {
-            "cadd_phred": _frozen_float(annotation, "cadd_phred", "caddPhred"),
+            "cadd_phred": _frozen_float(annotation, "cadd_phred"),
             "revel": _frozen_float(annotation, "revel"),
             "spliceai_max": jsonb_float(_annotation_spliceai_max(annotation)),
             "sift": _annotation_sift(annotation),
             "polyphen": _annotation_polyphen(annotation),
             "alpha_missense_class": _normalize_alpha_missense_class(
-                _annotation_text(annotation, "alpha_missense_class", "alphaMissenseClass")
+                _annotation_text(annotation, "alpha_missense_class")
             ),
             "alpha_missense_pathogenicity": _frozen_float(
-                annotation, "alpha_missense_pathogenicity", "alphaMissensePathogenicity"
+                annotation, "alpha_missense_pathogenicity"
             ),
         },
         **constraint,
@@ -350,7 +350,7 @@ def build_evidence_snapshot(
     clinvar = None
     clinvar_review_status = None
     for annotation in getattr(record, "annotations", None) or []:
-        value = annotation.get("clinvar") or annotation.get("clinvarClinicalSignificance")
+        value = annotation.get("clinvar")
         text_value = str(value).strip() if value not in (None, "", ".", "-") else ""
         if text_value:
             clinvar = text_value

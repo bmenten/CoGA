@@ -4,9 +4,8 @@ Revision ID: ${up_revision}
 Revises: ${down_revision | comma,n}
 Create Date: ${create_date}
 
-Say what the change is for, which pull request made it, and why the database's rows stay
-valid. A new database runs it right after the revisions before it (docs/database.md,
-"Schema Migrations").
+Say what the change is for and why the database's rows stay valid. A new database runs it
+right after the revisions before it (docs/database.md, "Schema Migrations").
 """
 
 from alembic import op

@@ -90,9 +90,8 @@ describe('SmallVariantPairCards', () => {
   });
 });
 
-// CLIN-76: the pair review panel showed the pair's classification text (a class word as its
-// label) beside every class tag the pair review holds, so text "VUS" beside the tag of class 4
-// showed two classes. It shows the pair's class by the one rule of the family page.
+// The pair review panel shows the pair's class by the one rule of the family page, once: text
+// "VUS" beside the tag of class 4 shows one class, not the text beside every class tag.
 describe('SmallVariantPairCards pair review class', () => {
   const classLabels = Object.values(ACMG_CLASSIFICATION_LABELS).map((label) => label.toLowerCase());
   const classesShown = (shown: string) => {

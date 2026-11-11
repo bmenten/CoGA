@@ -17,9 +17,9 @@ describe('coverage/window settings fallbacks', () => {
   beforeEach(() => storage.clear());
   afterEach(() => storage.clear());
 
-  // Regression: Number(storage.getItem(key)) === Number(null) === 0, and 0 is
-  // finite. An unset coverageRange therefore used to resolve to 0, collapsing
-  // the coverage chart's y-scale and blanking coverage + segments entirely.
+  // Number(storage.getItem(key)) === Number(null) === 0, and 0 is finite. An unset
+  // coverageRange read that way would resolve to 0, collapsing the coverage chart's
+  // y-scale and blanking coverage + segments entirely.
   it('returns the default coverage range when the key is unset (not 0)', () => {
     expect(getCoverageRange()).toBe(defaultCoverageRange);
     expect(getCoverageRange()).toBeGreaterThan(0);

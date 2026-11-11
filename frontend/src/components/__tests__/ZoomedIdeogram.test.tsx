@@ -1,5 +1,5 @@
 // Zoomed ideogram: bands mapped and clipped to the region (half-open, centromere triangles, telomere caps only
-// at a reached chromosome end), stain fills, edges, axis ticks, the ISCN tooltip, loading/failed (#510) states.
+// at a reached chromosome end), stain fills, edges, axis ticks, the ISCN tooltip, loading/failed states.
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -138,7 +138,7 @@ describe('ZoomedIdeogram', () => {
     expect(options.queryKey).toEqual(['chromosome', 'GRCh38', '1/../2']);
     expect(options.staleTime).toBe(Infinity);
     await expect(options.queryFn()).resolves.toEqual(CHROMOSOME);
-    // The chromosome is one encoded path segment (#521).
+    // The chromosome is one encoded path segment.
     expect(apiGetMock).toHaveBeenCalledWith('/chromosomes/GRCh38/1%2F..%2F2');
 
     // A pan or zoom keeps the same key, so the bands are not fetched again.
@@ -171,7 +171,7 @@ describe('ZoomedIdeogram', () => {
     ).toBeInTheDocument();
   });
 
-  it('a failed request shows the failure with retry, never a blank or stale ideogram (#510)', () => {
+  it('a failed request shows the failure with retry, never a blank or stale ideogram', () => {
     const refetch = vi.fn();
     // Even with bands cached from an earlier fetch, the failure is what is shown.
     serve({ data: CHROMOSOME, isError: true, refetch });
@@ -369,7 +369,7 @@ describe('ZoomedIdeogram', () => {
     ]);
   });
 
-  it('gives each tick its own label at gene-level zoom (#526)', () => {
+  it('gives each tick its own label at gene-level zoom', () => {
     // 10 kb of chr13 over 1,200 px: ticks every 500 bp. At two decimals of a Mb, 19 of the
     // 21 ticks read "32.32 Mb".
     serve({ data: { chr: '13', size: 114_364_328, bands: [] } });
@@ -398,9 +398,8 @@ describe('ZoomedIdeogram', () => {
     expect(tooltip()).toBeNull();
   });
 
-  // Found while fixing ENG-7 (#1019): the band's name joined the route's key to the band's
-  // stored name, "MT" on GRCh38 (whose chrM band has no name) and "MTchrM" on T2T (whose band
-  // is named chrM). The mitochondrion has no cytobands: its band is chrM, as the header names it.
+  // The mitochondrion has no cytobands: its band is chrM, as the header names it, whatever the
+  // band's stored name, none on GRCh38 and chrM on T2T (never "MT" or "MTchrM").
   it.each([
     ['a band without a name (GRCh38)', ''],
     ['a band named after the chromosome (T2T)', 'chrM'],
@@ -417,7 +416,7 @@ describe('ZoomedIdeogram', () => {
     expect(tooltip()?.textContent).toBe('chrM');
   });
 
-  it('names the cytobands in the region for a screen reader, the first three in ISCN form (#529)', () => {
+  it('names the cytobands in the region for a screen reader, the first three in ISCN form', () => {
     serve({ data: CHROMOSOME });
     const { rerender } = render(
       ideogram({ regionStart: 150_000, regionEnd: 650_000, width: 500 })
@@ -441,11 +440,11 @@ describe('ZoomedIdeogram', () => {
     ['without cytoband data', { data: { ...CHROMOSOME, bands: [] } }, 'none'],
     ['while it loads', {}, 'loading'],
     [
-      'after a failure, even with bands cached (#510)',
+      'after a failure, even with bands cached',
       { data: CHROMOSOME, isError: true },
       'failed to load',
     ],
-  ])('says what it shows %s, and "none" only for no bands (#529)', (_label, state, summary) => {
+  ])('says what it shows %s, and "none" only for no bands', (_label, state, summary) => {
     serve(state);
     render(ideogram());
 

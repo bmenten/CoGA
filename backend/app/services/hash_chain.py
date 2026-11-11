@@ -26,8 +26,8 @@ Design notes:
   row and then recompute ``row_hash``/``prev_hash`` for it and every successor, yielding a
   self-consistent chain that verifies. Detecting a determined owner who re-chains (and
   whole-chain truncation) needs an EXTERNAL signed anchor of each chain head that the DB
-  role cannot forge: the signed anchor (``integrity_anchor_service``, #263), together with
-  the restricted runtime role (#262).
+  role cannot forge: the signed anchor (``integrity_anchor_service``), together with the
+  restricted runtime role.
 """
 
 from __future__ import annotations
@@ -112,8 +112,8 @@ def verify_chain(
     for index, row in enumerate(rows):
         stored_prev = row.get("prev_hash")
         if index == 0:
-            # Chain origin: prev points at genesis (stored as NULL).
-            if stored_prev not in (None, GENESIS):
+            # Chain origin: every writer stores the first row's prev_hash as NULL.
+            if stored_prev is not None:
                 return ChainVerification(
                     False, index, str(row.get("id")), "first chained row is not a genesis link"
                 )

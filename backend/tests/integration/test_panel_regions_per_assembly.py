@@ -1,8 +1,7 @@
 """Gene-panel regions are scoped per assembly (TF-06 H12) — real Postgres.
 
-A panel's regions stored across all assemblies and unioned by every family's panel filter
-would filter a GRCh38 family on T2T coordinates and vice versa. This checks, against the real
-schema, that
+A panel's regions are stored per assembly, so a GRCh38 family is never filtered on T2T
+coordinates, nor the other way round. This checks, against the real schema, that
 
 * a gene is resolved in every assembly that has it, each region tagged with its assembly;
 * a family's panel filter reads only its own assembly's stored regions.
@@ -29,9 +28,9 @@ def _symbols() -> tuple[str, str]:
 
 
 async def _seed(session, gene: str, only_in_b: str) -> dict[str, str]:
-    species = await fresh_species(session, f"#515 {uuid4()}")
-    assembly_a = await fresh_assembly(session, species, f"#515-A-{uuid4()}")
-    assembly_b = await fresh_assembly(session, species, f"#515-B-{uuid4()}")
+    species = await fresh_species(session, f"panel-regions {uuid4()}")
+    assembly_a = await fresh_assembly(session, species, f"panel-regions-A-{uuid4()}")
+    assembly_b = await fresh_assembly(session, species, f"panel-regions-B-{uuid4()}")
 
     # Same gene, different coordinates per assembly; a second gene only in B.
     await gene_locus(session, assembly_a, gene, "1", 1_000, 2_000)
@@ -53,7 +52,7 @@ async def _seed(session, gene: str, only_in_b: str) -> dict[str, str]:
                 "INSERT INTO gene_panels (name, created_by) "
                 "VALUES (:n, CAST(:u AS uuid)) RETURNING id::text"
             ),
-            {"n": f"#515 panel {uuid4()}", "u": user},
+            {"n": f"panel-regions panel {uuid4()}", "u": user},
         )
     ).scalar_one()
     await session.execute(

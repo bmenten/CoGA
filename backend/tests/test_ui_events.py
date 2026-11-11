@@ -421,7 +421,7 @@ async def test_the_workers_batch_keeps_every_users_events(monkeypatch) -> None:
 
 
 # The browser gives each UI event an id of its own (frontend lib/telemetry.ts), and the endpoint
-# stores the event under it: the INSERT does nothing for an id the table holds (SEC-17), so a
+# stores the event under it: the INSERT does nothing for an id the table holds, so a
 # batch the browser sends again, one in flight as its page closed, stores each event once.
 _BROWSER_EVENT_ID = "6f1c2d3e-0000-4000-8000-00000000e0a1"
 

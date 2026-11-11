@@ -19,8 +19,9 @@ reads that set from the catalogue and requires it to equal ``_APPEND_ONLY``, so 
 append-only table cannot ship without being exercised here, and so without its REVOKE in
 ``05_grants.sql``.
 
-The schema-migration ledger (``alembic_version``) is not append-only, since the migration step
-moves its one row on, but it is the owner's alone: coga_app may read it and nothing more.
+The schema-migration ledger (``alembic_version``) and the baselines' digest
+(``schema_baselines``) are not append-only, since the migration step writes them, but they are
+the owner's alone: coga_app may read them and nothing more.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it. The
 test connects as the migration owner/superuser, which can ``SET ROLE`` to the NOLOGIN
@@ -48,7 +49,6 @@ _APPEND_ONLY = (
     "qc_threshold_changes",
     "family_structure_versions",
     "ui_events",
-    "wgs_sources",
     "ancestry_reference_panels",
     "ancestry_results",
     "ancestry_sample_choices",
@@ -67,7 +67,6 @@ _UPDATE_SQL = {
     "qc_threshold_changes": "UPDATE qc_threshold_changes SET reason = reason",
     "family_structure_versions": "UPDATE family_structure_versions SET version = version",
     "ui_events": "UPDATE ui_events SET label = label",
-    "wgs_sources": "UPDATE wgs_sources SET sha256=sha256",
     "ancestry_reference_panels": "UPDATE ancestry_reference_panels SET snapshot = snapshot",
     "ancestry_results": "UPDATE ancestry_results SET samples = samples",
     "ancestry_sample_choices": "UPDATE ancestry_sample_choices SET mode = mode",
@@ -126,8 +125,8 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                 await s.execute(text("SET LOCAL ROLE coga_app"))
                 await s.execute(
                     text(
-                        "INSERT INTO clinical_audit_events (actor, action, summary) "
-                        "VALUES ('p1-3', 'test', :m)"
+                        "INSERT INTO clinical_audit_events (actor, action, summary, row_hash) "
+                        "VALUES ('p1-3', 'test', :m, 'not-on-a-chain')"
                     ),
                     {"m": marker},
                 )
@@ -173,23 +172,24 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                 await s.execute(
                     text(
                         "INSERT INTO clinical_audit_events (family_id, actor_id, actor, "
-                        "action, summary) VALUES (CAST(:f AS uuid), CAST(:u AS uuid), "
-                        "'x', 'test', 'cascade')"
+                        "action, summary, row_hash) VALUES (CAST(:f AS uuid), CAST(:u AS uuid), "
+                        "'x', 'test', 'cascade', 'not-on-a-chain')"
                     ),
                     {"f": fam, "u": uid},
                 )
                 await s.execute(
                     text(
-                        "INSERT INTO audit_log_events (method, path, status_code, user_id) "
-                        "VALUES ('GET', :p, 200, CAST(:u AS uuid))"
+                        "INSERT INTO audit_log_events (event_id, method, path, status_code, user_id) "
+                        "VALUES (gen_random_uuid(), 'GET', :p, 200, CAST(:u AS uuid))"
                     ),
                     {"p": f"/p1-3-cascade-{label}", "u": uid},
                 )
                 await s.execute(
                     text(
                         "INSERT INTO report_signouts (family_id, family_identifier, version, "
-                        "signed_out_by, signed_out_by_id, content_hash, snapshot) VALUES "
-                        "(CAST(:f AS uuid), :fl, 1, 'x', CAST(:u AS uuid), 'deadbeef', '{}'::jsonb)"
+                        "signed_out_by, signed_out_by_id, content_hash, snapshot, row_hash) VALUES "
+                        "(CAST(:f AS uuid), :fl, 1, 'x', CAST(:u AS uuid), 'deadbeef', '{}'::jsonb, "
+                        "'not-on-a-chain')"
                     ),
                     {"f": fam, "fl": label, "u": uid},
                 )
@@ -204,15 +204,16 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                 await s.execute(
                     text(
                         "INSERT INTO family_structure_versions (family_id, family_identifier, "
-                        "version, structure_hash, snapshot, created_by) VALUES "
-                        "(CAST(:f AS uuid), :fl, 1, 'deadbeef', '{}'::jsonb, CAST(:u AS uuid))"
+                        "version, structure_hash, snapshot, created_by, row_hash) VALUES "
+                        "(CAST(:f AS uuid), :fl, 1, 'deadbeef', '{}'::jsonb, CAST(:u AS uuid), "
+                        "'not-on-a-chain')"
                     ),
                     {"f": fam, "fl": label, "u": uid},
                 )
                 await s.execute(
                     text(
-                        "INSERT INTO ui_events (event_type, label, user_id, user_email) "
-                        "VALUES ('click', :fl, CAST(:u AS uuid), 'x@x.org')"
+                        "INSERT INTO ui_events (event_id, event_type, label, user_id, user_email) "
+                        "VALUES (gen_random_uuid(), 'click', :fl, CAST(:u AS uuid), 'x@x.org')"
                     ),
                     {"fl": label, "u": uid},
                 )
@@ -311,9 +312,10 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
 
 
 def test_coga_app_can_read_the_schema_ledger_but_not_write_it() -> None:
-    """The ledger (``alembic_version``) records which schema revision ran; only the migration
-    step writes it, as the owner. coga_app may read it, and every write is refused by the
-    REVOKE in 05_grants.sql (the broad GRANT and the default privileges would allow it)."""
+    """The ledger (``alembic_version``) records which schema revision ran, and
+    ``schema_baselines`` which baselines made the database; only the migration step writes
+    them, as the owner. coga_app may read them, and every write is refused by the REVOKE in
+    05_grants.sql (the broad GRANT and the default privileges would allow it)."""
 
     from backend.app.core.postgres import (
         close_postgres_engine,
@@ -321,24 +323,35 @@ def test_coga_app_can_read_the_schema_ledger_but_not_write_it() -> None:
         init_postgres_schema,
     )
 
+    writes = {
+        "alembic_version": (
+            "INSERT INTO alembic_version (version_num) VALUES ('9999')",
+            "UPDATE alembic_version SET version_num = version_num",
+            "DELETE FROM alembic_version",
+            "TRUNCATE alembic_version",
+        ),
+        "schema_baselines": (
+            "INSERT INTO schema_baselines (digest) VALUES (repeat('0', 64))",
+            "UPDATE schema_baselines SET digest = digest",
+            "DELETE FROM schema_baselines",
+            "TRUNCATE schema_baselines",
+        ),
+    }
+
     async def _run() -> None:
         try:
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
-            async with sm() as s:
-                privileges = (await s.execute(text(_PRIVILEGES_SQL), {"t": "alembic_version"})).one()
-                assert tuple(privileges) == (True, False, False, False, False), privileges
-            async with sm() as s:
-                await s.execute(text("SET LOCAL ROLE coga_app"))
-                ledger = (await s.execute(text("SELECT version_num FROM alembic_version"))).all()
-                assert len(ledger) == 1, ledger
-            for sql in (
-                "INSERT INTO alembic_version (version_num) VALUES ('9999')",
-                "UPDATE alembic_version SET version_num = version_num",
-                "DELETE FROM alembic_version",
-                "TRUNCATE alembic_version",
-            ):
-                await _denied(sm, sql, "permission denied")
+            for table, statements in writes.items():
+                async with sm() as s:
+                    privileges = (await s.execute(text(_PRIVILEGES_SQL), {"t": table})).one()
+                    assert tuple(privileges) == (True, False, False, False, False), (table, privileges)
+                async with sm() as s:
+                    await s.execute(text("SET LOCAL ROLE coga_app"))
+                    rows = (await s.execute(text(f"SELECT * FROM {table}"))).all()
+                    assert len(rows) == 1, (table, rows)
+                for sql in statements:
+                    await _denied(sm, sql, "permission denied")
         finally:
             await close_postgres_engine()
 

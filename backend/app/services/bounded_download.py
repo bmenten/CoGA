@@ -53,7 +53,7 @@ class InvalidGzipError(ValueError):
 
 class TruncatedBgzfError(InvalidGzipError, EOFError):
     """A BGZF file that does not end with BGZF's end-of-file block: cut short, perhaps exactly
-    where one of its blocks ends, which gzip alone cannot tell from a whole file (DATA-4).
+    where one of its blocks ends, which gzip alone cannot tell from a whole file.
 
     It is an ``EOFError`` too, as Python's gzip module raises for a member cut short, so every
     reader refuses it where it refuses a truncated gzip file."""
@@ -210,7 +210,7 @@ def gunzip_bounded(
     between two members cannot be told from a whole one: gzip has no end-of-file mark. A
     BGZF file can, and must end with BGZF's end-of-file block: one whose last member is not
     that block is refused as truncated (``TruncatedBgzfError``, an ``InvalidGzipError``;
-    the owner's decision of 2026-10-28, DATA-4).
+    the owner's decision of 2026-10-28).
     """
     label = source or "gzip stream"
     view = memoryview(data)

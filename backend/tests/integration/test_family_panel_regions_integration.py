@@ -1,8 +1,8 @@
-"""The family page's panel-region join keeps what testing each row against every region keeps (ENG-15).
+"""The family page's panel-region join keeps what testing each row against every region keeps.
 
 The family page keeps a variant in one of a panel's regions by joining the family's own rows
 to the regions on 64-kb windows (``_small_family_region_condition``), as the Variant Explorer
-joins its annotation index (CLIN-48), and keeps a row whose chromosome, position and REF length
+joins its annotation index, and keeps a row whose chromosome, position and REF length
 are those of a row the join keeps. Testing each row against every region
 (``_small_region_filter_condition``, ``arrayExists`` over the regions) takes 2.1 s for a panel
 of 1,000 regions on a family of about 190,000 rows.

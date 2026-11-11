@@ -1,4 +1,4 @@
-// Optimistic concurrency for review saves (#513).
+// Optimistic concurrency for review saves.
 
 import { describe, expect, it } from 'vitest';
 

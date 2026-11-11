@@ -1,4 +1,4 @@
-"""A sign-out's acknowledgement covers the concerns its dialog showed, end to end (TRACE-19).
+"""A sign-out's acknowledgement covers the concerns its dialog showed, end to end.
 
 "Sign out anyway" sends a gate's acknowledgement and its reason, and the sign-out reads the gate
 again. Each refusal carries the fingerprint of the concerns it lists, the dialog sends it back,

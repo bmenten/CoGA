@@ -1,7 +1,7 @@
 import type { ApiClinicalCnv } from './apiTypes';
 
 /**
- * The ClinVar support a knowledgebase build recorded for a clinical CNV (#624): how many
+ * The ClinVar support a knowledgebase build recorded for a clinical CNV: how many
  * pathogenic ClinVar CNVs overlap it by at least 30 % reciprocally, per side. A knowledgebase
  * built without ClinVar records none, which is not the same as zero support.
  */

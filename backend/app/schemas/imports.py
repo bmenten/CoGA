@@ -172,8 +172,8 @@ class FamilyPackageImportJobOut(ApiDocumentModel):
     # makes (import_delivery_review.py).
     manifest_sha256: Optional[str] = None
     # The fingerprint of the local package folder when the job was queued: the job imports nothing
-    # when the folder's differs as it starts. None for a package in a bucket, one the queue could
-    # not read, and a job queued before fingerprints.
+    # when the folder's differs as it starts. None for a package in a bucket, and one the queue
+    # could not read.
     package_fingerprint: Optional[str] = None
 
 
@@ -377,7 +377,7 @@ class RawImportFileOut(BaseModel):
     in_object_store: bool = False
     # Whether the recorded location lies outside the folders CoGA reads the family's source
     # files from (its package folder, local or in a bucket, and the upload folder): such a file
-    # is neither downloaded nor verified (SEC-27, SEC-38).
+    # is neither downloaded nor verified.
     outside_read_folders: bool = False
 
 

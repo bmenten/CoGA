@@ -15,7 +15,7 @@ vi.mock('../../lib/trackFetch', () => ({ fetchTrackJson: trackFetchMock }));
 import BlacklistTrack from '../visualizations/BlacklistTrack';
 import SvTrack from '../visualizations/SvTrack';
 
-// #510 — a failed track request must say so, never read as "nothing in this region",
+// A failed track request must say so, never read as "nothing in this region",
 // and never feed partial data into what the track computes.
 
 const renderWithClient = (ui: ReactElement) =>
@@ -52,7 +52,7 @@ describe('BlacklistTrack', () => {
 
     expect(await screen.findByText(/Could not load blacklist regions/)).toBeInTheDocument();
     expect(screen.queryByText(/No blacklist regions in this region/)).not.toBeInTheDocument();
-    // Nor does its name for a screen reader say "none" (#529).
+    // Nor does its name for a screen reader say "none".
     expect(
       screen.getByRole('img', { name: 'Blacklist regions on chr1:0–1,000: failed to load' }),
     ).toBeInTheDocument();
@@ -69,7 +69,7 @@ describe('BlacklistTrack', () => {
     expect(screen.getByRole('img', { name: 'Blacklist regions on chr1:0–1,000: none' })).toBeInTheDocument();
   });
 
-  it('names how many regions it draws for a screen reader, and says so while loading (#529)', async () => {
+  it('names how many regions it draws for a screen reader, and says so while loading', async () => {
     apiGetMock.mockResolvedValue({
       data: [
         { start: 100, end: 200, label: 'High Signal Region' },

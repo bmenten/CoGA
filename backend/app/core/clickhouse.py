@@ -44,8 +44,8 @@ _async_client: Any | None = None
 _client_lock: asyncio.Lock | None = None
 _INSERT_QUERY_PATTERN = re.compile(
     # `table` is anchored to start with a non-whitespace char and end on a non-`(`,
-    # non-whitespace char so the following `\s*\(` boundary is unambiguous. The old
-    # `.+?` overlapped the surrounding `\s+`/`\s*`, giving cubic backtracking on a long
+    # non-whitespace char so the following `\s*\(` boundary is unambiguous. A lazy `.+?`
+    # would overlap the surrounding `\s+`/`\s*`, giving cubic backtracking on a long
     # `INSERT INTO ` + whitespace/near-miss run (py/polynomial-redos).
     r"^\s*INSERT\s+INTO\s+(?P<table>\S(?:[^(]*[^(\s])?)\s*\((?P<columns>.*?)\)\s*VALUES\s*$",
     re.IGNORECASE | re.DOTALL,

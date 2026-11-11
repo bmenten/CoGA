@@ -7,13 +7,13 @@ loop via an in-process ``httpx.ASGITransport`` client (see test_e2e_api_contract
 
 **A ranking does not outlive the variant data.** The view is opened twice (the second
 open is a cache hit). The family's small variants are then deleted through the admin data
-endpoint. The cache key covers the family's storage-level data version, so the next open must
-recompute over the emptied data rather than serve the old ranking (with the old total over
+endpoint. The cache key covers the family's storage-level data version, so the next open
+recomputes over the emptied data instead of serving the old ranking (with the old total over
 variants that no longer exist). The golden trio is re-imported at the end so any module
 that runs afterwards sees the usual state.
 
 **A narrower panel is served from a broader cached ranking only while that ranking's panel
-holds what it held when the ranking was computed (CLIN-27)**, with gene panels made through
+holds what it held when the ranking was computed**, with gene panels made through
 the panel API:
 
 * a panel's ranking serves another panel with the same gene (its panel unchanged);
@@ -22,7 +22,7 @@ the panel API:
 * a row whose panel was deleted is passed over instead of failing the request with 404;
 * a ranking without a panel still serves a narrower panel.
 
-**A served panel is what a fresh computation of that panel gives (CLIN-34, CLIN-35)**, here
+**A served panel is what a fresh computation of that panel gives**, here
 the same panel opened again over an emptied cache. With gene-reference rows seeded for the
 cases (the fixture ships none):
 
@@ -154,7 +154,7 @@ def test_admin_delete_moves_the_family_data_version(data_change) -> None:
 def test_prioritised_view_recomputes_after_the_delete(data_change) -> None:
     after = data_change["after_delete"]
     assert after["status"] == 200, after["text"]
-    # Not a cache hit: the ranking is computed over the emptied data.
+    # Not a cache hit, which would serve the old total over variants that are gone.
     assert after["json"]["ranking_cached"] is False
     assert after["json"]["total"] == 0
     assert after["json"]["variants"] == []
@@ -165,13 +165,13 @@ def test_golden_trio_is_restored_for_later_modules(data_change) -> None:
     assert data_change["restored"]["n_small_variants"] == data_change["facts"]["n_small_variants"]
 
 
-# --- A narrower panel served from a broader ranking (CLIN-27, CLIN-34, CLIN-35) -------------
+# --- A narrower panel served from a broader ranking -----------------------------------------
 
 
 def _panelapp_payload(panelapp_id: int) -> dict:
     return {
         "id": panelapp_id,
-        "name": f"CLIN-34 e2e {panelapp_id}",
+        "name": f"Ranking cache e2e {panelapp_id}",
         "version": "1.0",
         "stats": {"number_of_genes": 1, "number_of_strs": 0, "number_of_regions": 0},
         "genes": [
@@ -208,7 +208,7 @@ def _ranking(resp) -> dict:
 
 
 async def _seed_genes(assembly_id: str | None) -> int:
-    """Seed (or, with None, remove) the gene-reference rows the CLIN-34/35 cases need, and
+    """Seed (or, with None, remove) the gene-reference rows the served-panel cases need, and
     return how many are left. A gene the reference names GENE_RENAMED over the GENE_DENOVO
     variant (1:3000), as if the annotation still used an earlier symbol; a gene overlapping
     the first of GENE_CH's pair (1:4000) and not the second (1:5000); and 1,000 filler genes
@@ -338,7 +338,7 @@ async def _exercise_sub_panel(root: Path, panelapp_id: int) -> dict:
             await make_panel("indel", "GENE_INDEL")
             out["indel_from_no_panel"] = await prioritised("indel")
 
-            # CLIN-34 and CLIN-35: each case starts from an empty cache, opens the broader
+            # Each case starts from an empty cache, opens the broader
             # ranking, then the panel, then the panel again over an emptied cache (fresh).
             await _seed_genes(facts["assembly_id"])
 
@@ -447,7 +447,7 @@ def test_another_panel_is_served_from_a_ranking_whose_panel_is_unchanged(sub_pan
 
 def test_a_panel_that_gained_a_gene_is_not_served_from_its_earlier_ranking(sub_panel) -> None:
     assert sub_panel["edit"]["status"] == 200, sub_panel["edit"]["text"]
-    # Computed afresh, with GENE_DENOVO.
+    # Served from the first version's ranking, it would lack GENE_DENOVO.
     _served(sub_panel["broad_after_edit"], cached=False, genes=["GENE_DENOVO", "GENE_PATH"])
 
 
@@ -510,8 +510,7 @@ def test_a_compound_het_pair_the_panel_splits_is_not_carried_over(sub_panel) -> 
 
 def test_the_mendeliome_reaches_a_variant_by_position_and_serves_the_panel_that_does(sub_panel) -> None:
     # Matched by position too, the stand-in of more than 1,000 regions keeps the GENE_DENOVO
-    # variant inside GENE_RENAMED's locus. It was matched on gene symbols alone, its ranking
-    # lacked the variant, and the smaller panel had to be computed for itself.
+    # variant inside GENE_RENAMED's locus, so its ranking serves the smaller panel.
     _served(sub_panel["mendeliome"], cached=False, genes=["GENE_DENOVO", "GENE_PATH"])
     served = sub_panel["renamed_served"]
     _served(served, cached=True, genes=["GENE_DENOVO", "GENE_PATH"])

@@ -1,5 +1,5 @@
 """The one parser of a VCF record's INFO column and of a sample's FORMAT values
-(``services/vcf_fields.py``), shared by every reader that splits a record itself (ENG-8):
+(``services/vcf_fields.py``), shared by every reader that splits a record itself:
 the TRGT repeat calls, the structural-variant and small-variant uploads, the per-sample
 callsets and the family-package readers. These tests pin what each reader reads through it."""
 

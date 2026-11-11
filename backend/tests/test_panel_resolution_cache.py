@@ -1,11 +1,10 @@
-"""A panel's resolution is kept while nothing it is read from changes (ENG-14).
+"""A panel's resolution is kept while nothing it is read from changes.
 
 A panel filter applies the panel's genes, its regions stored for the family's assembly, and
 each gene's loci in that assembly's gene reference (``_fetch_panel_constraints``). For the
 Mendeliome that is 5,300 genes and, in a gene reference of one row per transcript, some
 40,000 loci, and the digest of them that the ranking cache keys on: read again on every
-Mendeliome request, and in the check that serves a sub-panel from the Mendeliome's ranking
-(CLIN-27), it would cost more than computing a small sub-panel afresh.
+Mendeliome request, and in the check that serves a sub-panel from the Mendeliome's ranking, it would cost more than computing a small sub-panel afresh.
 
 A resolution is kept per panel and assembly, and used only while its token is
 unchanged: the panel's version, a SHA-256 of its gene rows and of its region rows in the
@@ -266,7 +265,7 @@ def test_a_resolution_read_while_the_panel_changed_is_not_kept(tables) -> None:
 
 
 def test_the_sub_panel_check_reads_a_kept_panel_from_its_token(tables) -> None:
-    # CLIN-27: a broader ranking serves a sub-panel only while its panel resolves to what the
+    # a broader ranking serves a sub-panel only while its panel resolves to what the
     # ranking recorded. With the panel kept (the Mendeliome resolved for its own view), the
     # check reads its token, not its genes, regions and loci.
     tables.make_panel(PANEL, "GENE1", "GENE2")

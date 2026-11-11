@@ -70,7 +70,7 @@ interface ChromosomeTrackAvailability {
   coverageSources: string[];
   /** The transforms each caller's coverage track records. */
   coverageNormalizations: Record<string, string[]>;
-  /** What each caller's coverage track holds (TRACE-9); decides the axis it is drawn on. */
+  /** What each caller's coverage track holds; decides the axis it is drawn on. */
   coverageContents: Record<string, string>;
   /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
   apcadSources: string[];
@@ -131,8 +131,8 @@ interface ChromosomeViewWorkspaceProps {
   apcadPointLimit: number;
   segmentLimit: number;
   showViewerLoading: boolean;
-  /** A request the tracks need failed: which tracks each sample has (#607), or the
-   * chromosome lengths the view is laid out on (#610). The tracks are not mounted, and that
+  /** A request the tracks need failed: which tracks each sample has, or the
+   * chromosome lengths the view is laid out on. The tracks are not mounted, and that
    * is not "no data". `what` names what could not be loaded. */
   tracksFailure?: { what: string; error: unknown; retry: () => void } | null;
 }
@@ -532,7 +532,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                   // answers into one that is none of them. A track of read depth is
                   // drawn on a depth axis, and one whose values are of unknown kind (a
                   // coverage BED that does not declare what it holds) on their own range,
-                  // without an axis; its head says why (TRACE-7, TRACE-9).
+                  // without an axis; its head says why.
                   orderCoverageSources(availability[member.sample_id]?.coverageSources).map(
                     (coverageSource, _index, allSources) => {
                       const label = coverageTrackLabel(coverageSource, allSources.length);
@@ -559,14 +559,14 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                         >
                           <CoverageSegmentsChart
                             coverageUrls={[
-                              `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/coverage?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${encodeURIComponent(coverageSource)}&format=json`,
+                              `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/coverage?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${encodeURIComponent(coverageSource)}`,
                             ]}
                             scale={scale}
                             // Segments are log2 ratios: drawn on the log2-ratio axis only.
                             segmentsUrls={
                               scale === 'log2_ratio'
                                 ? [
-                                    `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${encodeURIComponent(coverageSource)}&format=json`,
+                                    `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${encodeURIComponent(coverageSource)}`,
                                   ]
                                 : undefined
                             }
@@ -594,12 +594,12 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                         sampleId={member.sample_id}
                         maxValue={apcadAxisMax(availability[member.sample_id]?.apcadSources)}
                         apcadUrls={[
-                          `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${apcadPointLimit}&format=json`,
+                          `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${apcadPointLimit}`,
                         ]}
                         pcfUrls={
                           availability[member.sample_id]?.apcadPcf
                             ? [
-                                `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad_pcf?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&format=json`,
+                                `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad_pcf?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}`,
                               ]
                             : undefined
                         }
@@ -622,7 +622,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                   >
                     <ParentalOriginChart
                       urls={[
-                        `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad_segregation?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=200000&format=json`,
+                        `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad_segregation?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=200000`,
                       ]}
                       sampleId={member.sample_id}
                       chroms={[chrom]}
@@ -790,7 +790,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
               <div
                 className="viz-frame relative h-[120px]"
                 // The tracks' width, but never wider than the panel: the placeholder has no
-                // scroller of its own, so a wider frame pushed the page into a sideways scroll.
+                // scroller of its own, so a wider frame would push the page into a sideways scroll.
                 style={{ width: trackWidth, maxWidth: '100%' }}
               >
                 <VizLoadingOverlay message="Loading selected tracks" />

@@ -61,7 +61,7 @@ export const resolveApiUrl = (
 /**
  * The bearer token for a request of this session, or null without a session: the token the
  * session holds or, signed in with Microsoft, the one MSAL hands back, which the session then
- * keeps. Asked for at each request, the API client's and IGV's alike (SEC-32): a token read
+ * keeps. Asked for at each request, the API client's and IGV's alike: a token read
  * once runs out while the page stays open.
  */
 export const sessionAccessToken = async (): Promise<string | null> => {
@@ -70,7 +70,7 @@ export const sessionAccessToken = async (): Promise<string | null> => {
     return token;
   }
   // Microsoft's access token lives about an hour: MSAL hands back the one it holds, or a
-  // renewed one when that is about to expire (SEC-4).
+  // renewed one when that is about to expire.
   const { freshMicrosoftAccessToken } = await import('./microsoftSignIn');
   const fresh = await freshMicrosoftAccessToken();
   if (fresh && fresh !== token) {
@@ -97,8 +97,8 @@ type PageLocation = Pick<Location, 'pathname' | 'search' | 'hash' | 'replace'>;
 
 /**
  * A session the API refused (401): cleared, and the user sent to sign in, which returns to the
- * page the session expired on, as a sign-in RequireAuth sends does (UI-3: it opened the
- * dashboard). Not from a sign-in page (/login, /login/emergency): it shows the refusal itself.
+ * page the session expired on, as a sign-in RequireAuth sends does, never the dashboard. Not
+ * from a sign-in page (/login, /login/emergency): it shows the refusal itself.
  */
 export const endExpiredSession = (
   location: PageLocation | undefined = typeof window !== 'undefined' ? window.location : undefined,

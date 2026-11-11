@@ -1,4 +1,4 @@
-"""A value beyond its ClickHouse column does not fail an upload or an import (SAFE-30), E2E.
+"""A value beyond its ClickHouse column does not fail an upload or an import, E2E.
 
 The loaders fill the ClickHouse columns from file values, and the client refuses a whole
 insert when one value falls outside its column. A mitochondrial call's read depth above
@@ -220,7 +220,7 @@ async def _exercise(base: Path, family_id: str, package_family_id: str) -> dict[
         out["bed_upload"] = capture(
             await ac.post(
                 f"/api/bed/upload/{proband}/coverage",
-                # A coverage BED declares what it holds (TRACE-9).
+                # A coverage BED declares what it holds.
                 params={"content": "read_depth"},
                 files={"file": ("coverage.bed", _BED.encode(), "text/plain")},
             )

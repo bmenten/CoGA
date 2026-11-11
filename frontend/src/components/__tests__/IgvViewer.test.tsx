@@ -12,7 +12,7 @@ const { apiGetMock, createBrowserMock, searchMock, loadIgvMock, freshMicrosoftAc
   freshMicrosoftAccessTokenMock: vi.fn(),
 }));
 
-// MSAL, as the API client asks it for a Microsoft session's token (SEC-4).
+// MSAL, as the API client asks it for a Microsoft session's token.
 vi.mock('../../lib/microsoftSignIn', () => ({
   freshMicrosoftAccessToken: freshMicrosoftAccessTokenMock,
 }));
@@ -114,7 +114,7 @@ describe('IgvViewer', () => {
     ]);
   });
 
-  // SEC-2 — an ID may hold `/`, `?`, `#`, `%` and `..`. Put in raw, this family ID let the
+  // An ID may hold `/`, `?`, `#`, `%` and `..`. Put in raw, this family ID let the
   // browser resolve `../` to another path, cut the path at `?`, and `%41` reached the server
   // as `A`.
   it('asks for the manifests with the family ID as one encoded path segment', async () => {
@@ -342,8 +342,8 @@ describe('IgvViewer', () => {
     expect(options.tracks[0].type).toBe('alignment');
   });
 
-  // #610 — the failure was swallowed, so the depth and MAF tracks were silently absent, as
-  // for a family without them.
+  // A failure is said, so the depth and MAF tracks are never silently absent, as for a family
+  // without them.
   it('says the depth and MAF tracks could not be loaded, and retries them', async () => {
     let signalFails = true;
     apiGetMock.mockImplementation((url: string) => {
@@ -384,11 +384,9 @@ describe('IgvViewer', () => {
     expect(screen.queryByText(/Could not load the depth and MAF tracks/)).not.toBeInTheDocument();
   });
 
-  // SEC-32 — the viewer read the stored token once, when it built the browser, and IGV sent
-  // that token with every request it made: a session longer than the token's life (about an
-  // hour for Microsoft's) lost its tracks, though the API client renews the token before each
-  // of its own requests. IGV now asks for the session's token at each request (its
-  // `oauthToken` function), as the API client does.
+  // IGV asks for the session's token at each request (its `oauthToken` function), as the API
+  // client does: a token read once, when the browser is built, would run out in a session
+  // longer than the token's life (about an hour for Microsoft's), and the tracks with it.
   describe('the token IGV sends with its requests', () => {
     const held = ['held', 'session'].join('-');
     const renewed = ['renewed', 'session'].join('-');

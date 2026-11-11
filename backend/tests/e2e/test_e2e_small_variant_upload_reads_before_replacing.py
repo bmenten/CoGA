@@ -1,5 +1,4 @@
-"""A small-variant upload with overwrite reads the whole file before it replaces the callset
-(SAFE-25), E2E.
+"""A small-variant upload with overwrite reads the whole file before it replaces the callset, E2E.
 
 ``POST /families/{family_id}/small-variants/upload`` with ``overwrite`` reads and checks the
 whole file first, then deletes the family's rows of its callset, and for imputed genotypes the
@@ -15,7 +14,7 @@ into real Postgres and ClickHouse:
   haplotype blocks, are uploaded;
 * refused with overwrite, each leaving both callsets, the blocks and their records as they
   were: a VCF naming a sample the family does not have, a gzip file cut short after its first
-  records (400), a BGZF file cut exactly where one of its blocks ends (400, DATA-4), one with
+  records (400), a BGZF file cut exactly where one of its blocks ends (400), one with
   no record it can store, and imputed genotypes cut short;
 * a valid VCF with overwrite replaces the callset, and imputed genotypes replace theirs and
   the blocks;

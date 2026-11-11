@@ -1,6 +1,6 @@
 // Side-by-side computed-style diff of two production builds of the frontend, rendered against
 // the same backend and data. It verifies that a CSS change renders exactly as intended: for a
-// clean-up, that nothing renders differently (#712). See README.md for the set-up.
+// clean-up, that nothing renders differently. See README.md for the set-up.
 //
 // For every page state and viewport width it opens the page in both builds and compares, per
 // element (keyed by its structural DOM path), the full computed style of the element and of its

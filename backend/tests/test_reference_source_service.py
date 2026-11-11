@@ -568,7 +568,7 @@ async def test_a_reference_answer_that_is_no_json_is_answered_502() -> None:
     url = "https://api.genome.ucsc.edu/list/ucscGenomes"
     page = httpx.Response(200, text="<html>Down for maintenance</html>")
 
-    # A 200 whose body is no JSON raised ValueError past the handler: a 500 (DATA-4).
+    # A 200 whose body is no JSON raised ValueError past the handler: a 500.
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: page)) as client:
         with pytest.raises(HTTPException) as refused:
             await reference_source_service._get_json(client, url)

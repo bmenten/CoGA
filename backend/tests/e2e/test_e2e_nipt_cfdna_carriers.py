@@ -11,10 +11,10 @@ family's own calls never count.
 The rows are synthetic, written by the importer's own writer as a monogenic NIPT import
 stores them: one row per variant and family in the ``nipt`` callset, each with the key,
 position and project an import gives it. ``SNV_INDEL/entries`` is a CollapsingMergeTree,
-and when ClickHouse merges its parts in the background it keeps one row per sort key. Of
-two rows that shared one key, a merge that ran before the count would lose one. The counts
-are read as stored and again after a forced part merge (``OPTIMIZE … FINAL``), and must be
-the same. The tables are those of an assembly no other test uses, dropped at the end.
+and when ClickHouse merges its parts in the background it keeps one row per sort key, so
+rows that shared one key would lose one of them in a merge. The counts are read as stored
+and again after a forced part merge (``OPTIMIZE … FINAL``), and must be the same.
+The tables are those of an assembly no other test uses, dropped at the end.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -58,7 +58,7 @@ async def _count() -> dict[str, int]:
     return await count_cfdna_carriers(
         _ASSEMBLY,
         ["7-1000-A-G", "7-2000-C-T"],
-        carrier_samples={name: name for name in ("CFDNA1", "CFDNA2", "CFDNA3", "CFDNA4", "CFDNA5")},
+        carrier_samples=["CFDNA1", "CFDNA2", "CFDNA3", "CFDNA4", "CFDNA5"],
         exclude_family_uuid=_INDEX_FAMILY,
     )
 
@@ -113,8 +113,8 @@ def counts() -> dict[str, dict[str, int]]:
 
 def test_only_real_calls_of_other_families_count(counts) -> None:
     # CFDNA2's call and CFDNA5's genotype; not the crossed-over reads, the 0.5% call, or
-    # the index family's own call. The forced merge keeps both of family other-1's rows, and
-    # CFDNA2's call with them.
+    # the index family's own call. Each row has its own sort key, so the merge keeps both of
+    # family other-1's rows, and CFDNA2's call stays.
     assert counts["stored"].get("7-1000-A-G") == 2
     assert counts["merged"].get("7-1000-A-G") == 2
 

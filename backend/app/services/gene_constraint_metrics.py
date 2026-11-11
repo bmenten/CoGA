@@ -29,11 +29,10 @@ async def fetch_gene_constraint_metrics(
 
     A gene is found by its id first, else by its symbol in any case, as the profiles are read;
     of the profiles found for one, the most recently updated is read. A key whose gene has no
-    profile is left out, and so is every key without an assembly. Before TRACE-15 the newest
-    profile of any assembly was read, so a family could be served, and its classifications
-    could freeze, the value of another assembly's profile; and a symbol was matched only as
-    written after the read had matched it in any case, so a gene written otherwise than its
-    profile had no constraint.
+    profile is left out, and so is every key without an assembly. Only the family's own
+    assembly is read, so a family is never served, nor its classifications frozen with, the
+    value of another assembly's profile; and the symbol is matched in any case throughout, so
+    a gene written otherwise than its profile still has its constraint.
     """
     if not genes or not assembly_id:
         return {}
@@ -41,7 +40,7 @@ async def fetch_gene_constraint_metrics(
     gene_ids = sorted({gene_id for _key, _symbol, gene_id in genes if gene_id})
     # Each list goes as one text[] parameter, not one parameter per gene (an expanding IN):
     # a CSV export's 50,001 rows can hit more genes than the 32,767 parameters asyncpg
-    # takes in one statement (DATA-3).
+    # takes in one statement.
     clauses: list[str] = []
     params: dict[str, Any] = {"assembly_id": assembly_id}
     if gene_symbols:

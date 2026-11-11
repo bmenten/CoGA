@@ -104,7 +104,7 @@ const DataManagementPage: React.FC = () => {
     setBusyKey(`family:${selectedFamilyId}`);
     setStatus(null);
     try {
-      // The reason is required and recorded on the family's last audit event (TRACE-16).
+      // The reason is required and recorded on the family's last audit event.
       await api.delete(apiPath`/admin/families/${selectedFamilyId}`, {
         params: { confirm: true },
         data: { reason },

@@ -1,6 +1,6 @@
 /**
- * One classification of a VCF genotype, matching the backend's services/genotypes.py
- * (#511). Genotypes arrive as the VCF wrote them, so a haploid call ('1', '0' — chrM, and
+ * One classification of a VCF genotype, matching the backend's services/genotypes.py.
+ * Genotypes arrive as the VCF wrote them, so a haploid call ('1', '0' — chrM, and
  * chrX/chrY in males from callers that emit ploidy-1 calls) and a multi-allelic one
  * ('1/2', '2/2') must be read like any other rather than falling through a diploid,
  * biallelic list.
@@ -57,7 +57,7 @@ export function genotypeZygosity(gt?: string | null): 'na' | 'ref' | 'hom' | 'he
 
 /**
  * What each genotype toggle in the filter forms covers. The backend reads a group as its
- * genotype class, so the hint names the calls a literal list would not show (#511).
+ * genotype class, so the hint names the calls a literal list would not show.
  */
 export const GENOTYPE_GROUP_HINTS = {
   'hom-group': 'Homozygous alt, including hemizygous/haploid calls (1) and 2/2 at multi-allelic sites',

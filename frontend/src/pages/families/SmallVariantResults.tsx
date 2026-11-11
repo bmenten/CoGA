@@ -61,7 +61,7 @@ type SmallVariantResultsProps = {
   // The CSV export hits the small-variant export endpoint; callers without one
   // (e.g. the NIPT page) hide the button by passing false.
   showCsvExport?: boolean;
-  // The caller is a reader in the family's projects (SEC-1): the review controls inside are
+  // The caller is a reader in the family's projects: the review controls inside are
   // disabled, and the reviews stay readable.
   readOnly?: boolean;
 };
@@ -99,7 +99,7 @@ export default function SmallVariantResults({
   const hasFlatVariants = Boolean(data?.variants.length);
   const hasGroupedPairs = Boolean(pairGroups.length);
   const hasResults = hasFlatVariants || hasGroupedPairs;
-  // A maximum gnomAD count filter cannot exclude a variant without that count (CLIN-67).
+  // A maximum gnomAD count filter cannot exclude a variant without that count.
   const countNotes = gnomadCountNotes(requestQueryString, data);
 
   const handleDownloadCsv = async () => {

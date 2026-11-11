@@ -4,7 +4,7 @@ The annotation filters must all hold on one transcript of a variant, while a var
 fields describe its primary transcript (MANE Select, else canonical, else the most severe).
 So SIFT *deleterious* keeps a variant whose canonical transcript SIFT calls tolerated and a
 second one deleterious, the ready case of test_e2e_in_silico_prediction_filters.py
-(20-62900601), and its card and CSV row read *tolerated* (CLIN-51). The variant also names the
+(20-62900601), and its card and CSV row read *tolerated*. The variant also names the
 transcript the filters held on (``filter_transcript``) with its values, and keeps its own
 fields on the primary transcript, which the ranking reads.
 

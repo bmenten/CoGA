@@ -285,7 +285,7 @@ describe('CircosPlotPage', () => {
     });
   });
 
-  // #589: a failure is shown as a failure, never as a plot still loading or without SVs;
+  // A failure is shown as a failure, never as a plot still loading or without SVs;
   // a capped SV list is not drawn as the whole.
   it('says the chromosomes failed to load and offers a retry, instead of loading forever', async () => {
     serve('GRCh38', { '/chromosomes/GRCh38/details': failingOnce(GRCH38_ROWS) });
@@ -332,7 +332,7 @@ describe('CircosPlotPage', () => {
     expect(props.tooManyVariants).toBe(true);
   });
 
-  // CLIN-54: an SV is drawn whatever its type, and a TRA as the breakend it is.
+  // An SV is drawn whatever its type, and a TRA as the breakend it is.
   it('hands the plot every SV, and opens a TRA, drawn as a breakend, on its two chromosomes', async () => {
     const tra = { chr: '1', start: 70, end: 71, type: 'TRA', remote_chr: '2', remote_start: 30 };
     const typeless = { chr: '2', start: 10, end: 20, type: '' };

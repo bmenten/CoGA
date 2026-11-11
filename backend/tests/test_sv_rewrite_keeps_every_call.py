@@ -5,8 +5,8 @@ rows to change one sample's calls. They read the rows with
 ``fetch_family_structural_variant_rows``, which has the scope of the delete that follows and
 no family-view filter, and write them back with ``rewrite_family_structural_variants``, each
 row under its own project. So the calls of samples the view does not show (an inactive
-member's), the phase sets, the genotype as stored and the breakend's remote end survive.
-Read through the family view, which drops all of those, they would be lost. The upload also
+member's), the phase sets, the genotype as stored and the breakend's remote end survive,
+which the family view would drop. The upload also
 records its VCF header's caller in the family's annotation manifest.
 ``test_e2e_sv_rewrite_keeps_every_call`` shows the same against real ClickHouse and Postgres.
 """
@@ -17,7 +17,7 @@ import json
 from io import BytesIO
 from typing import Any
 
-from fastapi import HTTPException, UploadFile
+from fastapi import UploadFile
 import pytest
 
 from backend.app.services import (
@@ -44,7 +44,7 @@ _ACTIVE = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother"}
 _DEL_30000 = "1-30000-31000-DEL---"
 _DEL_80000 = "1-80000-80800-DEL---"
 _BND_60000 = "1-60000-60000-BND-5-3000000-3000000"
-# The golden trio's NeedlR deletion, by the id its coordinates give it (CLIN-43).
+# The golden trio's NeedlR deletion, by the id its coordinates give it.
 _NEEDLR_DEL = "1-7000-12000-DEL---"
 
 _HEADER = (
@@ -168,7 +168,7 @@ def _stored_row_tuple(**overrides: Any) -> tuple[Any, ...]:
         "end": 60000,
         "svType": "BND",
         "gene_symbols": ["GENE1"],
-        "sample_ids": ["PROBAND", "uuid-father"],
+        "sample_ids": ["PROBAND", "FATHER"],
         "gts": ["0|1", "HET"],
         "quals": [30.0, None],
         "read_supports": [6, None],
@@ -239,7 +239,7 @@ async def test_storage_read_returns_each_row_exactly_as_stored(storage_sql) -> N
             sample="PROBAND", gt="0|1", qual=30.0, read_support=6, filter="PASS", phase_set=7001
         ),
         StructuralVariantCall(
-            sample="uuid-father", gt="HET", qual=None, read_support=None, filter=None, copy_number=3
+            sample="FATHER", gt="HET", qual=None, read_support=None, filter=None, copy_number=3
         ),
     ]
 
@@ -249,7 +249,7 @@ async def test_storage_read_joins_a_row_stored_twice_in_one_project(storage_sql)
     # The query orders a project's rows of one SV fullest first. A second live row of the
     # same SV (which a part merge would collapse into one of the two) adds its extra calls.
     storage_sql["rows"] = [
-        _stored_row_tuple(sample_ids=["PROBAND", "uuid-father"]),
+        _stored_row_tuple(sample_ids=["PROBAND", "FATHER"]),
         _stored_row_tuple(
             sample_ids=["PROBAND", "MOTHER"],
             gts=["1/1", "0/1"],
@@ -266,7 +266,7 @@ async def test_storage_read_joins_a_row_stored_twice_in_one_project(storage_sql)
     assert [(row.project_id, _calls(row.record)) for row in rows] == [
         (
             "project-uuid",
-            {"PROBAND": ("0|1", 7001), "uuid-father": ("HET", None), "MOTHER": ("0/1", None)},
+            {"PROBAND": ("0|1", 7001), "FATHER": ("HET", None), "MOTHER": ("0/1", None)},
         ),
         ("project-old", {"PROBAND": ("0|1", 7001)}),
     ]
@@ -325,7 +325,8 @@ async def test_upload_writes_back_every_other_call_and_field_as_stored(storage) 
     assert fake.reads == ["sniffles"]
     assert fake.rewrites[0]["source"] == "sniffles"
     written = _written(fake)
-    # PROBAND's phase set, and FATHER's call (he is not in the family view), are written back.
+    # PROBAND's phase set comes back, and FATHER (not in the family view) keeps his call here
+    # and his own deletion.
     assert _calls(written[("project-uuid", _DEL_30000)]) == {
         "FATHER": ("1|0", 9001),
         "MOTHER": ("0/1", None),
@@ -337,24 +338,6 @@ async def test_upload_writes_back_every_other_call_and_field_as_stored(storage) 
         ("project-uuid", _DEL_30000),
         ("project-uuid", _BND_60000),
         ("project-uuid", _DEL_80000),
-    }
-
-
-@pytest.mark.asyncio
-async def test_upload_finds_the_samples_calls_stored_under_its_uuid(storage) -> None:
-    rows = [_row(_record(_DEL_30000, [_call("uuid-proband", "0/1"), _call("MOTHER", "0/1")]))]
-
-    fake = storage(rows)
-    with pytest.raises(HTTPException) as exc:
-        await _upload("PROBAND", _sniffles(_del_30000("1/1")))
-    assert exc.value.status_code == 409
-    assert fake.rewrites == []
-
-    fake = storage(rows)
-    await _upload("PROBAND", _sniffles(_del_30000("1/1")), overwrite=True)
-    assert _calls(_written(fake)[("project-uuid", _DEL_30000)]) == {
-        "MOTHER": ("0/1", None),
-        "PROBAND": ("1/1", None),
     }
 
 
@@ -424,7 +407,7 @@ async def test_admin_delete_writes_back_every_other_call_and_field(monkeypatch) 
             _row(
                 _record(
                     _DEL_30000,
-                    [_call("PROBAND", "0|1", 7001), _call("FATHER", "1|0", 9001), _call("uuid-mother", "0/1")],
+                    [_call("PROBAND", "0|1", 7001), _call("FATHER", "1|0", 9001), _call("MOTHER", "0/1")],
                 )
             ),
             _row(_record(_BND_60000, [_call("PROBAND", "0/1")], remote_end=3000000), "project-old"),
@@ -455,7 +438,7 @@ async def test_admin_delete_writes_back_every_other_call_and_field(monkeypatch) 
     monkeypatch.setattr(admin_service, "fetch_family_structural_variant_rows", fake.fetch)
     monkeypatch.setattr(admin_service, "count_family_structural_variants", count)
     monkeypatch.setattr(admin_service, "rewrite_family_structural_variants", fake.rewrite)
-    # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
+    # Its mark is test_deletions_mark_the_family.py's.
     monkeypatch.setattr(admin_service, "FamilyDeletion", UnmarkedDeletion)
 
     await admin_service.delete_sample_data_by_type(
@@ -477,7 +460,7 @@ async def test_admin_delete_writes_back_every_other_call_and_field(monkeypatch) 
         ("project-uuid", _DEL_30000): "sniffles",
         ("project-old", _BND_60000): "sniffles",
     }
-    # MOTHER's calls go under either stored id; FATHER's (not in the view) and every phase
+    # MOTHER's calls go; FATHER's (not in the view) and every phase
     # set, remote end and project stay.
     assert _calls(written[("project-uuid", _NEEDLR_DEL)]) == {
         "FATHER": ("0/1", None),

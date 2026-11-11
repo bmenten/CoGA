@@ -142,7 +142,7 @@ def _patch_reads(monkeypatch, *, haplotypes: HaplotypeResponse | None = None, ma
     monkeypatch.setattr(pgt_analysis, "get_family_haplotypes_response", _haplotype_read)
     monkeypatch.setattr(pgt_analysis, "get_family_phased_markers_response", _marker_read)
     # The blocks were built for the family's pedigree as it is: test_outdated_haplotype_blocks.py
-    # covers blocks built for another (CLIN-66).
+    # covers blocks built for another.
     monkeypatch.setattr(pgt_analysis, "blocks_outdated", lambda context, rows: False)
     return asked
 
@@ -418,7 +418,7 @@ def test_a_family_is_a_pgt_family_when_a_member_is_an_embryo() -> None:
     assert pgt_analysis.is_pgt_family(object()) is False
 
 
-# --- An X-linked ROI: the QC counts a man's one X (CLIN-60) --------------------------------
+# --- An X-linked ROI: the QC counts a man's one X ------------------------------------------
 
 X_MEMBERS = [
     {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": False, "clinical_status": "unaffected",
@@ -474,8 +474,9 @@ def test_at_an_x_linked_roi_a_man_one_x_raises_no_qc_warning(monkeypatch, writte
     # 60 sites around the ROI, 30 on each flank. The mother is heterozygous at each (homolog 1 carries the ALT); the
     # father's one X carries the REF at half of them and the ALT at the other half. The son
     # and his affected brother carry her homolog 1, the daughter her father's X and her
-    # mother's homolog 0. Read as two copies, the men's calls written once left no site, and
-    # written twice made the son's every site where his father's allele is not his an error.
+    # mother's homolog 0. Read as two copies, the men's calls written once would leave no
+    # site, and written twice would make the son's every site where his father's allele is not
+    # his an error.
     def man(allele: str) -> str:
         return allele if written == "one allele" else f"{allele}|{allele}"
 

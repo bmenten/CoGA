@@ -3,18 +3,17 @@
 ClickHouse stores a family's small and structural variant rows once per project it is linked
 to, and the family is read through its projects only. A change of its projects copies its rows
 to each project it is added to before the new links commit, and removes those under the
-projects it left once they have; a project on another assembly is refused.
+projects it left once they have; a project on another assembly is refused. A family moved to
+another project shows its variants there.
 
 Over a fake ClickHouse (the storage module's ``_execute``) and a fake Postgres session:
 
 * per callset, the rows of a linked project are copied (the most rows among the linked
-  projects, else among all), with every entries column and the new project in place of the
-  old one;
+  projects), with every entries column and the new project in place of the old one;
 * a project the family is not linked to yet has whatever it holds replaced, even with as many
   rows as the origin: no write has kept them current;
 * a linked project's rows are never deleted by the copy; a linked project without a callset
-  gets it (a project an import linked the family to), from ``unassigned`` when no linked
-  project holds it;
+  gets it (a project an import added);
 * the copy refreshes the small-variant summaries or moves the SV data version only for what
   it wrote; the prune deletes only rows outside the kept projects;
 * a family without a project keeps its rows under ``unassigned``, as the writers store them;
@@ -174,7 +173,7 @@ async def test_a_linked_projects_rows_are_never_deleted(clickhouse) -> None:
 
 @pytest.mark.asyncio
 async def test_a_linked_project_without_a_callset_gets_it(clickhouse) -> None:
-    # An import linked the family, in A, to B: B is linked and holds none of its rows.
+    # An import linked the family to B, beside A: B holds none of its callsets yet.
     fake = clickhouse({"clair3": {A: 10}}, {"needlr": {A: 3}})
 
     await _copy([A, B], [A, B])
@@ -265,9 +264,10 @@ async def test_the_prune_with_nothing_left_writes_nothing(clickhouse) -> None:
 def test_the_copy_origin_prefers_a_linked_project_then_the_most_rows() -> None:
     assert storage._copy_origin({A: 3, B: 9}, {A}) == A
     assert storage._copy_origin({A: 3, B: 9}, {A, B}) == B
-    assert storage._copy_origin({A: 3, B: 9}, {C}) == B
+    # No linked project holds the callset: there is nothing current to copy from.
+    assert storage._copy_origin({A: 3, B: 9}, {C}) is None
     # A tie goes to the first project in sorted order, every time.
-    assert storage._copy_origin({B: 5, A: 5}, set()) == A
+    assert storage._copy_origin({B: 5, A: 5}, {A, B}) == A
 
 
 # --- the change of a family's projects ----------------------------------------------------
@@ -331,8 +331,8 @@ class _AssemblySession:
 
 @pytest.mark.asyncio
 async def test_a_family_in_no_project_is_looked_for_on_every_assembly(monkeypatch) -> None:
-    # Its projects saved as none: its rows wait under "unassigned", on an assembly no project
-    # of the family names.
+    # Its projects saved as none (its rows under "unassigned"): no project names the assembly
+    # its rows are on, so every assembly is searched, and a project on another one is refused.
     searched: list[str] = []
 
     async def assemblies(_session, project_ids):

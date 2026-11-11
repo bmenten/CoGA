@@ -333,10 +333,6 @@ const matchesAnyTranscript = (transcriptId: string, references?: string[] | null
  * Badge a transcript from the annotation's own flags (MANE Select, MANE Plus Clinical,
  * Ensembl Canonical, CCDS), which the annotation states per transcript for every gene,
  * and RefSeq Select by matching its id against HGNC's curated RefSeq accessions.
- *
- * MANE and canonical were once also matched against gene-level ids from a per-gene
- * ClinGen page scrape and Ensembl lookup; those lookups were removed, and nothing writes
- * those ids any more.
  */
 const transcriptBadgesFor = (
   transcript: Pick<
@@ -521,7 +517,7 @@ const buildGeneLinks = (profile: GeneProfile): NamedLink[] => {
   pushLink('GTEx Portal', byLabel.get('gtex') || byLabel.get('gtex portal'));
   // Monarch addresses nodes by CURIE, and a gene node is its HGNC id — the same shape
   // the disease associations already link with (monarchinitiative.org/MONDO:…). Without
-  // it this was a free-text search that lands on a result list rather than the gene.
+  // it the link would be a free-text search landing on a result list rather than the gene.
   pushLink(
     'Monarch',
     profile.hgnc_id
@@ -533,9 +529,9 @@ const buildGeneLinks = (profile: GeneProfile): NamedLink[] => {
   pushLink('Geno2MP', 'https://geno2mp.gs.washington.edu/Geno2MP/');
   pushLink('gnomAD', gnomadHref);
   // MGI catalogues the mouse, so the useful destination is the ortholog's marker page,
-  // which HGNC's mgd_id addresses directly. The old searchtool endpoint is dead — it
-  // answers every query with the MGI homepage — so the fallback is quicksearch, which
-  // does still run the search for the genes that have no mouse ortholog.
+  // which HGNC's mgd_id addresses directly. MGI's searchtool endpoint answers every query
+  // with the MGI homepage, so the fallback is quicksearch, which runs the search for the
+  // genes that have no mouse ortholog.
   const mgdId = profile.extra.hgnc_identifiers?.mgd_id?.trim();
   pushLink(
     'MGI',
@@ -607,8 +603,7 @@ const curationDay = (value?: string | null) => {
 /**
  * Whether the gene is on the ACMG secondary-findings list the gene reference sync read, and
  * with which phenotype and category. "Not on" is said only when the list was read for this
- * gene: a list that could not be read, or a gene no sync has read yet, says so instead
- * (CLIN-19).
+ * gene: a list that could not be read, or a gene no sync has read yet, says so instead.
  */
 const AcmgSecondaryFindingValue: React.FC<{
   entry?: GeneAcmgSecondaryFinding;
@@ -1038,8 +1033,6 @@ const GeneInfoPage: React.FC = () => {
               label: 'Dosage sensitivity',
               value: formatInteger(curationCounts?.dosage_sensitivity),
             },
-            // Clinical actionability and variant pathogenicity rows read counts no source
-            // supplies, so they were removed (CLIN-19).
             {
               label: 'ACMG secondary finding',
               value: (
@@ -1184,7 +1177,8 @@ const GeneInfoPage: React.FC = () => {
       </section>
 
       {profileFailed ? (
-        // It fell back to "Select a human gene", as if none had been chosen (#610).
+        // A failed profile is said as such, not as "Select a human gene", as if none had been
+        // chosen.
         <PageState
           kicker="Gene"
           title={`${geneParam.trim()} could not be loaded`}
@@ -1527,7 +1521,7 @@ const GeneInfoPage: React.FC = () => {
                 ) : null}
 
                 {/* What the rows hold: ClinGen's curation counts and the ACMG SF list, not GenCC's
-                    classifications, which are listed above (ENG-10). */}
+                    classifications, which are listed above. */}
                 <div className="gene-compact-subsection">
                   <p className="gene-compact-subtitle-label">ClinGen curations and ACMG SF</p>
                   <DetailList rows={clingenAndAcmgRows} />

@@ -1,6 +1,6 @@
 """The signed record freezes what each coverage track holds (owner decision of 2026-10-20).
 
-Each coverage BED declares whether it holds read depth or a log2 ratio (TRACE-9), and the depth
+Each coverage BED declares whether it holds read depth or a log2 ratio, and the depth
 readers (the mtDNA coverage with its ``mtdna.mean_depth`` verdict, the NIPT coverage check without
 a per-target table) read only a track of read depth. So that a signed analysis says which kind
 of coverage a depth check rests on, the signed record's ``coverage_tracks`` section
@@ -645,7 +645,7 @@ async def test_a_packages_apcad_bed_records_that_a_package_loaded_it(
 ) -> None:
     # An APCAD file the VCF reader finds no record in is read as a BED, into the dataset's own
     # track. Its record says a package loaded it, as every other package loader's does
-    # (TRACE-17).
+    #.
     async def no_vcf_records(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         return {}
 
@@ -667,7 +667,7 @@ async def test_a_packages_per_target_coverage_table_records_that_a_package_loade
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A capture panel's per-target coverage table (monogenic NIPT): its record says a
-    # package loaded it, as every other package loader's does (TRACE-17).
+    # package loaded it, as every other package loader's does.
     from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
 
     async def nothing(*_args: Any, **_kwargs: Any) -> None:

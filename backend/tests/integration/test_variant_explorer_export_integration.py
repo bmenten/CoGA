@@ -1,18 +1,18 @@
-"""The Variant Explorer CSV export against real ClickHouse and Postgres (DATA-2).
+"""The Variant Explorer CSV export against real ClickHouse and Postgres.
 
-The export stops at 50,000 rows and its tag / classification filter searches at most 200,000
-ids; each says so when it is reached. The review lookup for its rows binds the variant ids as
-one parameter, as asyncpg takes at most 32,767.
-Against the real engines this checks that the export reads one row past its cap and says
+The export is capped at 50,000 rows and its tag / classification filter at 200,000 ids, and a
+review lookup for its rows that bound one parameter per variant would fail past 32,767 rows,
+more than asyncpg takes. Against the real engines this checks that the export reads one row
+past its cap and says
 when it was cut, that the tag / classification filter takes its first ids in variant_id
 order and says when more matched, and that the review lookup takes any number of ids. It also
 checks that the classification filter finds a review's class label whatever its case, and
-that a variant reviewed in two families shows the more severe classification (CLIN-69): each
+that a variant reviewed in two families shows the more severe classification: each
 review's class as the family page reads it, a review classified by its class tag alone too, of one
-class twice the review saved last (CLIN-71). The classification filters, the family search's and
+class twice the review saved last. The classification filters, the family search's and
 the Explorer's, keep a variant by the class its review, or its pair review, shows, and keep the
-same variants; the Explorer's SQL rule gives every shared case the class the Python rule gives it
-(CLIN-75).
+same variants; the Explorer's SQL rule gives every shared case the class the Python rule gives
+it.
 
 ``resolve_scope`` is monkeypatched to one fresh project, so no user is needed; the project,
 its family and the reviews are real Postgres rows, the variants real ClickHouse rows. The
@@ -182,10 +182,10 @@ def test_explorer_export_says_when_it_was_cut(monkeypatch) -> None:
 
 
 def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_label(monkeypatch) -> None:
-    # The classification is free text: a review holding "Likely Pathogenic - class 4" is found
-    # by the classification filter, lowercased on both sides in Postgres, by either spelling.
-    # CLIN-69: a variant reviewed in two families shows the more
-    # severe classification, as stored, whichever review Postgres reads first.
+    # The class labels are in sentence case; the classification filter, lowercased on both
+    # sides in Postgres, finds a review by its label in any case. A variant reviewed in two
+    # families shows the more severe classification, as stored, whichever review Postgres
+    # reads first.
     import backend.app.services.variant_explorer_service as svc
     from sqlalchemy import text
 
@@ -199,8 +199,8 @@ def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_labe
         async with session_factory() as session:
             for variant_id, classification, pair in (
                 ("1-400-A-G", "Likely benign - class 2", None),
-                ("1-400-A-G", "Likely Pathogenic - class 4", None),
-                ("1-500-A-G", None, "likely pathogenic - CLASS 4"),
+                ("1-400-A-G", "Likely pathogenic - class 4", None),
+                ("1-500-A-G", None, "Likely pathogenic - class 4"),
             ):
                 family = (
                     await session.execute(
@@ -234,18 +234,18 @@ def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_labe
             found = await _export(classifications=[wanted])
             assert sorted(row.variant_id for row in found.rows) == ["1-400-A-G", "1-500-A-G"], wanted
         shown = {row.variant_id: row.classification for row in (await _export()).rows}
-        assert shown["1-400-A-G"] == "Likely Pathogenic - class 4"
-        assert shown["1-500-A-G"] == "likely pathogenic - CLASS 4"
+        assert shown["1-400-A-G"] == "Likely pathogenic - class 4"
+        assert shown["1-500-A-G"] == "Likely pathogenic - class 4"
         assert (await _export(classifications=["likely benign - class 2"])).rows[0].variant_id == "1-400-A-G"
 
     run_closing_stores(_scenario)
 
 
 def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_family_search(monkeypatch) -> None:
-    # CLIN-71: each review shows its class as the family page reads it, a review classified by
-    # its class tag (no text) included, and of two reviews of one class the one shown does not
-    # depend on the order Postgres returns them in: the reviews are read saved last first, then by
-    # family id. The classification filter keeps, family by family, what the family search's keeps.
+    # Each review shows its class as the family page reads it, a review classified by its class
+    # tag alone (no text) too, and of two reviews of one class the one saved last: the reviews
+    # are read saved last first, then by family id. The classification filter keeps, family by
+    # family, what the family search's keeps.
     import backend.app.services.variant_explorer_service as svc
     from sqlalchemy import text
 
@@ -322,7 +322,7 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
         assert shown["1-200-A-G"] == same_time[min(same_time)]
 
         # The classification filter keeps the variants a family search's classification filter
-        # keeps in some family: by the class each review, or its pair review, shows (CLIN-75).
+        # keeps in some family: by the class each review, or its pair review, shows.
         async with session_factory() as session:
             for wanted in (
                 "Pathogenic - class 5",
@@ -354,7 +354,7 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
     run_closing_stores(_scenario)
 
 
-# The reviews of the owner's table of cases (CLIN-75), each in a family of its own: variant,
+# The reviews of the owner's before/after table, each in a family of its own: variant,
 # classification text, tags, pair classification text, pair tags.
 _SHOWN_CLASS_REVIEWS = (
     ("1-100-A-G", None, ["acmg_class_4"], None, []),  # a class tag alone
@@ -379,12 +379,11 @@ _KEPT_BY_SHOWN_CLASS = {
 
 
 def test_the_classification_filters_keep_a_variant_by_the_class_its_review_shows(monkeypatch) -> None:
-    # CLIN-75 (the owner's decision of 2026-11-10): the family search's and the Explorer's
-    # classification filters keep a review by the class it shows, not by its classification text
-    # alone: a class filter keeps a variant shown with that class by its class tag (its own or its
-    # pair review's), and drops one shown with another class (text "VUS - class 3" beside the tag
-    # acmg_class_4). In Python on the family search, in SQL in the Explorer, here on real Postgres
-    # and, for the Explorer's export, real ClickHouse.
+    # The family search's and the Explorer's classification filters keep a variant by the class
+    # its review, or its pair review, shows (the owner's decision of 2026-11-10), its class tag
+    # included: text "VUS - class 3" beside the tag acmg_class_4 shows class 4. Both read it so:
+    # in Python on the family search, in SQL in the Explorer, here on real Postgres and, for the
+    # Explorer's export, real ClickHouse.
     import backend.app.services.variant_explorer_service as svc
     from sqlalchemy import text
 

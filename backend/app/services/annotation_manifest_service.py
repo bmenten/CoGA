@@ -166,7 +166,7 @@ async def _family_manifest_row(session: AsyncSession, family_uuid: str) -> dict[
     return dict(row) if row else None
 
 
-# Stands in for a module version the provenance lookup could not read (#514).
+# Stands in for a module version the provenance lookup could not read.
 UNAVAILABLE_MODULE_VERSION = "unavailable"
 
 
@@ -176,8 +176,7 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
     This runs inside sign-out, so each lookup is a SAVEPOINT: a failed statement cannot
     poison the caller's transaction. A failure is logged and recorded as an explicit
     ``unavailable`` module, so the frozen record says the version could not be read
-    instead of silently leaving the module out (#514). A bare ``except: pass`` here is
-    the pattern that once hid a total failure to write the manifest.
+    instead of silently leaving the module out.
     """
     modules: dict[str, dict[str, Any]] = {}
     if assembly_id:
@@ -200,7 +199,7 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
             modules["assembly"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
         # The gene loci CoGA itself loaded for the assembly (panel regions, gene tracks) and
         # where they came from: GENCODE, or the UCSC table used when GENCODE could not be
-        # fetched. Distinct from the pipeline's own annotation version (#536).
+        # fetched. Distinct from the pipeline's own annotation version.
         try:
             async with session.begin_nested():
                 gene_import = (
@@ -245,15 +244,13 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
         async with session.begin_nested():
             hpo_release = await get_loaded_hpo_release(session)
         if hpo_release:
-            version = str(hpo_release["release_version"] or "").strip()
-            if version:
-                # The release date, and the SHA-256 of the file the terms came from (TRACE-18).
-                details = [str(hpo_release["release_date"] or ""), f"SHA-256 {hpo_release['release_sha256']}"]
-                modules["hpo"] = {"version": version, "detail": "; ".join(d for d in details if d) or None}
-            else:
-                # Loaded without a release: say so rather than leave HPO out as if no
-                # ontology were loaded (#514).
-                modules["hpo"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "release not recorded"}
+            # Every import records the release its file states (import_hpo_ontology), with the
+            # release date and the SHA-256 of the file the terms came from.
+            details = [str(hpo_release["release_date"] or ""), f"SHA-256 {hpo_release['release_sha256']}"]
+            modules["hpo"] = {
+                "version": str(hpo_release["release_version"]),
+                "detail": "; ".join(d for d in details if d) or None,
+            }
     except Exception:  # provenance must never break sign-out
         logger.warning("HPO-release provenance lookup failed", exc_info=True)
         modules["hpo"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
@@ -290,7 +287,7 @@ def _module_list(
                 "version": str(version) if version not in (None, "") else None,
                 "detail": str(detail) if detail else None,
                 "layer": layer,
-                # Per-modality versions (issue #294): which modality's pipeline
+                # Per-modality versions: which modality's pipeline
                 # cited which release — so SNV vs SV divergence is preserved.
                 "by_modality": (
                     {str(k): str(v) for k, v in by_modality.items() if v not in (None, "")}
@@ -346,8 +343,8 @@ async def get_family_annotation_manifest(
 # The ClinVar modules name where a classification comes from: the ClinVar file the pipeline
 # annotated, or VEP's cache (``vcf_header_provenance.clinvar_file_module``). A new import's
 # module replaces the stored version and detail together, and a version it does not state
-# drops the modality's: merged field by field, an earlier import's cache release stayed beside
-# a ClinVar file named without a date, which read as that file's release.
+# drops the modality's. Merged field by field, one import's cache release would stay beside a
+# ClinVar file named without a date, and read as that file's release.
 _SOURCE_BOUND_MODULES = frozenset({"clinvar", "clinvar_vep_cache"})
 
 
@@ -360,7 +357,7 @@ def _refresh_modules(
     wipe another's provenance).
 
     When ``modality`` is given, each module's version is also recorded under
-    ``by_modality[modality]`` (issue #294) — so the same database cited at different
+    ``by_modality[modality]`` — so the same database cited at different
     releases by different modalities (e.g. GENCODE 49 for SNV, 45 for SV) keeps the
     full per-modality truth alongside the flat representative ``version``."""
     out: dict[str, dict[str, Any]] = {
@@ -443,12 +440,10 @@ async def merge_vcf_header_provenance(
                         (CAST(:family_uuid AS uuid),
                          -- NULLIF, not `CASE WHEN :assembly_id IS NULL`: asyncpg cannot
                          -- infer a parameter's type when one of its uses is a bare
-                         -- `IS NULL`, and raises AmbiguousParameterError. The CASE form
-                         -- meant this INSERT failed on every call, and because the whole
-                         -- merge is best-effort and logs rather than raises, the family
-                         -- annotation manifest was silently never written — for any
-                         -- modality. Regression-guarded by
-                         -- test_sql_parameter_typing.py.
+                         -- `IS NULL`, and raises AmbiguousParameterError. The merge is
+                         -- best-effort and logs rather than raises, so that INSERT would
+                         -- fail on every call and the manifest never be written, without a
+                         -- word. test_sql_parameter_typing.py guards it.
                          CAST(NULLIF(:assembly_id, '') AS uuid),
                          CAST(:modules AS jsonb), :source, :recorded_by, now())
                     ON CONFLICT (family_id) DO UPDATE SET

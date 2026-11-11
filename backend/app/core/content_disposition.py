@@ -1,10 +1,10 @@
-"""Content-Disposition values for a file named after values that are data (SEC-15).
+"""Content-Disposition values for a file named after values that are data.
 
 A download is named after a family or sample ID: ``F1.ped``, ``family-F1-small-variants.csv``,
 a signed URL's ``S1.cram``. A family or sample ID is printable text without spaces
 (``services/family_identifiers.py``), so it may hold a ``"`` that ends the quoted name early, a
-``%`` a client may decode, or a character outside ASCII; a ``\\`` (which the ID rule refuses,
-SEC-15) would escape within the name. Put into the header as it is, such a name is misread, or
+``%`` a client may decode, or a character outside ASCII; a ``\\`` (which the ID rule
+refuses) would escape within the name. Put into the header as it is, such a name is misread, or
 fails the response: Starlette encodes a header as Latin-1, so a name beyond it answers 500.
 ``content_disposition`` sends such a name percent-encoded as UTF-8 in ``filename*`` (RFC 6266,
 RFC 8187), with an ASCII stand-in in ``filename`` for a client that reads only that one, as

@@ -78,7 +78,7 @@ describe('AcmgClassificationModal', () => {
     });
   });
 
-  it('warns before an unreadable stored classification is overwritten (#514)', async () => {
+  it('warns before an unreadable stored classification is overwritten', async () => {
     renderModal(undefined, {
       ...variant,
       review: review({ variant_id: variant._id, acmg: null, acmg_unreadable: true }),
@@ -126,9 +126,9 @@ describe('AcmgClassificationModal', () => {
     expect(screen.getByRole('link', { name: /PubMed/ })).toBeInTheDocument();
   });
 
-  // #609 — with the gene profile failed, PVS1 was not applied and its evidence read "LOF
-  // disease mechanism is unconfirmed", as if the gene had been checked. The dialog now
-  // says the lookup failed, and the criterion is not assessed, not negative.
+  // With the gene profile failed, the dialog says the lookup failed, and PVS1 is not
+  // assessed, never read as "LOF disease mechanism is unconfirmed", as if the gene had been
+  // checked.
   it('says the gene profile failed, and does not read PVS1 as an unconfirmed mechanism', async () => {
     let profileRequests = 0;
     mockedGet.mockImplementation((url: string) => {
@@ -170,7 +170,7 @@ describe('AcmgClassificationModal', () => {
     expect(await screen.findByText(/Could not load the family's HPO terms — this is not an empty result/)).toHaveTextContent(
       /PP4 is not assessed from them/,
     );
-    // PP4 is suggested for review (not applied), where it used to be left out.
+    // PP4 is suggested for review, not applied.
     const pp4 = (await screen.findByText('PP4')).closest('.acmg-criterion') as HTMLElement;
     await waitFor(() => expect(pp4).toHaveClass('acmg-criterion--suggested'));
     expect(within(pp4).getByRole('checkbox')).not.toBeChecked();
@@ -299,7 +299,7 @@ describe('AcmgClassificationModal', () => {
     expect(payload.acmg?.vus_tier).toBe('cold');
   });
 
-  it('preserves in-progress analyst edits when late gene/HPO context resolves (#337)', async () => {
+  it('preserves in-progress analyst edits when late gene/HPO context resolves', async () => {
     // Keep the HPO query pending so it resolves AFTER the analyst edits — the late
     // re-seed must NOT overwrite their work.
     let resolveHpo: (value: { data: unknown }) => void = () => {};
@@ -334,8 +334,8 @@ describe('AcmgClassificationModal', () => {
     await user.click(pvs1);
     expect(pvs1).not.toBeChecked();
 
-    // HPO resolves late (a proband 'present' term), re-running the seeding effect.
-    // Before #337 this re-applied the auto-suggestions and re-checked PVS1.
+    // HPO resolves late (a proband 'present' term), re-running the seeding effect, which
+    // must not re-apply the auto-suggestions and re-check PVS1.
     resolveHpo({
       data: [{ status: 'present', hpo_id: 'HP:0001250', label: 'Seizure', sample_id: 'S1' }],
     });

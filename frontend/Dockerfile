@@ -34,7 +34,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 # server.mjs imports only express. The other `dependencies` are the libraries bundled into
 # dist/ (react, d3, igv, ...); they stay there so the blocking production audit covers what
 # ships to the browser. The build toolchain (vite, typescript, @types/*) is in
-# devDependencies and is not installed here (#530).
+# devDependencies and is not installed here.
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.mjs ./server.mjs

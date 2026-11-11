@@ -1,4 +1,4 @@
-"""The API serves and takes only what the server sets and reads (ENG-4).
+"""The API serves and takes only what the server sets and reads.
 
 - A gene profile's homologs carry no percent identity or coverage: dbNSFP, the one source of
   homologs, names a mouse and a zebrafish gene and sets neither.
@@ -18,8 +18,9 @@
 - A gene's homologs carry no Ensembl gene id and no "in the platform" flag: no source sets
   either, and no screen shows homologs.
 - The small-variant review save takes no ``cnv_acmg``, a structural variant's CNV
-  classification. No page sends it; a request that does is refused (422) naming the field, as
-  is any field the save does not take, so that a client is told its value would go nowhere.
+  classification, which it does not read. No page sends it; a request that does is
+  refused (422) naming the field, as is any field the save does not take, so that a client is
+  told its value went nowhere.
 
 All data here are synthetic.
 """
@@ -283,7 +284,7 @@ def test_an_sv_review_save_with_a_small_variant_field_is_refused(
         json={"tags": ["report"], "note": "Breakpoints checked.", field: value},
     )
 
-    # Refused, naming the field, rather than saved with the value dropped without a word.
+    # Refused, not saved with the value dropped without a word.
     assert response.status_code == 422
     [error] = response.json()["detail"]
     assert (error["type"], error["loc"]) == ("extra_forbidden", ["body", field])
@@ -339,7 +340,7 @@ def test_a_small_variant_review_save_with_a_field_it_does_not_take_is_refused(
         json={"tags": ["report"], "note": "Checked.", field: value},
     )
 
-    # Refused, naming the field, rather than saved with the value dropped without a word.
+    # Refused, not saved with the value dropped without a word.
     assert response.status_code == 422
     [error] = response.json()["detail"]
     assert (error["type"], error["loc"]) == ("extra_forbidden", ["body", field])

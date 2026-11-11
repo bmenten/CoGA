@@ -1,6 +1,6 @@
--- 02_reference.sql — Referentie-/annotatiedata (genoom-annotatie, panels, HPO, Monarch, CNV-KB)
--- Idempotent domein-baseline. Consolideert de originele migraties 001/005/012/013/015/018/019/020/021/022/026/027/034/042.
--- FK-doelen (assemblies, users) leven in 01_access.sql (achterwaartse referenties).
+-- 02_reference.sql — Reference and annotation data (genome annotation, panels, HPO, Monarch, the
+-- clinical CNV knowledgebase). The tables its foreign keys name (assemblies, users) are in
+-- 01_access.sql.
 
 -- ---------------------------------------------------------------------------
 -- genes
@@ -67,8 +67,8 @@ CREATE INDEX IF NOT EXISTS idx_gene_info_upper_symbol ON gene_info USING btree (
 -- ---------------------------------------------------------------------------
 -- gene_info_refresh_jobs
 -- ---------------------------------------------------------------------------
--- A refresh an administrator asks for keeps them by the account's id (requested_by_id,
--- SEC-35): the worker runs it only while that account is an active administrator.
+-- A refresh an administrator asks for keeps them by the account's id (requested_by_id):
+-- the worker runs it only while that account is an active administrator.
 -- requested_by is the e-mail address it was asked under, shown with the job, or
 -- startup-bootstrap for the refresh a start queues, which is no account's. The account's
 -- deletion keeps the job, linked to no account (it can then no longer run).
@@ -99,32 +99,6 @@ CREATE TABLE IF NOT EXISTS gene_info_refresh_jobs (
     CONSTRAINT gene_info_refresh_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
--- Upgrade of a database made before SEC-35, a no-op on one the CREATE TABLE above made: the
--- column, each job linked to the account its requested_by address finds (to none when no
--- account has it, as for startup-bootstrap), and the foreign key. It runs once, when the
--- column is added: a job whose account is deleted later stays linked to none, never to an
--- account that has its address by then. Revision 0010 runs the same statement.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_attribute
-        WHERE attrelid = 'gene_info_refresh_jobs'::regclass
-          AND attname = 'requested_by_id'
-          AND NOT attisdropped
-    ) THEN
-        ALTER TABLE gene_info_refresh_jobs ADD COLUMN requested_by_id uuid;
-        UPDATE gene_info_refresh_jobs AS job
-        SET requested_by_id = account.id
-        FROM users AS account
-        WHERE account.email = job.requested_by;
-        ALTER TABLE gene_info_refresh_jobs
-            ADD CONSTRAINT gene_info_refresh_jobs_requested_by_id_fkey
-            FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL;
-    END IF;
-END
-$$;
-
 CREATE INDEX IF NOT EXISTS idx_gene_info_refresh_jobs_requested ON gene_info_refresh_jobs USING btree (requested_at);
 CREATE INDEX IF NOT EXISTS idx_gene_info_refresh_jobs_status ON gene_info_refresh_jobs USING btree (status, requested_at);
 
@@ -145,7 +119,7 @@ CREATE TABLE IF NOT EXISTS blacklist (
 CREATE INDEX IF NOT EXISTS idx_blacklist_assembly_region ON blacklist USING btree (assembly_id, chr, start);
 
 -- ---------------------------------------------------------------------------
--- clinical_cnvs  (verrijkt via 018/020)
+-- clinical_cnvs
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS clinical_cnvs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -166,7 +140,7 @@ CREATE TABLE IF NOT EXISTS clinical_cnvs (
     orpha_name text,
     -- Pathogenic ClinVar CNVs overlapping the region by >= 30 % reciprocally, per side, and
     -- their VariationIDs, from the knowledgebase build. NULL: the knowledgebase recorded
-    -- none (built without ClinVar, or a file without the columns), not zero (#624).
+    -- none (built without ClinVar, or a file without the columns), not zero.
     clinvar_pathogenic_loss_count integer,
     clinvar_pathogenic_gain_count integer,
     clinvar_pathogenic_accessions text[],
@@ -179,8 +153,8 @@ CREATE INDEX IF NOT EXISTS idx_clinical_cnvs_assembly_region ON clinical_cnvs US
 -- ---------------------------------------------------------------------------
 -- clinical_cnv_kb_jobs
 -- ---------------------------------------------------------------------------
--- A rebuild keeps the administrator who asked for it by the account's id (requested_by_id,
--- SEC-35): it runs, and loads what it built, only while that account is an active
+-- A rebuild keeps the administrator who asked for it by the account's id (requested_by_id):
+-- it runs, and loads what it built, only while that account is an active
 -- administrator. requested_by is the e-mail address it was asked under, shown with the job.
 -- The account's deletion keeps the job, linked to no account (it can then no longer run).
 CREATE TABLE IF NOT EXISTS clinical_cnv_kb_jobs (
@@ -206,30 +180,6 @@ CREATE TABLE IF NOT EXISTS clinical_cnv_kb_jobs (
     CONSTRAINT clinical_cnv_kb_jobs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE,
     CONSTRAINT clinical_cnv_kb_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL
 );
-
--- Upgrade of a database made before SEC-35, as for gene_info_refresh_jobs above: the column,
--- each job linked to the account its requested_by address finds, and the foreign key, once.
--- Revision 0010 runs the same statement.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_attribute
-        WHERE attrelid = 'clinical_cnv_kb_jobs'::regclass
-          AND attname = 'requested_by_id'
-          AND NOT attisdropped
-    ) THEN
-        ALTER TABLE clinical_cnv_kb_jobs ADD COLUMN requested_by_id uuid;
-        UPDATE clinical_cnv_kb_jobs AS job
-        SET requested_by_id = account.id
-        FROM users AS account
-        WHERE account.email = job.requested_by;
-        ALTER TABLE clinical_cnv_kb_jobs
-            ADD CONSTRAINT clinical_cnv_kb_jobs_requested_by_id_fkey
-            FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL;
-    END IF;
-END
-$$;
 
 -- One active rebuild at a time: the index key is a constant, so a second queued or running
 -- job collides with the first. Keyed on the status instead, a job could be queued beside a
@@ -269,7 +219,7 @@ CREATE INDEX IF NOT EXISTS idx_dgv_variants_assembly_region ON dgv_variants USIN
 -- asked for on the Reference page or queued by a start (requested_by startup-bootstrap, no
 -- account). As for clinical_cnv_kb_jobs: one job queued or running at a time, a worker with a
 -- heartbeat, and an administrator's load run and committed only while that account is an
--- active administrator (SEC-35). bytes_read and bytes_total are the download's progress.
+-- active administrator. bytes_read and bytes_total are the download's progress.
 CREATE TABLE IF NOT EXISTS dgv_load_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     assembly_id uuid NOT NULL,
@@ -315,7 +265,7 @@ CREATE TABLE IF NOT EXISTS segmental_duplications (
 CREATE INDEX IF NOT EXISTS idx_segmental_duplications_assembly_region ON segmental_duplications USING btree (assembly_id, chr, start);
 
 -- ---------------------------------------------------------------------------
--- gene_panels  (kolommen gevouwen uit 005/013/034)
+-- gene_panels
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS gene_panels (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -339,13 +289,8 @@ CREATE TABLE IF NOT EXISTS gene_panels (
     CONSTRAINT gene_panels_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
 );
 
--- A database made before the selection gains the column here; a no-op on a database the
--- CREATE TABLE above made. Revision 0020 runs it too.
-ALTER TABLE gene_panels ADD COLUMN IF NOT EXISTS external_selection text;
-
 -- One panel per external panel and selection: one PanelApp panel imported green only, green
--- and amber, and green, amber and red is three panels. Revision 0020 drops the index this one
--- replaced, idx_gene_panels_source_external, which allowed one panel per external panel.
+-- and amber, and green, amber and red is three panels.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_gene_panels_source_external_selection ON gene_panels USING btree (source, external_id, external_selection) NULLS NOT DISTINCT WHERE (external_id IS NOT NULL);
 
 -- ---------------------------------------------------------------------------
@@ -362,7 +307,7 @@ CREATE TABLE IF NOT EXISTS gene_panel_genes (
 -- gene_panel_regions
 -- ---------------------------------------------------------------------------
 -- A panel's coordinates, one row per gene (or PanelApp region) per assembly. A family's
--- panel filter reads only its own assembly's rows (#515, TF-06 H12). The mtDNA has the
+-- panel filter reads only its own assembly's rows (TF-06 H12). The mtDNA has the
 -- same coordinates in GRCh38 and T2T, so the assembly is part of the key.
 CREATE TABLE IF NOT EXISTS gene_panel_regions (
     panel_id uuid NOT NULL,
@@ -377,7 +322,7 @@ CREATE TABLE IF NOT EXISTS gene_panel_regions (
 );
 
 -- ---------------------------------------------------------------------------
--- gene_panel_versions  (034)
+-- gene_panel_versions
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS gene_panel_versions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -403,7 +348,7 @@ CREATE TABLE IF NOT EXISTS gene_panel_versions (
 CREATE INDEX IF NOT EXISTS idx_gene_panel_versions_panel ON gene_panel_versions USING btree (panel_id, version DESC);
 
 -- ---------------------------------------------------------------------------
--- hpo_term  (015)
+-- hpo_term
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS hpo_term (
     hpo_id text NOT NULL,
@@ -463,7 +408,7 @@ CREATE TABLE IF NOT EXISTS hpo_closure (
 CREATE INDEX IF NOT EXISTS idx_hpo_closure_ancestor ON hpo_closure USING btree (ancestor_id);
 
 -- ---------------------------------------------------------------------------
--- monarch_gene_disease  (026)
+-- monarch_gene_disease
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS monarch_gene_disease (
     hgnc_id text NOT NULL,
@@ -483,7 +428,7 @@ CREATE INDEX IF NOT EXISTS idx_monarch_gene_disease_mondo ON monarch_gene_diseas
 CREATE INDEX IF NOT EXISTS idx_monarch_gene_disease_symbol ON monarch_gene_disease USING btree (upper(gene_symbol));
 
 -- ---------------------------------------------------------------------------
--- monarch_disease_phenotype  (027)
+-- monarch_disease_phenotype
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS monarch_disease_phenotype (
     mondo_id text NOT NULL,
@@ -551,7 +496,7 @@ CREATE TABLE IF NOT EXISTS repeat_locus_count_units (
 );
 
 -- ---------------------------------------------------------------------------
--- reference_dataset_imports  (021)
+-- reference_dataset_imports
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS reference_dataset_imports (
     id uuid DEFAULT gen_random_uuid() NOT NULL,

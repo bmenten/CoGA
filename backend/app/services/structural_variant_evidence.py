@@ -7,12 +7,12 @@ the sign-out drift gate compare that snapshot with the SV as the family's data h
 now (see docs/clinical-traceability.md).
 
 Several callers can call one event under one SV id, and share its review: an uploaded
-SV's id names no caller, and a package's NeedlR SV has the same form since CLIN-43. Each
+SV's id names no caller, and a package's NeedlR SV has the same form. Each
 caller's call is a row of its own, with its own genes and annotation (the storage key
 names the caller), and the SV page lists them apart. A scoring freezes the row of the
 caller it was made on, which the save names (``StructuralVariantReviewUpdate.source``),
 and the drift check reads that caller's row again, the one the snapshot's ``source``
-names (TRACE-11).
+names.
 
 What is frozen is what the CNV classification actually reads. The criteria engine
 (``frontend/src/lib/cnvAcmg/evaluate.ts``, scored again by ``cnv_acmg_points``) suggests
@@ -76,7 +76,7 @@ _CHANGE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # and the gene loci that give a directly uploaded SV its genes.
 _REFERENCE_MODULES = ("assembly", "gene_loci")
 # The manifest modalities an SV callset's versions are recorded under, the SV VCF's own
-# first (``by_modality``, #294).
+# first (``by_modality``).
 _STRUCTURAL_MODALITIES = ("sv", "pipeline")
 
 

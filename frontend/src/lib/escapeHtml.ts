@@ -1,5 +1,5 @@
 /**
- * Escape a value for interpolation into an HTML string (#521).
+ * Escape a value for interpolation into an HTML string.
  *
  * d3 tooltips are built as HTML (`selection.html(...)`), and the values in them come
  * from imported files — SV types, chromosome names, gene and panel names. The CSP

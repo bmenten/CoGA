@@ -1,7 +1,7 @@
 """The lineage of relatives on chrX, where a man has one X outside the pseudo-autosomal regions.
 
 chrX is read one stretch at a time, for every relative and for every embryo of a one-parent
-(donor) family (CLIN-12), by the PARs of the family's assembly: a PAR as an autosome, and the X
+(donor) family, by the PARs of the family's assembly: a PAR as an autosome, and the X
 between the PARs by the members' recorded sexes. There a man's one X is one of a woman's
 homologs, run by run, whichever of the two is the parent: his mother's mosaic, switching at her
 crossovers, or the X he gave his daughter whole. Nothing passes from a man to his son.
@@ -254,7 +254,7 @@ def test_each_relative_is_read_one_stretch_at_a_time() -> None:
 
 
 def test_on_t2t_the_mothers_father_is_coloured_by_t2t_s_pars() -> None:
-    # CLIN-12: chrX of T2T-CHM13v2.0 is read one stretch at a time, by its own PARs; every
+    # chrX of T2T-CHM13v2.0 is read one stretch at a time, by its own PARs; every
     # relative stayed grey there. Its PAR1 ends at 2,394,410, so no block crosses 2,394,411.
     family = _x_family(seed=1)
 

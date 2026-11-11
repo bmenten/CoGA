@@ -451,7 +451,7 @@ def test_only_an_admin_deletes_tags() -> None:
     assert refused.value.status_code == 403
 
 
-# --- a project's deletion (SAFE-37) ------------------------------------------------------------------
+# --- a project's deletion ------------------------------------------------------------------
 
 
 def test_a_projects_deletion_deactivates_its_tags_under_the_lock_then_deletes_it_in_one_transaction(

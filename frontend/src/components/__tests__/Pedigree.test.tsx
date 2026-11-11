@@ -246,7 +246,7 @@ test('keeps multi-partner complex pedigrees from overlapping nodes', async () =>
   }
 });
 
-test('marks QC with a ring and a glyph, not by colour alone (#529)', async () => {
+test('marks QC with a ring and a glyph, not by colour alone', async () => {
   const { container } = render(
     <Pedigree
       rows={[...baseRows, { fid: 'F1', iid: 'KID', pid: 'DAD', mid: 'MOM', sex: '0', phen: '1' }]}
@@ -288,7 +288,7 @@ test('marks QC with a ring and a glyph, not by colour alone (#529)', async () =>
   expect(dad?.querySelector('rect:not([data-qc-ring])')?.getAttribute('stroke')).toBe('black');
 });
 
-test('a QC verdict leaves the affected fill and the carrier-type colour alone (#529)', async () => {
+test('a QC verdict leaves the affected fill and the carrier-type colour alone', async () => {
   const { container } = render(
     <Pedigree
       rows={[
@@ -304,7 +304,7 @@ test('a QC verdict leaves the affected fill and the carrier-type colour alone (#
   );
   await svgWidth(container);
 
-  // The QC colour used to fill the affected square and the carrier half-circle.
+  // The QC colour fills neither the affected square nor the carrier half-circle.
   const dad = container.querySelector('[data-pedigree-node="DAD"]');
   expect(dad?.querySelector('rect:not([data-qc-ring])')?.getAttribute('fill')).toBe('black');
   const mom = container.querySelector('[data-pedigree-node="MOM"]');
@@ -316,9 +316,9 @@ test('a QC verdict leaves the affected fill and the carrier-type colour alone (#
   expect(mom?.querySelector('title')?.textContent).toBe('QC: fail · Carrier (obligate)');
 });
 
-// #529: role="img" hides the per-symbol tooltips from assistive technology, so the
+// `role="img"` hides the per-symbol tooltips from assistive technology, so the
 // pedigree's accessible name has to carry what its symbols draw.
-test('is a named image that carries what the symbols draw (#529)', async () => {
+test('is a named image that carries what the symbols draw', async () => {
   const { container } = render(
     <Pedigree
       rows={[
@@ -355,7 +355,7 @@ test('is a named image that carries what the symbols draw (#529)', async () => {
   ).toBeInTheDocument();
 });
 
-test('names a pedigree without QC or members for what it is (#529)', () => {
+test('names a pedigree without QC or members for what it is', () => {
   const { unmount } = render(<Pedigree rows={baseRows} />);
   expect(
     screen.getByRole('img', { name: 'Pedigree: 2 members in 1 generation, 0 affected' })

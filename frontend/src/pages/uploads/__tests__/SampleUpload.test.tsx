@@ -173,7 +173,7 @@ describe('SampleUpload', () => {
     ).toBeInTheDocument();
   });
 
-  // CLIN-39: a deletion, duplication, inversion or CNV that states neither END nor SVLEN is
+  // A deletion, duplication, inversion or CNV that states neither END nor SVLEN is
   // left out of an SV upload and counted (the owner's decision); the form says how many.
   it('says how many records an SV upload left out as their extent is not stated', async () => {
     mockedPost.mockResolvedValue({
@@ -217,8 +217,8 @@ describe('SampleUpload', () => {
     expect(await screen.findByText(/imported 21 trgt repeat loci/i)).toBeInTheDocument();
   });
 
-  // TRACE-9 — a coverage BED declares what it holds. The form asks, with no default that would
-  // pick one: an undeclared BED used to be read as depth while the chart drew it as a log2 ratio.
+  // A coverage BED declares what it holds. The form asks, with no default that would
+  // pick one: the depth readers and the chart read a BED by its declaration.
   const fillBedUpload = (trackType?: string) => {
     fireEvent.change(screen.getAllByLabelText(/sample id/i)[1], { target: { value: 'S1' } });
     if (trackType) fireEvent.change(screen.getByLabelText(/track type/i), { target: { value: trackType } });

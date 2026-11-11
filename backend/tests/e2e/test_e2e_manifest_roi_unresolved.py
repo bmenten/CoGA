@@ -1,4 +1,4 @@
-"""A manifest's region of interest the import does not find clears the family's, and says so (E2E, DATA-10).
+"""A manifest's region of interest the import does not find clears the family's, and says so (E2E).
 
 The PGT embryo calls read the family's region of interest. An import that kept the family's
 earlier region, without a word, when it could not find the one its manifest names would call the

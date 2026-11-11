@@ -50,7 +50,7 @@ const InfoTip: React.FC<Props> = ({
 
   // A control child is what takes focus, so it is the one the tip describes while shown, as
   // a static child is: the QC chip that opens a report gave a screen reader its value alone,
-  // never the verdict and the breach its tip names (ENG-10).
+  // never the verdict and the breach its tip names.
   const content =
     interactiveChild && anchor && React.isValidElement<{ 'aria-describedby'?: string }>(children)
       ? React.cloneElement(children, {

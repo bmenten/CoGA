@@ -1,4 +1,4 @@
-"""Lookups past 32,767 items, on real Postgres (DATA-6).
+"""Lookups past 32,767 items, on real Postgres.
 
 asyncpg refuses a statement with more than 32,767 parameters, so one parameter per item (an
 expanding IN) would fail these lookups past that many items: a panel's genes and a NIPT

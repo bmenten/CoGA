@@ -7,7 +7,7 @@ time) and refuses, with a 401, a token signed with another key or another algori
 unsigned or expired one, one that does not say when it was issued, one that names no user, and
 one of an unknown or inactive user.
 
-With Azure AD (Microsoft Entra ID) configured (SEC-4), the bearer token must be a Microsoft
+With Azure AD (Microsoft Entra ID) configured, the bearer token must be a Microsoft
 access token for CoGA's API: it signs in the account bound to the token's object ID (made at
 the first sign-in), never an account found by an e-mail address; an inactive account is
 refused with a 401 that says so. A token this server issued is accepted only with
@@ -302,7 +302,7 @@ def test_the_token_issued_at_sign_in_is_hs256_with_an_expiry_and_signs_its_user_
 
 
 def test_the_local_token_algorithm_is_fixed_not_a_setting(monkeypatch: pytest.MonkeyPatch) -> None:
-    # SEC-12: the algorithm CoGA signs and checks its own tokens with is a constant: an
+    # the algorithm CoGA signs and checks its own tokens with is a constant: an
     # ALGORITHM in the environment changes nothing, and the settings read no such variable.
     monkeypatch.setenv("ALGORITHM", "HS512")
     monkeypatch.setattr(settings, "secret_key", _LOCAL_SIGNER)

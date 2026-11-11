@@ -28,7 +28,7 @@ AUDIT_PIPELINE_NAME = "audit_log"
 _USER_FOREIGN_KEY = "audit_log_events_user_id_fkey"
 
 # Written again after a commit whose outcome was unknown, an event is stored once: the INSERT
-# does nothing for an event id the table holds (SEC-17).
+# does nothing for an event id the table holds.
 _INSERT_AUDIT_LOG_SQL = text(
     """
     INSERT INTO audit_log_events (
@@ -158,7 +158,7 @@ def _audit_log_insert_params(
     if escaped:
         params["request_meta"] = {**params["request_meta"], ESCAPED_KEY: escaped}
     if unlink_user:
-        # The user's account no longer exists (SEC-17): the row is stored without the link,
+        # The user's account no longer exists: the row is stored without the link,
         # and keeps the user's id in request_meta. user_email and user_role keep the actor.
         params["request_meta"] = {**params["request_meta"], DELETED_USER_KEY: params["user_id"]}
         params["user_id"] = None
@@ -179,7 +179,7 @@ async def _insert_audit_log_rows(
 
 async def _write_audit_log_batch(payloads: list[AuditLogEventPayload]) -> None:
     # A row naming a user whose account was deleted while the row waited in the queue: the
-    # foreign key refuses it. Written alone, it is stored without the link (SEC-17).
+    # foreign key refuses it. Written alone, it is stored without the link.
     await write_batch_unlinking_deleted_user(
         _insert_audit_log_rows,
         payloads,

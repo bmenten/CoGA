@@ -1,9 +1,9 @@
-"""What a column of the ClickHouse variant and interval tables can hold (SAFE-30).
+"""What a column of the ClickHouse variant and interval tables can hold.
 
 The loaders fill these columns from file values, and the ClickHouse client refuses a whole
 insert when one value falls outside its column: a read depth of 120,000 in a ``UInt16``, a
-negative phase set in a ``UInt64``, a QUAL of 1e39 in a ``Float32``. That failed the upload
-or the import with a 500, after the rows it replaced were deleted. So each value is bound
+negative phase set in a ``UInt64``, a QUAL of 1e39 in a ``Float32``. That would fail the
+upload or the import with a 500, after the rows it replaces were deleted. So each value is bound
 to its column before the write (``clickhouse_variant_rows``, ``clickhouse_interval_tracks``):
 a value the column cannot hold, or that is not a finite number, is not a valid value and is
 stored as missing. A record that cannot stand without the value, its position, is left out

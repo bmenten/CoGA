@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { describeCsvExport, truncatedExportMessage } from '../csvExport';
 
-describe('describeCsvExport (#512)', () => {
+describe('describeCsvExport', () => {
   it('keeps the plain name for a complete export', () => {
     const info = describeCsvExport(
       { headers: { 'x-coga-export-truncated': 'false', 'x-coga-export-rows': '12', 'x-coga-export-limit': '50000' } },
@@ -19,7 +19,14 @@ describe('describeCsvExport (#512)', () => {
 
   it('names and describes a capped export so it cannot pass for the full result', () => {
     const info = describeCsvExport(
-      { headers: { 'x-coga-export-truncated': 'true', 'x-coga-export-rows': '50000', 'x-coga-export-limit': '50000' } },
+      {
+        headers: {
+          'x-coga-export-truncated': 'true',
+          'x-coga-export-truncated-reason': 'row-limit',
+          'x-coga-export-rows': '50000',
+          'x-coga-export-limit': '50000',
+        },
+      },
       'family-F1-small-variants',
     );
     expect(info.filename).toBe('family-F1-small-variants-TRUNCATED-first-50000.csv');
@@ -53,7 +60,7 @@ describe('describeCsvExport (#512)', () => {
   it('names and describes an export through a capped tag or classification filter as a partial search', () => {
     // The Variant Explorer searches at most a fixed number of the variants its tag or
     // classification filter matched: matches can be missing however few rows the file holds,
-    // and a narrower region or panel does not help (DATA-2).
+    // and a narrower region or panel does not help.
     const info = describeCsvExport(
       {
         headers: {
@@ -76,23 +83,19 @@ describe('describeCsvExport (#512)', () => {
     expect(message).not.toMatch(/capped at 50,000|a region, a gene panel/);
   });
 
-  it('reads a truncation without a reason (older backend) as the row cap', () => {
-    const info = describeCsvExport(
-      { headers: { 'x-coga-export-truncated': 'true', 'x-coga-export-limit': '50000' } },
-      'x',
-    );
-    expect(info.reason).toBe('row-limit');
-    expect(info.filename).toBe('x-TRUNCATED-first-50000.csv');
-    // So is a reason this page does not know: the file is still named and announced as cut.
+  it('reads a reason this page does not know as the row cap, so the file is still named and announced as cut', () => {
     const unknown = describeCsvExport(
-      { headers: { 'x-coga-export-truncated': 'true', 'x-coga-export-truncated-reason': 'later-reason' } },
+      {
+        headers: {
+          'x-coga-export-truncated': 'true',
+          'x-coga-export-truncated-reason': 'another-reason',
+          'x-coga-export-limit': '50000',
+        },
+      },
       'x',
     );
     expect(unknown.reason).toBe('row-limit');
     expect(unknown.truncated).toBe(true);
-  });
-
-  it('treats a response without the headers as complete (older backend)', () => {
-    expect(describeCsvExport({ headers: {} }, 'x').truncated).toBe(false);
+    expect(unknown.filename).toBe('x-TRUNCATED-first-50000.csv');
   });
 });

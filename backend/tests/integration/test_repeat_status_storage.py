@@ -8,16 +8,15 @@ and the whole repeat dataset with it. These run the real TRGT ingest against
 Postgres, on a family of its own, deleted afterwards. Only Postgres is needed. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 
-The built-in FMR1 row starts the full mutation at 201 repeats (CLIN-2): a male's 200-repeat
+The built-in FMR1 row starts the full mutation at 201 repeats: a male's 200-repeat
 allele is stored as a premutation, one of 201 as a full mutation.
 
-Each built-in row holds its STRchive row's thresholds (CLIN-22), BEAN1's missing intermediate
+Each built-in row holds its STRchive row's thresholds, BEAN1's missing intermediate
 threshold included; a call is stored, and read by the family table, with them.
 
 A call at a locus without thresholds (a TRID no catalogue row names, or a row that states no
-threshold) gets ``not_assessed`` (CLIN-26), which the constraint must store too, and the family
-table reads it so. A POLG count inside the benign range STRchive states there is ``normal``
-(CLIN-36), on the family table and the genome track alike.
+threshold) gets ``not_assessed``, which the constraint must store too, and the family
+table reads it so. A POLG count inside the benign range STRchive states there is ``normal``, on the family table and the genome track alike.
 """
 
 from __future__ import annotations
@@ -230,7 +229,7 @@ def test_each_built_in_row_holds_strchives_thresholds_and_a_call_is_stored_and_r
     assert read_by_table == expected
 
 
-# A woman's calls (CLIN-26): TRID -> (chrom, pos, motif, repeat count of her second allele).
+# A woman's calls: TRID -> (chrom, pos, motif, repeat count of her second allele).
 _NOT_ASSESSED_CALLS = {
     "chr2_1000000_1000030_CAG": ("chr2", 1000000, "CAG", 300),  # no catalogue row names it
     "ADTKD_MUC1": ("chr1", 155188000, "CCCCACCCCACCCCACCCCA", 60),  # a row without thresholds
@@ -318,7 +317,7 @@ def test_a_call_at_a_locus_without_thresholds_is_stored_not_assessed_and_the_tab
     }
 
 
-# CLIN-36: a count inside the benign range of a row without thresholds is normal (STRchive's
+# a count inside the benign range of a row without thresholds is normal (STRchive's
 # CPEO_POLG states exactly 10); any other count there, and every count at ADTKD_MUC1, which
 # states nothing, stays not assessed. Each member's calls: TRID -> (chrom, pos, motif, counts).
 _BENIGN_RANGE_CALLS = {

@@ -19,7 +19,8 @@ describe('useGlobalSmallVariantSearchState keyset pagination', () => {
     const { result } = renderHook(() => useGlobalSmallVariantSearchState());
     expect(result.current.pageNumber).toBe(1);
     expect(cursorOf(result.current.requestQueryString)).toBeNull();
-    // The legacy offset `page` param must not leak into keyset requests.
+    // The shared builder's offset `page` param, which the family pages page by, is not sent
+    // with a keyset request.
     expect(new URLSearchParams(result.current.requestQueryString).has('page')).toBe(false);
   });
 

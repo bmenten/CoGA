@@ -1,4 +1,4 @@
-"""DATA-3: the family CSV exports reach their cap above asyncpg's 32,767 parameters.
+"""the family CSV exports reach their cap above asyncpg's 32,767 parameters.
 
 A family export reads up to 50,001 rows, its 50,000-row cap and one more to know whether more
 matched, and looks each row up in Postgres: its review, its gene's constraint metrics and the
@@ -40,7 +40,7 @@ from backend.app.services.sv_gene_index_service import get_sv_second_hits
 
 @pytest.fixture(autouse=True)
 def _a_steady_small_variant_data_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The family's small-variant data version, read before and after each search (ENG-17):
+    """The family's small-variant data version, read before and after each search:
     steady, as no write lands during these searches. A test that keys a ranking on it sets
     its own."""
 
@@ -51,7 +51,7 @@ def _a_steady_small_variant_data_version(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 _FAMILY = "00000000-0000-0000-0000-00000000da73"
-# The family's assembly, whose gene profiles the constraint lookup reads (TRACE-15).
+# The family's assembly, whose gene profiles the constraint lookup reads.
 _ASSEMBLY = "00000000-0000-0000-0000-0000000a55e7"
 # What an export reads: its 50,000-row cap and one row more.
 _EXPORT_READ = 50_001

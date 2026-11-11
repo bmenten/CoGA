@@ -26,7 +26,7 @@ describe('evaluateAcmg', () => {
 
   it('offers PM2 for review, and leaves BA1 / BS1 open, without a gnomAD frequency in the annotation', () => {
     // Absent from gnomAD, or gnomAD not annotated for the variant: the annotation does not say
-    // which. Before, PM2 applied as "Absent from gnomAD." and BA1 / BS1 were ruled out.
+    // which, so PM2 is not applied as "Absent from gnomAD." and BA1 / BS1 are not ruled out.
     for (const gnomad_af of [undefined, null]) {
       const suggestions = evaluateAcmg({ effect: 'missense_variant', gnomad_af: gnomad_af as number | undefined });
       expect(find(suggestions, 'PM2')?.disposition).toBe('consider');
@@ -62,9 +62,9 @@ describe('evaluateAcmg', () => {
     expect(find(suggestions, 'BS2')?.evidence).toBe('No homozygotes observed in gnomAD.');
   });
 
-  it('leaves BS2 unmarked when the annotation has no gnomAD homozygote count (CLIN-67)', () => {
+  it('leaves BS2 unmarked when the annotation has no gnomAD homozygote count', () => {
     // A pipeline that writes gnomAD's frequency but no counts: nothing says how many
-    // homozygotes gnomAD has. Before, BS2 was ruled out as "No homozygotes observed in gnomAD."
+    // homozygotes gnomAD has, so BS2 is not ruled out as "No homozygotes observed in gnomAD."
     for (const gnomad_hom_count of [undefined, null]) {
       const suggestions = evaluateAcmg({
         effect: 'missense_variant',
@@ -109,7 +109,7 @@ describe('evaluateAcmg', () => {
   });
 
   it('offers BP7 for review for a synonymous variant without a SpliceAI score', () => {
-    // No score predicts nothing: before, a missing score read as no splice impact.
+    // No score predicts nothing: a missing score does not read as no splice impact.
     for (const spliceai_max of [undefined, null]) {
       const suggestions = evaluateAcmg({
         effect: 'synonymous_variant',
@@ -121,7 +121,8 @@ describe('evaluateAcmg', () => {
   });
 
   it('offers BP4 for review when REVEL is benign-leaning but SpliceAI has no score', () => {
-    // A missing SpliceAI score was read as 0 and BP4 applied with "SpliceAI 0.00" as evidence.
+    // A missing SpliceAI score is not read as 0, which would apply BP4 with "SpliceAI 0.00" as
+    // evidence.
     const suggestions = evaluateAcmg({ effect: 'missense_variant', revel: 0.05 });
     const bp4 = find(suggestions, 'BP4');
     expect(bp4?.disposition).toBe('consider');
@@ -150,7 +151,7 @@ describe('evaluateAcmg', () => {
     expect(codes(evaluateAcmg({ clinvar: 'likely_benign' }))).toContain('BP6');
 
     // Offered for review, never applied: ClinGen's SVI advises against counting another lab's
-    // assertion (the owner's choice of 2026-11-06). Before, both were applied.
+    // assertion (the owner's choice of 2026-11-06).
     const pathogenic = evaluateAcmg({ clinvar: 'Pathogenic/Likely_pathogenic' });
     expect(find(pathogenic, 'PP5')?.disposition).toBe('consider');
     expect(find(pathogenic, 'BP6')?.disposition).toBe('contraindicated');
@@ -506,7 +507,7 @@ describe('evaluateAcmg — de novo against the parents the pedigree names', () =
   });
 });
 
-// #621 — a son is hemizygous on chrX/chrY outside the PARs: the parent who passes him that
+// A son is hemizygous on chrX/chrY outside the PARs: the parent who passes him that
 // chromosome decides PM6/PS2, as in the backend's de novo segregation mode.
 describe('evaluateAcmg — de novo in a son where he is hemizygous', () => {
   const son = (gt: string): AcmgFamilyMemberCall => ({ sampleId: 'P', role: 'proband', affected: true, gt, sex: 'male' });
@@ -654,7 +655,7 @@ describe('evaluateAcmg — in-silico availability', () => {
 
   it('leaves PP3 and BP4 open on an ambiguous AlphaMissense class, a prediction that does not decide', () => {
     // As a REVEL score between the thresholds does. An ambiguous class read as no prediction,
-    // which ruled PP3 and BP4 out as "No in-silico predictions available." (TRACE-15).
+    // which ruled PP3 and BP4 out as "No in-silico predictions available.".
     const suggestions = evaluateAcmg({ effect: 'missense_variant', alpha_missense_class: 'ambiguous' });
     expect(find(suggestions, 'PP3')).toBeUndefined();
     expect(find(suggestions, 'BP4')).toBeUndefined();
@@ -700,7 +701,7 @@ describe('buildInitialSelections', () => {
   });
 });
 
-// #609 — a lookup that failed is unknown, not a negative finding: the criteria that read it
+// A lookup that failed is unknown, not a negative finding: the criteria that read it
 // say so, and are surfaced for review rather than silently changed.
 describe('evaluateAcmg when a lookup failed', () => {
   it('does not call the LOF mechanism unconfirmed when the gene profile could not be loaded', () => {
@@ -746,7 +747,7 @@ describe('evaluateAcmg when a lookup failed', () => {
 // are a common mechanism of disease. gnomAD's missense Z stands in for the first half (3.09 or
 // more); the second half is the analyst's judgement, so PP2 is offered for review, never applied.
 // The missense Z is the gene profile's, else the VCF's own MISSENSE_Z, and the suggestion says
-// which it read (TRACE-15, the owner's decision of 2026-10-28).
+// which it read (the owner's decision of 2026-10-28).
 describe('evaluateAcmg — PP2 from the gene missense Z', () => {
   const REVIEW =
     'Whether missense variants are a common mechanism of disease in this gene is your judgement — review before applying.';

@@ -206,7 +206,7 @@ def test_a_nul_in_an_ignored_json_field_is_audited(audited) -> None:
     # The content type is still recorded beside the flag.
     assert row["request_meta"]["headers"]["content-type"] == "application/json"
     # The fields the request changed: ProjectUpdate reads "description" and ignores "note",
-    # which the body keeps (ENG-23: both were listed).
+    # which the body keeps (both were listed).
     assert row["db_update"]["updateFields"] == ["description"]
 
 

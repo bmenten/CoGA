@@ -2,7 +2,7 @@
 
 A reference such as ``#123`` tells an auditor nothing. The technical file (``docs/regulatory/``)
 states the behaviour, the decision with its date and the role that took it, or the test that
-verifies it (DOC-7). Here every Markdown file under ``docs/regulatory/`` is read, and a
+verifies it. Here every Markdown file under ``docs/regulatory/`` is read, and a
 pull-request or issue number is refused in each form it could take: ``#123``, ``PR 123``,
 ``pull request 123``, ``issue 123``, and a GitHub link to an issue, pull request, discussion or
 security alert by its number.
@@ -132,7 +132,7 @@ _ID = r"(?:CLIN|DATA|DOC|ENG|OPS|PROD|REG|SAFE|SEC|TRACE|UI)-\d+"
 # An open-issue ID on its own: not the tail of a requirement ID such as REQ-SEC-001.
 _ISSUE_ID = re.compile(rf"(?<![\w-]){_ID}\b")
 # The first cell of a row of open-issues.md and a roadmap item's ID
-# ("- **Request tracing** (SEC-16): …").
+# ("- **Request tracing**: …").
 _ROW_ID = re.compile(rf"^\|\s*({_ID})\s*\|", re.MULTILINE)
 _ROADMAP_ITEM_ID = re.compile(rf"^\s*-\s+\*\*[^*]+\*\*\s+\(({_ID})\)", re.MULTILINE)
 

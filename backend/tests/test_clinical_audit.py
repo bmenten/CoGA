@@ -100,7 +100,7 @@ def test_diff_new_review_records_every_aspect() -> None:
 
 
 def test_diff_classification_text_only_change() -> None:
-    """TRACE-20: the classification text alone, changed through the API without a class tag
+    """The classification text alone, changed through the API without a class tag
     or an ACMG record, is one ``classification`` event."""
     events = cas.diff_review_changes(
         {"classification": None, "tags": []},
@@ -913,7 +913,7 @@ def test_the_route_serves_a_page_and_bounds_its_size(monkeypatch) -> None:
 
 
 def test_every_clinical_event_names_its_user_one_way() -> None:
-    # ENG-23: the pedigree, phenotype and repeat-count audits kept a helper each, and five
+    # The pedigree, phenotype and repeat-count audits kept a helper each, and five
     # writers the expression itself: a change of the rule could miss a copy.
     assert cas.audit_actor(types.SimpleNamespace(username="analyst1", email="a1@example.org")) == "analyst1"
     assert cas.audit_actor(types.SimpleNamespace(username=None, email="a1@example.org")) == "a1@example.org"

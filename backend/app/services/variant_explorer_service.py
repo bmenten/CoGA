@@ -88,7 +88,7 @@ from .variant_ranking_cache import panel_members_digest
 
 
 # Carrier / homozygous / heterozygous conditions on a genotype column, from the one
-# genotype classification (#511): a carrier has an ALT allele (a haploid "0" is not one),
+# genotype classification: a carrier has an ALT allele (a haploid "0" is not one),
 # and a haploid "1" or a "2/2" counts as homozygous.
 def _gt_is_carrier(column: str, params: dict[str, Any]) -> str:
     return clickhouse_genotype_condition(column, ALT_CLASSES, param="gt_alt", params=params)
@@ -109,7 +109,7 @@ _SORT_EXPR = {
     "position": "xpos",
 }
 _DEFAULT_SORT = "total_samples"
-# Cap the cohort-wide distinct-key count (#270) so the explorer never pays an unbounded
+# Cap the cohort-wide distinct-key count so the explorer never pays an unbounded
 # uniqExact over millions of keys per page. Past the cap the total is reported as the cap
 # with total_is_estimated=True (the UI renders "N+").
 _EXPLORER_COUNT_CAP = 10_000
@@ -123,7 +123,7 @@ def _bounded_total(raw_count: int) -> tuple[int, bool]:
     return raw_count, False
 
 
-# Keyset (seek) pagination (#274). The ORDER BY is `{sort_expr} {dir}, xpos ASC, key ASC`,
+# Keyset (seek) pagination. The ORDER BY is `{sort_expr} {dir}, xpos ASC, key ASC`,
 # so a page boundary is fully described by the last row's (sort_value, xpos, key) — all
 # integers (carrier counts or xpos; key is the UInt64 variant key). The cursor encodes that
 # triple plus the sort/order it was issued for, so a stale cursor (after the user changes
@@ -201,12 +201,12 @@ def _seek_having(sort_expr: str, direction: str) -> str:
 # casefolded impacts stored in annotation_index).
 _IMPACT_RANK = {"high": 4, "moderate": 3, "low": 2, "modifier": 1}
 # A review's classification is free text. The review dialog stores the class label
-# ("Pathogenic - class 5", the same for ACMG and CNV classes); other clients and older
-# reviews may hold a class key ("acmg_class_4", "cnv_class_4") or the bare class word in any
-# case or spelling ("Likely_Pathogenic", "VUS"). Each reads as the class it names (CLIN-69):
+# ("Pathogenic - class 5", the same for ACMG and CNV classes); a review saved by another
+# client may hold a class key ("acmg_class_4", "cnv_class_4") or the bare class word in any
+# case or spelling ("Likely_Pathogenic", "VUS"). Each reads as the class it names:
 # the class number when the text ends in one, else the class word. What is ranked is the class
 # each review shows (review_class_label, as the family page reads it: a class word as its label,
-# else the review's class tag, else the text; CLIN-71).
+# else the review's class tag, else the text).
 _CLASS_NUMBER = re.compile(r"(?:^|_)class_([1-5])$")
 _CLASSIFICATION_WORD_RANK = {
     "pathogenic": 5,
@@ -407,8 +407,8 @@ async def list_explorer_samples(
     """The IDs of the samples the user's families show (optionally of one assembly's
     projects): the samples the genotype filter can keep a variant for (``_shown_members``).
 
-    Powers the per-sample genotype filter picker. It listed every sample of the projects,
-    also a member taken out of its family, whom the filter now keeps nothing for.
+    Powers the per-sample genotype filter picker. A member taken out of its family is not
+    listed: the filter keeps nothing for it.
     """
 
     rows = await _accessible_project_rows(session, user)
@@ -518,12 +518,12 @@ async def _shown_members(session: AsyncSession, project_ids: Sequence[str]) -> l
 
 
 def _shown_calls(members: Sequence[_ShownMember]) -> tuple[tuple[str, str], ...]:
-    """The (family UUID, stored sample ID) pair of every call the families show: each
-    member's calls in its own family's rows, under its name or its UUID, as the family
-    search reads a family's members (``_clickhouse_sample_ids``)."""
-    by_family: dict[str, dict[str, str]] = {}
+    """The (family UUID, sample ID) pair of every call the families show: each member's
+    calls in its own family's rows, as the family search reads a family's members
+    (``_clickhouse_sample_ids``)."""
+    by_family: dict[str, list[str]] = {}
     for member in members:
-        by_family.setdefault(member.family_uuid, {})[member.sample_id] = member.sample_uuid
+        by_family.setdefault(member.family_uuid, []).append(member.sample_id)
     return tuple(
         (family_uuid, sample_id)
         for family_uuid, names in sorted(by_family.items())
@@ -576,7 +576,7 @@ async def _variant_ids_matching_reviews(
     list on every request; the query reads one row more to know whether more matched.
 
     A classification keeps a review, or its compound-het pair review, by the class it shows,
-    as the family search's filter does (``list_matching_small_variant_review_ids``, CLIN-75):
+    as the family search's filter does (``list_matching_small_variant_review_ids``):
     the rule ``review_shows_class``, here in SQL (``review_class_label_sql``), so the Explorer
     keeps exactly the variants a family search keeps in some family. Whatever the case:
     Postgres's lower() and Python's agree on the class labels and words.
@@ -668,10 +668,10 @@ async def _review_display_map(
     latest review time, across the families of ``project_ids``.
 
     Each review shows its class as the family page reads it (``review_class_label``): a
-    review classified by its class tag alone shows that class (CLIN-71). Its own class comes
+    review classified by its class tag alone shows that class. Its own class comes
     before its compound-het pair's, and the reviews are taken saved last first, then by
     family id, whatever order the rows come in: of two reviews of the same class
-    ``_most_severe`` keeps the first, so the class shown no longer depends on row order.
+    ``_most_severe`` keeps the first, so the class shown does not depend on row order.
     """
 
     variant_ids = [str(value).strip() for value in variant_ids if str(value).strip()]
@@ -819,9 +819,10 @@ def _sample_genotype_condition(
     locus narrows the scan of the sample's rows; a variant's position is the same in every
     row, so it changes no result.
 
-    Only the sample's calls in the rows of a family that shows it are read, under its name
-    or its UUID (``shown_members``): a sample no family of the scope shows, such as a member
-    taken out of its family, keeps no variant (the owner's decision of 2026-11-06)."""
+    Only the sample's calls in the rows of a family that shows it are read
+    (``shown_members``); the sample may be named by its ID or its UUID. A sample no family
+    of the scope shows, such as a member taken out of its family, keeps no variant (the
+    owner's decision of 2026-11-06)."""
     member_of = [member for member in shown_members if sample_id in (member.sample_id, member.sample_uuid)]
     if not member_of:
         return "0"
@@ -829,7 +830,7 @@ def _sample_genotype_condition(
     token = _GENOTYPE_MODE_FILTERS.get(str(mode or "").strip().lower(), _GENOTYPE_MODE_FILTERS["het_hom"])
     genotype_classes, _include_absent = parse_genotype_filter(token)
     call_condition = _small_sample_call_condition(
-        tuple(_clickhouse_sample_ids({member.sample_id: member.sample_uuid for member in member_of})),
+        tuple(_clickhouse_sample_ids(member.sample_id for member in member_of)),
         SmallVariantSampleFilter(sample_name=sample_id, genotype_classes=genotype_classes),
         prefix=f"explorer_sample_{index}",
         params=params,
@@ -864,8 +865,8 @@ async def _panel_constraints(
     and the names of its stored regions, the regions stored for this assembly (PanelApp's
     coordinates), and each gene's loci in this assembly's gene reference. An id that is no
     UUID is refused (400), and a panel that does not exist answers 404, as on the family
-    page. The explorer used to read the panel's gene symbols alone: a panel of regions only
-    filtered nothing, and a variant in one of a panel's regions was left out (CLIN-48).
+    page. So a panel of regions only filters by its regions, and a variant in one of a
+    panel's regions is kept.
     """
     if not filters.panel_id:
         return None
@@ -965,8 +966,7 @@ def _entries_where(
     keeps it under these filters, and the explorer counts the carriers of the rows it keeps:
     a variant two families carry under two annotations (two VEP runs) is counted, under an
     annotation filter, in the family whose own annotation meets it (the owner's decision of
-    2026-11-06). The explorer used to read the chromosome as written, and the gene, rsID,
-    excluded ClinVar and per-transcript filters against any annotation of the variant.
+    2026-11-06).
 
     The explorer's own filters are the review (tag and classification) filter, across the
     accessible families, and the sample genotype filter, read by variant
@@ -1304,7 +1304,7 @@ class GlobalVariantExport:
     """The rows of a Variant Explorer CSV export, and why, if at all, they are not every
     filtered variant.
 
-    An export is never silently partial, as for the family exports (#512, #725): the route
+    An export is never silently partial, as for the family exports: the route
     names the file and sets the X-CoGA-Export-* headers from this.
     ``truncated_reason`` is ``TRUNCATED_BY_ROW_LIMIT`` when more variants matched than
     ``limit`` (the file holds the first ``limit``), and
@@ -1438,8 +1438,8 @@ async def _fetch_annotation_display(
         }
     # The row shows the most severe impact over the transcripts; its consequence and HGVS
     # come from a transcript of that impact (MANE Select, then canonical, first), never
-    # the first distinct value of each, which paired one transcript's consequence with
-    # another's HGVS (CLIN-50).
+    # the first distinct value of each, which would pair one transcript's consequence with
+    # another's HGVS.
     annotations = _small_table_name(assembly_name, "variants/annotations")
     transcripts = await execute_clickhouse(
         f"""
@@ -1491,11 +1491,7 @@ async def get_variant_carriers(
     shown_members = await _shown_members(session, scope.project_ids)
     if not shown_members:
         return VariantCarriersOut(key=str(variant_key))
-    member_of_call = {
-        (member.family_uuid, stored_id): member
-        for member in shown_members
-        for stored_id in (member.sample_id, member.sample_uuid)
-    }
+    member_of_call = {(member.family_uuid, member.sample_id): member for member in shown_members}
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
     params: dict[str, Any] = {

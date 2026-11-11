@@ -2,12 +2,12 @@ import { apiPath, raw } from './apiPath';
 
 /**
  * Build an in-app route with every interpolated value percent-encoded as one path segment, as
- * `apiPath` builds an API path (SEC-15). React Router decodes each segment back into the
+ * `apiPath` builds an API path. React Router decodes each segment back into the
  * route's params, a `/` included, so `useParams()` gives the identifier as written.
  *
- * Interpolated raw, an identifier broke in-app navigation: a `?` or `#` in it started the
- * query or the hash, a `/` added a segment no route matches, and a `%` left the path
- * undecodable.
+ * Interpolated raw, an identifier would break in-app navigation: a `?` or `#` in it would
+ * start the query or the hash, a `/` would add a segment no route matches, and a `%` would
+ * leave the path undecodable.
  *
  *   <Link to={routePath`/families/${familyId}/nipt`}>
  *
@@ -22,7 +22,7 @@ export { raw };
 /**
  * `from`, a path a link carries to return to, when it is one of the app's own family pages;
  * null otherwise. Whoever makes a link chooses its `back_path` or `from`: taken as it came,
- * `https://…` or `//…` sent the Back link off the site (#526, SEC-15).
+ * `https://…` or `//…` sent the Back link off the site.
  */
 export const familyPagePath = (from: string | null | undefined): string | null =>
   from && from.startsWith('/families/') && !from.includes('\\') ? from : null;

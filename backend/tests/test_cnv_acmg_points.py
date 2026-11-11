@@ -71,8 +71,7 @@ def test_gain_complete_ts_overlap_is_pathogenic() -> None:
 
 
 def test_summed_evidence_reaches_pathogenic() -> None:
-    # 0.90 + 0.15 = 1.05: past the 0.99 of Pathogenic. (Named "reaches likely pathogenic"
-    # before, while it asserted class 5; the likely classes are pinned below.)
+    # 0.90 + 0.15 = 1.05: past the 0.99 of Pathogenic. The likely classes are pinned below.
     total, key, _ = p.compute_classification(
         "loss",
         [

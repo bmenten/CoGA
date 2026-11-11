@@ -68,7 +68,7 @@ def _read_package_file(root: Path, relative_path: str, *, kind: str) -> str | No
     except (HTTPException, OSError, UnicodeDecodeError):
         # Named by its kind, not its path: the path can hold the family ID the Discover
         # request names (the KING table's) or a sample's (ngs-bits), which a log line never
-        # carries (SEC-39).
+        # carries.
         logger.warning("Could not read the package's %s file", kind)
         return None
 

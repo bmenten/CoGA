@@ -20,11 +20,11 @@
 ## 1. Configuration items (what is under control)
 - **Source code** — Git repository; releases are tagged; every clinical build maps to a commit hash.
 - **Dependencies** — `backend/requirements.txt` (every package pinned and hash-verified, [TF-08 §A.1](TF-08-soup-register.md)), `frontend/package-lock.json`, container base-image digests.
-- **Database schema** — idempotent, domain-grouped SQL baselines (`backend/db/schema/postgres/01_access.sql`–`05_grants.sql`) and the Alembic revisions that bring an existing database to them (`backend/db/migrations/versions/`).
+- **Database schema** — domain-grouped SQL baselines (`backend/db/schema/postgres/01_access.sql`–`05_grants.sql`), which Alembic revision `0001` (`backend/db/migrations/versions/`) applies to an empty database.
   - They are applied as one migration step, as the table owner: by the API at startup in the default mode or, once the API runs as the restricted database role, by the migration job before each rollout.
-  - The ledger table `alembic_version` records each database's revision. A CoGA version older than that revision refuses to start on it. An API that does not migrate at startup (the restricted role) starts only on a database at exactly its own revision.
-  - On Google Cloud the deploy takes an on-demand Cloud SQL backup before each migration it starts, as that upgrade's restore point, and stops before the migration if the backup fails ([deployment-gcp.md](../deployment-gcp.md), 12.1).
-  - Until the release candidate every run re-applies the baselines first ([database.md](../database.md#schema-migrations)).
+  - The ledger table `alembic_version` records each database's revision, and `schema_baselines` the SHA-256 of the baselines it was made from. The migration step refuses any database this version did not make: tables without a ledger, a revision it does not have, or other baselines. An API that does not migrate at startup (the restricted role) starts only on a database at exactly its own revision and baselines.
+  - Until the release candidate CoGA holds test data only: a schema change is an edit of the baselines, and a database is made again from empty rather than migrated ([database.md](../database.md#schema-migrations)).
+  - From the release candidate on, the deploy on Google Cloud takes an on-demand Cloud SQL backup before each migration it starts, as that upgrade's restore point, and stops before the migration if the backup fails ([deployment-gcp.md](../deployment-gcp.md), 12.1).
 - **Reference data & content** — assembly, ClinVar/gnomAD/dbNSFP/VEP/etc. releases (versioned via the manifest), gene panels and their source version, NIPT artifact lists, ACMG criterion-positioning rules.
 - **Configuration/secrets** — environment settings (secrets in a manager, not in VCS).
 - **Documentation** — this technical file and the per-feature design docs.
@@ -61,13 +61,11 @@ from the first release candidate.
 
 **Proposal for QA: the database schema at the release candidate.** Not adopted; QA confirms
 or changes it. Until the release candidate, pull requests edit the five Postgres baseline files,
-and every migration run re-applies them, so each edit reaches every database. The release
-candidate's pull request would freeze them:
+and revision `0001` is the only revision: every database holds test data and is made again from
+empty after a baseline edit. The release candidate's pull request would freeze them:
 
-- the migration step stops re-applying them (`REAPPLY_BASELINES_ON_EVERY_RUN = False` in
-  `backend/app/core/postgres_migrations.py`);
-- revision `0001` applies them to a new database only;
-- a test pins their SHA-256.
+- a test pins their SHA-256, so every database made later is made from the same baselines;
+- revision `0001` stays the step that applies them to an empty database.
 
 From then on each schema change is a new Alembic revision only. Its change record (§8) names
 the revision; its verification runs it on a database at the previous revision; the release
@@ -138,10 +136,10 @@ Two limits bound what the gates evidence: one open gap, and one arrangement the 
   it.
 - **🔲 No approving review is required on a pull request, by decision.** The ruleset has no
   pull-request review rule and there is no `CODEOWNERS`. This is the chosen arrangement, not a
-  gap: the owner decided on 2026-10-14 (REG-8) that pull requests need no approval, because
-  CoGA has one developer and no second (bio-)IT team member can approve each change. The
-  four-eyes principle is met per release instead, by QA's review below. That review has not
-  run yet, and it covers a sample: this document is evidence of an independent review only for
+  gap: the owner decided on 2026-10-14 that pull requests need no approval, because CoGA has
+  one developer and no second (bio-)IT team member can approve each change. The four-eyes
+  principle is met per release instead, by QA's review below. That review has not run yet
+  (REG-8), and it covers a sample: this document is evidence of an independent review only for
   the pull requests included in a review QA has signed.
 
 **Four-eyes review per release (QA).** Before a release is tagged (§2: a beta, a release

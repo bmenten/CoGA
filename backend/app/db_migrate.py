@@ -1,6 +1,6 @@
 """Out-of-band Postgres schema migration + admin bootstrap.
 
-This is the **owner-privileged** half of the DB privilege separation (#262). Schema
+This is the **owner-privileged** half of the DB privilege separation. Schema
 DDL — ``CREATE``/``ALTER TABLE``, trigger management, ``GRANT`` — must run as the table
 **owner**; the restricted runtime role ``coga_app`` deliberately cannot. Keeping the
 migration out of the API's request-serving process lets the app boot as ``coga_app``
@@ -45,9 +45,9 @@ from .dependencies import get_password_hash, verify_password
 async def init_postgres_admin_user() -> None:
     """Ensure the seeded admin user exists in Postgres, with ``ADMIN_PASSWORD`` as its password.
 
-    That account is the emergency (break-glass) administrator beside Microsoft sign-in
-    (SEC-4). Its password is ``ADMIN_PASSWORD`` (Secret Manager in a deployment): when the
-    stored hash no longer matches it, the hash is replaced, so rotating the secret and
+    That account is the emergency (break-glass) administrator beside Microsoft sign-in.
+    Its password is ``ADMIN_PASSWORD`` (Secret Manager in a deployment): when the
+    stored hash does not match it, the hash is replaced, so rotating the secret and
     redeploying rotates the password; nothing else changes a local password. An account of
     that name bound to a Microsoft object ID is left alone. Idempotent; safe to run either as
     the owner (migration path) or as ``coga_app`` (which keeps ``INSERT`` and ``UPDATE`` on

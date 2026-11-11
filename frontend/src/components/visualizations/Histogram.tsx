@@ -100,7 +100,7 @@ const binValues = (
       counts[idx]++;
     });
     // Each bin is labelled by its lower edge, with as many decimals as the bin width needs:
-    // rounded to whole numbers, bins narrower than 1 shared a label (#602).
+    // rounded to whole numbers, bins narrower than 1 shared a label.
     const decimals = binSize >= 1 ? 0 : Math.min(Math.ceil(-Math.log10(binSize)), 6);
     labels = Array.from({ length: bins }, (_, i) => {
       const edge = min + binSize * i;
@@ -153,7 +153,7 @@ const Histogram: React.FC<Props> = ({
 
     // The band scale is keyed by bin, not by label: two bins with the same label (given
     // binLabels can repeat) would otherwise share one band and be drawn on top of each
-    // other (#602).
+    // other.
     const x = d3
       .scaleBand<number>()
       .domain(counts.map((_, i) => i))

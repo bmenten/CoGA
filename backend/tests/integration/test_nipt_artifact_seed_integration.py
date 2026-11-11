@@ -1,13 +1,13 @@
 """Auto-seeding the NIPT artifact list counts only the assay's own cfDNA samples and skips
 common and ClinVar pathogenic variants — real Postgres + ClickHouse.
 
-A seed of every variant carried by five samples anywhere on the assembly would list every
+A list of every variant carried by five samples anywhere on the assembly would hold every
 common SNP, so the paternal sites the fetal fraction is read from, and every other assay's
 recurrent artifacts, which the NIPT analysis then excludes. A rare pathogenic founder variant
 recurs in a disease-focused panel too, and listing it would drop it from every analysis. This
 seeds a fixture with one variant of each kind and checks that each assay lists only its own
 recurrent, non-common variants without a ClinVar P/LP (or conflicting) record, counting a
-sample once whether ClickHouse stores its calls under its name or its UUID.
+sample once however many rows hold its call.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -120,43 +120,41 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
             async with sm() as session:
-                assembly_id, uuids = await _seed_postgres(session)
+                assembly_id, _sample_uuids = await _seed_postgres(session)
 
             cf1, cf2, cf3, cf4, cf5 = default_cfdna
-            # The last default-scope sample's calls are stored under its UUID.
-            cf5_stored = uuids[cf5]
             await insert_small_variant_records(
                 assembly_name,
                 str(uuid4()),
                 [str(uuid4())],
                 [
                     # Recurrent in the assay's cfDNA, not common, no ClinVar record: an artifact.
-                    record("1-100-A-G", [cf1, cf2, cf3, cf4, cf5_stored]),
+                    record("1-100-A-G", [cf1, cf2, cf3, cf4, cf5]),
                     # As recurrent, but a common SNP (the kind FF is read from).
-                    record("1-200-A-G", [cf1, cf2, cf3, cf4, cf5_stored], common=True),
+                    record("1-200-A-G", [cf1, cf2, cf3, cf4, cf5], common=True),
                     # One carrier in this assay; recurrent only in other samples (below).
                     record("1-300-A-G", [cf1]),
                     # Four carriers: below the threshold.
-                    record("1-400-A-G", [cf1, cf2, cf3, cf4], ref_calls=[cf5_stored]),
-                    # Four carriers, plus the same first sample again under its UUID (below).
+                    record("1-400-A-G", [cf1, cf2, cf3, cf4], ref_calls=[cf5]),
+                    # Four carriers, the first of them again in another row (below): counted once.
                     record("1-500-A-G", [cf1, cf2, cf3, cf4]),
                     # Recurrent, rare (gnomAD 1.2%) and ClinVar P/LP, or a conflicting record
                     # that may hold a P/LP submission: never seeded.
-                    record("1-600-A-G", [cf1, cf2, cf3, cf4, cf5_stored], clinvar="Pathogenic"),
+                    record("1-600-A-G", [cf1, cf2, cf3, cf4, cf5], clinvar="Pathogenic"),
                     record(
                         "1-700-A-G",
-                        [cf1, cf2, cf3, cf4, cf5_stored],
+                        [cf1, cf2, cf3, cf4, cf5],
                         clinvar="Likely_pathogenic,_low_penetrance",
                     ),
                     record(
                         "1-800-A-G",
-                        [cf1, cf2, cf3, cf4, cf5_stored],
+                        [cf1, cf2, cf3, cf4, cf5],
                         clinvar="Conflicting_classifications_of_pathogenicity",
                     ),
                     # A recurrent VUS is not protected.
                     record(
                         "1-900-A-G",
-                        [cf1, cf2, cf3, cf4, cf5_stored],
+                        [cf1, cf2, cf3, cf4, cf5],
                         clinvar="Uncertain_significance",
                     ),
                 ],
@@ -167,7 +165,7 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
                 [str(uuid4())],
                 [
                     record("1-300-A-G", panel_cfdna + wgs),
-                    record("1-500-A-G", [uuids[cf1]]),
+                    record("1-500-A-G", [cf1]),
                 ],
             )
 

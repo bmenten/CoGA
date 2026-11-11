@@ -49,9 +49,8 @@ test('signs out the family report from the browser (with gate handling)', async 
   const before = await currentVersion(page);
   await signOutButton.click();
 
-  // Each gate is an acknowledge-with-reason dialog (#508 made the evidence-drift gate one
-  // too; it used to be a native confirm). Evidence drift comes first, then the
-  // sample-integrity gate (#330) — the seeded trio's sparse genotypes leave an asserted
+  // Each gate is an acknowledge-with-reason dialog. Evidence drift comes first, then the
+  // sample-integrity gate — the seeded trio's sparse genotypes leave an asserted
   // relationship unverifiable — and then the gate of abnormal repeat and Paraphase calls
   // without a review. Each may be absent on a different seed, so each is handled only when
   // it appears.

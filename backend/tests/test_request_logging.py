@@ -58,7 +58,7 @@ def test_log_model_update_sorts_fields() -> None:
 
 
 def test_the_request_audit_and_the_ui_events_mask_one_list_of_keys() -> None:
-    # ENG-8. Both read the one list of secret-looking keys in coga_logging, so neither can
+    # Both read the one list of secret-looking keys in coga_logging, so neither can
     # come to mask less than the other.
     from app.core import coga_logging
     from app.routers import ui_events

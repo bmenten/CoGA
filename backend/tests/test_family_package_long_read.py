@@ -798,7 +798,7 @@ _UNSEEN = "TUBE\x1b[2J\u202e"
 def test_a_refusal_quotes_the_packages_column_names_with_their_unseen_characters_escaped(
     columns: list[str], declared: str | None, message: str
 ) -> None:
-    # SEC-39: the refusal, which the import page shows and the job's record keeps, shows each
+    # the refusal, which the import page shows and the job's record keeps, shows each
     # character a reader cannot see in the manifest's vcf_sample as its escape, as the ID
     # rule's own refusals do (family_identifiers.visible), and so does the list of the file's
     # columns.
@@ -917,7 +917,7 @@ async def test_the_cnv_import_refuses_another_members_file_before_any_write(
 @pytest.mark.asyncio
 async def test_the_cnv_import_records_hificnvs_version_from_its_header(monkeypatch: pytest.MonkeyPatch) -> None:
     # TF-08 B.1 names HiFiCNV's ##source line as where its version comes from, but the
-    # import never read the header of a HiFiCNV VCF (TRACE-8).
+    # import never read the header of a HiFiCNV VCF.
     from types import SimpleNamespace
 
     from app.schemas import FamilyImportDatasetSummary

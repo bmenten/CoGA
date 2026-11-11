@@ -5,7 +5,7 @@ export const AUTH_STORAGE_KEYS = {
   username: 'username',
   role: 'role',
   // How this session signed in: with Microsoft, whose access token the API client renews
-  // before it expires, through the organisation's CAS server, or with a password (SEC-4). The
+  // before it expires, through the organisation's CAS server, or with a password. The
   // last two hold a token this server issued.
   signIn: 'sign_in',
 } as const;

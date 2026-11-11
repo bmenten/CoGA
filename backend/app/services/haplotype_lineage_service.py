@@ -39,14 +39,14 @@ On chrX a man has one X outside the pseudo-autosomal regions (PARs), and he pass
 his daughters, never to his sons. Where the assembly's PARs are known (``sex_chromosomes``),
 chrX is coloured one stretch at a time: a PAR as an autosome, and the X between the PARs by
 the members' recorded sexes. A member recorded as male has one copy there, his call written
-once or twice (a call of two different alleles is none), as the haplotype blocks read him
-(CLIN-60); a member whose sex is not recorded is read as two copies. Between two members with
+once or twice (a call of two different alleles is none), as the haplotype blocks read him;
+a member whose sex is not recorded is read as two copies. Between two members with
 two copies the autosomal reading holds. Between a member with two copies and a man, whichever
 is the parent, his one X is one of her homologs run by run: one of them whole when he is her
 father, switching at her crossovers when he is her son. The runs are read at her
 heterozygous sites, and must agree with his allele there along the stretch
 (``one_copy_share_runs``). Between two men nothing is coloured. chrY and chrM, and chrX of an
-assembly whose PARs are not known, are not read: their relatives stay grey (CLIN-12).
+assembly whose PARs are not known, are not read: their relatives stay grey.
 
 The functions here are deliberately pure (no DB/IO): they take the pedigree rows,
 the stored segments, and the raw phased genotype rows, and return lineage-tagged
@@ -82,7 +82,7 @@ UNKNOWN = "unknown"
 # the OTHER side recombined mid-chromosome (its homologs then split ~50/50); the
 # per-block pin segmentation handles that side. Demanding a single genome-stable
 # pair instead would wrongly drop a relative on chromosomes where their shared
-# homolog crosses over (the original two-grey bug).
+# homolog crosses over.
 MIN_SHARED_CONSISTENCY = 0.90
 # Need at least this many informative (distinguishing) sites to trust a match.
 MIN_INFORMATIVE_SITES = 10
@@ -265,7 +265,7 @@ def identify_core(pedigree: Pedigree) -> NuclearCore:
                 tied.append((father, mother))
     if best is not None and len(tied) > 1:
         # Counts only: the couples and their children are named by their sample IDs, which
-        # a log line never carries (SEC-39).
+        # a log line never carries.
         logger.warning(
             "identify_core: ambiguous nuclear core — %d couples each share %d "
             "child(ren); picking the first found. Lineage colouring may be grounded on the "
@@ -573,7 +573,7 @@ def _smooth_runs(
     ``LINEAGE_SWITCH_MIN_SPAN`` bases — so a real crossover splits the track but
     isolated noise does not. Seeding from the first pin (rather than a fixed
     head-window majority vote) keeps the seed *symmetric* with the switch
-    criterion: a short leading tract followed by a sustained switch is now read as
+    criterion: a short leading tract followed by a sustained switch is read as
     ``seed -> switch`` (both crossovers represented) instead of being swallowed
     into the seed and hiding the early breakpoint. Any stray leading pins are
     corrected by the same commit logic, since the first *sustained* run forces a

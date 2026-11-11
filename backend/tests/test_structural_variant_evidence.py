@@ -204,7 +204,7 @@ def _stored_evidence_row(record: StructuralVariantRecord) -> tuple:
         record.remote_start,
         record.sv_len,
         list(record.filters),
-        json.dumps(record.annotations),
+        json.dumps({"annotations": record.annotations}),
         list(record.gene_symbols),
     )
 
@@ -353,7 +353,7 @@ def test_the_snapshot_names_the_caller_whose_row_it_was_frozen_from() -> None:
 
 def test_evidence_that_names_no_caller_cannot_be_compared() -> None:
     # Every snapshot CoGA froze names its caller. One that does not cannot say which
-    # caller's row it is to be compared with, so it is never current (TRACE-11).
+    # caller's row it is to be compared with, so it is never current.
     nameless = _frozen()
     nameless["evidence"].pop("source")
     nameless["evidence_hash"] = canonical_hash(nameless["evidence"])
@@ -658,10 +658,10 @@ def test_without_sv_storage_the_scoring_is_saved_without_evidence(monkeypatch) -
     assert reads == []
 
 
-# --- two callers of one SV: the row the classification was made on (TRACE-11) ----------------------
+# --- two callers of one SV: the row the classification was made on ---------------------------------
 
 # One deletion called twice under one id, as a package's NeedlR call and an uploaded Sniffles
-# call of it are (CLIN-43): NeedlR annotates its genes, their pLI and the inheritance; the
+# call of it are: NeedlR annotates its genes, their pLI and the inheritance; the
 # upload's genes come from the gene loci, and it carries neither. Each caller's call is a row
 # of its own, and the upload's has the lower storage key: the row the save froze, and the drift
 # check read, whatever row the classification was made on.

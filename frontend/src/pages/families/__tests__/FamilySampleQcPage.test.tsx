@@ -573,7 +573,7 @@ describe('FamilySampleQcPage', () => {
     expect(container.innerHTML).not.toMatch(/genotypes male/);
   });
 
-  describe('a sex check that could not run (CLIN-1)', () => {
+  describe('a sex check that could not run', () => {
     const noChrX = 'No chrX genotypes available for sex inference.';
     const unchecked =
       'Sex could not be checked for sample FATHER. A check that could not run counts as a warning, not a pass.';
@@ -744,14 +744,14 @@ describe('FamilySampleQcPage', () => {
     renderPage();
 
     expect(await screen.findByText("Paternity (the father's alleles in the cfDNA)")).toBeInTheDocument();
-    // The application's summary, as served (ENG-4: it no longer says "categories 7/8").
+    // The application's summary, as served.
     expect(screen.getByText(NIPT_SUMMARY)).toBeInTheDocument();
     expect(
       screen.getByText(/Father FATHER — homozygous alleles seen 40 of 41 \(all expected\), het alleles seen 50 of 110/),
     ).toBeInTheDocument();
     expect(screen.getByText('Fetal sex (paternal X transmission)')).toBeInTheDocument();
     expect(screen.getByText(/Fetus appears female — 12 paternal-X transmitted/)).toBeInTheDocument();
-    // Parents are now sexed (X zygosity), so the per-sample table renders; the
+    // Parents are sexed (X zygosity), so the per-sample table renders; the
     // cfDNA category QC card shows the maternal transmission rate.
     expect(screen.getByText('Family members & per-sample checks')).toBeInTheDocument();
     expect(screen.getByText('cfDNA category QC')).toBeInTheDocument();
@@ -760,9 +760,9 @@ describe('FamilySampleQcPage', () => {
     expect(screen.queryByText('Relatedness vs pedigree')).not.toBeInTheDocument();
   });
 
-  // SAFE-14 — the family record holds what the header warns of: an import that left the
-  // family incomplete, and an assembly outside the validated scope. The checks were shown
-  // without those warnings while the record loaded, and when it could not be loaded.
+  // The family record holds what the header warns of: an import that left the
+  // family incomplete, and an assembly outside the validated scope. The checks are not shown
+  // without those warnings, neither while the record loads nor when it could not be loaded.
   describe('without the family record', () => {
     const PASSING_QC = {
       family_id: 'FAM1',
@@ -841,7 +841,7 @@ describe('FamilySampleQcPage', () => {
       expect(screen.getByRole('heading', { name: 'Family FAM1' })).toBeInTheDocument();
     });
 
-    // ENG-10: the checks' own failure offered only "Back to family".
+    // The checks' own failure offers a retry, not only "Back to family".
     it('runs the checks again on Retry when they could not be computed', async () => {
       let qcFails = true;
       apiMock.get.mockImplementation((url: string) => {

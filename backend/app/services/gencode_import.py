@@ -1,17 +1,12 @@
 """GENCODE GTF → `genes` rows.
 
-The reference gene table used to be UCSC refGene, which gave transcript spans and
-little else: `biotype` was the literal string ``unknown`` on every row, there were no
-Ensembl or HGNC identifiers, and the gene set was whatever that one UCSC track carried.
-GENCODE is the annotation the rest of the pipeline is already built on — dbNSFP 5.4 is
-built on GENCODE 50 / Ensembl 116 — so taking the gene table from the same release
-makes the coordinates agree with the annotation, and brings real biotypes, MANE flags,
-and the `hgnc_id` that lets gene records join to HGNC by identifier instead of by name.
+GENCODE is the annotation the rest of the pipeline is built on — dbNSFP 5.4 is built on
+GENCODE 50 / Ensembl 116 — so taking the gene table from the same release makes the
+coordinates agree with the annotation, and brings real biotypes, MANE flags, and the
+`hgnc_id` that lets gene records join to HGNC by identifier instead of by name.
 
-Row shape is deliberately unchanged: **one row per transcript**, with `gene_id` holding
-the transcript identifier, exactly as the refGene import produced. That keeps the
-sixteen consumers of the table working on the same shape, and confines the change to
-the content of the rows.
+The row shape is **one row per transcript**, with `gene_id` holding the transcript
+identifier, the shape every consumer of the table reads.
 
 The GTF is streamed, never held in memory: the full annotation is ~250k transcripts and
 several million exon lines. Features arrive grouped (gene, then its transcripts, then
@@ -139,8 +134,7 @@ class _Transcript:
             refseq.insert(0, transcript_id)
         return {
             "assembly_id": assembly_id,
-            # Same semantics as the refGene import: the row is a transcript, and
-            # gene_id carries its accession.
+            # The row is a transcript, and gene_id carries its accession.
             "gene_id": transcript_id,
             "hgnc_symbol": self.attributes.get("gene_name") or self.gene_attributes.get("gene_name") or "",
             "chr": normalize_chromosome(self.chrom),
@@ -244,9 +238,8 @@ def iter_gencode_gene_rows(
 def parse_gencode_refseq_metadata(lines: Iterable[str]) -> dict[str, list[str]]:
     """Parse GENCODE's `metadata.RefSeq` file: transcript id → RefSeq accessions.
 
-    Searching by a RefSeq accession has to keep working after the swap — the refGene
-    table was keyed on them, so any saved query, panel or bookmark that names an
-    ``NM_`` accession would otherwise stop resolving.
+    A search by a RefSeq accession resolves through it, so a saved query, panel or bookmark
+    that names an ``NM_`` accession finds its transcript.
     """
     refseq_by_transcript: dict[str, list[str]] = {}
     for line in lines:

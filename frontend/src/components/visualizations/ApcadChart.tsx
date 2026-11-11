@@ -98,8 +98,8 @@ const ApcadChart: React.FC<Props> = ({
   const stablePcfUrls = useMemo(() => splitKey(pcfUrlKey), [pcfUrlKey]);
   const stableChroms = useMemo(() => splitKey(chromKey), [chromKey]);
 
-  // React Query caches/dedupes by URL across re-renders and navigation (was a raw
-  // fetch in useEffect). The data is static per family, so it is held indefinitely.
+  // React Query caches/dedupes by URL across re-renders and navigation. The data is static
+  // per family, so it is held indefinitely.
   const {
     data: trackData = null,
     isLoading,
@@ -113,7 +113,7 @@ const ApcadChart: React.FC<Props> = ({
     queryFn: async ({ signal }) => {
       const allowedChroms = new Set(stableChroms.map(normalizeChrom));
       // A 404 is the BED endpoints' "no data" answer; any other failure fails the chart
-      // rather than drawing (and caching) a partial track (#510).
+      // rather than drawing (and caching) a partial track.
       const [apcadPayloads, pcfPayloads] = await Promise.all([
         Promise.all(
           stableApcadUrls.map((url) =>
@@ -132,11 +132,11 @@ const ApcadChart: React.FC<Props> = ({
         payload?.items.forEach((item) => {
           const chromName = normalizeChrom(item.chr);
           const origin = (item.origin || 'und').toLowerCase();
-          // Every point the server sent is drawn, `und` included. Filtering to
-          // paternal/maternal here duplicated a decision the server already makes,
-          // and the two copies disagreed: a track with no parent-of-origin calls at
+          // Every point the server sent is drawn, `und` included. The server decides
+          // which markers to send; filtering to paternal/maternal here would duplicate
+          // that decision and disagree with it: a track with no parent-of-origin calls at
           // all -- HiFiCNV's minor-allele-fraction bigWig, where bigWig has nowhere
-          // to record one -- is served as `und` on purpose, and this dropped every
+          // to record one -- is served as `und` on purpose, and filtering would drop every
           // point of it, leaving "no APCAD data in this region" over a full track.
           // Where phased markers exist the server sends only those, so nothing here
           // changes for a trio. A site served without a value (null) has nothing to draw.
@@ -195,7 +195,7 @@ const ApcadChart: React.FC<Props> = ({
   }, [displayData, regionEnd, regionStart, stableChroms]);
 
   // The accessible name summarises what is drawn now. A failed load says so and never
-  // reads as an empty region (#510); nor does a load still in flight.
+  // reads as an empty region; nor does a load still in flight.
   const chartLabel = (() => {
     const measure = maxValue > 0 && maxValue <= 0.5 ? 'minor allele fraction' : 'B-allele frequency';
     const where = describeView(stableChroms, regionStart, regionEnd);
@@ -271,7 +271,7 @@ const ApcadChart: React.FC<Props> = ({
       ((value - xDomainStart) / xDomainSpan) * width;
     // Inset the BAF axis so the homozygous bands at value 0 and 1 — which for a
     // normal sample are *all* of its points — render fully on-canvas instead of as
-    // dots pinned to (and clipped at) the top/bottom pixel rows, where they were
+    // dots pinned to (and clipped at) the top/bottom pixel rows, where they would be
     // effectively invisible. Ticks use yScale too, so they stay aligned.
     const yPad = TRACK_DOT_RADIUS + 2;
     const axisTop = maxValue > 0 ? maxValue : 1;

@@ -1,5 +1,5 @@
 // One writer of a sequencing-QC value, for the members table's chip and a signed version's
-// sequencing QC (ENG-10): the signed report wrote "18.57 x" where the chip wrote "18.6x".
+// sequencing QC: both write "18.6x", never the raw "18.57 x".
 
 import { describe, expect, it } from 'vitest';
 

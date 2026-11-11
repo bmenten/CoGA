@@ -1,5 +1,5 @@
-// In-app routes encode the identifiers they carry (SEC-15): raw, an ID with `?`, `#` or `/`
-// broke in-app navigation.
+// In-app routes encode the identifiers they carry: raw, an ID with `?`, `#` or `/`
+// would break in-app navigation.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -56,8 +56,8 @@ describe('routePath', () => {
 });
 
 // Every in-app route that carries an identifier is built with routePath (or apiPath): a raw
-// template literal such as `/families/${familyId}` breaks on an ID with `?`, `#`, `%` or `/`
-// (SEC-15). This scans the app's source, tests left out, for such a template.
+// template literal such as `/families/${familyId}` breaks on an ID with `?`, `#`, `%` or `/`.
+// This scans the app's source, tests left out, for such a template.
 describe('the app builds routes with identifiers through routePath', () => {
   const sourceRoot = path.resolve(process.cwd(), 'src');
   const sources = (dir: string): string[] =>

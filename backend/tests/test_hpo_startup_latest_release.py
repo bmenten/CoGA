@@ -3,9 +3,9 @@
 The start reads which release HPO published last and downloads it from the release's own PURL,
 as the admin sync does (owner decision, 2026-11-05: download the newest by default, the local
 file only as a backup). The file is imported only if it states that release;
-the terms keep the release and the SHA-256 of the bytes imported (TRACE-18). When HPO cannot be
+the terms keep the release and the SHA-256 of the bytes imported. When HPO cannot be
 reached, or what it serves is refused, or HPO_DOWNLOAD_LATEST_ON_STARTUP is off, the start imports
-the vendored file, held to its pinned SHA-256 (TRACE-14, ``test_hpo_download_pin.py``).
+the vendored file, held to its pinned SHA-256 (``test_hpo_download_pin.py``).
 
 Nothing here goes to the network: HPO's servers are an httpx mock transport, and the backup
 download's urlopen is replaced.

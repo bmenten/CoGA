@@ -1,4 +1,4 @@
-"""The client address behind a known number of trusted reverse proxies (#520).
+"""The client address behind a known number of trusted reverse proxies.
 
 uvicorn's ``--proxy-headers`` with ``FORWARDED_ALLOW_IPS="*"`` (needed on Cloud Run,
 where the immediate peer is a varying Google address) takes the *left-most*
@@ -6,7 +6,7 @@ where the immediate peer is a varying Google address) takes the *left-most*
 Application Load Balancer the header reads ``<client-supplied…>, <client-ip>, <lb-ip>``:
 each trusted hop appends what it saw, so the real client is ``TRUSTED_PROXY_HOPS`` entries
 from the right. The audit log's ``remoteIp`` and the signup/login throttles use this
-address, so a client can no longer choose it.
+address, so a client cannot choose it.
 
 With ``TRUSTED_PROXY_HOPS=0`` (the default) the request is left as uvicorn resolved it.
 """

@@ -1,4 +1,4 @@
-"""The QC-report lookup finds a sample's report only in its own family's folders (SEC-25).
+"""The QC-report lookup finds a sample's report only in its own family's folders.
 
 The sequencing-QC report is served from the path the import recorded under
 ``samples.metadata['sequencing_qc']['report']``, relative to the family's package folder

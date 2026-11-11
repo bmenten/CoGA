@@ -73,7 +73,7 @@ describe('useStructuralVariantSearchState default (fresh open)', () => {
   });
 });
 
-// The clone used to spread `filter.gt` unguarded, so a partial filter threw (#528).
+// The clone fills `filter.gt` and the rest of a partial filter, never throws on one.
 describe('cloneSingleSampleFilter', () => {
   it('fills a partial filter with the defaults instead of throwing', () => {
     expect(cloneSingleSampleFilter({ qual: '20' })).toEqual({
@@ -103,8 +103,8 @@ describe('cloneSingleSampleFilter', () => {
     expect(payload.sample_filters.PROBAND.qual).toBe('30');
   });
 
-  // ENG-10: the preset list counted each member's role, which an SV preset keeps among its
-  // templates, as a rule: a trio's preset of one filter read "4".
+  // The preset list counts a preset's rules, not each member's role, which an SV preset keeps
+  // among its templates.
   it('counts the rules of a saved preset, not its members', () => {
     const payload = buildStructuralPresetPayload({
       filters: {} as never,
@@ -122,8 +122,8 @@ describe('cloneSingleSampleFilter', () => {
   });
 });
 
-// #604 — a location that reads as neither a gene nor a region is named, not searched:
-// sent on as a gene name, it matched nothing and read as a family without SVs.
+// A location that reads as neither a gene nor a region is named, not searched: sent on as a
+// gene name, it would match nothing and read as a family without SVs.
 describe('a location that cannot be read', () => {
   it('names the problem, or none', () => {
     expect(structuralLocationProblem({ locus: 'chr1:100-' })).toBe(

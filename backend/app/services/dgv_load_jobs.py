@@ -2,7 +2,7 @@
 
 The Database of Genomic Variants publishes one "variants" file per assembly and release (about
 two million rows, 360 MB). The release CoGA loads for GRCh37 and GRCh38 is pinned in
-``DGV_PINNED_RELEASES`` (``core/config.py``) by its URL, SHA-256 and size (TRACE-14). A load
+``DGV_PINNED_RELEASES`` (``core/config.py``) by its URL, SHA-256 and size. A load
 streams that file from DGV, parses it as it arrives and inserts its rows in one transaction,
 after deleting the assembly's DGV rows in the same transaction; it commits only once the whole
 file has been read and its size and SHA-256 are the pinned ones. A file that is not the pinned
@@ -18,7 +18,7 @@ the process that queued it: one job is queued or running at a time (a partial un
 constant), the running job carries its worker's id and a heartbeat, and the status read and a
 load request first close, as failed, a job whose worker has been silent for the stale window. A
 load an administrator asked for runs, and commits, only while that account is an active
-administrator (SEC-35), checked as it starts and again before the commit; a load a start queued
+administrator, checked as it starts and again before the commit; a load a start queued
 is no account's (``STARTUP_REQUESTER``), as for the gene-reference refresh.
 """
 
@@ -88,7 +88,7 @@ def _requester_lost(lapse: str) -> str:
     )
 
 
-# Why a load is not run, or not committed, as the job's error says (SEC-35). None names the
+# Why a load is not run, or not committed, as the job's error says. None names the
 # account: the job does.
 REQUESTER_GONE_ERROR = _requester_lost("no longer exists")
 REQUESTER_INACTIVE_ERROR = _requester_lost("has been deactivated")
@@ -246,7 +246,7 @@ async def queue_dgv_load(
     requested_by: CurrentUser | None,
 ) -> DgvLoadJobOut:
     """Queue the load of the assembly's pinned DGV release, and start it. ``requested_by`` is
-    the administrator who asked, kept by the account's id (SEC-35), or None for a load a start
+    the administrator who asked, kept by the account's id, or None for a load a start
     queues (``STARTUP_REQUESTER``). 400 for an assembly with no pinned release, 404 for an
     unknown one, 409 while another load is queued or running."""
     pin = pinned_release(assembly)
@@ -397,7 +397,7 @@ async def _record_failure(job_id: str, worker_id: str | None, error: str) -> Non
 async def _requester_refusal(job: dict[str, Any]) -> str | None:
     """Why the load is not run, or not committed, for the account that asked for it: it no
     longer exists (its deletion unlinks the job), has been deactivated, or is no longer an
-    administrator, as the route required (SEC-35). None while it is an active administrator,
+    administrator, as the route required. None while it is an active administrator,
     and for a load a start queued, which is no account's."""
     requester_id = job.get("requested_by_id")
     if requester_id is None and job.get("requested_by") == STARTUP_REQUESTER:
@@ -633,7 +633,7 @@ async def _run_job(job_id: str) -> None:
                     f"The DGV load was stopped after {timeout} seconds (DGV_LOAD_TIMEOUT_SECONDS). " + _UNCHANGED
                 ) from exc
             # Commit only while the job is still this worker's, and its requester still an
-            # active administrator: the load ran for minutes (SEC-35).
+            # active administrator: the load ran for minutes.
             if not await _update_job(job_id, owner, "heartbeat_at = now()", {}):
                 raise _JobClosed()
             refusal = await _requester_refusal(job)

@@ -5,8 +5,7 @@ the path the import recorded on the sample (``samples.metadata``: ``signal_track
 ``sequencing_qc.report``), relative to the family's package folder ``<data>/families/<family>``.
 A check only that the path stays inside the data directory would let an edited row holding
 ``..`` or an absolute path serve another family's track, listed in the manifest; a lookup that
-follows a package folder linked to another family's package would serve that family's report
-(SEC-25).
+follows a package folder linked to another family's package would serve that family's report.
 
 Over the real API (an in-process ``httpx.ASGITransport`` client, one event loop, see
 test_e2e_api_contract.py), with the families in Postgres made through the Family Builder and

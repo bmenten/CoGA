@@ -4,7 +4,7 @@ The status catalogue is a small lookup table (``family_statuses``) that admins
 curate from the admin dashboard. Individual families reference a status by UUID
 (``families.status_id``) plus optional ``assigned_to`` / ``reviewed_by`` users,
 all editable from the family-detail page by an analyst of the family's projects or
-an admin (a reader is refused at the family checkpoint, SEC-1).
+an admin (a reader is refused at the family checkpoint).
 
 The case is assigned to, and recorded as reviewed by, someone who may work on it: an
 active analyst of one of the family's projects, or an active administrator. The pickers
@@ -236,7 +236,7 @@ async def list_assignable_users(session: AsyncSession) -> list[UserRefOut]:
 # The users a family's case may be assigned to, or recorded as reviewed by: every active
 # superuser and administrator, and every active analyst of one of the family's projects whose
 # role lets them change records. A viewer, and a reader of the projects, is not one of them: they
-# read the family and change nothing (SEC-1).
+# read the family and change nothing.
 _FAMILY_ASSIGNABLE_USERS = text(
     """
     SELECT u.id::text AS id, u.username, u.email, u.first_name, u.last_name

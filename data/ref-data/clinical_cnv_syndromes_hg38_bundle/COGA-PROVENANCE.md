@@ -22,7 +22,7 @@ catalogue's *Recent reference activity* list shows `ClinGen_recurrent_CNV_V2.1-h
 Nothing in CoGA shows the V2.0 track name. The clinical CNV knowledgebase build does not read
 this file: it downloads ClinGen's V2.1 files itself.
 
-Both read only this release (TRACE-14). The startup loads a segmental-duplication file only if
+Both read only this release. The startup loads a segmental-duplication file only if
 its SHA-256 is this file's (`SEGMENTAL_DUPLICATIONS_PINNED_SHA256` in
 `backend/app/core/config.py`); another file, such as an edited copy in the reference-data
 bucket, is not loaded, and the log names it, both digests and the fix. The knowledgebase build

@@ -8,7 +8,7 @@ import {
 } from '../errorMessage';
 
 describe('errorMessage helpers', () => {
-  // #610 — only a 404 means the record does not exist; a failed request is not one.
+  // Only a 404 means the record does not exist; a failed request is not one.
   it('reads only an HTTP 404 as not found', () => {
     expect(isNotFoundError({ response: { status: 404, data: { detail: 'Family not found' } } })).toBe(true);
     expect(isNotFoundError({ response: { status: 500 } })).toBe(false);

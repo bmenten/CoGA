@@ -77,7 +77,7 @@ def own_error_message(exc: BaseException) -> str | None:
     database driver's, or a plain ``RuntimeError``/``ValueError`` -- whose text CoGA did not
     write and can quote what was being read: a failed statement's parameters, a line of a
     file, the address a source was fetched from. Such an error is stored and shown by its kind
-    (``describe_error``) instead (SEC-39).
+    (``describe_error``) instead.
 
     A CoGA error class carries CoGA's own sentence: one that wraps another error names that
     error by its kind, never by its text."""
@@ -226,7 +226,7 @@ class CoGALogger:
 
 # The keys whose values the request audit and the UI events mask, as a key starts with one,
 # in any case: a request body's and a query string's keys, a UI event's detail keys. One list
-# for both, which kept a copy each, so that neither can come to mask less (ENG-8).
+# for both, which kept a copy each, so that neither can come to mask less.
 SENSITIVE_KEY_PREFIXES = ("password", "secret", "token", "authorization", "api_key", "access_key")
 
 
@@ -237,7 +237,7 @@ def is_sensitive_key(key: object) -> bool:
     return any(lowered.startswith(prefix) for prefix in SENSITIVE_KEY_PREFIXES)
 
 
-# A link token in a query string (the QC-report link, #522). The access log records
+# A link token in a query string (the QC-report link). The access log records
 # the full request line; the token is a bearer credential for a few minutes.
 _QUERY_TOKEN_RE = re.compile(r"(?i)([?&](?:token|access_token)=)[^&\s\"]+")
 
@@ -260,7 +260,7 @@ class RedactQueryTokenFilter(logging.Filter):
 
 
 def install_access_log_redaction() -> None:
-    """Keep QC-report link tokens out of uvicorn's access log (#522)."""
+    """Keep QC-report link tokens out of uvicorn's access log."""
     access_logger = logging.getLogger("uvicorn.access")
     if not any(isinstance(existing, RedactQueryTokenFilter) for existing in access_logger.filters):
         access_logger.addFilter(RedactQueryTokenFilter())

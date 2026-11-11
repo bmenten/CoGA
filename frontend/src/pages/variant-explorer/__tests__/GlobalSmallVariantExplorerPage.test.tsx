@@ -217,12 +217,12 @@ describe('GlobalSmallVariantExplorerPage', () => {
     mockApi();
   });
 
-  describe('what the explorer can apply (#526)', () => {
+  describe('what the explorer can apply', () => {
     it('offers no filter its backend drops, and never sends one', async () => {
       renderPage();
       await findResults();
-      // The shared form offered these; the explorer's endpoint read none of them, so an
-      // applied chip claimed a filter the results did not reflect.
+      // The shared form has these; the explorer's endpoint reads none of them, so an applied
+      // chip would claim a filter the results do not reflect.
       expect(screen.queryByPlaceholderText('Transcript')).not.toBeInTheDocument();
       expect(screen.queryByPlaceholderText(/^Intervals:/)).not.toBeInTheDocument();
       expect(screen.queryByPlaceholderText(/^Excluded genes:/)).not.toBeInTheDocument();
@@ -243,7 +243,7 @@ describe('GlobalSmallVariantExplorerPage', () => {
       for (const unread of ['intervals', 'transcript', 'exclude_gene', 'exclude_intervals', 'exclude_review_tag', 'has_notes', 'locus', 'inheritance', 'prioritize']) {
         expect(request.has(unread), unread).toBe(false);
       }
-      // The ClinVar P/LP rescue, on by default, is now applied by the explorer too.
+      // The ClinVar P/LP rescue, on by default, is applied by the explorer too.
       expect(request.get('clinvar_overrides_frequency')).toBe('true');
     });
 
@@ -388,7 +388,7 @@ describe('GlobalSmallVariantExplorerPage', () => {
       });
       renderPage();
 
-      // With the server's reason and a retry (#606).
+      // With the server's reason and a retry.
       const failure = await screen.findByRole('alert');
       expect(failure).toHaveTextContent(
         'Could not load the variants — this is not an empty result. Request failed with status code 500',
@@ -695,9 +695,9 @@ describe('GlobalSmallVariantExplorerPage', () => {
       expect(screen.getByRole('button', { name: 'Download CSV' })).toBeEnabled();
     });
 
-    // The export stopped at its row cap, and searched only part of a large tag filter,
-    // without a word (DATA-2): the server now says so in its headers, and the page names the
-    // file and tells the user, as the family pages do.
+    // An export that stopped at its row cap, or searched only part of a large tag filter: the
+    // server says so in its headers, and the page names the file and tells the user, as the
+    // family pages do.
     const exportReply = (headers: Record<string, string>): Reply =>
       Promise.resolve({ data: 'Chromosome,Position\n13,32316461\n', headers });
 

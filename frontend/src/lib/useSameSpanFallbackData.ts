@@ -12,11 +12,11 @@ import { useRef } from 'react';
  * `scope` identifies what the data is OF — the chromosome plus whatever else keys the
  * track (sample, family, source). Held data is never shown under a different scope:
  * jumping to another chromosome at the same zoom must not keep painting the previous
- * chromosome's blocks (#510).
+ * chromosome's blocks.
  *
  * `failed` is the request's error state. A failure never falls back to held data: the
  * track shows the failure over an empty window, not the previous window's marks, which
- * no longer match the region (#586). Passing `null` for the data could not say this,
+ * no longer match the region. Passing `null` for the data could not say this,
  * since a request still loading has no data either.
  *
  * Returns null on a failure; otherwise the live data when present, otherwise the last

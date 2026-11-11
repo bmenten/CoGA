@@ -39,8 +39,8 @@ const formatNullableNumber = (value?: number | null, digits = 0): string => {
 
 // The backend decides what a copy-number change is: the normal copy number depends on
 // the region (NEB 6, a gene + pseudogene pair 4, ...) and, on chrX, on the sample's sex.
-// Re-deriving it here against a flat 2 flagged nearly every region, so the
-// "Copy-number changes only" filter hid nothing. Shared by the filter and the count.
+// Re-deriving it here against a flat 2 would flag nearly every region. Shared by the
+// "Copy-number changes only" filter and the count.
 // A member's call to look at whatever its copy number: pathogenic, carrier, or review (which a
 // fusion, or a value no rule of the region names, gives without any copy-number change).
 const ABNORMAL_CALL_STATUSES = new Set(['pathogenic', 'carrier', 'review']);

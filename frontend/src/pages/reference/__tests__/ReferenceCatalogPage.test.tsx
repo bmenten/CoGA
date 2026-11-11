@@ -182,7 +182,6 @@ describe('ReferenceCatalogPage', () => {
     expect(within(groups[2] as HTMLElement).queryByText(/with genes/)).not.toBeInTheDocument();
   });
 
-  // #610 — a failed list read "No species are configured yet", with counts of 0.
   describe('when a catalogue list fails', () => {
     const failing = (...urls: string[]) => {
       const get = api.get as unknown as Mock;
@@ -444,7 +443,7 @@ describe('ReferenceCatalogPage', () => {
 
     const prompt = await screen.findByText(/refresh cached human gene metadata/i);
     expect(prompt).toBeInTheDocument();
-    // The prompt names the sources the sync reads; it no longer calls Ensembl.
+    // The prompt names the sources the sync reads; it does not call Ensembl.
     expect(prompt).toHaveTextContent(/HGNC, ClinGen, GenCC, ClinVar, dbNSFP and NCBI Gene/);
     expect(prompt).not.toHaveTextContent(/ensembl/i);
     expect(api.post).not.toHaveBeenCalled();
@@ -558,7 +557,7 @@ describe('ReferenceCatalogPage', () => {
     expect(api.post).toHaveBeenCalledTimes(1);
   });
 
-  it('closes only the overwrite confirmation on Escape, then the upload dialog (#529)', async () => {
+  it('closes only the overwrite confirmation on Escape, then the upload dialog', async () => {
     (api.post as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
       response: { status: 409 },
     });
@@ -580,8 +579,6 @@ describe('ReferenceCatalogPage', () => {
     ).not.toBeInTheDocument();
   });
 
-  // A clinical CNV knowledgebase rebuild runs in the background; how it ended was not shown,
-  // so a failed rebuild looked like a finished one.
   // The manual entry registers an organism or an assembly that the UCSC import does not offer.
   it('adds an organism and an assembly by hand', async () => {
     vi.mocked(api.post).mockResolvedValue({ data: {} });

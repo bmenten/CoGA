@@ -332,7 +332,7 @@ async def test_the_upload_stores_the_merged_sites_as_the_primary_callset(storage
 @pytest.mark.asyncio
 async def test_the_upload_replaces_the_stored_callset_of_the_same_samples(storage, tmp_path: Path) -> None:
     storage["existing"] = 10
-    storage["stored_samples"] = {"MOTHER1", "father1-uuid"}
+    storage["stored_samples"] = {"MOTHER1", "FATHER1"}
     await _upload(_couple_files(tmp_path), exclude_filters=["RefCall", "NoCall"])
     assert storage["deleted"] == ["clair3"]
     assert storage["events"].index("delete") < storage["events"].index("insert")
@@ -357,7 +357,7 @@ async def test_a_file_of_a_sample_the_family_lacks_is_refused_showing_its_id_as_
     storage, tmp_path: Path
 ) -> None:
     # The refusal quoted the ID raw: its escape sequence reached the page and the job's record
-    # as it was (SEC-37). Each character a reader cannot see is shown as its escape.
+    # as it was. Each character a reader cannot see is shown as its escape.
     files = _couple_files(tmp_path)
     files[1] = PerSampleVcf("SIB\x1b[2J1", files[1].path)
     with pytest.raises(HTTPException) as raised:
@@ -381,7 +381,7 @@ async def test_a_file_that_cannot_be_read_with_the_others_fails_before_any_write
 async def test_a_file_cut_where_a_bgzf_block_ends_is_refused_before_any_write(storage, tmp_path: Path) -> None:
     # Cut where one of its BGZF blocks ends, the father's file is whole gzip: its records
     # after the cut were left out of the callset without a word. A BGZF file must end with
-    # BGZF's end-of-file block (DATA-4); the mother's plain gzip file has none.
+    # BGZF's end-of-file block; the mother's plain gzip file has none.
     files = _couple_files(tmp_path)
     text = _vcf("FATHER1", [_record("chr1", 1_000 + index * 10, "A", "G", "PASS", "0/1") for index in range(2_000)])
     files[1].path.write_bytes(bgzip_cut_after(text.encode(), 1))

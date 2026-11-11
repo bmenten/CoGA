@@ -132,12 +132,11 @@ async def _fetch_review_rows_for_variants(
     """The review rows of these variants, with the same columns as a single-review fetch.
 
     Every list of variants carries its reviews through this, so a list serves each review
-    as a read of that one review would. A list that selected its own columns once left out
-    the ACMG record, and every classified variant then came back without its criteria.
+    as a read of that one review would, its ACMG record included.
 
     The ids go as one text[] parameter, not one parameter per id (an expanding IN): a CSV
     export reads up to 50,001 rows, and asyncpg refuses a statement with more than 32,767
-    parameters, so every export of a larger result failed before its row cap (DATA-3).
+    parameters.
     """
     return await _fetch_review_rows(
         session,

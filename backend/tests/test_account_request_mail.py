@@ -1,4 +1,4 @@
-"""The mail to the administrators about an account that waits for approval (SEC-4).
+"""The mail to the administrators about an account that waits for approval.
 
 A sign-up and a first CAS sign-in make an inactive account; every active administrator is told
 by e-mail through the mail server ``SMTP_HOST`` names (services/account_notifications.py). These
@@ -12,7 +12,7 @@ pin that:
   outside development a user name without STARTTLS is refused at start;
 * without ``SMTP_HOST``, or without an administrator, no mail goes out, and the log says so
   without an address; a mail the server refuses is logged with the error's type only, never
-  the server's text, which quotes the addresses (SEC-11);
+  the server's text, which quotes the addresses;
 * ``GET /api/auth/account-request-mail`` says whether the mail goes out and to whom, and
   ``POST /api/auth/account-request-mail/test`` sends a test: 409 without a mail server or an
   administrator, 502 with the error's type when the server refuses it.

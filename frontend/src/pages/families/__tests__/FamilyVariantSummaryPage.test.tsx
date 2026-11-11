@@ -2,7 +2,7 @@
 // data the family has, the open one's section shown and the others hidden; the SV requests
 // (encoded id, 100k cap), per-chromosome/type and per-sample counts, the unique/shared sample
 // matrix, absolute-length histograms, states, and that nothing shows before the family and its
-// reference (SAFE-14).
+// reference.
 // The small-variant, repeat, Paraphase and mtDNA sections: VariantSummarySections.test.tsx.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -94,7 +94,7 @@ describe('FamilyVariantSummaryPage', () => {
   });
 
   it("asks for the family's SV lengths (capped at 100k), sharing and per-sample counts, with the id encoded", async () => {
-    // A family id with a path separator must stay one segment, not reach another endpoint (#521).
+    // A family id with a path separator must stay one segment, not reach another endpoint.
     serve('FAM%201%2F2', {
       lengths: [sv('1', 'DEL')],
       shared: { S1: { S1: 1 } },
@@ -272,7 +272,7 @@ describe('FamilyVariantSummaryPage', () => {
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 
-  it('gives a kind whose check failed a tab, so its section can say for itself (#607)', async () => {
+  it('gives a kind whose check failed a tab, so its section can say for itself', async () => {
     serve('F1', {
       has: { structural: false, paraphase: failWith(new Error('down')) },
     });
@@ -452,7 +452,7 @@ describe('FamilyVariantSummaryPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows no totals for the sharing matrix, whose cells do not add up to one (#526)', async () => {
+  it('shows no totals for the sharing matrix, whose cells do not add up to one', async () => {
     // One SV carried by all three of a trio is in every pair's cell: the row sums read
     // 2 each and the grand sum 6, while the family has one SV.
     serve('F1', {
@@ -594,9 +594,9 @@ describe('FamilyVariantSummaryPage', () => {
     ).toBeInTheDocument();
   });
 
-  // SAFE-14 — the family record holds what the header warns of: an import that left the
-  // family incomplete, and an assembly outside the validated scope. The summary was shown
-  // without those warnings while the record loaded, and when it could not be loaded.
+  // The family record holds what the header warns of: an import that left the
+  // family incomplete, and an assembly outside the validated scope. The summary is not shown
+  // without those warnings, neither while the record loads nor when it could not be loaded.
   describe('without the family record', () => {
     it('shows none of the summary before the family, and then its reference, are in', async () => {
       const family = held();

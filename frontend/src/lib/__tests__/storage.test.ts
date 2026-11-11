@@ -1,7 +1,7 @@
 // The storage wrapper falls back to a copy in the page's memory where the browser's storage is
-// unavailable or refuses a write. The browser's storage is shared by the tabs of the browser:
-// the page kept a copy of every write, and read it back once another tab had removed the key,
-// such as the session's token at a logout in that tab (found while fixing SEC-36).
+// unavailable or refuses a write. The browser's storage is shared by the tabs of the browser, so
+// a write it takes drops the copy: a copy kept of every write would be read back once another
+// tab had removed the key, such as the session's token at a logout in that tab.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryStorage, storage } from '../storage';
@@ -31,7 +31,7 @@ describe('storage fallback', () => {
   });
 });
 
-describe('a key in the storage the tabs share (found while fixing SEC-36)', () => {
+describe('a key in the storage the tabs share', () => {
   beforeEach(() => {
     storage.clear();
   });
@@ -41,7 +41,7 @@ describe('a key in the storage the tabs share (found while fixing SEC-36)', () =
     // Another tab of the browser removes it.
     localStorage.removeItem('token');
 
-    // Before, the page read back its own copy of the write.
+    // The page does not read back its own copy of the write.
     expect(storage.getItem('token')).toBeNull();
     expect(storage.length).toBe(0);
     expect(storage.key(0)).toBeNull();
@@ -65,7 +65,7 @@ describe('a key in the storage the tabs share (found while fixing SEC-36)', () =
     storage.setItem('role', 'viewer');
     localStorage.removeItem('role');
 
-    // Before, the page's copy of the write the browser took came back.
+    // The page's copy of the write the browser took does not come back.
     expect(storage.getItem('role')).toBeNull();
   });
 });

@@ -864,7 +864,7 @@ async def delete_small_variant_tag_definition(
 
 
 async def deactivate_project_tag_definitions(session: AsyncSession, *, project_id: str) -> None:
-    """Deactivate the tags defined for a project, in the transaction that deletes it (SAFE-37).
+    """Deactivate the tags defined for a project, in the transaction that deletes it.
 
     The project's deletion then detaches them (``ON DELETE SET NULL``), and its links go with
     it; a tag's links to other projects stay. Each tag is kept as a delete keeps it: inactive,

@@ -4,10 +4,10 @@ The HPO admin page shows the newest release HPO has published beside the loaded 
 check), and its sync can take a release's file from HPO instead of from a folder on the server. A
 downloaded file goes through the sync as a file on disk does (``hpo_service.sync_hpo_ontology``):
 it must state the release asked for, its changes are previewed, and it is applied only with the
-SHA-256 the preview showed (TRACE-18). A start on an empty database imports the newest release
+SHA-256 the preview showed. A start on an empty database imports the newest release
 the same way, without the preview: the file must state the release, and its SHA-256 is kept with
-the terms (``hpo_service.ensure_hpo_ontology_on_startup``); the vendored release is its backup
-(TRACE-14). Nothing here imports anything.
+the terms (``hpo_service.ensure_hpo_ontology_on_startup``); the vendored release is its backup.
+Nothing here imports anything.
 
 The newest release is read from HPO's GitHub releases (``HPO_LATEST_RELEASE_API_URL``); a release's
 file from ``https://purl.obolibrary.org/obo/hp/releases/<date>/hp.obo``, which never floats and

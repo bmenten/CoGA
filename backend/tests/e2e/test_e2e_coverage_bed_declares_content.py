@@ -1,4 +1,4 @@
-"""Each coverage BED declares what it holds, read depth or a log2 ratio (TRACE-9), E2E.
+"""Each coverage BED declares what it holds, read depth or a log2 ratio, E2E.
 
 Nothing in a coverage BED's values says what they are: undeclared, the depth readers would read
 a log2 ratio as depth and the coverage chart would draw depth on its log2-ratio axis. Each declares

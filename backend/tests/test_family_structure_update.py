@@ -9,7 +9,7 @@ was kept (``raw_datasets_preserved``), false when ``clear_existing_genomic_data`
 deleted the family's variants, tracks and reviews, and a clear is recorded, with a warning, even
 when nothing else changed. The record's
 reason is bound as text (``CAST(:reason AS text)``), which asyncpg needs to type a parameter
-inside ``jsonb_build_object`` (SAFE-31).
+inside ``jsonb_build_object``.
 
 The structure's reads and writes are faked at the service's helpers; the ``UPDATE families``
 statement runs against a session that records it. All IDs are synthetic.
@@ -259,7 +259,7 @@ async def test_a_clear_without_any_other_change_is_still_recorded(
 
 @pytest.mark.asyncio
 async def test_family_structure_update_query_reason_parameter_is_typed(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The change itself, as update_family_structure_for_admin runs it (SAFE-31): the reason
+    # The change itself, as update_family_structure_for_admin runs it: the reason
     # goes into jsonb_build_object, where asyncpg cannot type an untyped parameter.
     _patch(monkeypatch, data_counts=DATA, members=FATHER_AND_CHILD)
     session = _RecordingSession()

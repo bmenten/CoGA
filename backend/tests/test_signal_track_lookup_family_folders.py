@@ -1,4 +1,4 @@
-"""The signal-track lookup finds a track only in its own family's folders (SEC-25).
+"""The signal-track lookup finds a track only in its own family's folders.
 
 The CNV caller's signal files (read depth, minor allele fraction, copy number) are served to
 IGV from the path the import recorded under ``samples.metadata['signal_tracks']``, relative to
@@ -8,8 +8,8 @@ the joined path stays inside the data directory would let a recorded path such a
 ``../F2/cnv/S2.depth.bw``, or an absolute path into family F2's folder, serve F2's track under
 a sample of F1, listed in the manifest, and a symlinked folder or file lead into another
 family's folder; a family ID that is no single folder name (``..``, ``../F2``) would reach
-other families' folders too. The alignment lookup guards against the same (SEC-20,
-``test_alignment_lookup_family_folders.py``).
+other families' folders too. The alignment lookup guards against the same
+(``test_alignment_lookup_family_folders.py``).
 
 The recorded path is joined to the package folder and normalised as a string, and dropped
 before anything is looked up when it leaves that folder; one that stays must also have its

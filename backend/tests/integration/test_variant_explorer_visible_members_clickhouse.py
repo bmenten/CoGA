@@ -6,9 +6,8 @@ member taken out of the family later (a structure edit's ``remove_members``, whi
 the imported data unless asked to clear it) keeps its calls in those rows, but its family no
 longer shows it: the family search reads the calls of the family's active members alone
 (``_visible_clickhouse_sample_ids``). The Explorer reads each family's rows by the same rule:
-its counts, its export, its carriers and its sample genotype filter. It counted every call a
-row holds, so a taken-out member was counted, listed without a role, and kept variants
-through the genotype filter.
+its counts, its export, its carriers and its sample genotype filter, so a taken-out member is
+not counted, not listed, and keeps no variant through the genotype filter.
 
 Family A is a quad imported with its father FATHER1 and its sibling SIBLING, who were then
 taken out of the family; FATHER1 was added to family C of his own, whose callset holds one

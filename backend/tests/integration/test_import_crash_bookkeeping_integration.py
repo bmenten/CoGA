@@ -15,11 +15,11 @@ drives the real statements against the real schema:
 - after a failed overwrite whose restore failed part-way, the import's entry stays, naming
   every dataset the family's imports recorded (``imported_scopes``) besides its own, and
   goes only once each has been imported again with overwrite; a refused restore swaps the
-  entry for the flag (SAFE-16);
+  entry for the flag;
 - a single-file upload's record is written in the upload's transaction and takes turns
   with an import's bookkeeping on the family row, so neither loses the other's; the entry
   of a restore that failed part-way names what uploads brought, and only an upload with
-  overwrite strikes it off (SAFE-19);
+  overwrite strikes it off;
 - the pipeline parameters an import records are set without writing back a stale copy of
   the metadata;
 - of three stale jobs, the one that was running is ended (its log kept, a line added), the
@@ -77,7 +77,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
 
     label = f"import-crash-{uuid4()}"
     # What an overwrite of each dataset replaces (dataset_scopes): the SNV dataset's callset,
-    # `auto` as it resolved (SAFE-23).
+    # `auto` as it resolved.
     scopes = {
         "snv": {"source": "clair3", "samples": None},
         "coverage": {"source": None, "samples": ["S1"]},
@@ -288,7 +288,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
 
 
 def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_again_in_full() -> None:
-    # SAFE-16. A failed overwrite's restore rewrites every table's rows of the family,
+    # A failed overwrite's restore rewrites every table's rows of the family,
     # whichever import wrote them: one that fails part-way keeps the import's entry, naming
     # every dataset of the family, until each has been imported again with overwrite.
     from backend.app.core.postgres import get_postgres_sessionmaker
@@ -443,12 +443,12 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
 
 
 def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() -> None:
-    # SAFE-19. A single-file upload's record, in the upload's transaction: what it brought
+    # A single-file upload's record, in the upload's transaction: what it brought
     # is added to imported_scopes, so a restore that fails part-way names it, and an upload
     # with overwrite strikes it off that entry; the record and a package import's
     # bookkeeping take turns on the family row, so neither loses the other's. An upload of
     # data Postgres alone holds (the repeat calls) is not named: the restore puts Postgres
-    # back whole or not at all (SAFE-18).
+    # back whole or not at all.
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services import report_signout_service as rss
     from backend.app.services.family_package_registration import (

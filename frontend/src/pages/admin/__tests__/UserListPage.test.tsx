@@ -1,9 +1,8 @@
 // Pins the admin Users page: it reads /auth/users and /projects, lists each account with how it
 // signs in, when it was added, where it stands and its project names. Each write is asked for
 // confirmation first and then PATCHes one field (the activation checkbox is_active, the role
-// select the role, Archive and Restore archived) or DELETEs an account that was never active
-// (SEC-4). The project access dialog PATCHes the account's projects and its reader projects
-// (SEC-1).
+// select the role, Archive and Restore archived) or DELETEs an account that was never active.
+// The project access dialog PATCHes the account's projects and its reader projects.
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -33,7 +32,7 @@ type TestUser = {
   sign_in?: 'microsoft' | 'cas' | 'password';
   is_active: boolean;
   projects: string[];
-  // The projects among `projects` where the user only reads (SEC-1).
+  // The projects among `projects` where the user only reads.
   reader_projects?: string[];
   created_at: string;
   // None while the account waits for approval; set once it was first active.
@@ -106,7 +105,7 @@ const DEACTIVATED: TestUser = {
 const MAIL = { enabled: true, recipients: ['ann@example.com'] };
 
 // As /projects serves them (ProjectDashboardOut): a project's id is `_id`. The page read `id`,
-// which the backend never sends, so it listed no user's projects (ENG-7).
+// which the backend never sends, so it listed no user's projects.
 const PROJECTS = [
   { _id: 'p1', name: 'Rare disease', description: 'Trio exomes' },
   { _id: 'p2', name: 'NIPT' },
@@ -213,7 +212,7 @@ describe('UserListPage', () => {
     expect(within(surnameOnly).getByText('Oncology')).toBeInTheDocument();
   });
 
-  it('names the level of each project access: analyst or reader (SEC-1)', async () => {
+  it('names the level of each project access: analyst or reader', async () => {
     renderPage();
     await screen.findByRole('table');
 
@@ -282,7 +281,7 @@ describe('UserListPage', () => {
     await user.click(within(rowOf('new.registrant@example.com')).getByRole('checkbox'));
     await confirmDialog('Activate new.registrant@example.com?', 'Activate');
 
-    // An id must not be able to steer the PATCH at another endpoint (#521).
+    // An id must not be able to steer the PATCH at another endpoint.
     await waitFor(() =>
       expect(mockedPatch).toHaveBeenCalledWith('/auth/users/..%2Fprojects%2Fp1', {
         is_active: true,
@@ -336,7 +335,7 @@ describe('UserListPage', () => {
     // checkbox is usable again for a retry.
     expect(annBox).toBeChecked();
     expect(annBox).toBeEnabled();
-    // And the page says so, with the reason: the checkbox snapping back was all it showed (#526).
+    // And the page says so, with the reason, not only by the checkbox snapping back.
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Could not deactivate ann@example.com: Database unavailable',
     );
@@ -389,8 +388,8 @@ describe('UserListPage', () => {
     ['the error message when there is no detail', new Error('Request timed out'), 'Request timed out'],
     ['a generic sentence for an empty error', {}, 'The user list could not be loaded.'],
     ['a generic sentence for a non-object failure', 'boom', 'The user list could not be loaded.'],
-    // The page used its own reader, which showed a structured detail as "[object Object]"
-    // and a dropped connection as axios's bare "Network Error".
+    // A structured detail reads as its message, never "[object Object]", and a dropped
+    // connection as the API-unreachable sentence, never axios's bare "Network Error".
     ['a structured detail’s message', { response: { status: 409, data: { detail: { message: 'Busy' } } } }, 'Busy'],
     [
       'the API-unreachable sentence for a network failure',
@@ -421,7 +420,7 @@ describe('UserListPage', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
-  describe('the role of an account (SEC-4)', () => {
+  describe('the role of an account', () => {
     beforeEach(() => {
       localStorage.clear();
     });
@@ -503,7 +502,7 @@ describe('UserListPage', () => {
     });
 
     it('does not let the signed-in administrator deactivate their own account', async () => {
-      // SEC-32: the backend refuses it too; the box said nothing until the request failed.
+      // The backend refuses it too; the box is disabled and says why, before any request.
       localStorage.setItem('username', 'ann@example.com');
       renderPage();
       await screen.findByRole('table');
@@ -547,7 +546,7 @@ describe('UserListPage', () => {
     });
   });
 
-  describe('accounts waiting for approval, archived and deleted (SEC-4)', () => {
+  describe('accounts waiting for approval, archived and deleted', () => {
     it('says when each account was added and where it stands, the accounts waiting for approval first', async () => {
       serve([ANN, DEACTIVATED, PENDING, SURNAME_ONLY]);
       renderPage();
@@ -716,7 +715,7 @@ describe('UserListPage', () => {
     });
   });
 
-  describe('the project access of an account (SEC-1)', () => {
+  describe('the project access of an account', () => {
     const openAccess = async (email: string) => {
       await userEvent.click(screen.getByRole('button', { name: `Edit project access: ${email}` }));
       return screen.findByRole('dialog', { name: `Project access of ${email}` });

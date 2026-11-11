@@ -7,7 +7,7 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 |---|---|---|---|---|
 | REG-1 | P1 | Bring the TF-09b statuses and gap texts in line with the software | QA, owner | RC |
 | CLIN-57 | P1 | Validate TRGT's repeat count per catalogue locus; enter the count corrections of FMR1, HTT and POLG | QA, lab director | RC |
-| REG-13 | P1 | Review the technical file's signed-record corrections (#997) | QA | RC |
+| REG-13 | P1 | Review the technical file's signed-record corrections | QA | RC |
 | OPS-2 | P1 | Make the CI `images` job a required check; configure Google Cloud so images are pushed | owner, ops | RC |
 | OPS-3 | P1 | Apply Terraform; set the deploy trigger to `release` | ops, owner | RC |
 | OPS-4 | P1 | Turn on the go-live switches, one change-controlled deployment each | ops | go-live |
@@ -24,9 +24,9 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 | SEC-6 | P2 | Set retention and masking of the request audit and UI-event log (TF-14, INPUTS E5) | owner, DPO | go-live |
 | REG-12 | P2 | Confirm or reverse the choices the fix PRs left for the owner or QA | QA, owner | RC |
 | REG-14 | P2 | Decide which browser journeys back a TF-09d claim | owner, QA | RC |
-| REG-16 | P2 | Add to TF-10 §8 the clinical behaviour built since 2026-11-03 that no area covers; validate the two Major filter changes with it | developer, QA | RC |
+| REG-16 | P2 | Add to TF-10 §8 the clinical behaviour no area covers; validate the two Major filter changes with it | developer, QA | RC |
 | REG-15 | P2 | Decide whether the variant summary's figures belong in the validation scope: no rule reads them, but its Mendelian table can point to UPD | QA | RC |
-| CLIN-9 | P2 | Confirm the carrier-screening preset and the chrM exclusion (#763) | QA | RC |
+| CLIN-9 | P2 | Confirm the carrier-screening preset and the chrM exclusion | QA | RC |
 | CLIN-10 | P2 | Check parent–embryo IBS0 on one real imputed PGT family's Sample QC page | owner | validation |
 | CLIN-18 | P2 | Fill in what APCAD stands for (`user-guide/glossary.md`) | lab director | RC |
 | OPS-15 | P2 | Fix the clinical build's GitHub links (`build.yml` passes no `VITE_GITHUB_*`) | owner | RC |
@@ -54,7 +54,6 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 | TRACE-10 | P3 | Decide how a segments-only BED is drawn and what a segments or APCAD read without `source` returns | owner, developer | |
 | TRACE-21 | P3 | Decide whether a family that loses a project link gets a clinical audit event | owner | |
 | OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
-| OPS-17 | P3 | Rebuild the clinical CNV knowledgebase for both assemblies on each database built before its sources failed closed; a start builds it only where an assembly has none | ops | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
 | ENG-24 | P3 | Make the end-to-end modules independent of their order: the review-audit module leaves a variant tagged for the report | developer | |
 | ENG-25 | P3 | Settle the copies that differ: two ROI region parsers, two Mendelian-consistency rules, two `_coerce_int`; drop the unused tag `family_id` column | developer | |
@@ -73,10 +72,10 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ## P1
 
-### REG-1 · TF-09b rows whose status no longer matches the software
+### REG-1 · TF-09b rows whose status does not match the software
 
 - QA confirms REQ-QC-005 ✅ and REQ-CARR-003 ✅ (the printed NIPT report names only the local panel version).
-- QA sets REQ-PGT-008's status (⚠ since the owner reworded it: tracks shown, no aneuploidy detector).
+- QA sets the status of REQ-PGT-008 as the owner worded it (tracks shown, no aneuploidy detector); it reads ⚠.
 - The owner rewords REQ-PGT-007, REQ-PGT-009 and TF-05's "simultaneous aneuploidy" as REQ-PGT-008 was.
 - REQ-TRACE-007: the owner answers its 🔲 (freeze frequencies, predictions, gene context too?); QA confirms the gap text.
 
@@ -87,11 +86,11 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - FMR1's difference varies (1–3), so a constant correction is wrong there: it stays warned.
 - QA words the TF-09a requirement and a TF-06 hazard for the correction with the next free number (H17 and H18 are taken), and decides whether the backend refuses a correction at FMR1 and whether ±20 is the right bound.
 
-### REG-13 · QA review of the signed-record corrections (#997)
+### REG-13 · QA review of the signed-record corrections
 
 - Review TF-06 H4–H6, H9, §4 item 1; TF-01 §3.3, §4 condition 7; TF-02 §6; TF-03 §16.1; TF-15 §5.
 - Reconsider the 🔲 at H5, H6, H9, TF-03 §16.1's ◐ and TF-02 §6's 🔲 OWNER (decided 2026-10-14). TF-02 §6 still signs a NIPT family out from the NIPT page: it is the NIPT report.
-- Decide whether TF-06 §4's embryo-QC example belongs under item 2, and whether TF-12 U2 and TF-15 §3 items 2 and 7 name the newer controls.
+- Decide whether TF-06 §4's embryo-QC example belongs under item 2, and whether TF-12 U2 and TF-15 §3 items 2 and 7 name the controls these corrections describe.
 
 ### OPS-3 · Terraform never applied
 
@@ -107,7 +106,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ### REG-3 · RC steps (TF-18 §3a)
 
 - Feature freeze, the `-rc.N` tag, a risk-based review of the clinical-critical modules, the bio-IT ingangsvalidatie (H11.1-F12.2), the security go-live (OPS-4), QA's confirmation of the TF-10 §8 list, the first per-release review (REG-8).
-- QA decides #894's proposal: freeze the schema baselines at the RC; every later change a numbered revision.
+- QA decides the proposal to freeze the schema baselines at the RC (TF-18 §3a); every later schema change a numbered revision.
 
 ### REG-4 · Technical-file sign-off (#518)
 
@@ -144,44 +143,44 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ### REG-12 · Owner and QA confirmations of the fix rounds
 
-- The choices of #790–#1027 are listed by PR under REG-12 in this file's previous version (`git show dbdf9ffc:docs/open-issues.md`); later fix PRs name theirs in their description (e.g. #1041, #1045, #1077, #1101).
-- The 2026-11-04 round (#1112–#1138):
-    - The five decision dates and roles written into the technical file in place of PR numbers (#1113).
+- The choices of the fix rounds up to 2026-10-28 are listed under REG-12 in `git show dbdf9ffc:docs/open-issues.md`; the other fix pull requests name theirs in their description.
+- The round of 2026-11-04:
+    - The five decision dates and roles the technical file names: TF-06 H15 and §7, TF-02 §10 and TF-14, REQ-NIPT-005, TF-01 with TF-06 §4 and H5, REQ-DIAG-002.
     - `security-posture.md` says the device owner confirmed the sign-up password policy; the change that set it says the lab director.
-    - Class labels in sentence case: migration 0013 without a clinical audit event (owner's decision, #1123).
-    - An unresolved manifest ROI clears the family's (owner's decision, #1126).
-    - Review saves refuse a field they do not take (owner's decision for the SV save, #1119).
-    - An in-package `manifest.yaml` link is replaced, not written through (#1122).
-    - A Monarch download over the size cap answers 502, not 500 (#1133).
-    - The count correction: always applied once recorded; the boundary warning lifted only by validation (#1135).
-    - T2T-CHM13's PARs: a man is now hemizygous outside them on T2T (#1136; T2T is outside the validated scope).
+    - Class labels in sentence case; a review's classification is free text, stored as sent and compared whatever its case (owner's decision).
+    - An unresolved manifest ROI clears the family's (owner's decision).
+    - Review saves refuse a field they do not take (owner's decision for the SV save).
+    - An in-package `manifest.yaml` link is replaced, not written through.
+    - A Monarch download over the size cap answers 502, not 500.
+    - The count correction: always applied once recorded; the boundary warning lifted only by validation.
+    - T2T-CHM13's PARs: a man is hemizygous outside them on T2T (T2T is outside the validated scope).
 - 2026-11-05 to 2026-11-09:
     - The package file `coga-package.json`'s choices, to confirm with the pipeline owners ([coga-package.md](coga-package.md)): MD5 accepted beside SHA-256, a minimal file accepted (CoGA proposes the members and datasets), `request_id` kept, a pipeline QC `fail` needs attention, an unknown field refused.
-    - A review's classification text is audited as stored, trimmed but case-sensitive (#1199).
+    - A review's classification text is audited as stored, trimmed but case-sensitive.
 - 2026-11-10:
-    - Raw files are read only in the latest import's package folder and CoGA's upload folder, as IGV reads them (the owner's decision): the files an earlier package of the same family recorded show as not read (#1204).
-    - An error of a class CoGA defines keeps its text where an import or a gene source stores its failure (`own_error_message`); any other is named by its kind. The sign-out tamper alarm's log field is now `family_uuid` (#1213). A refused raw-file path is logged by its kind (the owner's decision, #1215).
-    - The import-job service refuses a user below superuser itself, as its routes already did (#1206).
-    - A stored bare class word ("Pathogenic") shows as its label in the Explorer, and a class tag outranks a class label in the text (#1205).
-    - A deleted project's tags are kept inactive and detached; a family lists the tags its reviews hold (the owner's decision, #1210). A held tag of a project the family only left reads "(deleted)" (UI-8).
+    - Raw files are read only in the latest import's package folder and CoGA's upload folder, as IGV reads them (the owner's decision): the files an earlier package of the same family recorded show as not read.
+    - An error of a class CoGA defines keeps its text where an import or a gene source stores its failure (`own_error_message`); any other is named by its kind. The sign-out tamper alarm's log field is `family_uuid`. A refused raw-file path is logged by its kind (the owner's decision).
+    - The import-job service refuses a user below superuser itself, as its routes do.
+    - A stored bare class word ("Pathogenic") shows as its label in the Explorer, and a class tag outranks a class label in the text.
+    - A deleted project's tags are kept inactive and detached; a family lists the tags its reviews hold (the owner's decision). A held tag of a project the family only left reads "(deleted)" (UI-8).
 - A point that asks only for a TF-10 §8 phrase lapses where a TF-10 §8 area covers it.
-- Approve the drafts merged for it: TF-09a REQ-SEC-001 and TF-13 §2 (#1037); the APCAD definition and contamination wording (#1038).
+- Approve the drafts written for it: TF-09a REQ-SEC-001 and TF-13 §2; the APCAD definition and contamination wording.
 - Done when: one QA record marks each choice confirmed or to change.
 
 ### REG-14 · Journeys TF-09d does not list
 
 - `frontend/e2e/` holds `findingReview.spec.ts` and `ancestry.spec.ts` beside TF-09d §3's four. Listing them widens the claim; the ancestry journey checks a phone viewport, which TF-09d puts out of scope.
 
-### REG-16 · Validation scope of the work since 2026-11-03
+### REG-16 · Clinical behaviour no TF-10 §8 area covers
 
-- TF-10 §8 lists the clinical behaviour the first validation must exercise; a pre-release change adds a line only where no area covers it. None was added for:
+- TF-10 §8 lists the clinical behaviour the first validation must exercise; a pre-release change adds a line only where no area covers it. It has none for:
     - one definition of the small-variant filters, the family search's SQL: the ranked, paired and carrier-screening views keep what the plain list keeps, and the phase-set and PASS-only filters read only the family's members' calls (both Major, by the owner's decision of 2026-11-06; each asked for a clinical follow-up validation before the RC);
     - the PASS-only filter: every member's call that carries the ALT allele passed (PASS, `.` or none), read from its own FILTER in a callset of one file per sample and from the record's in a multi-sample VCF;
     - the Variant Explorer: each family's rows read through the family search's filters, counting only the members the family shows;
-    - the annotation read since 2026-11-06: ClinVar from the annotated ClinVar file before VEP's cache, a multi-allelic record's annotation tied to its ALT, a field listing several values read as none, VEP's `MAX_AF` kept apart from gnomAD's popmax, and the owner's ACMG rules of 2026-11-06 (no criterion applied on a missing value; BA1/BS1 on gnomAD's FAF95; PP5/BP6 always to consider; PVS1 to consider on a LOFTEE flag or an NMD-escaping variant; the mtDNA frequencies);
+    - the annotation reading: ClinVar from the annotated ClinVar file before VEP's cache, a multi-allelic record's annotation tied to its ALT, a field listing several values read as none, VEP's `MAX_AF` kept apart from gnomAD's popmax, and the owner's ACMG rules of 2026-11-06 (no criterion applied on a missing value; BA1/BS1 on gnomAD's FAF95; PP5/BP6 always to consider; PVS1 to consider on a LOFTEE flag or an NMD-escaping variant; the mtDNA frequencies);
     - imports from a watched folder: the package file and its checksums, the manifest made from it, the approval queue, the manifest kept in CoGA, and an import refused or undone when its package changed;
     - a new instance's references: HPO's newest release, recorded with its SHA-256, and Monarch's newest release, recorded in the annotation manifest.
-- The review-classification filters now keep a variant by the class its review shows (Major; the owner signed off its before/after table on 2026-11-10, #1214). That change added its own TF-10 §8 line; its follow-up validation joins this list.
+- The review-classification filters keep a variant by the class its review shows (Major; the owner signed off the table of its effect on 2026-11-10). TF-10 §8 has its own line for it; its follow-up validation joins this list.
 - The developer drafts the lines, after checking each against the code; QA confirms them with the list at the RC (REG-3).
 
 ### REG-15 · The variant summary's figures (PROD-1)
@@ -225,9 +224,9 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ### SEC-40 · Error text still stored, answered or logged
 
-- SEC-39 kept an error's text out of the import's and the gene sources' records; the same pattern remains in:
+- An import's and a gene source's stored failure name an error by its kind unless CoGA defines its class (`own_error_message`). An error's text is still stored, answered or logged in:
     - stored job errors: `dgv_load_jobs.py` (~678, ~681), `clinical_cnv_kb_jobs.py` (~677), `hpo_service.py` (~1646);
-    - CoGA error classes that wrap another error's text, which `own_error_message` would keep: `monarch_ingest.py` (~114), `monarch_semsim.py` (~113), `hpo_release_download.py` (~151, ~177), `hpo_service.py` (~682), `reference_source_service.py` (~696), `postgres_migrations.py` (~166, ~212);
+    - CoGA error classes that wrap another error's text, which `own_error_message` would keep: `monarch_ingest.py` (~114), `monarch_semsim.py` (~113), `hpo_release_download.py` (~151, ~177), `hpo_service.py` (~682), `reference_source_service.py` (~696), `postgres_migrations.py` (~215, ~263);
     - HTTP answers that quote an exception's text: `routers/admin.py` (~943, ~945, ~1012, ~1018), `routers/families.py` (~298), `routers/auth.py` (~627), and `family_package_discovery.py` (~2303, a YAML error quoting the manifest);
     - log lines with an exception's text: `dependencies.py` (~130), `routers/auth.py` (~372, ~626), `account_notifications.py` (~205), `monarch_ingest.py` (~124, ~532), `monarch_semsim.py` (~112), `hpo_service.py` (~759, ~825, ~847), `reference_metadata_service.py` (~640), `reference_source_service.py` (~691).
 
@@ -254,7 +253,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ### DATA-13 · Package files that pass validation unread
 
 - Discover on a package whose SNV family VCF is damaged answers 500: `family_package_discovery.py::_vcf_meta_lines` catches `OSError`, `EOFError` and `UnicodeError`, not `zlib.error`.
-- The validation still accepts without a word a SNV, NeedlR, TRGT or mito VCF (family or per sample) it cannot read (`family_package_validation.py::_warn_file_without_a_record`), and the per-sample SNV check does not check a BGZF file's end, so one cut in its records passes. The APCAD fix's `read_whole_vcf_sample_columns` reads them as the import does.
+- The validation still accepts without a word a SNV, NeedlR, TRGT or mito VCF (family or per sample) it cannot read (`family_package_validation.py::_warn_file_without_a_record`), and the per-sample SNV check does not check a BGZF file's end, so one cut in its records passes. `read_whole_vcf_sample_columns` reads them as the import does.
 - An APCAD per-sample `.csv.gz` or `.bed.gz` table is not read at validation (`_check_table_names_sample` reads only `.csv`, and passes a read error).
 
 ### CLIN-73 · Multi-allelic records
@@ -264,7 +263,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ### CLIN-78 · An Explorer row's class under a class filter
 
-- The Explorer's class filter keeps a variant when any family's review shows the class, but its row shows the most severe class across families: a filter on class 3 can list a row shown as class 5. This was so before the filters followed the shown class; the user guide and handleiding chapter 14 now say so. The owner decides whether the row shows the class that matched.
+- The Explorer's class filter keeps a variant when any family's review shows the class, but its row shows the most severe class across families: a filter on class 3 can list a row shown as class 5. The user guide and handleiding chapter 14 say so. The owner decides whether the row shows the class that matched.
 
 ### CLIN-74 · Variants of taken-out members
 

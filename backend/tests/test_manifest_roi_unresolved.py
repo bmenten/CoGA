@@ -131,7 +131,7 @@ def test_an_roi_the_import_does_not_find_clears_the_familys_and_says_which() -> 
         "of interest (CFTR, 7:117480025-117668665) was cleared, so no embryo is called and the "
         "NIPT coverage check reads no region: set it on the family page."
     )
-    # Nothing goes into the family's metadata (ENG-6).
+    # Nothing goes into the family's metadata.
     assert "metadata" not in session.sql() and "unresolved_roi" not in session.sql()
 
 
@@ -202,7 +202,7 @@ def test_a_gene_is_looked_up_on_its_chromosome_before_an_alt_contig() -> None:
 
 
 def test_the_import_and_the_family_page_look_a_gene_up_with_one_query() -> None:
-    # ENG-23: both run roi_gene_lookup's, and resolve a gene to the same region.
+    # both run roi_gene_lookup's, and resolve a gene to the same region.
     from backend.app.services import family_service
 
     gene = {"hgnc_symbol": "CFTR", "gene_id": "ENSG00000001626", "chr": "chr7", "start": 117480025, "end": 117668665}

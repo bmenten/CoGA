@@ -133,7 +133,7 @@ const PROJECT_THREE = {
 
 const catalogRow = (name: string) => screen.getByRole('button', { name }).closest('tr') as HTMLElement;
 
-/** Clicks Delete project, then confirms in the dialog that asks first (UI-7). */
+/** Clicks Delete project, then confirms in the dialog that asks first. */
 const deleteProject = () => {
   fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
   const dialog = screen.getByRole('dialog', { name: /^Delete project / });
@@ -185,7 +185,6 @@ describe('ProjectsPage', () => {
     expect(document.querySelector('.surface-card .surface-card, .surface-card .surface-card-muted')).toBeNull();
   });
 
-  // #610 — a failed list read "No projects yet", with counts of 0.
   it('says the projects could not be loaded, not that there are none, and retries', async () => {
     let failing = true;
     get.mockImplementation((url, config) =>
@@ -291,7 +290,7 @@ describe('ProjectsPage', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'Project One' })).toBeInTheDocument();
   });
 
-  // SEC-1: each member is an analyst (read and change) or a reader (read only); a member added
+  // Each member is an analyst (read and change) or a reader (read only); a member added
   // starts as an analyst, and the save sends the readers among the members.
   it('sets each member’s access level and saves the readers with the members', async () => {
     renderPage();
@@ -324,7 +323,7 @@ describe('ProjectsPage', () => {
     expect(await screen.findByText('Saved Project One.')).toBeInTheDocument();
   });
 
-  // SEC-1: a member removed is no reader, so one removed and added again is an analyst; and a
+  // A member removed is no reader, so one removed and added again is an analyst; and a
   // reader set back to analyst is no longer among the readers.
   it('makes a member removed and added again an analyst, and saves a reader set back as an analyst', async () => {
     serveProjects((defaults) => defaults.map((project) => ({ ...project, user_ids: ['u1', 'u2'], reader_user_ids: ['u1', 'u2'] })));
@@ -543,9 +542,9 @@ describe('ProjectsPage', () => {
     expect(api.delete).not.toHaveBeenCalled();
   });
 
-  // UI-7: a project was deleted on one click. It now asks first, saying what goes with it (its
-  // members' access; its review tags, kept on the reviews: SAFE-37), and sends nothing until
-  // confirmed: neither on Cancel nor on Escape.
+  // A delete asks first, saying what goes with the project (its members' access; its review
+  // tags, kept on the reviews), and sends nothing until confirmed: neither on Cancel nor on
+  // Escape.
   it('asks before deleting a project, saying what goes with it, and sends nothing on cancel', async () => {
     serveWithoutFamilies();
     renderPage();
@@ -626,8 +625,8 @@ describe('ProjectsPage', () => {
     }
   });
 
-  // ENG-10: the Users page read the accounts' projects from its own cache, and showed a saved
-  // change of access only once that went stale, up to 30 s later.
+  // The Users page reads the accounts' projects from its own cache: a saved change of access
+  // refreshes it at once, not only once it goes stale.
   it('refreshes the account list the Users page shows once project access is saved', async () => {
     const queryClient = createTestQueryClient();
     queryClient.setQueryData(['admin', 'projects'], [{ id: 'p1', name: 'Project One' }]);

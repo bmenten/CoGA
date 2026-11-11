@@ -1,5 +1,5 @@
-// The key to the small-variant marks — #529: the track had no legend, and its classes
-// differed by colour only.
+// The key to the small-variant marks: the track's legend, so its classes differ by more than
+// colour.
 
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -22,7 +22,7 @@ describe('SmallVariantLegend', () => {
 });
 
 describe('HaplotypeLegend', () => {
-  it('shows a recessive carrier line dashed and an affected line solid (#529)', () => {
+  it('shows a recessive carrier line dashed and an affected line solid', () => {
     const { container, rerender } = render(<HaplotypeLegend inheritanceModel="recessive" />);
     const carrier = Array.from(container.querySelectorAll<HTMLElement>('.haplotype-legend-swatch')).at(-1);
     expect(carrier?.style.borderBottomStyle).toBe('dashed');

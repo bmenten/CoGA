@@ -1,7 +1,7 @@
-// The app writes its headings and kickers in sentence case since #754: the first word
-// capitalised, and after it only names and abbreviations. Some were left in title case
-// ("Gene Explorer", "Package Import", "Selected Family"; ENG-10). This scans the app's source,
-// tests left out, for a heading or a kicker with a capital the rule does not allow.
+// The app writes its headings and kickers in sentence case: the first word capitalised, and
+// after it only names and abbreviations ("Gene explorer", not "Gene Explorer"). This scans the
+// app's source, tests left out, for a heading or a kicker with a capital the rule does not
+// allow.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';

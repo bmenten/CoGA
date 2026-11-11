@@ -1,4 +1,4 @@
-"""Haplotype blocks from phased (glimpse2) genotypes, built record by record (#528).
+"""Haplotype blocks from phased (glimpse2) genotypes, built record by record.
 
 Two builders, as the loader chooses. With both parents in the callset, each child's
 blocks follow which parental homolog it inherited (segregation haplotypes), a switch
@@ -13,8 +13,8 @@ same place, is read and undone before the children's blocks are built (see
 ``haplotype_phase_correction``).
 
 On chrX outside the pseudo-autosomal regions of the family's assembly a male has one X, and
-the segregation haplotypes read it by the rule of the phasing QC (``phased_marker_service``,
-CLIN-60), with the same helpers. A member recorded as male is read as one copy there: his
+the segregation haplotypes read it by the rule of the phasing QC (``phased_marker_service``),
+with the same helpers. A member recorded as male is read as one copy there: his
 call written as one allele (``1``) or as the same allele twice (``1|1``) is that allele, and
 a call of two different alleles is no call. A son's X is his mother's: the homolog he
 inherited from her is read where she is heterozygous, and he has no paternal side (his
@@ -292,7 +292,7 @@ def _append_haplotype_state_row(
         # Opened at its stretch's last position, a block cannot reach past its one site
         # without leaving its stretch, as every other block does (``_haplotype_state_end``):
         # it would end where it begins, so it is not kept. The member's block before it in
-        # the stretch, where there is one, already reaches that site (ENG-19).
+        # the stretch, where there is one, already reaches that site.
         return
     rows.append(
         _haplotype_row(
@@ -426,7 +426,7 @@ def _couple_children(context: FamilyMetadataContext) -> set[str]:
 def haplotype_block_basis(context: FamilyMetadataContext, samples: Iterable[str]) -> dict[str, Any]:
     """What blocks built from the phased genotypes of ``samples`` rest on besides those
     genotypes: the index couple, which of the samples are the couple's children, and each
-    sample's recorded sex (CLIN-66). The blocks are built when the genotypes are imported, and
+    sample's recorded sex. The blocks are built when the genotypes are imported, and
     the loader keeps this beside them (``pedigree_basis``). A later edit of the pedigree or of
     a sex changes it, and the blocks no longer match the pedigree until the genotypes are
     imported again (``pgt_analysis.blocks_outdated``). The affected statuses are not in it:
@@ -444,10 +444,10 @@ def haplotype_block_basis(context: FamilyMetadataContext, samples: Iterable[str]
 
 
 def blocks_outdated(context: FamilyMetadataContext, rows: Sequence[Mapping[str, Any]]) -> bool:
-    """Whether a member's stored haplotype blocks rest on another pedigree than the family's
-    (CLIN-66): the loader kept, beside each member's blocks, the couple, the couple's children
-    and the sexes they were built for (``haplotype_block_basis``), and the pedigree or a sex has
-    changed since. Blocks without a readable record count as outdated.
+    """Whether a member's stored haplotype blocks rest on another pedigree than the family's:
+    the loader keeps, beside each member's blocks, the couple, the couple's children and the
+    sexes they were built for (``haplotype_block_basis``), and the pedigree or a sex has changed
+    since. Blocks without a readable record count as outdated.
     The blocks are then read for the inputs' digest, but no embryo is called from them until
     the phased genotypes are imported again."""
     for row in rows:
@@ -687,7 +687,7 @@ class HaplotypeBlockBuilder:
 
     def basis(self) -> dict[str, Any]:
         """What these blocks rest on besides the genotypes of the samples added
-        (``haplotype_block_basis``), which the loader keeps beside them (CLIN-66)."""
+        (``haplotype_block_basis``), which the loader keeps beside them."""
         return haplotype_block_basis(self.context, self.states)
 
     def add_sample(self, name: str) -> None:

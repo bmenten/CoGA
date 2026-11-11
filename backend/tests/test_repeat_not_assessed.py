@@ -1,4 +1,4 @@
-"""A repeat call at a locus without thresholds reads *not assessed*, not *normal* (CLIN-26).
+"""A repeat call at a locus without thresholds reads *not assessed*, not *normal*.
 
 A TRGT call whose TRID matches no catalogue row gets no thresholds. The owner decided on
 2026-10-13 that such a call gets a status of its own, ``not_assessed``, distinct from
@@ -12,7 +12,7 @@ catalogue row matches the TRID, or the row it matches states none (STRchive's AD
 CPEO_POLG). A row with one threshold reads normal below it.
 
 Where such a row states a benign range, a count inside it reads ``normal`` (the owner's decision
-of 2026-10-14, CLIN-36): STRchive's CPEO_POLG states exactly 10 repeats and no threshold, so a
+of 2026-10-14): STRchive's CPEO_POLG states exactly 10 repeats and no threshold, so a
 POLG allele of 10 reads normal and stays out of *Aberrant only*. A count outside the range,
 above it or below it, stays not assessed (a benign range is not a threshold), as does every
 count at ADTKD_MUC1, which states nothing. The count is the one TRGT reports for the catalogue
@@ -100,7 +100,7 @@ def test_a_no_call_is_unknown_whether_or_not_the_locus_has_thresholds() -> None:
     assert classify(None, HTT) == "unknown"
 
 
-# ---- A count inside a stated benign range (CLIN-36) -------------------------------------------
+# ---- A count inside a stated benign range -------------------------------------------
 
 
 def test_a_count_inside_the_benign_range_of_a_locus_without_thresholds_is_normal() -> None:
@@ -298,7 +298,7 @@ async def test_a_call_at_a_catalogue_row_without_thresholds_is_stored_not_assess
 
 @pytest.mark.asyncio
 async def test_the_rows_a_start_seeds_without_thresholds_are_muc1_and_polg(monkeypatch) -> None:
-    """The loci CLIN-36's rule reaches: the seeded rows with no threshold. ADTKD_MUC1 states no
+    """The loci the rule reaches: the seeded rows with no threshold. ADTKD_MUC1 states no
     benign range, so every count there stays not assessed; CPEO_POLG states 10, the one count
     that reads normal. No built-in row lacks a threshold, nor does any other STRchive row: a
     release that adds such a row fails here, for QA to look at the range it states."""
@@ -341,7 +341,7 @@ async def test_the_rows_a_start_seeds_without_thresholds_are_muc1_and_polg(monke
 async def test_a_polg_count_inside_its_benign_range_is_stored_normal(
     monkeypatch, trid: str, counts: tuple[int, int], alleles: list[str], status: str
 ) -> None:
-    """STRchive's locus ID and the gene name both find CPEO_POLG, benign exactly 10 (CLIN-36)."""
+    """STRchive's locus ID and the gene name both find CPEO_POLG, benign exactly 10."""
     lookup = await import_lookup(monkeypatch)
     row = lookup[trid.lower()]
     assert row["locus_id"] == "CPEO_POLG"
@@ -476,7 +476,7 @@ async def test_the_ingest_stores_not_assessed_for_an_uncatalogued_trid() -> None
 @pytest.mark.asyncio
 async def test_the_ingest_stores_a_polg_call_inside_its_benign_range_as_normal(monkeypatch) -> None:
     """The whole per-sample ingest, through the catalogue a start seeds: POLG 10/10 is stored
-    normal (CLIN-36); MUC1, which states nothing, stays not assessed."""
+    normal; MUC1, which states nothing, stays not assessed."""
     rows = await catalogue_after_a_start(monkeypatch)
     session = _IngestSession(list(rows.values()))
 
@@ -625,7 +625,7 @@ async def test_the_family_table_reads_a_call_at_an_uncatalogued_locus_as_not_ass
 @pytest.mark.asyncio
 async def test_the_family_table_reads_a_catalogue_row_without_thresholds_as_not_assessed() -> None:
     # The query took the matched rows' thresholds: none. MUC1 states no benign range either;
-    # POLG states 10, so only its allele of 30 is not assessed (CLIN-36).
+    # POLG states 10, so only its allele of 30 is not assessed.
     rows = [
         _table_row(
             MOTHER_UUID,

@@ -8,7 +8,7 @@ from backend.app.services import classification_drift_service as cds
 from backend.app.services.small_variant_review_acmg import build_evidence_snapshot
 
 _WHEN = datetime(2026, 6, 25, tzinfo=timezone.utc)
-# The family's assembly, whose gene profiles the constraint lookup reads (TRACE-15).
+# The family's assembly, whose gene profiles the constraint lookup reads.
 _ASSEMBLY_ID = "assembly-uuid"
 
 
@@ -156,7 +156,7 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
     assert {entry["status"] for entry in out["drifted"]} == {"variant_missing"}
 
 
-# --- The frequencies and in-silico scores a classification rests on (CLIN-7) -------------
+# --- The frequencies and in-silico scores a classification rests on -------------
 
 _CSQ_HEADER = (
     '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP.'
@@ -462,7 +462,7 @@ def test_evaluate_classification_drift_names_the_moved_value(monkeypatch) -> Non
     assert served.changed == ["revel", "annotations"] and served.evidence_to["revel"] == 0.951
 
 
-# --- The consequence, impact and LoF call, and the gene's missense Z (CLIN-7) -------------------
+# --- The consequence, impact and LoF call, and the gene's missense Z -------------------
 # PVS1 reads the consequence and LOFTEE's call (HC: very strong), PP2 the consequence and the
 # gene's gnomAD missense Z, and the consequence rules criteria out. They are frozen too, as
 # the dialog reads them, and a change of any of them is drift that names it.
@@ -620,7 +620,7 @@ def test_the_frozen_missense_z_is_the_one_the_variant_list_serves() -> None:
 
 def test_the_missense_z_is_read_in_the_familys_assembly_with_its_symbol_in_any_case() -> None:
     # The lookup reads the gene profiles of the family's assembly, and matches a symbol in any
-    # case, as its read does (TRACE-15): a gene written otherwise than its profile still has its
+    # case, as its read does: a gene written otherwise than its profile still has its
     # constraint.
     from backend.app.services.gene_constraint_metrics import fetch_gene_constraint_metrics
 
@@ -644,7 +644,7 @@ def test_a_save_freezes_the_missense_z_its_genes_profile_holds() -> None:
     snap = _frozen(session, _annotated("h1", _MANE))
     assert snap["gene_constraint"] == {"gene_missense_z": 3.52, "gene_missense_z_source": "gene_profile"}
     assert snap["consequence"]["effect"] == "missense_variant" and snap["captured_at"].startswith("2026-06-25")
-    # Read in the family's assembly (TRACE-15).
+    # Read in the family's assembly.
     assert session.gene_queries[0]["assembly_id"] == _ASSEMBLY_ID
     # A missense variant whose gene has no profile, and whose VCF holds no MISSENSE_Z, freezes none.
     assert _frozen(_GeneProfiles([]), _annotated("h1", _MANE))["gene_constraint"] == {
@@ -696,7 +696,7 @@ def test_a_changed_gene_missense_z_reads_as_drift_under_the_same_annotation_set(
     diff = cds._diff(frozen, _now(_annotated("h1", _MANE), gene_missense_z=3.52))
     assert (diff["status"], diff["changed"]) == ("drifted", ["gene_missense_z"])
     assert (diff["evidence_from"]["gene_missense_z"], diff["evidence_to"]["gene_missense_z"]) == (2.95, 3.52)
-    # One that appears later, or is gone, is a change too, and so is its source (TRACE-15); the
+    # One that appears later, or is gone, is a change too, and so is its source; the
     # same value is not.
     appeared = cds._diff(_stored(_freeze(_annotated("h1", _MANE))), _now(_annotated("h1", _MANE), gene_missense_z=3.52))
     assert appeared["changed"] == ["gene_missense_z", "gene_missense_z_source"]
@@ -855,7 +855,7 @@ def test_a_snapshot_that_is_not_a_json_object_reads_as_unknown_not_skipped(monke
     # compared as a snapshot that froze nothing, so it reads as unknown, or as variant_missing
     # once its variant is gone, as an unreadable SV/CNV snapshot does, and the sign-out gate
     # asks for it to be acknowledged. Skipped, it would clear the drift gate unexamined
-    # (TRACE-15).
+    #.
     async def _context(session, *, family_identifier, user, project_id=None):
         return types.SimpleNamespace(
             family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
@@ -904,7 +904,7 @@ def test_a_snapshot_that_is_not_a_json_object_reads_as_unknown_not_skipped(monke
     ]
 
 
-# --- The missense Z PP2 reads, and where it comes from (TRACE-15) ---------------------------------
+# --- The missense Z PP2 reads, and where it comes from ---------------------------------
 # The owner's decision of 2026-10-28: PP2 reads the gnomAD missense Z of the gene's profile, else
 # the VCF's own MISSENSE_Z (which the import stores in the annotation under gene_missense_z, and
 # the variant list serves in annotation_extra), and the snapshot freezes the value it read with

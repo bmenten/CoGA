@@ -35,7 +35,7 @@ _SAMPLES = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother", "FATHER": "uuid-
 _DEL_7010 = "1-7010-11990-DEL---"
 _DEL_30000 = "1-30000-31000-DEL---"
 _DUP_50000 = "1-50000-50500-DUP---"
-# The golden trio's NeedlR deletion (SVDEL1), by the id its coordinates give it (CLIN-43).
+# The golden trio's NeedlR deletion (SVDEL1), by the id its coordinates give it.
 _NEEDLR_DEL = "1-7000-12000-DEL---"
 
 _SNIFFLES_HEADER = (

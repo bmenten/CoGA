@@ -33,7 +33,7 @@ const verifyToneClass = (status: string): string => {
 };
 
 // A recorded location CoGA does not read from is neither downloaded nor verified: it is not
-// a file kept in the object store, nor one that is gone (SEC-27).
+// a file kept in the object store, nor one that is gone.
 const OUTSIDE_READ_FOLDERS =
   'Its recorded location lies outside the folders and stores CoGA reads source files from, so it is not read';
 

@@ -1,15 +1,14 @@
 """Every reference import records the release it loaded, or that the source states none.
 
 `reference_dataset_imports` carries `source_version` and `source_release_date` so the
-platform's reference layer can say which release lay under a result. No import wrote them.
-Now each import records what its source states about itself: GENCODE its version and date
-from the GTF preamble. A source that states no release (a UCSC table, a GTF without a
+platform's reference layer can say which release lay under a result. Each import records
+what its source states about itself: GENCODE its version and date from the GTF preamble. A source that states no release (a UCSC table, a GTF without a
 preamble, the clinical-CNV knowledgebase built from the current sources, an upload, the
 DGV script) records `not stated`, never a silent NULL.
 
-The record also keeps its own `source`: the segmental-duplication and BED-style
-clinical-CNV loaders reused that name for a row's column, so an upload was recorded under
-whatever its last row held.
+The record also keeps its own `source`, apart from the column of that name the
+segmental-duplication and BED-style clinical-CNV loaders give a row: an upload is never
+recorded under whatever its last row held.
 """
 
 from __future__ import annotations
@@ -134,7 +133,6 @@ def _patch_ucsc_import(
 
 
 def _by_dataset(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    # A gene import once wrote its dataset type as a literal rather than a parameter.
     return {record.get("dataset_type", "genes"): record for record in records}
 
 
@@ -224,7 +222,7 @@ def test_a_bootstrap_import_names_the_file_it_loaded(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _patch_lookups(monkeypatch)
-    # A copy of the shipped file: the startup loads no other (TRACE-14).
+    # A copy of the shipped file: the startup loads no other.
     segdups = tmp_path / "ClinGen_recurrent_CNV_V2.1-hg38.bed"
     segdups.write_bytes(rms.REPO_SEGMENTAL_DUPLICATIONS_PATH.read_bytes())
     monkeypatch.setattr(settings, "reference_bootstrap_enabled", True)

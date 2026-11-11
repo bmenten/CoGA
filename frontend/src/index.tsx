@@ -162,7 +162,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               }
             />
             <Route path="/login" element={routeElement(<LoginPage />)} />
-            {/* The emergency administrator's password sign-in beside Microsoft sign-in (SEC-4). */}
+            {/* The emergency administrator's password sign-in beside Microsoft sign-in. */}
             <Route path="/login/emergency" element={routeElement(<LoginPage emergency />)} />
             <Route path="/signup" element={routeElement(<SignupPage />)} />
             <Route element={<RequireAuth />}>
@@ -300,10 +300,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                   element={routeElement(<PackageImportPage />)}
                 />
                 <Route
-                  path="/admin/upload"
-                  element={routeElement(<PackageImportPage />)}
-                />
-                <Route
                   path="/admin/variants/tags"
                   element={routeElement(<AdminVariantTagsPage />)}
                 />
@@ -314,14 +310,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 <Route
                   path="/admin/data/qc-thresholds"
                   element={routeElement(<AdminQcThresholdsPage />)}
-                />
-                <Route
-                  path="/admin/data/presets"
-                  element={routeElement(<AdminPresetFiltersPage />)}
-                />
-                <Route
-                  path="/admin/data/tags"
-                  element={routeElement(<AdminVariantTagsPage />)}
                 />
               </Route>
               {/* The rest of the administration: an admin's alone (get_current_admin_user). */}
@@ -347,10 +335,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                   element={routeElement(<AdminRepeatLociPage />)}
                 />
                 <Route
-                  path="/admin/hpo"
-                  element={routeElement(<HpoTerminologyAdminPage />)}
-                />
-                <Route
                   path="/admin/access/users"
                   element={routeElement(<UserListPage />)}
                 />
@@ -371,10 +355,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                   element={routeElement(<AdminAuditLogsPage />)}
                 />
                 <Route
-                  path="/admin/users"
-                  element={routeElement(<UserListPage />)}
-                />
-                <Route
                   path="/admin/data"
                   element={routeElement(<DataManagementPage />)}
                 />
@@ -385,22 +365,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 <Route
                   path="/admin/data/family-statuses"
                   element={routeElement(<AdminFamilyStatusesPage />)}
-                />
-                <Route
-                  path="/admin/data/clickhouse"
-                  element={routeElement(<AdminClickhouseManagementPage />)}
-                />
-                <Route
-                  path="/admin/data/logs"
-                  element={routeElement(<AdminAuditLogsPage />)}
-                />
-                <Route
-                  path="/admin/gene-reference"
-                  element={routeElement(<GeneReferenceAdminPage />)}
-                />
-                <Route
-                  path="/projects"
-                  element={routeElement(<ProjectsPage />)}
                 />
                 <Route
                   path="/upload-data"

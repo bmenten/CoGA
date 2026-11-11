@@ -312,7 +312,7 @@ def test_structural_pathogenicity_multi_gene_bump_is_capped() -> None:
 # Each SV with the score its copy-number change gives it in a gene with a pLI of 0.99, by the
 # rule the SNV + SV second hit reads too (sv_copy_change.copy_change). The ranking matched
 # exact type names: a DEL:ME, a DUP:TANDEM and every CNV scored as an unknown event (0.4),
-# and only DEL got the haploinsufficiency floor (CLIN-47).
+# and only DEL got the haploinsufficiency floor.
 _SON_ON_X = dict(chrom="X", start=50_000_000, end=50_010_000)
 
 

@@ -174,12 +174,11 @@ async def fetch_external_gene_bundle(
 
     source_status_map: Dict[str, Dict[str, Any]] = {}
 
-    # NCBI is the only per-gene request left. The HGNC, Ensembl, Ensembl-homology and
-    # ClinGen-page lookups that used to run here were removed: measured over 4,052 genes
-    # they returned fields the bulk HGNC complete set already holds, a canonical
-    # transcript GENCODE tags per transcript, no orthologue at all (0 of 1,380), and
-    # ClinGen fields that were null for ~99% of them. NCBI stays because it is the only
-    # source of a gene summary for genes outside dbNSFP.
+    # NCBI is the only per-gene request. No HGNC, Ensembl, Ensembl-homology or ClinGen-page
+    # lookup is made: measured over 4,052 genes they return fields the bulk HGNC complete
+    # set already holds, a canonical transcript GENCODE tags per transcript, no orthologue
+    # at all (0 of 1,380), and ClinGen fields that are null for ~99% of them. NCBI is the
+    # only source of a gene summary for genes outside dbNSFP.
     ncbi_payload: Dict[str, Any] = {}
     try:
         ncbi_payload = await fetch_ncbi_gene(
@@ -201,8 +200,8 @@ async def fetch_external_gene_bundle(
             message=source_error_message("NCBI Gene", error),
         )
 
-    # Everything the per-gene HGNC call used to supply comes off the bulk complete set:
-    # the same authority, already downloaded once for the whole job.
+    # The HGNC fields come off the bulk complete set: the same authority, downloaded once
+    # for the whole job.
     bulk_profile = bulk_bundle.get("profile") or {}
     bulk_extra = bulk_bundle.get("extra") or {}
     hgnc_identifiers = bulk_extra.get("hgnc_identifiers") or {}
@@ -226,8 +225,7 @@ async def fetch_external_gene_bundle(
     }
     source_status_map.update(bulk_bundle.get("source_status") or {})
     # The bulk bundle carries the ClinGen curation counts, gene facts and GenCC
-    # classifications, so those keys still arrive — from the bulk files rather than a
-    # per-gene scrape.
+    # classifications, so those keys come from the bulk files, not a per-gene scrape.
     extra = merge_gene_extra(extra, bulk_bundle.get("extra") or {})
 
     return {

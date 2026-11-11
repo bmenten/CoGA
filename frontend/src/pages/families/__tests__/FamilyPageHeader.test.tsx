@@ -145,7 +145,7 @@ describe('FamilyPageHeader', () => {
     );
   });
 
-  it('tells a viewer or a reader in the family’s projects that their access is read-only (SEC-1)', () => {
+  it('tells a viewer or a reader in the family’s projects that their access is read-only', () => {
     renderHeader({ family: { ...family, read_only: true } });
     const chip = screen.getByText('Read-only access');
     expect(chip).toHaveAttribute('title', expect.stringMatching(/view and export it but not change it/));

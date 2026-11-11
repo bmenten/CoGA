@@ -32,7 +32,7 @@ _USER_FOREIGN_KEY = "ui_events_user_id_fkey"
 _WRITERS_DETAIL_KEYS = (ESCAPED_KEY, DELETED_USER_KEY)
 
 # As in the request audit (audit_log_pg.py): an event written again after a commit whose
-# outcome was unknown is stored once (SEC-17).
+# outcome was unknown is stored once.
 _INSERT_UI_EVENT_SQL = text(
     """
     INSERT INTO ui_events (
@@ -162,7 +162,7 @@ async def _insert_ui_event_rows(
 
 async def _write_ui_event_batch(payloads: list[UiEventPayload]) -> None:
     # As in the request audit (audit_log_pg._write_audit_log_batch): one event whose user's
-    # account was deleted while it waited is stored without the link (SEC-17).
+    # account was deleted while it waited is stored without the link.
     await write_batch_unlinking_deleted_user(
         _insert_ui_event_rows,
         payloads,

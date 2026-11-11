@@ -432,9 +432,9 @@ async def get_family_track_availability_for_user(
     )
     # What each caller's coverage values are, as its import recorded them. A HiFiCNV depth
     # track is a log2 ratio unless its sample had no usable autosomal median, when its
-    # depths are stored as read and must not be drawn on the views' log2-ratio axis
-    # (TRACE-7); a coverage BED holds what it declared when it was loaded (TRACE-9). Postgres
-    # reads, so not in the gather, which already runs one on this session.
+    # depths are stored as read and must not be drawn on the views' log2-ratio axis; a
+    # coverage BED holds what it declared when it was loaded. Postgres reads, so not in the
+    # gather, which already runs one on this session.
     has_coverage = any(coverage_sources.values())
     coverage_normalizations = (
         await interval_track_normalizations_by_sample(
@@ -493,7 +493,7 @@ async def get_family_track_availability_for_user(
     )
     # Each presence applies the panel as its list and genome track apply it, whatever its
     # size: the small-variant presence a variant annotated with one of its genes or in one of
-    # its regions, in the list's SQL (_small_query_filter_parts, CLIN-62); the SV presence
+    # its regions, in the list's SQL (_small_query_filter_parts); the SV presence
     # an SV whose annotation names one of its genes or that overlaps one of its regions
     # (_StructuralPanelMatch, as the SV search applies it).
     sv_panel = _StructuralPanelMatch(panel) if panel is not None else None

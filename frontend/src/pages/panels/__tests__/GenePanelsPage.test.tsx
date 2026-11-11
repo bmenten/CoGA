@@ -96,7 +96,7 @@ const renderPage = (role: 'viewer' | 'admin') => {
 
 const panelRequests = () => (api.get as unknown as Mock).mock.calls.filter(([url]) => url === '/panels').length;
 
-/** Clicks a panel's Delete, then confirms in the dialog that asks first (UI-7). */
+/** Clicks a panel's Delete, then confirms in the dialog that asks first. */
 const deletePanel = async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
   await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete panel' }));
@@ -120,7 +120,6 @@ describe('GenePanelsPage', () => {
     expect(screen.queryByRole('button', { name: /create/i })).not.toBeInTheDocument();
   });
 
-  // #610 — a failed catalogue showed as an empty table, with no message.
   it('says the gene panels could not be loaded, not that there are none, and retries', async () => {
     vi.mocked(api.get).mockRejectedValueOnce(
       Object.assign(new Error('HTTP 500'), { response: { status: 500 } }),
@@ -135,15 +134,14 @@ describe('GenePanelsPage', () => {
     expect(screen.queryByText(/Could not load the gene panels/)).not.toBeInTheDocument();
   });
 
-  // #515 — regions are stored per assembly: a panel's size is given per assembly, not summed
-  // across them. The backend lists a gene's assemblies and a panel's regions GRCh38, T2T-CHM13,
-  // GRCh37, then the rest (`assembly_display_rank`); the list put GRCh37 among the rest by name,
-  // and read only the exact name GRCh38 as GRCh38, so a GRCh38 named hg38 came after the others.
-  // The UCSC reference import names T2T `T2T CHM13v2.0`, with a space: read as T2T, it comes after
-  // GRCh38 and before the other assemblies, as under its hyphenated name.
+  // Regions are stored per assembly: a panel's size is given per assembly, not summed
+  // across them, in the backend's order (`assembly_display_rank`): GRCh38 (also when named
+  // hg38), T2T-CHM13, GRCh37, then the rest. The UCSC reference import names T2T
+  // `T2T CHM13v2.0`, with a space: read as T2T, it comes after GRCh38 and before the other
+  // assemblies, as under its hyphenated name.
   it.each<PanelSizeCase>([
     [
-      'per assembly, not summed across them (#515)',
+      'per assembly, not summed across them',
       [
         { end: 20000, assembly: 'T2T-CHM13v2.0' },
         { end: 10000, assembly: 'GRCh38' },
@@ -272,9 +270,8 @@ describe('GenePanelsPage', () => {
     expect(await screen.findByText('Error creating panel')).toBeInTheDocument();
   });
 
-  // UI-7: a panel was deleted on one click, with its genes, regions and version history. The
-  // delete now asks first, naming the panel and its version, and sends nothing until confirmed:
-  // neither on Cancel nor on Escape.
+  // A delete takes the panel's genes, regions and version history, so it asks first, naming the
+  // panel and its version, and sends nothing until confirmed: neither on Cancel nor on Escape.
   it('asks before deleting a panel, naming it and its version, and sends nothing on cancel', async () => {
     (api.get as unknown as Mock).mockResolvedValue({
       data: [{ ...PANEL_A, version: 3, source: 'panelapp', external_version: '1.345' }],

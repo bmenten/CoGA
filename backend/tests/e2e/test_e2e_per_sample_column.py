@@ -1,11 +1,11 @@
 """A per-sample file is read from its own sample's column (E2E).
 
 A package's per-sample TRGT, mitochondrial and HiFiCNV files, and the admin TRGT upload
-(``POST /repeat-expansions/upload/{sample_id}``), each store one sample's calls. They used
-to take the file's first (TRGT) or only (mito, HiFiCNV) column as that sample's whatever it
-was named: a family TRGT VCF uploaded for the child stored the mother's repeat sizes as the
-child's, and the mother's file under the child's entry -- a swapped path, a wrong upload --
-replaced the child's calls with hers without a word.
+(``POST /repeat-expansions/upload/{sample_id}``), each store one sample's calls, read from
+that sample's own column. Taken from the file's first (TRGT) or only (mito, HiFiCNV) column
+whatever it was named, a family TRGT VCF uploaded for the child would store the mother's
+repeat sizes as the child's, and the mother's file under the child's entry -- a swapped path,
+a wrong upload -- would replace the child's calls with hers without a word.
 
 The family here is its own (a new id each run):
 

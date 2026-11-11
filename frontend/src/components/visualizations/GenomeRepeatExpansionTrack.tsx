@@ -20,8 +20,8 @@ interface Props {
 }
 
 // Markers are drawn from the least to the most severe status, so the most severe is on
-// top: at genome scale a 4 px marker covers loci a few hundred kb away, and a normal AFF2
-// was painted over a pathogenic FMR1 (#526). The sort is stable, so ties keep API order.
+// top: at genome scale a 4 px marker covers loci a few hundred kb away, so a normal AFF2
+// is not painted over a pathogenic FMR1. The sort is stable, so ties keep API order.
 const STATUS_DRAW_RANK: Record<string, number> = {
   unknown: 0,
   normal: 1,
@@ -68,16 +68,16 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
     if (!layout) return [];
     // A locus is placed on the layout's chromosome however either spells it (chr1 and 1; MT,
     // M, chrM and chrMT), as the API reads it (data_scope.chromosome_aliases): a locus on the
-    // mitochondrion stored as chrM or M found no `MT` and was not drawn.
+    // mitochondrion stored as chrM or M is placed on the layout's `MT`.
     return (data?.items || [])
       .filter((item) => layout.offsets[normalizeChrom(item.chr)] !== undefined)
       .sort((a, b) => (STATUS_DRAW_RANK[a.status] ?? 0) - (STATUS_DRAW_RANK[b.status] ?? 0));
   }, [data?.items, layout]);
 
-  // The chart's accessible name (#529): what it shows now. A failure or a load is said
-  // as such, never as zero loci (#510). Nor is a track that asked for nothing: without a
+  // The chart's accessible name: what it shows now. A failure or a load is said
+  // as such, never as zero loci. Nor is a track that asked for nothing: without a
   // layout no locus can be placed yet (the genome overview is still sizing it), and
-  // without a chromosome in view none is requested (#602).
+  // without a chromosome in view none is requested.
   const answered = Boolean(layout) && chroms.length > 0;
   const lociSummary = useMemo(() => describeRepeatLoci(items), [items]);
   const chartState = isError

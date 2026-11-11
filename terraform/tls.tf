@@ -96,10 +96,10 @@ resource "tls_locally_signed_cert" "clickhouse" {
 # --- Server key + cert in Secret Manager (fetched by the VM at boot) --------
 #
 # The VM reads the latest version of each secret (scripts/), so a new version is created
-# before the old one is destroyed: the other way round, a VM that booted in between found no
-# version and did not start ClickHouse (SEC-19). During such an apply it may still read a new
-# key with the old certificate, or the reverse; the restart after it loads the new pair
-# (docs/deployment-gcp.md §12.4). Terraform extends create_before_destroy to everything the
+# before the old one is destroyed: the other way round, a VM that boots in between would find
+# no version and not start ClickHouse. During such an apply it may still read a new key with
+# the old certificate, or the reverse; the restart after it loads the new pair
+# (docs/deployment-gcp.md §12.4; SEC-19). Terraform extends create_before_destroy to everything the
 # versions depend on: a later change that replaces the secrets, the VM's address, its subnet
 # or its network under the same name then fails on that name, rather than destroying first.
 

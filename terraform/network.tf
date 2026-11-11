@@ -2,10 +2,9 @@
 # NETWORKING & PRIVATE CONNECTIONS
 # ==========================================
 #
-# NOTE: the original draft used `import {}` blocks assuming the VPC/subnet/IP range
-# already existed. This config creates them fresh so it applies cleanly to a new
-# project. If you are adopting pre-existing network resources, `terraform import`
-# them (or re-add import blocks) before the first apply.
+# This config creates the VPC, subnet and IP range, so it applies cleanly to a new
+# project. If you are adopting existing network resources, `terraform import` them
+# (or add import blocks) before the first apply.
 
 resource "google_compute_network" "vpc_network" {
   name                    = "${local.name_prefix}-vpc"

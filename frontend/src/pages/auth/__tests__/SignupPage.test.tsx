@@ -107,7 +107,7 @@ describe('SignupPage', () => {
     expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password');
   });
 
-  it('says the account awaits an administrator, rather than sending the user to a login that fails (#526)', async () => {
+  it('says the account awaits an administrator, rather than sending the user to a login that fails', async () => {
     const user = userEvent.setup();
     const ACK =
       'Registration received. An administrator will review the request and activate the account if approved.';
@@ -117,7 +117,7 @@ describe('SignupPage', () => {
     await fillIn(user);
     await submit(user);
 
-    // Before, the page went straight to /login, where signing in failed as "User not
+    // The page stays, rather than going to /login, where signing in would fail as "User not
     // active" with no word of why.
     expect(await screen.findByRole('status')).toHaveTextContent(ACK);
     expect(screen.getByText(/sign in once your account has been activated/)).toBeInTheDocument();
@@ -272,7 +272,7 @@ describe('SignupPage', () => {
     consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalledWith(RATE_LIMITED_WITH_BODY));
   });
 
-  it('logs only the message in a development build, never the request with the password (#526)', async () => {
+  it('logs only the message in a development build, never the request with the password', async () => {
     vi.stubEnv('DEV', true);
     vi.stubEnv('MODE', 'development');
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -284,13 +284,13 @@ describe('SignupPage', () => {
     await submit(user);
     expect(await screen.findByText(RATE_LIMITED_DETAIL)).toBeInTheDocument();
 
-    // It used to log the error object, whose config.data is the request body.
+    // It logs the reason alone, never the error object, whose config.data is the request body.
     expect(errorSpy).toHaveBeenCalledWith('Sign up failed:', RATE_LIMITED_DETAIL);
     const logged = errorSpy.mock.calls.flat().map(stringify);
     expect(logged.filter((line) => line.includes(PASSWORD))).toEqual([]);
   });
 
-  // SEC-4: with Microsoft sign-in the first sign-in makes the account, and there is no sign-up.
+  // With Microsoft sign-in the first sign-in makes the account, and there is no sign-up.
   it('says there is no sign-up, and shows no form, with Microsoft sign-in', async () => {
     vi.mocked(api.get).mockResolvedValue({
       data: {

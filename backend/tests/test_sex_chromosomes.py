@@ -1,7 +1,7 @@
 """Where a male is hemizygous: chrX and chrY outside the pseudo-autosomal regions.
 
 GRCh38 and GRCh37 by the GRC's bounds; T2T-CHM13v2.0 by the T2T consortium's, as NCBI's
-assembly states them (CLIN-12), each edge on both sides. Another assembly has none, and a male
+assembly states them, each edge on both sides. Another assembly has none, and a male
 is read as diploid there.
 """
 
@@ -78,7 +78,7 @@ def test_assembly_aliases_resolve_and_unknown_assemblies_have_no_bounds() -> Non
 
 def test_the_build_of_an_assembly_is_read_from_any_of_its_names() -> None:
     # The rule the PARs are looked up by; the startup also reads it to load the shipped GRCh38
-    # segmental-duplication file into a GRCh38 assembly only (OPS-17).
+    # segmental-duplication file into a GRCh38 assembly only.
     assert {grc_build(name) for name in ("GRCh38", "grch38", "hg38", "GRCh38.p14", " GRCh38 ")} == {"GRCh38"}
     assert {grc_build(name) for name in ("GRCh37", "hg19", "GRCh37.p13")} == {"GRCh37"}
     assert [grc_build(name) for name in ("T2T CHM13v2.0", "T2T-CHM13v2.0", "hs1", "GRCm39", "", None)] == [None] * 6
@@ -115,7 +115,7 @@ def test_an_interval_is_one_copy_only_where_the_assembly_s_pars_are_known() -> N
     assert hemizygous_interval(None, "chrX", 31_000_000, 32_000_000) is None
 
 
-# ---- T2T-CHM13v2.0 (CLIN-12) ---------------------------------------------------------------------
+# ---- T2T-CHM13v2.0 -------------------------------------------------------------------------------
 
 # The T2T consortium's chm13v2.0_PAR.bed (0-based, half-open), and NCBI's region report of
 # GCF_009914755.1 (1-based, inclusive), as both read on 2026-11-04. The code holds NCBI's.

@@ -1,4 +1,4 @@
-// Microsoft sign-in in the browser (SEC-4), MSAL replaced by a stand-in.
+// Microsoft sign-in in the browser, MSAL replaced by a stand-in.
 //
 // A session signed in with Microsoft gets its bearer from MSAL before every API request: the
 // access token MSAL holds, or a renewed one, which the session then keeps; requests asking at

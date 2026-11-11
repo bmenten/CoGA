@@ -43,9 +43,9 @@ interface Props {
 }
 
 // The QC ring tells the verdicts apart by line and glyph as well as colour: a thin solid
-// ring and ✓ for pass, a dashed ring and ! for warn, a thick ring and ✕ for fail (#529).
-// It used to recolour the symbol itself, which replaced the black affected fill and the
-// carrier-type half-fill, and told pass from warn by green versus amber alone.
+// ring and ✓ for pass, a dashed ring and ! for warn, a thick ring and ✕ for fail.
+// The symbol itself keeps its black affected fill and carrier-type half-fill, and pass is
+// not told from warn by green versus amber alone.
 const QC_MARKS: Record<
   PedigreeQcStatus['status'],
   { color: string; width: number; dash: string | null; glyph: string }
@@ -135,8 +135,8 @@ const COUPLE_GAP = 54;
 const BLOCK_HORIZONTAL_GAP = 42;
 const SIBLING_LINE_OFFSET = 24;
 // Sample IDs are drawn under their symbols, an embryo's a size smaller. Neighbouring
-// symbols are spaced so that their labels never touch: a long ID (FATHER_NIPT beside
-// CFDNA_NIPT) used to run into the next one.
+// symbols are spaced so that their labels never touch, so a long ID (FATHER_NIPT beside
+// CFDNA_NIPT) does not run into the next one.
 const LABEL_FONT_SIZE = 8;
 const EMBRYO_LABEL_FONT_SIZE = 7;
 // The least room between two neighbours' labels.
@@ -1445,7 +1445,7 @@ const Pedigree: React.FC<Props> = ({
         .attr('transform', `translate(${position.x}, ${position.y})`);
       if (qc) group.attr('data-qc-status', qc.status);
       // One tooltip for what the symbol's colours say: the QC reason, and the carrier type,
-      // which the half-fill's colour alone would otherwise carry (#529).
+      // which the half-fill's colour alone would otherwise carry.
       const tooltip = [
         qc ? qc.label || `QC: ${qc.status}` : null,
         carrier && !affected

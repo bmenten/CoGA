@@ -1,12 +1,12 @@
-"""The mtDNA coverage and the NIPT coverage check read only a track of read depth (CLIN-46), E2E.
+"""The mtDNA coverage and the NIPT coverage check read only a track of read depth, E2E.
 
 A sample's ``coverage`` track can come from several callers, each under its own source, and each
-loader keeps the others' tracks (SAFE-22): a coverage BED (``web``), WisecondorX's and QDNAseq's
+loader keeps the others' tracks: a coverage BED (``web``), WisecondorX's and QDNAseq's
 bins (log2 ratios) and HiFiCNV's depth, stored as a log2 ratio to the sample's autosomal median,
-or as read when its file has no autosomal depth (its record names ``none``, TRACE-7). The mtDNA
+or as read when its file has no autosomal depth (its record names ``none``). The mtDNA
 coverage summary, with its ``mtdna.mean_depth`` verdict, and the NIPT coverage check without a
-per-target table read every source's rows merged, as depth. Each coverage BED here declares what
-it holds in its manifest entry (``content: read_depth``, TRACE-9), and its record keeps it; the
+per-target table read only a track of read depth. Each coverage BED here declares what
+it holds in its manifest entry (``content: read_depth``), and its record keeps it; the
 readers name each track they leave out, with the reason.
 
 Here two packages (families of their own, new ids each run) go through the package import into
@@ -309,7 +309,7 @@ async def _exercise(base: Path, mito_family: str, nipt_family: str) -> dict[str,
                 "metric_key": "mtdna.mean_depth",
                 "warn_value": 60.0,
                 "error_value": 40.0,
-                "reason": "E2E: CLIN-46 coverage readers",
+                "reason": "E2E: coverage readers",
             },
         )
         out["profile"] = (created.status_code, configured.status_code)
@@ -331,7 +331,7 @@ async def _exercise(base: Path, mito_family: str, nipt_family: str) -> dict[str,
         out["nipt_coverage"] = {"status": response.status_code, "json": response.json()}
         # The proband's chrM coverage through the BED endpoint, without naming a caller and
         # naming the coverage BED (TRACE-10).
-        read = {"chrom": "chrM", "window": "1000", "format": "json"}
+        read = {"chrom": "chrM", "window": "1000"}
         unnamed = await ac.get(f"/api/bed/PROBAND_{mito_family}/coverage", params=read)
         named = await ac.get(f"/api/bed/PROBAND_{mito_family}/coverage", params={**read, "source": "web"})
         out["bed_reads"] = {
@@ -369,7 +369,7 @@ def test_both_packages_are_imported_with_every_callers_coverage(run) -> None:
         assert {dataset: imported["datasets"][dataset][0] for dataset in datasets} == {
             dataset: "imported" for dataset in datasets
         }, imported["datasets"]
-    # Every caller's track is stored beside the BED (SAFE-22), each with its recorded transform.
+    # Every caller's track is stored beside the BED, each with its recorded transform.
     assert run["stored"][mito]["sources"] == {
         f"PROBAND_{mito}": ["hificnv", "qdnaseq", "web", "wisecondorx"],
         f"MOTHER_{mito}": ["wisecondorx"],
@@ -385,7 +385,7 @@ def test_both_packages_are_imported_with_every_callers_coverage(run) -> None:
         (f"FATHER_{mito}", "hificnv"): "none",
     }
     assert run["stored"][nipt]["sources"] == {f"CFDNA_{nipt}": ["web", "wisecondorx"]}
-    # Each coverage BED's record keeps what its manifest entry declared (TRACE-9); no other
+    # Each coverage BED's record keeps what its manifest entry declared; no other
     # caller's record declares anything.
     assert {key: value for key, value in run["stored"][mito]["contents"].items() if value} == {
         (f"PROBAND_{mito}", "web"): "read_depth"
@@ -397,7 +397,8 @@ def test_both_packages_are_imported_with_every_callers_coverage(run) -> None:
 
 def test_a_coverage_read_names_its_caller_where_the_sample_holds_several(run) -> None:
     # The proband's chrM coverage comes from four callers. Without a caller named, the read is
-    # refused, naming them (TRACE-10). Named, it reads the BED's depth alone.
+    # refused, naming them (TRACE-10): an average of her BED's 120x with three callers' log2
+    # ratios would be no depth. Named, it reads the BED's depth alone.
     status, body = run["bed_reads"]["unnamed"]
     assert (status, body["detail"]) == (
         400,
@@ -417,16 +418,15 @@ def test_the_mtdna_coverage_reads_each_members_track_of_read_depth(run) -> None:
         name: (item["mean_depth"], item["min_depth"], item["max_depth"], item["source"])
         for name, item in coverage.items()
     }
-    # The proband's depth is her coverage BED's alone.
     assert summary[f"PROBAND_{mito}"] == (120.0, 120.0, 120.0, "coverage BED")
     assert coverage[f"PROBAND_{mito}"]["breadth"] == 1.0
     # The mother has no track of read depth: her calls' depth, as without a coverage track.
     assert summary[f"MOTHER_{mito}"] == (500.0, 500.0, 500.0, "variant calls")
     # The father's HiFiCNV depths stored as read: 60x over chrM's first 1,000 bases and 80x over
-    # the next 1,000, each bin counted over its 1,000 bases (CLIN-56).
+    # the next 1,000, each bin counted over its 1,000 bases.
     assert summary[f"FATHER_{mito}"] == (70.0, 60.0, 80.0, "HiFiCNV coverage")
     assert coverage[f"FATHER_{mito}"]["breadth"] == pytest.approx(2_000 / MT_LENGTH)
-    # Each chrM track left out is named, with the reason (TRACE-9).
+    # Each chrM track left out is named, with the reason.
     assert [note for note in run["mtdna"]["json"]["qc_notes"] if "not read as depth" in note] == [
         f"FATHER_{mito}: the QDNAseq coverage holds log2 ratios, not read depth; it is not read as depth.",
         f"MOTHER_{mito}: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.",
@@ -443,7 +443,6 @@ def test_the_mtdna_depth_verdict_judges_each_members_depth(run) -> None:
         sample["sample_id"]: (sample["qc"]["status"], sample["qc"]["notes"])
         for sample in run["mtdna"]["json"]["samples"]
     }
-    # Every member passes the configured limit.
     assert verdicts == {
         f"PROBAND_{mito}": ("pass", []),
         f"MOTHER_{mito}": ("pass", []),
@@ -457,14 +456,13 @@ def test_the_nipt_coverage_check_reads_the_plasmas_coverage_bed(run) -> None:
     assert run["nipt_coverage"]["status"] == 200, run["nipt_coverage"]
     summary = run["nipt_coverage"]["json"]
     assert summary["targets"] is None  # no per-target table: the coverage track over the ROI
-    # The median and the covered bases are the BED's alone.
     assert summary["overall_median_on_target"] == 80.0
     [region] = summary["per_region"]
     assert (region["chr"], region["start"], region["end"]) == ("1", 10000, 20000)
     assert (region["median_coverage"], region["covered_bases"], region["target_bases"]) == (80.0, 8000, 10000)
     [low] = summary["low_coverage_regions"]
     assert (low["reason"], low["covered_fraction"], low["median_coverage"]) == ("partial_coverage", 0.8, 80.0)
-    # The bins left out are named, with the reason (TRACE-9).
+    # The bins left out are named, with the reason.
     plasma = f"CFDNA_{run['nipt_family']}"
     assert summary["coverage_notes"] == [
         f"{plasma}: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth."

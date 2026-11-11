@@ -81,8 +81,7 @@
      dots too: every pair of the four is at least ΔE 18.9 apart (OKLab ×100) for
      normal vision and 15.6 for colour-blind vision, and the teal stays apart from the
      risk lines' red and orange under red-green colour blindness, where a warmer
-     green fell onto the red. The slate blue and sage green before were 9.7 and 8.8
-     apart. */
+     green falls onto the red. */
   --color-haplotype-father-dark: #2b55a0;
   --color-haplotype-father-light: #7f98d9;
   --color-haplotype-mother-dark: #1f8a70;
@@ -95,7 +94,7 @@
   --color-haplotype-deleted-stroke: rgba(78, 91, 103, 0.6);
   --color-repeat-normal: #9ca3af;
   --color-repeat-review: #7c3aed;
-  /* A call at a locus without thresholds (CLIN-26): neither normal grey nor a finding's colour. */
+  /* A call at a locus without thresholds: neither normal grey nor a finding's colour. */
   --color-repeat-not-assessed: #0369a1;
   --color-repeat-intermediate: #d97706;
   --color-repeat-premutation: #ea580c;

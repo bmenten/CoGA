@@ -1,7 +1,7 @@
 // Heading ids for the in-app reference docs, so that a link to a heading of the same page
-// (`[Phasing QC at the ROI](#phasing-qc-at-the-roi)`) jumps to it: without ids it went
-// nowhere (ENG-19). The ids are the slugs GitHub gives the same Markdown, which the docs'
-// links are written against (github-slugger's rule).
+// (`[Phasing QC at the ROI](#phasing-qc-at-the-roi)`) jumps to it. The ids are the slugs
+// GitHub gives the same Markdown, which the docs' links are written against (github-slugger's
+// rule).
 
 type HastNode = {
   type: string;

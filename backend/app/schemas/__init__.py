@@ -1,6 +1,6 @@
-"""API request and response models, split by domain (#528).
+"""API request and response models, split by domain.
 
-Import from ``backend.app.schemas`` as before; the submodules are an implementation detail.
+Import from ``backend.app.schemas``; the submodules are an implementation detail.
 """
 
 from .admin import (

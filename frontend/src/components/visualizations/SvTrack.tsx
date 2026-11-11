@@ -57,13 +57,13 @@ const SvTrack: React.FC<Props> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Without a layout no SV can be placed yet (the genome overview is still sizing it),
-  // and without a URL none is asked for: neither is a finding of no SVs (#602).
+  // and without a URL none is asked for: neither is a finding of no SVs.
   const canRequest = Boolean(layout) && Boolean(url);
   const typeColors = useMemo(() => svTypeColors(), []);
 
-  // React Query caches/dedupes by URL (was a raw fetch in useEffect that ALSO
-  // re-fetched on every layout / sampleId / typeColors change). Fetch only depends
-  // on the URL now; the per-sample filtering is a cheap memo below.
+  // React Query caches/dedupes by URL: a layout, sampleId or typeColors change fetches
+  // nothing again. The fetch depends on the URL alone; the per-sample filtering is a
+  // cheap memo below.
   const { data, isLoading, isError, refetch } = useQuery<{ variants: Variant[]; capped: boolean }>({
     queryKey: ['genome-sv', url],
     enabled: canRequest,
@@ -71,12 +71,12 @@ const SvTrack: React.FC<Props> = ({
     gcTime: Infinity,
     queryFn: async ({ signal }) => {
       // Through the shared client (token + session handling); a failure fails the track
-      // instead of reading as "no SVs" (#510).
+      // instead of reading as "no SVs".
       const payload = await fetchTrackJson<WithoutNulls<VariantPage>>(url, { signal });
       return {
         variants: payload?.variants || [],
         // Past the backend's candidate cap the list stops part-way through the genome;
-        // drawn, the last chromosomes would look free of SVs (#585).
+        // drawn, the last chromosomes would look free of SVs.
         capped: Boolean(payload?.total_is_estimated),
       };
     },
@@ -84,7 +84,7 @@ const SvTrack: React.FC<Props> = ({
   const tooManyVariants = Boolean(data?.capped);
   const variants = useMemo(
     () =>
-      // Every type is drawn, in its row or in the OTHER row (CLIN-54).
+      // Every type is drawn, in its row or in the OTHER row.
       (tooManyVariants ? [] : data?.variants ?? [])
         .map((v) => ({ ...v, genotypes: v.genotypes?.filter((g) => g.sample === sampleId) }))
         .filter((v) => v.genotypes && v.genotypes.length > 0 && hasAltAllele(v.genotypes[0].gt)),
@@ -102,7 +102,7 @@ const SvTrack: React.FC<Props> = ({
         const row = SV_TYPE_ORDER.indexOf(typeKey);
         // The layout names a chromosome as normalizeChrom does (`1`, `X`, `MT`); an SV comes under
         // its VCF's name, with or without `chr`: `M` or `chrM` for the mitochondrion (mito_sv). The
-        // genome overview lays out no mitochondrion (ENG-20), so such an SV is not drawn there.
+        // genome overview lays out no mitochondrion, so such an SV is not drawn there.
         const offset = layout.offsets[normalizeChrom(v.chr)];
         if (offset === undefined) return null;
         const x1 = ((offset + v.start) / layout.total) * width;
@@ -114,8 +114,8 @@ const SvTrack: React.FC<Props> = ({
       .filter(Boolean) as PositionedVariant[];
   }, [variants, layout, width, rowHeight]);
 
-  // The chart's accessible name (#529): what it shows now. A failure or a load is said
-  // as such, never as zero SVs (#510).
+  // The chart's accessible name: what it shows now. A failure or a load is said
+  // as such, never as zero SVs.
   const typeSummary = useMemo(() => describeSvTypes(items), [items]);
   const chartState = isError
     ? 'failed to load'
@@ -237,7 +237,7 @@ const SvTrack: React.FC<Props> = ({
       )}
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>
-          {/* The chromosome as the viewer names it (#602), however the SV is stored: `chr1`, not `1`. */}
+          {/* The chromosome as the viewer names it, however the SV is stored: `chr1`, not `1`. */}
           <div>{`${formatChromosomeLabel(tooltip.variant.chr)}:${tooltip.variant.start}-${tooltip.variant.end} ${describeSvType(
             tooltip.variant.type,
             tooltip.variant.copy_change,

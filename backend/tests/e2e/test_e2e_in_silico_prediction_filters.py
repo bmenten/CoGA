@@ -1,12 +1,10 @@
 """A SIFT or PolyPhen filter keeps the same variants in every view of the family page (E2E).
 
 VEP writes SIFT and PolyPhen with their score, ``deleterious(0.01)`` and
-``probably_damaging(0.998)``. The family search's SQL found the filter's text anywhere in the
-value, so ``deleterious`` also kept ``deleterious_low_confidence(0.03)``; the Python matcher,
-which runs after the SQL in the ranked default view and the pair-based inheritance modes,
-needed the whole value, so ``deleterious(0.01)`` was not ``deleterious`` and a SIFT- or
-PolyPhen-only filter kept nothing there (CLIN-45). Now both keep a transcript whose value
-names the prediction, whatever its score.
+``probably_damaging(0.998)``. The family search's SQL and the Python matcher, which runs after
+the SQL in the ranked default view and the pair-based inheritance modes, both keep a transcript
+whose value names the prediction, whatever its score: ``deleterious`` keeps
+``deleterious(0.01)`` and not ``deleterious_low_confidence(0.03)``.
 
 A family is created through the PED upload under a new id each run: one affected proband,
 homozygous for each variant, so the recessive modes keep every variant the other filters

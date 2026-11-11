@@ -121,12 +121,12 @@ FAMILY_IMPORT_WORKER_POLL_SECONDS = 2.0
 FAMILY_IMPORT_HEARTBEAT_SECONDS = 60.0
 # An import whose heartbeat has not reached the database for this long stops itself where it
 # is, as a stopped process does: half the stale window, so it has stopped well before a
-# worker can take its job for stopped and another write of the family can start. It went on
-# for as long as its heartbeat could not be written (SAFE-15).
+# worker can take its job for stopped and another write of the family can start. Without it,
+# an import would go on for as long as its heartbeat could not be written.
 FAMILY_IMPORT_SELF_STOP = FAMILY_IMPORT_STALE_HEARTBEAT / 2
 # How often a running import checks the connection that holds its family's variant-write
-# locks: Postgres releases them with a lost connection, and the import went on writing
-# beside the next writer, unaware (SAFE-15).
+# locks: Postgres releases them with a lost connection, and an import that did not check
+# would go on writing beside the next writer, unaware.
 FAMILY_IMPORT_LOCK_CHECK_SECONDS = 10.0
 # How long a beat or a lock check may take: one that has not answered by then counts as
 # failed, so that a database that does not answer cannot hold the heartbeat up (a lost
@@ -140,9 +140,9 @@ LOCKS_LOST_ERROR = (
     "it is imported again with overwrite."
 )
 # Why a job is not run, as its record says: the import runs as the account that requested
-# it (SEC-32), and that account no longer exists, or has been deactivated, which ends its
+# it, and that account no longer exists, or has been deactivated, which ends its
 # access at once (docs/security-posture.md), or is no longer an administrator, as only an
-# administrator may queue an import (the import routes; SEC-35). None names the account: the
+# administrator may queue an import (the import routes). None names the account: the
 # job does.
 REQUESTER_GONE_ERROR = "Requesting user no longer exists"
 REQUESTER_INACTIVE_ERROR = (
@@ -179,7 +179,7 @@ def _failure_text(exc: BaseException, *, failed: str) -> str:
     ``ImportRefused``, an ``HTTPException`` of a loader, any error of a class CoGA defines;
     ``own_error_message``), any other error by its kind. Such an error's text is not CoGA's
     sentence and can quote what was being read: a failed statement's parameters, a line of a
-    package file (SEC-39). The server log has the error's frames."""
+    package file. The server log has the error's frames."""
     return own_error_message(exc) or (
         f"{failed} failed on an unexpected error ({describe_error(exc)}); the server log shows "
         "where it failed."
@@ -210,8 +210,8 @@ def _still_failed_message(family_id: str, failures: FailuresLeft) -> str:
     """The log line of an import that completed while the family stays flagged by an
     earlier failure it did not import again. A dataset is named with each job that holds
     an error of it still flagged: one that failed for several scopes (callsets, samples)
-    can have more than one (SAFE-26). A failure no job records is a single-file upload's
-    (SAFE-25), or an import's run outside a job, and is said so (SAFE-18)."""
+    can have more than one. A failure no job records is a single-file upload's,
+    or an import's run outside a job, and is said so."""
     if failures.unreadable:
         return (
             f"Family {family_id} stays flagged import-incomplete: its flag is not in the shape "
@@ -256,7 +256,7 @@ def _still_not_restored_message(family_id: str, remaining: Mapping[str, Any]) ->
 
 def _still_unwritten_message(family_id: str, remaining: Mapping[str, Any]) -> str:
     """The log line of an import that completed while the family stays marked by a
-    single-file upload (SAFE-28), or a deletion of the family's data (SAFE-31), that did not
+    single-file upload, or a deletion of the family's data, that did not
     finish (its mark in ``import_unfinished``): what of it no import, or upload, has brought
     again with overwrite since."""
     writes: list[str] = []
@@ -278,8 +278,8 @@ def _still_unwritten_message(family_id: str, remaining: Mapping[str, Any]) -> st
 
 def _restore_failed_message(flagged_failed: list[str], whole: list[str] | None) -> str:
     """The log line of an overwrite that failed and whose restore failed part-way: its
-    flag names every dataset of the import as failed (SAFE-13), and its entry, kept,
-    every dataset of the family (SAFE-16)."""
+    flag names every dataset of the import as failed, and its entry, kept,
+    every dataset of the family."""
     marked = (
         "the family stays marked import-incomplete until each dataset it holds has been "
         f"imported again with overwrite ({', '.join(whole)})"
@@ -312,7 +312,7 @@ def _record_left_by_restore(datasets: list[FamilyImportDatasetSummary], flagged:
     well as failed: after a failed overwrite whose restore failed part-way, the flag names
     every dataset of the import as failed and none as imported, as the restore may have
     removed the rows of any of them. The table then says the same, with how the loader had
-    ended (SAFE-18)."""
+    ended."""
     for position, dataset in enumerate(datasets):
         if dataset.dataset_type not in flagged or dataset.status == "failed":
             continue
@@ -580,7 +580,7 @@ async def _execute_family_package_import_local(
                 )
     if dry_run and session is not None and hasattr(session, "execute") and bundle is not None:
         # The import looks the manifest's region of interest up when it registers the family,
-        # and leaves the family without one if it is not found (DATA-10): the dry run says so.
+        # and leaves the family without one if it is not found: the dry run says so.
         roi_issue = await manifest_roi_issue(
             session,
             roi_query=_manifest_roi_value(bundle.manifest),
@@ -658,7 +658,7 @@ async def _execute_family_package_import_local(
         f"Family {family_context.family_id} is registered with {len(sample_contexts)} sample(s)."
     )
     if registration_warnings:
-        # A region of interest the manifest names and the import did not find (DATA-10): in
+        # A region of interest the manifest names and the import did not find: in
         # the import's result, with the package's warnings.
         validation = validation.model_copy(
             update={"warnings": [*validation.warnings, *registration_warnings]}
@@ -751,7 +751,7 @@ async def _import_family_datasets(
 ) -> PackageExecutionResult:
     """Import the package's datasets into the registered family, and leave it complete,
     restored to its state before the import, or flagged import-incomplete. ``user`` is the
-    import's, who a compensating deletion of a new family is recorded as made by (SEC-7).
+    import's, who a compensating deletion of a new family is recorded as made by.
 
     ``import_mark`` is this import's entry in the family's ``import_unfinished``: each
     dataset it finishes is recorded there as it goes, and the entry is removed when the
@@ -784,10 +784,10 @@ async def _import_family_datasets(
     )
     # What the import records each dataset as replacing (dataset_scopes), from before its
     # first write: each importer is handed its dataset's (an SNV family VCF is stored as
-    # the callset its scope names, SAFE-23).
+    # the callset its scope names).
     mark_scopes: Mapping[str, Any] = import_mark.scopes if import_mark is not None else {}
     # The scope a failed dataset is flagged for where its failure may have removed the data
-    # of samples it does not name (DatasetLeftMissing): its own, with theirs (SAFE-28).
+    # of samples it does not name (DatasetLeftMissing): its own, with theirs.
     failed_scopes: dict[str, Any] = {}
     finished: set[str] = set()
     # The samples of each dataset an update left as they were, their rows being there
@@ -795,7 +795,7 @@ async def _import_family_datasets(
     skipped_samples: dict[str, set[str]] = {}
     # Overwrite of a PRE-EXISTING family is delete-then-insert, so a mid-import failure
     # can destroy the family's prior data. Snapshot it first so a failed overwrite is
-    # atomically rolled back to the pre-import state (issue #365) instead of only being
+    # atomically rolled back to the pre-import state instead of only being
     # flagged import-incomplete. Two stores are captured: the ClickHouse variant/interval
     # rows, and the Postgres rows the dataset loop writes (repeats / paraphase / interval
     # sources / HPO / annotation manifest) — the importers commit those per-dataset, so a
@@ -805,8 +805,7 @@ async def _import_family_datasets(
     # degrade to the flag rather than failing the import.
     # An update is snapshotted too when the package has a fingerprint: an import whose package
     # changed while it was read is undone, an update as much as an overwrite. An update that
-    # fails otherwise is not restored, as before: its imported datasets are kept, and the
-    # family flagged.
+    # fails otherwise is not restored: its imported datasets are kept, and the family flagged.
     clickhouse_snapshot = None
     postgres_snapshot = None
     if not family_created and (conflict_mode == "overwrite" or bundle.package_fingerprint is not None):
@@ -883,7 +882,7 @@ async def _import_family_datasets(
                     mark_scopes.get(summary.dataset_type), exc.samples
                 )
             # The dataset's message and the job's log line are CoGA's own refusal, or else
-            # name the error by its kind, its frames in the server log (SEC-39).
+            # name the error by its kind, its frames in the server log.
             message = _failure_text(exc, failed="The dataset")
             if own_error_message(exc) is None:
                 logger.error(
@@ -936,15 +935,15 @@ async def _import_family_datasets(
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
     # Imported in full, or with warnings (the rows its input got wrong left out, each named in
     # the job's record): either way its data is the family's now, so a new family holding it is
-    # kept and flagged, never deleted with it, and the flag names it as imported (SAFE-34).
+    # kept and flagged, never deleted with it, and the flag names it as imported.
     imported_datasets = [
         dataset.dataset_type for dataset in datasets if dataset.status in _IMPORTED_DATASET_STATUSES
     ]
     # What each dataset it brought again replaced (dataset_scopes): an earlier import's
     # failure or unfinished entry for the same scope is completed by it. Brought again:
     # imported, imported with warnings, or registered when the package carries nothing for
-    # it (SAFE-17). Not the samples an update skipped, nor a dataset it skipped whole
-    # (`skipped`): a skip imports nothing again, so it completes nothing (SAFE-20).
+    # it. Not the samples an update skipped, nor a dataset it skipped whole
+    # (`skipped`): a skip imports nothing again, so it completes nothing.
     # Only the datasets the loop ran: validation names its own `warning`s.
     ran = {summary.dataset_type for summary in _enabled_dataset_summaries(validation)}
     imported_scopes = imported_dataset_scopes(
@@ -1007,8 +1006,8 @@ async def _import_family_datasets(
     ):
         # The restore rewrites every table's rows of the family, table by table, whichever
         # import wrote them: until it has put the family back, every dataset of the family
-        # counts as pending, this import's finished ones too and those of other imports
-        # (SAFE-16). If the process stops in the restore, the entry says so.
+        # counts as pending, this import's finished ones too and those of other imports.
+        # If the process stops in the restore, the entry says so.
         if import_mark is not None:
             await _mark_family_import_restoring(
                 session, family_context, import_mark, family_samples=family_sample_ids(bundle)
@@ -1048,7 +1047,7 @@ async def _import_family_datasets(
             # which the flag cannot name: so the import's `import_unfinished` entry stays,
             # naming every dataset the family holds, and the gate holds until each has been
             # imported again with overwrite -- the whole family, not only what failed (the
-            # owner's decision, 2026-10-13; SAFE-16).
+            # owner's decision, 2026-10-13).
             untouched = isinstance(exc, FamilyRestoreRefused)
             logger.warning(
                 "Failed to restore family %s after a failed overwrite (%s); flagging "
@@ -1080,7 +1079,7 @@ async def _import_family_datasets(
             else:
                 flagged_failed = sorted({*failed_datasets, *_datasets_set_out(validation, import_mark)})
                 # The job's record says what the flag says: each dataset failed, the ones
-                # whose loader ended well too (SAFE-18).
+                # whose loader ended well too.
                 _record_left_by_restore(datasets, flagged_failed)
                 failed_datasets = list(flagged_failed)
                 whole: list[str] | None = None
@@ -1166,7 +1165,7 @@ async def _import_family_datasets(
                 if left.failures.failed or left.failures.unreadable:
                     logs.append(_still_failed_message(family_context.family_id, left.failures))
                 # A single-file upload's mark, or a deletion's, is said apart from an
-                # import's entry (SAFE-28).
+                # import's entry.
                 writes = {
                     key: entry
                     for key, entry in left.unfinished.items()
@@ -1191,7 +1190,7 @@ async def _import_family_datasets(
 
     # (Re)importing variant data changes the prioritised ranking. The cache's input hash
     # covers the family's storage-level data version, so an outdated ranking is already
-    # never served (#509); dropping the rows here just frees entries that can no longer
+    # never served; dropping the rows here just frees entries that can no longer
     # be hit. Skip when the family shell was just compensated away (nothing to recache),
     # or when a failed overwrite was restored to its pre-import state (the content is
     # unchanged; the data version still moves, which costs at most one recompute).
@@ -1294,7 +1293,7 @@ async def run_family_import_job(
     the database for FAMILY_IMPORT_SELF_STOP, before a worker can take the job for stopped,
     and when the connection holding the family's variant-write locks is gone: the job of
     the latter is ended failed (``LOCKS_LOST_ERROR``), and nothing is restored, since
-    another write of the family may have run once the locks went (SAFE-15).
+    another write of the family may have run once the locks went.
     """
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
@@ -1331,7 +1330,7 @@ async def run_family_import_job(
         ending = asyncio.Event()
         # Set by the heartbeat when it stops the import itself: its beats have not reached
         # the database for FAMILY_IMPORT_SELF_STOP, or the connection holding the family's
-        # variant-write locks is gone (SAFE-15).
+        # variant-write locks is gone.
         beat_lost = asyncio.Event()
         locks_lost = asyncio.Event()
         loop = asyncio.get_running_loop()
@@ -1472,11 +1471,11 @@ async def run_family_import_job(
 
         async def run_import() -> None:
             # The import runs as the account that requested it, found by its id: its e-mail
-            # address may have changed since, or be another account's by now (SEC-32). It
+            # address may have changed since, or be another account's by now. It
             # does not run once that account is gone or deactivated, which ends the account's
             # access at once, nor once it is no longer an administrator, which only the
-            # import routes check (the import itself checks the project's access only;
-            # SEC-35): the job ends failed, saying why, before anything of the family is
+            # import routes check (the import itself checks the project's access only):
+            # the job ends failed, saying why, before anything of the family is
             # written. The account is checked here, as the import starts, and again when a
             # job still validating is claimed again: one deactivated or demoted while its
             # import runs has that import run to its end.
@@ -1489,12 +1488,14 @@ async def run_family_import_job(
             if not has_superuser_rights(user):
                 raise ImportRefused(REQUESTER_NOT_ADMIN_ERROR)
             job_metadata = json_object(job_row.get("metadata"))
+            # The queue records the conflict mode with every job (queue_family_import_job).
+            conflict_mode = str(job_metadata["conflict_mode"])
             # Overwriting an existing family replaces its data: an admin's, as every
             # replacement and deletion of a family's data is (REQ-SEC-002). A superuser imports
             # new families and adds missing datasets; the route refuses them the overwrite, and
             # so does the job of an admin demoted to superuser since it queued one.
             if (
-                str(job_metadata.get("conflict_mode") or "cancel") == "overwrite"
+                conflict_mode == "overwrite"
                 and not bool(job_row["dry_run"])
                 and not is_admin_user(user)
             ):
@@ -1506,7 +1507,7 @@ async def run_family_import_job(
                 dry_run=bool(job_row["dry_run"]),
                 user=user,
                 requested_family_id=job_metadata.get("requested_family_id"),
-                conflict_mode=str(job_metadata.get("conflict_mode") or "cancel"),
+                conflict_mode=conflict_mode,
                 progress=progress,
                 job_id=job_id,
                 record_family=record_family,
@@ -1596,7 +1597,7 @@ async def run_family_import_job(
             logger.exception("Family package import job %s failed", job_id)
             await session.rollback()
             # Ends the job only while it is this worker's: the update names the worker. Its
-            # error is CoGA's own refusal, or names the error by its kind (SEC-39).
+            # error is CoGA's own refusal, or names the error by its kind.
             if not await _update_job_progress(
                 session,
                 job_id=job_id,

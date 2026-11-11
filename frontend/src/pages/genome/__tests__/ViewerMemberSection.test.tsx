@@ -35,15 +35,15 @@ describe('ViewerMemberSection', () => {
     expect(screen.getByText('proband')).toBeInTheDocument();
   });
 
-  it('reads the star out as "affected", not as a star symbol (#529)', () => {
+  it('reads the star out as "affected", not as a star symbol', () => {
     render(
       <ViewerMemberSection member={PROBAND}>
         <p>Coverage track for S1</p>
       </ViewerMemberSection>,
     );
 
-    // The heading was announced as "S1 black star"; the star is now hidden from
-    // assistive technology and the word stands in for it.
+    // The star is hidden from assistive technology and the word stands in for it: the
+    // heading is never announced as "S1 black star".
     const heading = screen.getByRole('heading', { level: 3, name: 'S1, affected' });
     expect(within(heading).getByTitle('Affected')).toHaveAttribute('aria-hidden', 'true');
   });

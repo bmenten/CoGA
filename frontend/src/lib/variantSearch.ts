@@ -40,7 +40,7 @@ export function parseGeneOrRegionInput(rawValue: string): ParsedLocus | null {
 
   // No gene symbol has a colon, nor is one a chromosome followed by numbers (a BED line):
   // either is a region that does not parse. Searched as a gene name it matched nothing,
-  // and read as a family without variants (#604).
+  // and read as a family without variants.
   if (value.includes(':') || BED_LIKE_PATTERN.test(value)) {
     return { kind: 'invalid', problem: `Location '${value}' is not a gene or chr:start-end.` };
   }
@@ -54,8 +54,7 @@ const INTERVAL_ENTRY_PATTERN =
 
 /**
  * The entries of an interval list (one per line, or `;`-separated) that cannot be read,
- * each said as the backend refuses it. The backend skipped them, so the search covered
- * less than the list asked (#604); the form now names them before the search is run.
+ * each said as the backend refuses it, so the form names them before the search is run.
  */
 export function intervalListProblems(rawValue: string, label = 'Interval'): string[] {
   const problems: string[] = [];

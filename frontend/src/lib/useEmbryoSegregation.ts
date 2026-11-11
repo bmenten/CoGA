@@ -31,9 +31,9 @@ export const useEmbryoSegregation = ({
   byEmbryo: Map<string, EmbryoClassification>;
   isLoading: boolean;
   /** The calls at the ROI could not be loaded: no segregation is shown, and the
-   * recombination and uninformative warnings are unknown, not absent (#607). */
+   * recombination and uninformative warnings are unknown, not absent. */
   isError: boolean;
-  /** The stored haplotype blocks were built for another pedigree or other sexes (CLIN-66). */
+  /** The stored haplotype blocks were built for another pedigree or other sexes. */
   blocksOutdated: boolean;
   retry: () => void;
 } => {

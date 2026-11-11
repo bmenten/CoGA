@@ -49,8 +49,8 @@ describe('SmallVariantTable', () => {
     expect(allele.closest('table')).toHaveClass('small-variant-table');
   });
 
-  // ENG-10: the table showed the classification as typed ("likely pathogenic"), where the
-  // SV pages show it normalised.
+  // The table shows the classification normalised, as the SV pages do, not as typed
+  // ("likely pathogenic").
   it('shows a review classification as the SV pages show it, not as typed', () => {
     render(
       <MemoryRouter>
@@ -88,7 +88,7 @@ describe('SmallVariantTable', () => {
   });
 
   it('names under the effect the transcript the filters held on, when not the row’s own', () => {
-    // CLIN-51: the row's impact and effect are its MANE transcript's, a synonymous change;
+    // The row's impact and effect are its MANE transcript's, a synonymous change;
     // HIGH or MODERATE impact kept it as a missense change on a second transcript.
     const row = smallVariant({
       _id: '20-63000301-C-T',
@@ -394,10 +394,9 @@ describe('SmallVariantTable SV second hit', () => {
   });
 });
 
-// CLIN-76 (the owner's decision of 2026-11-10): the table shows a review's class by the one rule
-// of the family page. It hid the class word whenever a tag of the classification group was a
-// chip, a VUS tier or *Secondary finding* too: text "VUS" beside the tag of class 4 showed
-// class 4, and "VUS" beside *Secondary finding* no class at all. Two class tags showed two classes.
+// The owner's decision of 2026-11-10: the table shows a review's class by the one rule of the
+// family page, once: text "VUS" beside the tag of class 4 shows VUS, "VUS" beside *Secondary
+// finding* shows VUS beside that tag, and two class tags show one class.
 describe('SmallVariantTable review class', () => {
   const renderReview = (fields: Partial<SmallVariantReview>) =>
     render(

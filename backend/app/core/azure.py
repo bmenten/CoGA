@@ -1,4 +1,4 @@
-"""Microsoft sign-in: check an access token Microsoft Entra ID (Azure AD) issued for CoGA (SEC-4).
+"""Microsoft sign-in: check an access token Microsoft Entra ID (Azure AD) issued for CoGA.
 
 The browser signs a user in with Microsoft (MSAL, the authorization code flow with PKCE) and
 asks for an access token for CoGA's API scope; it sends that token as the bearer of every API

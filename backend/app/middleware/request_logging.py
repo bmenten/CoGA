@@ -239,7 +239,7 @@ def _derive_db_update(
     update_fields: list[str] | None = None
     if isinstance(request_body, dict):
         # The fields the request changes are those its body model reads: a key the model
-        # ignores changed nothing, so it is not listed (ENG-23). The body itself is recorded
+        # ignores changed nothing, so it is not listed. The body itself is recorded
         # whole, the ignored keys included.
         read = _body_keys_read(request.scope.get("route"))
         update_fields = [
@@ -349,7 +349,7 @@ async def log_request_response(request: Request, call_next) -> Response:
             request_meta["account_change"] = account_change
         if getattr(request.state, "emergency_sign_in", False):
             # The emergency administrator's password sign-in beside Microsoft sign-in, or a
-            # request made with it (SEC-4).
+            # request made with it.
             request_meta["emergency_sign_in"] = True
         audit_event: AuditLogEventPayload | None = None
         try:

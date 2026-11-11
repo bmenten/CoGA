@@ -8,13 +8,12 @@ import {
 } from 'react';
 
 /**
- * Keyboard, focus and close behaviour for a modal dialog (#529).
+ * Keyboard, focus and close behaviour for a modal dialog.
  *
- * The review and ACMG dialogs closed on any backdrop click, with no check for unsaved
- * input, no Escape key and no focus handling. With this hook a dialog:
+ * With this hook a dialog:
  *
  * - closes on Escape and on a backdrop click that both starts and ends on the backdrop
- *   (dragging a text selection out of a field no longer closes it);
+ *   (dragging a text selection out of a field does not close it);
  * - asks before closing when the user has changed any field since it opened;
  * - moves focus into the dialog, keeps Tab inside it, and gives focus back on close.
  *
@@ -94,7 +93,7 @@ export function useModalDialog({
 
   // A layout effect, so the dialog answers Escape from the commit that draws it: in a
   // passive effect, which runs in a later task, an Escape pressed in between reached the
-  // dialog underneath (#529).
+  // dialog underneath.
   useLayoutEffect(() => {
     const token = {};
     openDialogs.push(token);

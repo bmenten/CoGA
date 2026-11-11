@@ -3,13 +3,13 @@
 /* ---------------------------------------------------------------------------
    Admin → Sequencing QC thresholds
    Profiles beside the metrics rather than stacked above them: the metric table
-   is 16 rows and the page was three full-width cards deep, so choosing a
-   profile meant scrolling away from the numbers it changes.
+   is 16 rows, and stacked, choosing a profile would mean scrolling away from the
+   numbers it changes.
    --------------------------------------------------------------------------- */
 .qc-threshold-layout {
   display: grid;
   /* Profile names carry an assay ("Preimplantation genetic testing") and a count; at
-     220px the longer ones wrapped to two lines. */
+     220px the longer ones wrap to two lines. */
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 0.75rem;
   align-items: start;

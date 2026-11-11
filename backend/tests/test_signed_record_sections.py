@@ -740,7 +740,7 @@ def _nipt_family_with_a_fetus() -> types.SimpleNamespace:
     # The NIPT import reads a fetus whose sex is unknown and whose status is unknown or
     # unaffected as an embryo (family_package_manifest._is_ped_embryo), and the NIPT trio
     # takes that embryo for the fetus (nipt.resolve_nipt_trio_from_members). The fetus has no
-    # sequencing column: no data of its own (TRACE-19).
+    # sequencing column: no data of its own.
     return types.SimpleNamespace(
         **vars(_context()),
         sample_rows=[
@@ -769,8 +769,7 @@ def _haplotype_source(sample: str) -> dict[str, Any]:
 
 
 def test_a_nipt_familys_fetus_read_as_an_embryo_brings_no_pgt_section(monkeypatch) -> None:
-    # The PGT analysis of the fetus would be a section of another application: the record
-    # holds none.
+    # The record held the PGT analysis of the fetus, a section of another application.
     async def _nipt(session, context, *, reported_ids, shared_nipt=None):
         return {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
 

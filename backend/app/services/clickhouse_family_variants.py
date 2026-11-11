@@ -90,15 +90,13 @@ from .clickhouse_variant_queries import (
     _SMALL_COUNT_LIMIT,
     _StructuralPanelMatch,
     _append_limit_offset,
-    _append_unique,
     _can_use_small_native_page,
     _can_use_structural_native_page,
     _clamp_small_variant_page,
-    _clickhouse_ids_for_sample,
+    _clickhouse_sample_ids,
     _collect_annotations,
     _decode_json_payload,
     _dedupe_regions,
-    _display_sample_name,
     _family_affected_unaffected_sample_names,
     _family_pedigree,
     _filter_expanded_carrier_screening,
@@ -125,6 +123,7 @@ from .clickhouse_variant_queries import (
     _small_track_limit_response,
     _small_variant_out,
     _split_gene_terms,
+    _stored_sample_id,
     _string_list,
     _structural_annotation_extra,
     _structural_record_matches,
@@ -210,8 +209,8 @@ async def _fetch_gene_regions_for_terms(
     terms = [str(term).strip() for term in terms if str(term).strip()]
     if not terms:
         return []
-    # The terms go as one text[] parameter, however many there are (ENG-14). An expanding
-    # IN bound one parameter per term, which asyncpg caps at 32,767, and Postgres planned
+    # The terms go as one text[] parameter, however many there are. An expanding
+    # IN binds one parameter per term, which asyncpg caps at 32,767, and Postgres plans
     # each such lookup anew: for the Mendeliome's 5,300 genes in a GENCODE-size reference,
     # a sequential scan of the assembly's transcripts, 0.2 s and more. One array lets it
     # keep a plan that reads the upper(hgnc_symbol) and upper(gene_id) indexes (0.05 s).
@@ -252,11 +251,11 @@ def _unique_texts(*values: Sequence[Any]) -> dict[str, None]:
 
 
 # A panel's genes and regions as one assembly resolves them, kept per panel and assembly
-# while nothing they are read from has changed (ENG-14). The Mendeliome resolves to its
+# while nothing they are read from has changed. The Mendeliome resolves to its
 # 5,300 genes and, in a gene reference of one row per transcript, some 40,000 loci: reading
-# them, and the digest of them the ranking cache keys on, took 0.3 to 1.7 s on every
-# Mendeliome request and in the check that serves a sub-panel from the Mendeliome's ranking
-# (CLIN-27), more than computing a small sub-panel's ranking.
+# them, and the digest of them the ranking cache keys on, takes 0.3 to 1.7 s on every
+# Mendeliome request and in the check that serves a sub-panel from the Mendeliome's ranking,
+# more than computing a small sub-panel's ranking.
 #
 # A kept resolution is used only while its token, read on every use, is unchanged: the
 # panel's version, a SHA-256 of its gene rows and of its region rows in the assembly, and
@@ -356,7 +355,7 @@ async def _fetch_panel_constraints(
 ) -> PanelFilterConstraints:
     """The genes and regions a panel filter applies to a family on ``assembly_id``: the
     panel's genes, its regions stored for that assembly, and each gene's loci in that
-    assembly's gene reference. Without an assembly, its genes alone (#515).
+    assembly's gene reference. Without an assembly, its genes alone.
 
     Kept per panel and assembly while its token is unchanged (see
     ``_PANEL_RESOLUTION_CACHE_SIZE``): the same object then serves every request, so no
@@ -409,7 +408,7 @@ async def _read_panel_constraints(
 
     # Stored regions are per assembly: only the family's own assembly's coordinates may
     # constrain its variants. Without a resolved assembly none can be trusted, and the
-    # panel narrows by gene symbol alone (#515).
+    # panel narrows by gene symbol alone.
     region_rows: list[dict[str, Any]] = []
     if assembly_id:
         region_result = await session.execute(
@@ -430,8 +429,8 @@ async def _read_panel_constraints(
         for row in region_rows
     ]
     # Each gene once, in the order first read: the panel's genes, then its regions' genes.
-    # A dict keeps that order and finds a gene in constant time; the list scan it replaces
-    # (_append_unique) made the Mendeliome's 5,300 genes cost about 0.2 s (ENG-14).
+    # A dict keeps that order and finds a gene in constant time; a list scan
+    # (_append_unique) makes the Mendeliome's 5,300 genes cost about 0.2 s.
     genes = list(
         _unique_texts(
             [row.get("gene_symbol") for row in gene_rows],
@@ -508,7 +507,7 @@ async def _fetch_internal_cohort_map(
         "variant_ids": normalized_ids,
         "project_ids": tuple(context.project_ids),
     }
-    # Carriers are the calls with an ALT allele (#511): a haploid "0" is reference, not a
+    # Carriers are the calls with an ALT allele: a haploid "0" is reference, not a
     # carrier, and a haploid "1" or a "2/2" is homozygous alt.
     is_hom = clickhouse_genotype_condition("gt", {HOM_ALT}, param="gt_hom", params=params)
     is_carrier = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
@@ -545,7 +544,7 @@ async def fetch_recurrent_small_variant_ids(
     assembly_name: str,
     *,
     min_carrier_samples: int,
-    carrier_samples: Mapping[str, str] | None = None,
+    carrier_samples: Collection[str] | None = None,
     exclude_common: bool = True,
     exclude_clinvar_pathogenic: bool = True,
     project_ids: Sequence[str] | None = None,
@@ -554,10 +553,8 @@ async def fetch_recurrent_small_variant_ids(
     """Variant ids carried (non-ref) by >= ``min_carrier_samples`` distinct
     samples -- recurrent-artifact candidates.
 
-    ``carrier_samples`` limits the carriers counted to those samples (``None``: every
-    sample on the assembly; empty: none). It maps each identifier ClickHouse may store
-    for a sample -- its name or its UUID -- to one name per sample, so a sample counts
-    once whichever identifier its calls carry. ``exclude_common`` drops variants flagged
+    ``carrier_samples`` limits the carriers counted to those sample IDs (``None``: every
+    sample on the assembly; empty: none). ``exclude_common`` drops variants flagged
     at import as more than 5% frequent in gnomAD/TopMed (``is_gnomad_gt_5_percent``):
     every common variant recurs, and recurrence is no sign of an artifact.
     ``exclude_clinvar_pathogenic`` drops every variant whose ClinVar record, in any of
@@ -579,22 +576,16 @@ async def fetch_recurrent_small_variant_ids(
         "limit": int(limit),
     }
     clauses = ["sign = 1", clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)]
-    carrier = "sample_id"
     if carrier_samples is not None:
-        stored_ids = sorted(carrier_samples)
-        params["carrier_ids"] = tuple(stored_ids)
-        # transform() takes arrays: a list is sent as one, a tuple as a tuple.
-        params["carrier_from"] = list(stored_ids)
-        params["carrier_to"] = [carrier_samples[stored] for stored in stored_ids]
+        params["carrier_ids"] = tuple(sorted(carrier_samples))
         clauses.append("sample_id IN %(carrier_ids)s")
-        carrier = "transform(sample_id, %(carrier_from)s, %(carrier_to)s, sample_id)"
     if exclude_common:
         clauses.append("NOT is_gnomad_gt_5_percent")
     if project_ids:
         clauses.append("project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(project_ids)
     recurrent = f"""
-        SELECT variantId, uniqExact({carrier}) AS carriers
+        SELECT variantId, uniqExact(sample_id) AS carriers
         FROM {entries_table}
         ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
         WHERE {' AND '.join(clauses)}
@@ -635,7 +626,7 @@ async def count_cfdna_carriers(
     assembly_name: str,
     variant_ids: Sequence[str],
     *,
-    carrier_samples: Mapping[str, str],
+    carrier_samples: Collection[str],
     exclude_family_uuid: str,
     min_alt_reads: int = 5,
     min_alt_fraction: float = 0.01,
@@ -643,9 +634,8 @@ async def count_cfdna_carriers(
 ) -> dict[str, int]:
     """How many of ``carrier_samples`` outside the family carry each of ``variant_ids``.
 
-    ``carrier_samples`` maps each identifier ClickHouse may store for a sample (its name or
-    UUID) to one name per sample, as ``fetch_recurrent_small_variant_ids`` takes it: the
-    cfDNA samples of the family's assay. A call carries the allele when it has at least
+    ``carrier_samples`` are sample IDs, as ``fetch_recurrent_small_variant_ids`` takes them:
+    the cfDNA samples of the family's assay. A call carries the allele when it has at least
     ``min_alt_reads`` alt reads and ``min_alt_fraction`` of the reads (the NIPT quality
     filter's floors), or, without allele depths, an alt genotype. A per-sample cfDNA
     callset stores every low-level call, so a read or two that crossed over from another
@@ -654,15 +644,13 @@ async def count_cfdna_carriers(
     if not assembly_name or not variant_ids or not carrier_samples:
         return {}
     entries_table = _small_table_name(assembly_name, "entries")
-    stored_ids = sorted(carrier_samples)
+    carrier_ids = tuple(sorted(carrier_samples))
     counts: dict[str, int] = {}
     unique_ids = list(dict.fromkeys(str(value) for value in variant_ids if value))
     for offset in range(0, len(unique_ids), chunk_size):
         params: dict[str, Any] = {
             "variant_ids": tuple(unique_ids[offset : offset + chunk_size]),
-            "carrier_ids": tuple(stored_ids),
-            "carrier_from": list(stored_ids),
-            "carrier_to": [carrier_samples[stored] for stored in stored_ids],
+            "carrier_ids": carrier_ids,
             "family_guid": exclude_family_uuid,
             "min_alt_reads": int(min_alt_reads),
             "min_alt_fraction": float(min_alt_fraction),
@@ -670,7 +658,7 @@ async def count_cfdna_carriers(
         has_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
         rows = await _execute_clickhouse(
             f"""
-            SELECT variantId, uniqExact(transform(sample_id, %(carrier_from)s, %(carrier_to)s, sample_id))
+            SELECT variantId, uniqExact(sample_id)
             FROM {entries_table}
             ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt, `calls.ad` AS ad
             WHERE sign = 1
@@ -823,8 +811,8 @@ async def _ensure_family_sv_gene_index(
     """
     sv_data_version: str | None = None
     if context.assembly_name:
-        # Ensure the SV tables are current (the calls.ps phase-set column read-based
-        # phasing reads, and the data-version table) before reading them.
+        # The assembly's variant tables, the SV data-version table among them, are made
+        # if they do not exist yet before they are read.
         await ensure_clickhouse_variant_tables(context.assembly_name)
         sv_data_version = await get_family_structural_variant_data_version(
             context.assembly_name, context.family_uuid
@@ -1259,7 +1247,7 @@ async def _fetch_small_variant_summary(
 
     sample_counts_by_name: dict[str, SmallVariantSampleSummaryOut] = {}
     for stored_sample_id, non_ref_count, het_count, hom_alt_count in sample_rows:
-        sample_name = _display_sample_name(context, stored_sample_id)
+        sample_name = _stored_sample_id(stored_sample_id)
         if not sample_name or sample_name not in context.sample_name_to_uuid:
             continue
         sample_counts_by_name[sample_name] = SmallVariantSampleSummaryOut(
@@ -1325,9 +1313,8 @@ async def _fetch_small_variant_rows(
     # count path (_count_small_variant_rows_bounded) uses, so the list and the deduped
     # total always agree. The entries table is a CollapsingMergeTree and a lagged/partial
     # ALTER…DELETE mutation or replica lag can transiently leave more than one sign=1 row
-    # per key; without the GROUP BY those surfaced as duplicate rows in the page and
-    # drifted the OFFSET boundaries. Column order/aliases are unchanged so the row parser
-    # below is unaffected. (any() aggregation mirrors _fetch_structural_variant_rows.) (#333)
+    # per key; without the GROUP BY those would surface as duplicate rows in the page and
+    # drift the OFFSET boundaries. (any() aggregation mirrors _fetch_structural_variant_rows.)
     query = f"""
         SELECT
             any(e.key) AS key,
@@ -1413,7 +1400,7 @@ async def _fetch_small_variant_rows(
         calls: list[SmallVariantCall] = []
         sample_id_list = _listify(sample_ids)
         for index, sample_id in enumerate(sample_id_list):
-            sample_name = _display_sample_name(context, sample_id)
+            sample_name = _stored_sample_id(sample_id)
             if not sample_name or sample_name not in context.sample_name_to_uuid:
                 continue
             af_values = _float_list(_indexed(sample_afs, index))
@@ -1509,7 +1496,7 @@ async def _filter_transcript_matches(
     the SQL decides it: the stored rows the search's own per-transcript condition keeps
     (``_small_annotation_filter_condition``), each by its hash (``annotationHash``), per
     annotation set. None when the search asks nothing of a transcript. The one definition
-    of the filters names the transcript a variant shows (CLIN-51)."""
+    of the filters names the transcript a variant shows."""
     if filters is None or not context.assembly_name:
         return None
     condition_params: dict[str, Any] = {}
@@ -1565,7 +1552,7 @@ async def _small_variant_outs(
     records: Sequence[SmallVariantRecord],
 ) -> list[VariantOut]:
     """``records`` as the API serves them, each naming the transcript the search's
-    annotation filters held on when its primary one does not (CLIN-51), as the SQL decides
+    annotation filters held on when its primary one does not, as the SQL decides
     it: one query for the page."""
     matches = await _filter_transcript_matches(context, filters, records)
     return [
@@ -1657,7 +1644,7 @@ async def fetch_genotype_site_sample(
     returned. A variant stored more than once (the family linked to two projects, or
     ``source`` matching two callsets) counts once, so a sample can hold fewer sites.
     Only SNVs are sampled: an indel's genotype is called with more error, and every check
-    reads the sample as genotypes (CLIN-11, the owner's decision of 2026-10-27).
+    reads the sample as genotypes (the owner's decision of 2026-10-27).
     Each row is ``(chrom, pos, ref, alt, sample_ids, gts)``."""
     if not context.assembly_name:
         return []
@@ -1705,7 +1692,7 @@ async def fetch_genotype_site_sample(
     params["sample_limit"] = max(int(limit), 0)
     rows = await _execute_clickhouse(query, params)
     # Up to 90,000 rows, each with every sample's genotype: read in a worker thread, off the
-    # event loop (OPS-9).
+    # event loop.
     return await asyncio.to_thread(_genotype_site_rows, rows, per_sample=per_sample)
 
 
@@ -1760,8 +1747,8 @@ async def _small_variant_present_sample_names(
     """Per-sample small-variant presence for track availability, in one aggregate query
     (plus a cheap base-match probe only when explicit sample-filters are present).
 
-    Equivalent to the old N per-sample ``_fetch_small_variant_rows(limit=1)`` probes (which
-    injected ``_small_variant_presence_filters``). A family sample carrying an explicit
+    Equivalent to one ``_fetch_small_variant_rows(limit=1)`` probe per sample, each kept to
+    that sample's calls. A family sample carrying an explicit
     sample-filter has its constraint already in the shared WHERE, so it is present iff the
     base query matches ANY variant — even when it is absent from that variant's calls (the
     ``include_absent`` / reference-parent case, e.g. a de-novo MOTHER:0/0). Every other
@@ -1770,12 +1757,12 @@ async def _small_variant_present_sample_names(
     row's samples are picked from them, so cross-sample constraints are not corrupted.
 
     The query is one SELECT over the family's rows: each matching row's visible samples with
-    an ALT allele (``arrayFilter`` over its call arrays), then the distinct samples. It used
-    to wrap the matching rows in a subquery, ARRAY JOINed and grouped outside it, and under a
-    Mendeliome-sized panel ClickHouse's analyzer took some 36 ms over that query, three times
-    its time over a member's track count with the same panel clause, whatever the window: in
-    a small window, most of the query's time (ENG-19). Both shapes keep the same samples
-    (measured in docs/variant-ranking-cache.md, "A panel of any size").
+    an ALT allele (``arrayFilter`` over its call arrays), then the distinct samples. A
+    subquery of the matching rows, ARRAY JOINed and grouped outside it, keeps the same
+    samples, but under a Mendeliome-sized panel ClickHouse's analyzer takes some 36 ms over
+    it, three times its time over a member's track count with the same panel clause, whatever
+    the window: in a small window, most of the query's time (measured in
+    docs/variant-ranking-cache.md, "A panel of any size").
 
     ``panel_constraints`` is the gene panel the list applies (``_fetch_panel_constraints``),
     applied with the list's own clause (``_small_query_filter_parts``,
@@ -1784,11 +1771,9 @@ async def _small_variant_present_sample_names(
     which a join on 64-kb windows over the family's own rows finds, the regions bound once as
     parameters (``_small_family_region_condition``). A panel with neither keeps no variant,
     as the list then shows none (``_resolve_small_variant_scope``), so no sample is present
-    and nothing is asked of ClickHouse. Until CLIN-62 the presence applied a panel's regions
-    alone, each row tested against every region, and a panel with neither as no panel: a
-    member whose only variants under the panel are annotated with one of its genes outside
-    its regions (VEP's upstream and downstream genes) was offered no small-variant track, and
-    under a panel that keeps nothing every member with a variant was.
+    and nothing is asked of ClickHouse. So a member whose only variants under the panel are
+    annotated with one of its genes outside its regions (VEP's upstream and downstream genes)
+    is offered a small-variant track, and under a panel that keeps nothing none is.
     """
     if not context.assembly_name:
         return set()
@@ -1809,7 +1794,7 @@ async def _small_variant_present_sample_names(
     }
     params["track_visible_ids"] = tuple(visible_ids)
     # A sample is present when a matching variant carries an ALT allele for it — haploid
-    # and multi-allelic calls included, so an all-haploid sample is not "empty" (#511).
+    # and multi-allelic calls included, so an all-haploid sample is not "empty".
     is_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="track_nonref_gts", params=params)
     nonref_query = f"""
         SELECT DISTINCT arrayJoin(arrayFilter(
@@ -1821,7 +1806,7 @@ async def _small_variant_present_sample_names(
     """
     present: set[str] = set()
     for (sid,) in await _execute_clickhouse(nonref_query, params):
-        name = _display_sample_name(context, sid)
+        name = _stored_sample_id(sid)
         if name and name in context.sample_name_to_uuid:
             present.add(name)
     # Explicit-filter samples: present iff the base query matches at all (handles the
@@ -1872,11 +1857,8 @@ async def _fetch_structural_variant_rows(
     if call_sample_names:
         # Only the SVs with a call for these samples, the rule the record filter applies
         # afterwards anyway; in SQL, a row limit counts those samples' SVs instead of the
-        # whole family's (#585).
-        call_sample_ids: list[str] = []
-        for sample_name in call_sample_names:
-            for sample_id in _clickhouse_ids_for_sample(context, sample_name):
-                _append_unique(call_sample_ids, sample_id)
+        # whole family's.
+        call_sample_ids = _clickhouse_sample_ids(call_sample_names)
         where_clauses.append("hasAny(e.calls.sampleId, %(call_sample_ids)s)")
         params["call_sample_ids"] = call_sample_ids
     # The genome track never uses the (multi-KB-per-variant) annotation JSON, and we set
@@ -1939,7 +1921,7 @@ async def _fetch_structural_variant_rows(
         calls: list[StructuralVariantCall] = []
         sample_id_list = _listify(sample_ids)
         for index, sample_id in enumerate(sample_id_list):
-            sample_name = _display_sample_name(context, sample_id)
+            sample_name = _stored_sample_id(sample_id)
             if not sample_name or sample_name not in context.sample_name_to_uuid:
                 continue
             calls.append(
@@ -1990,7 +1972,7 @@ async def _structural_present_sample_names(
     row fetch + per-sample matching otherwise — those queries return far less data anyway).
     A sample is present iff it has a call in a variant matching the base WHERE
     (``_structural_variant_where_clauses``: family/sign/project/visibility/chromosome/
-    window), regardless of genotype — mirroring the old ``selected_samples=[sample]``
+    window), regardless of genotype — mirroring a ``selected_samples=[sample]``
     membership test (SVs have no non-ref requirement). Avoids materialising + JSON-decoding
     the entire family SV set on an unfiltered genome/chromosome workspace load.
     """
@@ -2016,7 +1998,7 @@ async def _structural_present_sample_names(
     """
     present: set[str] = set()
     for (sid,) in await _execute_clickhouse(query, params):
-        name = _display_sample_name(context, sid)
+        name = _stored_sample_id(sid)
         if name and name in context.sample_name_to_uuid:
             present.add(name)
     return present
@@ -2084,7 +2066,7 @@ async def _serve_ranking_from_cache(
     The cache holds the ranked (variant id + score breakdown) order; the page's variant
     records and review state are fetched fresh so annotations and review status are never
     served stale. The records are fetched by id; each names the transcript the search's
-    ``filters`` held on (CLIN-51) as a computed page does. Returns None on any
+    ``filters`` held on as a computed page does. Returns None on any
     reconstruction problem so the caller falls back to a live compute.
     """
     ranking = cached.get("ranking") or []
@@ -2107,8 +2089,8 @@ async def _serve_ranking_from_cache(
     if page_ids:
         # By id, in the search's own callset: an imputed callset's call of a variant shares
         # its key with another callset's call of it, and a fetch with no callset reads the
-        # others only. Without it, a search of an imputed callset served from the cache lost
-        # its variants and showed another callset's genotypes (One filter definition).
+        # others only. Without it, a search of an imputed callset served from the cache would
+        # lose its variants and show another callset's genotypes.
         fetch_filters = SmallVariantQueryFilters(
             page=1, page_size=len(page_ids) + 5, source=filters.source
         )
@@ -2151,15 +2133,12 @@ async def _serve_ranking_from_cache(
 
 def _recorded_panel_members(candidate: dict[str, Any]) -> str | None:
     """What a cached ranking recorded of its panel's genes and regions
-    (``panel_members_digest``): None for a panel that held none."""
-    provenance = candidate.get("provenance")
+    (``panel_members_digest``, which every ranking with a panel records): None for a panel
+    that held none."""
+    provenance = candidate["provenance"]
     if isinstance(provenance, str):
-        try:
-            provenance = json.loads(provenance)
-        except json.JSONDecodeError:
-            return None
-    recorded = provenance.get("panel_members") if isinstance(provenance, dict) else None
-    return recorded if isinstance(recorded, str) and recorded else None
+        provenance = json.loads(provenance)
+    return provenance["panel_members"]
 
 
 async def _superset_panel_if_unchanged(
@@ -2173,9 +2152,9 @@ async def _superset_panel_if_unchanged(
 
     The ranking can serve another panel only as a superset: the narrowing can drop its
     variants, never add any. A ranking computed before its panel gained a gene holds none
-    of that gene's variants, whatever the panel holds now (CLIN-27). A panel deleted since
-    has nothing to compare (its lookup answers 404, which must not fail a request for
-    another panel).
+    of that gene's variants, whatever the panel holds now. A panel that held no genes or
+    regions serves none, and a panel deleted since has nothing to compare (its lookup
+    answers 404, which must not fail a request for another panel).
     """
     recorded = _recorded_panel_members(candidate)
     try:
@@ -2209,8 +2188,8 @@ def _priorities_from_ranking(
     modes it scores them with, compound-het pairs counted among these variants only. A
     variant's score depends on the other variants only through those pairs, so when the
     modes agree, the ranking's order of these variants is the order a fresh computation
-    gives them. A ranking that lacks one of them (CLIN-34), or recorded other modes for one,
-    a pair the narrower search splits (CLIN-35), is passed over rather than re-scored: it
+    gives them. A ranking that lacks one of them, or recorded other modes for one,
+    a pair the narrower search splits, is passed over rather than re-scored: it
     recorded rounded scores, and a score worked back from them can differ from a fresh one.
     """
     if isinstance(ranking, str):
@@ -2277,17 +2256,17 @@ async def _serve_subpanel_from_superset(
     when:
 
     - it is complete (not truncated), and has no panel or a panel that still holds exactly
-      the genes and regions it was computed on, and whose genes cover the request (CLIN-27);
+      the genes and regions it was computed on, and whose genes cover the request;
     - it holds every one of the variants, and recorded the same segregation modes for each
       (``_priorities_from_ranking``). Every panel, the Mendeliome included, is matched by
       its genes and its regions, and the broader panel holds the requested genes, whose
-      loci it applied as they are now (the CLIN-27 check), so its ranking holds every
-      variant the requested panel reaches by a gene or a gene's locus. It can still lack
-      one the requested panel reaches by a region of its own only: coordinates PanelApp
-      gave for a gene, or a locus stored when the panel was made, that the broader panel
-      does not hold (CLIN-34). A compound-het pair whose partner
+      loci it applied as they are now (``_superset_panel_if_unchanged``), so its ranking
+      holds every variant the requested panel reaches by a gene or a gene's locus. It can
+      still lack one the requested panel reaches by a region of its own only: coordinates
+      PanelApp gave for a gene, or a locus stored when the panel was made, that the broader
+      panel does not hold. A compound-het pair whose partner
       the panel leaves out is no pair within the panel, so the variant loses that mode, and
-      with it, unless another mode is as strong, segregation weight and score (CLIN-35).
+      with it, unless another mode is as strong, segregation weight and score.
     """
     request_genes = {gene.lower() for gene in (panel_constraints.genes or []) if gene}
     if not request_genes:
@@ -2308,7 +2287,7 @@ async def _serve_subpanel_from_superset(
             if not request_genes.issubset(candidate_genes):
                 continue  # this superset doesn't cover all the requested genes
 
-        # Its ranking, read only now that its panel passed (ENG-13). A row the cache dropped
+        # Its ranking, read only now that its panel passed. A row the cache dropped
         # meanwhile (it keeps a few per family) serves nothing.
         cached = await get_cached_ranking(
             session, family_uuid=context.family_uuid, inputs_hash=str(candidate.get("inputs_hash"))
@@ -2317,7 +2296,7 @@ async def _serve_subpanel_from_superset(
             continue
         priorities = _priorities_from_ranking(cached.get("ranking"), records, segregation_modes)
         if priorities is None:
-            continue  # a variant it lacks (CLIN-34), or a pair the panel splits (CLIN-35)
+            continue  # a variant it lacks, or a pair the panel splits
         total = len(items)
         return await _prioritized_items_page(
             session,
@@ -2339,7 +2318,7 @@ async def _serve_subpanel_from_superset(
 
 
 async def _family_small_variant_data_version(context: FamilyMetadataContext) -> str | None:
-    """The family's storage-level small-variant data version — a ranking-cache input (#509)."""
+    """The family's storage-level small-variant data version — a ranking-cache input."""
     if not context.assembly_name:
         return None
     return await get_family_small_variant_data_version(context.assembly_name, context.family_uuid)
@@ -2363,7 +2342,7 @@ async def _rank_small_variants(
     segregation_evaluated = bool(affected_names)
 
     # Scored on each variant's primary transcript, whatever the search's filters: the
-    # ranking and its cache hold no filter transcript (CLIN-51).
+    # ranking and its cache hold no filter transcript.
     variants = [
         _small_variant_out(record, assembly_name=context.assembly_name, filter_annotation_hashes=None)
         for record in records
@@ -2524,16 +2503,16 @@ async def _prioritized_small_variants_page(
     """The search ranked by phenotype priority: the variants and compound-het pairs the
     same search keeps unranked, ordered by the ranking.
 
-    *Phenotype prioritization* changes the order of a search, never what it keeps (CLIN-44).
+    *Phenotype prioritization* changes the order of a search, never what it keeps.
     The variants are fetched with the search's filters, as the unranked search fetches them:
     the SQL is the one definition of the filters, applied nowhere again (the roadmap's *One
     filter definition*). A search that keeps a variant for what else it
     finds (``_small_search_keeps_by_pairing``) then applies the rules the unranked search
     applies (``_small_variants_candidate_page``): the couple's gene rule of expanded carrier
     screening (``_filter_expanded_carrier_screening``), and the inheritance mode's pairs and
-    single variants (``_inheritance_result_items``). Before, the ranking applied neither, so
-    a compound-het, recessive or carrier-screening search listed every candidate the SQL
-    prefilter let through. Only the variants kept are ranked, with the segregation modes
+    single variants (``_inheritance_result_items``), so a compound-het, recessive or
+    carrier-screening search lists only what it keeps, not every candidate the SQL prefilter
+    lets through. Only the variants kept are ranked, with the segregation modes
     they have among themselves, and a pair is listed as a group of its two variants, placed
     at its better-ranked one (``_prioritized_items_page``).
 
@@ -2543,9 +2522,9 @@ async def _prioritized_small_variants_page(
     lower bound.
     """
     # The gene filter keeps the variants annotated with the gene, as the unranked search
-    # keeps them: it adds none of the gene's loci to the regions. Keeping only those inside
-    # the loci the gene reference gives would lose a variant VEP assigns to the gene outside
-    # them, an upstream or downstream one (ENG-1).
+    # keeps them: it adds none of the gene's loci to the regions. Kept to the loci the gene
+    # reference gives, it would lose a variant VEP assigns to the gene outside them, an
+    # upstream or downstream one.
     scope = _SmallVariantScope(
         panel_constraints=panel_constraints,
         review_variant_ids=review_variant_ids,
@@ -2787,7 +2766,7 @@ async def precompute_family_ranking_safe(
     from .family_metadata_context import build_family_metadata_context
 
     # The log names the family by its UUID once it is known, never by the ID the request
-    # gave (SEC-39).
+    # gave.
     family_uuid: str | None = None
     try:
         get_postgres_engine()
@@ -2817,12 +2796,12 @@ async def precompute_family_ranking_safe(
 
             filters = SmallVariantQueryFilters(**{**stored_filters, "page": 1, "page_size": 100})
             # Prepared as a live request prepares it, so the ranking goes under the key the
-            # next live request of that view reads (ENG-13). The SV hit genes are resolved
+            # next live request of that view reads. The SV hit genes are resolved
             # again from the family's index, not replayed from the stored filters: a live
-            # request resolves them, and its key reads them (#845). The scope comes from the
-            # filters' intervals, excluded intervals and excluded genes: the warm computed
-            # every query without them, a ranking no live request matched, which took one of
-            # the family's few cache rows.
+            # request resolves them, and its key reads them. The scope comes from the
+            # filters' intervals, excluded intervals and excluded genes: without them the
+            # warm would compute a ranking no live request matches, in one of the family's
+            # few cache rows.
             filters.sv_hit_genes = []
             if filters.require_sv_second_hit:
                 await _ensure_family_sv_gene_index(session, context)
@@ -2923,7 +2902,7 @@ def _kept_small_candidates(
     (``_small_query_filter_parts``, with the scope's ``row_filters``), which fetched these
     rows: one definition (the roadmap's *One filter definition*). What no SQL decides is
     applied here: with expanded carrier screening, the couple's at-risk findings among them
-    (REQ-CARR-002). The unranked and the ranked search both keep these (CLIN-44)."""
+    (REQ-CARR-002). The unranked and the ranked search both keep these."""
     if filters.expanded_carrier_screening:
         return _filter_expanded_carrier_screening(
             records,
@@ -2981,7 +2960,7 @@ async def _small_item_outs(
     """A page's items as the response carries them: the single variants, and each
     compound-het pair as a group of its two variants with its phase and pair review. In a
     ranked search each variant carries its priority. Each variant names the transcript the
-    search's ``filters`` held on, when its primary one does not meet them (CLIN-51).
+    search's ``filters`` held on, when its primary one does not meet them.
     Hydrated like every page."""
 
     # Which transcripts the filters held on, as the SQL decides it: one query for the page.
@@ -3056,7 +3035,7 @@ async def resolve_review_selection(
 ) -> ReviewSelection:
     """The review filters of a family's variant list, read from its reviews
     (``list_matching_small_variant_review_ids``): the classifications (by the class a review
-    shows, CLIN-75), the review tags (a variant's own or its compound-het pair's) and the saved
+    shows), the review tags (a variant's own or its compound-het pair's) and the saved
     notes it keeps, and the review tags it leaves out. A filter sent with blank values only
     still counts as set, and matches nothing. The small-variant list and the NIPT variant list
     select by it alike."""
@@ -3095,7 +3074,7 @@ async def _resolve_small_variant_scope(
 ) -> _SmallVariantScope | None:
     """The request's scope, or None when it can match nothing: a panel without genes or
     regions, or a review selection no variant has. An interval list that does not parse is
-    refused, not answered as empty (#604)."""
+    refused, not answered as empty."""
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
         panel_constraints = await _fetch_panel_constraints(
@@ -3262,8 +3241,7 @@ async def _small_variants_candidate_page(
     """The Python-side path: fetch the candidates ClickHouse can narrow, then apply what it
     cannot — inheritance pairing, carrier screening, a track's sampling. The ranked search
     keeps the same (``_kept_small_candidates``, ``_small_inheritance_items``). A gene filter
-    keeps the variants annotated with the gene, as the native page keeps them; this path
-    also kept them to the gene's loci in the gene reference (ENG-1)."""
+    keeps the variants annotated with the gene, as the native page keeps them."""
     inheritance_candidate_limit = _small_pair_inheritance_candidate_limit(filters)
     records = await _fetch_small_variant_rows(
         context,
@@ -3431,11 +3409,11 @@ async def get_family_small_variants_page(
     max_page_size: int = MAX_VARIANT_PAGE_SIZE,
 ) -> VariantPage:
     # Defensive clamp for non-HTTP/internal callers; the routers also bound page_size.
-    # Only the CSV export lifts it, to its own bounded cap (#512).
+    # Only the CSV export lifts it, to its own bounded cap.
     page_size = max(0, min(page_size, max_page_size))
     # ...and clamp page: the routers declare it as an unbounded `int`, so a huge page would
     # otherwise force a deep-OFFSET scan+skip on the native/track_mode list path. Done
-    # before filters is built so filters.page is bounded everywhere it flows. (#333)
+    # before filters is built so filters.page is bounded everywhere it flows.
     page = _clamp_small_variant_page(page, page_size)
     normalized_inheritance = _normalize_small_variant_inheritance(inheritance)
     filters = SmallVariantQueryFilters(
@@ -3495,7 +3473,7 @@ async def get_family_small_variants_page(
     # Each of the search's subqueries (a panel's window join, the annotation and sample
     # subqueries) reads the family's rows apart from its main read, so a write landing between
     # two of them could make the answer miss a row. Every write of the family's small variants
-    # moves its data version once done: a search during which it moved is run once more (ENG-17).
+    # moves its data version once done: a search during which it moved is run once more.
     search = partial(
         _search_family_small_variants,
         session,
@@ -3611,7 +3589,7 @@ _MAX_SMALL_VARIANT_EXPORT_ROWS = 50_000
 class VariantExport:
     """The rows of a CSV export and why, if at all, they are not the whole filtered result.
 
-    A clinical export must never be silently partial (#512): the caller names the file
+    A clinical export must never be silently partial: the caller names the file
     and tells the user when ``truncated`` is set. ``truncated_reason`` is
     ``TRUNCATED_BY_ROW_LIMIT`` when the result was cut at ``limit`` rows, and
     ``TRUNCATED_BY_CANDIDATE_LIMIT`` when the search behind it read a capped candidate
@@ -3661,7 +3639,7 @@ async def export_family_small_variants(
     alongside single variants.
 
     The page function clamps page_size to MAX_VARIANT_PAGE_SIZE (10,000) for HTTP
-    callers; before #512 that silently cut this export at 10,000 rows. The export lifts
+    callers, which would cut this export at 10,000 rows without a trace. The export lifts
     the clamp to its own cap and asks for one row more, so a larger result is reported
     as truncated rather than cut without a trace. An export is also truncated when the
     search behind it read a capped candidate window: a prioritised ranking, or the
@@ -3681,7 +3659,7 @@ async def export_family_small_variants(
         **filters,
     )
     # A row is a variant, listed once: one in two compound-het pairs is in both groups, and
-    # the file says nothing of pairs, so the second row only repeated the first (CLIN-52).
+    # the file says nothing of pairs, so a second row would only repeat the first.
     rows: list[VariantOut] = []
     listed: set[str] = set()
     for variant in [*(variant for group in page.variant_groups for variant in group.variants), *page.variants]:
@@ -3707,7 +3685,7 @@ async def export_family_structural_variants(
     Reuses :func:`get_family_structural_variants_page` with the same filters as the
     table (so ``review_tag=report`` exports exactly the reported set), but requests a
     single large page instead of paginating. Lifts the page clamp and reports
-    truncation like :func:`export_family_small_variants` (#512).
+    truncation like :func:`export_family_small_variants`.
     """
 
     limit = max(1, min(limit, _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS))
@@ -3777,9 +3755,9 @@ async def _prioritized_structural_variants_page(
 
     # Read a candidate window the size the unranked page already uses, with the gene and
     # panel regions pushed into SQL, and only cap once the filters have run. Capping the
-    # fetch first decided which rows the filter was allowed to see: a gene-filtered
-    # search returned nothing whenever that gene's SV fell outside the first 5,000 rows,
-    # which reads as "no such SV" rather than "we only looked at part of the callset".
+    # fetch first would decide which rows the filter may see: a gene-filtered search would
+    # return nothing whenever that gene's SV fell outside the first 5,000 rows, which reads
+    # as "no such SV" rather than "only part of the callset was read".
     records = await _fetch_structural_variant_rows(
         context,
         filters,
@@ -3811,8 +3789,8 @@ async def _prioritized_structural_variants_page(
             variants=[],
             summary={},
         )
-    # The cap now bounds the ranking work over the filtered set, which is what it was
-    # for; scoring every SV in a large callset is the expensive part.
+    # The cap bounds the ranking work over the filtered set: scoring every SV in a large
+    # callset is the expensive part.
     capped = fetch_overflowed or len(filtered) > _PRIORITIZE_CANDIDATE_LIMIT
     # The window that cut the ranking: the ranked set when more matched than it holds,
     # else the candidate read that overflowed.
@@ -3859,7 +3837,7 @@ async def _prioritized_structural_variants_page(
         scored = score_structural_variant(
             sv_type=record.sv_type,
             # Whether the SV removes or adds a copy, by the rule of the SNV + SV second
-            # hit: a DEL:ME is a deletion, and a CNV goes by its copy number (CLIN-47).
+            # hit: a DEL:ME is a deletion, and a CNV goes by its copy number.
             copy_change=copy_change(
                 record.sv_type,
                 [(call.sample, call.gt, call.copy_number) for call in record.calls],
@@ -4077,7 +4055,7 @@ async def get_family_structural_variants_page(
         include_regions=include_regions,
         include_variant_ids=review_variant_ids if include_review_filter_active else None,
         exclude_variant_ids=excluded_review_variant_ids,
-        # A track draws one sample: the cap should count that sample's SVs (#585).
+        # A track draws one sample: the cap should count that sample's SVs.
         call_sample_names=selected_samples if track_mode and filters.selected_samples else (),
         panel=panel,
     )
@@ -4131,7 +4109,7 @@ async def get_family_structural_variants_page(
         for record in page_records
     ]
     # A track gets the total and the cap as well: without them, a view holding more SVs
-    # than one page, or than the cap, looked complete (#585).
+    # than one page, or than the cap, would look complete.
     return VariantPage(
         total=total,
         total_is_estimated=total_is_estimated,

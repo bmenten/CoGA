@@ -118,10 +118,9 @@ def test_hash_changes_when_scoring_reference_data_changes(monkeypatch) -> None:
     assert len({before, after_hpo, after_gene_info}) == 3
 
 
-def test_hash_changes_when_an_ontology_without_a_release_is_imported_again(monkeypatch) -> None:
-    # Two imports from files without a release both leave the release unknown. The
-    # rankings computed on the first must not be served on the second.
-    monkeypatch.setitem(REFERENCE_VERSIONS, "hpo_release", None)
+def test_hash_changes_when_the_ontology_is_imported_again(monkeypatch) -> None:
+    # The same release imported again is another import of the ontology: the rankings
+    # computed on the earlier import are not served on it.
     first = _hash(monkeypatch)
     monkeypatch.setitem(REFERENCE_VERSIONS, "hpo_imported_at", "2026-10-01T08:00:00+00:00")
     assert _hash(monkeypatch) != first
@@ -151,7 +150,7 @@ class _GeneInfoSession:
 
 def test_the_reference_versions_name_the_loaded_hpo_ontology(monkeypatch) -> None:
     # The same reader as the signed record and the admin summary: the release of the
-    # latest import, and when it was imported. `max(release_version)` would name a release no
+    # latest import, and when it was imported. `max(release_version)` named a release no
     # longer loaded after a downgrade, and could not tell apart two imports without one.
     imported_at = "2026-09-01T08:00:00+00:00"
 
@@ -257,7 +256,7 @@ def test_the_exact_key_covers_the_panel_members_and_the_base_key_leaves_them_out
 def test_both_keys_cover_the_regions_and_genes_the_query_applied(monkeypatch) -> None:
     # The regions the query keeps to are in both keys as the query applied them: the same
     # filters over other regions are another key. (A gene filter adds no regions: it keeps
-    # the variants annotated with the gene, ENG-1.)
+    # the variants annotated with the gene.)
     kept_to = _default_filters(intervals="1:1000-2000")
     before = _hashes(monkeypatch, filters=kept_to, include_regions=[Region(chr="1", start=1000, end=2000)])
     moved = _hashes(monkeypatch, filters=kept_to, include_regions=[Region(chr="1", start=1000, end=3000)])
@@ -291,7 +290,7 @@ def test_both_keys_cover_the_regions_and_genes_the_query_applied(monkeypatch) ->
 
 
 def test_both_keys_cover_the_inheritance_mode_and_carrier_screening(monkeypatch) -> None:
-    # CLIN-44: what a ranked search keeps depends on its inheritance mode (pairing) and on
+    # What a ranked search keeps depends on its inheritance mode (pairing) and on
     # expanded carrier screening (the couple's genes), so no ranking of one search serves
     # another, exactly or narrowed to a sub-panel.
     searches = [
@@ -317,7 +316,7 @@ class _NoStructureVersionSession:
 
 
 def test_the_pedigree_read_from_the_context_covers_each_members_sex() -> None:
-    # The structure hash covers each member's sex. The X-linked rules
+    # The structure hash covers each member's sex; the fallback did not. The X-linked rules
     # read it: the segregation of a son's hemizygous call, and which chrX variants a carrier
     # screen keeps (a female partner's on their own, REQ-CARR-002).
     def context(sex: str):
@@ -379,11 +378,11 @@ def test_superset_candidates_carry_what_their_panel_held() -> None:
 
 
 def test_the_pedigree_signed_is_the_contexts_never_the_latest_structure_hash() -> None:
-    # ENG-13. The ranking is computed on the pedigree the context loaded, and signed by it:
-    # two contexts that differ in an affected status sign differently whatever the database's
-    # latest version says, and the database is not asked. Keyed on the family's latest
-    # structure hash, read after that, an edit committed in between would store a ranking
-    # computed on the old pedigree under the new pedigree's key.
+    # The ranking is computed on the pedigree the context loaded, and the key signs that
+    # pedigree: the family's latest structure hash, read after it, could store a ranking
+    # computed on the old pedigree under the new pedigree's key when an edit committed in
+    # between. Two contexts that differ in an affected status sign differently whatever the
+    # database's latest version says, and the database is not asked.
     def context(affected: list[str]):
         return types.SimpleNamespace(
             family_uuid="u1",
@@ -403,8 +402,8 @@ def test_the_pedigree_signed_is_the_contexts_never_the_latest_structure_hash() -
 
 
 def test_superset_candidates_are_read_without_their_rankings() -> None:
-    # ENG-13. The candidates are read without their rankings; the caller reads the ranking of
-    # the one whose panel passes.
+    # The candidates are read without their rankings; the caller reads the ranking of the
+    # one whose panel passes.
     session = _RecordingSession()
     asyncio.run(vrc.find_superset_candidates(session, family_uuid="f", base_hash="b"))
     columns = session.statements[0].split("SELECT", 1)[1].split("FROM", 1)[0]

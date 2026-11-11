@@ -24,7 +24,7 @@ interface Props {
 // ("1q21.1 recurrent (TAR syndrome) region (proximal and distal, BP1-BP4) (includes …)").
 const MAX_LABEL_LENGTH = 150;
 
-// The surface's name for a screen reader (#529): how many clinical CNVs are in view and
+// The surface's name for a screen reader: how many clinical CNVs are in view and
 // as many of the first three names as fit in about 150 characters, then "…".
 const describeCnvs = (lead: string, cnvs: ClinicalCnvOut[]): string => {
   const head = `${lead}: ${cnvs.length.toLocaleString()} (`;
@@ -69,7 +69,7 @@ const CnvTrack: React.FC<Props> = ({
 
   const cnvsOn = `Clinical CNVs on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
-  // A failed request must never read as an empty region (#510).
+  // A failed request must never read as an empty region.
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
@@ -79,7 +79,7 @@ const CnvTrack: React.FC<Props> = ({
     );
   }
 
-  // A view with no width asks for nothing: it is neither loading nor empty (#602).
+  // A view with no width asks for nothing: it is neither loading nor empty.
   if (!hasRegionInView(regionStart, regionEnd)) {
     return <svg width={width} height={height} role="img" aria-label={`${cnvsOn}: ${NO_REGION_IN_VIEW}`} />;
   }
@@ -92,8 +92,8 @@ const CnvTrack: React.FC<Props> = ({
   const trackY = Math.max(2, Math.floor(height * 0.2));
   const trackHeight = Math.max(height - trackY * 2, 4);
   // Only what overlaps the region: while a pan loads, the previous window's regions
-  // are held, and one left of the new window was drawn at its left edge under its own
-  // name, as if that clinical CNV lay there (#526).
+  // are held, and one left of the new window would be drawn at its left edge under its own
+  // name, as if that clinical CNV lay there.
   const inView = data.filter((r) => r.end > regionStart && r.start < regionEnd);
   // Nothing in view while a pan's new window is still on its way is not "none".
   const ariaLabel =

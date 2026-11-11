@@ -1,4 +1,4 @@
-// The sign-in page with Microsoft sign-in configured (SEC-4), MSAL replaced by a stand-in.
+// The sign-in page with Microsoft sign-in configured, MSAL replaced by a stand-in.
 //
 // The page asks the backend how users sign in (GET /auth/config). With Microsoft it offers only
 // "Sign in with Microsoft": no password form and no sign-up. The sign-in goes to Microsoft for
@@ -173,7 +173,7 @@ describe('LoginPage with Microsoft sign-in', () => {
     expect(localStorage.getItem('username')).toBe('a.colleague@example.org');
     expect(localStorage.getItem('role')).toBe('viewer');
     expect(localStorage.getItem('sign_in')).toBe('microsoft');
-    // The remembered page is used once, and nothing of an earlier session stays cached (#521).
+    // The remembered page is used once, and nothing of an earlier session stays cached.
     expect(sessionStorage.getItem(nextKey(key))).toBeNull();
     expect(queryClient.getQueryData(['family', 'F1'])).toBeUndefined();
   });

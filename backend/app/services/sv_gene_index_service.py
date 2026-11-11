@@ -88,7 +88,7 @@ def _same_sv(sv: dict[str, Any], other: dict[str, Any]) -> bool:
 
 def _copy_loss(sv: dict[str, Any], pedigree: FamilyPedigree | None) -> bool:
     """Whether the SV removes a copy of what it spans, by the rule the SV ranking reads too
-    (``sv_copy_change.copy_change``, CLIN-47): a deletion of any subtype (``DEL:ME``; a
+    (``sv_copy_change.copy_change``): a deletion of any subtype (``DEL:ME``; a
     ``LOSS`` or ``CNV_LOSS`` likewise), or a CNV unless the copy numbers stored for its
     carriers (``calls.cn``) show none lost (two copies, or one for a male on chrX or chrY
     outside the PARs). A CNV that stores no copy number for its carriers may be a loss, and
@@ -328,7 +328,7 @@ async def get_sv_second_hits(
         return {}
     # The genes go as one text[] parameter, not one parameter per gene (an expanding IN):
     # a CSV export's 50,001 rows can hit more genes than the 32,767 parameters asyncpg
-    # takes in one statement (DATA-3).
+    # takes in one statement.
     rows = (
         await session.execute(
             text(
@@ -453,9 +453,9 @@ def summarize_second_hit(
     * cis only when every one of them is in cis;
     * unknown otherwise.
 
-    A cis verdict of one SV used to stand for all of them, so a duplication in cis hid a
-    deletion in trans with the SNV (CLIN-28). The evidence is read phasing when a verdict
-    behind the gene's rests on it; a cis is read-backed only when every one is."""
+    So a duplication in cis never hides a deletion in trans with the SNV. The evidence is
+    read phasing when a verdict behind the gene's rests on it; a cis is read-backed only
+    when every one is."""
     sv_types = sorted({str(sv.get("sv_type") or "SV").upper() for sv in svs})
     affected = set(affected_samples or [])
     unaffected = set(unaffected_samples or [])

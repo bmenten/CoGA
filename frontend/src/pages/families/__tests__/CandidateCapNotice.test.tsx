@@ -2,8 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import CandidateCapNotice, { candidateCapMessage } from '../CandidateCapNotice';
 
-// #725 follow-up: a family search that read only part of the callset says so, where it
-// stopped and how to narrow it, instead of only an estimated total.
+// A family search that read only part of the callset says so, where it stopped and how to
+// narrow it, not only an estimated total.
 describe('CandidateCapNotice', () => {
   it('says where a capped candidate read stopped, that results may be incomplete, and how to narrow', () => {
     render(<CandidateCapNotice page={{ candidates_capped: true, candidate_limit: 5000 }} noun="variants" />);
@@ -32,7 +32,7 @@ describe('CandidateCapNotice', () => {
     ).toMatch(/^Results may be incomplete: the search stopped after the first 1,250 candidate variants/);
   });
 
-  it('still warns when an older backend sends no limit', () => {
+  it('still warns when the page names no limit', () => {
     expect(candidateCapMessage({ candidates_capped: true }, 'SVs')).toMatch(
       /the search stopped after a limited number of candidate SVs/,
     );

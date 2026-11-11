@@ -218,7 +218,7 @@ def test_mito_sample_qc_without_limits_is_not_assessed() -> None:
     from app.services.mitochondrial_analysis import _sample_qc
 
     # A measured sample with no configured cut-off must not be reported as passing a gate
-    # that does not exist.
+    # that does not exist, nor judged by a hard-coded depth.
     verdict = _sample_qc({}, MitoDNACoverageOut(mean_depth=5.0), {})
 
     assert verdict.status == "skip"
@@ -232,9 +232,12 @@ def test_mito_contamination_fails_on_the_high_side() -> None:
     thresholds = {"mtdna.contamination": {"warn_value": 0.01, "error_value": 0.03}}
     coverage = MitoDNACoverageOut()
 
-    assert _sample_qc({"mtdna": {"contamination": 0.005}}, coverage, thresholds).status == "pass"
-    assert _sample_qc({"mtdna": {"contamination": 0.02}}, coverage, thresholds).status == "warn"
-    assert _sample_qc({"mtdna": {"contamination": 0.05}}, coverage, thresholds).status == "fail"
+    def contaminated(level: float) -> dict:
+        return {"package_sample_metadata": {"mtdna": {"contamination": level}}}
+
+    assert _sample_qc(contaminated(0.005), coverage, thresholds).status == "pass"
+    assert _sample_qc(contaminated(0.02), coverage, thresholds).status == "warn"
+    assert _sample_qc(contaminated(0.05), coverage, thresholds).status == "fail"
 
 
 # ---------------------------------------------------------------------------
@@ -542,13 +545,14 @@ _NOT_IN_THE_CATALOGUE = [
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("metric_key", _NOT_IN_THE_CATALOGUE)
+@pytest.mark.parametrize(("warn_value", "error_value"), [(20.0, 10.0), (None, None)])
 async def test_a_limit_on_a_metric_outside_the_catalogue_is_refused_before_anything_is_read(
-    metric_key: str,
+    metric_key: str, warn_value: float | None, error_value: float | None
 ) -> None:
     from app.services.qc_threshold_service import set_qc_threshold
 
     # An operator cannot add a metric, so no limit can name one the parsers do not emit
-    # or whose failing side the software does not know.
+    # or whose failing side the software does not know; nor can one be cleared.
     assert metric_key not in QC_METRICS_BY_KEY
     session = _RecordingThresholdSession(previous=None)
     with pytest.raises(HTTPException) as excinfo:
@@ -556,8 +560,8 @@ async def test_a_limit_on_a_metric_outside_the_catalogue_is_refused_before_anyth
             session,
             profile_key="default",
             metric_key=metric_key,
-            warn_value=20.0,
-            error_value=10.0,
+            warn_value=warn_value,
+            error_value=error_value,
             reason="Per the validation report",
             **_ACTOR,
         )
@@ -565,54 +569,6 @@ async def test_a_limit_on_a_metric_outside_the_catalogue_is_refused_before_anyth
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == f"Unknown QC metric: {metric_key}"
     assert session.statements == []
-    assert session.commits == 0
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("metric_key", _NOT_IN_THE_CATALOGUE)
-async def test_a_stored_limit_on_a_metric_that_left_the_catalogue_can_be_cleared(metric_key: str) -> None:
-    from app.services.qc_threshold_service import set_qc_threshold
-
-    # ENG-12 (REQ-QC-003). The admin list surfaces such a limit, which gates nothing, so it
-    # can be removed: clearing it is not refused as an unknown metric.
-    session = _RecordingThresholdSession(previous={"warn_value": 20.0, "error_value": 10.0})
-    result = await set_qc_threshold(
-        session,
-        profile_key="default",
-        metric_key=metric_key,
-        warn_value=None,
-        error_value=None,
-        reason="The metric left the catalogue",
-        **_ACTOR,
-    )
-
-    assert result == {"profile_key": "default", "metric_key": metric_key, "warn_value": None, "error_value": None}
-    [deleted] = session.written("DELETE FROM qc_thresholds")
-    assert deleted["metric_key"] == metric_key
-    # Recorded like any other edit, with the values it replaced and why.
-    [change] = session.written("INSERT INTO qc_threshold_changes")
-    assert (change["metric_key"], change["previous_warn_value"], change["previous_error_value"]) == (
-        metric_key,
-        20.0,
-        10.0,
-    )
-    assert (change["warn_value"], change["error_value"]) == (None, None)
-    assert session.commits == 1
-
-    # With nothing stored there is nothing to clear, and no metric of the catalogue to name.
-    session = _RecordingThresholdSession(previous=None)
-    with pytest.raises(HTTPException) as excinfo:
-        await set_qc_threshold(
-            session,
-            profile_key="default",
-            metric_key=metric_key,
-            warn_value=None,
-            error_value=None,
-            reason="Nothing there",
-            **_ACTOR,
-        )
-    assert (excinfo.value.status_code, excinfo.value.detail) == (400, f"Unknown QC metric: {metric_key}")
-    assert session.written("DELETE FROM qc_thresholds") == []
     assert session.commits == 0
 
 
@@ -770,7 +726,7 @@ class _ProfileRowsSession:
 
 
 @pytest.mark.asyncio
-async def test_the_profiles_list_each_profile_with_its_limits_and_flag_a_metric_the_catalogue_dropped() -> None:
+async def test_the_profiles_list_each_profile_with_its_limits() -> None:
     from app.services.qc_threshold_service import list_qc_threshold_profiles
 
     def row(profile: str, metric_key: str | None, warn=None, error=None) -> dict:
@@ -791,8 +747,6 @@ async def test_the_profiles_list_each_profile_with_its_limits_and_flag_a_metric_
             [
                 row("default", "alignment.duplicated_reads_percent", 20.0, 30.0),
                 row("default", "depth.mean_depth", 20.0, 10.0),
-                # A stored limit on a key the catalogue no longer has.
-                row("default", "depth.total_bases", 1.0, None),
                 # A profile without limits: the LEFT JOIN's one row with no metric.
                 row("pgt", None),
             ]
@@ -801,32 +755,16 @@ async def test_the_profiles_list_each_profile_with_its_limits_and_flag_a_metric_
 
     assert [(profile["key"], profile["is_default"]) for profile in profiles] == [("default", True), ("pgt", False)]
     assert profiles[1]["thresholds"] == []
-    duplicates, depth, dropped = profiles[0]["thresholds"]
+    duplicates, depth = profiles[0]["thresholds"]
     assert duplicates == {
         "metric_key": "alignment.duplicated_reads_percent",
         "label": "Duplicate reads",
         "unit": "%",
         "direction": "higher_is_worse",
-        "known_metric": True,
         "warn_value": 20.0,
         "error_value": 30.0,
     }
-    assert (depth["label"], depth["unit"], depth["direction"], depth["known_metric"]) == (
-        "Mean depth",
-        "x",
-        "lower_is_worse",
-        True,
-    )
-    # Shown, so an admin can see and clear it, and marked as no metric the software knows.
-    assert dropped == {
-        "metric_key": "depth.total_bases",
-        "label": "depth.total_bases",
-        "unit": "",
-        "direction": "lower_is_worse",
-        "known_metric": False,
-        "warn_value": 1.0,
-        "error_value": None,
-    }
+    assert (depth["label"], depth["unit"], depth["direction"]) == ("Mean depth", "x", "lower_is_worse")
 
 
 class _QueuedRowsSession:

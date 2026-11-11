@@ -2,11 +2,11 @@
 
 Companion to `clickhouse_family_snapshot`. The per-dataset importers COMMIT their
 Postgres writes independently (progress visibility / streaming), so a failed
-OVERWRITE of a pre-existing family can leave some datasets' Postgres rows updated
-while others — and, since #383, the ClickHouse variant data — are rolled back.
+OVERWRITE of an existing family can leave some datasets' Postgres rows updated
+while others — and the ClickHouse variant data — are rolled back.
 This captures the Postgres rows the dataset import LOOP modifies, before the loop,
 and restores them on failure so the family's Postgres state matches the restored
-ClickHouse state (the Postgres follow-up to issue #365).
+ClickHouse state.
 
 Scope — only the tables written DURING the dataset loop, captured after family
 registration. Registration idempotently refreshes the family/sample *descriptive*

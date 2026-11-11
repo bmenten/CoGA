@@ -1,11 +1,11 @@
-"""One rule for whether an SV removes a copy of what it spans, adds one, or neither (CLIN-47).
+"""One rule for whether an SV removes a copy of what it spans, adds one, or neither.
 
 The SV ranking and the SNV + SV second-hit badge both read ``sv_copy_change.copy_change``, so a
 ``DEL:ME`` or a CNV whose copy number shows a loss scores as a deletion, and takes the
 haploinsufficiency floor in a LoF-intolerant gene, as the badge counts it a copy loss, and a
 ``DUP:TANDEM`` or a CNV gain scores as a duplication: these tests pin the rule, and run the SV
 ranking and the badge on the same SVs. The SV list serves each SV's change by
-the same rule, which the genome, chromosome and Circos views draw an SV by (CLIN-54).
+the same rule, which the genome, chromosome and Circos views draw an SV by.
 """
 
 from __future__ import annotations
@@ -259,7 +259,7 @@ def test_the_second_hit_badge_counts_the_same_svs_as_copy_losses(
     assert summary["has_deletion"] is (change == "loss")
 
 
-# --- what the SV views draw by (CLIN-54) -------------------------------------------------------
+# --- what the SV views draw by -------------------------------------------------------
 
 
 @pytest.mark.parametrize(

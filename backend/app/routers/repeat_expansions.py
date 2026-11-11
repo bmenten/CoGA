@@ -72,10 +72,9 @@ async def upload_repeat_expansions(
         "uploaded_from": "web",
     }
     # The whole file is read, and each call built as it is stored, before anything is
-    # deleted or recorded (SAFE-29): a file the upload refuses (no record for the sample,
+    # deleted or recorded: a file the upload refuses (no record for the sample,
     # no column for it, not text or gzip) answers 400 with the stored calls, and what the
-    # family records, as they were. A file without a record used to replace the sample's
-    # calls with none, answering 200, and strike them off a whole-family entry.
+    # family records, as they were.
     text_value = await decode_repeat_upload_text(file)
     calls = await read_trgt_sample_calls(
         session,
@@ -88,7 +87,7 @@ async def upload_repeat_expansions(
             session,
             sample_uuid=sample_context.sample_uuid,
         )
-    # What the upload brings, recorded for the family (SAFE-19) in the transaction that
+    # What the upload brings, recorded for the family in the transaction that
     # commits its calls: store_trgt_sample_calls commits both.
     dataset, scope = repeat_upload_scope(sample_context.sample_id)
     await record_family_upload(

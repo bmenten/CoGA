@@ -26,7 +26,7 @@ type Role = NonNullable<UserUpdate['role']>;
 
 // The global roles, lowest first, each with every right of the ones before it (lib/auth.ts).
 const ROLES: readonly Role[] = USER_ROLES;
-// The roles with every right in every project, member or not (SEC-1).
+// The roles with every right in every project, member or not.
 const EVERY_PROJECT_ROLES: ReadonlySet<string> = new Set(['superuser', 'admin']);
 // What each role may do, as the role picker's tooltip says it.
 const ROLE_HINTS: Record<Role, string> = {
@@ -224,8 +224,8 @@ const AccountRequestMail: React.FC = () => {
 
 const UserListPage: React.FC = () => {
   const queryClient = useQueryClient();
-  // What the last change did: a refused (de)activation used to leave only a checkbox snapping
-  // back, with no word of why (#526).
+  // What the last change did: a refused (de)activation says why, not only by a checkbox
+  // snapping back.
   const [activationStatus, setActivationStatus] = React.useState<{
     tone: 'success' | 'error';
     text: string;
@@ -253,8 +253,7 @@ const UserListPage: React.FC = () => {
     queryKey: ['admin', 'projects'],
     queryFn: async () => {
       const response = await api.get('/projects');
-      // A project's id is `_id`; the page read `id`, which is never sent, and so listed no
-      // user's projects (ENG-7).
+      // A project's id is `_id`.
       return (response.data as ProjectDashboardOut[]).map((p) => ({
         id: p._id,
         name: p.name,
@@ -321,7 +320,7 @@ const UserListPage: React.FC = () => {
     onSuccess: async (_updated, { user }) => {
       setAccessUser(null);
       setActivationStatus({ tone: 'success', text: `Saved the project access of ${user.email}.` });
-      // The Projects page lists each project's members from caches of its own (ENG-10).
+      // The Projects page lists each project's members from caches of its own.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: userAccountsQuery.queryKey }),
         queryClient.invalidateQueries({ queryKey: ['projects'] }),
@@ -508,7 +507,7 @@ const UserListPage: React.FC = () => {
                       ) : null}
                       {u.projects.length > 0 ? (
                         // One project a line: in two columns of no minimum width a project's
-                        // chip, which never wraps, ran over the Actions column.
+                        // chip, which never wraps, would run over the Actions column.
                         <div className="table-checkbox-grid">
                           {projects
                             .filter((project) => u.projects.includes(project.id))

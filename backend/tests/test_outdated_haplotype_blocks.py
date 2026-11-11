@@ -1,4 +1,4 @@
-"""Haplotype blocks built for another pedigree are outdated, and no embryo is called from them (CLIN-66).
+"""Haplotype blocks built for another pedigree are outdated, and no embryo is called from them.
 
 The haplotype blocks are built when the phased genotypes are imported, from the index couple, the
 couple's children and each member's recorded sex, and the embryo calls read them. A later edit of

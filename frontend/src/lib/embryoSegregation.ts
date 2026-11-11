@@ -54,7 +54,7 @@ export interface EmbryoClassification {
   qcVerdict: PgtEmbryoQcVerdictOut | null;
   /** Why no QC was counted at the ROI, for a verdict of `not_counted`. */
   qcNotCountedReason: string;
-  /** The haplotype blocks were built for another pedigree or other sexes (CLIN-66): every
+  /** The haplotype blocks were built for another pedigree or other sexes: every
    * embryo is uninformative until the phased genotypes are imported again. */
   blocksOutdated: boolean;
   /** The parental sides whose markers at the ROI mix both of that parent's homologs: the
@@ -72,7 +72,7 @@ export interface MixedHomologs {
   markers: number | null;
 }
 
-/** Why the embryos are uninformative while their haplotype blocks are outdated (CLIN-66), in
+/** Why the embryos are uninformative while their haplotype blocks are outdated, in
  * the words the family page and the signed record share. */
 export const BLOCKS_OUTDATED_WARNING =
   "The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.";
@@ -85,7 +85,7 @@ export const qcNotCountedReason = (markersTruncated: boolean): string =>
 
 /**
  * Each called embryo of the family's PGT analysis, by sample id. An embryo the analysis did
- * not call (the family has no ROI, or no haplotypes were read) has no entry, as before.
+ * not call (the family has no ROI, or no haplotypes were read) has no entry.
  */
 export const embryoClassificationsFromAnalysis = (analysis: PgtAnalysisOut): Map<string, EmbryoClassification> =>
   new Map(

@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS users (
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     -- The Microsoft Entra ID (Azure AD) object id (`oid`) of an account made at its first
-    -- Microsoft sign-in (SEC-4): such an account is found by it, never by its e-mail address,
+    -- Microsoft sign-in: such an account is found by it, never by its e-mail address,
     -- and has no password (hashed_password holds a marker no password matches). NULL for a
     -- local account: the emergency administrator, and every account without Azure AD.
     azure_object_id UUID UNIQUE,
@@ -68,10 +68,6 @@ CREATE TABLE IF NOT EXISTS users (
     CONSTRAINT users_archived_inactive_check CHECK (archived_at IS NULL OR NOT is_active)
 );
 
--- A database made before Microsoft sign-in gains the column here; a no-op on a database the
--- CREATE TABLE above made (the same column, with the same users_azure_object_id_key).
-ALTER TABLE users ADD COLUMN IF NOT EXISTS azure_object_id UUID UNIQUE;
-
 CREATE TABLE IF NOT EXISTS projects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
@@ -82,7 +78,7 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
 
--- A project's members and what each may do in it (SEC-1): an analyst reads and changes the
+-- A project's members and what each may do in it: an analyst reads and changes the
 -- project's records, a reader only reads them. The level only takes rights away: a member whose
 -- role (users.role) is viewer changes nothing. A superuser or an admin has every right in every
 -- project, member or not.
@@ -92,13 +88,6 @@ CREATE TABLE IF NOT EXISTS project_users (
     access_level TEXT NOT NULL DEFAULT 'analyst' CHECK (access_level IN ('analyst', 'reader')),
     PRIMARY KEY (project_id, user_id)
 );
-
--- The baselines' one upgrade statement: a database made before access levels gains the
--- column here, and each of its memberships becomes an analyst's, as every member could change
--- the project's records until then. A no-op on a database the CREATE TABLE above made.
-ALTER TABLE project_users
-    ADD COLUMN IF NOT EXISTS access_level TEXT NOT NULL DEFAULT 'analyst'
-        CHECK (access_level IN ('analyst', 'reader'));
 
 CREATE INDEX IF NOT EXISTS idx_project_users_user_id ON project_users (user_id);
 

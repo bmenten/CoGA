@@ -88,11 +88,11 @@ export const getPresetScopeLabel = (scope: StructuralVariantFilterPreset['scope'
   scope === 'family' ? 'Family' : 'Reusable';
 export type StructuralVariantTagDefinition = SmallVariantTagDefinition;
 export type StructuralVariantReview = SmallVariantReview;
-// An SV review save takes no small-variant `acmg` or `compound_het`: the SV route does not
-// (#853). Its CNV (ClinGen) classification, `cnv_acmg`, is an SV's alone: the small-variant
-// save refuses it (ENG-4). A CNV classification names the caller (`source`) of the row it was
+// An SV review save takes no small-variant `acmg` or `compound_het`: the SV route does not.
+// Its CNV (ClinGen) classification, `cnv_acmg`, is an SV's alone: the small-variant save
+// refuses it. A CNV classification names the caller (`source`) of the row it was
 // made on: callers that share an SV id share its review, and the save freezes the evidence of
-// that caller's row (TRACE-11). Typed from the API's request model, so tsc fails when the API
+// that caller's row. Typed from the API's request model, so tsc fails when the API
 // stops taking it.
 export type StructuralVariantReviewSavePayload = Omit<
   SmallVariantReviewSavePayload,
@@ -167,7 +167,7 @@ export type ActiveStructuralFilterChip =
       label: string;
       kind: 'top';
       key: keyof StructuralFilterState;
-      // The applied value the chip stands for (a panel's chip names it from this, CLIN-21).
+      // The applied value the chip stands for (a panel's chip names it from this).
       value: string;
     }
   | {
@@ -351,7 +351,7 @@ const hasActiveSampleFilter = (filter: StructuralSampleFilter) => {
   return hasNonDefaultGenotypeSelection(filter.gt, STRUCTURAL_ALL_GT_GROUPS);
 };
 
-// Defensive, like the small-variant clone (#528): a partial filter, e.g. one without `gt`,
+// Defensive, like the small-variant clone: a partial filter, e.g. one without `gt`,
 // gets the defaults instead of throwing on the spread.
 export const cloneSingleSampleFilter = (
   filter?: Partial<StructuralSampleFilter> | null,
@@ -397,8 +397,8 @@ const resolveStructuralSampleFiltersFromPreset = (
 
 /**
  * Why the location filter cannot be searched as written, or null. A location with a
- * colon that does not parse was searched as a gene name, matched nothing, and read as a
- * family without SVs (#604).
+ * colon that does not parse is not searched: as a gene name it would match nothing and read
+ * as a family without SVs.
  */
 export const structuralLocationProblem = (filters: Pick<StructuralFilterState, 'locus'>): string | null => {
   const parsed = parseGeneOrRegionInput(filters.locus);
@@ -406,7 +406,7 @@ export const structuralLocationProblem = (filters: Pick<StructuralFilterState, '
 };
 
 /** A request's query with the page's project, which picks the assembly the SVs are read on, as
- * the export already had it (UI-5); the query as it is without a project. */
+ * the export sends it; the query as it is without a project. */
 export const withProjectId = (query: string, projectId: string | undefined): string => {
   if (!projectId) return query;
   const params = new URLSearchParams(query);
@@ -560,7 +560,7 @@ export const useStructuralVariantSearchState = ({
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState(emptyFilters);
   const [draftFilters, setDraftFilters] = useState(emptyFilters);
-  // A draft location that cannot be read, named under its field instead of searched (#604).
+  // A draft location that cannot be read, named under its field instead of searched.
   const [draftLocationProblem, setDraftLocationProblem] = useState<string | null>(null);
   const [sampleFilters, setSampleFilters] = useState<Record<string, StructuralSampleFilter>>({});
   const [sampleDraftFilters, setSampleDraftFilters] = useState<Record<

@@ -53,7 +53,7 @@ describe('ReferenceDocPage', () => {
     },
   );
 
-  // ENG-19: the headings had no ids, so a link to a heading of the same page did not jump.
+  // Each heading has an id, so a link to a heading of the same page jumps to it.
   describe('heading ids', () => {
     const ids = () => Array.from(document.querySelectorAll('article [id]')).map((element) => element.id);
 

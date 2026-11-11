@@ -84,10 +84,9 @@ A signed version is rendered from its frozen record alone:
   live report does not show), each with its phasing QC and that QC's verdict against the
   thresholds the record states;
 - the gene panels applied;
-- the repeat-expansion and Paraphase results. In a record that holds them, each repeat count near
-  a classification boundary is marked beside its call, with whether QA had validated TRGT's
-  counting units at that locus; a count QA's correction changed shows TRGT's own count beside it,
-  and the locus its correction;
+- the repeat-expansion and Paraphase results. Each repeat count near a classification boundary is
+  marked beside its call, with whether QA had validated TRGT's counting units at that locus; a count
+  QA's correction changed shows TRGT's own count beside it, and the locus its correction;
 - the reference-data releases;
 - the checks at sign-out.
 

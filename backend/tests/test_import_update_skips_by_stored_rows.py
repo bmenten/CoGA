@@ -1,4 +1,4 @@
-"""An update skips what the store holds, and a skip never counts as an import (SAFE-20).
+"""An update skips what the store holds, and a skip never counts as an import.
 
 A package import in ``update`` mode skips a dataset, or a sample of it, that already holds
 data. The track datasets (coverage, APCAD, PCF, WisecondorX, QDNAseq, the HiFiCNV tracks)
@@ -257,7 +257,7 @@ async def test_an_update_imports_coverage_whose_rows_are_gone_though_postgres_re
     # Imported again: the rows are back.
     assert stores.rows == {(_uuid("S1"), "coverage", "web"): 3}
     assert (result.status, result.message) == ("imported", "Imported coverage into interval tracks")
-    # The BED declares nothing of what it holds: stored as unknown (TRACE-9).
+    # The BED declares nothing of what it holds: stored as unknown.
     assert result.summary == {"S1": {"inserted": 3, "content": "unknown"}}
     assert job.skipped_samples == set()
 
@@ -512,7 +512,7 @@ def _small_variant_loader(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 async def test_an_update_of_the_haplotypes_reads_the_stored_blocks_not_their_record(
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # SAFE-18. The imputed genotypes and their blocks are gone; Postgres still records the
+    # The imputed genotypes and their blocks are gone; Postgres still records the
     # blocks, as a restore that stopped part-way leaves it. The update reads the store, not
     # that record, and imports them.
     loaded = _small_variant_loader(monkeypatch)
@@ -536,7 +536,7 @@ async def test_an_update_of_the_haplotypes_reads_the_stored_blocks_not_their_rec
 async def test_an_snv_update_of_imputed_genotypes_reads_their_blocks_too(
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # SAFE-18. The family holds the blocks made from imputed genotypes, not the genotypes.
+    # The family holds the blocks made from imputed genotypes, not the genotypes.
     # The SNV dataset's update counts the blocks too, and skips, as the haplotypes dataset's
     # update does, rather than import the genotypes and replace the blocks.
     loaded = _small_variant_loader(monkeypatch)
@@ -564,7 +564,7 @@ async def test_an_snv_update_of_imputed_genotypes_reads_their_blocks_too(
 async def test_a_cnv_dataset_whose_vcfs_call_no_cnv_is_imported_and_replaces_the_earlier_calls(
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # SAFE-18. It ends "imported", so the import counts it as brought again (its tracks
+    # It ends "imported", so the import counts it as brought again (its tracks
     # recorded in imported_scopes), and an overwrite replaces the family's earlier HiFiCNV
     # calls.
     replaced: list[tuple[list[Any], str | None]] = []
@@ -633,7 +633,7 @@ async def test_an_update_that_skips_every_paraphase_sample_ends_skipped(stores: 
 async def test_an_overwrite_of_a_track_clears_its_rows_no_record_names(
     stores: _Stores, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # SAFE-18. The sample's WisecondorX segments are stored without a record (a restore that
+    # The sample's WisecondorX segments are stored without a record (a restore that
     # stopped part-way, a failed upload). The source's track is cleared though Postgres does
     # not record it: the importer's own clear takes its file's rows alone, so those rows would
     # stay beside the new ones.
@@ -848,5 +848,5 @@ async def test_a_sample_an_update_skipped_keeps_the_datasets_failure_flagged(
     # S1 was not imported again, so the failure, for S1 and S2, stays.
     assert stores.flag["failed_datasets"] == ["coverage", "snv"]
     # What the family holds records the sample this import imported, with what its BED
-    # declared it holds: nothing, so unknown (TRACE-9).
+    # declared it holds: nothing, so unknown.
     assert {"source": None, "samples": ["S2"], "content": "unknown"} in stores.imported["coverage"]

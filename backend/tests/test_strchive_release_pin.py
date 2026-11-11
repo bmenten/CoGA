@@ -1,9 +1,9 @@
-"""The repeat catalogue is built from the shipped STRchive release, or the backend does not start (CLIN-31).
+"""The repeat catalogue is built from the shipped STRchive release, or the backend does not start.
 
 Every start seeds the repeat catalogue from the built-in loci and a STRchive file: the one
 ``TRGT_STRCHIVE_LOCI_PATH`` names (on Cloud Run the reference-data bucket), else the
 repository's ``data/ref-data/STRchive-loci.json``. The built-in loci carry the shipped
-release's thresholds (CLIN-22), and test_repeat_thresholds_follow_strchive.py checks them
+release's thresholds, and test_repeat_thresholds_follow_strchive.py checks them
 against the shipped file only, so another release in the bucket would make the built-in rows and
 the STRchive rows disagree: a call read differently depending on its TRID. The shipped, validated
 release is the source (the owner's decision of 2026-10-14). The file states no release of

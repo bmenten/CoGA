@@ -188,7 +188,7 @@ def test_a_failed_mendeliome_regeneration_is_reported_not_hidden(monarch_admin_c
 
 
 def test_monarch_data_that_cannot_be_used_answers_502_not_500(monarch_admin_client) -> None:
-    # DATA-4: a corrupt or empty download, or an unreadable release, raised past the router's
+    # A corrupt or empty download, or an unreadable release, raised past the router's
     # httpx.HTTPError handler: a 500. It is a fault upstream, like a failed download.
     client, monkeypatch = monarch_admin_client
     regenerated: list[object] = []

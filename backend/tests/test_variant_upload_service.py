@@ -45,7 +45,7 @@ def _no_family_write_lock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_coerce_int_tolerates_floats_and_junk() -> None:
-    # One reader for the VEP table and the SV uploads (ENG-23: each kept a copy).
+    # One reader for the VEP table and the SV uploads (each kept a copy).
     assert field_int("42") == 42
     assert field_int(" 42.7 ") == 42
     assert field_int(".") is None
@@ -60,7 +60,7 @@ def test_coerce_int_tolerates_floats_and_junk() -> None:
 def test_parse_float_list_keeps_every_allele_fraction_or_none_without_raising() -> None:
     # A single bad AF token must not abort the whole ingest with a 500.
     assert _parse_float_list("0.1,0.3") == [0.1, 0.3]
-    # Nor may it move a fraction onto another allele (DATA-7): leaving the bad one out gave
+    # Nor may it move a fraction onto another allele: leaving the bad one out gave
     # the second allele's 0.3 to the first. A list with one gone keeps none.
     assert _parse_float_list("0.1,junk,0.3") == []
     assert _parse_float_list(".,0.3") == []
@@ -974,7 +974,7 @@ def test_parse_vep_tsv_annotation_upload_matches_indels_by_normalized_locus() ->
 
 def test_vep_default_output_reads_its_extra_column_as_tab_output_reads_its_columns() -> None:
     # VEP's default output writes these fields in its Extra column, which the parser did not
-    # read: such a file imported without them (CLIN-52). The same row in --tab form gives the
+    # read: such a file imported without them. The same row in --tab form gives the
     # same annotation.
     fields = {
         "IMPACT": "MODERATE",
@@ -1279,7 +1279,7 @@ async def test_a_multi_sample_vcf_gives_each_sample_its_own_call_and_the_site_it
 # A sample column that names no member, or a column asked for that the file lacks, holding
 # characters a reader cannot see: an escape sequence that clears a terminal, a text-direction
 # override. The refusal quoted it raw, so they reached the page and the job's record as they
-# were (SEC-37); each is shown as its escape.
+# were; each is shown as its escape.
 _UNSEEN = "SIB\x1b[2J‮1"
 _UNSEEN_SHOWN = "SIB\\x1b[2J\\u202e1"
 

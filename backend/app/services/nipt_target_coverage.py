@@ -145,7 +145,7 @@ def parse_target_coverage_table(lines: Iterable[str]) -> list[TargetCoverageRow]
             continue
         if column_int(start, UINT64) is None or column_int(end, UINT64) is None:
             # A coordinate the interval table's UInt64 columns cannot hold (a negative
-            # one) is no target either (SAFE-30): it failed the insert of the table.
+            # one) is no target either: it would fail the insert of the table.
             continue
         attribute = str(record.get("attribute") or "").strip().strip('"')
         zero_bases = parse_number(record.get("zero_coverage_bases"))
@@ -203,7 +203,7 @@ def target_row_from_track(row: dict[str, Any]) -> TargetCoverageRow:
     zero_bases = number("zero_coverage_bases")
     value = row.get("value")
     return TargetCoverageRow(
-        chrom=normalize_chromosome(str(row.get("chr") or row.get("chrom") or "")),
+        chrom=normalize_chromosome(str(row["chr"])),
         start=int(row["start"]),
         end=int(row["end"]),
         gene=str(row.get("record_id") or ""),

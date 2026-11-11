@@ -186,13 +186,13 @@ describe('GenomeOverviewPage', () => {
     );
   });
 
-  it('sends, and lists as the tracks’ filters, only the SV filters the routes take (ENG-7)', async () => {
+  it('sends, and lists as the tracks’ filters, only the SV filters the routes take', async () => {
     serve({ members: [PROBAND], chromosomes: [{ chr: '1', size: 1000 }], samples: { PROBAND: tracks('variants') } });
     renderPage('/families/F1/genome?type=DEL&qual=30&read_support=5&filter=PASS');
 
     await waitFor(() => expect(screen.getByTestId('genome-workspace')).toHaveTextContent('PROBAND'));
-    // `qual`, `read_support` and `filter` were sent, and listed among each track's filters,
-    // though neither the SV route nor the track availability takes them.
+    // `qual`, `read_support` and `filter` are neither sent nor listed among each track's
+    // filters: neither the SV route nor the track availability takes them.
     const availabilityCall = availabilityRequest();
     expect(availabilityCall).toContain('type=DEL');
     for (const unused of ['qual=30', 'read_support=5', 'filter=PASS']) {
@@ -219,8 +219,8 @@ describe('GenomeOverviewPage', () => {
     expect(screen.getByTestId('location-search')).toHaveTextContent('end=180');
   });
 
-  // #610 — without the chromosome lengths the viewer waited for good on a layout that
-  // never came; the failure is handed on to be said in place of the tracks.
+  // Without the chromosome lengths there is no layout to wait for: the failure is handed on to
+  // be said in place of the tracks.
   it('passes a failed chromosome-lengths request on as a failure, not an endless load', async () => {
     let lengthRequests = 0;
     serve({
@@ -253,11 +253,11 @@ describe('GenomeOverviewPage', () => {
   });
 });
 
-// ENG-20, the owner's decision of 2026-10-28: on the overview the mitochondrion, 16.6 kb of a
+// The owner's decision of 2026-10-28: on the overview the mitochondrion, 16.6 kb of a
 // genome of 3.1 Gb, is about 0.006 px wide. It is left out, as the Circos plot leaves it out: not
 // laid out, so not in the chromosome strip, not offered in the sidebar and asked of no track.
 // The chromosome view's list and the mtDNA page show it.
-describe('GenomeOverviewPage leaves the mitochondrion out (ENG-20)', () => {
+describe('GenomeOverviewPage leaves the mitochondrion out', () => {
   const renderOverview = (search: string) => {
     serve({
       members: [PROBAND],

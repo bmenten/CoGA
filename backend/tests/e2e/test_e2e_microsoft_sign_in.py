@@ -1,4 +1,4 @@
-"""Microsoft sign-in from the first sign-in to project access and roles (E2E, real Postgres, SEC-4).
+"""Microsoft sign-in from the first sign-in to project access and roles (E2E, real Postgres).
 
 With Azure AD configured, a colleague's first Microsoft sign-in makes their CoGA account on
 real Postgres: bound to the token's object ID, a viewer's, active, in no project and without a

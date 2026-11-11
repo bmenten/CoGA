@@ -96,7 +96,7 @@ def gcs_endpoint():
     if not shutil.which("docker"):
         pytest.skip("no GCS_ENDPOINT_URL and docker unavailable")
 
-    # A container and a port of this run's own (ENG-23): a fixed name had a second run at once,
+    # A container and a port of this run's own: a fixed name had a second run at once,
     # another worktree's say, remove the first run's emulator as it started its own, and both
     # bind the same port.
     name = f"coga-fake-gcs-it-{uuid4().hex[:12]}"
@@ -325,7 +325,7 @@ def test_an_alignment_imported_from_fake_gcs_is_served_from_where_it_lies(
 
         async with sm() as session:
             # The package folder the family's import read, as the import's registration
-            # records it: a recorded location is served only from there (SEC-27).
+            # records it: a recorded location is served only from there.
             await session.execute(
                 text(
                     "UPDATE families SET metadata = jsonb_build_object("
@@ -429,7 +429,7 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
 
         # Verify reads the row back as the admin page does, with the package folder the
         # family's import read (as the import's registration records it), and checks the
-        # object: only an object in that folder is asked about (SEC-38). The kept manifest's
+        # object: only an object in that folder is asked about. The kept manifest's
         # managed copy is checked where CoGA stored it.
         async with sm() as session:
             await session.execute(
@@ -468,7 +468,7 @@ def test_verify_checks_a_bucket_file_against_the_stores_record(gcs_backend, gcs_
     it taken at import (real generations): the same object verifies; a replaced one --
     same size, new generation -- is a mismatch; a deleted one is missing. The object lies in
     the family's package folder below FAMILY_IMPORT_ROOTS, where Verify asks the store about a
-    recorded object (SEC-29, SEC-38)."""
+    recorded object."""
     from app.services import raw_import_files_pg as rif
 
     monkeypatch.setattr(s.settings, "family_import_roots", [f"gs://{_BUCKET}/imports"])

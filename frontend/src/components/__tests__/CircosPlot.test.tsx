@@ -67,13 +67,13 @@ describe('CircosPlot', () => {
     expect(acenBands.every((band) => band.getAttribute('fill')?.startsWith('url(#circos-band-gradient-1-'))).toBe(true);
   });
 
-  // #529: the plot is a named image whose name counts what it draws.
+  // The plot is a named image whose name counts what it draws.
   const twoChroms: Chromosome[] = [
     { chr: '1', size: 100, bands: [] },
     { chr: '2', size: 80, bands: [] },
   ];
 
-  it('is named with the variants drawn, by type, and the chromosomes they are drawn on (#529)', () => {
+  it('is named with the variants drawn, by type, and the chromosomes they are drawn on', () => {
     const variants: Variant[] = [
       { chr: '1', start: 10, end: 40, type: 'DEL' },
       { chr: 'chr1', start: 50, end: 60, type: 'dup' },
@@ -101,7 +101,7 @@ describe('CircosPlot', () => {
     ).toBeInTheDocument();
   });
 
-  it('tells no variants apart from variants not loaded, and says when nothing is selected (#529, #510)', () => {
+  it('tells no variants apart from variants not loaded, and says when nothing is selected', () => {
     const { rerender } = render(
       <CircosPlot chromData={twoChroms} selected={{ '1': true, '2': true }} variants={undefined} />,
     );
@@ -128,16 +128,16 @@ describe('CircosPlot', () => {
     rerender(<CircosPlot chromData={twoChroms} selected={{ '1': false, '2': false }} variants={[]} />);
     expect(screen.getByRole('img', { name: 'Circos plot: no chromosomes selected' })).toBeInTheDocument();
 
-    // Past the backend's cap none is drawn, and the name says why (#589).
+    // Past the backend's cap none is drawn, and the name says why.
     rerender(<CircosPlot chromData={twoChroms} selected={{ '1': true, '2': true }} tooManyVariants />);
     expect(
       screen.getByRole('img', { name: 'Circos plot of 2 chromosomes; too many structural variants to draw' }),
     ).toBeInTheDocument();
   });
 
-  // CLIN-54: the plot drew a DEL:ME, a DUP:TANDEM or a CNV as a type it did not know, thin and
-  // grey, and a TRA as a plain link, not as the breakend it is.
-  describe('draws an SV as the SV tracks do (CLIN-54)', () => {
+  // A DEL:ME, a DUP:TANDEM or a CNV is drawn as its type, not thin and grey as a type the
+  // plot does not know, and a TRA as the breakend it is, not as a plain link.
+  describe('draws an SV as the SV tracks do', () => {
     const colours = {
       '--color-variant-del': 'rgb(141, 63, 68)',
       '--color-variant-dup': 'rgb(85, 111, 135)',
@@ -192,8 +192,8 @@ describe('CircosPlot', () => {
       expect(screen.getByText('Other')).toBeInTheDocument();
     });
 
-    // ENG-20: the tooltip wrote the chromosome as the data stores it (`1:10 → 1:40`), where the
-    // viewer and the other tooltips write `chr1` and `chrX` (#602), however it is stored.
+    // The tooltip writes the chromosomes as the viewer and the other tooltips do (`chr1`,
+    // `chrX`), however the data stores them: never `1:10 → 1:40`.
     it('names the chromosomes in its tooltip as the viewer does, however they are stored', () => {
       const chroms: Chromosome[] = [...twoChroms, { chr: 'X', size: 90, bands: [] }];
       const variants: Variant[] = [

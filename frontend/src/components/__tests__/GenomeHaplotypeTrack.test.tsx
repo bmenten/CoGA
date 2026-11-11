@@ -1,4 +1,4 @@
-// The genome-wide haplotype track (#588): the risk haplotype is inferred at the ROI and
+// The genome-wide haplotype track: the risk haplotype is inferred at the ROI and
 // drawn only on the ROI's chromosome, where its homolog label means something; without
 // an ROI no risk haplotype is drawn and no risk state is claimed.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -90,7 +90,7 @@ afterEach(() => {
 // The x of every risk overlay drawn, in track pixels.
 const overlayXs = () => overlayMock.mock.calls.map(([, x]) => x as number);
 
-describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
+describe('GenomeHaplotypeTrack risk haplotype', () => {
   it('draws the risk haplotype only on the ROI chromosome', async () => {
     renderWithClient(track({ chr: '1', start: 400, end: 600 }));
 
@@ -99,8 +99,8 @@ describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
         name: 'Haplotypes of CHILD across 2 chromosomes; risk state at chr1:400–600: affected / at risk',
       }),
     ).toBeInTheDocument();
-    // The child's paternal '0' on chr1 is the risk haplotype; the one on chr2 is not,
-    // and was drawn as such before.
+    // The child's paternal '0' on chr1 is the risk haplotype; the one on chr2 is not, and is
+    // not drawn as such.
     expect(overlayXs().length).toBeGreaterThan(0);
     expect(overlayXs().every((x) => x < 100)).toBe(true);
   });
@@ -115,7 +115,7 @@ describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
     expect(overlayXs().every((x) => x >= 100)).toBe(true);
   });
 
-  // CLIN-66: blocks built for another pedigree or other sexes resolve no disease haplotype.
+  // Blocks built for another pedigree or other sexes resolve no disease haplotype.
   it('reads no risk state from outdated blocks, and says why', async () => {
     trackFetchMock.mockImplementation(async (url: string) => {
       const chr = url.endsWith('chr=2') ? '2' : '1';
@@ -133,7 +133,7 @@ describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
         name: `Haplotypes of CHILD across 2 chromosomes; risk state at chr1:400–600: uninformative; ${warning}`,
       }),
     ).toBeInTheDocument();
-    // Before, the risk haplotype was drawn and the child read affected / at risk.
+    // No risk haplotype is drawn, and the child does not read affected / at risk.
     expect(overlayMock).not.toHaveBeenCalled();
     expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('uninformative');
     expect(screen.getByRole('note')).toHaveTextContent('Outdated blocks: no risk state');
@@ -167,7 +167,7 @@ describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
         name: 'Haplotypes of CHILD across 2 chromosomes; risk state: not assessed, no region of interest',
       }),
     ).toBeInTheDocument();
-    // It used to infer the risk haplotype over the whole of chr1 and draw it genome-wide.
+    // No risk haplotype is inferred over a stand-in region and drawn genome-wide.
     expect(overlayMock).not.toHaveBeenCalled();
     const track_ = container.querySelector('[data-risk-state]');
     expect(track_?.getAttribute('data-risk-state')).toBe('not_assessed');
@@ -175,11 +175,11 @@ describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
   });
 });
 
-// #510 — a failed request must say so, never read as "no haplotype data", and never feed
-// the chromosomes that did load into a risk state. #529 — the canvas is a named image:
+// A failed request must say so, never read as "no haplotype data", and never feed
+// the chromosomes that did load into a risk state. The canvas is a named image:
 // whose haplotypes, where, and the risk state its border shows, with where that state was
 // assessed.
-describe('GenomeHaplotypeTrack failures and its name (#510, #529)', () => {
+describe('GenomeHaplotypeTrack failures and its name', () => {
   const unaffectedChild = (urls: string[], chroms: string[]) => (
     <GenomeHaplotypeTrack
       urls={urls}
@@ -217,8 +217,8 @@ describe('GenomeHaplotypeTrack failures and its name (#510, #529)', () => {
   });
 
   // Without an ROI no risk state is assessed: `without an ROI draws no risk haplotype and
-  // claims no risk state` above. It used to be chr1's, whatever the disorder's locus (#588).
-  it('is named with whose haplotypes, where, and where the risk state was assessed (#529)', async () => {
+  // claims no risk state` above: no chromosome stands in for the disorder's locus.
+  it('is named with whose haplotypes, where, and where the risk state was assessed', async () => {
     trackFetchMock.mockResolvedValue({
       samples: [{ sample: 'E1', segments: [{ chr: '1', start: 0, end: 500, hap1: 'A', hap2: 'B' }] }],
     });
@@ -234,7 +234,7 @@ describe('GenomeHaplotypeTrack failures and its name (#510, #529)', () => {
     ).toBeInTheDocument();
   });
 
-  it('never names a failed or empty track by a risk state it does not have (#529, #510)', async () => {
+  it('never names a failed or empty track by a risk state it does not have', async () => {
     trackFetchMock.mockRejectedValueOnce(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
     trackFetchMock.mockResolvedValue({ samples: [] });
     renderWithClient(unaffectedChild([CHR1], ['1']));
@@ -251,9 +251,8 @@ describe('GenomeHaplotypeTrack failures and its name (#510, #529)', () => {
   });
 });
 
-// ENG-20, left by #1023 and #1026: the track looked a block up in the layout under its stored
-// chromosome name, and the layout names a chromosome as normalizeChrom does (`1`, `X`), so a
-// block stored as `x` or `chrX` was not drawn. Latent: the blocks are stored without `chr`.
+// The track looks a block up in the layout by its chromosome as normalizeChrom names it
+// (`1`, `X`), as the layout does, so a block stored as `x` or `chrX` is drawn too.
 describe('GenomeHaplotypeTrack places a block however its chromosome is stored', () => {
   // The genome overview's layout: chr1 and chrX, 1,000 bp each, on a 200 px track: X is x 100–200.
   const LAYOUT_1_X = {

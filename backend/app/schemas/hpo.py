@@ -43,7 +43,7 @@ class HpoAdminSummaryOut(BaseModel):
     obsolete_terms: int
     release_version: Optional[str] = None
     release_date: Optional[date] = None
-    # The SHA-256 of the ontology file the loaded terms came from (TRACE-18); None when no
+    # The SHA-256 of the ontology file the loaded terms came from; None when no
     # ontology is loaded.
     release_sha256: Optional[str] = None
     last_sync_date: Optional[datetime] = None
@@ -59,7 +59,7 @@ class HpoOntologySyncRequest(BaseModel):
     path: Optional[str] = Field(default=None, min_length=1)
     download_release: Optional[str] = Field(default=None, min_length=1, max_length=40)
     # The release and date the admin expects the file to be: the release is read from the
-    # file, and a file that states another is refused (TRACE-18). A downloaded release must
+    # file, and a file that states another is refused. A downloaded release must
     # state the release asked for, so these are for a file on the server only.
     release_version: Optional[str] = None
     release_date: Optional[date] = None
@@ -98,7 +98,7 @@ class HpoReleaseCheckOut(BaseModel):
 
 class HpoOntologySyncOut(BaseModel):
     preview_only: bool
-    # The release the file states, and the SHA-256 of its bytes (TRACE-18).
+    # The release the file states, and the SHA-256 of its bytes.
     release_version: Optional[str] = None
     release_date: Optional[date] = None
     release_sha256: Optional[str] = None

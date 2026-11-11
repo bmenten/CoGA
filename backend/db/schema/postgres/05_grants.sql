@@ -1,28 +1,24 @@
--- DB privilege separation (#262; single-role fallback): create the restricted runtime
--- role `coga_app` and lock it out of the mutations that would let it bypass the
--- append-only + hash-chain controls.
+-- DB privilege separation: the restricted runtime role `coga_app`, locked out of the mutations
+-- that would let it bypass the append-only and hash-chain controls.
 --
--- This is the role the application SHOULD connect as. It closes the owner-bypass gap that
--- the hash chains (#261) cannot detect: a NON-owner role cannot `ALTER TABLE ... DISABLE
--- TRIGGER`, cannot `SET session_replication_role` (superuser-only), and — with UPDATE/
--- DELETE revoked below — cannot rewrite or remove audit rows, signed reports or the
--- hash-chain columns. So a determined runtime attacker can no longer re-chain an interior
--- edit (which a self-recomputing OWNER still could).
+-- This is the role the application SHOULD connect as. It closes the owner-bypass gap that the
+-- hash chains cannot detect: a NON-owner role cannot `ALTER TABLE ... DISABLE TRIGGER`, cannot
+-- `SET session_replication_role` (superuser-only), and — with UPDATE/DELETE revoked below —
+-- cannot rewrite or remove audit rows, signed reports or the hash-chain columns. So a runtime
+-- attacker cannot re-chain an interior edit, which a self-recomputing OWNER could.
 --
--- SHIPPED IN FALLBACK MODE: `coga_app` is created NOLOGIN and the application still
--- connects as the table OWNER until a coordinated DSN flip grants it LOGIN + a password
--- (see docs/db-runtime-role-runbook.md). This migration is therefore additive and changes
--- no runtime behaviour. Migrations must keep running as the OWNER (coga_app cannot create
--- or alter tables — that is the point).
+-- `coga_app` is created NOLOGIN: the application connects as the table OWNER until a DSN flip
+-- grants the role LOGIN and a password (docs/db-runtime-role-runbook.md). The migration step
+-- always runs as the OWNER (coga_app cannot create or alter tables — that is the point).
 --
--- RESIDUAL RISK: coga_app KEEPS INSERT (the app appends audit rows + signed reports), and
--- the block-mutation triggers fire on UPDATE/DELETE only — so coga_app can still *append* a
--- self-consistent (forged) chain link (chain_row_hash is a public SHA-256). What it cannot
--- do is rewrite/delete an existing row or re-chain an interior edit. Append-forgery is
--- covered by application-layer attribution + the deferred external chain-head anchor.
+-- RESIDUAL RISK: coga_app KEEPS INSERT (the app appends audit rows + signed reports), and the
+-- block-mutation triggers fire on UPDATE/DELETE only — so coga_app can still *append* a
+-- self-consistent (forged) chain link (chain_row_hash is a public SHA-256). What it cannot do
+-- is rewrite/delete an existing row or re-chain an interior edit. Append-forgery is covered by
+-- application-layer attribution and the external chain-head anchor (integrity_anchors).
 --
--- Idempotent: the schema loader re-runs every file on startup; CREATE ROLE is guarded and
--- GRANT/REVOKE are naturally idempotent.
+-- CREATE ROLE is guarded, as the role is cluster-wide and may exist already (another database
+-- on the same server, or a concurrent instance).
 
 DO $$
 BEGIN
@@ -48,10 +44,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO coga_app;
 
--- The schema-migration ledger (alembic_version, 04_traceability.sql): only the migration
--- step writes it, as the owner. coga_app may read which revision the database is at, never
--- record one.
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON alembic_version FROM coga_app;
+-- The schema-migration ledger and the baselines' digest (alembic_version and schema_baselines,
+-- 04_traceability.sql): only the migration step writes them, as the owner. coga_app may read
+-- which revision and which baselines the database is at, never record either.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON alembic_version, schema_baselines FROM coga_app;
 
 -- Append-only tables: INSERT + SELECT only. Revoking UPDATE/DELETE means the runtime role
 -- cannot rewrite or remove existing audit rows, signed reports, integrity anchors, the QC
@@ -71,7 +67,6 @@ REVOKE UPDATE, DELETE, TRUNCATE ON
     audit_log_events, clinical_audit_events, report_signouts, integrity_anchors,
     qc_threshold_changes, family_structure_versions, ui_events
     FROM coga_app;
-REVOKE UPDATE, DELETE, TRUNCATE ON wgs_sources FROM coga_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON import_delivery_revisions FROM coga_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON ancestry_reference_panels, ancestry_results, ancestry_sample_choices FROM coga_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON ancestry_files, ancestry_file_scans FROM coga_app;

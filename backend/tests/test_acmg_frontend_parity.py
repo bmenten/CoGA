@@ -1,4 +1,4 @@
-"""The server's ACMG and CNV criterion tables match the classification dialogs' (CLIN-3).
+"""The server's ACMG and CNV criterion tables match the classification dialogs'.
 
 The small-variant dialog offers each ACMG criterion only the strengths of its
 ``allowedStrengths``, and the CNV dialog each ClinGen criterion only the points of its range.
@@ -10,15 +10,15 @@ impossible to save, and one the server took that the dialog does not offer could
 only by a client calling the API.
 
 The missense Z the dialog's PP2 suggestion reads is frozen by the server with the
-classification (TRACE-15): the dialog's sources and their order are the server's.
+classification: the dialog's sources and their order are the server's.
 
 The class labels the server stores with a classification are the ones the dialogs show, and
-the built-in classification and VUS-tier tags carry them; all are in sentence case (ENG-6).
+the built-in classification and VUS-tier tags carry them; all are in sentence case.
 
 The server reads the class a review shows from its text and its tags as the family page does
-(``review_class_label`` and ``normalizeReviewClassification``): both read one table of cases
-(CLIN-71). The classification filters keep a review by that class (CLIN-75); the SV page reads an
-SV review's class by the same rule, and the SV search's filter keeps an SV by it (CLIN-77).
+(``review_class_label`` and ``normalizeReviewClassification``): both read one table of cases.
+The classification filters keep a review by that class; the SV page reads an
+SV review's class by the same rule, and the SV search's filter keeps an SV by it.
 """
 
 from __future__ import annotations
@@ -201,7 +201,7 @@ def test_a_save_keeps_every_point_value_the_dialog_offers(kind: str) -> None:
             assert blob is not None and blob["criteria"][0]["points"] == points, (kind, code, points)
 
 
-# --- the class labels and the classification tags (ENG-6) ----------------------------------------
+# --- the class labels and the classification tags ------------------------------------------------
 
 SMALL_VARIANT_SEARCH_TS = FRONTEND_LIB.parent / "pages" / "families" / "smallVariantSearch.ts"
 
@@ -233,7 +233,7 @@ def _in_sentence_case(label: str) -> bool:
 
 
 def test_the_class_labels_and_the_classification_tags_are_in_sentence_case_as_the_dialogs_write_them() -> None:
-    # ENG-6 (the owner's decision of 2026-10-28): "Likely pathogenic - class 4", "VUS — hot".
+    # Sentence case (the owner's decision of 2026-10-28): "Likely pathogenic - class 4", "VUS — hot".
     # The server stores the label its scoring computes, so it is the label the dialogs show.
     assert acmg_points.CLASS_LABELS == _ts_record(
         ACMG_CRITERIA_TS, "export const ACMG_CLASS_LABELS: Record<AcmgClassKey, string>"
@@ -259,7 +259,7 @@ def test_the_class_labels_and_the_classification_tags_are_in_sentence_case_as_th
     assert [label for label in labels if not _in_sentence_case(label)] == []
 
 
-# --- the class a review shows (CLIN-71) -----------------------------------------------------------
+# --- the class a review shows ---------------------------------------------------------------------
 
 REVIEW_CLASS_CASES = SMALL_VARIANT_SEARCH_TS.parent / "__tests__" / "fixtures" / "review-class-cases.json"
 
@@ -267,7 +267,7 @@ REVIEW_CLASS_CASES = SMALL_VARIANT_SEARCH_TS.parent / "__tests__" / "fixtures" /
 def test_a_review_shows_the_class_the_family_page_reads_from_its_text_and_its_tags() -> None:
     # The family page reads a review's class with normalizeReviewClassification: a class word in
     # the text as its label, else the most severe class tag, else the text. The Variant Explorer
-    # read the text alone, so a review classified by its class tag showed no class there (CLIN-71).
+    # read the text alone, so a review classified by its class tag showed no class there.
     # The server's rule is review_class_label; smallVariantSearch.test.ts reads the same cases.
     from backend.app.services.review_pg_utils import CLASS_WORD_TAG_KEYS, review_class_label
 
@@ -287,7 +287,7 @@ def test_a_review_shows_the_class_the_family_page_reads_from_its_text_and_its_ta
 
 
 def test_a_classification_filter_keeps_each_review_by_the_class_the_family_page_shows() -> None:
-    # CLIN-75 (the owner's decision of 2026-11-10): the classification filters keep a review by the
+    # The owner's decision of 2026-11-10: the classification filters keep a review by the
     # class it shows, so over the shared cases a class filter keeps every review shown with that
     # class and none shown with another. A filter value is read as a review's text is: a bare
     # class word asks for its class, in any case; free text asks for itself.
@@ -318,7 +318,7 @@ def test_a_classification_filter_keeps_each_review_by_the_class_the_family_page_
     assert not review_shows_class(None, "acmg_class_4", review_class_filter(labels))
 
 
-# --- the class an SV review shows (CLIN-77) -------------------------------------------------------
+# --- the class an SV review shows -----------------------------------------------------------------
 
 SV_PAGE_VIEWS = [
     SMALL_VARIANT_SEARCH_TS.parent / "StructuralVariantTable.tsx",
@@ -327,7 +327,7 @@ SV_PAGE_VIEWS = [
 
 
 def test_the_sv_classification_filter_keeps_each_review_by_the_class_the_sv_page_shows() -> None:
-    # CLIN-77 (the owner's decision of 2026-11-10): the SV table and cards show a review's class as
+    # The owner's decision of 2026-11-10: the SV table and cards show a review's class as
     # the family page does, by normalizeReviewClassification of its text and its tags (no CNV
     # scoring of their own), and the SV search's classification filter keeps an SV by that class.
     # Over the shared cases a class filter keeps every review shown with that class and none shown

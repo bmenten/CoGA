@@ -1,4 +1,4 @@
-"""The SV length filters measure each call's SVLEN, read back from ClickHouse (E2E, CLIN-25).
+"""The SV length filters measure each call's SVLEN, read back from ClickHouse (E2E).
 
 Sniffles2 and pbsv write an insertion with its END at its POS and its length in SVLEN, so a
 filter measuring END minus POS would drop a 5 kb insertion at any minimum length and never
@@ -15,7 +15,7 @@ family SV search (``GET /families/{family_id}/structural-variants``) then reads 
 SVLEN from the stored details row, with a minimum or an exact length: unranked and ranked,
 with a type, as PROBAND's genome track, and as a CSV export. The export names each
 breakend's mate beside its locus, in *Remote chr* and *Remote start*, and leaves both empty
-for every other SV (DATA-5).
+for every other SV.
 
 The Sniffles rows are removed and the golden trio re-imported afterwards, so any module
 that runs later sees the usual state. Everything runs in ONE event loop via an in-process
@@ -186,7 +186,7 @@ def test_the_export_holds_the_svs_the_list_holds(run) -> None:
 
 
 def test_the_export_names_each_breakends_mate_beside_its_locus(run) -> None:
-    # DATA-5: an exported translocation names its partner.
+    # an exported translocation names its partner.
     export = run["export"]
     assert export["status"] == 200, export["text"]
     header = next(csv.reader(io.StringIO(export["text"])))

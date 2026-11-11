@@ -1,4 +1,4 @@
-"""A trio's per-sample NeedlR files, imported: each SV named by its coordinates (E2E, CLIN-43).
+"""A trio's per-sample NeedlR files, imported: each SV named by its coordinates (E2E).
 
 The long-read pipeline writes one NeedlR VCF per sample, and each file's records are numbered by
 its own Sniffles2 run, so the files give one ID to different calls. An SV's id is its

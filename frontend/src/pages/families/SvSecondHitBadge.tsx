@@ -47,7 +47,7 @@ const describeSvs = (svs: SvSecondHitSvOut[]) => {
  * effectively biallelic, whatever the gene's other SVs are.
  *
  * Each SV has its own phase (`svs`); the chip shows the gene's, drawn from theirs, and the
- * tooltip lists them when there are several (CLIN-28: one SV's cis used to stand for all).
+ * tooltip lists them when there are several: one SV's phase never stands for all.
  *
  * The explanation is shown via a fixed-position hover/focus tooltip rather than the native
  * `title` attribute: the badge's inline SVG icon swallows the pointer, so `title` never

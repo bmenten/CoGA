@@ -101,10 +101,9 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
   const frameLeftRef = useRef<number | null>(null);
 
   // x within the track frame, derived from the frame's own bounding box rather
-  // than event.offsetX. offsetX is relative to whichever child element the event
-  // lands on (an SVG <rect>, a canvas, a tooltip hitbox, …), so interaction only
-  // worked on tracks whose content was a single element at the frame's origin.
-  // Measuring against the frame makes zoom/pan work uniformly on every track.
+  // than event.offsetX, which is relative to whichever child element the event
+  // lands on (an SVG <rect>, a canvas, a tooltip hitbox, …). Measuring against the
+  // frame makes zoom/pan work uniformly on every track.
   const readFrameLeft = (): number => {
     if (frameLeftRef.current !== null) return frameLeftRef.current;
     const rect = frameRef.current?.getBoundingClientRect();
@@ -137,8 +136,8 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
 
   // Ends this block's gesture without committing it, and takes its pan preview or selection
   // band off the shared surface. A gesture that cannot end with a mouseup (its track removed
-  // mid-drag, a cancelled pointer, a window that lost focus and with it the mouseup) left
-  // every track shifted, with the grabbing cursor, until the next drag. Another block's live
+  // mid-drag, a cancelled pointer, a window that lost focus and with it the mouseup) would
+  // leave every track shifted, with the grabbing cursor, until the next drag. Another block's live
   // gesture is left alone.
   const cancelDrag = useCallback(() => {
     if (!dragRef.current) return;
@@ -235,8 +234,8 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     surface?.setGuide(null);
   };
 
-  // The wheel is left to the page: over a tall viewer, hijacking it to zoom meant a
-  // scroll that began on a track never reached the document. Zooming is the drag
+  // The wheel is left to the page: over a tall viewer, hijacking it to zoom would keep a
+  // scroll that begins on a track from reaching the document. Zooming is the drag
   // gesture and the zoom controls.
 
   // Invalidate the cached frame position when the layout could have shifted, so

@@ -1,4 +1,4 @@
-// The dialog shell used by inline dialogs (report acknowledgements, Settings) — #529.
+// The dialog shell used by inline dialogs (report acknowledgements, Settings).
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
@@ -48,10 +48,9 @@ describe('ModalDialog', () => {
     confirm.mockRestore();
   });
 
-  // A dialog on screen answers Escape at once. Its key handler used to be attached in a
-  // passive effect, which runs in a later task than the one that draws the dialog: an
-  // Escape in between reached the dialog underneath and closed that one instead (a
-  // flaky test found it, #529).
+  // A dialog on screen answers Escape at once: a key handler attached in a passive effect,
+  // which runs in a later task than the one that draws the dialog, would let an Escape in
+  // between reach the dialog underneath and close that one instead.
   it('answers Escape as soon as it is on screen, not the dialog underneath', async () => {
     const closeOuter = vi.fn();
     let openInner: () => void = () => undefined;

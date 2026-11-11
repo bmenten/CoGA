@@ -24,8 +24,8 @@ Any change flips ``inputs_hash``, so an exact hit is never a ranking computed on
 inputs. ``base_hash`` leaves the panel out, so that a narrower panel can be served from a
 broader cached ranking (see ``compute_ranking_hashes``); the row records what its panel
 held (``provenance.panel_members``), and is used for another panel only while its own
-panel holds exactly that (CLIN-27), and only when it holds every variant the other panel
-reaches and ranks them as that panel's own computation would (CLIN-34, CLIN-35; the
+panel holds exactly that, and only when it holds every variant the other panel
+reaches and ranks them as that panel's own computation would (the
 caller checks both).
 
 This module owns only the hash + Postgres cache rows; the (de)serialisation of variant
@@ -71,7 +71,7 @@ async def _pedigree_signature(session: AsyncSession, context: Any) -> Any:
 
     Not the family's latest ``structure_hash``: read after the context, a pedigree edit
     committed between the two reads would store a ranking computed on the old pedigree under
-    the new pedigree's key, served to every later request on the new pedigree (ENG-13).
+    the new pedigree's key, served to every later request on the new pedigree.
     """
     del session  # what the ranking reads is the context's, not the database's latest
     samples = sorted(
@@ -207,7 +207,7 @@ async def compute_ranking_hashes(
     and genes it leaves out (``exclude_gene`` resolved to loci and names). A gene's loci
     come from the gene reference, not from the filters, so a reload that moves the gene
     would otherwise leave both keys as they were. A gene filter applies no loci: it keeps
-    the variants annotated with the gene (ENG-1).
+    the variants annotated with the gene.
     """
     # Review-tag filters are resolved to variant-id sets outside the filter object, so
     # they must be folded into the hash or two otherwise-identical queries would collide.
@@ -344,7 +344,7 @@ async def find_superset_candidates(
 
     Without their rankings: the caller reads a candidate's (``get_cached_ranking``, by its
     ``inputs_hash``) once its panel passes, so a candidate on another panel costs no read of
-    a ranking that can hold thousands of variants (ENG-13).
+    a ranking that can hold thousands of variants.
     """
     rows = (
         await session.execute(

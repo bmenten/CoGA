@@ -52,7 +52,7 @@ def test_lineage_hash_is_deterministic_and_sensitive():
 
 
 def test_lineage_hash_holds_each_members_sex():
-    # chrX between the PARs is read by each member's sex (CLIN-12): a recorded or corrected
+    # chrX between the PARs is read by each member's sex: a recorded or corrected
     # sex makes a precompute stale, an unchanged one keeps it, and "M" reads as "male".
     rows = [dict(r) for r in _ctx().sample_rows]
     rows[0]["sex"] = "male"
@@ -144,7 +144,7 @@ async def test_fetch_precomputed_returns_none_when_stale(monkeypatch):
 @pytest.mark.asyncio
 async def test_fetch_precomputed_parses_origin_when_hash_matches(monkeypatch):
     ctx = _ctx()
-    # Computed over the stored haplotype blocks as they are now (CLIN-66).
+    # Computed over the stored haplotype blocks as they are now.
     matching = bed_service._lineage_hash(ctx, blocks="2:7")
 
     async def good_hash(*args, **kwargs):

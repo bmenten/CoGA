@@ -30,7 +30,7 @@ export const normalizeChrom = (value: string): string => {
 /**
  * A chromosome as the viewer names it: `chr1`, `chrX`, and `chrM` for the mitochondrion,
  * however the data spells it. The tracks, the chromosome lists and the viewer header all
- * use it, so one chromosome has one name on screen (#602).
+ * use it, so one chromosome has one name on screen.
  */
 export const formatChromosomeLabel = (value: string): string => {
   const chrom = normalizeChrom(value);

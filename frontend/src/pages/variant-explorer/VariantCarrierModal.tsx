@@ -59,7 +59,7 @@ const VariantCarrierModal = ({
   const families = data?.families ?? [];
 
   return (
-    // ModalDialog: Escape, a focus trap and focus restore (#529).
+    // ModalDialog: Escape, a focus trap and focus restore.
     <ModalDialog
       onClose={onClose}
       labelledBy="variant-carrier-modal-title"

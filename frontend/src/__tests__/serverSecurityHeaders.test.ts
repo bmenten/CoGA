@@ -49,8 +49,8 @@ describe('SPA securityHeaders middleware', () => {
     vi.unstubAllEnvs();
   });
 
-  it('reads ENABLE_HSTS as the backend reads it, so the two never disagree (SEC-23)', () => {
-    // Compose hands both containers the one value from .env; the frontend took only `true`.
+  it('reads ENABLE_HSTS as the backend reads it, so the two never disagree', () => {
+    // Compose hands both containers the one value from .env.
     for (const on of ['true', 'True', 'TRUE', '1', 'yes', 'y', 'on', 't', ' true ']) {
       expect(hstsEnabled(on)).toBe(true);
     }
@@ -65,7 +65,7 @@ describe('SPA securityHeaders middleware', () => {
   });
 });
 
-describe('SPA hardening added for #521', () => {
+describe('SPA hardening', () => {
   it('denies unused browser features with a Permissions-Policy', () => {
     const res = mockRes();
     securityHeaders({}, res, () => {});

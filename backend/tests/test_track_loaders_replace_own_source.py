@@ -1,4 +1,4 @@
-"""A track loader replaces only its own source's track of a sample (SAFE-22).
+"""A track loader replaces only its own source's track of a sample.
 
 A sample can carry several callers' tracks of one type, each under its own source, and the
 track viewers draw one track per caller: coverage from a BED (``web``: a BED upload, or a
@@ -295,7 +295,7 @@ async def test_a_bed_upload_without_overwrite_is_refused_while_the_rows_a_bed_br
 @pytest.mark.asyncio
 async def test_a_bed_upload_without_overwrite_replaces_a_record_whose_rows_are_gone(stores: _Stores) -> None:
     # Postgres records a track a BED brought whose rows a failed overwrite's restore deleted:
-    # the upload reads the store, as an update does (SAFE-20), and its record replaces the
+    # the upload reads the store, as an update does, and its record replaces the
     # stale one rather than standing beside it.
     stores.track("S1", "coverage", WEB, rows=0)
     stores.records[(_uuid("S1"), "coverage", WEB)] = 40

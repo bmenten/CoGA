@@ -1,4 +1,4 @@
-"""The PED text the family page draws is its stored structure's (SAFE-8).
+"""The PED text the family page draws is its stored structure's.
 
 The family response carries its active members (sex, clinical status) and its relationships,
 and a PED text (``pedigree``) that the family page, the NIPT page and the Sample QC page draw

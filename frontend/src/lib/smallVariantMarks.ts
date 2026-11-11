@@ -3,11 +3,8 @@ import * as d3 from 'd3';
 import { clinvarClass } from './clinvar';
 
 /**
- * How the small-variant track marks a variant (#529).
- *
- * The track drew every variant as the same dot and told the classes apart by colour
- * alone: red, orange, green, blue. A review tag's colour replaced the fill, which hid
- * the ClinVar class of a tagged variant. Now:
+ * How the small-variant track marks a variant, so that no class is told apart by colour
+ * alone and a review tag never hides the ClinVar class of a tagged variant:
  *
  * - shape and size carry the clinically salient classes: a larger diamond for ClinVar
  *   (likely) pathogenic, a triangle for HIGH impact, a hollow square for ClinVar

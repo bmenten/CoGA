@@ -1,6 +1,6 @@
 """A CSV export must never be silently cut at the page clamp, nor silently miss
 the matches beyond a capped candidate read; nor may the Variant Explorer's export at its
-row cap or its tag / classification cap (DATA-2)."""
+row cap or its tag / classification cap."""
 
 from __future__ import annotations
 
@@ -179,7 +179,7 @@ def test_the_truncation_reason_header_is_exposed_to_a_split_origin_ui() -> None:
     assert "X-CoGA-Export-Truncated-Reason" in EXPORT_HEADERS
 
 
-# --- the Variant Explorer export (DATA-2) ---------------------------------------------------
+# --- the Variant Explorer export ---------------------------------------------------
 # It stops at 50,000 rows, and searches at most 200,000 ids of its tag / classification
 # filter, and says so, as the family exports do: a TRUNCATED file name and the
 # X-CoGA-Export-* headers.

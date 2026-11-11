@@ -127,8 +127,8 @@ describe('FamilyStructuralVariantsPage', () => {
   });
 
   it('shows the Source column by default, since several callers call one SV under one id', async () => {
-    // Each caller's call is a row of its own, with its own evidence and drift (TRACE-11): the
-    // table hid the column that tells them apart (TRACE-12).
+    // Each caller's call is a row of its own, with its own evidence and drift: the
+    // table hid the column that tells them apart.
     renderPage();
     await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getByRole('tab', { name: 'Table' }));
@@ -182,7 +182,7 @@ describe('FamilyStructuralVariantsPage', () => {
                 review: {
                   variant_id: 'v1',
                   // Stored as the bare class word: sent back as stored, as every quick tag
-                  // toggle sends the text (CLIN-76); it shows as the class label.
+                  // toggle sends the text; it shows as the class label.
                   classification: 'likely pathogenic',
                   tags: ['mosaic'],
                   tag_metadata: {},
@@ -213,7 +213,7 @@ describe('FamilyStructuralVariantsPage', () => {
     }
   });
 
-  it('saves a CNV classification naming the caller of the row it was made on (TRACE-11)', async () => {
+  it('saves a CNV classification naming the caller of the row it was made on', async () => {
     const get = api.get as unknown as Mock;
     const workingGet = get.getMockImplementation()!;
     // NeedlR and an upload call one deletion under one id: a row each, one review.
@@ -243,7 +243,7 @@ describe('FamilyStructuralVariantsPage', () => {
       const sent = JSON.parse(JSON.stringify(body));
       expect(sent).toMatchObject({ source: 'sniffles', cnv_acmg: { kind: 'loss' } });
       // A small variant's ACMG classification and compound-het review: the SV route takes
-      // neither (#853).
+      // neither.
       expect(sent).not.toHaveProperty('acmg');
       expect(sent).not.toHaveProperty('compound_het');
     } finally {
@@ -251,7 +251,7 @@ describe('FamilyStructuralVariantsPage', () => {
     }
   });
 
-  it("saves the review dialog without a small variant's ACMG or compound-het fields (#853)", async () => {
+  it("saves the review dialog without a small variant's ACMG or compound-het fields", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /tags & notes/i }));
@@ -291,7 +291,7 @@ describe('FamilyStructuralVariantsPage', () => {
     expect(searched.every((url) => !url.includes('Segdup'))).toBe(true);
   });
 
-  // #725 follow-up — a search that read only part of the callset says so above the table.
+  // A search that read only part of the callset says so above the table.
   describe('when the search read only part of the callset', () => {
     const get = api.get as unknown as Mock;
     let workingGet: ((url: string) => Promise<unknown>) | undefined;
@@ -339,7 +339,7 @@ describe('FamilyStructuralVariantsPage', () => {
     });
   });
 
-  // #606 — a failed request is said as such: the search read as a family without SVs.
+  // A failed request is said as such, never as a family without SVs.
   describe('when a request fails', () => {
     const get = api.get as unknown as Mock;
     let workingGet: ((url: string) => Promise<unknown>) | undefined;
@@ -393,7 +393,7 @@ describe('FamilyStructuralVariantsPage', () => {
       expect(screen.getByText(factText('All variants —'))).toBeInTheDocument();
     });
 
-    // #604 — a location that reads as neither a gene nor a region is not searched as a
+    // A location that reads as neither a gene nor a region is not searched as a
     // gene name: from the form it is named under its field, from a URL it fails the search.
     it('names an unreadable location under its field instead of searching it', async () => {
       renderPage();
@@ -428,7 +428,7 @@ describe('FamilyStructuralVariantsPage', () => {
       expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
     });
 
-    it('names the applied panel on its chip, not the one chosen in the form (CLIN-21)', async () => {
+    it('names the applied panel on its chip, not the one chosen in the form', async () => {
       get.mockImplementation((url: string) =>
         url === '/panels'
           ? Promise.resolve({ data: [{ _id: 'PA', name: 'Panel A' }, { _id: 'PB', name: 'Panel B' }] })
@@ -445,9 +445,9 @@ describe('FamilyStructuralVariantsPage', () => {
     });
   });
 
-  // SAFE-14 — the family record holds what the header warns of: an import that left the
-  // family incomplete, and an assembly outside the validated scope. The SVs were shown
-  // without those warnings while the record loaded, and when it could not be loaded.
+  // The family record holds what the header warns of: an import that left the
+  // family incomplete, and an assembly outside the validated scope. The SVs are not shown
+  // without those warnings, neither while the record loads nor when it could not be loaded.
   describe('without the family record', () => {
     const get = api.get as unknown as Mock;
     let workingGet: ((url: string) => Promise<unknown>) | undefined;
@@ -492,7 +492,7 @@ describe('FamilyStructuralVariantsPage', () => {
       await findAssemblyScopeBanner();
     });
 
-    it('reads the list and its total in the page’s project, as the export does (UI-5)', async () => {
+    it('reads the list and its total in the page’s project, as the export does', async () => {
       // A family of two projects on two assemblies: the project picks the assembly, and a
       // list without one answered 400 where the export, which sent it, worked.
       get.mockImplementation((url: string) => {
@@ -558,7 +558,7 @@ describe('FamilyStructuralVariantsPage', () => {
     });
   });
 
-  // PROD-3: a saved SV search is this family's or reusable, and can be deleted on the page.
+  // A saved SV search is this family's or reusable, and can be deleted on the page.
   describe('saved searches', () => {
     const familyPreset = {
       _id: 'p-family',

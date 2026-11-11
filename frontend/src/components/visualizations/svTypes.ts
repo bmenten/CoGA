@@ -5,8 +5,7 @@ import { svKind } from '../../lib/svKind';
 export { svKind };
 
 // The rows the SV tracks draw, in this order: one per type, and OTHER, in the neutral colour,
-// for an SV of a type none of them names. Every SV the list shows is drawn in one of them
-// (CLIN-54).
+// for an SV of a type none of them names. Every SV the list shows is drawn in one of them.
 export const SV_TYPE_ORDER = ['DEL', 'DUP', 'INV', 'INS', 'BND', 'OTHER'] as const;
 
 export type SvTypeKey = (typeof SV_TYPE_ORDER)[number];
@@ -22,11 +21,11 @@ export type SvCopyChange = VariantOut['copy_change'];
 const TYPE_ROWS: ReadonlySet<string> = new Set(['DEL', 'DUP', 'INV', 'INS', 'BND']);
 
 /**
- * The row an SV is drawn in (CLIN-54). A copy loss is drawn as a DEL and a copy gain as a DUP,
+ * The row an SV is drawn in. A copy loss is drawn as a DEL and a copy gain as a DUP,
  * so a DEL:ME, a DUP:TANDEM and a CNV are drawn by the copies they change. Every other SV is
  * drawn by its type without subtypes (INS:ME as an INS), a TRA as a BND, and an SV of any other
- * type, or a CNV that changes no copy number, in the OTHER row. The tracks drew only the five
- * exact type names, so such an SV was not drawn at all, though the SV list showed it.
+ * type, or a CNV that changes no copy number, in the OTHER row, so every SV the SV list shows
+ * is drawn.
  */
 export const svTypeKey = (type?: string | null, copyChange?: SvCopyChange): SvTypeKey => {
   if (copyChange === 'loss') return 'DEL';
@@ -68,7 +67,7 @@ export const svTypeColors = (): Record<SvTypeKey, string> => ({
 /** A row in an accessible name's count: its type, and "other" for the OTHER row. */
 export const svTypeCountLabel = (typeKey: SvTypeKey): string => (typeKey === 'OTHER' ? 'other' : typeKey);
 
-/** The drawn SVs in words, for the chart's accessible name (#529): "3 (2 DEL, 1 DUP)". */
+/** The drawn SVs in words, for the chart's accessible name: "3 (2 DEL, 1 DUP)". */
 export const describeSvTypes = (items: ReadonlyArray<{ typeKey: SvTypeKey }>): string => {
   const byType = SV_TYPE_ORDER.map((typeKey) => ({
     typeKey,

@@ -206,7 +206,7 @@ describe('FamilyNiptCoveragePage', () => {
     renderPage('/families/NIPT001/nipt/coverage');
 
     const below = await screen.findByRole('table', { name: 'Regions below target' });
-    // A coverage track of the plasma's the check did not read as depth is named, with why (TRACE-9).
+    // A coverage track of the plasma's the check did not read as depth is named, with why.
     expect(screen.getByRole('note', { name: 'Coverage tracks not read as depth' })).toHaveTextContent(
       'CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.',
     );
@@ -261,7 +261,7 @@ describe('FamilyNiptCoveragePage', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
-  // #606 — a failed request is said as such, never as a page without weak genes.
+  // A failed request is said as such, never as a page without weak genes.
   it('says the coverage could not be loaded', async () => {
     apiMock.get.mockImplementation((url: string) =>
       url === '/families/NIPT001/nipt/coverage'

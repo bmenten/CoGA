@@ -28,7 +28,7 @@ import type {
 // for evidence strings); `alpha_missense_class` the AlphaMissense class as the variant is served
 // with it (likely_benign, ambiguous, likely_pathogenic): the value an ACMG classification's
 // evidence snapshot freezes; `chr` and `hemizygous_in_males` the locus, for the sex-aware de
-// novo rule (#621); `gene_missense_z` the gene profile's gnomAD missense Z and
+// novo rule; `gene_missense_z` the gene profile's gnomAD missense Z and
 // `annotation_extra` the VCF's own MISSENSE_Z (its `gene_missense_z`), which PP2 reads.
 export type AcmgVariantInput = Partial<
   Pick<
@@ -136,8 +136,8 @@ export function fmtAf(af: number): string {
 
 // Where the gnomAD missense Z PP2 reads comes from: the gene profile (the value the variant card
 // shows as Missense Z and the ranking reads), else the VCF's own MISSENSE_Z, which the variant list
-// serves in annotation_extra under the annotation's gene_missense_z (TRACE-15, the owner's
-// decision of 2026-10-28). An ACMG save freezes the same value and source with the classification
+// serves in annotation_extra under the annotation's gene_missense_z (the owner's decision of
+// 2026-10-28). An ACMG save freezes the same value and source with the classification
 // (backend small_variant_review_acmg.pp2_gene_missense_z).
 export type MissenseZSource = 'gene_profile' | 'vcf';
 
@@ -239,7 +239,7 @@ export function evaluateAcmg(
     const lofMechanism = haplo.includes('sufficient evidence');
     const caution = pvs1Caution(variant);
     if (gene?.unavailable) {
-      // Not "unconfirmed": whether the gene has a LOF mechanism was never looked up (#609).
+      // Not "unconfirmed": whether the gene has a LOF mechanism was never looked up.
       add(
         'PVS1',
         'strong',
@@ -314,8 +314,8 @@ export function evaluateAcmg(
     // No gnomAD frequency in the annotation: the variant is absent from gnomAD, or gnomAD was
     // not annotated for it (a source the pipeline did not load, a VEP cache without the
     // variant). The annotation does not say which, so PM2 is offered for review, never
-    // applied, and BA1 / BS1 are left open (unless a FAF95 rules them out): it applied PM2
-    // as "Absent from gnomAD." and ruled out BA1 and BS1 for a frequency nothing had looked up.
+    // applied, and BA1 / BS1 are left open (unless a FAF95 rules them out): never "Absent from
+    // gnomAD.", nor BA1 and BS1 ruled out, for a frequency nothing has looked up.
     add(
       'PM2',
       'supporting',
@@ -330,8 +330,8 @@ export function evaluateAcmg(
 
   // ---- BS2: observed homozygous in population; ruled out when gnomAD counts none. An
   //      annotation without a homozygote count says nothing either way, so BS2 is left
-  //      unmarked for the analyst to check in gnomAD: it read "No homozygotes observed"
-  //      for a count the pipeline never wrote (CLIN-67). ----
+  //      unmarked for the analyst to check in gnomAD, never "No homozygotes observed"
+  //      for a count the pipeline did not write. ----
   const homCount = variant.gnomad_hom_count;
   if (homCount != null && homCount > 0) {
     const recessive = isRecessiveGene(gene);
@@ -354,7 +354,7 @@ export function evaluateAcmg(
   // ---- PP2: missense in a gene with few benign missense variants ----
   // The gene's gnomAD missense Z stands in for the first half of PP2. Whether missense variants
   // are a common mechanism of disease in the gene, its second half, is the analyst's judgement:
-  // PP2 is offered for review, never applied, and says which missense Z it read (TRACE-15).
+  // PP2 is offered for review, never applied, and says which missense Z it read.
   const missenseZ = isMissense(effect) ? pp2MissenseZ(variant) : null;
   if (missenseZ && missenseZ.value >= PP2_MISSENSE_Z) {
     add(
@@ -371,7 +371,7 @@ export function evaluateAcmg(
   // ---- BP7: synonymous with no predicted splice impact. Without a SpliceAI score (not
   //      computed for the variant, as for most indels and for SNVs outside the transcripts a
   //      pipeline scores) no splice impact is predicted either way, so BP7 is offered for
-  //      review, never applied: it read a missing score as no impact. ----
+  //      review, never applied: a missing score is not read as no impact. ----
   if (isSynonymous(effect)) {
     if (variant.spliceai_max == null) {
       add(
@@ -484,7 +484,7 @@ function evaluateFamily(
   // is heterozygous, as in the backend's de novo mode (_record_matches_de_novo). Otherwise it
   // is offered for review, with the reason. A son's hemizygous call is an ALT of either ploidy.
   if (probandCarries && hemizygousOn && isMale(proband?.sex)) {
-    // A son is hemizygous here (#621): his X comes from his mother and his Y from his father,
+    // A son is hemizygous here: his X comes from his mother and his Y from his father,
     // so that parent decides. The other parent need not be genotyped, but must not carry
     // the ALT: an ALT in both males points to an artifact. Mirrors the backend's de novo
     // segregation mode (_record_matches_de_novo).
@@ -588,7 +588,7 @@ function evaluateFamily(
 
 /**
  * PP4 when the lookup it needs failed: surfaced for review, never auto-applied, and never
- * read as "no phenotype match" (#609).
+ * read as "no phenotype match".
  */
 export function pp4NotAssessed(
   gene: AcmgGeneContext | undefined,
@@ -770,7 +770,7 @@ function inSilicoSuggestions(variant: AcmgVariantInput): AcmgSuggestion[] {
 
   // No in-silico prediction at all → the computational criteria are ruled out. Any
   // AlphaMissense class is a prediction: an ambiguous one is inconclusive, and leaves both
-  // open below (TRACE-15; it read as no prediction, and ruled them out).
+  // open below, never read as no prediction that rules them out.
   const hasAnyPrediction = revel != null || variant.spliceai_max != null || amClass.trim() !== '';
   if (!hasAnyPrediction) {
     const na = (code: AcmgCriterionCode): AcmgSuggestion => ({

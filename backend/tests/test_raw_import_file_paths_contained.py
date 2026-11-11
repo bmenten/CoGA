@@ -1,4 +1,4 @@
-"""Raw-file download, Verify, the list and the purges keep to the family's own folders (SEC-29, SEC-38).
+"""Raw-file download, Verify, the list and the purges keep to the family's own folders.
 
 Every importer records the source file it read in ``raw_import_files``. The admin page lists
 the rows, downloads a file and verifies its SHA-256 at the recorded ``storage_path``, and a
@@ -119,7 +119,7 @@ OUTSIDE_CASES = [
 
 
 # Recorded paths in the import area outside the family's own package, as an edited row could
-# hold them (SEC-38): below the import root, or, the staged copy, in the staging folder.
+# hold them: below the import root, or, the staged copy, in the staging folder.
 def _other_package_paths(where: SimpleNamespace) -> dict[str, str]:
     return {
         "another family's package": str(where.other_package),
@@ -231,7 +231,7 @@ async def test_a_file_in_the_folders_is_downloaded(
 async def test_a_file_in_the_import_area_outside_the_familys_package_is_not_downloaded(
     where: SimpleNamespace, records: dict[str, dict[str, Any]], case: str
 ) -> None:
-    # SEC-38: refused, another family's package file among them.
+    # refused, another family's package file among them.
     assert await _download(records, _other_package_paths(where)[case], where.folder) == (403, OUTSIDE)
 
 
@@ -266,7 +266,7 @@ async def test_a_recorded_path_outside_the_folders_is_not_downloaded(
     # Refused, the relative path too: it is not looked up from the backend's working directory.
     assert answer == (403, OUTSIDE)
     # The line names the record and the kind of place, never the path: it can name another
-    # family's folder (SEC-39, the owner's decision of 2026-11-10).
+    # family's folder (the owner's decision of 2026-11-10).
     kind = "a relative local path" if case == "a relative path" else "an absolute local path"
     messages = [record.getMessage() for record in caplog.records if record.name == rif.__name__]
     assert messages == [
@@ -289,7 +289,7 @@ async def test_a_recorded_path_outside_the_folders_is_not_downloaded(
 )
 def test_a_refused_path_is_logged_by_its_kind_never_as_written(storage_path: object, kind: str) -> None:
     # A refused path can name another family's folder, and so its ID: the log line gives its
-    # kind; the record, by its ID, keeps the path (SEC-39, the owner's decision of 2026-11-10).
+    # kind; the record, by its ID, keeps the path (the owner's decision of 2026-11-10).
     assert rif._storage_path_kind(storage_path) == kind
 
 @pytest.mark.asyncio
@@ -314,7 +314,7 @@ async def test_with_no_import_roots_only_the_upload_folder_is_read(
     # FAMILY_IMPORT_ROOTS empty: the import takes a package folder anywhere (development
     # mode). A recorded path is still bounded: by the upload folder alone, as the IGV
     # endpoints serve nothing from a package folder no root lists. The staging folder is not
-    # read either (SEC-38).
+    # read either.
     monkeypatch.setattr(settings, "family_import_roots", [])
 
     assert await _download(records, str(where.package), where.folder) == (403, OUTSIDE)
@@ -340,8 +340,8 @@ async def test_verify_refuses_a_recorded_path_outside_the_folders_without_readin
     storage_path = {**_outside_paths(where), **_other_package_paths(where)}[case]
 
     with pytest.raises(HTTPException) as refused:
-        # Refused before the file is hashed (SEC-29 for a path outside the import area,
-        # SEC-38 for one in it outside the family's package).
+        # Refused before the file is hashed (a path outside the import area,
+        # one in it outside the family's package).
         await rif.verify_raw_import_file(_record(storage_path, sha256=_sha256("secret"), package_folder=where.folder))
 
     assert (refused.value.status_code, refused.value.detail) == (403, OUTSIDE)
@@ -392,11 +392,11 @@ async def test_verify_through_the_app_answers_403_for_a_path_outside_the_folders
 # Objects named by a recorded URI, with the import root gs://phi/imports and the family's
 # package folder gs://phi/imports/F1.
 REMOTE_OUTSIDE = {
-    # SEC-38: below the import root, outside the family's package. The store is not asked.
+    # below the import root, outside the family's package. The store is not asked.
     "another family's package": "gs://phi/imports/F2/bams/S2.cram",
     "a folder beside the package sharing its name": "gs://phi/imports/F1-old/bams/S1.cram",
     "`..` from the package into another's": "gs://phi/imports/F1/../F2/bams/S2.cram",
-    # SEC-29: outside the import root.
+    # outside the import root.
     "another prefix of the bucket": "gs://phi/reports/F1/report.pdf",
     "a prefix beside the root sharing its name": "gs://phi/imports-old/F1/S1.cram",
     "another bucket": "gs://other/imports/F1/S1.cram",
@@ -475,10 +475,10 @@ async def test_the_list_shows_a_file_outside_the_folders_unavailable(where: Simp
 
     availability = [(row["exists"], row["download_available"], row["in_object_store"]) for row in listed]
     # A file outside the folders is listed neither present nor downloadable, whether it lies
-    # outside the import area (SEC-29) or in another family's package, at the import root or in
-    # the staging folder (SEC-38).
+    # outside the import area or in another family's package, at the import root or in
+    # the staging folder.
     assert availability == [(True, True, False), (True, True, False)] + [(False, False, False)] * (1 + len(cases))
-    # And the row says why: a file that is gone is not a location CoGA does not read (SEC-27).
+    # And the row says why: a file that is gone is not a location CoGA does not read.
     assert [row["outside_read_folders"] for row in listed] == [False, False, False] + [True] * len(cases)
 
 
@@ -493,14 +493,14 @@ async def test_the_list_marks_an_object_outside_the_familys_package(
     listed = await rif.list_raw_import_files(_ListSession(rows), "family-uuid")  # type: ignore[arg-type]
 
     # Each is listed as kept in the object store, and marked outside the folders Verify reads
-    # (SEC-27).
+    #.
     assert [row["in_object_store"] for row in listed] == [True] * len(uris)
     assert [row["outside_read_folders"] for row in listed] == [False] + [True] * len(REMOTE_OUTSIDE)
 
 
 # --------------------------------------------------------------------------- #
 # The purges: the managed rows read in a delete's transaction, their copies unlinked once
-# it has committed (test_deletions_unlink_files_after_commit.py, SAFE-35)
+# it has committed (test_deletions_unlink_files_after_commit.py)
 # --------------------------------------------------------------------------- #
 
 
@@ -567,7 +567,7 @@ async def test_a_family_delete_unlinks_only_managed_copies_in_the_upload_folder(
         "(an absolute local path) is outside the upload folder"
         for record_id in skipped
     ]
-    # Never the path: it can name another family's folder (SEC-39).
+    # Never the path: it can name another family's folder.
     assert not any(paths[record_id] in message for record_id in skipped for message in messages)
 
 

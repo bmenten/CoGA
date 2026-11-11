@@ -8,7 +8,7 @@ cytoBandIdeo.txt.gz, SHA-256 …`).
 
 These files are the **backup**. The import loads one only when UCSC cannot be reached, or serves
 no cytoband table for the genome, and only if its SHA-256 is the pinned one below
-(`CYTOBAND_BACKUP_FILES` in `backend/app/core/config.py`, TRACE-14). Another file is refused
+(`CYTOBAND_BACKUP_FILES` in `backend/app/core/config.py`). Another file is refused
 with a logged error naming the file, both digests and the fix. The import then records the backup
 by name, the day it was taken from UCSC, and its SHA-256. Without UCSC and without a usable
 backup, the assembly import fails as a whole: its genes are not loaded either, and a start

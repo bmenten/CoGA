@@ -348,7 +348,7 @@ def test_another_user_neither_lists_nor_deletes_the_owners_presets(presets) -> N
     viewer = presets["viewer"]
     assert viewer["listed"]["status"] == 200, viewer
     assert viewer["listed"]["json"] == []
-    # Another user's preset answers as an unknown one does (SEC-9); a 403 told them it exists.
+    # Another user's preset answers as an unknown one does; a 403 told them it exists.
     assert viewer["delete"]["status"] == 404, viewer
     assert viewer["delete"]["text"] == '{"detail":"Preset not found"}'
 

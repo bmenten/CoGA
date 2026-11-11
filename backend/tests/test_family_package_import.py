@@ -1240,7 +1240,7 @@ async def test_package_import_continues_after_dataset_failure(
 async def test_a_dataset_failure_shows_cogas_own_refusal_and_names_any_other_error_by_its_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # SEC-39. The dataset's message and the job's log line, which the import page shows, name
+    # The dataset's message and the job's log line, which the import page shows, name
     # any other error by its kind, never by its text (for a failed statement, its SQL and the
     # values it was given). CoGA's own refusal (a loader's HTTPException, an ImportRefused) is
     # shown as it is written.
@@ -1692,7 +1692,7 @@ async def test_the_import_job_runs_the_import_under_its_own_id(
     captured: dict = {}
 
     async def fake_user(session, user_id):
-        # The requester is found by the account's id, never by an e-mail address (SEC-32).
+        # The requester is found by the account's id, never by an e-mail address.
         captured["requester_id"] = user_id
         return admin_user()
 

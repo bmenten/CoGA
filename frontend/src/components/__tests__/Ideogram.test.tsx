@@ -1,4 +1,4 @@
-// The chromosome ideogram (#526: it had no tests): cytobands drawn to scale, the
+// The chromosome ideogram: cytobands drawn to scale, the
 // centromere, the highlighted region, the axis, drag-to-select and the band tooltip.
 
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -164,11 +164,10 @@ test('names the cytoband under the pointer, without the chr prefix', () => {
   expect(screen.queryByText('1p1')).not.toBeInTheDocument();
 });
 
-// Found while fixing ENG-7 (#1019): the ideogram named the mitochondrion by the route's key
-// ("Chromosome MT ideogram"), and its tooltip joined that key to the band's stored name: "MT"
-// on GRCh38, whose chrM band has no name, and "MTchrM" on T2T, whose band is named chrM. It
-// is M without its chr, as the genome strip writes it, and its band is chrM, as the header
-// names the chromosome.
+// The ideogram names the mitochondrion M without its chr, as the genome strip writes it, never
+// by the route's key ("Chromosome MT ideogram"), and its band chrM, as the header names the
+// chromosome, whatever the band's stored name: none on GRCh38, chrM on T2T (never "MT" or
+// "MTchrM").
 test.each([
   ['a band without a name (GRCh38)', ''],
   ['a band named after the chromosome (T2T)', 'chrM'],
@@ -189,7 +188,7 @@ test('names a loading mitochondrion M, not MT', () => {
   expect(screen.getByRole('img', { name: 'Chromosome M ideogram: loading' })).toBeInTheDocument();
 });
 
-test('names the chromosome and the region highlighted on it for a screen reader (#529)', () => {
+test('names the chromosome and the region highlighted on it for a screen reader', () => {
   answer(CHROMOSOME);
   const region = (regionStart: number, regionEnd: number) => (
     <Ideogram assembly="GRCh38" chrom="chr1" width={1000} height={40} regionStart={regionStart} regionEnd={regionEnd} />
@@ -206,7 +205,7 @@ test('names the chromosome and the region highlighted on it for a screen reader 
   expect(screen.getByRole('img', { name: 'Chromosome 1 ideogram, whole chromosome in view' })).toBeInTheDocument();
 });
 
-test('names a loading or failed ideogram as such, not as a region (#529)', () => {
+test('names a loading or failed ideogram as such, not as a region', () => {
   answer(undefined);
   const { rerender } = renderIdeogram({ regionStart: 200, regionEnd: 400 });
   expect(screen.getByRole('img', { name: 'Chromosome 1 ideogram: loading' })).toBeInTheDocument();

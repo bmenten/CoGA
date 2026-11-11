@@ -41,7 +41,7 @@ test('shows a hover tooltip with the CNV name', () => {
   expect(tooltip?.textContent).toContain('1q21.1 recurrent microdeletion');
 });
 
-test('does not draw a held clinical CNV outside the new window while a pan loads (#526)', () => {
+test('does not draw a held clinical CNV outside the new window while a pan loads', () => {
   const region = (regionStart: number, regionEnd: number) => (
     <CnvTrack
       assembly="GRCh38"
@@ -62,14 +62,14 @@ test('does not draw a held clinical CNV outside the new window while a pan loads
   expect(container.querySelectorAll('rect[aria-label]')).toHaveLength(2);
 
   // Same span, 1.5 Mb right: the first region is now entirely left of the window. While
-  // the new window loads, it used to be drawn at the left edge under its own name.
+  // the new window loads, it is not drawn at the left edge under its own name.
   useQueryMock.mockReturnValue({ data: undefined });
   rerender(region(19_500_000, 23_500_000));
   const shown = Array.from(container.querySelectorAll('rect[aria-label]')).map((rect) =>
     rect.getAttribute('aria-label'),
   );
   expect(shown).toEqual([expect.stringContaining('22q11.2 distal')]);
-  // The track's own name counts only what is in view (#529).
+  // The track's own name counts only what is in view.
   expect(
     screen.getByRole('img', { name: 'Clinical CNVs on chr22:19,500,000–23,500,000: 1 (22q11.2 distal)' }),
   ).toBeInTheDocument();
@@ -93,7 +93,7 @@ const renderRegion = (chrom: string, regionStart: number, regionEnd: number) =>
     />,
   );
 
-test('names the clinical CNVs it draws for a screen reader, and keeps each one\'s name (#529)', () => {
+test('names the clinical CNVs it draws for a screen reader, and keeps each one\'s name', () => {
   useQueryMock.mockReturnValue({
     data: [
       { _id: 'a', start: 18_900_000, end: 19_000_000, type: 'DEL', label: '22q11.2 proximal (A-B)' },
@@ -111,7 +111,7 @@ test('names the clinical CNVs it draws for a screen reader, and keeps each one\'
   expect(container.querySelectorAll('rect[aria-label]')).toHaveLength(2);
 });
 
-test('names at most three, as many as fit in about 150 characters, then "…" (#529)', () => {
+test('names at most three, as many as fit in about 150 characters, then "…"', () => {
   // Overlapping 1q21.1 entries, named as in the ClinGen reference file.
   useQueryMock.mockReturnValue({
     data: [
@@ -140,8 +140,8 @@ test('names at most three, as many as fit in about 150 characters, then "…" (#
 test.each([
   ['an empty region', { data: [] }, 'none'],
   ['a request in flight', { data: undefined }, 'loading'],
-  ['a failed request (#510)', { data: undefined, isError: true, refetch: vi.fn() }, 'failed to load'],
-])('names %s as what it is, and only an empty region as "none" (#529)', (_label, state, summary) => {
+  ['a failed request', { data: undefined, isError: true, refetch: vi.fn() }, 'failed to load'],
+])('names %s as what it is, and only an empty region as "none"', (_label, state, summary) => {
   useQueryMock.mockReturnValue(state);
 
   renderRegion('22', 18_000_000, 22_000_000);

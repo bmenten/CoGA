@@ -10,7 +10,7 @@ ClickHouse (unit, a fake of ClickHouse at the storage's ``_execute``).
   non-reference calls; scoped to a callset source.
 - Writing: an insert writes compact annotations, the gene index and the site QUAL, in chunks
   when large, and VEP's MANE Select and MANE Plus Clinical flags per transcript and per variant
-  on every assembly (CLIN-5); the family and sample summaries are rebuilt; a delete is scoped
+  on every assembly; the family and sample summaries are rebuilt; a delete is scoped
   to its source, or clears every table without one, and is synchronous.
 - Every small-variant mutation stamps a new family data version after it, so the
   prioritised-ranking cache never serves a ranking over changed variants; every SV insert and
@@ -610,7 +610,7 @@ def _inserted_rows(clickhouse: _ClickHouse, table: str) -> list[dict[str, object
 @pytest.mark.asyncio
 @pytest.mark.parametrize("assembly", ["GRCh38", "GRCh37", "T2T-CHM13v2.0"])
 async def test_insert_small_variant_records_writes_both_mane_flags(clickhouse: _ClickHouse, assembly: str) -> None:
-    # CLIN-5: *MANE only* keeps a MANE Select or a MANE Plus Clinical transcript. The family
+    # *MANE only* keeps a MANE Select or a MANE Plus Clinical transcript. The family
     # search reads each transcript's flags from the annotations, the Variant Explorer each
     # variant's from the annotation index; the import writes both, on every assembly, from
     # VEP's MANE_SELECT and MANE_PLUS_CLINICAL.

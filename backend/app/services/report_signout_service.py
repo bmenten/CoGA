@@ -27,7 +27,7 @@ that partly failed, or that stopped part-way); each gate is acknowledged separat
 a reason that is frozen into the snapshot and recorded in the audit event. An
 acknowledgement covers the concerns its dialog showed, no more: it carries the fingerprint
 of the concerns the gate's refusal listed (:func:`concerns_fingerprint`), and a sign-out
-whose concerns are no longer those is refused with them as they are now (TRACE-19).
+whose concerns are no longer those is refused with them as they are now.
 
 A family whose data is being written is not signed out at all: not while a package import
 of it is queued or runs, nor while another write of its variants holds their lock, and no
@@ -100,7 +100,7 @@ _REPORT_TAG = "report"
 # catastrophic). Separately, a swap can manifest as MISSING data (a sample absent from
 # the callset, a whole-family genotype-load failure, too few cfDNA sites): that leaves
 # the swap-relevant check unable to run, so it stays "warn"/"skip"/"pass" and never
-# reaches "fail". _unverifiable_swap_checks() gates those too (#330), so an unverifiable
+# reaches "fail". _unverifiable_swap_checks() gates those too, so an unverifiable
 # ASSERTED pedigree relationship cannot sign out silently. Both are acknowledge-with-
 # reason (never a hard lockout); the reason is frozen into the content hash + audit.
 _QC_BLOCKING_STATUSES = {"fail"}
@@ -116,7 +116,7 @@ _IMPORT_FLAG_DATASET_LISTS = ("failed_datasets", "imported_datasets")
 STRUCTURAL_DRIFT_SECTION = "structural_drift"
 
 # The sections of the reported variants, and the key, in each entry, of the class its review
-# showed when it was signed (CLIN-80, the owner's decision of 2026-11-10): the class the family
+# showed when it was signed (the owner's decision of 2026-11-10): the class the family
 # page shows by the one rule (``review_pg_utils.review_class_label``: a bare class word in the
 # text, else the most severe ACMG class tag, else the text), worked out here from the review as
 # stored, never taken from the request. A small variant's entry freezes its classification text
@@ -191,7 +191,7 @@ def _canonical_sample_qc(report: SampleIntegrityReport) -> dict[str, Any]:
 
 
 # Each concern the Sample-QC gate lists, in its 409 and in the sign-out's audit event, names
-# the sample, the pair or the child (with its parents) its check read (CLIN-8): a check's
+# the sample, the pair or the child (with its parents) its check read: a check's
 # message does not, and two samples without chrX calls read as the same sentence twice. The
 # checks themselves are frozen into the snapshot's ``sample_qc`` as they are, each beside
 # its sample fields, which the signed view labels them with.
@@ -446,7 +446,7 @@ def _qc_gate_message(
 ) -> str:
     """The Sample-QC refusal's message: a sentence for each kind of concern the gate holds
     (a failed check, a check that could not run, a NIPT quality check that failed), so a
-    failure never hides a check that could not run (CLIN-58). The concerns themselves are
+    failure never hides a check that could not run. The concerns themselves are
     in the refusal's own lists, which the sign-out dialog shows under the message, each
     group under its heading; the message does not repeat them."""
     parts: list[str] = []
@@ -487,8 +487,8 @@ async def _import_incomplete_state(
     error: a later failure keeps an earlier import's failed datasets in the flag
     (``family_package_registration.merged_import_failure``), so they can come from
     different jobs. A dataset it lists with no job failed outside one -- in a single-file
-    upload (SAFE-25), or an import run outside a job -- and is frozen with none: the flag's
-    own job is another failure's, which does not hold its error (SAFE-18). A dataset that
+    upload, or an import run outside a job -- and is frozen with none: the flag's
+    own job is another failure's, which does not hold its error. A dataset that
     failed for more than one scope (another callset, other samples) is named with the job of
     its latest failure; the flag keeps every scope with its own job (``failed_scopes``),
     which is not frozen.
@@ -548,8 +548,8 @@ async def _import_unfinished_state(
     ``import_incomplete`` and gating sign-out with it, as one gate.
 
     A single-file upload marks the family the same way before its first ClickHouse write
-    (``family_package_registration.FamilyWriteMark``, SAFE-28), and so does a deletion of the
-    family's data that deletes or rewrites ClickHouse rows (SAFE-31): an entry under a key
+    (``family_package_registration.FamilyWriteMark``), and so does a deletion of the
+    family's data that deletes or rewrites ClickHouse rows: an entry under a key
     that says which (``unfinished_entry_writer``), with no job, listing what may be partly
     written or missing. It reads and gates as an import's.
 
@@ -559,7 +559,7 @@ async def _import_unfinished_state(
     The entry a failed overwrite's restore leaves when it does not finish (its datasets the
     whole family's: ``family_package_registration.whole_family_entry``) is frozen with
     ``whole_family`` true, so the gate, its dialog and the signed record describe it as that
-    restore, not as an import that stopped (SAFE-18). Only then is the key set.
+    restore, not as an import that stopped. Only then is the key set.
     """
     raw = (
         await session.execute(
@@ -596,8 +596,8 @@ async def _import_unfinished_state(
 
 
 def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
-    """One unfinished import, as the gate message names it. An entry a single-file upload
-    (SAFE-28), or a deletion of the family's data (SAFE-31), left is named for what wrote it,
+    """One unfinished import, as the gate message names it. An entry a single-file upload,
+    or a deletion of the family's data, left is named for what wrote it,
     which its key says (``family_package_registration.unfinished_entry_writer``): the
     snapshot freezes the key with the entry."""
     when = f" ({entry['at']})" if entry.get("at") else ""
@@ -613,7 +613,7 @@ def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
     job_id = entry.get("job_id")
     if entry.get("whole_family"):
         # A failed overwrite whose restore did not finish: it rewrites the family's rows table
-        # by table, whichever import or upload wrote them (SAFE-16, SAFE-18).
+        # by table, whichever import or upload wrote them.
         what = f"an import{when} failed, and putting this family's data back did not finish"
         if pending:
             what += (
@@ -662,7 +662,7 @@ def _import_gate_message(
                     without_job.append(str(name))
         if by_job and without_job:
             # A failure no import job records beside one a job does: the flag's job is not
-            # its (SAFE-18). Only then is it named: with no job beside it, no job is named
+            # its. Only then is it named: with no job beside it, no job is named
             # that could be taken for its.
             job = (
                 f" No import job records the error of {', '.join(without_job)}, which failed "
@@ -691,7 +691,7 @@ def _import_gate_message(
     remedies: list[str] = []
     if any(entry.get("whole_family") for _key, entry in stopped):
         # A restore that did not finish lists every dataset of the family, those of an import
-        # that stopped included (SAFE-16, SAFE-18).
+        # that stopped included.
         remedies.append(
             "Import this family again in full, with overwrite: every dataset named here, not only "
             "those that failed, and upload again with overwrite what a single-file upload "
@@ -705,7 +705,7 @@ def _import_gate_message(
         )
     if writers - {"import"}:
         # A single-file upload's or a deletion's mark goes item by item as each dataset is
-        # brought again with overwrite (SAFE-28).
+        # brought again with overwrite.
         remedies.append(
             "Upload or import again, with overwrite, what a single-file upload or a "
             "deletion did not finish"
@@ -746,7 +746,7 @@ def _as_json(value: Any) -> Any:
 
 
 def concerns_fingerprint(gate: str, concerns: Mapping[str, Any]) -> str:
-    """The fingerprint of the concerns a gate's refusal lists for its dialog (TRACE-19).
+    """The fingerprint of the concerns a gate's refusal lists for its dialog.
 
     SHA-256 over the canonical JSON of the gate and its concerns, each list of concerns in a
     stable order (sorted by its items' canonical JSON), so the same concerns read in another
@@ -948,14 +948,14 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     A variant is reported when its review or its compound-het pair review holds the report
     tag: the rule of the review-tag filter (``list_matching_small_variant_review_ids``), by
     which the live report lists its variants and the NIPT page's *Show reported* lists what a
-    sign-out freezes. Read by the variant's own tag alone, a tag held on the pair only was
-    listed there and frozen nowhere: not among the reported variants, their descriptions, nor
-    the NIPT section's variants and the recessive fetal risk it computes from them (TRACE-19).
+    sign-out freezes: a tag held on the pair only is frozen among the reported variants,
+    their descriptions, and the NIPT section's variants and the recessive fetal risk it
+    computes from them.
     The pair review that holds the tag is frozen with the variant (``compound_het``: the
     partner, the gene, the pair's classification, tags and note, and its phase), so the record
     says why a variant is reported whose own tags do not; a variant reported by its own tag
     alone holds none. Each holds its classification text as stored; the class its review
-    shows is added by :func:`build_report_snapshot` (``class_shown``, CLIN-80).
+    shows is added by :func:`build_report_snapshot` (``class_shown``).
     """
     rows = (
         await session.execute(
@@ -978,7 +978,7 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     for row in rows:
         entry: dict[str, Any] = {
             "variant_id": row["variant_id"],
-            # The classification text as stored, which the class shown is read from (CLIN-80).
+            # The classification text as stored, which the class shown is read from.
             "classification": row["classification"],
             "acmg_class": row["acmg_class"],
             "acmg": row["acmg"],
@@ -1001,7 +1001,7 @@ async def _reported_structural_reviews(
 
     The report page renders these beside the small variants, so the signed record freezes
     them too. The class the review shows is added by :func:`build_report_snapshot`
-    (``class_shown``, CLIN-80).
+    (``class_shown``).
     """
     rows = (
         await session.execute(
@@ -1051,7 +1051,7 @@ async def _canonical_sequencing_qc(
     except Exception:  # see the docstring
         logger.exception("Could not resolve QC thresholds for the report snapshot")
         # Frozen as explicitly unavailable, so the signed record does not read like a
-        # family imported without QC outputs (#514). The marker appears only on failure,
+        # family imported without QC outputs. The marker appears only on failure,
         # so the hash of an ordinary snapshot is unchanged.
         return {
             "profile_key": None,
@@ -1083,7 +1083,7 @@ async def _canonical_sequencing_qc(
 
 
 def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
-    """The parts a report snapshot records as unavailable, with the reason (#514).
+    """The parts a report snapshot records as unavailable, with the reason.
 
     A lookup that failed while the snapshot was built is frozen as an explicit marker,
     never as an empty block that reads like "nothing there". This lists those markers so
@@ -1116,7 +1116,7 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
 
 
 def _with_class_shown(entry: Mapping[str, Any]) -> dict[str, Any]:
-    """A reported variant's entry with the class its review shows (``class_shown``, CLIN-80):
+    """A reported variant's entry with the class its review shows (``class_shown``):
     :func:`review_pg_utils.review_class_label` over the review's classification text and tags
     as stored, as the family page, the Variant Explorer and the classification filters read it.
     None when the review shows no class: the report says *Not classified*. The ACMG record and
@@ -1142,13 +1142,12 @@ async def build_report_snapshot(
         session, family_id=family_id, user=user, project_id=project_id
     )
     # A monogenic NIPT family's analysis, over its whole callset, is computed once: the
-    # Sample QC's NIPT checks and the record's NIPT section below read the same values
-    # (#900, OPS-9).
+    # Sample QC's NIPT checks and the record's NIPT section below read the same values.
     shared_nipt = SharedNiptAnalysis()
     qc_report = await get_family_sample_integrity_qc(
         session, family_id=family_id, user=user, project_id=project_id, shared_nipt=shared_nipt
     )
-    # Each with the class its review shows, by the family page's rule (CLIN-80).
+    # Each with the class its review shows, by the family page's rule.
     reported = [_with_class_shown(entry) for entry in await _reported_reviews(session, context.family_uuid)]
     reported_structural = [
         _with_class_shown(entry) for entry in await _reported_structural_reviews(session, context.family_uuid)
@@ -1159,7 +1158,7 @@ async def build_report_snapshot(
     # A reported classification with no frozen evidence snapshot cannot be drift-verified
     # (evaluate_classification_drift only checks reviews that HAVE a snapshot), so it would
     # otherwise clear the sign-out drift gate unchallenged. Surface each as a "no_snapshot"
-    # drift entry so the gate requires acknowledgement (#332).
+    # drift entry so the gate requires acknowledgement.
     unsnapshotted = [
         {
             "variant_id": r["variant_id"],
@@ -1272,15 +1271,13 @@ _LAST_SIGNED_VERSION = text(
 
 async def _next_version(session: AsyncSession, family_identifier: str, family_uuid: str) -> int:
     """The version the family's next sign-out gets: one past every version its family ID
-    has signed (TRACE-13).
+    has signed.
 
     A family ID's sign-outs are one hash chain, in version order, whichever family row
     signed them: a family deleted and made again under its ID signs on the chain of the
-    one it replaced. Numbered per family row, the new family's first sign-out took
-    version 1 again, so the chain's order tied, and the chain failed its verification as
-    if it had been tampered with. Numbered per family ID, a version and its report code
-    name one signed record of the family ID for good, and an existing chain keeps its
-    numbers: a family never deleted has only its own row's versions.
+    one it replaced, so the chain's order never ties. A version and its report code name one
+    signed record of the family ID for good: a family never deleted has only its own row's
+    versions.
     """
     result = await session.execute(
         _LAST_SIGNED_VERSION,
@@ -1390,7 +1387,7 @@ async def sign_out_report(
     is acknowledged with a reason and the fingerprint of the concerns its refusal listed
     (``*_concerns_fingerprint``, :func:`concerns_fingerprint`): the acknowledgement covers
     those concerns, and a sign-out whose concerns are no longer those is refused with them as
-    they are now (TRACE-19). A gate without concerns needs no acknowledgement.
+    they are now. A gate without concerns needs no acknowledgement.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -1401,7 +1398,7 @@ async def sign_out_report(
     # acknowledgements they cannot use.
     require_sign_out_authority(user)
     # Off-scope gate (TF-06 H12), first and not overridable: a report on an assembly the
-    # device is not validated on must not become a signed clinical record (#515). The
+    # device is not validated on must not become a signed clinical record. The
     # structured detail keeps the report page from offering the drift override for it.
     assembly_name = getattr(context, "assembly_name", None)
     if not is_validated_assembly(assembly_name):
@@ -1444,7 +1441,7 @@ async def sign_out_report(
         f" ({'; '.join(part for part in drift_parts if part)})" if any(drift_parts) else ""
     )
     # The refusal lists the classifications it counts, as the other gates' refusals list
-    # their concerns, and as the acknowledgement covers them (TRACE-19).
+    # their concerns, and as the acknowledgement covers them.
     drift_concerns = _drift_concerns(snapshot_body)
     drift_refusal = {
         "message": (
@@ -1457,7 +1454,7 @@ async def sign_out_report(
     if drifted_count and not acknowledge_drift:
         raise _gate_refusal(DRIFT_GATE, drift_refusal, drift_concerns)
     # Overriding the drift gate is attested like the QC override: with a reason that is
-    # frozen into the content hash and the audit event (#508).
+    # frozen into the content hash and the audit event.
     drift_reason = (drift_acknowledgement_reason or "").strip()
     if drifted_count and acknowledge_drift and not drift_reason:
         raise HTTPException(
@@ -1476,7 +1473,7 @@ async def sign_out_report(
     qc_hard_fail = qc_status in _QC_BLOCKING_STATUSES
     # A swap that manifests as MISSING data leaves the swap-relevant check unable to run
     # (it never becomes "fail"); gate those unverifiable asserted-pedigree checks too so
-    # they cannot sign out silently (#330).
+    # they cannot sign out silently.
     qc_unverifiable = _unverifiable_swap_checks(sample_qc)
     # A NIPT family's NIPT quality checks that failed (signed_record_nipt): its record holds
     # the NIPT results, and male DNA as the maternal plasma or fetal-sex signals that
@@ -1485,7 +1482,7 @@ async def sign_out_report(
     qc_blocks = qc_hard_fail or bool(qc_unverifiable) or bool(nipt_failed)
     # Every concern of the refusal, each in its own group, as the sign-out dialog lists them
     # before the reason is written, and as the audit event records what the acknowledgement
-    # covered (CLIN-58): the checks that failed, those that could not run, the NIPT quality
+    # covered: the checks that failed, those that could not run, the NIPT quality
     # checks that failed, and the warnings beside them, which do not gate on their own.
     qc_failed = _failed_qc_checks(sample_qc)
     qc_warnings = _warning_qc_checks(sample_qc, qc_unverifiable)
@@ -1743,7 +1740,7 @@ async def sign_out_report(
                 "unreviewed_findings_acknowledgement_reason"
             ],
             # The fingerprint of the concerns each acknowledgement covered, which its dialog
-            # showed (TRACE-19): the concerns the record froze, which the sign-out checked
+            # showed: the concerns the record froze, which the sign-out checked
             # against it (None: that gate held nothing to acknowledge).
             "drift_concerns_fingerprint": (
                 concerns_fingerprint(DRIFT_GATE, drift_concerns) if snapshot["acknowledged_drift"] else None
@@ -1760,7 +1757,7 @@ async def sign_out_report(
                 else None
             ),
             # What the signed record could not capture (a failed lookup), so the trail
-            # says the record is incomplete rather than leaving it to be noticed (#514).
+            # says the record is incomplete rather than leaving it to be noticed.
             "not_captured": gaps,
         },
     )
@@ -1910,7 +1907,7 @@ async def get_report_signout(
         )
     detail = _serialize_signout(record)
     # The report page renders a signed version from its snapshot alone, so it must be able
-    # to say what that record lacks — for any version, not only the latest (#514).
+    # to say what that record lacks — for any version, not only the latest.
     detail["not_captured"] = snapshot_gaps(record["snapshot"])
     return detail
 
@@ -2022,7 +2019,7 @@ async def compare_report_with_latest_signout(
     from current data. A change after sign-out (a review edit, a new report tag, a
     re-import, a QC cut-off change) leaves the signed version as it was, so the page uses
     this check to say so: on the live report, whether it still matches the latest signed
-    version; on that version, whether the family's data changed since (#508). This
+    version; on that version, whether the family's data changed since. This
     rebuilds the snapshot body and compares it, section by section and each section whole,
     with the frozen one: a section that differs, or that only one of the two holds, is
     changed. A section of one application that neither holds (``pgt_analysis`` of a family

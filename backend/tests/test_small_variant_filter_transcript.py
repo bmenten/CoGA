@@ -1,4 +1,4 @@
-"""The transcript the annotation filters held on, named beside the primary one (CLIN-51).
+"""The transcript the annotation filters held on, named beside the primary one.
 
 A small variant's fields describe its primary transcript (MANE Select, else canonical, else
 the most severe impact), while the annotation filters must all hold on one transcript of it,
@@ -6,8 +6,8 @@ in SQL and in Python alike. So SIFT *deleterious* keeps a variant whose primary 
 SIFT calls tolerated and a second one deleterious, and its card and its CSV row read
 *tolerated*. The variant names the transcript the filters held on (``filter_transcript``)
 whenever its primary one does not meet them, with that transcript's values. Its own fields
-stay the primary transcript's, which the ranking, the ACMG suggestions, the report and the
-signed record read.
+stay the primary transcript's, so the ranking, the ACMG suggestions, the report and the
+signed record read the primary transcript.
 
 Which transcripts the filters hold on the SQL decides, on the stored rows the search reads
 (``_filter_transcript_matches``, by each row's ``annotationHash``); the real-ClickHouse filter
@@ -227,21 +227,21 @@ def test_the_named_transcript_is_picked_as_the_primary_is(
 
 
 def test_the_named_transcript_carries_its_values_as_the_variant_reads_its_own() -> None:
-    # Every value as _small_variant_out reads the primary transcript's: the aliases, the
-    # SpliceAI maximum of the four delta scores, another gene's symbol.
+    # Every value as _small_variant_out reads the primary transcript's: the SpliceAI maximum
+    # of the four delta scores, another gene's symbol.
     other = {
-        "geneSymbol": "SYN51AS",
-        "transcriptId": "ENST_SYN51AS_1",
+        "gene": "SYN51AS",
+        "transcript_id": "ENST_SYN51AS_1",
         "impact": "HIGH",
-        "consequence": "splice_donor_variant",
+        "effect": "splice_donor_variant",
         "hgvsc": "ENST_SYN51AS_1:c.50+1G>A",
         "lof": "HC",
-        "caddPhred": "31.5",
+        "cadd_phred": "31.5",
         "revel": "0.66",
         "spliceai_ds_dl": 0.91,
         "spliceai_ds_ag": 0.12,
-        "siftPrediction": "deleterious_low_confidence(0.01)",
-        "polyphenPrediction": "possibly_damaging(0.7)",
+        "sift": "deleterious_low_confidence(0.01)",
+        "polyphen": "possibly_damaging(0.7)",
     }
     variant = _small_variant_out(
         _record("v", [PRIMARY, other]), assembly_name="GRCh38", filter_annotation_hashes=_hashes(other)
@@ -484,7 +484,7 @@ async def test_a_panel_served_from_a_broader_ranking_names_the_transcript(monkey
 
     async def supersets(_session, *, family_uuid, base_hash):
         # A ranking cached without a panel serves any panel it holds every variant of. The
-        # candidates come without their rankings: the one that passes is read (ENG-13).
+        # candidates come without their rankings: the one that passes is read.
         return [{"inputs_hash": "superset", "panel_id": None, "computed_at": None}]
 
     async def cached(_session, *, family_uuid, inputs_hash):

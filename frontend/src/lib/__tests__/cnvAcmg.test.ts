@@ -34,7 +34,7 @@ describe('cnvAcmg score', () => {
   });
 
   it('scores a criterion it does not know as nothing, never as NaN, which would read as benign', () => {
-    // A saved selection whose code the criteria no longer hold: the rest is scored alone.
+    // A selection with a code the criteria do not hold: the rest is scored alone.
     const result = computeCnvClassification('gain', [
       { code: '2A', points: 1.0, accepted: true, autoSuggested: false },
       { code: 'NOT-A-CODE', points: -0.9, accepted: true, autoSuggested: false },
@@ -77,8 +77,8 @@ describe('cnvAcmg evaluate', () => {
     expect(cnvKindForType('DUP')).toBe('gain');
   });
 
-  it('reads an SV type without its subtypes, as the server does (CLIN-47)', () => {
-    // A tandem duplication opened on the loss criteria: only the exact type DUP was a gain.
+  it('reads an SV type without its subtypes, as the server does', () => {
+    // A tandem duplication opens on the gain criteria, as any DUP does.
     expect(cnvKindForType('DUP:TANDEM')).toBe('gain');
     expect(cnvKindForType('dup:tandem')).toBe('gain');
     expect(cnvKindForType('INS:ME')).toBe('gain');
@@ -138,11 +138,11 @@ describe('cnvAcmg evaluate', () => {
     expect(suggestions.some((s) => s.code === '2H')).toBe(true);
   });
 
-  it('suggests for the kind it is asked for, not the kind of the type (CLIN-55)', () => {
+  it('suggests for the kind it is asked for, not the kind of the type', () => {
     // A 30-gene deletion in a constrained gene. As a loss, 25–34 genes are 3B and the pLI
     // suggests 2H; as a gain, 30 genes are 3A and 2H is not suggested (a gain's 2H is an HI
-    // gene inside the gain). The dialog seeded both kinds from the loss's suggestions, so on
-    // gain 3B was an accepted +0.45 and 2H carried the constrained-gene note.
+    // gene inside the gain). Seeded from the loss's suggestions, the gain would show 3B as an
+    // accepted +0.45 and 2H with the constrained-gene note.
     const deletion: CnvVariantInput = { type: 'DEL', gene: 'GENEX', genePli: 0.99, geneCount: 30 };
     const asLoss = evaluateCnv(deletion, 'loss');
     expect(asLoss.find((s) => s.code.startsWith('3'))).toMatchObject({ code: '3B', points: 0.45 });
@@ -163,7 +163,7 @@ describe('cnvAcmg evaluate', () => {
 
   it("suggests only the kind's own criteria, each within its range, so the server keeps them", () => {
     // The server keeps a point value within its criterion's range (cnv_acmg_points.clamp_points):
-    // a suggestion outside it was shown and sent at one value and scored at another.
+    // a suggestion outside it would be shown and sent at one value and scored at another.
     const inputs: CnvVariantInput[] = [
       { type: 'DEL', gene: 'GENEX', genePli: 0.99, geneCount: 30, inheritance: 'de novo' },
       { type: 'DUP:TANDEM', gene: 'GENEX', genePli: 0.95, geneCount: 60, inheritance: 'maternal' },

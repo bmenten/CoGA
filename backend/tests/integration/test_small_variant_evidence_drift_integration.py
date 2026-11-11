@@ -1,5 +1,5 @@
 """The frequencies and in-silico scores a small-variant ACMG classification freezes, and their
-drift, on real Postgres + ClickHouse (CLIN-7; TF-09a REQ-TRACE-002, REQ-TRACE-003).
+drift, on real Postgres + ClickHouse (TF-09a REQ-TRACE-002, REQ-TRACE-003).
 
 - The variants go into ClickHouse through the import's write path
   (``insert_small_variant_records``), annotated as the import parses VEP's CSQ: a MANE Select
@@ -100,7 +100,7 @@ def _record(variant_id: str, annotations: list[dict[str, Any]]):
 
 def _context(family_uuid: str, family_id: str, project: str, assembly_id: str | None = None):
     """The family's context; ``assembly_id`` is the assembly whose gene profiles its gene
-    constraint is read from (TRACE-15)."""
+    constraint is read from."""
     return proband_context(
         family_uuid, family_id, project, sample=_SAMPLE, assembly_id=assembly_id, assembly_name=_ASSEMBLY
     )
@@ -311,7 +311,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
             refusal: Any = refused.value.detail
             assert "1 classification(s) have evidence" in refusal["message"]
             # The refusal lists the classification it counts, with what moved, as the dialog
-            # shows it; the acknowledgement carries their fingerprint (TRACE-19).
+            # shows it; the acknowledgement carries their fingerprint.
             [listed] = refusal["drifted"]
             assert (listed["variant_id"], listed["changed"]) == (_CLASSIFIED, entry["changed"])
             async with sm() as s:
@@ -433,7 +433,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
     holder: dict[str, str] = {}
 
     def _ctx_now():
-        # The gene's profile is in the assembly made below: the family's (TRACE-15).
+        # The gene's profile is in the assembly made below: the family's.
         return _context(holder["uuid"], label, project, holder.get("assembly"))
 
     async def _ctx(session, *, family_identifier, user, project_id=None):
@@ -585,7 +585,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 "lof_flags": None,
                 "nmd": None,
             }
-            # Read from the gene's profile, which PP2 reads first (TRACE-15).
+            # Read from the gene's profile, which PP2 reads first.
             assert frozen_missense["gene_constraint"] == {
                 "gene_missense_z": metrics[_MISSENSE]["gene_missense_z"],
                 "gene_missense_z_source": "gene_profile",
@@ -703,7 +703,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
     asyncio.run(_run())
 
 
-# --- The VCF's own MISSENSE_Z, read when the gene's profile holds none (TRACE-15) ------------------
+# --- The VCF's own MISSENSE_Z, read when the gene's profile holds none -----------------------------
 
 _GENE9 = "GENE9"
 _VCF_Z_MISSENSE = "12-40100601-C-T"

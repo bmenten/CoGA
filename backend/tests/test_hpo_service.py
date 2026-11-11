@@ -588,7 +588,7 @@ async def test_hpo_startup_bootstrap_imports_empty_database(
     tmp_path: Path,
 ) -> None:
     # Without the download, the startup imports only its backup, the vendored release byte for
-    # byte (TRACE-14).
+    # byte.
     ontology_path = tmp_path / "hpo.obo"
     ontology_path.write_bytes((Path(__file__).resolve().parents[2] / "data" / "ref-data" / "hpo" / "hp.obo").read_bytes())
     session = _FakeSession(

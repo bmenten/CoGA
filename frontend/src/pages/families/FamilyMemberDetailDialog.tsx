@@ -50,7 +50,7 @@ interface FamilyMemberDetailDialogProps {
   userIsAdmin: boolean;
   /**
    * May add, change and remove the member's phenotypes: an analyst of the family's project or
-   * an admin, not a reader (SEC-1). Each change is on the family's clinical audit trail.
+   * an admin, not a reader. Each change is on the family's clinical audit trail.
    */
   canEditPhenotypes: boolean;
   /** This member's edits already waiting in the page's pending batch, if any. */
@@ -63,7 +63,7 @@ interface FamilyMemberDetailDialogProps {
 }
 
 /**
- * The family member dialog (#528): the member's metadata, edited as a draft for the page's
+ * The family member dialog: the member's metadata, edited as a draft for the page's
  * pending batch; their HPO phenotypes; and removing them. It moved out of
  * FamilyDetailPage with the state only it used. The page keeps which member is open and
  * the pending batch.
@@ -281,7 +281,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
     });
   };
 
-  // Change a phenotype's status or note (PROD-8): the term stays; the change is an event on
+  // Change a phenotype's status or note: the term stays; the change is an event on
   // the family's clinical audit trail, as an addition or a removal is.
   const saveHpoEdit = async () => {
     if (!familyId || !hpoEdit || !hpoEditChanged(hpoEdit)) return;
@@ -330,7 +330,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
 
   return (
     // ModalDialog: Escape, a focus trap and focus restore, and a check before
-    // unapplied edits or a half-entered phenotype are discarded (#529).
+    // unapplied edits or a half-entered phenotype are discarded.
     <ModalDialog
       onClose={closeMemberDetail}
       isDirty={memberDetailHasUnsavedInput}
@@ -353,7 +353,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
           </div>
 
           {memberDetailFailed ? (
-            // It stayed at "Loading member details." for good (#610).
+            // It stayed at "Loading member details." for good.
             <QueryFailure
               what="the member's details"
               error={memberDetailError}

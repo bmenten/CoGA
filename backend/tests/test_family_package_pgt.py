@@ -554,7 +554,7 @@ def test_a_family_id_with_a_line_break_cannot_forge_a_log_line(
 ) -> None:
     # The PGT reader logs a package file it cannot read, such as the KING table named after
     # the family ID. A line break in that path must not start a new log line; the line names
-    # the file by its kind, never by its path, which holds the family ID (SEC-39).
+    # the file by its kind, never by its path, which holds the family ID.
     forged = f"{FAMILY}\nERROR forged entry"
     root = _write_copgtm_package(tmp_path / FAMILY)
     (root / f"king/{forged}.kin0").write_bytes(b"\xff not UTF-8")
@@ -1390,7 +1390,7 @@ async def test_qc_import_records_each_samples_qc_and_the_familys_kinship(
 async def test_an_embryo_only_in_the_family_tables_gets_a_verdict_on_its_pgt_metrics(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # CLIN-30: an embryo the pipeline wrote no per-sample QC for appears only in the family
+    # an embryo the pipeline wrote no per-sample QC for appears only in the family
     # tables, so its recorded QC is its `pgt` entry alone: no depth, N50 or report. The family
     # read still serves its verdict, judged on those four metrics, in the catalogue's order
     # and in %, so the members table's chip can show the metric that decided it.
@@ -1859,7 +1859,7 @@ async def test_the_apcad_import_reads_each_embryos_trio_vcf_and_reports_progress
     result = await family_package_datasets._import_apcad_dataset(_job(root, "apcad", progress=progress))
 
     assert result.status == "imported"
-    # Every embryo's file is checked before any embryo's track is cleared (SAFE-3).
+    # Every embryo's file is checked before any embryo's track is cleared.
     assert calls == [
         ("EMB1", "EMB1.trio_filtered.vcf.gz", True),
         ("EMB2", "EMB2.trio_filtered.vcf.gz", True),

@@ -14,7 +14,7 @@ export const familyNotFound = (): Promise<never> =>
   Promise.reject(httpError(404, undefined, { detail: 'Family not found' }));
 
 /**
- * #610: a failed request reads as one, never as a family that does not exist. The page shows
+ * A failed request reads as one, never as a family that does not exist. The page shows
  * `heading`, the error said as a failed request (when `message` is given, the text it shows
  * before that), no "Family not found", and a Retry that asks again: `requests` counts the
  * failing requests.

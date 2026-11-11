@@ -49,11 +49,7 @@ class GeneTranscriptOut(BaseModel):
     strand: int
     biotype: Optional[str] = None
     source: Optional[str] = None
-    # Clinical-relevance flags, taken from the annotation's own tags. Previously the
-    # Gene Explorer had to infer these by matching a transcript id against a single
-    # value scraped from ClinGen's gene page or fetched from Ensembl per gene — both of
-    # which only ran for genes dbNSFP did not cover, so the genes anyone actually looks
-    # up never carried them.
+    # Clinical-relevance flags, taken from the annotation's own tags.
     mane_select: bool = False
     mane_plus_clinical: bool = False
     ensembl_canonical: bool = False
@@ -100,9 +96,7 @@ class GeneVariantCountsOut(BaseModel):
 
 class GeneInfoSourceStatusOut(BaseModel):
     # "not_consulted" means the source was never queried for this gene, which is not a
-    # statement about its coverage. Omitting it here would 500 the gene profile for any
-    # gene carrying one, since the cache has recorded them since the sources stopped
-    # being consulted as a fallback.
+    # statement about its coverage. The gene cache records it, so the profile serves it.
     status: Literal["success", "missing", "not_consulted", "error"]
     fetched_at: datetime
     source_url: Optional[str] = None
@@ -205,7 +199,7 @@ class GeneProfileOut(BaseModel):
 class MonarchRefreshSummaryOut(BaseModel):
     release_version: Optional[str] = None
     # A new Monarch release re-versions the generated Mendeliome panel; a failure there
-    # used to be only a log warning (#514).
+    # is reported here, not only in a log line.
     mendeliome_regenerated: bool = True
     mendeliome_error: Optional[str] = None
     files_loaded: int = 0
@@ -372,7 +366,7 @@ class ClinicalCnvOut(ApiDocumentModel):
     orpha_id: Optional[str] = None
     orpha_name: Optional[str] = None
     # Pathogenic ClinVar CNVs overlapping the region by >= 30 % reciprocally, per side, and
-    # their VariationIDs, from the knowledgebase build (#624). None: not recorded (built
+    # their VariationIDs, from the knowledgebase build. None: not recorded (built
     # without ClinVar, or loaded from a file without them), not zero.
     clinvar_pathogenic_loss_count: Optional[int] = None
     clinvar_pathogenic_gain_count: Optional[int] = None

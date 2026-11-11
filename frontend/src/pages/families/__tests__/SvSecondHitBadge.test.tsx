@@ -134,7 +134,7 @@ describe('SvSecondHitBadge navigation', () => {
     expect(badge.classList.contains('sv-second-hit-badge--link')).toBe(false);
   });
 
-  it('is a button without a link, so the keyboard reaches its explanation (#529)', () => {
+  it('is a button without a link, so the keyboard reaches its explanation', () => {
     render(<SvSecondHitBadge hit={hit} />);
     const badge = screen.getByRole('button', { name: /effectively biallelic/i });
     expect(badge).toHaveAttribute('type', 'button');
@@ -157,7 +157,7 @@ describe('SvSecondHitBadge navigation', () => {
   });
 });
 
-// CLIN-28: each SV of the gene has its own phase against the SNV (`svs`). The chip shows the
+// Each SV of the gene has its own phase against the SNV (`svs`). The chip shows the
 // gene's verdict, drawn from theirs by the backend, and the tooltip lists each SV.
 describe('SvSecondHitBadge with several SVs in the gene', () => {
   const sv = (overrides: Partial<SvSecondHitSvOut>): SvSecondHitSvOut => ({
@@ -273,7 +273,7 @@ describe('SvSecondHitBadge with several SVs in the gene', () => {
   });
 
   it('shows no chip when the deletion has no phase beside a duplication in cis', () => {
-    // The duplication's cis no longer stands for the gene: the deletion may be in trans.
+    // The duplication's cis does not stand for the gene: the deletion may be in trans.
     const { container } = render(
       <SvSecondHitBadge
         hit={gene({ svs: [dup({ phase: 'cis', phase_evidence: 'read' }), sv({})] })}

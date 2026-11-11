@@ -508,8 +508,11 @@ sudo systemctl daemon-reload && sudo mount /srv/coga/data/share
 
 ## 9. Run it
 
-**Update.** Pull the new commit, stamp it and rebuild; Compose replaces only what changed,
-and the backend brings the Postgres schema to the new revision as it starts
+**Update.** Pull the new commit, stamp it and rebuild; Compose replaces only what changed.
+Until the release candidate the VM holds test data only, and a commit that changes a Postgres
+baseline makes the backend refuse the existing database ("The database was made from other
+baseline files than this version's"): then stop the stack, remove its volumes
+(`docker compose down -v`), start it again and import the test families again
 ([database.md](database.md#schema-migrations)):
 
 ```bash

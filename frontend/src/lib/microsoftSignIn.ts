@@ -1,4 +1,4 @@
-// Microsoft sign-in (SEC-4): the browser half of signing in with the hospital's or university's
+// Microsoft sign-in: the browser half of signing in with the hospital's or university's
 // Microsoft account (Microsoft Entra ID, formerly Azure AD).
 //
 // The backend says whether CoGA uses it (GET /auth/config: the application ID, the directory's

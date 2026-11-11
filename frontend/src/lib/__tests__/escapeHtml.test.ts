@@ -1,4 +1,4 @@
-// Tooltip values are escaped — #521: d3 tooltips interpolated imported strings as HTML.
+// Tooltip values are escaped: d3 tooltips interpolate imported strings into HTML.
 
 import { describe, expect, it } from 'vitest';
 

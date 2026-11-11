@@ -1,4 +1,4 @@
-// The gene track (#526: it had no tests): where each gene is drawn in the region, how
+// The gene track: where each gene is drawn in the region, how
 // overlapping genes stack, the exon/intron and strand drawing, and the panel tooltip.
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -124,7 +124,7 @@ test('still shows the gene when the view falls inside one of its introns', async
   const { container } = renderTrack(300, 600);
   await waitFor(() => expect(geneGroups(container)).toHaveLength(1));
   expect(container.querySelectorAll('rect.exon')).toHaveLength(0);
-  // Before, nothing but the strand arrow was drawn: the view looked intergenic.
+  // The gene body is drawn, not only the strand arrow, so the view does not look intergenic.
   const body = container.querySelector('line.gene-body');
   expect(body?.getAttribute('x1')).toBe('0');
   expect(body?.getAttribute('x2')).toBe('1000');
@@ -221,7 +221,7 @@ test('shows a failed request as a failure with a retry, never as "no genes"', ()
   expect(refetchMock).toHaveBeenCalledTimes(1);
 });
 
-test('names the genes in the region for a screen reader: how many, and the first three as drawn (#529)', () => {
+test('names the genes in the region for a screen reader: how many, and the first three as drawn', () => {
   answer({
     genes: [
       gene({ hgnc_symbol: 'C', start: 500, end: 900 }),
@@ -241,14 +241,14 @@ test('names the genes in the region for a screen reader: how many, and the first
 test.each([
   ['an empty region', { genes: [] }, 'none'],
   ['a request in flight', { genes: undefined }, 'loading'],
-  ['a failed request (#510)', { genes: undefined, isError: true }, 'failed to load'],
-])('names %s as what it is, and only an empty region as "none" (#529)', (_label, state, summary) => {
+  ['a failed request', { genes: undefined, isError: true }, 'failed to load'],
+])('names %s as what it is, and only an empty region as "none"', (_label, state, summary) => {
   answer(state);
   renderTrack();
   expect(screen.getByRole('img', { name: `Genes on chr1:0–1,000: ${summary}` })).toBeInTheDocument();
 });
 
-test('while a pan loads, names only the held genes in the new region, never "none" (#529)', () => {
+test('while a pan loads, names only the held genes in the new region, never "none"', () => {
   const region = (regionStart: number, regionEnd: number) => (
     <GeneTrack assembly="GRCh38" chrom="1" width={1000} regionStart={regionStart} regionEnd={regionEnd} />
   );
@@ -275,7 +275,7 @@ test('while a pan loads, names only the held genes in the new region, never "non
   expect(screen.getByRole('img', { name: 'Genes on chr1:1,000–2,000: none' })).toBeInTheDocument();
 });
 
-test('while a pan loads, a held gene left of the new window is not drawn at its edge (#586)', async () => {
+test('while a pan loads, a held gene left of the new window is not drawn at its edge', async () => {
   const region = (regionStart: number, regionEnd: number) => (
     <GeneTrack assembly="GRCh38" chrom="1" width={1000} regionStart={regionStart} regionEnd={regionEnd} />
   );
@@ -288,15 +288,15 @@ test('while a pan loads, a held gene left of the new window is not drawn at its 
   const { container, rerender } = render(region(0, 1000));
   await waitFor(() => expect(geneGroups(container)).toHaveLength(2));
 
-  // Same span, 500 bp right, the new window still loading: A now lies wholly left of it.
-  // It was drawn as a 6 px block at x = 0, as if a gene started there.
+  // Same span, 500 bp right, the new window still loading: A now lies wholly left of it,
+  // and is not drawn as a 6 px block at x = 0, as if a gene started there.
   answer({ genes: undefined });
   rerender(region(500, 1500));
   await waitFor(() => expect(geneGroups(container)).toHaveLength(1));
   expect(geneGroups(container)[0].x).toBe(100); // B, 100 px into the new window
 });
 
-test('a failed pan draws nothing from the previous window (#586)', async () => {
+test('a failed pan draws nothing from the previous window', async () => {
   const region = (regionStart: number, regionEnd: number) => (
     <GeneTrack assembly="GRCh38" chrom="1" width={1000} regionStart={regionStart} regionEnd={regionEnd} />
   );

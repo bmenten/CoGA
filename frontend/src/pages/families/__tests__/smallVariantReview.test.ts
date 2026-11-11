@@ -16,7 +16,7 @@ vi.mock('../../../lib/api', () => ({ default: apiMock }));
 describe('fetchFamilyReviewTags', () => {
   beforeEach(() => apiMock.get.mockReset());
 
-  // SAFE-37: the server lists, inactive, the tags of a deleted project, or of a project the family
+  // The server lists, inactive, the tags of a deleted project, or of a project the family
   // left, that the family's reviews hold, only with the inactive tags. Each then reads by its label,
   // marked, never as a bare key, and is never offered as active.
   it('asks for the inactive tags too, so a held tag of a deleted project reads by its label', async () => {
@@ -81,10 +81,10 @@ describe('findLoadedVariantReview', () => {
   });
 });
 
-// CLIN-76: a quick tag toggle sent the classification as the class shown, from the class tag, in
-// place of the text the review holds. Toggling *Report* on a review of text "VUS - class 3" beside
-// the tag of class 4 stored "Likely pathogenic - class 4", and the clinical audit recorded a change
-// of classification text (TRACE-20) no one made. Only the review dialog's class choice changes it.
+// A quick tag toggle sends the classification text the review holds, never the class shown
+// from the class tag: toggling *Report* on a review of text "VUS - class 3" beside the tag of
+// class 4 keeps "VUS - class 3", so the clinical audit records no change of classification text
+// no one made. Only the review dialog's class choice changes it.
 describe('quickTagTogglePayload', () => {
   const stored = (classification: string | null, tags: string[], note: string | null = 'kept') =>
     review({ variant_id: '1-100-A-G', classification, tags, note });

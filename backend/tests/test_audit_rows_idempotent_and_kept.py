@@ -1,4 +1,4 @@
-"""The request audit and the UI-event log store each event once, and keep the row of a deleted user (SEC-17).
+"""The request audit and the UI-event log store each event once, and keep the row of a deleted user.
 
 Both workers write what they drain in one INSERT, and write a batch again after a failed attempt
 (``event_pipeline.write_event_batch_with_retry``). A commit whose answer never reached the writer

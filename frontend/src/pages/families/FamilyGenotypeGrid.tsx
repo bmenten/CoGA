@@ -13,7 +13,7 @@ import React from 'react';
  * One tone vocabulary colours the call (and the status chip) on every page: `alert` red
  * (pathogenic, homozygous, homoplasmic), `warn` amber (heterozygous, grey zone, carrier,
  * heteroplasmic), `info` blue (not assessed), `review` violet (a call to look at again, its
- * own colour, ENG-10), `ref` muted (reference, normal), `na` faded (no call or no data).
+ * own colour), `ref` muted (reference, normal), `na` faded (no call or no data).
  */
 
 export type GenotypeTone = 'alert' | 'warn' | 'info' | 'review' | 'ref' | 'na';

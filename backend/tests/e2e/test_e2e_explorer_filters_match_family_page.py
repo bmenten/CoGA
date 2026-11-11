@@ -4,7 +4,7 @@ The family search needs one transcript of a variant to meet every annotation fil
 together; the Variant Explorer tested each filter against an index that pools a variant's
 transcripts. With *MANE only* and impact HIGH it kept a variant whose HIGH transcript is not
 its MANE transcript, which the family page drops, and it required every in-silico minimum
-where the family page takes any one (CLIN-29).
+where the family page takes any one.
 
 A family is created through the PED upload under a new id each run, so the golden trio is
 never touched, and a VEP-annotated VCF goes in through the family small-variant upload, so

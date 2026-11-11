@@ -1,4 +1,4 @@
-"""What each of a sample's coverage tracks holds, and which one is read as depth (CLIN-46, TRACE-9).
+"""What each of a sample's coverage tracks holds, and which one is read as depth.
 
 A sample's ``coverage`` track can come from several callers at once, each stored under its own
 source: a coverage BED (``web``: a BED upload's, or a package's ``coverage`` dataset's),
@@ -7,13 +7,13 @@ holds -- read depth, a log2 ratio, or unknown -- is decided here, by one rule, f
 that take coverage as read depth and for the views that draw it (``coverage_contents`` in the
 track availability):
 
-* A coverage BED holds what it was declared to hold when it was loaded (TRACE-9): the BED
+* A coverage BED holds what it was declared to hold when it was loaded: the BED
   upload's ``content`` and the ``content`` key of the package manifest's coverage entry, which
   its record keeps (``content`` in ``sample_interval_track_sources.metadata``): ``read_depth``
   or ``log2_ratio``. A BED that declares neither -- a manifest entry without the key -- holds
   values of unknown kind, recorded as ``unknown``.
 * Another caller's track holds what its import's transform made of its file
-  (``normalization``, TRACE-7): read depth after ``none`` alone (HiFiCNV's depths stored as
+  (``normalization``): read depth after ``none`` alone (HiFiCNV's depths stored as
   read, its file having given no usable autosomal median), a log2 ratio after a log2-ratio
   transform, and values of unknown kind after a transform not known here or two that
   disagree. A track whose records name no transform holds its file's values: WisecondorX's
@@ -24,9 +24,9 @@ The readers that take coverage values as read depth (the mtDNA coverage summary 
 ``mtdna.mean_depth`` verdict, and the monogenic NIPT coverage check without a per-target table)
 read one track per sample, one that holds read depth, chosen here; a sample without one has no
 coverage track to them, and each of its tracks they leave out is named with the reason
-(``not_read_as_depth_note``). They read every source's rows merged before (CLIN-46): a log2
-ratio near 0 pulled a chrM mean depth of hundreds down to half of it or less, and a configured
-limit warned or failed on it. One track, not every depth track: two tracks' rows over a region
+(``not_read_as_depth_note``). Every source's rows merged would make no depth: a log2 ratio near
+0 pulls a chrM mean depth of hundreds down to half of it or less, and a configured limit warns or
+fails on it. One track, not every depth track: two tracks' rows over a region
 count its bases twice, which can hide an uncovered stretch from a completeness check, and their
 mean or median is neither track's.
 """
@@ -74,10 +74,10 @@ __all__ = [
 COVERAGE_TRACK_TYPE = "coverage"
 
 #: The transform a coverage track's record names when its values are its file's read depths,
-#: stored as read: a HiFiCNV depth file without a usable autosomal median (TRACE-7).
+#: stored as read: a HiFiCNV depth file without a usable autosomal median.
 DEPTH_STORED_AS_READ = "none"
 
-#: The transforms after which a track's values are a log2 ratio (TRACE-7, #812).
+#: The transforms after which a track's values are a log2 ratio.
 _LOG2_RATIO_TRANSFORMS = frozenset({"log2_ratio_to_autosomal_median", "log2_ratio_to_diploid"})
 
 #: The callers whose coverage files hold log2 ratios, stored as their files hold them.
@@ -101,8 +101,8 @@ def coverage_track_content(
     declare (``interval_track_contents_by_sample``). See the module docstring for the rule."""
     if source == BED_UPLOAD_SOURCE:
         declared = set(contents)
-        # Declared unknown (a manifest entry without the key), no declaration, or two records
-        # that disagree: unknown.
+        # Declared unknown (a manifest entry without the key), or two records that disagree:
+        # unknown.
         return declared_coverage_content(declared.pop()) if len(declared) == 1 else UNKNOWN_CONTENT
     named = set(normalizations)
     if named:

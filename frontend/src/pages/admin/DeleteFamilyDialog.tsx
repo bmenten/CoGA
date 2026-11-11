@@ -13,8 +13,8 @@ interface DeleteFamilyDialogProps {
  * Two-step destructive confirmation for permanently deleting an entire family.
  * Step 1 spells out exactly what will be erased and requires the operator to type
  * the family name verbatim and to say why it goes: the reason is recorded on the
- * family's last clinical audit event, and the API refuses a deletion without one
- * (TRACE-16). Step 2 is a final confirmation immediately before execution. The
+ * family's last clinical audit event, and the API refuses a deletion without one.
+ * Step 2 is a final confirmation immediately before execution. The
  * delete button is only ever enabled once the typed name matches and a reason is given.
  */
 const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
@@ -39,7 +39,7 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
 
   return (
     // ModalDialog: Escape cancels, except while the deletion runs, with a focus trap and
-    // focus restore (#529). Focus starts in the name field, the first control. A click
+    // focus restore. Focus starts in the name field, the first control. A click
     // on the backdrop does nothing in a destructive confirmation.
     <ModalDialog
       onClose={() => {

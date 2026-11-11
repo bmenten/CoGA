@@ -88,7 +88,7 @@ describe('CnvDetailsPage', () => {
     expect(screen.getByText('CNV explorer')).toBeInTheDocument();
   });
 
-  // A server error is not a CNV that does not exist (#624, as #610).
+  // A server error is not a CNV that does not exist.
   it('says the CNV could not be loaded on a server error, and retries', async () => {
     let failing = true;
     serve({
@@ -125,7 +125,7 @@ describe('CnvDetailsPage', () => {
     expect(screen.getByText('Cytoband').nextElementSibling).toHaveTextContent(/^—$/);
   });
 
-  // #624 — the knowledgebase's ClinVar support, with a link to each supporting record.
+  // The knowledgebase's ClinVar support, with a link to each supporting record.
   const withSupport = async (support: Record<string, unknown>) => {
     serve({
       '/cnvs/entry/cnv-1': data({

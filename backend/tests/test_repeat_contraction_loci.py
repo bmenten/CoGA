@@ -79,8 +79,7 @@ class TestExpansionLociUnchanged:
         assert classify_repeat_count(10, 27, 36) == "normal"
 
     def test_an_uncatalogued_locus_is_not_assessed_and_a_no_call_is_unknown(self) -> None:
-        # Not "normal", so an expansion there can be seen (CLIN-26,
-        # test_repeat_not_assessed.py).
+        # Not "normal", so an expansion there can be seen (test_repeat_not_assessed.py).
         assert classify_repeat_count(12, None, None) == "not_assessed"
         assert classify_repeat_count(None, 27, 36) == "unknown"
         assert classify_repeat_count(None, None, None) == "unknown"
@@ -109,7 +108,7 @@ class TestReclassification:
     def test_a_benign_range_alone_classifies_only_the_counts_inside_it(self) -> None:
         # Without an intermediate or pathogenic threshold nothing says where harm starts, so
         # a count outside a benign range alone (STRchive's POLG states 10) stays not assessed
-        # (CLIN-26), and a count inside it is normal (CLIN-36).
+        #, and a count inside it is normal.
         result = _reclassify_repeat_alleles(
             [
                 {"repeat_count": 3, "status": "not_assessed"},

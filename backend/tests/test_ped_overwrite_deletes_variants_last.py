@@ -1,5 +1,5 @@
 """A PED upload or a manual family with overwrite deletes the replaced family's variants
-last, just before its commit (SAFE-25).
+last, just before its commit.
 
 Replacing a family deletes it, in the request's transaction, and its small variants and
 structural variants, in ClickHouse, which has no transactions. Deleted before the checks
@@ -13,7 +13,7 @@ deleted once everything else of the replacement is written.
 family's variants are deleted by ``delete_family_small_variants`` and
 ``delete_family_structural_variants``, and its interval tracks by ``delete_interval_tracks``,
 as a structure change that clears a family's data deletes them (``family_structure_service``),
-whose code the replacement runs; the tracks go with the variants (SAFE-35).
+whose code the replacement runs; the tracks go with the variants.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def events(monkeypatch) -> list[tuple[Any, ...]]:
         return record
 
     async def family_deleted(_session, *, family_uuid, source, **_kwargs) -> None:
-        # The replaced family's last clinical audit event (SEC-7).
+        # The replaced family's last clinical audit event.
         recorded.append(("audit: family deleted", family_uuid, source))
 
     monkeypatch.setattr(ped_service, "_resolve_accessible_project_id", project)
@@ -99,7 +99,7 @@ def events(monkeypatch) -> list[tuple[Any, ...]]:
         return 0
 
     monkeypatch.setattr(ped_service, "record_phenotypes_deleted_with_family", record_phenotypes)
-    # The replaced family's mark is test_deletions_mark_the_family.py's (SAFE-31).
+    # The replaced family's mark is test_deletions_mark_the_family.py's.
     monkeypatch.setattr(family_package_registration, "FamilyDeletion", UnmarkedDeletion)
     return recorded
 
@@ -164,7 +164,7 @@ async def test_a_ped_upload_that_replaces_a_family_deletes_its_variants_last(eve
     )
 
     assert [family.family_id for family in result.families] == ["FAM1"]
-    # Once the new family is written, before the commit; its tracks with them (SAFE-35).
+    # Once the new family is written, before the commit; its tracks with them.
     assert events == [
         ("lock", "uuid-old"),
         ("audit: phenotypes removed", "uuid-old", "replaced"),

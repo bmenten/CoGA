@@ -1,10 +1,10 @@
 """A review saved with ACMG criteria comes back through a variant list with them (real Postgres).
 
 Every list of small variants — the tables and cards, the report, the NIPT candidates, the
-mtDNA analysis — carries each variant's review from ``get_small_variant_review_map``. Its
-query once left out the ACMG record, so every list served a classified variant with
-``acmg = None``: the live report showed no criteria, and the ACMG dialog opened from a list
-was seeded without the saved ones, so a re-save replaced them.
+mtDNA analysis — carries each variant's review from ``get_small_variant_review_map``, whose
+query selects the ACMG record. Without it every list would serve a classified variant with
+``acmg = None``: the live report would show no criteria, and the ACMG dialog opened from a list
+would be seeded without the saved ones, so a re-save would replace them.
 
 This saves through the real writer (``upsert_small_variant_review``) and reads through the
 real list path against real Postgres, JSONB round-trip included. Only the variant's

@@ -1,5 +1,5 @@
-// A reported variant's class on the report, the live one and the signed version alike (CLIN-80,
-// the owner's decision of 2026-11-10): the class its review shows by the one rule of the family
+// A reported variant's class on the report, the live one and the signed version alike (the
+// owner's decision of 2026-11-10): the class its review shows by the one rule of the family
 // page, *Not classified* when it shows none, and beside it, labelled as the score, the scoring's
 // class when that is another: "VUS - class 3 (ACMG score: Likely pathogenic - class 4 · 8 pts)".
 // The points are the scoring's, so they stand with the score. The chip and the sentence print as

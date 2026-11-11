@@ -1,4 +1,4 @@
-// Sign-in through the organisation's CAS server, such as login.ugent.be (SEC-4).
+// Sign-in through the organisation's CAS server, such as login.ugent.be.
 //
 // The backend says whether CoGA uses it (GET /auth/config: the CAS login page for CoGA's
 // service and the CAS sign-out page; none of it secret). The browser goes to the CAS login page

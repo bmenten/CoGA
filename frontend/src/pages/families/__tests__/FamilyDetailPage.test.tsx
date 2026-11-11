@@ -10,7 +10,7 @@ import api from '../../../lib/api';
  * "Checking available family data…" query than the family record. Tests that
  * assert on those must wait for this gate to clear after the family name appears
  * — otherwise the assertion races the variant-availability load, which failed on
- * the slower CI runner twice (PRs #197, #199). Call this right after awaiting the
+ * the slower CI runner twice. Call this right after awaiting the
  * family name, then query variant links/buttons synchronously.
  */
 const waitForVariantWorkspaceReady = () =>
@@ -25,7 +25,7 @@ const mockApiState = vi.hoisted(() => ({
   members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }] as unknown[],
   relationships: [] as unknown[],
   analysisType: null as string | null,
-  // The caller is a reader in the family's projects (SEC-1).
+  // The caller is a reader in the family's projects.
   readOnly: false,
   // Whom the case pickers offer: the family's analysts and the administrators.
   assignableUsers: [] as unknown[],
@@ -739,7 +739,7 @@ describe('FamilyDetailPage', () => {
     }
   });
 
-  // #607 — the embryos' recombination and uninformative warnings come with the calls: a
+  // The embryos' recombination and uninformative warnings come with the calls: a
   // failed request is not an embryo without warnings.
   it('says the segregation could not be derived when the embryo calls at the ROI fail', async () => {
     localStorage.setItem('role', 'viewer');
@@ -771,9 +771,7 @@ describe('FamilyDetailPage', () => {
     }
   });
 
-  // No data at the ROI is not an unaffected embryo. The embryo badge used to read
-  // "Unaffected" for an embryo whose haplotype has no block over the ROI.
-  // CLIN-66: blocks built for another pedigree or other sexes: the page warns, and each embryo's
+  // Blocks built for another pedigree or other sexes: the page warns, and each embryo's
   // uninformative call says why.
   it('warns that the haplotype blocks are outdated and says so beside each embryo', async () => {
     localStorage.setItem('role', 'viewer');
@@ -800,6 +798,8 @@ describe('FamilyDetailPage', () => {
     }
   });
 
+  // No data at the ROI is not an unaffected embryo: an embryo whose haplotype has no block over
+  // the ROI reads uninformative, never "Unaffected".
   it('reads an embryo the backend calls uninformative for missing data as such, not unaffected', async () => {
     localStorage.setItem('role', 'viewer');
     mockApiState.members = [
@@ -862,7 +862,7 @@ describe('FamilyDetailPage', () => {
   });
 
   // X-linked recessive: an embryo whose sex is not recorded and which carries the mother's
-  // risk X is affected if male and a carrier if female. Its badge used to read "Carrier".
+  // risk X is affected if male and a carrier if female: its badge never reads "Carrier".
   it("does not call an X-linked embryo of unrecorded sex a carrier when a son would be affected", async () => {
     localStorage.setItem('role', 'viewer');
     mockApiState.members = [
@@ -1013,7 +1013,7 @@ describe('FamilyDetailPage', () => {
     }
   });
 
-  // #607 — a failed request on the family page is said as such, never as missing data.
+  // A failed request on the family page is said as such, never as missing data.
   describe('when a request fails', () => {
     const renderWithFailing = (matches: (url: string) => boolean) => {
       const get = api.get as unknown as Mock;
@@ -1096,7 +1096,7 @@ describe('FamilyDetailPage', () => {
       }
     });
 
-    // #610 — a server error is not a family that does not exist.
+    // A server error is not a family that does not exist.
     it('says the family could not be loaded, not that it was not found, and retries', async () => {
       const restore = renderWithFailing((url) => url === '/families/F1');
       try {
@@ -1248,7 +1248,7 @@ describe('FamilyDetailPage', () => {
     expect(await screen.findByText(/Pending updates saved/i)).toBeInTheDocument();
   });
 
-  it('asks before closing member details over unapplied edits, not once applied (#529)', async () => {
+  it('asks before closing member details over unapplied edits, not once applied', async () => {
     localStorage.setItem('role', 'admin');
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderPage();
@@ -1272,7 +1272,7 @@ describe('FamilyDetailPage', () => {
     confirm.mockRestore();
   });
 
-  // #528: the member dialog's own flows, recorded before it moved into its own component.
+  // The member dialog's own flows, opened from the family page.
   const openS1AsAdmin = async () => {
     localStorage.setItem('role', 'admin');
     renderPage();
@@ -1346,7 +1346,7 @@ describe('FamilyDetailPage', () => {
     expect(await within(dialog).findByText('Phenotype annotation removed.')).toBeInTheDocument();
   });
 
-  // SEC-1: an analyst of the family's project, no admin, adds and removes phenotypes; a reader
+  // An analyst of the family's project, no admin, adds and removes phenotypes; a reader
   // sees them and the workflow fields but changes neither.
   const openS1As = async (role: string) => {
     localStorage.setItem('role', role);
@@ -1372,7 +1372,7 @@ describe('FamilyDetailPage', () => {
     updated_at: '2026-01-01T00:00:00Z',
   };
 
-  // PROD-8: a phenotype's status and note are changed in place; the term stays.
+  // A phenotype's status and note are changed in place; the term stays.
   const editSeizure = async (dialog: HTMLElement) => {
     fireEvent.click(await within(dialog).findByRole('button', { name: /^edit$/i }));
     return within(dialog).getByRole('group', { name: 'Edit HP:0001250 Seizure' });

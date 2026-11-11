@@ -463,7 +463,7 @@ def test_untruncated_fetch_keeps_markers_and_is_not_flagged(monkeypatch):
     assert father.qc is None
 
 
-# --- chrX outside the pseudo-autosomal regions: a man has one X (CLIN-60) ----------------
+# --- chrX outside the pseudo-autosomal regions: a man has one X ----------------
 #
 # There a member recorded as male is read as one copy, his call written as one allele ("1")
 # or twice ("1|1"); a son is checked against his mother alone, and a daughter receives her
@@ -636,7 +636,7 @@ def test_x_ranges_are_empty_where_no_man_has_one_copy():
 
 
 def test_t2t_s_x_ranges_follow_its_own_pars():
-    # CLIN-12: PAR1 runs from the first base to 2,394,410, PAR2 from 153,925,835 to the end.
+    # PAR1 runs from the first base to 2,394,410, PAR2 from 153,925,835 to the end.
     assert hemizygous_x_ranges("T2T-CHM13v2.0", "X", 1, 3_000_000) == [[2_394_411, 3_000_000]]
     assert hemizygous_x_ranges("T2T-CHM13v2.0", "X", 2_000_000, 2_394_410) == []
     assert hemizygous_x_ranges("T2T-CHM13v2.0", "X", 153_900_000, 154_259_566) == [[153_900_000, 153_925_834]]

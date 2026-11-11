@@ -54,9 +54,9 @@ def test_split_ignores_a_semicolon_in_a_line_comment() -> None:
 
 
 def test_traceability_immutable_trigger_parses_with_dollar_quoted_body() -> None:
-    # The append-only audit immutability (block-mutation function + trigger) lives in the
-    # consolidated 04_traceability.sql. Its dollar-quoted PL/pgSQL body has internal
-    # semicolons (RAISE EXCEPTION) that must not split the statement.
+    # The append-only audit immutability (block-mutation function + trigger) lives in
+    # 04_traceability.sql. Its dollar-quoted PL/pgSQL body has internal semicolons
+    # (RAISE EXCEPTION) that must not split the statement.
     path = (
         Path(__file__).resolve().parents[1]
         / "db" / "schema" / "postgres" / "04_traceability.sql"
@@ -75,14 +75,10 @@ def test_traceability_immutable_trigger_parses_with_dollar_quoted_body() -> None
     assert any(s.startswith("CREATE TRIGGER audit_log_events_immutable") for s in stmts)
 
 
-def test_tag_scope_consolidation_has_no_destructive_backfill_update() -> None:
-    # init_postgres_schema() replays every baseline statement on
-    # every restart until the release candidate (core/postgres_migrations.py; a one-shot
-    # change belongs in an Alembic revision, which runs once), so an UPDATE normalizing rows back to
-    # scope='global'/project_id=NULL would silently clobber every legitimately created
-    # project-scoped tag on each boot. The project-scoped-tag definition — in the
-    # consolidated 03_assay.sql — must contain no such UPDATE; the inline column
-    # DEFAULT 'global' + CHECK constraints already cover fresh DBs.
+def test_the_tag_definitions_baseline_holds_no_update_of_rows() -> None:
+    # The baselines make an empty database: they define the tables, their defaults and checks,
+    # and update no row. Project-scoped tags rest on the scope column's DEFAULT 'global' and its
+    # CHECK constraints.
     path = (
         Path(__file__).resolve().parents[1]
         / "db" / "schema" / "postgres" / "03_assay.sql"
@@ -91,7 +87,7 @@ def test_tag_scope_consolidation_has_no_destructive_backfill_update() -> None:
     kinds = [s.split()[0].upper() for s in stmts]
     assert "UPDATE" not in kinds
     joined = "\n".join(stmts)
-    # The scope column + constraints + project-links table must be present.
+    # The scope column, its constraints and the project-links table are there.
     assert "scope text DEFAULT 'global'::text NOT NULL" in joined
     assert "small_variant_tag_definitions_scope_check" in joined
     assert "small_variant_tag_definitions_scope_project_check" in joined

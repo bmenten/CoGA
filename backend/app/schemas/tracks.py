@@ -46,8 +46,8 @@ class HaplotypeResponse(BaseModel):
     chr: str
     start: Optional[int] = None
     end: Optional[int] = None
-    # The stored blocks were built for another pedigree or other sexes than the family's
-    # (CLIN-66): the tracks then read no risk state from them.
+    # The stored blocks were built for another pedigree or other sexes than the family's:
+    # the tracks then read no risk state from them.
     blocks_outdated: bool = False
     samples: List[HaplotypeSample] = Field(default_factory=list)
 
@@ -156,7 +156,7 @@ class TrackAvailabilityOut(BaseModel):
     coverage: bool = False
     segments: bool = False
     # Which callers actually have rows, so the views can draw one track per caller.
-    # `coverage`/`segments` stay as the "any at all" flags the older callers read.
+    # `coverage`/`segments` are the "any at all" flags.
     coverage_sources: List[str] = Field(default_factory=list)
     segments_sources: List[str] = Field(default_factory=list)
     # What each caller's coverage values are, as its track's records name the transform
@@ -166,7 +166,7 @@ class TrackAvailabilityOut(BaseModel):
     # listed: its values are its file's.
     coverage_normalizations: Dict[str, List[str]] = Field(default_factory=dict)
     # What each caller's coverage track holds, by the rule the depth readers read it by
-    # (`coverage_read_depth.coverage_track_content`, TRACE-9): `read_depth`, `log2_ratio` or
+    # (`coverage_read_depth.coverage_track_content`): `read_depth`, `log2_ratio` or
     # `unknown`. A coverage BED (`web`) holds what it declared when it was loaded (its
     # record's `content`), `unknown` when it declared nothing; another caller's track what
     # its transform made of its file. The views draw a track of read depth on a depth axis,
@@ -255,8 +255,8 @@ class BedUploadResult(BaseModel):
 
 
 # A repeat allele's, call's or locus's status (repeat_expansion_pg.classify_repeat_count):
-# `not_assessed` is a call at a locus without thresholds (CLIN-26) whose count is outside any
-# benign range the catalogue states there (CLIN-36), `unknown` a no-call.
+# `not_assessed` is a call at a locus without thresholds whose count is outside any
+# benign range the catalogue states there, `unknown` a no-call.
 RepeatStatus = Literal[
     "normal", "review", "not_assessed", "intermediate", "premutation", "pathogenic", "unknown"
 ]
@@ -322,7 +322,7 @@ class RepeatExpansionSampleCallOut(BaseModel):
     review_reason: Optional[RepeatReviewReason] = None
     # Why the call needs a second look beyond its allele sizes (a male with two
     # different chrX alleles), or why no catalogue locus classifies it (its TRID names
-    # several STRchive loci and its region does not pick one, CLIN-31), or None.
+    # several STRchive loci and its region does not pick one), or None.
     note: Optional[str] = None
 
 
@@ -486,7 +486,7 @@ class RepeatExpansionTrackItemOut(BaseModel):
     motif: Optional[str] = None
     warning_min: Optional[int] = None
     pathogenic_min: Optional[int] = None
-    # The call as the family table reads it (CLIN-14): against the catalogue row that
+    # The call as the family table reads it: against the catalogue row that
     # classifies it now, not the status and thresholds stored at import.
     status: RepeatStatus = "unknown"
     review_reason: Optional[RepeatReviewReason] = None

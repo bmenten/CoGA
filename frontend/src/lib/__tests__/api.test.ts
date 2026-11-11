@@ -47,14 +47,14 @@ describe('api auth header handling', () => {
 });
 
 describe('an expired session', () => {
-  it('signs in again to the page the session expired on (UI-3)', () => {
+  it('signs in again to the page the session expired on', () => {
     persistSession('session-token', 'analyst', 'viewer');
     const replace = vi.fn();
     endExpiredSession({ pathname: '/families/F1/small-variants', search: '?project_id=P1', hash: '#v2', replace });
 
     expect(getAuthToken()).toBeNull();
-    // As RequireAuth writes it: the page's path, query string and hash, percent-encoded. Before,
-    // the sign-in opened the dashboard.
+    // As RequireAuth writes it: the page's path, query string and hash, percent-encoded, never the
+    // dashboard.
     expect(replace).toHaveBeenCalledWith('/login?next=%2Ffamilies%2FF1%2Fsmall-variants%3Fproject_id%3DP1%23v2');
   });
 
@@ -67,8 +67,8 @@ describe('an expired session', () => {
   });
 });
 
-// The API client's own handling of an answer, through its interceptors: until this test only
-// the functions they call ran in a test, not the wiring.
+// The API client's own handling of an answer, through its interceptors: the wiring, not only
+// the functions they call.
 describe('a request through the API client', () => {
   const answers = vi.fn<(config: InternalAxiosRequestConfig) => Promise<never>>();
   let adapter: typeof api.defaults.adapter;

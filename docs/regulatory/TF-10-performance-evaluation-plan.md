@@ -289,7 +289,7 @@ pull request updates this list only when it adds clinical behaviour that no area
     H15).
   - The frozen snapshot and its drift gates (small variants, SVs and CNVs); the
     sample-integrity, sample-QC, incomplete-import and assembly-scope gates.
-  - The signed view rendered from its record in the release-candidate format.
+  - The signed view rendered and printed from its frozen record alone.
   - Each reported variant's class, frozen at sign-out as its review shows it on the family page
     (a bare class word in the text, else its class tag, else the text) and shown so on the live
     report and the signed version, with the ACMG or CNV score beside it when that is another

@@ -1,4 +1,4 @@
-"""A depth track's record, and the track availability, say what its values are (TRACE-7), E2E.
+"""A depth track's record, and the track availability, say what its values are, E2E.
 
 The package import stores a HiFiCNV depth bigWig on the ``coverage`` track as log2(depth / the
 sample's autosomal median), the scale of the coverage chart's axis. A file without autosomal

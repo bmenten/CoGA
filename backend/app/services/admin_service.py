@@ -98,7 +98,7 @@ from .raw_import_files_pg import (
 logger = logging.getLogger(__name__)
 
 # What a deletion of the family's whole data reaches: every sample's data in each ClickHouse
-# store (SAFE-31).
+# store.
 _EVERY_CLICKHOUSE_STORE = (
     DataReach(SMALL_VARIANT_DATA),
     DataReach(STRUCTURAL_VARIANT_DATA),
@@ -213,7 +213,7 @@ async def _sample_rows_by_family(
     if not family_uuids:
         return {}
     # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the data inventory lists every one (DATA-6).
+    # per statement, and the data inventory lists every one.
     result = await session.execute(
         text(
             """
@@ -338,7 +338,7 @@ async def _repeat_counts_by_family(
     if not family_uuids:
         return {}
     # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the data inventory lists every one (DATA-6).
+    # per statement, and the data inventory lists every one.
     result = await session.execute(
         text(
             """
@@ -360,7 +360,7 @@ async def _repeat_counts_by_sample(
     if not sample_uuids:
         return {}
     # One uuid[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the data inventory lists every one (DATA-6).
+    # per statement, and the data inventory lists every one.
     result = await session.execute(
         text(
             """
@@ -407,11 +407,11 @@ async def _small_variant_entries_without_sample(
     delete that follows, so every row and call that delete removes and this change does not
     touch is written back as stored: the imputed callsets the view never reads, inactive
     members' calls, rows under projects the family has left, and every stored field (the
-    annotation version, the genotype as stored, the allele fractions). A stored call names
-    its sample by id or by uuid; a row left with no call is dropped. The rows as read are
+    annotation version, the genotype as stored, the allele fractions). A row left with no
+    call is dropped. The rows as read are
     put back when the rewrite fails after its delete (``_rewrite_small_variants_without_sample``).
     """
-    sample_ids = {str(sample_row[key]) for key in ("sample_id", "sample_uuid") if sample_row.get(key)}
+    sample_ids = {str(sample_row["sample_id"])}
     replacements: list[tuple[FamilyMetadataContext, list[dict[str, Any]], list[dict[str, Any]]]] = []
     for context in contexts:
         if not context.assembly_name:
@@ -435,8 +435,8 @@ async def _rewrite_small_variants_without_sample(
 ) -> None:
     """Rewrite the family's small variants (every source's) as ``kept``, the rows without the
     sample's calls. ClickHouse has no transactions: a rewrite that fails after its delete, or
-    in it, writes the rows as they were read (``stored``) back and raises its own error
-    (SAFE-31); when they cannot be put back either, ``SmallVariantsNotRestored`` is raised
+    in it, writes the rows as they were read (``stored``) back and raises its own error;
+    when they cannot be put back either, ``SmallVariantsNotRestored`` is raised
     from that error, and every small variant of the family may be partly written or
     missing."""
     assembly_name = context.assembly_name or ""
@@ -465,13 +465,13 @@ async def _structural_variant_rows_without_sample(
 
     Read from storage, not the family view, so that everything else is written back as it
     was stored: every project's rows, every other call (inactive members' included), their
-    phase sets, and the breakend remote ends. A stored call names its sample by id or by
-    uuid; a row left with no call is dropped. Deliberately not scoped to a source: the
+    phase sets, and the breakend remote ends. A row left with no call is dropped.
+    Deliberately not scoped to a source: the
     callers rewrite the whole family (``rewrite_family_structural_variants`` without a
     ``source``), which deletes every source's rows, so every source's rows are read, and
     put back from that read when the rewrite fails after its delete.
     """
-    sample_ids = {str(sample_row[key]) for key in ("sample_id", "sample_uuid") if sample_row.get(key)}
+    sample_ids = {str(sample_row["sample_id"])}
     replacements: list[
         tuple[FamilyMetadataContext, list[StoredStructuralVariantRow], list[StoredStructuralVariantRow]]
     ] = []
@@ -900,7 +900,7 @@ async def delete_sample_data_by_type(
         # From before the delete until the commit below, as the single-file uploads of a
         # sample's tracks and repeat calls hold them: a package import's restore rewrites
         # those rows too, and the import holds these locks from its snapshot to its restore,
-        # so a delete in between was undone by the restore (SAFE-18). The sample must still be
+        # so a delete in between would be undone by the restore. The sample must still be
         # stored once it is this delete's turn.
         await lock_family_variant_writes(
             session, sample_row["family_uuid"], VARIANT_TYPES, samples=[sample_row["sample_uuid"]]
@@ -948,9 +948,9 @@ async def delete_sample_data_by_type(
         await lock_family_variant_writes(session, sample_row["family_uuid"], [STRUCTURAL_VARIANTS])
         replacements = await _structural_variant_rows_without_sample(contexts, sample_row)
         # The rewrite deletes every source's SVs and writes them back without the sample's
-        # calls, putting them back when it fails (SAFE-28). Before it, the family is marked for
+        # calls, putting them back when it fails. Before it, the family is marked for
         # every SV dataset but the sample's own, whose calls were to go: a deletion that stops
-        # in the rewrite, or whose rows cannot be put back, leaves them marked (SAFE-31).
+        # in the rewrite, or whose rows cannot be put back, leaves them marked.
         every_sv = DataReach(STRUCTURAL_VARIANT_DATA, but=str(sample_row["sample_id"]))
         deletion = await FamilyDeletion.begin(
             session,
@@ -1033,21 +1033,21 @@ async def delete_sample_with_data(
 ) -> dict[str, Any]:
     """Delete a sample with every dataset of it. The member leaves its family's pedigree:
     that is stored as the family's next structure version and recorded on its clinical
-    audit trail as made by ``user`` (SEC-7).
+    audit trail as made by ``user``.
 
     ClickHouse has no transactions: the sample's tracks are deleted, and the family's small
     and structural variants rewritten without the sample's calls, before the sample's
     Postgres rows go. So the family is marked before the first of those writes, for every
-    small and structural variant of it and the sample's tracks (``FamilyDeletion``,
-    SAFE-31): a deletion that stops after it leaves the family marked, sign-out gated, while
+    small and structural variant of it and the sample's tracks (``FamilyDeletion``): a
+    deletion that stops after it leaves the family marked, sign-out gated, while
     the sample may be back without its data. Its commit removes the mark, and the sample's
     items from every mark and from the import-incomplete flag (nothing of a sample that is
-    gone can be missing, SAFE-35); one that fails leaves it listing what it may have left
+    gone can be missing); one that fails leaves it listing what it may have left
     partly written or missing, given how far it got, or removes it.
 
     A file cannot be put back either: the kept copies of the sample's uploaded files are
     unlinked only once the deletion has committed, so a deletion that fails keeps every file
-    its records name (SAFE-35)."""
+    its records name."""
     deletions: list[FamilyDeletion] = []
     try:
         return await _delete_sample_with_data(session, sample_id, confirm, user=user, deletions=deletions)
@@ -1079,7 +1079,7 @@ async def _delete_sample_with_data(
     # sample is gone.
     await lock_family_variant_writes(session, sample_row["family_uuid"], VARIANT_TYPES)
     sample_name = str(sample_row["sample_id"])
-    # Before the first ClickHouse write, committed on a connection of its own (SAFE-31).
+    # Before the first ClickHouse write, committed on a connection of its own.
     deletion = await FamilyDeletion.begin(
         session,
         family_uuid=sample_row["family_uuid"],
@@ -1166,11 +1166,11 @@ async def _delete_sample_with_data(
         )
 
     # The kept copies of the sample's uploaded files, read before its rows go and unlinked
-    # once they have gone, after the commit (SAFE-35).
+    # once they have gone, after the commit.
     managed_files = await sample_managed_files(session, sample_row["sample_uuid"])
     # The sample's phenotypes go with it (individual_hpo cascades from samples): recorded as
     # removed, under the phenotype lock each change of them takes, before the pedigree lock,
-    # as a PED upload that replaces a family takes them (TRACE-16).
+    # as a PED upload that replaces a family takes them.
     await record_phenotypes_deleted_with_sample(
         session,
         family_uuid=sample_row["family_uuid"],
@@ -1221,15 +1221,14 @@ async def delete_family_with_data(
 ) -> dict[str, Any]:
     """Delete a family with every dataset of it. Its deletion is the last event of its
     clinical audit trail, written in this transaction before anything of the family is
-    deleted, as made by ``user`` (SEC-7).
+    deleted, as made by ``user``.
 
     ClickHouse has no transactions: the family's variants and tracks are deleted before its
     Postgres rows. So the family is marked before the first of those deletes, for each of its
-    datasets held there (``FamilyDeletion``, SAFE-31): a deletion that fails or stops after
+    datasets held there (``FamilyDeletion``): a deletion that fails or stops after
     it brings the family back, without what it deleted, marked; its commit removes the
     family, and the mark with it. The kept copies of its uploaded files are unlinked only
-    once it has committed, so a deletion that fails keeps every file its records name
-    (SAFE-35)."""
+    once it has committed, so a deletion that fails keeps every file its records name."""
     deletions: list[FamilyDeletion] = []
     try:
         return await _delete_family_with_data(
@@ -1251,7 +1250,7 @@ async def _delete_family_with_data(
 ) -> dict[str, Any]:
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
-    # Why the family goes is on its last clinical audit event (TRACE-16, the owner's
+    # Why the family goes is on its last clinical audit event (the owner's
     # decision of 2026-10-27): no reason, no deletion.
     stated_reason = (reason or "").strip()
     if not stated_reason:
@@ -1267,7 +1266,7 @@ async def _delete_family_with_data(
     # Until the family is gone (the commit below): a write that waits for it then finds no
     # family and writes nothing.
     await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
-    # Before the first ClickHouse delete, committed on a connection of its own (SAFE-31).
+    # Before the first ClickHouse delete, committed on a connection of its own.
     deletion = await FamilyDeletion.begin(
         session, family_uuid=family_uuid, family_id=family_id, reaches=_EVERY_CLICKHOUSE_STORE
     )
@@ -1289,7 +1288,7 @@ async def _delete_family_with_data(
             project_ids=context.project_ids,
         )
     # The phenotypes that go with the family, then its deletion, the family's last clinical
-    # audit event, before anything of it goes (TRACE-16): a deletion that fails from here on
+    # audit event, before anything of it goes: a deletion that fails from here on
     # rolls them back with the rest of the transaction.
     await record_phenotypes_deleted_with_family(
         session,
@@ -1325,7 +1324,7 @@ async def _delete_family_with_data(
         family_uuid=family_uuid,
     )
     # The kept copies of the family's uploaded files, read before its rows go and unlinked
-    # once they have gone, after the commit (SAFE-35).
+    # once they have gone, after the commit.
     managed_files = await family_managed_files(session, family_uuid)
     repeat_result = await session.execute(
         text(

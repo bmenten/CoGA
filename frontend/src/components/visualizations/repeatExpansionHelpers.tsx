@@ -39,7 +39,7 @@ const CALLED_STATUSES = new Set<string>([
 const NAMED_PATHOGENIC_LOCI = 3;
 
 /**
- * The drawn loci in words, for a repeat track's accessible name (#529): how many, the
+ * The drawn loci in words, for a repeat track's accessible name: how many, the
  * pathogenic ones by name, and how many are premutations, intermediate, not assessed (a
  * locus without thresholds), need review or are unknown — "40, 1 pathogenic (FMR1),
  * 2 intermediate" — and how many have a count near a boundary while TRGT's counting units

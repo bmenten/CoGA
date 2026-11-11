@@ -1,4 +1,4 @@
-"""Immutable clinical audit trail (clinical traceability, Phase 2).
+"""Immutable clinical audit trail.
 
 Records who classified / tagged / annotated which variant, when, and what changed
 (before -> after), in the same transaction as the change itself, into the
@@ -260,7 +260,7 @@ def diff_review_changes(
     The ``classification`` event covers the whole stored ACMG record, not only the class
     and the accepted codes: a criterion added or removed, a strength or evidence text
     changed, a suggestion accepted or rejected. It covers the review's classification text
-    too, whichever way the save changed it (TRACE-20). An unchanged re-save writes nothing.
+    too, whichever way the save changed it. An unchanged re-save writes nothing.
     """
     prior = existing or {}
     events: list[dict[str, Any]] = []
@@ -829,7 +829,7 @@ async def record_compound_het_pair_changes(
     user: CurrentUser,
     changes: Sequence[CompoundHetPairChange],
 ) -> None:
-    """Record the compound-het pair reviews a small-variant review save changed (SEC-7): one
+    """Record the compound-het pair reviews a small-variant review save changed: one
     ``compound_het_pair`` event per pair that changed, on the family's one chain, in the
     save's transaction. The event is filed under the variant whose review row held the
     pair (the saved variant, or for a pair the save broke up, the variant that held it)
@@ -927,7 +927,7 @@ async def list_clinical_audit(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
     # The trail is for analysts and admins: a reader in the family's projects may read the
-    # family, not its audit trail (SEC-1).
+    # family, not its audit trail.
     require_audit_trail_access(context.project_ids, user)
     page_size = max(1, min(int(limit), CLINICAL_AUDIT_MAX_PAGE_SIZE))
     anchor: dict[str, Any] = {"created_at": None, "id": None}

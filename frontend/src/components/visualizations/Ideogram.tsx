@@ -218,7 +218,7 @@ const Ideogram: React.FC<Props> = ({
     [width, ideogramY, ideogramInnerHeight, capsuleRadius, chromLength, renderBands],
   );
 
-  // The ideogram's name for a screen reader (#529): the chromosome and the region
+  // The ideogram's name for a screen reader: the chromosome and the region
   // highlighted on it, as drawn (clamped to the chromosome). The chromosome is written
   // without its chr, as the genome strip writes it: 1, X, and M for the mitochondrion
   // (chrM), never the route's key MT.

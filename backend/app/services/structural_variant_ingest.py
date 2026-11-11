@@ -54,8 +54,8 @@ class SkippedRecords:
 
     ``without_extent``: a ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes
     included, that states neither END nor SVLEN (``extent_not_stated``), so how far it reaches
-    is not known. Stored on its POS it read as 0 bp, and a gene or panel search missed the
-    genes it spans; it is left out and counted (CLIN-39, the owner's decision, 2026-10-27)."""
+    is not known. Stored on its POS it would read as 0 bp, and a gene or panel search would
+    miss the genes it spans; it is left out and counted (the owner's decision, 2026-10-27)."""
 
     without_extent: int = 0
 
@@ -162,9 +162,9 @@ def record_sv_len(*, sv_len: int | None, ref: str, alt: str) -> int | None:
     """A record's SVLEN as CoGA stores it (``svLen``), the length the SV list shows and the
     length filters measure: its INFO/SVLEN as written, else the length its sequence allele
     states (``sequence_allele_sv_len``), else None, and the list measures the call by END −
-    POS. Measuring an insertion written as its sequence without SVLEN by END − POS made it
-    0 bp, so a minimum length dropped it (CLIN-41); a deletion written so measured its REF,
-    as its alleles do."""
+    POS. By END − POS an insertion written as its sequence without SVLEN is 0 bp, which a
+    minimum length would drop, and a deletion written so measures its REF, as its alleles
+    do."""
     return sv_len if sv_len is not None else sequence_allele_sv_len(ref, alt)
 
 
@@ -200,8 +200,8 @@ def structural_variant_end(*, pos: int, ref: str, alt: str, sv_len: int | None) 
     its sign) for a ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes included,
     and POS + len(REF) - 1 for every other allele -- an ``<INS>``, a breakend, a sequence
     allele -- as for one of those four without an SVLEN, whose extent the record does not
-    state. Reading such a record's END as its POS put a deletion on one base: the genes it
-    spans were not listed with it, so a gene or panel search missed it (CLIN-33)."""
+    state. Read as its POS, such a record's END would put a deletion on one base, and a gene
+    or panel search would miss the genes it spans."""
     symbolic = _SYMBOLIC_ALLELE_RE.fullmatch(alt.strip())
     if symbolic and sv_len is not None:
         if symbolic.group(1).split(":", 1)[0].upper() in _SPANNING_SYMBOLIC_TYPES:
@@ -234,10 +234,9 @@ def breakend_mate(
     CHR2 names another chromosome. ``(None, None)`` for any other record, and for a single
     breakend (``G.``), which names no mate.
 
-    The uploads read a mate only for an SVTYPE written ``BND``, so a ``bnd`` and a TRA
-    written in breakend notation lost theirs; the chrM and HiFiCNV readers read none; and a
-    TRA naming its mate in CHR2 and END was stored with its END on its own chromosome, so
-    the tracks and Circos drew it there (CLIN-39)."""
+    So a ``bnd`` and a TRA written in breakend notation keep their mate, and a TRA naming its
+    mate in CHR2 and END is not stored with its END on its own chromosome, where the tracks
+    and Circos would draw it."""
     is_translocation = sv_type.strip().upper() in _TRANSLOCATION_TYPES
     if is_translocation or is_breakend_alt(alt):
         remote_chr, remote_start = parse_bnd_alt(alt)
@@ -265,15 +264,15 @@ def record_end(
 
 def record_sv_type(info: Dict[str, str], ref: str, alt: str) -> str:
     """A VCF record's SV type: its INFO/SVTYPE, else the type its ALT states
-    (``sv_type_from_alt``), else ``SV``. Taking the ALT itself as the type stored a
-    breakend as ``N]5:3000000]``, which neither the type filter nor the translocation rule
-    of the length filters knows (CLIN-37)."""
+    (``sv_type_from_alt``), else ``SV``. Never the ALT itself: a breakend's
+    (``N]5:3000000]``) is a type neither the type filter nor the translocation rule of the
+    length filters knows."""
     return info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV"
 
 
 def _position(value: Any) -> int | None:
     """A record's POS or END: a whole number the SV tables' UInt32 position columns hold,
-    else None, and the record is skipped as unpositionable (SAFE-30)."""
+    else None, and the record is skipped as unpositionable."""
     return column_int(field_int(value), UINT32)
 
 

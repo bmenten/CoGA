@@ -50,8 +50,7 @@ export const parseExplicitSampleFilterMap = (
 };
 
 // Comma-separated filter values, shared by the small-variant, structural-variant and
-// cohort searches (#528). The copies had diverged: one sorted its output, and one removed
-// duplicates before trimming, so "a" and " a" both survived as "a, a".
+// cohort searches: trimmed before duplicates are removed, so "a" and " a" are one "a".
 export const parseCommaSeparatedValues = (value: string) =>
   value
     .split(',')

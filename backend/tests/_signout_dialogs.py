@@ -1,4 +1,4 @@
-"""Sign a family out as the sign-out dialogs do (TRACE-19).
+"""Sign a family out as the sign-out dialogs do.
 
 An acknowledgement covers the concerns its dialog showed: it carries the fingerprint of the
 concerns its gate's refusal listed, and a sign-out whose concerns are no longer those is

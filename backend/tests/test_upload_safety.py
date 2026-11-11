@@ -219,7 +219,7 @@ async def test_truncated_gzip_upload_rejected_as_bad_request():
 
 
 # ---------------------------------------------------------------------------
-# A BGZF file must end with its end-of-file block (DATA-4, the owner's decision of
+# A BGZF file must end with its end-of-file block (the owner's decision of
 # 2026-10-28). Cut exactly where one of its blocks ends, a bgzip file is whole gzip: without
 # that check the reader would return its first blocks as the file. A plain gzip file has no
 # such block.

@@ -1,4 +1,4 @@
-// The sign-in page with the organisation's CAS sign-in configured, such as login.ugent.be (SEC-4).
+// The sign-in page with the organisation's CAS sign-in configured, such as login.ugent.be.
 //
 // The page asks the backend how users sign in (GET /auth/config). With CAS it offers only
 // "Sign in with UGent": no password form and no sign-up. The sign-in goes to the CAS login page

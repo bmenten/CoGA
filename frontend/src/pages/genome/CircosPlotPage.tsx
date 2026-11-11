@@ -129,10 +129,10 @@ const CircosPlotPage: FC = () => {
         apiPath`/families/${familyId}/structural-variants?${raw(queryParams.toString())}`
       );
       return {
-        // Every SV is drawn, whatever its type (CLIN-54).
+        // Every SV is drawn, whatever its type.
         variants: res.data.variants as Variant[],
         // Past the backend's candidate cap the list stops part-way through the genome, so
-        // the last chromosomes would be drawn without their links (#589).
+        // the last chromosomes would be drawn without their links.
         capped: Boolean(res.data.total_is_estimated),
         limit: typeof res.data.count_limit === 'number' ? res.data.count_limit : null,
       };
@@ -208,7 +208,7 @@ const CircosPlotPage: FC = () => {
     );
   }
 
-  // A failed request must not read as a plot still loading, forever (#589, #510).
+  // A failed request must not read as a plot still loading, forever.
   if (!assemblyChromosomes && chromError) {
     return (
       <PageState
@@ -253,8 +253,8 @@ const CircosPlotPage: FC = () => {
     );
   }
 
-  // The page's loader stays up until the SVs are in too: drawn before them, the plot showed
-  // the chromosomes alone, with no sign that their links were still coming.
+  // The page's loader stays up until the SVs are in too: drawn before them, the plot would show
+  // the chromosomes alone, with no sign that their links are still coming.
   if (variantsFetching && !svPage) {
     return loadingState;
   }
@@ -359,7 +359,7 @@ const CircosPlotPage: FC = () => {
               onChromosomeClick={handleChromClick}
               onVariantClick={handleVariantClick}
             />
-            {/* The plot without its links must not read as a family without SVs (#510). */}
+            {/* The plot without its links must not read as a family without SVs. */}
             {variantsFailed && (
               <VizErrorOverlay what="structural variants" onRetry={() => void refetchVariants()} />
             )}

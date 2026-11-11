@@ -56,7 +56,7 @@ def _structure_pedigree_text(
     relationships: Iterable[FamilyRelationshipOut],
     stored: str | None,
 ) -> str | None:
-    """The family's PED text as its stored structure has it (SAFE-8): its active members and
+    """The family's PED text as its stored structure has it: its active members and
     their parents, as the family page draws them; None without a member. The text stored on
     the family (``stored``), its last import's or Family Builder save's, could disagree with
     the structure, and the drawing showed what it said. Only its order of the members is kept,
@@ -140,7 +140,7 @@ def _family_member_out_from_row(row: dict[str, Any]) -> FamilyMemberOut:
 
 
 def organisation_sign_in_name() -> str:
-    """How an account bound to an object ID signs in (SEC-4): through the organisation's CAS
+    """How an account bound to an object ID signs in: through the organisation's CAS
     server when that is the sign-in configured, else with Microsoft."""
     return "cas" if settings.cas_enabled else "microsoft"
 
@@ -392,7 +392,7 @@ async def get_current_user_by_email(session: AsyncSession, email: str) -> Curren
 
 async def get_current_user_by_id(session: AsyncSession, user_id: str) -> CurrentUser | None:
     """The account with this id and its projects, or None: how a record keeps its user (an
-    import job's requester), as an e-mail address or a user name may change (SEC-32)."""
+    import job's requester), as an e-mail address or a user name may change."""
     mapping = await _fetch_user_mapping_by_id(session, user_id)
     return _current_user_from_mapping(mapping) if mapping is not None else None
 
@@ -667,8 +667,8 @@ async def update_user_account(
     project_ids: list[str] | None = None,
     reader_project_ids: list[str] | None = None,
 ) -> tuple[UserRead, dict[str, dict[str, Any]]]:
-    """Set an account's activation, its global role, whether it is archived (SEC-4), and its
-    projects with its level in each (SEC-1).
+    """Set an account's activation, its global role, whether it is archived, and its
+    projects with its level in each.
 
     Archiving deactivates the account; an archived account is restored before it is
     activated again (409 otherwise). The first activation records when (``activated_at``),
@@ -765,7 +765,7 @@ async def update_user_account(
 
 async def delete_waiting_user_account(session: AsyncSession, *, user_id: str) -> dict[str, Any]:
     """Delete an account that was never active: a sign-up or a first CAS sign-in an
-    administrator does not approve (SEC-4).
+    administrator does not approve.
 
     An account that is or was active is refused (409): it is archived instead, so that every
     record naming it still does. A deletion the database refuses, for a record that names the
@@ -988,7 +988,7 @@ async def _validate_species_and_assembly(
 
 
 def _project_reader_ids(user_ids: list[str], reader_user_ids: list[str]) -> list[str]:
-    """The readers among a project's members, refused unless each one is a member (SEC-1)."""
+    """The readers among a project's members, refused unless each one is a member."""
     readers = list(dict.fromkeys(reader_user_ids))
     outsiders = [user_id for user_id in readers if user_id not in set(user_ids)]
     if outsiders:
@@ -1006,7 +1006,7 @@ async def _set_project_user_links(
     reader_user_ids: list[str],
 ) -> None:
     """Make these users the project's members: the readers among them read its records, the
-    others are analysts, who read and change them (SEC-1)."""
+    others are analysts, who read and change them."""
     readers = set(_project_reader_ids(user_ids, reader_user_ids))
     await session.execute(
         text("DELETE FROM project_users WHERE project_id = CAST(:project_id AS uuid)"),
@@ -1171,7 +1171,7 @@ async def _fetch_project_family_rows(
         return {}, {}
 
     # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the projects' families grow with the laboratory (DATA-6).
+    # per statement, and the projects' families grow with the laboratory.
     family_project_stmt = text(
         """
         SELECT family_id::text AS family_uuid, project_id::text AS project_id
@@ -1402,7 +1402,7 @@ async def _fetch_family_rows(
         if not family_identifiers:
             return []
         # One text[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
-        # per statement, and a caller may name every family (DATA-6).
+        # per statement, and a caller may name every family.
         clauses.append("f.family_id = ANY(CAST(:family_identifiers AS text[]))")
         params["family_identifiers"] = family_identifiers
 
@@ -1480,7 +1480,7 @@ async def _fetch_family_sample_rows(
         return {}
 
     # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the family list reads every family the caller may see (DATA-6).
+    # per statement, and the family list reads every family the caller may see.
     stmt = text(
         """
         SELECT
@@ -1518,7 +1518,7 @@ async def _fetch_family_relationship_rows(
     if not family_uuids:
         return {}
     # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the family list reads every family the caller may see (DATA-6).
+    # per statement, and the family list reads every family the caller may see.
     stmt = text(
         """
         SELECT
@@ -1565,7 +1565,7 @@ async def _fetch_family_structure_version_rows(
     if not family_uuids:
         return {}
     # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and the family list reads every family the caller may see (DATA-6).
+    # per statement, and the family list reads every family the caller may see.
     stmt = text(
         """
         SELECT DISTINCT ON (family_id)
@@ -1649,7 +1649,7 @@ async def get_accessible_family_mapping(
     if not user_can_access_metadata_projects(rows[0].get("project_ids"), user):
         raise RecordNotVisible("family", "Family not found")
     # Every family route passes here, so a reader's change to the family is refused here and
-    # no route can leave the check out (SEC-1).
+    # no route can leave the check out.
     require_change_access(rows[0].get("project_ids"), user)
     return rows[0]
 
@@ -1881,7 +1881,7 @@ async def get_accessible_sample_mapping(
     # exactly like an unknown one (REQ-SEC-001).
     if not user_can_access_metadata_projects(mapping.get("family_project_ids"), user):
         raise RecordNotVisible("sample", "Sample not found")
-    # As for a family: a reader's change to the sample is refused at its checkpoint (SEC-1).
+    # As for a family: a reader's change to the sample is refused at its checkpoint.
     require_change_access(mapping.get("family_project_ids"), user)
     return mapping
 
@@ -1926,7 +1926,7 @@ async def delete_project_record(session: AsyncSession, *, project_id: str) -> No
     ).scalar_one()
     if families:
         raise HTTPException(status_code=409, detail=_project_families_refusal(int(families)))
-    # Its review tags stay, deactivated, and the deletion detaches them (SAFE-37): the
+    # Its review tags stay, deactivated, and the deletion detaches them: the
     # reviews, signed records and audit events that hold a tag's key keep reading it as
     # that tag, and no new tag takes the key. One transaction, so neither goes alone.
     await deactivate_project_tag_definitions(session, project_id=project_id)

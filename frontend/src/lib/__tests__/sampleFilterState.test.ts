@@ -64,7 +64,7 @@ describe('sampleFilterState', () => {
   });
 });
 
-// One implementation for every variant search (#528); the copies had diverged.
+// One implementation for every variant search.
 describe('comma-separated filter values', () => {
   it('parses a list, trimming entries and dropping empty ones', () => {
     expect(parseCommaSeparatedValues(' HIGH, ,MODERATE ,')).toEqual(['HIGH', 'MODERATE']);

@@ -162,7 +162,7 @@ async def build_pedigree_text(session: AsyncSession, *, family_id: str) -> str:
     Uses the live ``family_members`` / ``family_relationships`` / ``samples`` rows
     rather than the stored ``families.pedigree`` blob, so the result reflects any
     edits made through the family workspace after the original import: the text the
-    family page draws (``pedigree_text``, SAFE-8).
+    family page draws (``pedigree_text``).
     """
     member_result = await session.execute(
         text(
@@ -275,7 +275,7 @@ async def _resolve_accessible_project_id(
     # A project outside the user's projects answers exactly like an unknown one (REQ-SEC-001).
     if not user_can_access_metadata_projects([found_project_id], user):
         raise RecordNotVisible("project", "Project not found")
-    # A family is added to a project only by an analyst of it or an admin (SEC-1).
+    # A family is added to a project only by an analyst of it or an admin.
     require_change_access([found_project_id], user)
     return normalized_project_id
 
@@ -323,7 +323,7 @@ def _ped_upload_proband_id(members: list[dict[str, str]], *, parent_ids: set[str
 
 
 # The metadata the Family Builder may set, with the values each key may take: what its page sends
-# for a monogenic NIPT family and the mother's cfDNA sample (SAFE-12). Every other key is written
+# for a monogenic NIPT family and the mother's cfDNA sample. Every other key is written
 # by an import or by an edit the audit trail records (a family's annotation manifest, a sample's
 # sequencing QC, the import state), and is trusted where it is read, so a request does not set it.
 MANUAL_FAMILY_METADATA: dict[str, frozenset[str]] = {
@@ -408,7 +408,7 @@ async def _existing_family_rows(
     if not family_ids:
         return []
     # One text[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and a PED file names any number of families (DATA-6).
+    # per statement, and a PED file names any number of families.
     result = await session.execute(
         text(
             """
@@ -454,18 +454,18 @@ async def _replace_existing_families(
     the caller's transaction, and return their data in ClickHouse, (assembly, family uuid),
     for the caller to delete with ``_delete_replaced_family_data`` once the rest of the
     replacement is written, just before it commits. ClickHouse has no transactions:
-    deleted here, the variants were gone when a check after this refused the upload, while
-    the rollback brought the family back (SAFE-25).
+    deleted here, the variants would be gone when a check after this refused the upload,
+    while the rollback brought the family back.
 
     Under the family's variant-write locks, before its row is touched, each family is marked
     for its small and structural variants and its interval tracks (``FamilyDeletion``, added
-    to ``deletions``, SAFE-31, SAFE-35): a commit that fails, or a process that stops, after
+    to ``deletions``): a commit that fails, or a process that stops, after
     their delete brings the family back without them, and marked. The commit removes the
     family, and its mark with it; a replacement that fails removes the mark, or leaves it
     listing what the deletes it began may have left missing (``_end_replacement``).
 
     Before each family goes, the phenotypes it goes with are recorded as removed on its
-    clinical audit trail, then its deletion (SEC-7), as made by ``user`` through ``via`` (a PED
+    clinical audit trail, then its deletion, as made by ``user`` through ``via`` (a PED
     upload, its file ``source``, or the Family Builder)."""
     existing_rows = await _existing_family_rows(session, family_ids)
     if not existing_rows:
@@ -521,7 +521,7 @@ async def _replace_existing_families(
         )
         # The phenotypes the replaced family goes with, then its deletion, its last clinical
         # audit event, in this transaction, before its row goes; the new family's pedigree
-        # follows them on the same chain (SEC-7).
+        # follows them on the same chain.
         await record_phenotypes_deleted_with_family(
             session,
             family_uuid=family_uuid,
@@ -553,9 +553,9 @@ async def _delete_replaced_family_data(
     else of the replacement is written and just before its commit: a check that refuses the
     upload leaves them, with the family the rollback brings back. The variant-write locks
     taken with the replacement are still held. Each delete is recorded on its family's
-    ``FamilyDeletion`` (``deletions``) as it begins (SAFE-31).
+    ``FamilyDeletion`` (``deletions``) as it begins.
 
-    The interval tracks used to stay in ClickHouse, under a family that was gone (SAFE-35).
+    The interval tracks go too, so none stays in ClickHouse under a family that is gone.
     Postgres's records of them (``sample_interval_track_sources``) go with the family's row,
     which they reference ``ON DELETE CASCADE``."""
     # Imported here: family_structure_service imports this module.
@@ -569,7 +569,7 @@ async def _delete_replaced_family_data(
 async def _end_replacement(session: AsyncSession, deletions: list[Any]) -> None:
     """After a PED upload or a manual family that failed once it had marked the families it
     replaces: the transaction is rolled back, which brings them back, and each one's mark goes,
-    or lists what the deletes it began may have left partly written or missing (SAFE-31)."""
+    or lists what the deletes it began may have left partly written or missing."""
     from .family_package_registration import end_failed_deletions
 
     await end_failed_deletions(session, deletions)
@@ -582,7 +582,7 @@ async def _ensure_sample_ids_are_available(
     if not sample_ids:
         return
     # One text[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
-    # per statement, and a PED file names any number of samples (DATA-6).
+    # per statement, and a PED file names any number of samples.
     result = await session.execute(
         text(
             """
@@ -713,8 +713,8 @@ async def _record_family_structure_version(
     change: PedigreeChange | None = None,
 ) -> None:
     """Store the family's pedigree as its next structure version, on the family's hash
-    chain, and record ``change``, the change that led to it, on the clinical audit trail
-    (SEC-7). No commit: the caller owns the transaction."""
+    chain, and record ``change``, the change that led to it, on the clinical audit trail.
+    No commit: the caller owns the transaction."""
     await record_structure_version(
         session,
         family_uuid=family_uuid,
@@ -946,7 +946,7 @@ async def upload_ped_data(
     obligate_carriers: str | None = None,
     proven_carriers: str | None = None,
 ) -> PedUploadResult:
-    # The families the upload replaces, each marked before its variants go (SAFE-31).
+    # The families the upload replaces, each marked before its variants go.
     deletions: list[Any] = []
     try:
         return await _upload_ped_data(
@@ -1106,7 +1106,7 @@ async def create_manual_family_data(
     overwrite: bool,
     user: CurrentUser,
 ) -> PedUploadResult:
-    # The family it replaces, marked before its variants go (SAFE-31).
+    # The family it replaces, marked before its variants go.
     deletions: list[Any] = []
     try:
         return await _create_manual_family_data(session, family, overwrite, user, deletions=deletions)

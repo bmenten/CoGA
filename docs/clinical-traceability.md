@@ -11,8 +11,8 @@ the same in plain words in the in-app reference
 and freezes it into a signed version. It is not the medical sign-off. The device boundary is
 *annotated VCF → closed, frozen analysis in CoGA* ([TF-02 §3](regulatory/TF-02-device-description.md)).
 The clinical report is drafted and medically signed in the hospital's electronic patient record
-(EPD), outside the device, and refers 1:1 to the signed version. The UI keeps the names *Sign out
-report*, *signed version* and *signed report* for the frozen analysis.
+(EPD), outside the device, and refers 1:1 to the signed version. In the UI the frozen analysis is
+the *signed version* or *signed report*, and *Sign out report* makes one.
 
 Code comments number four parts: Phase 0 (annotation manifest), Phase 1 (evidence snapshots and
 drift), Phase 2 (clinical audit trail) and Phase 3 (sign-out).
@@ -36,7 +36,7 @@ import and a replacement of one family take turns on one lock, so neither overwr
 halfway. `GET /families/{family_id}/annotation-manifest` merges it with what CoGA itself loaded:
 the reference assembly, the gene-loci source (`gene_loci`: GENCODE, or the UCSC table used when
 GENCODE could not be fetched), the Monarch release and the HPO release, with the SHA-256 of the
-ontology file its terms came from where the import recorded it (how each is read:
+ontology file its terms came from (how each is read:
 [annotation-provenance.md](annotation-provenance.md#the-reference-modules)). The report footer
 shows the merged list; sign-out freezes it.
 
@@ -751,8 +751,8 @@ groups, so each fingerprint can be recomputed from the record. The snapshot hold
 fingerprint: the concerns it freezes are those the sign-out checked the fingerprint against.
 
 A lookup that fails while the snapshot is built is frozen as an explicit marker, never an empty
-value: missing QC cut-offs as `sequencing_qc.unavailable`; a failed lookup of a reference module,
-or an HPO ontology that recorded no release, as module version `unavailable`. The audit event
+value: missing QC cut-offs as `sequencing_qc.unavailable`; a failed lookup of a reference module
+as module version `unavailable`. The audit event
 lists these as `not_captured`, and the report page names them.
 
 The other sign-out endpoints:
@@ -929,9 +929,8 @@ Each of the parts below is compared whole, so a change since signing reads as a 
   table): a track declared, loaded or removed since, or a changed region of interest, that
   changes the notes or what the check ran for.
 
-A section CoGA has since computed differently reads as changed too. The Sample QC counts a
-check that could not run as `warn`, with a note naming each sample whose sex could not be checked.
-The signed version still shows what was signed; signing out again records the new verdict.
+A section that another build of CoGA computes differently reads as changed too. The signed
+version still shows what was signed; signing out again records the new result.
 
 A signed version lists the SV/CNV classifications whose evidence had moved at sign-out with the
 small variants', under *Evidence drift at sign-out*, and says when its record holds no SV/CNV

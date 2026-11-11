@@ -1,8 +1,8 @@
-"""A queued import does not run as an account deactivated since it was queued (SEC-32), nor as
-one no longer an administrator (SEC-35).
+"""A queued import does not run as an account deactivated since it was queued, nor as
+one no longer an administrator.
 
 The worker runs a queued import job as the account that requested it, found by the job's
-``requested_by_id`` (SEC-32), and checks that account's state: deactivating an account ends
+``requested_by_id``, and checks that account's state: deactivating an account ends
 its access at once (docs/security-posture.md), so a job whose requester an administrator
 deactivated between the request and the run ends failed, saying why, before anything of the
 family is written, as a job whose requester no longer exists does; the log names neither the
@@ -12,7 +12,7 @@ to its end: the account is checked once, when the import starts.
 Only a superuser or an administrator queues an import (the import routes require one), and the
 import checks the requester's role, not only their access to the job's project: a job whose
 requester was demoted since (an administrator now a viewer, an analyst of that project) ends
-failed the same way (SEC-35), as the owner decided on 2026-10-28, and so does a job claimed again
+failed the same way, as the owner decided on 2026-10-28, and so does a job claimed again
 after its worker stopped while it was still ``validating``; a superuser or an administrator
 has the import run, and one demoted while the import runs has it run to its end. Overwriting an
 existing family is an admin's (REQ-SEC-002): an overwrite whose requester is no longer an admin
@@ -20,7 +20,7 @@ ends failed the same way; a superuser's update or dry run runs.
 
 These refusals are stored as they are written. A job that fails on any other error, one CoGA
 did not raise in its own words, ends with a fixed sentence naming the error's kind, never its
-text, which can quote a statement's values (SEC-39).
+text, which can quote a statement's values.
 
 The job's row and the import are stand-ins: what this tests is whether the import runs, as
 whom, and how the job ends.
@@ -161,7 +161,7 @@ async def test_the_job_of_a_deactivated_account_ends_failed_and_its_import_does_
 async def test_the_job_of_an_account_that_no_longer_exists_still_ends_failed(
     monkeypatch: pytest.MonkeyPatch, requester_id: str | None
 ) -> None:
-    # SEC-32: a deleted account's jobs keep no link to it (ON DELETE SET NULL).
+    # a deleted account's jobs keep no link to it (ON DELETE SET NULL).
     job = _Job(monkeypatch, requester_id=requester_id, accounts={})
 
     raised = await job.run()
@@ -175,7 +175,7 @@ async def test_the_job_of_an_account_that_no_longer_exists_still_ends_failed(
 async def test_the_job_of_an_account_no_longer_an_administrator_ends_failed_and_its_import_does_not_run(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # SEC-35: demoted to viewer since it queued the import, the account is an analyst of the
+    # demoted to viewer since it queued the import, the account is an analyst of the
     # job's project, which is all the import itself checked.
     demoted = _requester(is_active=True, role="viewer")
     job = _Job(monkeypatch, requester_id=REQUESTER_ID, accounts={REQUESTER_ID: demoted})
@@ -270,7 +270,7 @@ async def test_an_import_already_running_when_its_requester_is_deactivated_or_de
 async def test_a_job_that_fails_on_an_unexpected_error_ends_naming_the_error_by_its_kind(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # SEC-39. A job's error, which the import pages show, is a fixed sentence naming the
+    # A job's error, which the import pages show, is a fixed sentence naming the
     # error's kind, never the error's text (for a failed statement, its SQL and the values it
     # was given), and the log names the job; a refusal in CoGA's own words, as those above,
     # is stored as it is written.

@@ -72,7 +72,7 @@ _CLINICAL_CNV_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 def _clinvar_count(value: str | None) -> int | None:
-    """A knowledgebase ClinVar count, or None when the file records none (#624)."""
+    """A knowledgebase ClinVar count, or None when the file records none."""
     if value is None:
         return None
     try:
@@ -158,12 +158,10 @@ def _gene_transcript_priority(row: dict[str, Any]) -> tuple[int, int, int, str]:
     """A transcript row's rank among its gene's: MANE Select first, then the Ensembl
     canonical transcript, then the longest, the one with most exons.
 
-    Read from what the gene-reference imports write (ENG-8): GENCODE's ``mane_select`` and its
+    Read from what the gene-reference imports write: GENCODE's ``mane_select`` and its
     ``Ensembl_canonical`` tag on the transcript's row, and HGNC's MANE Select accessions for
     the gene (``hgnc_identifiers.mane_select`` in ``gene_info``), an Ensembl transcript and a
-    RefSeq one, so that a RefSeq row of an uploaded reference is recognised too. It read keys
-    no import writes (``mane_select_transcript``, ``ensembl_canonical_transcript`` and their
-    other spellings), and so never recognised a canonical transcript."""
+    RefSeq one, so that a RefSeq row of an uploaded reference is recognised too."""
     extra = _json_dict(row.get("extra"))
     identifiers = _json_dict(_json_dict(row.get("gene_info_extra")).get("hgnc_identifiers"))
     transcript_id = _transcript_id_from_gene_row(row)
@@ -283,7 +281,7 @@ def _reference_text(raw: bytes) -> str:
 class ReferenceFileRefused(RuntimeError):
     """A reference file the startup would load is not the shipped file, so it was not loaded.
 
-    The message names the file, both SHA-256 digests and the fix (TRACE-14)."""
+    The message names the file, both SHA-256 digests and the fix."""
 
 
 _SEGMENTAL_DUPLICATIONS_REMEDY = (
@@ -299,7 +297,7 @@ _SEGMENTAL_DUPLICATIONS_REMEDY = (
 
 
 def read_shipped_segmental_duplications(path: Path) -> bytes:
-    """The segmental-duplication file's bytes, if it is the shipped file byte for byte (TRACE-14).
+    """The segmental-duplication file's bytes, if it is the shipped file byte for byte.
 
     The shipped file is ClinGen's V2.1 recurrent-CNV file for GRCh38, pinned by its SHA-256
     (``SEGMENTAL_DUPLICATIONS_PINNED_SHA256``). An identical copy passes wherever it lies; any
@@ -357,7 +355,7 @@ async def _assembly_dataset_count(
 # (`source`, `source_url`) and when it was loaded (`performed_at`). A clinical-CNV
 # knowledgebase rebuild, built from the ClinGen curation, ClinVar and UCSC data current on the
 # day, records the one pinned file it read instead: ClinGen's recurrent CNV file, by release
-# and SHA-256 (clinical_cnv_kb_jobs, TRACE-14).
+# and SHA-256 (clinical_cnv_kb_jobs).
 SOURCE_VERSION_NOT_STATED = "not stated"
 
 
@@ -556,20 +554,19 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
     the assembly holds none.
 
     The file is loaded only if it is the shipped file, byte for byte
-    (``read_shipped_segmental_duplications``, TRACE-14). Another file is refused before
+    (``read_shipped_segmental_duplications``). Another file is refused before
     anything is written, with one logged error that names the file, both digests and the fix;
     the import is skipped and the start goes on: the track is shown for orientation, no
     classification reads it, and the rows an earlier start loaded are never replaced here.
 
     The shipped file holds GRCh38 coordinates, so it is loaded only into an assembly whose
-    name is GRCh38's (``grc_build``: GRCh38 or hg38, with or without a patch suffix; OPS-17).
+    name is GRCh38's (``grc_build``: GRCh38 or hg38, with or without a patch suffix).
     For another assembly the bootstrap is skipped before the file is read or anything is
     written, with one logged warning that names the assembly and the fix: an administrator
     uploads that assembly's own file.
 
-    The clinical CNVs are not loaded at startup (OPS-17). The knowledgebase rebuild loads them
-    from its pinned sources and records them, and an administrator can upload a file; the
-    startup read any file at a configured path, unpinned, and its default was never shipped."""
+    The clinical CNVs are not loaded at startup. The knowledgebase rebuild loads them from its
+    pinned sources and records them, and an administrator can upload a file."""
     if not settings.reference_bootstrap_enabled:
         return
 

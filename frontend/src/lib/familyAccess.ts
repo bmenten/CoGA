@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
 
 /**
- * Project access levels (SEC-1). Each project member is an analyst, who reads and changes the
+ * Project access levels. Each project member is an analyst, who reads and changes the
  * project's records, or a reader, who only reads them; a user whose role is viewer only reads,
  * whatever their level, and a superuser or an admin has every right in every project. The server
  * refuses a viewer's or a reader's change; the screens hide or disable the controls they may not

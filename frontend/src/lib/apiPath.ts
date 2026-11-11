@@ -1,6 +1,6 @@
 /**
  * Build an API path with every interpolated value percent-encoded as one path
- * segment (#521).
+ * segment.
  *
  * Identifiers reach API paths from imported data (sample and family ids from VCFs and
  * pedigrees) and from the URL. Interpolated raw, an id containing `/`, `?`, `#` or `..`

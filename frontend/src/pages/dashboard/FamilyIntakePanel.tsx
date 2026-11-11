@@ -255,7 +255,7 @@ const FamilyIntakePanel: React.FC = () => {
     error: projectsError,
   } = useProjectCatalog();
   // A family is added to a project by an analyst of it or an admin: the projects where the
-  // user is a reader are not offered (SEC-1).
+  // user is a reader are not offered.
   const projectOptions = useMemo(
     () => (projectCatalog ?? []).filter((project) => !project.read_only),
     [projectCatalog],

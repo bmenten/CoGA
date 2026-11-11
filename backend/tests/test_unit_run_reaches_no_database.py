@@ -1,4 +1,4 @@
-"""A unit run reaches no database (ENG-16).
+"""A unit run reaches no database.
 
 The suite mocks Postgres and ClickHouse. A route test that leaves the request audit on writes
 its row itself when no worker runs, so it wrote to whatever Postgres listened on

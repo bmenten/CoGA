@@ -63,8 +63,8 @@ def build_structural_variant_id(
 ) -> str:
     """Stable id for a structural variant within a family.
 
-    Without the suffixes it names an uploaded SV and a package's NeedlR call alike
-    (CLIN-43): one event called by either has one id, so the reviews and the SV gene index,
+    Without the suffixes it names an uploaded SV and a package's NeedlR call alike:
+    one event called by either has one id, so the reviews and the SV gene index,
     which attach by the id, cover every caller's call of it. The storage key names the
     source whatever the id holds (:func:`structural_variant_key`), so two callers' rows
     never collide in storage.
@@ -116,8 +116,8 @@ def event_discriminators(
     its id; an id it does not name has no SV stored), else the first in a fixed order: by
     length, then REF and ALT. The order
     is the events', never their lines': a file read in another order, or the samples' files
-    in another order, give each event the id it had. Following the lines, a changed input
-    could move a review to the other event (CLIN-39).
+    in another order, give each event the id it had. Following the lines would let a
+    changed input move a review to the other event.
     """
     by_id: dict[str, set[SvEvent]] = {}
     for variant_id, event in events:
@@ -169,9 +169,9 @@ def structural_variant_key(
     It hashes the source because the variant id need not name the caller: a per-sample
     upload's id is ``chrom-start-end-type---``, so a Sniffles and a Spectre call at the same
     coordinates share it, as a package's NeedlR call of the same event does. Keyed on the
-    id alone, the two calls shared one ``entries`` row identity, one ``variants/details``
-    row and one ``key_lookup`` row, and a part merge kept only one of them. The id stays as
-    it is: reviews and the SV gene index attach by it.
+    id alone, the two calls would share one ``entries`` row identity, one
+    ``variants/details`` row and one ``key_lookup`` row, and a part merge would keep only one
+    of them. The id stays as it is: reviews and the SV gene index attach by it.
     """
     return _stable_uint64("structural", assembly_name, family_uuid, variant_id, source)
 
@@ -194,7 +194,7 @@ def _xpos(chrom: str, pos: int) -> int:
         rank = rank_map.get(normalized, 99)
     if not 0 <= rank <= _MAX_XPOS_RANK:
         # A contig named by a negative or an enormous number ranks with the other
-        # contigs (SAFE-30): its xpos would not fit the UInt64 column, and the insert of
+        # contigs: its xpos would not fit the UInt64 column, and the insert of
         # every record of the batch would fail.
         rank = 99
     return (rank * 1_000_000_000) + int(pos)
