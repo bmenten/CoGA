@@ -72,13 +72,6 @@ test('admin access intermediate breadcrumb points to admin dashboard', () => {
   expect(accessLink).toHaveAttribute('href', '/admin');
 });
 
-test('admin family structure id breadcrumb links back to families list', () => {
-  renderAt('/admin/data/families/F1/structure');
-
-  const familyIdLink = screen.getByText('F1').closest('a');
-  expect(familyIdLink).toHaveAttribute('href', '/admin/data/families');
-});
-
 test('shows the clinical CNV name in the breadcrumb instead of its id', () => {
   const queryClient = new QueryClient();
   queryClient.setQueryData(['clinical-cnv', 'cnv-1'], {
@@ -191,16 +184,10 @@ test('a family under no project has no project crumb', async () => {
 });
 
 test('only a family workspace reads the project catalog', () => {
-  renderAt('/admin/data/families/TRIO_FAM/structure');
+  renderAt('/admin/data/families');
   renderAt('/panels');
 
   expect(apiMock.get).not.toHaveBeenCalled();
-});
-
-test('the admin families crumb stays on the admin families page', () => {
-  renderAt('/admin/data/families/F1/structure');
-
-  expect(screen.getByText('Families').closest('a')).toHaveAttribute('href', '/admin/data/families');
 });
 
 test('the reference crumb of a reference doc leads to the user guide', () => {

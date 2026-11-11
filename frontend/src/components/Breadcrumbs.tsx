@@ -160,9 +160,6 @@ const Breadcrumbs: React.FC = () => {
       if (path === '/admin/access' || path === '/admin/reference' || path === '/admin/operations' || path === '/admin/variants' || path === '/admin/monitoring') {
         to = '/admin';
       }
-      if (path.startsWith('/admin/data/families/') && segment !== 'structure') {
-        to = '/admin/data/families';
-      }
     }
 
     if (segment === 'chromosome' && others[index - 1]) {

@@ -1,5 +1,4 @@
 import type {
-  ApiFamilyMemberDetail,
   ApiFamilyRecord,
   ApiFamilyRegionOfInterest,
   ApiHpoAnnotation,
@@ -14,7 +13,6 @@ import type {
   CarrierStatus,
   ClinicalStatus,
   CoupleDraft,
-  MemberDetailDraft,
   ParentChildDraft,
   RelativeDraft,
   StructureMemberDraft,
@@ -57,6 +55,7 @@ export const hpoTooltip = (annotation: ApiHpoAnnotation): string => {
 
 export const memberDraftFromFamilyMember = (member: ApiFamilyRecord['members'][number]): StructureMemberDraft => ({
   sample_id: member.sample_id,
+  new_sample_id: member.sample_id,
   sex: member.sex === 'male' || member.sex === 'female' ? member.sex : 'und',
   role: ROLE_OPTIONS.includes(member.role as StructureMemberDraft['role'])
     ? (member.role as StructureMemberDraft['role'])
@@ -65,39 +64,8 @@ export const memberDraftFromFamilyMember = (member: ApiFamilyRecord['members'][n
   carrier_status: carrierStatusForMember(member),
   carrier_type: member.carrier_type ?? '',
   isNew: false,
-  removed: member.active === false,
+  removed: false,
 });
-
-// The member dialog's draft as stored, before any edit.
-export const memberDetailDraftFromDetail = (detail: ApiFamilyMemberDetail): MemberDetailDraft => ({
-  sample_id: detail.member.sample_id,
-  sex: detail.member.sex === 'male' || detail.member.sex === 'female' ? detail.member.sex : 'und',
-  role: ROLE_OPTIONS.includes(detail.member.role as StructureMemberDraft['role'])
-    ? (detail.member.role as StructureMemberDraft['role'])
-    : 'relative',
-  clinical_status: clinicalStatusForMember(detail.member),
-  carrier_status: carrierStatusForMember(detail.member),
-  carrier_type: detail.member.carrier_type ?? '',
-  father_id: detail.father_id ?? '',
-  mother_id: detail.mother_id ?? '',
-});
-
-// Typed as a record so that a field added to the draft cannot be left out of the comparison.
-const MEMBER_DETAIL_FIELDS: Record<keyof MemberDetailDraft, true> = {
-  sample_id: true,
-  sex: true,
-  role: true,
-  clinical_status: true,
-  carrier_status: true,
-  carrier_type: true,
-  father_id: true,
-  mother_id: true,
-};
-
-export const sameMemberDetailDraft = (a: MemberDetailDraft, b: MemberDetailDraft): boolean =>
-  (Object.keys(MEMBER_DETAIL_FIELDS) as (keyof MemberDetailDraft)[]).every(
-    (field) => a[field] === b[field],
-  );
 
 export const parentChildDraftsFromRelationships = (family: ApiFamilyRecord | undefined): ParentChildDraft[] => {
   const relationships = family?.relationships?.filter(
@@ -112,30 +80,6 @@ export const parentChildDraftsFromRelationships = (family: ApiFamilyRecord | und
         ? relationship.role_a
         : 'parent',
   }));
-};
-
-export const parentsForSample = (
-  family: ApiFamilyRecord | undefined,
-  sampleId: string,
-): { father_id: string; mother_id: string } => {
-  const childKey = sampleKey(sampleId);
-  return (family?.relationships || []).reduce(
-    (parents, relationship) => {
-      if (
-        relationship.relationship_type !== 'parent_child' ||
-        sampleKey(relationship.sample_id_b) !== childKey
-      ) {
-        return parents;
-      }
-      if (relationship.role_a === 'father') {
-        parents.father_id = relationship.sample_id_a;
-      } else if (relationship.role_a === 'mother') {
-        parents.mother_id = relationship.sample_id_a;
-      }
-      return parents;
-    },
-    { father_id: '', mother_id: '' },
-  );
 };
 
 export const coupleDraftsFromRelationships = (family: ApiFamilyRecord | undefined): CoupleDraft[] =>

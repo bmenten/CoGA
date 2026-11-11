@@ -78,7 +78,7 @@ def admin_client(monkeypatch: pytest.MonkeyPatch):
 
 _STRUCTURE_BODY = {
     "expected_structure_version": 3,
-    "change_reason": "family_detail_page",
+    "change_reason": "family_members_edit",
     "clear_existing_genomic_data": False,
     "remove_members": ["FATHER"],
 }
@@ -90,7 +90,7 @@ def test_a_structure_save_refreshes_the_lineage_and_warms_the_ranking(admin_clie
     async def fake_update(session, *, family_id, update, user):
         return FamilyStructureUpdateOut(family=_family())
 
-    monkeypatch.setattr(families_router, "update_family_structure_for_admin", fake_update)
+    monkeypatch.setattr(families_router, "update_family_structure_with_renames_for_admin", fake_update)
 
     response = client.put("/api/families/FAM1/structure", json=_STRUCTURE_BODY)
 
@@ -104,7 +104,7 @@ def test_a_structure_save_that_fails_schedules_nothing(admin_client) -> None:
     async def refused(session, *, family_id, update, user):
         raise HTTPException(status_code=409, detail="Family structure changed since it was loaded")
 
-    monkeypatch.setattr(families_router, "update_family_structure_for_admin", refused)
+    monkeypatch.setattr(families_router, "update_family_structure_with_renames_for_admin", refused)
 
     response = client.put("/api/families/FAM1/structure", json=_STRUCTURE_BODY)
 

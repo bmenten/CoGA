@@ -66,17 +66,25 @@ arc with a **?**. The haplotype track colours such a person:
 - around the ROI only, when they are a more distant relative: there the markers on both sides show the
   haplotype they share. Elsewhere such a relative stays grey.
 
-Only an administrator edits a member:
+Only an administrator edits the members, here and in **Admin → Family & sample data**, which shows
+this same table:
 
-1. Click the sample name to open **Family member details**.
-2. Change the fields and press **Apply to pending**.
-3. Press **Save pending updates** on the family page.
+1. Press **Edit members**. Each row turns into its fields: role, sex, father, mother, partner,
+   **Related to**, affected status, carrier status and, for a carrier, its type. A last row adds a
+   member.
+2. Or click a sample name to open **Family member details**: the same fields, the sample ID and
+   the HPO terms. A change there shows in the table at once.
+3. Press **Save changes**. Everything goes in one change of the family's structure, with one
+   entry on its clinical audit trail. **Discard** drops the changes.
 
-In the same dialog, an analyst of the family's project (role analyst or higher), a superuser or an
-administrator adds and removes HPO terms.
-Affected status and carrier status are separate: an unaffected person can be a carrier. **Remove
-member** in the dialog takes the person out of the family at once, after you confirm. Members are
-added in **Admin → Family & sample data**.
+A changed row is marked *changed*, a new one *new*. **Remove** marks a member *removed on save*;
+**Restore** keeps it. When you save, CoGA shows what the removal affects (linked data, analyses
+that become stale) and asks you to confirm. A father is never a member recorded as female, nor a
+mother one recorded as male, so the lists do not offer them.
+
+Affected status and carrier status are separate: an unaffected person can be a carrier. An
+analyst of the family's project (role analyst or higher) or a superuser adds, changes and removes
+HPO terms in the dialog; each term is saved on its own. The other fields are greyed out for them.
 
 Further down are the **Phenotype match (Monarch)** panel and, closed by default, the **Analysis
 pipeline settings** recorded at import.

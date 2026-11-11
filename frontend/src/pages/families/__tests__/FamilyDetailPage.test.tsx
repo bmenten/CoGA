@@ -3,6 +3,7 @@ import { beforeEach, describe, it, vi, type Mock } from 'vitest';
 
 import FamilyDetailPage from '../FamilyDetailPage';
 import { renderFamilyRoute } from '../../../test/familyRoute';
+import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import api from '../../../lib/api';
 
 /**
@@ -236,9 +237,12 @@ vi.mock('../../../lib/api', () => ({
 
 /** The page of family F1, at `url`. */
 const renderPage = (url = '/families/F1') => renderFamilyRoute('/families/:familyId', url, <FamilyDetailPage />);
-/** The family's structure editor (admin data management), the same page made editable. */
-const renderStructureEditor = () =>
-  renderFamilyRoute('/admin/data/families/:familyId/structure', '/admin/data/families/F1/structure', <FamilyDetailPage editable />);
+/** The family's page, its members table turned into the editor (an administrator's Edit members). */
+const renderMembersEditor = async () => {
+  localStorage.setItem('role', 'admin');
+  renderPage();
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit members' }));
+};
 
 describe('FamilyDetailPage', () => {
   beforeEach(() => {
@@ -384,8 +388,9 @@ describe('FamilyDetailPage', () => {
     // ROI is editable from the family dashboard for admins.
     expect(screen.getByPlaceholderText(/Gene or locus/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^save$/i })).toBeInTheDocument();
-    // Structure editing stays gated on the editable structure view only.
+    // The members are read until an administrator turns the table into the editor.
     expect(screen.queryByLabelText('Carrier status for S1')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit members' })).toBeInTheDocument();
     // Curation is shown beneath each variant type's link, scoped to that type.
     await waitFor(() => {
       const smallVariantCuration = screen.getByLabelText(/small variant curation/i);
@@ -1180,95 +1185,133 @@ describe('FamilyDetailPage', () => {
 
     expect(await screen.findByRole('dialog', { name: /family member details/i })).toBeInTheDocument();
     expect(await screen.findByLabelText(/identifier/i)).toHaveValue('S1');
-    expect(screen.getByLabelText('Phenotype')).toHaveValue('affected');
+    expect(screen.getByLabelText('Affected status')).toHaveValue('affected');
     expect(screen.getByLabelText('Carrier status')).toHaveValue('unknown');
+    // The same pedigree fields as the table's.
+    for (const field of ['Father', 'Mother', 'Partner', 'Related to']) {
+      expect(screen.getByLabelText(field)).toBeEnabled();
+    }
     expect(screen.getByRole('heading', { name: /hpo phenotypes/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /add phenotype/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /apply to pending/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /remove member/i })).toBeInTheDocument();
   });
 
-  it('queues member metadata edits and saves them in one batch', async () => {
-    localStorage.setItem('role', 'admin');
-    vi.mocked(api.put).mockResolvedValueOnce({
-      data: {
-        family: {
-          _id: 'fam1',
-          family_id: 'F1',
-          members: [
-            {
-              sample_id: 'S1',
-              role: 'proband',
-              affected: false,
-              sex: 'male',
-              clinical_status: 'unknown',
-              carrier_status: 'carrier',
-            },
-          ],
-          relationships: [],
-          structure_version: { version: 2 },
-          pedigree: null,
-          projects: ['p1'],
-          metadata: {},
-          roi: null,
-        },
-        warnings: ['Phenotype and carrier labels were updated; downstream interpretation views were marked stale without reloading raw datasets.'],
+  /** What the server answers a structure save: the family as `members` leaves it. */
+  const savedFamily = (members: unknown[], relationships: unknown[] = []) => ({
+    data: {
+      family: {
+        _id: 'fam1',
+        family_id: 'F1',
+        members,
+        relationships,
+        structure_version: { version: 2 },
+        pedigree: null,
+        projects: ['p1'],
+        metadata: {},
+        roi: null,
       },
-    });
-    renderPage();
+      warnings: [],
+    },
+  });
+  const structurePayload = () =>
+    vi.mocked(api.put).mock.calls.find(([url]) => url === '/families/F1/structure')?.[1] as {
+      members: Array<Record<string, unknown>>;
+      add_members: Array<Record<string, unknown>>;
+      remove_members: string[];
+      relationships: unknown;
+    };
+
+  it('edits a member in the dialog, shows the change in the table and saves it with the family members', async () => {
+    localStorage.setItem('role', 'admin');
+    vi.mocked(api.put).mockResolvedValueOnce(
+      savedFamily([{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male', carrier_status: 'carrier' }]),
+    );
+    const queryClient = createTestQueryClient();
+    const invalidated = vi.spyOn(queryClient, 'invalidateQueries');
+    renderFamilyRoute('/families/:familyId', '/families/F1', <FamilyDetailPage />, queryClient);
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'S1' }));
-    fireEvent.change(await screen.findByLabelText('Carrier status'), {
-      target: { value: 'carrier' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /apply to pending/i }));
-    expect(await screen.findByText(/1 pending/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /save pending updates/i }));
+    fireEvent.change(await screen.findByLabelText('Carrier status'), { target: { value: 'carrier' } });
+    // The change is the family members' edit already: closing the dialog keeps it, unasked.
+    const confirm = vi.spyOn(window, 'confirm');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
+    expect(screen.queryByRole('dialog', { name: /family member details/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Carrier status for S1')).toHaveValue('carrier');
+    expect(screen.getByTitle('Changed, not saved yet')).toBeInTheDocument();
+    expect(screen.getByText('1 member changed')).toBeInTheDocument();
 
-    await waitFor(() => expect(api.put).toHaveBeenCalledWith(
-      '/families/F1/members/batch',
-      expect.objectContaining({
-        change_reason: 'family_member_batch_update',
-        updates: [
-          expect.objectContaining({
-            sample_id: 'S1',
-            carrier_status: 'carrier',
-          }),
-        ],
-      }),
-    ));
-    const batchPayload = vi.mocked(api.put).mock.calls.find(
-      ([url]) => url === '/families/F1/members/batch',
-    )?.[1] as { updates: Array<Record<string, unknown>> };
-    expect(batchPayload.updates[0]).not.toHaveProperty('father_id');
-    expect(batchPayload.updates[0]).not.toHaveProperty('mother_id');
-    expect(batchPayload.updates[0]).not.toHaveProperty('sex');
-    expect(batchPayload.updates[0]).not.toHaveProperty('role');
-    expect(await screen.findByText(/Pending updates saved/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith(
+        '/families/F1/structure',
+        expect.objectContaining({
+          change_reason: 'family_members_edit',
+          add_members: [],
+          remove_members: [],
+          members: [expect.objectContaining({ sample_id: 'S1', carrier_status: 'carrier' })],
+          // No link changed: the family's links stay as they are.
+          relationships: null,
+        }),
+      ),
+    );
+    // The import's note of how a carrier status was derived is never sent, so it stays.
+    expect(structurePayload().members[0]).not.toHaveProperty('carrier_evidence');
+    expect(structurePayload().members[0]).not.toHaveProperty('new_sample_id');
+    expect(await screen.findByText('Family members saved.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Carrier status for S1')).not.toBeInTheDocument();
+    // The admin inventory lists the same members, with their role, sex and status.
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: ['admin', 'data-inventory'] });
   });
 
-  it('asks before closing member details over unapplied edits, not once applied', async () => {
+  it("renames a member in the dialog and saves the new ID with the family's other changes", async () => {
     localStorage.setItem('role', 'admin');
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.mocked(api.put).mockResolvedValueOnce(savedFamily([{ sample_id: 'S1B', role: 'proband', affected: true, sex: 'male' }]));
     renderPage();
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'S1' }));
-    fireEvent.change(await screen.findByLabelText('Carrier status'), {
-      target: { value: 'carrier' },
-    });
-
+    fireEvent.change(await screen.findByLabelText(/identifier/i), { target: { value: 'S1B' } });
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('dialog', { name: /family member details/i })).toBeInTheDocument();
+    // The table names the member by its new ID, stored under the old one until the save.
+    expect(screen.getByRole('button', { name: 'S1B' })).toHaveAttribute('title', expect.stringContaining('Stored as S1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
-    // Applied edits wait among the pending updates, so closing now loses nothing.
-    fireEvent.click(screen.getByRole('button', { name: /apply to pending/i }));
+    await waitFor(() => expect(structurePayload()).toBeDefined());
+    expect(structurePayload().members).toEqual([expect.objectContaining({ sample_id: 'S1', new_sample_id: 'S1B' })]);
+  });
+
+  it('refuses to save a member renamed to the ID of another', async () => {
+    mockApiState.members = [
+      { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
+      { sample_id: 'S2', role: 'mother', affected: false, sex: 'female' },
+    ];
+    localStorage.setItem('role', 'admin');
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+    fireEvent.change(await screen.findByLabelText(/identifier/i), { target: { value: 's2' } });
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('dialog', { name: /family member details/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/1 pending/i)).toBeInTheDocument();
+
+    expect(screen.getByText('S1 and S2 would both be S2.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  });
+
+  it('discards the edit, after asking, and reads the family as stored again', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await renderMembersEditor();
+    expect(screen.getByText('No changes yet')).toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText('Affected status for S1'), { target: { value: 'unaffected' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(confirm).toHaveBeenCalledWith('Discard the changes to the family members?');
+    expect(screen.queryByLabelText('Affected status for S1')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit members' })).toBeInTheDocument();
+    expect(api.put).not.toHaveBeenCalled();
     confirm.mockRestore();
   });
 
@@ -1468,8 +1511,15 @@ describe('FamilyDetailPage', () => {
     expect(within(dialog).getByRole('button', { name: /^edit$/i })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: /add phenotype/i })).toBeInTheDocument();
     expect(within(dialog).getByLabelText('HPO term')).toBeInTheDocument();
-    // The member's own fields stay an administrator's.
-    expect(within(dialog).queryByRole('button', { name: /apply to pending/i })).not.toBeInTheDocument();
+    // The member's own fields stay an administrator's, and the dialog says so.
+    expect(within(dialog).getByLabelText('Carrier status')).toBeDisabled();
+    expect(within(dialog).getByLabelText(/identifier/i)).toBeDisabled();
+    expect(
+      within(dialog).getByText("Only an administrator changes a member's sample, pedigree and status. You can add, change and remove its HPO terms."),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /remove member/i })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('button', { name: 'Edit members' })).not.toBeInTheDocument();
   });
 
   it('shows a reader the phenotypes and the workflow fields but no control to change them', async () => {
@@ -1495,55 +1545,34 @@ describe('FamilyDetailPage', () => {
     expect(within(dialog).getByRole('button', { name: /remove member/i })).toBeDisabled();
   });
 
-  it('removes a member only once the removal is confirmed', async () => {
+  it('removes a member on save, once the removal is confirmed with what it affects', async () => {
     mockApiState.members = [
       { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
       { sample_id: 'S2', role: 'mother', affected: false, sex: 'female' },
     ];
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
-    vi.mocked(api.delete).mockResolvedValueOnce({
-      data: {
-        family: {
-          _id: 'fam1',
-          family_id: 'F1',
-          members: [],
-          relationships: [],
-          pedigree: null,
-          projects: ['p1'],
-          metadata: {},
-          roi: null,
-        },
-      },
-    });
+    vi.mocked(api.put).mockResolvedValueOnce(savedFamily([{ sample_id: 'S2', role: 'mother', affected: false, sex: 'female' }]));
     const dialog = await openS1AsAdmin();
 
+    // Removing is part of the edit: nothing is sent yet.
     fireEvent.click(within(dialog).getByRole('button', { name: /remove member/i }));
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm.mock.calls[0][0]).toContain('Remove S1 from the active family?');
     expect(api.delete).not.toHaveBeenCalled();
-
-    fireEvent.click(within(dialog).getByRole('button', { name: /remove member/i }));
-    await waitFor(() =>
-      expect(api.delete).toHaveBeenCalledWith('/families/F1/members/S1', { params: { confirm: true } }),
-    );
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: /family member details/i })).not.toBeInTheDocument(),
-    );
-    confirm.mockRestore();
-  });
-
-  it('keeps a member edit pending after Apply, and says so', async () => {
-    const dialog = await openS1AsAdmin();
-    fireEvent.change(within(dialog).getByLabelText('Carrier status'), { target: { value: 'carrier' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: /apply to pending/i }));
-
-    expect(
-      await within(dialog).findByText('Member changes are pending. Save pending updates to commit them together.'),
-    ).toBeInTheDocument();
-    // Reopened, the dialog shows the pending edit, not the saved value.
+    expect(within(dialog).getByText('S1 is taken out of the family when you save the family members.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Restore member' })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
-    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
-    expect(await screen.findByLabelText('Carrier status')).toHaveValue('carrier');
+    expect(screen.getByText('removed on save')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(confirm.mock.calls[0][0]).toContain('Remove S1 from the family?');
+    expect(api.put).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(structurePayload()).toBeDefined());
+    expect(structurePayload().remove_members).toEqual(['S1']);
+    expect(structurePayload().members).toEqual([expect.objectContaining({ sample_id: 'S2' })]);
+    expect(api.delete).not.toHaveBeenCalled();
+    confirm.mockRestore();
   });
 
   it('preserves the selected project in variant workspace links', async () => {
@@ -1606,20 +1635,18 @@ describe('FamilyDetailPage', () => {
         warnings: ['Relationship-dependent analyses should be rerun before clinical review.'],
       },
     });
-    renderStructureEditor();
+    await renderMembersEditor();
 
-    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    // The structure-editor form renders a tick after the family name; await its
-    // first control so the test does not race it on slower CI runners.
     fireEvent.change(await screen.findByLabelText('Carrier status for S1'), {
       target: { value: 'carrier' },
     });
+    fireEvent.change(screen.getByLabelText('Carrier type for S1'), { target: { value: 'proven' } });
     fireEvent.change(screen.getByLabelText('New member sample ID'), { target: { value: 'S2' } });
     fireEvent.change(screen.getByLabelText('New member sex'), { target: { value: 'female' } });
     fireEvent.click(screen.getByRole('button', { name: /add member/i }));
-    // Partner is now selected inline on the member row instead of a separate table.
+    expect(screen.getByText('new')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Partner for S1'), { target: { value: 'S2' } });
-    fireEvent.click(screen.getByRole('button', { name: /update family structure/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => expect(api.put).toHaveBeenCalledWith(
       '/families/F1/structure',
@@ -1635,6 +1662,7 @@ describe('FamilyDetailPage', () => {
           expect.objectContaining({
             sample_id: 'S1',
             carrier_status: 'carrier',
+            carrier_type: 'proven',
           }),
         ],
         relationships: expect.objectContaining({
@@ -1646,7 +1674,7 @@ describe('FamilyDetailPage', () => {
         }),
       }),
     ));
-    expect(await screen.findByText(/Family structure saved/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Family members saved/i)).toBeInTheDocument();
   });
 
   it('shows a link of unknown degree and saves it to both parents', async () => {
@@ -1682,13 +1710,13 @@ describe('FamilyDetailPage', () => {
     vi.mocked(api.put).mockResolvedValueOnce({
       data: { family: { _id: 'fam1', family_id: 'F1', members: mockApiState.members, projects: ['p1'], metadata: {} } },
     });
-    renderStructureEditor();
+    await renderMembersEditor();
 
     const related = (await screen.findByLabelText('Related to, for INDEX1')) as HTMLSelectElement;
     await waitFor(() => expect(related.value).toBe('MOM'));
     fireEvent.change(related, { target: { value: 'DAD,MOM' } });
     expect(related.selectedOptions[0].textContent).toBe('both parents');
-    fireEvent.click(screen.getByRole('button', { name: /update family structure/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => expect(api.put).toHaveBeenCalledWith(
       '/families/F1/structure',

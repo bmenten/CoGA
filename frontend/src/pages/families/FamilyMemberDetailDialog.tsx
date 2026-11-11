@@ -1,32 +1,33 @@
-import React, { useEffect, useState } from 'react';
+import React, { useId, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import ModalDialog from '../../components/ModalDialog';
 import type { ApiFamilyRecord, ApiFamilyMemberDetail, ApiHpoTerm } from '../../lib/apiTypes';
-import type { FamilyMemberDeleteOut } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
-import type {
-  CarrierStatus,
-  CarrierType,
-  ClinicalStatus,
-  HpoAnnotationStatus,
-  MemberDetailDraft,
-  StructureMemberDraft,
-} from './familyDetailTypes';
+import type { FamilyMembersDraft, HpoAnnotationStatus } from './familyDetailTypes';
+import { HPO_STATUS_OPTIONS } from './familyDetailConstants';
+import { formatHpoTermOption, hpoTooltip } from './familyDetailHelpers';
 import {
-  CARRIER_STATUS_OPTIONS,
-  CARRIER_TYPE_OPTIONS,
-  CLINICAL_STATUS_OPTIONS,
-  HPO_STATUS_OPTIONS,
-  ROLE_OPTIONS,
-  SEX_OPTIONS,
-} from './familyDetailConstants';
+  activeMembers,
+  findMember,
+  memberLabel,
+  withMemberFields,
+  withMemberRemoved,
+  withMemberRestored,
+  withParent,
+  withPartner,
+  withRelatives,
+} from './familyMembersDraft';
 import {
-  formatHpoTermOption,
-  hpoTooltip,
-  memberDetailDraftFromDetail,
-  sameMemberDetailDraft,
-} from './familyDetailHelpers';
+  CarrierStatusSelect,
+  CarrierTypeSelect,
+  ClinicalStatusSelect,
+  ParentSelect,
+  PartnerSelect,
+  RelatedToSelect,
+  RoleSelect,
+  SexSelect,
+} from './FamilyMemberFields';
 import { apiPath } from '../../lib/apiPath';
 import QueryFailure from '../../components/QueryFailure';
 
@@ -43,47 +44,45 @@ interface HpoAnnotationEdit {
 }
 
 interface FamilyMemberDetailDialogProps {
-  familyId?: string;
+  familyId: string;
   family: ApiFamilyRecord;
+  /** The member's stored ID. */
   memberId: string;
-  orderedMembers: ApiFamilyRecord['members'];
-  userIsAdmin: boolean;
+  /** The family members as the table shows them: the edit, or the family as stored. */
+  draft: FamilyMembersDraft;
+  /** Whether the family members are being edited (Save changes pending). */
+  editing: boolean;
+  /** May change the member's ID, pedigree and status, and remove it: an administrator. */
+  canEditMember: boolean;
   /**
    * May add, change and remove the member's phenotypes: an analyst of the family's project or
    * an admin, not a reader. Each change is on the family's clinical audit trail.
    */
   canEditPhenotypes: boolean;
-  /** This member's edits already waiting in the page's pending batch, if any. */
-  pendingDraft?: MemberDetailDraft;
-  /** Put the member's edits into the page's pending batch. */
-  onQueue: (sampleId: string, draft: MemberDetailDraft) => void;
-  /** After the member is removed: refresh what depends on the pedigree. */
-  onRemoved: () => Promise<unknown>;
+  /** Change the family members' edit (started from the family as stored when there is none). */
+  onChange: (apply: (draft: FamilyMembersDraft) => FamilyMembersDraft) => void;
   onClose: () => void;
 }
 
 /**
- * The family member dialog: the member's metadata, edited as a draft for the page's
- * pending batch; their HPO phenotypes; and removing them. It moved out of
- * FamilyDetailPage with the state only it used. The page keeps which member is open and
- * the pending batch.
+ * The family member dialog: the member's ID, pedigree and status, edited in the same draft as
+ * the Family members table (a change shows there at once and is saved with Save changes);
+ * its HPO phenotypes, each saved on its own; and what removing it affects.
  */
 const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
   familyId,
   family,
   memberId,
-  orderedMembers,
-  userIsAdmin,
+  draft,
+  editing,
+  canEditMember,
   canEditPhenotypes,
-  pendingDraft,
-  onQueue,
-  onRemoved,
+  onChange,
   onClose,
 }) => {
   const queryClient = useQueryClient();
-  const [memberDraft, setMemberDraft] = useState<MemberDetailDraft | null>(null);
-  const [memberBusy, setMemberBusy] = useState(false);
-  const [memberStatus, setMemberStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  // The ids that tie each field's label to its control.
+  const fieldId = useId();
   const [hpoSearchInput, setHpoSearchInput] = useState('');
   const [selectedHpoTerm, setSelectedHpoTerm] = useState<ApiHpoTerm | null>(null);
   const [hpoAnnotationStatus, setHpoAnnotationStatus] = useState<HpoAnnotationStatus>('present');
@@ -118,25 +117,6 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
     },
   });
 
-  useEffect(() => {
-    if (!selectedMemberDetail) {
-      setMemberDraft(null);
-      return;
-    }
-    const pending = pendingDraft;
-    if (pending) {
-      setMemberDraft(pending);
-      return;
-    }
-    setMemberDraft(memberDetailDraftFromDetail(selectedMemberDetail));
-    setMemberStatus(null);
-    setHpoStatus(null);
-    setHpoSearchInput('');
-    setSelectedHpoTerm(null);
-    setHpoNote('');
-    setHpoAnnotationStatus('present');
-  }, [pendingDraft, selectedMemberDetail]);
-
   const updateHpoSearchInput = (value: string) => {
     setHpoSearchInput(value);
     const normalizedValue = value.trim().toLowerCase();
@@ -149,83 +129,17 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
     setSelectedHpoTerm(matchedTerm ?? null);
   };
 
-  // Whether closing the member dialog would lose input: edits not yet applied to the
-  // pending updates, or a phenotype being entered. Applied edits stay pending, so they
-  // do not count.
+  // Whether closing the dialog would lose input: a phenotype being entered or changed. The
+  // member's own fields are in the family members' edit already, so they do not count.
   const hpoEditChanged = (edit: HpoAnnotationEdit | null): boolean =>
     Boolean(edit && (edit.status !== edit.savedStatus || edit.note.trim() !== edit.savedNote));
 
-  const memberDetailHasUnsavedInput = () => {
-    if (hpoSearchInput.trim() || hpoNote.trim()) return true;
-    if (hpoEditChanged(hpoEdit)) return true;
-    if (!selectedMemberDetail || !memberDraft) return false;
-    const applied =
-      pendingDraft ?? memberDetailDraftFromDetail(selectedMemberDetail);
-    return !sameMemberDetailDraft(memberDraft, applied);
-  };
+  const memberDetailHasUnsavedInput = () =>
+    Boolean(hpoSearchInput.trim() || hpoNote.trim() || hpoEditChanged(hpoEdit));
 
-  const closeMemberDetail = () => {
-    onClose();
-    setMemberDraft(null);
-    setMemberStatus(null);
-    setHpoStatus(null);
-    setHpoSearchInput('');
-    setSelectedHpoTerm(null);
-    setHpoNote('');
-    setHpoEdit(null);
-  };
-
-  const applyMemberDetail = () => {
-    if (!selectedMemberDetail || !memberDraft) return;
-    onQueue(selectedMemberDetail.member.sample_id, {
-      ...memberDraft,
-      sample_id: memberDraft.sample_id.trim() || selectedMemberDetail.member.sample_id,
-    });
-    setMemberStatus({
-      tone: 'success',
-      message: 'Member changes are pending. Save pending updates to commit them together.',
-    });
-  };
-
-  const deleteMemberDetail = async () => {
-    if (!familyId || !selectedMemberDetail) return;
-    const impactWarnings = selectedMemberDetail.impact.warnings.join('\n');
-    const confirmed = window.confirm(
-      [
-        `Remove ${selectedMemberDetail.member.sample_id} from the active family?`,
-        impactWarnings,
-        'This can make derived analyses stale.',
-      ]
-        .filter(Boolean)
-        .join('\n\n'),
-    );
-    if (!confirmed) return;
-    setMemberBusy(true);
-    setMemberStatus(null);
-    try {
-      const response = await api.delete(
-        apiPath`/families/${familyId}/members/${selectedMemberDetail.member.sample_id}`,
-        {
-          params: {
-            confirm: true,
-          },
-        },
-      );
-      const payload = response.data as FamilyMemberDeleteOut;
-      queryClient.setQueryData(['family', familyId], payload.family);
-      await queryClient.invalidateQueries({ queryKey: ['families'] });
-      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
-      await onRemoved();
-      closeMemberDetail();
-    } catch (error) {
-      setMemberStatus({
-        tone: 'error',
-        message: getErrorMessage(error, 'Failed to remove family member.'),
-      });
-    } finally {
-      setMemberBusy(false);
-    }
-  };
+  const member = findMember(draft, memberId);
+  const fieldsDisabled = !canEditMember || !member || member.removed;
+  const lastMember = activeMembers(draft).length <= 1;
 
   const addHpoAnnotation = async () => {
     if (!familyId || !selectedHpoTerm || !selectedMemberDetail) {
@@ -236,7 +150,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
     setHpoStatus(null);
     try {
       await api.post(
-        apiPath`/families/${familyId}/members/${selectedMemberDetail.member.sample_id}/hpo`,
+        apiPath`/families/${familyId}/members/${memberId}/hpo`,
         {
           hpo_id: selectedHpoTerm.hpo_id,
           status: hpoAnnotationStatus,
@@ -246,7 +160,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
       );
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
       await queryClient.invalidateQueries({
-        queryKey: ['family', familyId, 'member', selectedMemberDetail.member.sample_id],
+        queryKey: ['family', familyId, 'member', memberId],
       });
       // Each phenotype change is an event on the family's clinical audit trail.
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'clinical-audit'] });
@@ -328,11 +242,17 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
     }
   };
 
+  // The member's fields write into the family members' edit as they change: the table shows
+  // the change at once, and Save changes saves it with the rest.
+  const changeMember = (apply: (current: FamilyMembersDraft) => FamilyMembersDraft) => {
+    if (!fieldsDisabled) onChange(apply);
+  };
+
   return (
-    // ModalDialog: Escape, a focus trap and focus restore, and a check before
-    // unapplied edits or a half-entered phenotype are discarded.
+    // ModalDialog: Escape, a focus trap and focus restore, and a check before a half-entered
+    // phenotype is discarded.
     <ModalDialog
-      onClose={closeMemberDetail}
+      onClose={onClose}
       isDirty={memberDetailHasUnsavedInput}
       label="Family member details"
       className="modal-surface surface-card family-member-modal"
@@ -343,9 +263,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
           <div className="variant-review-modal-header">
             <div>
               <p className="page-kicker">Family member</p>
-              <h2 className="catalog-card-title">
-                {selectedMemberDetail?.member.sample_id ?? memberId}
-              </h2>
+              <h2 className="catalog-card-title">{member ? memberLabel(member) : memberId}</h2>
             </div>
             <button type="button" className="button-secondary" onClick={requestClose}>
               Close
@@ -359,12 +277,23 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
               error={memberDetailError}
               onRetry={() => void refetchMemberDetail()}
             />
-          ) : !selectedMemberDetail || !memberDraft ? (
+          ) : !selectedMemberDetail || !member ? (
             <p className="dashboard-link-note">Loading member details.</p>
           ) : (
             <>
+              <p className="dashboard-link-note">
+                {canEditMember
+                  ? member.removed
+                    ? `${member.sample_id} is taken out of the family when you save the family members.`
+                    : editing
+                      ? 'Your changes here are part of the family members you are editing: they show in the table, and Save changes saves them together.'
+                      : 'A change here starts editing the family members: it shows in the table, and Save changes saves it.'
+                  : canEditPhenotypes
+                    ? "Only an administrator changes a member's sample, pedigree and status. You can add, change and remove its HPO terms."
+                    : "You have read access to this family's project: nothing here can be changed."}
+              </p>
               {/* The member's details in three groups: the sample itself, where it sits in the
-                  pedigree (its role and its parents), and its affected and carrier status. */}
+                  pedigree (its role and its relationships), and its affected and carrier status. */}
               <div className="family-member-modal-groups">
                 <fieldset className="family-member-modal-group family-member-modal-group--sample">
                   <legend>Sample</legend>
@@ -372,164 +301,113 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
                     Identifier
                     <input
                       type="text"
-                      value={memberDraft.sample_id}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft ? { ...draft, sample_id: event.target.value } : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
+                      value={member.new_sample_id}
+                      onChange={(event) => {
+                        const new_sample_id = event.target.value;
+                        changeMember((current) => withMemberFields(current, memberId, { new_sample_id }));
+                      }}
+                      disabled={fieldsDisabled}
                     />
                   </label>
-                  <label className="field-label">
+                  <label className="field-label" htmlFor={`${fieldId}-sex`}>
                     Sex
-                    <select
-                      value={memberDraft.sex}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, sex: event.target.value as StructureMemberDraft['sex'] }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {SEX_OPTIONS.map((sex) => (
-                        <option key={sex} value={sex}>
-                          {sex}
-                        </option>
-                      ))}
-                    </select>
+                    <SexSelect
+                      id={`${fieldId}-sex`}
+                      value={member.sex}
+                      onChange={(sex) => changeMember((current) => withMemberFields(current, memberId, { sex }))}
+                      disabled={fieldsDisabled}
+                    />
                   </label>
                 </fieldset>
                 <fieldset className="family-member-modal-group family-member-modal-group--pedigree">
                   <legend>Pedigree</legend>
-                  <label className="field-label">
+                  <label className="field-label" htmlFor={`${fieldId}-role`}>
                     Family role
-                    <select
-                      value={memberDraft.role}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, role: event.target.value as StructureMemberDraft['role'] }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {ROLE_OPTIONS.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
+                    <RoleSelect
+                      id={`${fieldId}-role`}
+                      value={member.role}
+                      onChange={(role) => changeMember((current) => withMemberFields(current, memberId, { role }))}
+                      disabled={fieldsDisabled}
+                    />
                   </label>
-                  <label className="field-label">
+                  <label className="field-label" htmlFor={`${fieldId}-father`}>
                     Father
-                    <select
-                      value={memberDraft.father_id}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft ? { ...draft, father_id: event.target.value } : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      <option value="">None</option>
-                      {orderedMembers
-                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
-                        .map((member) => (
-                          <option key={member.sample_id} value={member.sample_id}>
-                            {member.sample_id}
-                          </option>
-                        ))}
-                    </select>
+                    <ParentSelect
+                      id={`${fieldId}-father`}
+                      draft={draft}
+                      childId={memberId}
+                      role="father"
+                      onChange={(parentId) => changeMember((current) => withParent(current, memberId, 'father', parentId))}
+                      disabled={fieldsDisabled}
+                    />
                   </label>
-                  <label className="field-label">
+                  <label className="field-label" htmlFor={`${fieldId}-mother`}>
                     Mother
-                    <select
-                      value={memberDraft.mother_id}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft ? { ...draft, mother_id: event.target.value } : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      <option value="">None</option>
-                      {orderedMembers
-                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
-                        .map((member) => (
-                          <option key={member.sample_id} value={member.sample_id}>
-                            {member.sample_id}
-                          </option>
-                        ))}
-                    </select>
+                    <ParentSelect
+                      id={`${fieldId}-mother`}
+                      draft={draft}
+                      childId={memberId}
+                      role="mother"
+                      onChange={(parentId) => changeMember((current) => withParent(current, memberId, 'mother', parentId))}
+                      disabled={fieldsDisabled}
+                    />
+                  </label>
+                  <label className="field-label" htmlFor={`${fieldId}-partner`}>
+                    Partner
+                    <PartnerSelect
+                      id={`${fieldId}-partner`}
+                      draft={draft}
+                      memberId={memberId}
+                      onChange={(partnerId) => changeMember((current) => withPartner(current, memberId, partnerId))}
+                      disabled={fieldsDisabled}
+                    />
+                  </label>
+                  <label className="field-label" htmlFor={`${fieldId}-related`} title="Related to the family through this member, by an unknown degree">
+                    Related to
+                    <RelatedToSelect
+                      id={`${fieldId}-related`}
+                      draft={draft}
+                      memberId={memberId}
+                      onChange={(value) => changeMember((current) => withRelatives(current, memberId, value))}
+                      disabled={fieldsDisabled}
+                    />
                   </label>
                 </fieldset>
                 <fieldset className="family-member-modal-group family-member-modal-group--status">
                   <legend>Affected and carrier status</legend>
-                  <label className="field-label">
-                    Phenotype
-                    <select
-                      value={memberDraft.clinical_status}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, clinical_status: event.target.value as ClinicalStatus }
-                            : draft,
-                        )
+                  <label className="field-label" htmlFor={`${fieldId}-affected`}>
+                    Affected status
+                    <ClinicalStatusSelect
+                      id={`${fieldId}-affected`}
+                      value={member.clinical_status}
+                      onChange={(clinical_status) =>
+                        changeMember((current) => withMemberFields(current, memberId, { clinical_status }))
                       }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {CLINICAL_STATUS_OPTIONS.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
+                      disabled={fieldsDisabled}
+                    />
                   </label>
-                  <label className="field-label">
+                  <label className="field-label" htmlFor={`${fieldId}-carrier`}>
                     Carrier status
-                    <select
-                      value={memberDraft.carrier_status}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, carrier_status: event.target.value as CarrierStatus }
-                            : draft,
-                        )
+                    <CarrierStatusSelect
+                      id={`${fieldId}-carrier`}
+                      value={member.carrier_status}
+                      onChange={(carrier_status) =>
+                        changeMember((current) => withMemberFields(current, memberId, { carrier_status }))
                       }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {CARRIER_STATUS_OPTIONS.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
+                      disabled={fieldsDisabled}
+                    />
                   </label>
-                  {memberDraft.carrier_status === 'carrier' && (
-                    <label className="field-label">
+                  {member.carrier_status === 'carrier' && (
+                    <label className="field-label" htmlFor={`${fieldId}-carrier-type`}>
                       Carrier type
-                      <select
-                        value={memberDraft.carrier_type}
-                        onChange={(event) =>
-                          setMemberDraft((draft) =>
-                            draft
-                              ? { ...draft, carrier_type: event.target.value as CarrierType }
-                              : draft,
-                          )
+                      <CarrierTypeSelect
+                        id={`${fieldId}-carrier-type`}
+                        value={member.carrier_type}
+                        onChange={(carrier_type) =>
+                          changeMember((current) => withMemberFields(current, memberId, { carrier_type }))
                         }
-                        disabled={!userIsAdmin || memberBusy}
-                      >
-                        <option value="">type</option>
-                        {CARRIER_TYPE_OPTIONS.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
+                        disabled={fieldsDisabled}
+                      />
                     </label>
                   )}
                 </fieldset>
@@ -734,29 +612,26 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
                 </div>
               </div>
 
-              {memberStatus && (
-                <div
-                  className={`status-note ${
-                    memberStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
-                  }`}
-                >
-                  {memberStatus.message}
-                </div>
-              )}
-
-              {userIsAdmin && (
+              {canEditMember && (
                 <div className="variant-review-modal-actions compact-toolbar">
-                  <button type="button" className="form-button"onClick={applyMemberDetail} disabled={memberBusy}>
-                    Apply to pending
-                  </button>
-                  <button
-                    type="button"
-                    className="button-ghost"
-                    onClick={deleteMemberDetail}
-                    disabled={memberBusy || orderedMembers.length <= 1}
-                  >
-                    Remove member
-                  </button>
+                  {member.removed ? (
+                    <button
+                      type="button"
+                      className="button-secondary"
+                      onClick={() => onChange((current) => withMemberRestored(current, memberId))}
+                    >
+                      Restore member
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button-ghost"
+                      onClick={() => onChange((current) => withMemberRemoved(current, memberId))}
+                      disabled={lastMember}
+                    >
+                      Remove member
+                    </button>
+                  )}
                 </div>
               )}
             </>

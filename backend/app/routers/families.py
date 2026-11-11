@@ -38,12 +38,12 @@ from ..services.family_member_management_service import (
     get_family_member_detail_for_user,
     update_family_members_batch_for_admin,
     update_family_member_for_admin,
+    update_family_structure_with_renames_for_admin,
 )
 from ..services.family_status_service import (
     list_family_assignable_users,
     update_family_metadata_for_user,
 )
-from ..services.family_structure_service import update_family_structure_for_admin
 from ..services.hpo_service import (
     create_individual_hpo_annotation,
     delete_individual_hpo_annotation,
@@ -144,14 +144,14 @@ async def update_family_structure(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyStructureUpdateOut:
-    result = await update_family_structure_for_admin(
+    result = await update_family_structure_with_renames_for_admin(
         session,
         family_id=family_id,
         update=update,
         user=user,
     )
-    # The structure editor's save changes members, roles, affected status and
-    # relationships: the same pedigree edit as the member routes below, so it
+    # The family members editor's save changes members, their IDs, roles, affected and
+    # carrier status and relationships: the same pedigree edit as the member routes below, so it
     # refreshes the genome-overview lineage (grey until then, by the hash guard) and
     # warms the prioritised ranking whose key it changed.
     background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
