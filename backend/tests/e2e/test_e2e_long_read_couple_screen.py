@@ -236,6 +236,8 @@ async def _exercise(base: Path, suffix: str) -> dict:
             ("max_gnomad_af", "0.01"),
             ("max_gnomad_popmax_af", "0.01"),
             ("clinvar_overrides_frequency", "true"),
+            ("exclude_clinvar", "Benign"),
+            ("exclude_clinvar", "Likely benign"),
             ("page_size", "100"),
         ]
         screen = await ac.get(f"/api/families/{family_id}/small-variants", params=screen_params)

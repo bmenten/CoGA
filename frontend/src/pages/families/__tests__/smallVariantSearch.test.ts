@@ -389,6 +389,8 @@ describe('preset frequency ceilings bound popmax', () => {
     expect(draft.max_gnomad_popmax_af).toBe('0.01');
     // A pathogenic founder allele above 1% in some population (CFTR p.Phe508del) stays.
     expect(draft.clinvar_overrides_frequency).toBe('true');
+    // A ClinVar benign or likely benign variant is no carrier finding.
+    expect(draft.exclude_clinvar).toBe('Benign, Likely benign');
   });
 
   it('bounds popmax on the exomes/genomes preset that sets no global AF', async () => {
