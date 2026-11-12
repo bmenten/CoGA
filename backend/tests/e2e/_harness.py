@@ -393,6 +393,15 @@ async def sign_out(ac, url: str, body: dict[str, Any], **kwargs: Any) -> Any:
         sent = following
 
 
+async def carrier_summary_up_to_date() -> None:
+    """Bring the Variant Explorer's carrier summary up to date for every family, as the
+    variant-carrier worker does after a write (``variant_carrier_summary``). The tests call
+    the API in-process without the app's lifespan, so no worker runs."""
+    from backend.app.services.variant_carrier_summary import reconcile_all_variant_carriers
+
+    await reconcile_all_variant_carriers()
+
+
 async def import_golden_trio(root: Path) -> dict[str, Any]:
     """Set up a project, run the real package import, and read back per-stage
     facts. Returns a plain dict so the test asserts synchronously."""

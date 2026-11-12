@@ -96,6 +96,8 @@ NAMESPACE = uuid.UUID("6f1c9a52-31f4-4b5e-9d0a-2f7c3e8b1a40")
 # Databases a fresh ClickHouse server holds; any other means it is not a throwaway one.
 SERVER_DATABASES = {"system", "default", "INFORMATION_SCHEMA", "information_schema"}
 MARKER_TABLE = "coga_scale_benchmark_marker"
+# The measurements a step can run (``--operations``).
+OPERATIONS = ("family", "explorer", "overwrite", "integrity")
 
 # GRCh38 chr1–22 and X, the chromosomes the synthetic variants lie on.
 CHROMOSOMES = [str(n) for n in range(1, 23)] + ["X"]
@@ -999,9 +1001,10 @@ def panel_constraints(admin: Admin) -> tuple[Any, int]:
     return PanelFilterConstraints(genes=genes, regions=regions), len(genes)
 
 
-def stub_explorer_postgres(projects: list[str]) -> None:
-    """The Variant Explorer's Postgres parts: every benchmark project in scope, no panel, no
-    review filter and no reviews to show. Its ClickHouse queries are the app's own."""
+def stub_explorer_postgres(projects: list[str], families: list[Family]) -> None:
+    """The Variant Explorer's Postgres parts: every benchmark project in scope, every member
+    of every family shown, no panel, no review filter and no reviews to show. Its
+    ClickHouse queries are the app's own."""
     from app.services import variant_explorer_service as explorer
 
     async def resolve_scope(_session: Any, _user: Any, _assembly_id: Any) -> Any:
@@ -1016,10 +1019,97 @@ def stub_explorer_postgres(projects: list[str]) -> None:
     async def no_reviews(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         return {}
 
+    async def shown_members(_session: Any, _project_ids: Any) -> list[Any]:
+        return [
+            explorer._ShownMember(
+                family_uuid=family.family_uuid,
+                sample_id=sample.sample_id,
+                sample_uuid=sample.sample_uuid,
+                role=sample.role,
+            )
+            for family in families
+            for sample in family.samples
+        ]
+
+    async def no_pending(*_args: Any, **_kwargs: Any) -> list[str]:
+        return []
+
     explorer.resolve_scope = resolve_scope  # type: ignore[assignment]
+    explorer._pending_families = no_pending  # type: ignore[assignment]
     explorer._panel_constraints = no_panel  # type: ignore[assignment]
     explorer._review_filter_variant_ids = no_review_filter  # type: ignore[assignment]
     explorer._review_display_map = no_reviews  # type: ignore[assignment]
+    explorer._shown_members = shown_members  # type: ignore[assignment]
+
+
+def stub_carrier_summary_postgres(families: list[Family]) -> None:
+    """The variant carrier summary's Postgres parts: every family linked to its project and
+    every member shown, and its locks granted (the benchmark runs one writer at a time).
+    Its ClickHouse queries are the app's own."""
+    from contextlib import asynccontextmanager
+
+    from app.services import variant_carrier_summary as summary
+
+    # Every synthetic sample is a member of one family: none is shown twice.
+    states = {
+        family.family_uuid: ((family.project_uuid,), tuple(sorted(sample.sample_id for sample in family.samples)), ())
+        for family in families
+    }
+
+    async def desired_states(_session: Any, _assembly_id: Any, family_uuids: Any = None) -> dict[str, Any]:
+        if family_uuids is None:
+            return dict(states)
+        return {family: states[family] for family in family_uuids if family in states}
+
+    @asynccontextmanager
+    async def summary_session(*_args: Any, **_kwargs: Any) -> Any:
+        yield None, True
+
+    async def lock_granted(*_args: Any, **_kwargs: Any) -> bool:
+        return True
+
+    async def current_states(assembly_id: Any, assembly_name: Any, family_uuids: Any) -> Any:
+        return await summary._family_states(None, assembly_id, assembly_name, family_uuids)  # type: ignore[arg-type]
+
+    summary._desired_states = desired_states  # type: ignore[assignment]
+    summary._summary_session = summary_session  # type: ignore[assignment]
+    summary._try_lock_family = lock_granted  # type: ignore[assignment]
+    summary._current_states = current_states  # type: ignore[assignment]
+
+
+async def build_carrier_summary(recorder: Recorder, step: int, families: list[Family]) -> None:
+    """Bring the Variant Explorer's carrier summary up to date (``variant_carrier_summary``),
+    one family at a time as the reconciler does, each family's addition measured; then one
+    trio's refresh after a change, as a writer and the reconciler make it: its contribution
+    taken out and added again."""
+    from app.services import variant_carrier_summary as summary
+
+    stub_carrier_summary_postgres(families)
+    states = await summary._family_states(None, "bench-assembly", ASSEMBLY, None)  # type: ignore[arg-type]
+    applied = await summary._applied(ASSEMBLY)
+    for number, family in enumerate(families, start=1):
+        if not summary._stale(states.get(family.family_uuid), applied.get(family.family_uuid)):
+            continue
+        await recorder.measure(
+            step,
+            "summary.add",
+            lambda family=family: summary._refresh_family("bench-assembly", ASSEMBLY, family.family_uuid),
+            family=family.kind,
+            run=number,
+        )
+    trio = next(family for family in families if family.kind == "trio")
+    await recorder.measure(
+        step,
+        "summary.take_out",
+        lambda: summary.detach_family_variant_carriers(ASSEMBLY, trio.family_uuid),
+        family=trio.kind,
+    )
+    await recorder.measure(
+        step,
+        "summary.add_again",
+        lambda: summary._refresh_family("bench-assembly", ASSEMBLY, trio.family_uuid),
+        family=trio.kind,
+    )
 
 
 async def measure_step(
@@ -1029,21 +1119,14 @@ async def measure_step(
     families: list[Family],
     projects: list[str],
     repeat: int,
+    operations: frozenset[str] = frozenset(OPERATIONS),
 ) -> None:
     from app.services import variant_explorer_service as explorer
-    from app.services.clickhouse_family_snapshot import (
-        discard_family_clickhouse_snapshot,
-        restore_family_clickhouse_state,
-        snapshot_family_clickhouse_state,
-    )
     from app.services.clickhouse_family_variants import (
         _count_small_variant_rows_bounded,
         _fetch_small_variant_rows,
     )
-    from app.services.clickhouse_variant_storage import (
-        check_clickhouse_variant_integrity,
-        delete_family_small_variants,
-    )
+    from app.services.clickhouse_variant_storage import check_clickhouse_variant_integrity
     from app.services.family_variant_filters import SmallVariantQueryFilters
 
     trio, singleton, overwritten = probe_families(families)
@@ -1061,7 +1144,7 @@ async def measure_step(
         ),
         "family.gene": (SmallVariantQueryFilters(page=1, page_size=50, gene=f"SG{SINGLE_GENE_BIN}"), None),
     }
-    for family in (trio, singleton):
+    for family in (trio, singleton) if "family" in operations else ():
         context = family_context(family)
         for name, (filters, constraints) in searches.items():
             for run in range(1, repeat + 1):
@@ -1079,13 +1162,18 @@ async def measure_step(
                 if result is not None:
                     recorder.operations[-1].detail = {"page_rows": result[0], "total": list(result[1])}
 
-    stub_explorer_postgres(projects)
+    if "explorer" in operations:
+        await build_carrier_summary(recorder, step, families)
+        # The pages are measured on the summary as background merges leave it; right after
+        # many families are added at once they read every family's part, and take longer.
+        print(f"step {step}: summary merged in {wait_for_merges(admin, 1800):.0f} s", flush=True)
+    stub_explorer_postgres(projects, families)
     explorer_filters = {
         "explorer.unfiltered": explorer.GlobalVariantFilters(),
         "explorer.rare_impact": explorer.GlobalVariantFilters(max_gnomad_af=0.01, impacts=["HIGH", "MODERATE"]),
         "explorer.gene": explorer.GlobalVariantFilters(gene=f"SG{SINGLE_GENE_BIN}"),
     }
-    for name, global_filters in explorer_filters.items():
+    for name, global_filters in explorer_filters.items() if "explorer" in operations else ():
         for run in range(1, repeat + 1):
 
             async def explore(global_filters: Any = global_filters) -> Any:
@@ -1101,7 +1189,26 @@ async def measure_step(
             if result is not None:
                 recorder.operations[-1].detail = {"total": result[0], "page_rows": result[1]}
 
-    # One trio overwritten as the import does it; its rows are put back by the restore.
+    if "overwrite" in operations:
+        await measure_overwrite(recorder, admin, step, overwritten)
+    if "integrity" in operations:
+        report = await recorder.measure(step, "integrity.check", lambda: check_clickhouse_variant_integrity(ASSEMBLY))
+        if report is not None:
+            recorder.operations[-1].detail = {
+                "status": report["status"],
+                "gene_index_consistent": report["gene_index_consistency"]["consistent"],
+            }
+
+
+async def measure_overwrite(recorder: Recorder, admin: Admin, step: int, overwritten: Family) -> None:
+    """One trio overwritten as the import does it; its rows are put back by the restore."""
+    from app.services.clickhouse_family_snapshot import (
+        discard_family_clickhouse_snapshot,
+        restore_family_clickhouse_state,
+        snapshot_family_clickhouse_state,
+    )
+    from app.services.clickhouse_variant_storage import delete_family_small_variants
+
     since = admin.scalar("SELECT now64(6)")
     snapshot = await recorder.measure(
         step,
@@ -1151,12 +1258,6 @@ async def measure_step(
                     for table, parts, rows, size, read_rows, read_bytes, seconds in mutated
                 ]
             }
-    report = await recorder.measure(step, "integrity.check", lambda: check_clickhouse_variant_integrity(ASSEMBLY))
-    if report is not None:
-        recorder.operations[-1].detail = {
-            "status": report["status"],
-            "gene_index_consistent": report["gene_index_consistency"]["consistent"],
-        }
 
 
 def storage(admin: Admin) -> list[dict[str, Any]]:
@@ -1380,7 +1481,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--writer-check", type=int, default=20_000, help="records for the writer's own rate (0: skip)")
     parser.add_argument("--min-free-gb", type=float, default=8.0, help="stop before a step that would leave less disk free")
     parser.add_argument("--merge-timeout", type=float, default=1800, help="seconds to wait for merges before measuring")
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--operations",
+        default=",".join(OPERATIONS),
+        help=f"the measurements to run, comma-separated, of {', '.join(OPERATIONS)}",
+    )
+    args = parser.parse_args(argv)
+    chosen = {value.strip() for value in args.operations.split(",") if value.strip()}
+    if not chosen or chosen - set(OPERATIONS):
+        parser.error(f"--operations takes one or more of {', '.join(OPERATIONS)}")
+    args.operations = frozenset(chosen)
+    return args
 
 
 def configure_app(args: argparse.Namespace, host: str, password: str) -> None:
@@ -1407,6 +1518,7 @@ def measure_with_other_backend(args: argparse.Namespace, host: str, genomes: int
         "--user", args.user, "--database", args.database, "--measure-only", "--genomes", str(genomes),
         "--projects", str(args.projects), "--repeat", str(args.repeat), "--variant-scale", str(args.variant_scale),
         "--backend-dir", str(args.compare_backend_dir), "--results", str(path),
+        "--operations", ",".join(sorted(args.operations)),
     ]
     env = {**os.environ, "BENCH_CLICKHOUSE_PASSWORD": os.environ["CLICKHOUSE_PASSWORD"]}
     subprocess.run(command, check=True, env=env)
@@ -1544,7 +1656,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             "per_entry": sizes.get("entries", 0) / max(step["entries_rows"], 1),
         }
         recorder.operations = []
-        await measure_step(recorder, admin, genomes, families, projects, args.repeat)
+        await measure_step(recorder, admin, genomes, families, projects, args.repeat, args.operations)
         recorder.collect()
         step["operations"] = [asdict(operation) for operation in recorder.operations]
         if args.compare_backend_dir:

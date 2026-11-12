@@ -205,6 +205,7 @@ async def _exercise(family_id: str, panelapp_ids: dict[str, int]) -> dict[str, A
             out["setup"] = await upload_family(
                 ac, project_id, family_id, f"{family_id}\t{proband}\t0\t0\t2\t2\n", _vcf(proband)
             )
+            await _harness.carrier_summary_up_to_date()
             await _seed_genes(assembly_id)
 
             # PanelApp's panels, through CoGA's import: one of regions only, one of a gene

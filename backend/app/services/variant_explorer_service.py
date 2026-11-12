@@ -4,35 +4,36 @@ This service powers a *variant-centric* view of small variants (SNVs/indels)
 aggregated across every project a user can access, independent of family
 boundaries. Each result row is one unique variant (keyed by the ClickHouse
 ``UInt64`` variant key) summarising carrier counts across the whole accessible
-cohort.
+cohort; the gene, transcript and cohort-frequency views (``variant_explorer_views``)
+summarise the same rows by gene, by transcript and by frequency class.
 
 Design notes
 ------------
-* **Source of truth = ``entries``.** Carrier counts are aggregated directly from
-  ``entries`` with ``sign = 1``: no pre-aggregated table can drift from it when a
-  re-import or delete collapses rows. Counting distinct ``sampleId`` also dedupes
-  any sample that appears under multiple accessible projects, and lets us
-  return the distinct family count in the same query.
+* **Counts from the variant carrier summary.** The carriers of each variant are kept per
+  family as its rows are written (``variant_carrier_summary``): a page groups one summary
+  row per variant, project set and class of rows, not every family's ``entries`` row, so
+  it reads the same amount of data whatever the number of families. The summary is
+  grouped in its sort order (``xpos, key``), so a query holds one variant's sums at a time.
+  A family whose variants are being written, or changed since the summary was last brought
+  up to date, is named in ``pending_families``.
 * **Permissions.** Every query is scoped to the project GUIDs the user can
   access (admins -> all projects, viewers -> ``metadata_project_ids``).
   ``project_guid`` in ClickHouse equals the Postgres project UUID string and
-  ``family_guid`` equals the family UUID string.
+  ``family_guid`` equals the family UUID string. A summary row names the projects of its
+  family, and a page keeps the rows of families linked to a project in scope.
 * **Tags / classification** live in Postgres (``small_variant_reviews``,
   per-family). We bridge to ClickHouse on ``variant_id`` (TEXT, e.g.
   ``1-1000-A-T``) — the same bridge the family page uses — because
   ``variant_key`` is only stored when it fits a signed BIGINT.
 * **Filters.** Each filter the explorer shares with the family search is the family
-  search's own SQL (``clickhouse_variant_queries``), read on each ``entries`` row as its
-  family page reads it, so a row counts the carriers of the family pages that keep the
-  variant (``_entries_where``).
+  search's own SQL (``clickhouse_variant_queries``), read on each summary row as its
+  family page reads the rows of that class, so a row counts the carriers of the family
+  pages that keep the variant (``_carriers_where``).
 * **The samples their family shows.** A row holds a call of every sample of the VCF it was
-  imported from, also of a member taken out of the family since. The explorer reads, in each
-  family's rows, the calls of the family's active members alone, as the family search does
-  (``_visible_clickhouse_sample_ids``): the counts, the export, the carriers and the sample
-  genotype filter (the owner's decision of 2026-11-06, ``_shown_members``).
-* This module is intentionally generic ("aggregate variant keys, scoped to
-  projects") so future gene-/transcript-/ClinVar-centric views can be added as
-  sibling functions.
+  imported from, also of a member taken out of the family since. The summary counts, in
+  each family's rows, the calls of the family's active members alone, as the family search
+  does (``_visible_clickhouse_sample_ids``), and so do the carriers and the sample genotype
+  filter (the owner's decision of 2026-11-06, ``_shown_members``).
 """
 
 from __future__ import annotations
@@ -65,8 +66,10 @@ from .clickhouse_variant_ids import _small_table_name
 from .clickhouse_variant_queries import (
     _SMALL_REGION_WINDOW_MATCH,
     IMPUTED_SMALL_VARIANT_SOURCES,
+    _xpos,
     _clickhouse_sample_ids,
     _small_annotation_filter_clauses,
+    _small_annotation_key_membership_condition,
     _small_callset_clauses,
     _small_locus_clauses,
     _small_panel_filter_condition,
@@ -84,6 +87,7 @@ from .family_variant_filters import (
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, has_superuser_rights, user_metadata_project_ids
 from .review_pg_utils import _as_utc, review_class_filter, review_class_label, review_class_label_sql
+from .variant_carrier_summary import CARRIERS_SUFFIX, pending_variant_carrier_families
 from .variant_ranking_cache import panel_members_digest
 
 
@@ -129,15 +133,15 @@ def _bounded_total(raw_count: int) -> tuple[int, bool]:
 # triple plus the sort/order it was issued for, so a stale cursor (after the user changes
 # sort) is detected and ignored rather than silently mis-paging.
 _CURSOR_VERSION = "v1"
-# Column index of each sort_expr in the raw `_fetch_variant_rows` SELECT (see that query).
+# Column index of each sort_expr in a row of `_ranked_variants` (see that query).
 _SORT_RAW_COL = {
-    "families": 8,
-    "hom_samples": 9,
-    "het_samples": 10,
-    "total_samples": 11,
-    "xpos": 7,
+    "families": 2,
+    "hom_samples": 3,
+    "het_samples": 4,
+    "total_samples": 5,
+    "xpos": 1,
 }
-_RAW_XPOS_COL = 7
+_RAW_XPOS_COL = 1
 _RAW_KEY_COL = 0
 
 
@@ -286,7 +290,7 @@ def _first_non_empty(values: Sequence[str]) -> str | None:
 @dataclass(slots=True)
 class GlobalVariantFilters:
     """The explorer's filters: those it shares with the family search, read by the family
-    search's builders (``_entries_where``), the review filter and the per-sample genotype
+    search's builders (``_carriers_where``), the review filter and the per-sample genotype
     filter; no family, inheritance, callset or callers' FILTER filter."""
 
     chromosome: str | None = None
@@ -330,6 +334,12 @@ class GlobalVariantFilters:
     # every constraint. Each is (sample_id, mode) with mode in
     # {"het", "hom", "het_hom"}.
     sample_genotype_filters: list[tuple[str, str]] = field(default_factory=list)
+    # A cell of the cohort-frequency view (``variant_explorer_views``), read back: the
+    # variant's carriers in scope between these bounds, and the gnomAD allele-frequency
+    # class of the rows' own annotation (``GNOMAD_AF_CLASS_CONDITIONS``).
+    min_total_samples: int | None = None
+    max_total_samples: int | None = None
+    gnomad_af_class: str | None = None
 
     def has_review_filter(self) -> bool:
         return bool(self.classifications) or bool(self.review_tags)
@@ -531,26 +541,10 @@ def _shown_calls(members: Sequence[_ShownMember]) -> tuple[tuple[str, str], ...]
     )
 
 
-# Bound when no family of the scope has a member: a pair no row holds, so no call is read.
-# The search, the export and the carriers answer without asking ClickHouse first.
-_NO_SHOWN_CALL: tuple[tuple[str, str], ...] = (("", ""),)
-
-
 def _shown_call(sample_column: str, *, family_column: str = "e.family_guid") -> str:
     """The call of ``sample_column`` in the row of ``family_column`` is one of a member its
-    family shows (``%(shown_calls)s``, which :func:`_entries_where` binds)."""
+    family shows (``%(shown_calls)s``, the pairs of :func:`_shown_calls`)."""
     return f"({family_column}, {sample_column}) IN %(shown_calls)s"
-
-
-def _shown_carrier_condition(params: dict[str, Any]) -> str:
-    """The entries row (alias ``e``) carries the variant in a member its family shows: a
-    call with an ALT allele of a member of the row's own family. The genotype is tested
-    first, so the pair is looked up for the ALT calls alone."""
-    carrier = _gt_is_carrier("call_gt", params)
-    return (
-        f"arrayExists((call_sample, call_gt) -> {carrier} AND {_shown_call('call_sample')}, "
-        "e.calls.sampleId, e.calls.gt)"
-    )
 
 
 # --------------------------------------------------------------------------- #
@@ -937,7 +931,7 @@ def _panel_condition(
     )
 
 
-def _entries_where(
+def _carriers_where(
     scope: ExplorerScope,
     filters: GlobalVariantFilters,
     params: dict[str, Any],
@@ -946,35 +940,38 @@ def _entries_where(
     shown_members: Sequence[_ShownMember],
     panel_constraints: PanelFilterConstraints | None = None,
 ) -> list[str]:
-    """The WHERE clauses on the ``entries`` rows (alias ``e``) for these filters.
-    ``panel_constraints`` is the panel as :func:`_panel_constraints` read it, and
-    ``shown_members`` the samples the scope's families show (:func:`_shown_members`).
+    """The WHERE clauses on the rows of the variant carrier summary (alias ``e``,
+    ``variant_carrier_summary``) for these filters. ``panel_constraints`` is the panel as
+    :func:`_panel_constraints` read it, and ``shown_members`` the samples the scope's families
+    show (:func:`_shown_members`).
 
-    A row is kept when it carries the variant in a member its family shows, and the readers
-    count those members' calls alone (``%(shown_calls)s``, bound here; :func:`_shown_call`):
-    a sample its family does not show, such as a member taken out of it, is neither counted
-    nor keeps a variant, as on the family page (the owner's decision of 2026-11-06). The
-    explorer counted every call a row holds.
+    A row of the summary holds the carriers of one family's rows of one class: their
+    annotation set, rsID, gene symbols and whether their callset is imputed, the columns the
+    filters read on a row. The carriers are the members its family shows (the owner's decision
+    of 2026-11-06), so a sample its family does not show, such as a member taken out of it, is
+    neither counted nor keeps a variant. A family is in scope when it is linked to one of the
+    scope's projects (``hasAny(e.projects, …)``).
 
-    Each filter the explorer shares with the family search is read by the family search's
-    own builder (``clickhouse_variant_queries``), on each row as the family page reads it:
-    the variant type, the imputed callsets, the location (the chromosome with or without
-    ``chr``, chrM by any of its names), the rsID (``_small_row_filter_clauses``); the gene,
-    the per-transcript annotation filters and the excluded ClinVar classes, each on the
-    row's own annotation (``_small_annotation_filter_clauses``); and the gene panel
-    (:func:`_panel_condition`). A variant's row is so kept exactly when its family's page
-    keeps it under these filters, and the explorer counts the carriers of the rows it keeps:
-    a variant two families carry under two annotations (two VEP runs) is counted, under an
-    annotation filter, in the family whose own annotation meets it (the owner's decision of
-    2026-11-06).
+    Each filter the explorer shares with the family search is read by the family search's own
+    builder (``clickhouse_variant_queries``), on each row as the family page reads it: the
+    variant type, the location (the chromosome with or without ``chr``, chrM by any of its
+    names), the rsID (``_small_row_filter_clauses``); the gene, the per-transcript annotation
+    filters and the excluded ClinVar classes, each on the row's own annotation
+    (``_small_annotation_filter_clauses``); and the gene panel (:func:`_panel_condition`). A
+    variant's row is so kept exactly when its family's page keeps the rows of that class, and
+    the explorer counts the carriers of the rows it keeps: a variant two families carry under
+    two annotations (two VEP runs) is counted, under an annotation filter, in the family whose
+    own annotation meets it (the owner's decision of 2026-11-06). The imputed callsets are left
+    out unless included.
 
     The explorer's own filters are the review (tag and classification) filter, across the
     accessible families, and the sample genotype filter, read by variant
     (:func:`_sample_genotype_condition`)."""
-    clauses = ["e.sign = 1", "e.project_guid IN %(project_guids)s"]
+    clauses = ["e.key != 0", "hasAny(e.projects, %(scope_projects)s)"]
     params["project_guids"] = tuple(scope.project_ids)
-    params["shown_calls"] = _shown_calls(shown_members) or _NO_SHOWN_CALL
-    clauses.append(_shown_carrier_condition(params))
+    params["scope_projects"] = list(scope.project_ids)
+    if not filters.include_imputed:
+        clauses.append("NOT e.imputed")
 
     if tag_variant_ids is not None:
         # An empty set means "review filter matched nothing".
@@ -982,12 +979,9 @@ def _entries_where(
         clauses.append("e.variantId IN %(tag_variant_ids)s")
 
     query_filters = _family_search_filters(filters)
-    # First: the annotation and panel subqueries repeat the locus these clauses bind.
-    clauses.extend(
-        _small_row_filter_clauses(
-            scope, query_filters, params=params, exclude_imputed=not filters.include_imputed
-        )
-    )
+    # First: the annotation and panel subqueries repeat the locus these clauses bind. The
+    # imputed callsets are the summary's own column, above.
+    clauses.extend(_small_row_filter_clauses(scope, query_filters, params=params, exclude_imputed=False))
 
     # Each sample is its own membership subquery; AND-ing them means the variant must
     # satisfy every per-sample genotype constraint.
@@ -1015,12 +1009,118 @@ def _entries_where(
         # before it asks ClickHouse.
         clauses.append(_panel_condition(scope, query_filters, panel_constraints, params) or "0")
 
+    if filters.gnomad_af_class is not None:
+        # An unknown class keeps nothing.
+        condition = GNOMAD_AF_CLASS_CONDITIONS.get(filters.gnomad_af_class)
+        clauses.append(
+            _small_annotation_key_membership_condition(scope, query_filters, params=params, condition=condition)
+            if condition
+            else "0"
+        )
+
     return clauses
 
 
-# --------------------------------------------------------------------------- #
-# Main aggregated search                                                      #
-# --------------------------------------------------------------------------- #
+# The gnomAD allele-frequency classes of the cohort-frequency view, on the annotation index
+# (alias ``ai``): absent, below 0.1 %, 0.1–1 %, 1–5 %, 5 % and over.
+GNOMAD_AF_CLASS_CONDITIONS: dict[str, str] = {
+    "absent": "ai.max_gnomad_af IS NULL",
+    "below_0.1": "ai.max_gnomad_af < 0.001",
+    "0.1_1": "ai.max_gnomad_af >= 0.001 AND ai.max_gnomad_af < 0.01",
+    "1_5": "ai.max_gnomad_af >= 0.01 AND ai.max_gnomad_af < 0.05",
+    "above_5": "ai.max_gnomad_af >= 0.05",
+}
+
+
+def _total_samples_having(filters: GlobalVariantFilters, params: dict[str, Any]) -> str:
+    """The carrier-count bounds of a cohort-frequency cell, after the variant's counts
+    (``AND …`` to follow ``HAVING total_samples > 0``), or ''."""
+    parts: list[str] = []
+    if filters.min_total_samples is not None:
+        params["min_total_samples"] = int(filters.min_total_samples)
+        parts.append("total_samples >= %(min_total_samples)s")
+    if filters.max_total_samples is not None:
+        params["max_total_samples"] = int(filters.max_total_samples)
+        parts.append("total_samples <= %(max_total_samples)s")
+    return "".join(f" AND {part}" for part in parts)
+
+
+# The counts of a variant over the summary rows a page keeps (``GROUP BY e.xpos, e.key``).
+# An aggregate row (no family) adds its counts; a carrier row names one family and sample (a
+# family whose rows of the variant fall in several classes, or a sample two families show),
+# and a sample counts once over the classes and families kept, by its ID as the explorer
+# counts samples. A contribution taken out is the same rows negated, so the sums net out
+# whether or not the parts have merged: a (family, sample) counts when its rows sum above
+# zero. The carrier rows are few, so they are gathered per variant and netted there.
+_CARRIER_ROW = "e.family_guid != ''"
+
+
+def _netted(field: int) -> str:
+    """The carrier rows' tokens (family and sample) with the sum of their field ``field``
+    (3 carriers, 4 heterozygous, 5 homozygous)."""
+    return (
+        "arrayReduce('sumMap', arrayMap(t -> [concat(t.1, '\\t', t.2)], carrier_list), "
+        f"arrayMap(t -> [toInt64(t.{field})], carrier_list))"
+    )
+
+
+def _distinct_part(part: int, netted: str) -> str:
+    """How many distinct families (``part`` 1) or samples (2) the tokens of ``netted`` that
+    sum above zero name."""
+    return (
+        f"length(arrayDistinct(arrayMap(token -> splitByChar('\\t', token)[{part}], "
+        f"arrayFilter((token, n) -> n > 0, ({netted}).1, ({netted}).2))))"
+    )
+
+
+_VARIANT_COUNTS = (
+    "groupArrayIf((e.family_guid, e.sample_id, e.samples, e.het, e.hom), "
+    f"{_CARRIER_ROW}) AS carrier_list, "
+    f"{_netted(3)} AS carrier_rows, "
+    f"sumIf(e.families, NOT {_CARRIER_ROW}) + {_distinct_part(1, 'carrier_rows')} AS families, "
+    f"sumIf(e.hom, NOT {_CARRIER_ROW}) + {_distinct_part(2, _netted(5))} AS hom_samples, "
+    f"sumIf(e.het, NOT {_CARRIER_ROW}) + {_distinct_part(2, _netted(4))} AS het_samples, "
+    f"sumIf(e.samples, NOT {_CARRIER_ROW}) + {_distinct_part(2, 'carrier_rows')} AS total_samples"
+)
+# The summary is sorted by ``xpos, key``: grouped in that order, a query holds one variant's
+# sums at a time, however many variants it reads.
+_IN_ORDER = "SETTINGS optimize_aggregation_in_order = 1"
+
+
+def _carriers_table(scope: ExplorerScope) -> str:
+    return _small_table_name(scope.assembly_name, CARRIERS_SUFFIX)
+
+
+async def _count_variants(
+    scope: ExplorerScope, where_sql: str, params: dict[str, Any], having_sql: str = ""
+) -> int:
+    """The distinct variants with a carrier in the rows kept, counted up to the cap (one
+    more distinguishes "exactly cap" from "more"): grouped in the summary's order, the count
+    stops at the cap."""
+    rows = await execute_clickhouse(
+        f"""
+        SELECT count()
+        FROM (
+            SELECT e.key AS key, {_VARIANT_COUNTS}
+            FROM {_carriers_table(scope)} AS e
+            WHERE {where_sql}
+            GROUP BY e.xpos, e.key
+            HAVING total_samples > 0 {having_sql}
+            LIMIT {_EXPLORER_COUNT_CAP + 1}
+        )
+        {_IN_ORDER}
+        """,
+        params,
+    )
+    return int(rows[0][0]) if rows and rows[0] else 0
+
+
+async def _pending_families(session: AsyncSession, scope: ExplorerScope) -> list[str]:
+    """The families of the scope whose variants the summary does not hold as they are now:
+    being written, or changed since the summary was last brought up to date."""
+    return await pending_variant_carrier_families(
+        session, scope.assembly_id, scope.assembly_name, scope.project_ids
+    )
 
 
 async def search_global_small_variants(
@@ -1047,11 +1147,13 @@ async def search_global_small_variants(
     if scope is None:
         return GlobalVariantPageOut(total=0, page_size=page_size, assembly_id=assembly_id)
 
+    pending = await _pending_families(session, scope)
     empty_page = GlobalVariantPageOut(
         total=0,
         page_size=page_size,
         assembly_id=scope.assembly_id,
         assembly_name=scope.assembly_name,
+        pending_families=len(pending),
     )
     # The panel first, as on the family page: a panel that does not exist answers 404.
     panel_constraints = await _panel_constraints(session, scope, filters)
@@ -1068,10 +1170,8 @@ async def search_global_small_variants(
     if not shown_members:
         return empty_page
 
-    entries_table = _small_table_name(scope.assembly_name, "entries")
-
     params: dict[str, Any] = {}
-    where_clauses = _entries_where(
+    where_clauses = _carriers_where(
         scope,
         filters,
         params,
@@ -1081,25 +1181,8 @@ async def search_global_small_variants(
     )
     where_sql = " AND ".join(where_clauses)
 
-    # Distinct variant keys with at least one carrier its family shows (the WHERE), counted
-    # only up to the cap (one extra row distinguishes "exactly cap" from "more than cap").
-    # The inner GROUP BY key + LIMIT bounds the work to O(cap) instead of an unbounded
-    # uniqExact over the cohort.
-    count_rows = await execute_clickhouse(
-        f"""
-        SELECT count()
-        FROM (
-            SELECT key
-            FROM {entries_table} AS e
-            WHERE {where_sql}
-            GROUP BY key
-            LIMIT {_EXPLORER_COUNT_CAP + 1}
-        )
-        """,
-        params,
-    )
-    raw_count = int(count_rows[0][0]) if count_rows and count_rows[0] else 0
-    total, total_is_estimated = _bounded_total(raw_count)
+    having_sql = _total_samples_having(filters, params)
+    total, total_is_estimated = _bounded_total(await _count_variants(scope, where_sql, params, having_sql))
     if total == 0:
         return empty_page
 
@@ -1120,7 +1203,6 @@ async def search_global_small_variants(
     variants, row_cursors = await _fetch_variant_rows(
         session,
         scope=scope,
-        entries_table=entries_table,
         where_sql=where_sql,
         params=params,
         sort_expr=sort_expr,
@@ -1128,6 +1210,7 @@ async def search_global_small_variants(
         limit=page_size + 1,
         seek_having=seek_having,
         seek_params=seek_params,
+        having_sql=having_sql,
     )
 
     next_cursor: str | None = None
@@ -1142,15 +1225,14 @@ async def search_global_small_variants(
         next_cursor=next_cursor,
         assembly_id=scope.assembly_id,
         assembly_name=scope.assembly_name,
+        pending_families=len(pending),
         variants=variants,
     )
 
 
-async def _fetch_variant_rows(
-    session: AsyncSession,
+async def _ranked_variants(
+    scope: ExplorerScope,
     *,
-    scope: Any,
-    entries_table: str,
     where_sql: str,
     params: dict[str, Any],
     sort_expr: str,
@@ -1158,78 +1240,129 @@ async def _fetch_variant_rows(
     limit: int,
     seek_having: str | None = None,
     seek_params: dict[str, Any] | None = None,
-) -> tuple[list[GlobalVariantRowOut], list[tuple[int, int, int]]]:
-    """Run the aggregated variant query and hydrate it into row models.
-
-    Shared by the paginated search and the CSV export so both return identical
-    columns. Each row counts the carriers its family shows (:func:`_shown_call`, bound in
-    ``params`` by :func:`_entries_where`). ``seek_having`` (with ``seek_params``)
-    keyset-pages forward from a cursor; omit it for the first page / full export. Returns
-    ``(rows, row_cursors)`` where ``row_cursors[i]`` is the ``(sort_value, xpos, key)`` of
-    ``rows[i]`` for building the next cursor.
-    """
-
+    having_sql: str = "",
+) -> list[tuple[Any, ...]]:
+    """The page's variants in their order, each as ``(key, xpos, families, hom_samples,
+    het_samples, total_samples)``."""
     page_params = dict(params)
     page_params["limit"] = limit
-    is_hom = _gt_is_hom("gt", page_params)
-    is_carrier = _gt_is_carrier("gt", page_params)
     if seek_params:
         page_params.update(seek_params)
-    having_sql = f"HAVING {seek_having}" if seek_having else ""
+    seek_sql = f"{having_sql} AND {seek_having}" if seek_having else having_sql
+    return list(
+        await execute_clickhouse(
+            f"""
+            SELECT key, xpos, families, hom_samples, het_samples, total_samples
+            FROM (
+                SELECT e.key AS key, e.xpos AS xpos, {_VARIANT_COUNTS}
+                FROM {_carriers_table(scope)} AS e
+                WHERE {where_sql}
+                GROUP BY e.xpos, e.key
+                HAVING total_samples > 0 {seek_sql}
+                ORDER BY {sort_expr} {direction}, xpos ASC, key ASC
+                LIMIT %(limit)s
+            )
+            ORDER BY {sort_expr} {direction}, xpos ASC, key ASC
+            {_IN_ORDER}
+            """,
+            page_params,
+        )
+        or []
+    )
 
-    rows = await execute_clickhouse(
+
+async def _variant_columns(
+    scope: ExplorerScope, *, where_sql: str, params: dict[str, Any], rows: Sequence[tuple[Any, ...]]
+) -> dict[int, tuple[Any, ...]]:
+    """Per variant of ``rows``: its ID, chromosome, position, REF and ALT, an rsID of a row it
+    is kept by, and the gene symbols of those rows; read from the summary rows the page keeps
+    whose carriers have not been taken out."""
+    if not rows:
+        return {}
+    column_params = dict(params)
+    column_params["page_keys"] = tuple(int(row[0]) for row in rows)
+    column_params["page_xpos"] = tuple(sorted({int(row[1]) for row in rows}))
+    result = await execute_clickhouse(
         f"""
         SELECT
             key,
-            any(variant_id) AS variant_id,
-            any(chrom) AS chrom,
-            min(pos) AS pos,
-            any(ref) AS ref,
-            any(alt) AS alt,
-            any(rsid) AS rsid,
-            min(xpos) AS xpos,
-            uniqExact(family_guid) AS families,
-            uniqExactIf(sample_id, is_hom) AS hom_samples,
-            uniqExactIf(sample_id, NOT is_hom) AS het_samples,
-            uniqExact(sample_id) AS total_samples,
-            arrayDistinct(arrayFlatten(groupArray(gene_symbols))) AS gene_symbols
+            min(variant_id),
+            min(variant_chrom),
+            min(variant_pos),
+            min(variant_ref),
+            min(variant_alt),
+            minIf(row_rsid, row_rsid != ''),
+            arraySort(arrayDistinct(arrayFlatten(groupArray(row_gene_symbols))))
         FROM (
             SELECT
-                key,
-                variantId AS variant_id,
-                chrom,
-                pos,
-                ref,
-                alt,
-                rsid,
-                xpos,
-                family_guid,
-                gene_symbols,
-                sample_id,
-                ({is_hom}) AS is_hom
-            FROM {entries_table} AS e
-            ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
-            WHERE {where_sql}
-              AND {is_carrier}
-              AND {_shown_call('sample_id')}
+                e.key AS key,
+                min(e.variantId) AS variant_id,
+                min(e.chrom) AS variant_chrom,
+                min(e.pos) AS variant_pos,
+                min(e.ref) AS variant_ref,
+                min(e.alt) AS variant_alt,
+                e.rsid AS row_rsid,
+                e.gene_symbols AS row_gene_symbols,
+                sum(e.samples) AS row_carriers
+            FROM {_carriers_table(scope)} AS e
+            WHERE {where_sql} AND e.xpos IN %(page_xpos)s AND e.key IN %(page_keys)s
+            GROUP BY e.xpos, e.key, e.family_guid, e.sample_id, e.projects, e.annotationSetHash, e.rsid,
+                     e.gene_symbols, e.imputed
+            HAVING row_carriers > 0
         )
         GROUP BY key
-        {having_sql}
-        ORDER BY {sort_expr} {direction}, xpos ASC, key ASC
-        LIMIT %(limit)s
         """,
-        page_params,
+        column_params,
+    )
+    return {int(row[0]): tuple(row) for row in result or []}
+
+
+async def _fetch_variant_rows(
+    session: AsyncSession,
+    *,
+    scope: ExplorerScope,
+    where_sql: str,
+    params: dict[str, Any],
+    sort_expr: str,
+    direction: str,
+    limit: int,
+    seek_having: str | None = None,
+    seek_params: dict[str, Any] | None = None,
+    having_sql: str = "",
+) -> tuple[list[GlobalVariantRowOut], list[tuple[int, int, int]]]:
+    """Run the aggregated variant query and hydrate it into row models.
+
+    Shared by the paginated search and the CSV export so both return identical columns. The
+    variants are ranked over the variant carrier summary (:func:`_ranked_variants`), then the
+    page's variant columns (:func:`_variant_columns`), annotations and reviews are read for
+    its rows alone. ``seek_having`` (with ``seek_params``) keyset-pages forward from a
+    cursor; omit it for the first page / full export. Returns ``(rows, row_cursors)`` where
+    ``row_cursors[i]`` is the ``(sort_value, xpos, key)`` of ``rows[i]`` for building the
+    next cursor.
+    """
+
+    ranked = await _ranked_variants(
+        scope,
+        where_sql=where_sql,
+        params=params,
+        sort_expr=sort_expr,
+        direction=direction,
+        limit=limit,
+        seek_having=seek_having,
+        seek_params=seek_params,
+        having_sql=having_sql,
     )
 
     # Per-row keyset cursor (sort_value, xpos, key), parallel to `variants`, so the caller
     # can take the boundary row's cursor after an N+1 probe trim.
     row_cursors = [
         (int(row[_SORT_RAW_COL[sort_expr]]), int(row[_RAW_XPOS_COL]), int(row[_RAW_KEY_COL]))
-        for row in rows
+        for row in ranked
     ]
 
-    keys = [int(row[0]) for row in rows]
-    variant_ids = [str(row[1]) for row in rows]
+    columns = await _variant_columns(scope, where_sql=where_sql, params=params, rows=ranked)
+    keys = [int(row[0]) for row in ranked]
+    variant_ids = [str(columns.get(key, ("", ""))[1]) for key in keys]
 
     annotation_map = await _fetch_annotation_display(scope.assembly_name, keys)
     review_map = await _review_display_map(
@@ -1237,22 +1370,18 @@ async def _fetch_variant_rows(
     )
 
     variants: list[GlobalVariantRowOut] = []
-    for row in rows:
+    for row in ranked:
         key = int(row[0])
-        variant_id = str(row[1])
-        chrom = str(row[2] or "")
-        pos = int(row[3] or 0)
-        ref = row[4]
-        alt = row[5]
-        rsid = row[6] or None
+        _key, variant_id, chrom, pos, ref, alt, rsid, row_gene_symbols = columns.get(
+            key, (key, "", "", 0, None, None, "", [])
+        )
+        variant_id = str(variant_id or "")
         annotation = annotation_map.get(key, {})
         review = review_map.get(variant_id, {})
 
-        # Gene symbols come from `entries` (original case); the annotation_index
-        # casefolds them. "-" is an intergenic placeholder we drop.
-        gene_symbols = [
-            value for value in (row[12] or []) if value and value != "-"
-        ]
+        # Gene symbols come from the rows the page keeps (original case); the
+        # annotation_index casefolds them. "-" is an intergenic placeholder we drop.
+        gene_symbols = [value for value in (row_gene_symbols or []) if value and value != "-"]
         impacts = annotation.get("impacts", [])
         effects = annotation.get("effects", [])
         # The transcript the row's consequence and HGVS come from: [effect, HGVSc, HGVSp].
@@ -1265,11 +1394,11 @@ async def _fetch_variant_rows(
             GlobalVariantRowOut(
                 key=str(key),
                 variant_id=variant_id,
-                chr=chrom,
-                pos=pos,
+                chr=str(chrom or ""),
+                pos=int(pos or 0),
                 ref=ref,
                 alt=alt,
-                rsid=rsid,
+                rsid=rsid or None,
                 type=_classify_type(ref, alt),
                 gene=_first_non_empty(gene_symbols)
                 or _first_non_empty(annotation.get("gene_ids", [])),
@@ -1282,10 +1411,10 @@ async def _fetch_variant_rows(
                 clinvar=_most_severe(clinvar_terms, _CLINVAR_RANK) or _first_non_empty(clinvar_terms),
                 classification=classification,
                 tags=sorted(review.get("tags", set())),
-                total_samples=int(row[11] or 0),
-                het_samples=int(row[10] or 0),
-                hom_samples=int(row[9] or 0),
-                total_families=int(row[8] or 0),
+                total_samples=int(row[5] or 0),
+                het_samples=int(row[4] or 0),
+                hom_samples=int(row[3] or 0),
+                total_families=int(row[2] or 0),
                 last_seen=review.get("updated_at"),
             )
         )
@@ -1316,6 +1445,9 @@ class GlobalVariantExport:
     rows: list[GlobalVariantRowOut]
     truncated_reason: str | None
     limit: int
+    # The families of the scope the carrier summary did not hold as they were: the file may
+    # lack their variants or count them as before a change.
+    pending_families: int = 0
 
     @property
     def truncated(self) -> bool:
@@ -1348,12 +1480,17 @@ async def export_global_small_variants(
     scope = await resolve_scope(session, user, assembly_id)
     if scope is None:
         return GlobalVariantExport(assembly_name=None, rows=[], truncated_reason=None, limit=limit)
+    pending = len(await _pending_families(session, scope))
 
     # The panel first, as on the family page and in the search.
     panel_constraints = await _panel_constraints(session, scope, filters)
     if _panel_keeps_nothing(panel_constraints):
         return GlobalVariantExport(
-            assembly_name=scope.assembly_name, rows=[], truncated_reason=None, limit=limit
+            assembly_name=scope.assembly_name,
+            rows=[],
+            truncated_reason=None,
+            limit=limit,
+            pending_families=pending,
         )
     tag_variant_ids, review_filter_capped = await _review_filter_variant_ids(
         session, scope, filters
@@ -1368,11 +1505,11 @@ async def export_global_small_variants(
             rows=[],
             truncated_reason=review_filter_cut,
             limit=limit,
+            pending_families=pending,
         )
 
-    entries_table = _small_table_name(scope.assembly_name, "entries")
     params: dict[str, Any] = {}
-    where_clauses = _entries_where(
+    where_clauses = _carriers_where(
         scope,
         filters,
         params,
@@ -1385,12 +1522,12 @@ async def export_global_small_variants(
     variants, _row_cursors = await _fetch_variant_rows(
         session,
         scope=scope,
-        entries_table=entries_table,
         where_sql=where_sql,
         params=params,
         sort_expr=sort_expr,
         direction=direction,
         limit=limit + 1,
+        having_sql=_total_samples_having(filters, params),
     )
     row_cut = TRUNCATED_BY_ROW_LIMIT if len(variants) > limit else None
     return GlobalVariantExport(
@@ -1398,6 +1535,7 @@ async def export_global_small_variants(
         rows=variants[:limit],
         truncated_reason=review_filter_cut or row_cut,
         limit=limit,
+        pending_families=pending,
     )
 
 
@@ -1493,10 +1631,25 @@ async def get_variant_carriers(
         return VariantCarriersOut(key=str(variant_key))
     member_of_call = {(member.family_uuid, member.sample_id): member for member in shown_members}
 
+    # The variant's position, from the annotation index (its key has a bloom filter there):
+    # ``entries`` is sorted by project, family and position, so the carriers' rows are found
+    # by position in each family's rows rather than read through.
+    positions = await execute_clickhouse(
+        f"""
+        SELECT DISTINCT chrom, pos
+        FROM {_small_table_name(scope.assembly_name, "variants/annotation_index")}
+        WHERE key = %(key)s
+        """,
+        {"key": variant_key},
+    )
+    xpos_values = tuple(sorted({_xpos(str(chrom), int(pos)) for chrom, pos in positions or []}))
+    if not xpos_values:
+        return VariantCarriersOut(key=str(variant_key))
     entries_table = _small_table_name(scope.assembly_name, "entries")
     params: dict[str, Any] = {
         "project_guids": tuple(scope.project_ids),
         "key": variant_key,
+        "xpos_values": xpos_values,
         "shown_calls": _shown_calls(shown_members),
     }
     is_carrier = _gt_is_carrier("gt", params)
@@ -1519,6 +1672,7 @@ async def get_variant_carriers(
         ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
         WHERE sign = 1
           AND project_guid IN %(project_guids)s
+          AND xpos IN %(xpos_values)s
           AND key = %(key)s
           AND {is_carrier}{genotype_clause}{source_clause}
           AND {_shown_call('sample_id', family_column='family_guid')}

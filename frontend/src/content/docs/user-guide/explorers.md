@@ -54,6 +54,25 @@ show a more severe class, from another family's review.
   misses matches has *TRUNCATED* in its name, and the page says why: more variants matched than the
   50,000 rows (narrow the filters), or the tag or classification filter matched more than the 200,000
   variants one search takes (filter on fewer tags or classifications).
+- The counts come from a summary CoGA keeps as families' variants are written. While a family is being
+  imported, or for a few seconds after its members or projects change, the page says how many families
+  are being added or brought up to date: their variants may be missing, or counted as before the change.
+  Refresh in a moment.
+
+The same filtered variants can also be viewed three other ways, from the tabs above the results:
+
+- **Genes**: one row per gene a variant's annotation names, with the number of variants (also by their
+  most severe impact on the gene) and the carriers *summed over those variants*: a sample with two
+  variants in the gene counts twice. Click a gene to open its variants, where each variant's carriers
+  are counted once.
+- **Transcripts**: one row per transcript a variant's annotation names, every transcript or only the
+  MANE or canonical ones, with its gene and the variants by their most severe consequence on it (loss of
+  function, missense or in-frame, splice region, synonymous, other) and the carriers summed over them.
+  Click the gene to open its variants.
+- **Cohort frequency**: the variants by their number of carriers in your projects (1, 2–5, 6–20,
+  21–100, more than 100) against their gnomAD allele frequency (not in gnomAD, below 0.1 %, 0.1–1 %,
+  1–5 %, 5 % and more). Variants frequent here and rare in gnomAD can be artefacts or founder variants.
+  Click a cell to open its variants; the filter shows above the results until you remove it.
 
 ### Clinical CNV explorer
 

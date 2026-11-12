@@ -4,7 +4,8 @@ Can CoGA hold and search 1,000 whole genomes? This page records how the ClickHou
 storage behaves as a synthetic cohort grows, where it fails, and what hardware 1,000 genomes need.
 The benchmark is
 [`scripts/benchmark_clickhouse_scale.py`](../scripts/benchmark_clickhouse_scale.py); every figure
-below comes from its results, measured on 2 and 3 November 2026. The family
+below comes from its results, measured on 2 and 3 November 2026, the Variant Explorer's on
+12 November 2026. The family
 search's annotation filters are narrowed to the variants the family carries
 (`_small_family_key_condition`); this page calls that *the family-key bound*, and measures the
 search with and without it.
@@ -25,11 +26,15 @@ search with and without it.
 - **The family-key bound costs every narrow search about 240 MiB:** a one-gene search held
   240 MiB and took 1.1 s with it, 26 MiB and 0.4 s with the bound left out; a rare and
   HIGH/MODERATE search 240 MiB with it, 100 MiB without it.
-- **The Variant Explorer's unfiltered page fails first:** it passes the 110 s limit from about
-  20 M `entries` rows, three or four whole-genome families. Its filtered pages read every `entries`
-  row of the cohort and the cohort's annotations, twice: 189 M rows and 7 s at 60 M `entries` rows;
-  about 5.5 billion rows a page at 1,000 genomes (about 17 s at the fastest rate seen here, past
-  the 110 s limit at the slowest).
+- **The Variant Explorer reads a carrier summary, not the families' rows:** per variant, what
+  each family adds, kept as the families' variants are written
+  ([database.md](database.md#the-variant-carrier-summary)). Counted from every `entries` row, its
+  unfiltered page passed the 110 s limit from 60 M rows (100 genomes at a quarter of the variants
+  each) and a one-gene page took 21 s at 150 M rows. From the summary, at 150 M rows: 1.7 s
+  unfiltered, 1.3 s rare and HIGH/MODERATE, 0.6 s one gene. On a synthetic summary the size of
+  1,000 genomes' (61 M variants) the unfiltered page takes about 8 s and holds under 200 MiB.
+  Adding a family costs about 7 s for a quarter-size trio, so some 25 s for a whole-genome one,
+  twice per write of the family (taken out, then added again).
 - **An overwrite of a whole-genome trio takes about a minute:** snapshot and restore of 6.3 M rows,
   20–35 s and 1.5 GiB each, whatever the family's size. The snapshot runs under the 110 s query
   limit; on the loaded test machine one passed it. The delete rewrites the family's parts, which
@@ -51,15 +56,13 @@ search with and without it.
 | CPU | 16 vCPU | the scans run in parallel; these measurements had 10 cores, shared with other work |
 
 This is the "16 vCPU and 64 GB to test at scale" of [deployment-vm.md](deployment-vm.md), with a
-larger disk. Hardware fixes neither the Variant Explorer's unfiltered page nor the growth of the
-family search's annotation scans with the cohort: both need code changes (see "What would scale
-better").
+larger disk. Hardware does not fix the growth of the family search's annotation scans with the
+cohort: that needs code changes (see "What would scale better").
 
 ## Where it fails
 
 | Operation | Fails at | How |
 | --- | --- | --- |
-| Variant Explorer, unfiltered | about 20 M `entries` rows: 3–4 whole-genome families | 110 s limit (it spills to disk past 2 GiB, then runs out of time) |
 | Family search | not within 250 genomes | rows read grow with the cohort: about 750 M per broad search at 1,000 genomes, about 5–10 s here |
 | Overwrite of a whole-genome trio | on a loaded machine | the snapshot's copy of 6.3 M rows passed the 110 s limit |
 | Delete or overwrite of a family | a project of more than about 70 GB of `entries`, some 350 genomes in one project (extrapolated) | the delete rewrites its project's parts at about 0.6 GB a second, past the client's 120 s read timeout (`CLICKHOUSE_SEND_RECEIVE_TIMEOUT`) |
@@ -173,32 +176,55 @@ family-key bound already held the rare-only memory of a quarter-size trio to 216
 
 ### Variant Explorer
 
-The Variant Explorer's searches (`search_global_small_variants`) read every `entries` row of the
-projects in scope, twice (the bounded count and the page). A filtered search also reads the
-cohort's annotation table for its filter.
+The Variant Explorer counts, per variant, the families and samples of the user's projects that
+carry it. It reads them from the carrier summary (`SNV_INDEL/carriers`,
+[database.md](database.md#the-variant-carrier-summary)): one row per variant, set of projects and
+class of rows (annotation set, rsID, gene symbols, imputed or not), summed over the families, and
+a row per carrier where a family's rows of a variant fall in several classes or a sample is shown
+by two families. A page groups those rows per variant in the table's order, so it holds one
+variant's sums at a time, and reads what the number of distinct variants makes, not the number of
+genomes.
 
-| Page | Data | Memory | Rows read | Time |
-| --- | --- | ---: | ---: | --- |
-| Unfiltered | 6 M `entries` rows (pass A, 10 genomes) | 2.2 GiB | 18 M | 16 s |
-| | 12 M (pass A, 20 genomes) | 2.2 GiB | 31 M | 50 s |
-| | 24 M (pass A, 40 genomes) | 2.3 GiB | 57 M | 49–66 s |
-| | 17 M, three whole-genome families (pass B) | 2.1–2.4 GiB | 73–83 M | 35–67 s at 50 and 100 genomes; 8 of the 12 runs at 100 and 250 genomes passed the 110 s limit |
-| | 17 M, quieter machine (pass D) | 2.4 GiB | 108 M | 28 s |
-| | 60 M (pass C, 100 genomes) | 2.3 GiB | 103 M | passed the 110 s limit |
-| Rare, HIGH/MODERATE | 24 M rows, 3.4 M distinct variants (pass A, 40 genomes) | 84 MiB | 99 M | 2.7 s |
-| | 17 M rows, 28 M distinct variants (pass B, 250 genomes) | 68 MiB | 444 M | 7–18 s |
-| | the same, quieter machine (pass D) | 90 MiB | 446 M | 1.3 s |
-| | 60 M rows, 4.7 M distinct (pass C, 100 genomes) | 108 MiB | 189 M | 6.9 s |
-| One gene | 24 M rows (pass A, 40 genomes) | 84 MiB | 58 M | 1.1 s |
-| | 17 M rows, 28 M distinct (pass B, 250 genomes) | 50 MiB | 110 M | 2–7 s |
-| | 60 M rows (pass C, 100 genomes) | 88 MiB | 137 M | 2.3 s |
+Before, a page grouped every carrier of every `entries` row (`uniqExact` of families and samples
+per key), spilling past 2 GiB. Measured with the code before the summary, on a cohort at a quarter
+of the variants per genome (every family's `entries` rows, no `variants/details`), one run each:
 
-The unfiltered page groups every carrier of every variant (`uniqExact` of families and samples per
-key) and spills that state to disk past 2 GiB. Its time grows with the rows and the machine's load,
-and it already fails on a handful of genomes. A filtered page holds little memory, but at 1,000
-genomes it reads about 5.5 billion rows (2.4 billion `entries` rows and 360 M annotation rows,
-twice): about 17 s at the fastest rate seen here (330 M rows a second, pass D), past the 110 s
-limit at the slowest.
+| Genomes | `entries` rows | Unfiltered | Rare, HIGH/MODERATE | One gene |
+| ---: | ---: | --- | --- | --- |
+| 10 | 5.9 M | 8.1 s, 2.5 GiB | 0.9 s | 0.7 s |
+| 40 | 23.9 M | 32 s, 2.5 GiB | 3.9 s | 2.6 s |
+| 100 | 59.9 M | passed the 110 s limit, 3.4 GiB | 10.4 s | 7.7 s |
+| 250 | 150.2 M | passed the 110 s limit | 31 s | 21 s |
+
+The same 250-genome cohort (7.0 M distinct variants) with the summary, the median of three runs:
+
+| Page | Summary as merges leave it (5 parts, 26 M rows, 0.9 GiB) | Right after 100 families were added at once (102 parts, 153 M rows) |
+| --- | --- | --- |
+| Unfiltered | 1.7 s, 224 MiB, 47 M rows read | 21 s, 527 MiB |
+| Rare, HIGH/MODERATE | 1.3 s, 41 MiB | 14 s, 266 MiB |
+| One gene | 0.6 s, 21 MiB | 7 s, 95 MiB |
+
+- **Merges.** A family's contribution is attached as one part; ClickHouse's background merges then
+  sum the families' rows into a few parts. Adding the 100 families at once left 102 parts, which
+  merged in 218 s; until then a page read every family's part. In normal use families are added
+  one at a time, and each part is merged within minutes.
+- **The filtered pages** read the cohort's annotation tables for their annotation filters, as the
+  family search does (`(key, annotationSetHash) IN (…)`), and the summary instead of `entries`:
+  200 M rows for the rare and HIGH/MODERATE page, against 405 M before. That reading still grows
+  with the cohort, as the family search's does (below, "What would scale better").
+- **At 1,000 genomes.** A synthetic summary of 61 M variants (9 M common ones carried in each of
+  four projects, 52 M rare ones in one), 88 M rows merged into 4 parts and 2.9 GB, read by the
+  app's own queries (median of three): the unfiltered page took 8.4 s sorted by carriers, 8.1 s
+  ascending and 7.9 s by position, at most 186 MiB; the bounded count 0.1 s. Grouped without the
+  table's order the page held 2 GiB; with `FINAL` on an unmerged summary it was far slower (152 s
+  at 250 genomes), so the page reads without it.
+- **Keeping it.** Adding a family reads its rows once (`FINAL`, in their order), writes its rows to
+  a staging table and merges them into one part: 6.9 s for a quarter-size trio and 3.7 s for a
+  singleton, at most 0.6 GiB, whatever the cohort's size. A whole-genome trio has four times the
+  rows: about 25 s. A write of a family pays it twice: its contribution is taken out before the
+  write (6.5 s for the trio) and added again after it (7.7 s), against some 40 minutes for the
+  import of a whole-genome trio.
+- **Its size.** 0.9 GiB merged for 150 M `entries` rows (11.8 GiB): about 3 GB at 1,000 genomes.
 
 ### Overwrite of a family
 
@@ -269,8 +295,10 @@ This benchmark generates each shared row once and does not measure that merge lo
   the family's alone.
 - **The family-key bound** could be left out of a narrow subquery (a gene, a panel's genes), which
   reads little of the cohort without it.
-- **The Variant Explorer** needs a per-variant summary of carriers, kept up to date at import,
-  instead of aggregating every carrier of the cohort on each page.
+- **The Variant Explorer's annotation filters** gather every matching variant of the cohort into
+  the set their `IN` tests, as the family search's did before the family-key bound: a broad one
+  (rare only) at 1,000 genomes is a set of tens of millions of variants. Reading the summary per
+  chromosome and merging the pages would bound it.
 - **A family's delete** rewrites the parts it shares with the rest of its project; partitioning
   `entries` finer than by project would bound what one delete rewrites.
 - **The import** writes each variant's shared rows once per family; writing only the variants the
@@ -340,7 +368,8 @@ After each step's merges have settled, the script calls the app's own functions,
 | — panel | the 5,300-gene panel, no other filter |
 | — panel, rare and HIGH/MODERATE impact | both together |
 | — one gene | `gene = SG20000` |
-| Variant Explorer, unfiltered, rare and HIGH/MODERATE impact, one gene | `search_global_small_variants`, every project in scope; its Postgres parts (scope, review filter, reviews shown) stubbed |
+| Variant Explorer, unfiltered, rare and HIGH/MODERATE impact, one gene | `search_global_small_variants`, every project in scope, once the carrier summary's merges have settled; its Postgres parts (scope, members shown, families pending, review filter, reviews shown) stubbed |
+| The carrier summary: each family added, one trio taken out and added again | the reconciler's refresh of one family (`variant_carrier_summary._refresh_family`) and the writers' hook (`detach_family_variant_carriers`), the Postgres parts (projects, members, locks) stubbed |
 | Overwrite of one trio | `snapshot_family_clickhouse_state`, `delete_family_small_variants`, `restore_family_clickhouse_state`, `discard_family_clickhouse_snapshot`, and the parts the mutations rewrote (`system.part_log`) |
 | Integrity check | `check_clickhouse_variant_integrity`, as the 6-hourly monitor runs it |
 | Storage | rows, parts and bytes on disk per table (`system.parts`) |
@@ -364,6 +393,8 @@ ends. Options:
 - `--entries probes` stores `entries` rows only for the three families it measures, and
   `--skip-details` leaves `variants/details` empty, to test the cohort-wide annotation tables alone.
 - The script stops before a step that would leave less than `--min-free-gb` free.
+- `--operations` runs some of the measurements alone: `family`, `explorer` (with the carrier
+  summary), `overwrite` and `integrity`.
 - To compare two versions of the query code on one dataset,
   `--compare-backend-dir <other checkout>/backend` measures every step a second time with the other
   checkout's code, as pass B did. Or keep the container (`--keep-container`) and measure later with

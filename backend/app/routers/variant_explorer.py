@@ -4,16 +4,19 @@ A variant-centric, cross-project aggregation view over small variants. See
 ``app/services/variant_explorer_service.py`` for the aggregation strategy.
 """
 
-from typing import List
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.csv_export import csv_document, export_response_headers
+from ..core.csv_export import EXPORT_PENDING_FAMILIES_HEADER, csv_document, export_response_headers
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import (
+    ExplorerFrequencyOut,
+    ExplorerGenePageOut,
+    ExplorerTranscriptPageOut,
     GlobalVariantPageOut,
     GlobalVariantRowOut,
     SmallVariantTagDefinitionOut,
@@ -30,6 +33,11 @@ from ..services.variant_explorer_service import (
     list_explorer_samples,
     search_global_small_variants,
     _accessible_project_rows,
+)
+from ..services.variant_explorer_views import (
+    explorer_frequency_view,
+    explorer_gene_view,
+    explorer_transcript_view,
 )
 from .query_params import FiniteThreshold
 
@@ -133,6 +141,9 @@ async def _build_global_variant_filters(
     review_tag: List[str] = Query(default_factory=list, alias="review_tag"),
     include_imputed: bool = False,
     sample_gt: List[str] = Query(default_factory=list, alias="sample_gt"),
+    min_total_samples: Annotated[int | None, Query(ge=1)] = None,
+    max_total_samples: Annotated[int | None, Query(ge=1)] = None,
+    gnomad_af_class: str | None = None,
 ) -> GlobalVariantFilters:
     """Parse the shared small-variant filter query params into a filter object.
 
@@ -175,6 +186,9 @@ async def _build_global_variant_filters(
         review_tags=review_tag,
         include_imputed=include_imputed,
         sample_genotype_filters=_parse_sample_genotype_filters(sample_gt),
+        min_total_samples=min_total_samples,
+        max_total_samples=max_total_samples,
+        gnomad_af_class=gnomad_af_class,
     )
 
 
@@ -199,6 +213,69 @@ async def list_global_small_variants(
         sort=sort,
         order=order,
     )
+
+
+@router.get("/small-variants/genes", response_model=ExplorerGenePageOut)
+async def list_explorer_genes(
+    assembly_id: str | None = None,
+    sort: str = "variants",
+    order: str = "desc",
+    offset: int = Query(default=0, ge=0),
+    page_size: int = Query(default=100, ge=1, le=500),
+    filters: GlobalVariantFilters = Depends(_build_global_variant_filters),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ExplorerGenePageOut:
+    """The gene view: one row per gene the filtered variants' annotations name."""
+    return await explorer_gene_view(
+        session,
+        user=user,
+        filters=filters,
+        assembly_id=assembly_id,
+        sort=sort,
+        order=order,
+        offset=offset,
+        page_size=page_size,
+    )
+
+
+@router.get("/small-variants/transcripts", response_model=ExplorerTranscriptPageOut)
+async def list_explorer_transcripts(
+    assembly_id: str | None = None,
+    transcripts: str = "all",
+    sort: str = "variants",
+    order: str = "desc",
+    offset: int = Query(default=0, ge=0),
+    page_size: int = Query(default=100, ge=1, le=500),
+    filters: GlobalVariantFilters = Depends(_build_global_variant_filters),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ExplorerTranscriptPageOut:
+    """The transcript view: one row per transcript the filtered variants' annotations name
+    (``transcripts``: all, mane or canonical)."""
+    return await explorer_transcript_view(
+        session,
+        user=user,
+        filters=filters,
+        assembly_id=assembly_id,
+        transcripts=transcripts,
+        sort=sort,
+        order=order,
+        offset=offset,
+        page_size=page_size,
+    )
+
+
+@router.get("/small-variants/frequency", response_model=ExplorerFrequencyOut)
+async def list_explorer_frequency(
+    assembly_id: str | None = None,
+    filters: GlobalVariantFilters = Depends(_build_global_variant_filters),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ExplorerFrequencyOut:
+    """The cohort-frequency view: the filtered variants by carrier class and gnomAD
+    frequency class."""
+    return await explorer_frequency_view(session, user=user, filters=filters, assembly_id=assembly_id)
 
 
 # CSV column order for the variant export. Mirrors the on-screen table plus the
@@ -265,16 +342,18 @@ async def export_global_small_variants_csv(
         order=order,
     )
 
+    headers = export_response_headers(
+        f"variant-explorer-{export.assembly_name or 'export'}",
+        rows=len(export.rows),
+        truncated=export.truncated,
+        limit=export.limit,
+        reason=export.truncated_reason,
+    )
+    headers[EXPORT_PENDING_FAMILIES_HEADER] = str(export.pending_families)
     return StreamingResponse(
         iter([csv_document(_EXPORT_COLUMNS, export.rows, _export_cell)]),
         media_type="text/csv",
-        headers=export_response_headers(
-            f"variant-explorer-{export.assembly_name or 'export'}",
-            rows=len(export.rows),
-            truncated=export.truncated,
-            limit=export.limit,
-            reason=export.truncated_reason,
-        ),
+        headers=headers,
     )
 
 

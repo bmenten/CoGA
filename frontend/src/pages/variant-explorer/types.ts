@@ -1,5 +1,11 @@
 // The Global Small Variant Explorer's responses, read through their generated types.
 import type {
+  ExplorerFrequencyCellOut,
+  ExplorerFrequencyOut,
+  ExplorerGenePageOut,
+  ExplorerGeneRowOut,
+  ExplorerTranscriptPageOut,
+  ExplorerTranscriptRowOut,
   GlobalVariantPageOut,
   GlobalVariantRowOut,
   VariantCarriersOut,
@@ -16,3 +22,11 @@ export type GlobalVariantPage = GlobalVariantPageOut;
 export type VariantCarriers = VariantCarriersOut;
 
 export type CarrierModalMode = 'het' | 'hom' | 'all' | 'families';
+
+// The gene, transcript and cohort-frequency views, over the same filters.
+export type ExplorerGenePage = ExplorerGenePageOut;
+export type ExplorerGeneRow = ExplorerGeneRowOut;
+export type ExplorerTranscriptPage = ExplorerTranscriptPageOut;
+export type ExplorerTranscriptRow = ExplorerTranscriptRowOut;
+export type ExplorerFrequency = ExplorerFrequencyOut;
+export type ExplorerFrequencyCell = ExplorerFrequencyCellOut;

@@ -31,6 +31,44 @@ export interface SampleGenotypeFilter {
   mode: GenotypeFilterMode;
 }
 
+/** The explorer's views: the variants, and the same variants by gene, by transcript and by
+ * cohort frequency. */
+export type ExplorerView = 'variants' | 'genes' | 'transcripts' | 'frequency';
+
+/** A cell of the cohort-frequency view, read back on the variant view: the variants with
+ * ``minSamples`` to ``maxSamples`` carriers (no maximum when null) in one gnomAD class. */
+export interface CohortFrequencyCell {
+  minSamples: number;
+  maxSamples: number | null;
+  gnomadAfClass: string;
+}
+
+export const CARRIER_CLASS_LABELS: Record<string, string> = {
+  '1': '1',
+  '2-5': '2–5',
+  '6-20': '6–20',
+  '21-100': '21–100',
+  '>100': '> 100',
+};
+
+export const GNOMAD_AF_CLASS_LABELS: Record<string, string> = {
+  absent: 'Not in gnomAD',
+  'below_0.1': '< 0.1 %',
+  '0.1_1': '0.1–1 %',
+  '1_5': '1–5 %',
+  above_5: '≥ 5 %',
+};
+
+export const cohortCellLabel = (cell: CohortFrequencyCell) => {
+  const carriers =
+    cell.maxSamples === null
+      ? `more than ${cell.minSamples - 1} carriers`
+      : cell.minSamples === cell.maxSamples
+        ? `${cell.minSamples} carrier${cell.minSamples === 1 ? '' : 's'}`
+        : `${cell.minSamples}–${cell.maxSamples} carriers`;
+  return `${carriers}, gnomAD ${GNOMAD_AF_CLASS_LABELS[cell.gnomadAfClass] ?? cell.gnomadAfClass}`;
+};
+
 const PAGE_SIZE = 50;
 
 const EMPTY_MEMBERS: SmallVariantFamily['members'] = [];
@@ -104,6 +142,8 @@ export const useGlobalSmallVariantSearchState = () => {
   const [order, setOrder] = useState<GlobalVariantOrder>('desc');
   const [includeImputed, setIncludeImputedState] = useState(false);
   const [genotypeFilters, setGenotypeFilters] = useState<SampleGenotypeFilter[]>([]);
+  const [view, setView] = useState<ExplorerView>('variants');
+  const [cohortCell, setCohortCellState] = useState<CohortFrequencyCell | null>(null);
 
   const setDraftFilterValue = useCallback((name: keyof SmallFilterState, value: string) => {
     setDraftFilters((prev) => ({ ...prev, [name]: value }));
@@ -206,6 +246,30 @@ export const useGlobalSmallVariantSearchState = () => {
     setPagination({ history: [] });
   }, []);
 
+  // A cell of the cohort-frequency view: its variants, on the variant view.
+  const showCohortCell = useCallback((cell: CohortFrequencyCell | null) => {
+    setCohortCellState(cell);
+    setPagination({ history: [] });
+    if (cell) setView('variants');
+  }, []);
+
+  // A row of the gene or transcript view: the variant view of that gene, the other
+  // filters kept and the location replaced by the gene.
+  const showGene = useCallback((gene: string) => {
+    const withGene = (prev: SmallFilterState): SmallFilterState => ({
+      ...prev,
+      locus: '',
+      chr: '',
+      start: '',
+      end: '',
+      gene,
+    });
+    setFilters(withGene);
+    setDraftFilters(withGene);
+    setPagination({ history: [] });
+    setView('variants');
+  }, []);
+
   const setSort = useCallback(
     (nextSort: GlobalVariantSort) => {
       if (sort === nextSort) {
@@ -235,17 +299,12 @@ export const useGlobalSmallVariantSearchState = () => {
     });
   }, []);
 
-  const requestQueryString = useMemo(() => {
-    // Reuse the shared builder, then swap its page param for the keyset cursor.
+  // The filters every view reads: the shared form's, the assembly, the imputed callsets,
+  // the sample genotypes and a cohort-frequency cell.
+  const filterQueryString = useMemo(() => {
     const params = buildSmallVariantQueryParams(filters, EMPTY_SAMPLE_FILTERS, 1);
     GLOBAL_UNREAD_PARAMS.forEach((name) => params.delete(name));
     params.delete('page');
-    params.set('page_size', String(PAGE_SIZE));
-    params.set('sort', sort);
-    params.set('order', order);
-    if (pagination.cursor) {
-      params.set('cursor', pagination.cursor);
-    }
     if (assemblyId) {
       params.set('assembly_id', assemblyId);
     }
@@ -257,8 +316,27 @@ export const useGlobalSmallVariantSearchState = () => {
         params.append('sample_gt', `${entry.sample}:${entry.mode}`);
       }
     });
+    if (cohortCell) {
+      params.set('min_total_samples', String(cohortCell.minSamples));
+      if (cohortCell.maxSamples !== null) {
+        params.set('max_total_samples', String(cohortCell.maxSamples));
+      }
+      params.set('gnomad_af_class', cohortCell.gnomadAfClass);
+    }
     return params.toString();
-  }, [filters, pagination.cursor, sort, order, assemblyId, includeImputed, genotypeFilters]);
+  }, [filters, assemblyId, includeImputed, genotypeFilters, cohortCell]);
+
+  const requestQueryString = useMemo(() => {
+    // The views' filters, with the variant view's page size, sort and keyset cursor.
+    const params = new URLSearchParams(filterQueryString);
+    params.set('page_size', String(PAGE_SIZE));
+    params.set('sort', sort);
+    params.set('order', order);
+    if (pagination.cursor) {
+      params.set('cursor', pagination.cursor);
+    }
+    return params.toString();
+  }, [filterQueryString, pagination.cursor, sort, order]);
 
   // No-op family/sample handlers (the form hides these controls when
   // familyAware={false}, but the prop contract still requires them).
@@ -301,5 +379,11 @@ export const useGlobalSmallVariantSearchState = () => {
     genotypeFilters,
     applyGenotypeFilters,
     requestQueryString,
+    filterQueryString,
+    view,
+    setView,
+    cohortCell,
+    showCohortCell,
+    showGene,
   };
 };

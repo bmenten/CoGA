@@ -2305,7 +2305,7 @@ def _small_row_filter_clauses(
 ) -> list[str]:
     """The filters on an entries row (alias ``e``) that need no family: the variant type, the
     callset, the location and the rsID. The family search (``_small_variant_where_clauses``)
-    and the Variant Explorer (``variant_explorer_service._entries_where``) read them here.
+    and the Variant Explorer (``variant_explorer_service._carriers_where``) read them here.
 
     The rsID is found, as typed but for the spaces around it, in the row's own rsID or in
     its own annotation's (the row's annotation set, ``_small_annotation_key_membership_condition``).
@@ -2977,7 +2977,7 @@ def _small_sample_call_condition(
     one) that meets its GQ, DP, allele-fraction and ALT-depth minimums; with
     ``include_absent``, a row without a call of the sample passes too. The family search
     reads each sample filter here (``_small_native_sample_filter_clauses``), and the Variant
-    Explorer its genotype filter (``variant_explorer_service._entries_where``)."""
+    Explorer its genotype filter (``variant_explorer_service._carriers_where``)."""
     sample_param = f"{prefix}_samples"
     params[sample_param] = tuple(sample_ids)
     conditions = [f"sample_id IN %({sample_param})s"]
@@ -3440,7 +3440,7 @@ def _small_annotation_filter_clauses(
     with the ClinVar P/LP rescue, in-silico scores, Canonical, MANE and LoF only); and no
     transcript of an excluded ClinVar class. The family search
     (``_small_query_filter_parts``) and the Variant Explorer
-    (``variant_explorer_service._entries_where``) read them here, after the row filters
+    (``variant_explorer_service._carriers_where``) read them here, after the row filters
     (``_small_row_filter_clauses``), whose locus the annotation subqueries repeat.
 
     A variant that two families carry under two annotations (two VEP runs) is so kept for

@@ -34,6 +34,8 @@ def _expected_clickhouse_variant_tables(assembly_name: str) -> list[tuple[str, s
         ("small_variants", "table", f"{dataset}/SNV_INDEL/entries"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/family_variant_summary"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/family_sample_variant_summary"),
+        ("small_variants", "table", f"{dataset}/SNV_INDEL/carriers"),
+        ("small_variants", "table", f"{dataset}/SNV_INDEL/carrier_generations"),
         ("structural_variants", "table", f"{dataset}/SV/variants/details"),
         ("structural_variants", "table", f"{dataset}/SV/key_lookup"),
         ("structural_variants", "table", f"{dataset}/SV/entries"),

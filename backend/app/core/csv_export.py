@@ -71,12 +71,17 @@ EXPORT_LIMIT_HEADER = "X-CoGA-Export-Limit"
 # ("review-filter-limit": the Variant Explorer searched only part of them, so a match can
 # be missing however few rows the file has).
 EXPORT_TRUNCATED_REASON_HEADER = "X-CoGA-Export-Truncated-Reason"
+# The Variant Explorer's export: how many families of its scope the carrier summary did not
+# hold as they were (being written, or changed moments before), whose variants the file may
+# lack or count as before the change.
+EXPORT_PENDING_FAMILIES_HEADER = "X-CoGA-Export-Pending-Families"
 EXPORT_HEADERS = (
     "Content-Disposition",
     EXPORT_ROWS_HEADER,
     EXPORT_TRUNCATED_HEADER,
     EXPORT_LIMIT_HEADER,
     EXPORT_TRUNCATED_REASON_HEADER,
+    EXPORT_PENDING_FAMILIES_HEADER,
 )
 
 TRUNCATED_BY_ROW_LIMIT = "row-limit"

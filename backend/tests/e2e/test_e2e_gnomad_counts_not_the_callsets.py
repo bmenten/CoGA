@@ -150,6 +150,7 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         out["setup"] = await upload_family(
             ac, project_id, family_id, f"{family_id}\t{proband}\t0\t0\t2\t2\n", _vcf(proband)
         )
+        await _harness.carrier_summary_up_to_date()
 
         response = await ac.get(
             f"/api/families/{family_id}/small-variants",

@@ -50,6 +50,7 @@ from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
 from .clickhouse_interval_tracks import ensure_clickhouse_interval_table
 from .clickhouse_variant_ids import _require_clickhouse_identifier
+from .variant_carrier_summary import detach_family_variant_carriers
 from .clickhouse_variant_storage import (
     bump_family_structural_variant_data_version,
     ensure_clickhouse_variant_tables,
@@ -205,6 +206,8 @@ async def restore_family_clickhouse_state(snapshot: FamilyClickHouseSnapshot) ->
             "deleted nothing."
         )
     family_guid = snapshot.family_uuid
+    # The family's rows change: its contribution to the carrier summary goes first.
+    await detach_family_variant_carriers(snapshot.assembly_name, family_guid)
     for source, backup in snapshot.specs:
         await execute_clickhouse(
             f"ALTER TABLE {source} DELETE WHERE family_guid = %(family_guid)s "

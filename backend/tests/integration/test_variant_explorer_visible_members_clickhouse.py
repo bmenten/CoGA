@@ -206,7 +206,17 @@ def explorer_scope(monkeypatch: pytest.MonkeyPatch, stored: dict[str, Any]) -> N
     async def _no_hydration(session: Any, *, context: Any, variants: Any) -> None:
         return None
 
+    async def _brought_up_to_date(session: Any, scope: Any) -> list[str]:
+        # As the variant-carrier worker would have: the summary holds these families as
+        # they are, so none is pending.
+        from backend.app.services.variant_carrier_summary import reconcile_variant_carriers
+
+        status = await reconcile_variant_carriers(scope.assembly_id, scope.assembly_name)
+        assert not status.pending
+        return []
+
     monkeypatch.setattr(explorer, "resolve_scope", _fake_scope)
+    monkeypatch.setattr(explorer, "_pending_families", _brought_up_to_date)
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
 
