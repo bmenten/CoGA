@@ -8,7 +8,8 @@ Mitochondrial DNA | mtDNA variants and large chrM deletions and duplications, ea
 ### Structural variants
 
 The **Structural variants** page opens on the Mendeliome panel, with a population frequency below 1% and
-the affected members as carriers. Its filters are **Phenotype**, **Inheritance and Support**,
+the affected members as carriers. Its filters sit under **Advanced filters**, closed when the page
+opens and laid out as on the small-variant page: **Phenotype**, **Inheritance and Support**,
 **Locations**, **Class and Breakpoints**, **Needlr Annotations** and **Review**; the presets are
 *Mendeliome*, *Dominant*, *Recessive-like* and *Any affected*. **Phenotype prioritization** ranks SVs by
 the same phenotype score as small variants. **Clear all filters** removes the default.

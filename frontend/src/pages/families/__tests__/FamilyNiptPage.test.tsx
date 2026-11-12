@@ -230,6 +230,13 @@ describe('FamilyNiptPage', () => {
     // Every variant of the search was classified, so nothing says the list stops short.
     expect(screen.queryByText(/than CoGA classifies at once/)).not.toBeInTheDocument();
 
+    // The filter categories open collapsed, behind the "Advanced filters" toggle, as on the
+    // small-variant page.
+    const advanced = screen.getByRole('button', { name: /Advanced filters/ });
+    expect(advanced).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('checkbox', { name: /7 — Paternal, transmitted/ })).not.toBeInTheDocument();
+    fireEvent.click(advanced);
+
     // A category tick survives "Apply filters" (it round-trips through the URL rather
     // than being cleared by the URL-sync effect).
     const cat7 = screen.getByRole('checkbox', { name: /7 — Paternal, transmitted/ });
@@ -568,8 +575,14 @@ describe('FamilyNiptPage', () => {
     const summaryReads = () =>
       apiMock.get.mock.calls.filter(([url]) => url === '/families/NIPT001/small-variant-review-summary').length;
 
-    const reviewSection = async () =>
-      (await screen.findByText('Review and curation')).closest('details') as HTMLElement;
+    // The filter categories, behind the "Advanced filters" toggle.
+    const openAdvancedFilters = async () =>
+      fireEvent.click(await screen.findByRole('button', { name: /Advanced filters/ }));
+
+    const reviewSection = async () => {
+      await openAdvancedFilters();
+      return (await screen.findByText('Review and curation')).closest('details') as HTMLElement;
+    };
 
     it('sends the review tags and the excluded tags, by the small-variant list’s names', async () => {
       serve();
@@ -592,6 +605,7 @@ describe('FamilyNiptPage', () => {
       expect(variantSearches().at(-1)?.max_unexplained_recurrence).toBe(2);
       expect(await screen.findByRole('button', { name: 'Max unexplained recurrence: 2' })).toBeInTheDocument();
 
+      await openAdvancedFilters();
       fireEvent.change(screen.getByRole('spinbutton', { name: 'Max unexplained recurrence' }), {
         target: { value: '0' },
       });
@@ -741,6 +755,7 @@ describe('FamilyNiptPage', () => {
       renderAt('/families/NIPT001/nipt');
 
       // The control offers the list's views, and only those.
+      await openAdvancedFilters();
       const control = await screen.findByLabelText('NIPT inheritance preset');
       expect(within(control).getAllByRole('option').map((option) => (option as HTMLOptionElement).value)).toEqual([
         '',
