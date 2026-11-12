@@ -1579,6 +1579,7 @@ export interface GlobalVariantRowOut {
   hgvsp: string | null;
   clinvar: string | null;
   classification: string | null;
+  classification_text: string | null;
   tags: string[];
   total_samples: number;
   het_samples: number;

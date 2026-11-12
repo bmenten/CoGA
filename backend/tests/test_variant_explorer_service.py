@@ -862,12 +862,53 @@ def test_the_shown_class_and_review_time_do_not_depend_on_the_order_the_reviews_
     for rows in ([same_time, by_tag], [by_tag, same_time]):
         assert _shown_row(monkeypatch, rows).classification == "acmg_class_4"
 
+    # The text beside the class shown is that review's, as stored.
+    assert _shown_row(monkeypatch, [by_key, by_label, benign]).classification_text == "Likely pathogenic - class 4"
+    assert _shown_row(monkeypatch, [by_key, by_tag, benign]).classification_text is None
+
     # Postgres reads the reviews in that order too.
     session = _RecordingSession(rows=[by_key])
     _shown_row(monkeypatch, [], session=session)
     statement = " ".join(str(session.calls[0][0]).split())
     assert "r.family_id::text AS family_id" in statement
     assert "ORDER BY r.variant_id, r.updated_at DESC, r.family_id" in statement
+
+
+@pytest.mark.parametrize(
+    ("reviews", "shown", "text"),
+    [
+        # One review: its text as stored beside the class it shows, a class word or a class tag's.
+        ([{"classification": "VUS", "tags": ["acmg_class_4"]}], "VUS - class 3", "VUS"),
+        ([{"classification": "VUS - class 3", "tags": ["acmg_class_4"]}], "Likely pathogenic - class 4", "VUS - class 3"),
+        ([{"classification": "  My own words  ", "tags": ["acmg_vus_hot"]}], "My own words", "  My own words  "),
+        ([{"tags": ["acmg_class_4", "report"]}], "Likely pathogenic - class 4", None),
+        # Two families: the text of the review whose class the row shows, not the other's.
+        (
+            [{"classification": "Likely benign - class 2"}, {"classification": "Some free text", "tags": ["acmg_class_5"]}],
+            "Pathogenic - class 5",
+            "Some free text",
+        ),
+        # A compound-het pair's class: the pair's text.
+        (
+            [{"classification": "benign", "compound_het_classification": "VUS", "compound_het_tags": ["acmg_class_5"]}],
+            "VUS - class 3",
+            "VUS",
+        ),
+        # No class and no text: neither.
+        ([{"tags": ["acmg_vus_hot", "secondary_finding"]}], None, None),
+    ],
+)
+def test_the_explorer_row_carries_the_text_of_the_review_whose_class_it_shows(monkeypatch, reviews, shown, text) -> None:
+    # The owner's decision of 2026-11-10: the export's Classification column holds the
+    # class shown and a Classification text column the classification as written. A row of the
+    # Explorer stands for the reviews of every family: the text is that of the review whose class
+    # the row shows (its own, or its compound-het pair's), as stored.
+    review_rows = [
+        _review_row(family_id=f"00000000-0000-0000-0000-00000000000{index}", **fields)
+        for index, fields in enumerate(reviews)
+    ]
+    row = _shown_row(monkeypatch, review_rows)
+    assert (row.classification, row.classification_text) == (shown, text)
 
 
 def test_the_classification_filter_keeps_a_review_by_the_class_it_shows_as_the_family_search_does() -> None:

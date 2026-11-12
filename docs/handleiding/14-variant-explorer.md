@@ -103,6 +103,8 @@ De export gebruikt dezelfde filters en sortering als de lijst, zonder paginering
 
 Was de lijst van de tag- of classificatiefilter afgekapt (zie *Filters*), dan kan een treffer overal in het bestand ontbreken, hoe weinig rijen het ook telt. De reden is dan `review-filter-limit`, de naam `…-TRUNCATED-partial-search.csv`, en de waarschuwing vraagt op minder tags of classificaties te filteren. Die reden gaat voor op `row-limit`.
 
+De kolom *Classification* bevat de ernstigste klasse die de reviews van de variant tonen (zie *Traceerbaarheid*), *Classification text* ernaast de classificatietekst van de review die die klasse toont, zoals opgeslagen: de eigen tekst of die van het compound-het-paar, leeg voor een review met alleen een klassetag (`classification_text` in `GlobalVariantRowOut`). De tags komen van alle reviews.
+
 De reviews van de rijen (tags, classificatie, laatste review) zoekt de export in Postgres op, met de variant-id's als één array-parameter. Met één parameter per id zou elke export van meer dan 32.767 rijen afbreken: asyncpg weigert een vraag met meer parameters.
 
 **Waar in de code:** `export_global_small_variants` en `_review_filter_variant_ids` in `backend/app/services/variant_explorer_service.py`; `export_response_headers` in `backend/app/core/csv_export.py`; `describeCsvExport` en `truncatedExportMessage` in `frontend/src/lib/csvExport.ts`.

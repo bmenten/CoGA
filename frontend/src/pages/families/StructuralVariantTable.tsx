@@ -5,14 +5,13 @@ import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import ReviewTagChip from './ReviewTagChip';
 import {
   formatFrequency,
-  getReviewClassificationTone,
+  reviewClassChips,
   sortReviewTagKeys,
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import {
   COLLABORATION_QUICK_TAGS,
   getTagDefinitionMap,
-  normalizeReviewClassification,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
@@ -227,11 +226,14 @@ export default function StructuralVariantTable({
               const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
               const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
               const hasReportTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-              const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
-              const normalizedClassification = normalizeReviewClassification(
+              // The review's class once, by the one rule of the family page;
+              // a class tag that is not the class shown is no chip.
+              const reviewClass = reviewClassChips(
                 variant.review?.classification,
                 variant.review?.tags,
+                visibleReviewTagKeys(sortedReviewTags),
               );
+              const visibleReviewTags = reviewClass.tagKeys;
 
               return (
               <tr key={structuralVariantRowKey(variant)} className={isExcluded ? 'variant-table-row--excluded' : undefined}>
@@ -385,15 +387,10 @@ export default function StructuralVariantTable({
                         ))}
                       </div>
                     ) : null}
-                    {normalizedClassification &&
-                    !visibleReviewTags.some((tagKey) => tagMap[tagKey]?.group === 'classification') ? (
-                      <span
-                        className={`table-chip table-chip--${getReviewClassificationTone(
-                          normalizedClassification,
-                        )}`}
-                      >
-                        {normalizedClassification}
-                      </span>
+                    {/* The class shown, when its tag is no chip above: a class word as its label,
+                        or the text as stored. */}
+                    {reviewClass.chipLabel ? (
+                      <span className={`table-chip table-chip--${reviewClass.tone}`}>{reviewClass.chipLabel}</span>
                     ) : null}
                     {variant.review?.note ? (
                       <p className="variant-table-review-note">{variant.review.note}</p>

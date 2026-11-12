@@ -8,9 +8,10 @@ import { describe, expect, it, vi } from 'vitest';
 import StructuralVariantTable, { formatStructuralLength } from '../StructuralVariantTable';
 import { FamilyReadOnlyContext } from '../../../lib/familyAccess';
 import type { StructuralVariant } from '../structuralVariantSearch';
-import type { SmallVariantTagDefinition } from '../smallVariantSearch';
-import { tagDefinition } from '../../../test/tagDefinitions';
+import { ACMG_CLASSIFICATION_LABELS, type SmallVariantReview, type SmallVariantTagDefinition } from '../smallVariantSearch';
+import { BUILT_IN_REVIEW_TAGS, tagDefinition } from '../../../test/tagDefinitions';
 import { genotype, review as reviewOf, structuralVariant } from '../../../test/variants';
+import reviewClassCases from './fixtures/review-class-cases.json';
 
 const ALL_COLUMNS = {
   chr: true,
@@ -382,5 +383,44 @@ describe('StructuralVariantTable', () => {
     ]);
     expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
     errors.mockRestore();
+  });
+});
+
+// The owner's decision of 2026-11-10: the SV table shows a review's class by the one rule of the
+// family page (reviewClassChips), once. A VUS tier or *Secondary finding* beside the text hides
+// no class, text "VUS" beside the tag of class 4 shows class 3, and of two class tags only the
+// class shown is a chip.
+describe('StructuralVariantTable review class', () => {
+  const renderReview = (fields: Partial<SmallVariantReview>) =>
+    renderTable({
+      variants: [sv({ review: reviewOf({ variant_id: 'sv1', ...fields }) })],
+      tags: BUILT_IN_REVIEW_TAGS,
+    });
+
+  const classLabels = Object.values(ACMG_CLASSIFICATION_LABELS).map((label) => label.toLowerCase());
+  // The classes the review cell shows: its chips that read as a class, or as the text shown.
+  const classesIn = (cell: HTMLElement, shown: string) =>
+    Array.from(cell.querySelectorAll('.table-chip'))
+      .map((chip) => chip.textContent ?? '')
+      .filter((text) => classLabels.includes(text.toLowerCase()) || (shown !== '' && text === shown));
+
+  it.each(reviewClassCases.cases)('shows the class the rule gives, once: $why', ({ classification, tags, shown }) => {
+    const { container } = renderReview({ classification, tags });
+    const cell = container.querySelector('.sv-review-cell') as HTMLElement;
+    expect(classesIn(cell, shown)).toEqual(shown ? [shown] : []);
+  });
+
+  it('keeps a VUS tier and Secondary finding as tags beside the class word', () => {
+    renderReview({ classification: 'VUS', tags: ['acmg_vus_warm', 'secondary_finding'] });
+    expect(within(row()).getByText('VUS - class 3')).toHaveClass('table-chip--warning');
+    expect(within(row()).getByText('VUS — warm')).toHaveClass('table-chip--tag');
+    expect(within(row()).getByText('Secondary finding')).toHaveClass('table-chip--tag');
+  });
+
+  it('shows the class tag of the class shown as its chip, and no other class tag', () => {
+    renderReview({ classification: 'VUS - class 3', tags: ['acmg_class_4', 'acmg_class_2'] });
+    expect(within(row()).getByText('Likely pathogenic - class 4')).toHaveClass('table-chip--tag');
+    expect(within(row()).queryByText('VUS - class 3')).not.toBeInTheDocument();
+    expect(within(row()).queryByText('Likely benign - class 2')).not.toBeInTheDocument();
   });
 });

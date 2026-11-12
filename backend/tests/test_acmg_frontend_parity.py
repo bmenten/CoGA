@@ -324,6 +324,7 @@ SV_PAGE_VIEWS = [
     SMALL_VARIANT_SEARCH_TS.parent / "StructuralVariantTable.tsx",
     SMALL_VARIANT_SEARCH_TS.parent / "StructuralVariantCards.tsx",
 ]
+SV_REVIEW_CLASS_HELPER = SMALL_VARIANT_SEARCH_TS.parent / "smallVariantResultUtils.ts"
 
 
 def test_the_sv_classification_filter_keeps_each_review_by_the_class_the_sv_page_shows() -> None:
@@ -338,13 +339,24 @@ def test_the_sv_classification_filter_keeps_each_review_by_the_class_the_sv_page
 
     from backend.app.services.structural_variant_review_pg import list_matching_structural_variant_review_ids
 
+    # Both views read it through the family page's one helper, reviewClassChips,
+    # which reads the class with normalizeReviewClassification and nothing else.
     for view in SV_PAGE_VIEWS:
         source = view.read_text(encoding="utf-8")
         assert re.search(
-            r"normalizeReviewClassification\(\s*variant\.review\?\.classification,\s*variant\.review\?\.tags,?\s*\)",
+            r"reviewClassChips\(\s*variant\.review\?\.classification,\s*variant\.review\?\.tags,",
             source,
         ), f"{view.name} no longer shows a review's class from its text and its tags"
-        assert len(re.findall(r"normalizeReviewClassification\(", source)) == 1, view.name
+        assert len(re.findall(r"reviewClassChips\(", source)) == 1, view.name
+        assert "normalizeReviewClassification" not in source, view.name
+    helper = re.search(
+        r"export const reviewClassChips = \((?:.|\n)*?\n\};",
+        SV_REVIEW_CLASS_HELPER.read_text(encoding="utf-8"),
+    )
+    assert helper, f"reviewClassChips not found in {SV_REVIEW_CLASS_HELPER.name}"
+    assert re.findall(r"normalizeReviewClassification\([^)]*\)", helper.group(0)) == [
+        "normalizeReviewClassification(classification, held)"
+    ]
 
     cases = json.loads(REVIEW_CLASS_CASES.read_text(encoding="utf-8"))["cases"]
     rows = [
