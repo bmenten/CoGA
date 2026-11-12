@@ -103,8 +103,6 @@ export type StructuralVariantReviewSavePayload = Omit<
 
 export type StructuralGenePanel = GenePanel;
 
-export type StructuralSummary = NonNullable<VariantPage['summary']>;
-
 export type StructuralSortableKeys =
   | 'chr'
   | 'start'
