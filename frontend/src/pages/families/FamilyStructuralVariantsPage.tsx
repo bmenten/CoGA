@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
@@ -156,6 +156,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   } | null>(null);
   // Collapse the whole filter panel to give the variant table more room.
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const filterPanelId = useId();
 
   const {
     speciesName,
@@ -420,9 +421,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
 
         <FilterCollapseToggle
           collapsed={filtersCollapsed}
+          controls={filterPanelId}
           onToggle={() => setFiltersCollapsed((current) => !current)}
         />
-        {!filtersCollapsed && (
+        <div id={filterPanelId} hidden={filtersCollapsed}>
         <StructuralVariantFilterForm
           activeFilterChips={activeFilterChips}
           applyPreset={applyPreset}
@@ -451,7 +453,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           tags={tags}
           toggleDraftFilterListValue={toggleDraftFilterListValue}
         />
-        )}
+        </div>
           </>
         }
       />

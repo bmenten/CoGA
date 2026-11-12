@@ -1,8 +1,8 @@
-// The small-variant filter form's sections: the shell each one shares, and one
-// component per section. Each reads what it needs from the form through
-// FilterSectionForm and computes its own summary count and quick filters.
+// The small-variant filter form's sections, one component each, in the shared accordion
+// row (FilterSection). Each reads what it needs from the form through FilterSectionForm and
+// computes its own summary count and quick filters.
 import { useState } from 'react';
-import type { CSSProperties, ChangeEvent, ReactNode, SyntheticEvent } from 'react';
+import type { CSSProperties, ChangeEvent, SyntheticEvent } from 'react';
 import InfoIcon from '../../components/InfoIcon';
 import { joinFilterValues, parseCommaSeparatedValues } from '../../lib/sampleFilterState';
 import {
@@ -21,7 +21,8 @@ import {
   type SmallVariantSearchState,
 } from './smallVariantSearch';
 import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';
-import { countNonEmpty, stopSummaryInteraction } from './variantFilterFormUtils';
+import { countNonEmpty } from './variantFilterFormUtils';
+import { FilterSection } from './VariantFilterAccordion';
 
 const TYPE_OPTIONS = ['', 'SNV', 'INDEL', 'MNV'];
 const REVIEW_QUICK_CLASSIFICATION_VALUES = PATHOGENIC_TO_VUS_CLASSIFICATIONS;
@@ -384,49 +385,6 @@ export const GT_GROUP_OPTIONS = [
 
 export type GtGroupId = (typeof GT_GROUP_OPTIONS)[number]['id'];
 
-/**
- * One of the form's collapsible filter sections: its title, a one-line summary of
- * what is set, any quick controls in the summary bar, and the section's own fields.
- */
-const FilterSection = ({
-  title,
-  meta,
-  open,
-  onToggle,
-  controls,
-  children,
-}: {
-  title: string;
-  meta: ReactNode;
-  open: boolean;
-  onToggle: (event: SyntheticEvent<HTMLDetailsElement>) => void;
-  controls?: ReactNode;
-  children: ReactNode;
-}) => (
-  <details className="variant-filter-dropdown" open={open} onToggle={onToggle}>
-    <summary className="variant-filter-dropdown-summary">
-      <span className="variant-filter-dropdown-summary-copy">
-        <span className="variant-filter-dropdown-title">{title}</span>
-        <span className="variant-filter-dropdown-meta">{meta}</span>
-      </span>
-      {controls !== undefined ? (
-        <span
-          className="variant-filter-dropdown-summary-controls"
-          role="presentation"
-          onMouseDown={stopSummaryInteraction}
-          onClick={stopSummaryInteraction}
-        >
-          {controls}
-        </span>
-      ) : null}
-      <span className="variant-filter-dropdown-caret" aria-hidden="true">
-        ▾
-      </span>
-    </summary>
-    {children}
-  </details>
-);
-
 /** One position of a step slider; '' is the step that sets no limit. */
 type SliderStep = { value: string; label: string };
 
@@ -688,7 +646,17 @@ export const SECTION_FILTER_COUNTS: Record<
     activeGenotypeMemberCount +
     (draftFilters.expanded_carrier_screening === 'true' ? 1 : 0) +
     countNonEmpty(draftFilters.inheritance, draftFilters.type, draftFilters.source, draftFilters.ps),
-  categories: ({ draftFilters }) => parseCommaSeparatedValues(draftFilters.category).length,
+  // The NIPT categories and everything else that row sets: the inheritance view and its
+  // options, the minimum confidence and the recurrence limit.
+  categories: ({ draftFilters }) =>
+    parseCommaSeparatedValues(draftFilters.category).length +
+    countNonEmpty(
+      draftFilters.inheritance,
+      draftFilters.de_novo_priority,
+      draftFilters.include_not_inherited,
+      draftFilters.min_confidence,
+      draftFilters.max_unexplained_recurrence,
+    ),
   pathogenicity: ({ draftFilters }) => parseCommaSeparatedValues(draftFilters.clinvar).length,
   // SpliceAI is set under Annotations, as in seqr; the search also reads it as an in-silico
   // predictor (the In silico note says so).
@@ -764,9 +732,8 @@ export const PhenotypeFilterSection = ({ form }: { form: FilterSectionForm }) =>
       title="Phenotype"
       open={openSections.phenotype}
       onToggle={handleSectionToggle('phenotype')}
-      meta={
-summarizeSection(SECTION_FILTER_COUNTS.phenotype(form), 'Prioritization off')
-      }
+      active={SECTION_FILTER_COUNTS.phenotype(form) > 0}
+      meta={summarizeSection(SECTION_FILTER_COUNTS.phenotype(form), 'Prioritization off')}
       controls={
         <>
           <label className="analysis-checkbox">
@@ -805,9 +772,8 @@ export const SvSecondHitFilterSection = ({ form }: { form: FilterSectionForm }) 
       title="Structural second hit"
       open={openSections.svSecondHit}
       onToggle={handleSectionToggle('svSecondHit')}
-      meta={
-summarizeSection(SECTION_FILTER_COUNTS.svSecondHit(form), 'Off')
-      }
+      active={SECTION_FILTER_COUNTS.svSecondHit(form) > 0}
+      meta={summarizeSection(SECTION_FILTER_COUNTS.svSecondHit(form), 'Off')}
       controls={
         <>
           <label className="analysis-checkbox">
@@ -930,6 +896,7 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
       title="Inheritance"
       open={openSections.inheritance}
       onToggle={handleSectionToggle('inheritance')}
+      active={inheritanceFilterCount > 0}
       meta={summarizeSection(inheritanceFilterCount, 'No filters')}
       controls={
         <>
@@ -1090,9 +1057,8 @@ export const NiptCategoriesFilterSection = ({ form }: { form: FilterSectionForm 
       title="Maternal/fetal categories"
       open={openSections.categories}
       onToggle={handleSectionToggle('categories')}
-      meta={
-summarizeSection(SECTION_FILTER_COUNTS.categories(form), 'All categories')
-      }
+      active={SECTION_FILTER_COUNTS.categories(form) > 0}
+      meta={summarizeSection(SECTION_FILTER_COUNTS.categories(form), 'All categories')}
       controls={
         <>
           <label className="variant-summary-select-field">
@@ -1264,6 +1230,7 @@ export const PathogenicityFilterSection = ({ form }: { form: FilterSectionForm }
       title="Pathogenicity"
       open={openSections.pathogenicity}
       onToggle={handleSectionToggle('pathogenicity')}
+      active={pathogenicityFilterCount > 0}
       meta={summarizeSection(pathogenicityFilterCount, 'No filters')}
       controls={
         <>
@@ -1392,6 +1359,7 @@ export const AnnotationsFilterSection = ({ form }: { form: FilterSectionForm }) 
       title="Annotations"
       open={openSections.annotations}
       onToggle={handleSectionToggle('annotations')}
+      active={annotationFilterCount > 0}
       meta={summarizeSection(annotationFilterCount, 'No filters')}
       controls={
         <>
@@ -1546,6 +1514,7 @@ export const InSilicoFilterSection = ({ form }: { form: FilterSectionForm }) => 
       title="In silico"
       open={openSections.inSilico}
       onToggle={handleSectionToggle('inSilico')}
+      active={inSilicoFilterCount > 0}
       meta={summarizeSection(inSilicoFilterCount, 'No filters')}
     >
       <div className="variant-filter-dropdown-content">
@@ -1680,6 +1649,7 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
       title="Frequency"
       open={openSections.frequency}
       onToggle={handleSectionToggle('frequency')}
+      active={frequencyFilterCount > 0}
       meta={summarizeSection(frequencyFilterCount, 'No filters')}
       controls={
         <>
@@ -1941,6 +1911,7 @@ export const CallQualityFilterSection = ({ form }: { form: FilterSectionForm }) 
       title="Call quality"
       open={openSections.callQuality}
       onToggle={handleSectionToggle('callQuality')}
+      active={SECTION_FILTER_COUNTS.callQuality(form) > 0}
       meta={summarizeSection(SECTION_FILTER_COUNTS.callQuality(form), 'No filters')}
       controls={
         <>
@@ -2088,6 +2059,7 @@ export const LocationsFilterSection = ({ form }: { form: FilterSectionForm }) =>
       title="Locations"
       open={openSections.locations}
       onToggle={handleSectionToggle('locations')}
+      active={locationFilterCount > 0}
       meta={summarizeSection(locationFilterCount, 'No filters')}
       controls={
         <>
@@ -2203,6 +2175,7 @@ export const ExcludeFilterSection = ({ form }: { form: FilterSectionForm }) => {
       title="Exclude"
       open={openSections.exclude}
       onToggle={handleSectionToggle('exclude')}
+      active={excludeFilterCount > 0}
       meta={summarizeSection(excludeFilterCount, 'No filters')}
       controls={
         <>
@@ -2390,6 +2363,7 @@ export const ReviewFilterSection = ({ form }: { form: FilterSectionForm }) => {
       title="Review and curation"
       open={openSections.review}
       onToggle={handleSectionToggle('review')}
+      active={reviewFilterCount > 0}
       meta={summarizeSection(reviewFilterCount, 'No filters')}
       controls={
         <>

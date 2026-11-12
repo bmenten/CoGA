@@ -18,9 +18,13 @@ The page opens with the **Phenotype priority (Exomiser-style)** preset on the **
 
 ### Filters and presets
 
-The filters sit under **Advanced filters**, grouped as on the screen: **Phenotype**, **Structural
-second hit**, **Inheritance**, **Pathogenicity**, **Annotations**, **In silico**, **Frequency**, **Call
-quality**, **Locations**, **Exclude** and **Review and curation**.
+The filters sit under **Advanced filters**, closed when the page opens, one category to a row across
+the page: **Phenotype**, **Structural second hit**, **Inheritance**, **Pathogenicity**, **Annotations**,
+**In silico**, **Frequency**, **Call quality**, **Locations**, **Exclude** and **Review and curation**.
+Closed, **Advanced filters** says how many categories have a filter set. A row's bar says how many
+filters its category holds and carries its quick choice at the right; click the bar for the
+category's fields. A category with a filter set is marked red at the left of its bar. **Expand all**
+and **Collapse all** open or close every row.
 
 - **Annotations** groups the VEP consequences as seqr does: nonsense, essential splice site,
   frameshift, missense, in frame, synonymous, extended splice site, other, motif feature and regulatory

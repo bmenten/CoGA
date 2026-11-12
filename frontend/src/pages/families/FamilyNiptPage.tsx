@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
@@ -178,6 +178,7 @@ const FamilyNiptPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const filterPanelId = useId();
   const [presetFeedback, setPresetFeedback] = useState<
     { tone: 'error' | 'success'; message: string } | null
   >(null);
@@ -597,11 +598,13 @@ const FamilyNiptPage: React.FC = () => {
           <>
             <FilterCollapseToggle
               collapsed={filtersCollapsed}
+              controls={filterPanelId}
               onToggle={() => setFiltersCollapsed((current) => !current)}
             />
 
-            {!filtersCollapsed && (
+            <div id={filterPanelId} hidden={filtersCollapsed}>
               <SmallVariantFilterForm
+                collapsibleAdvanced
                 mode="nipt"
                 familyAware={false}
                 unsupportedFilters={NIPT_UNSUPPORTED_FILTERS}
@@ -635,7 +638,7 @@ const FamilyNiptPage: React.FC = () => {
                   await savePresetMutation.mutateAsync(payload);
                 }}
               />
-            )}
+            </div>
           </>
         }
       />
