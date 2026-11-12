@@ -505,7 +505,6 @@ const FamilyStructuralVariantsPage: React.FC = () => {
             ? getErrorMessage(reviewMutation.error, 'Unable to save the variant review')
             : null
         }
-        summary={data?.summary || {}}
         tags={tags}
         totalPages={totalPages}
         variants={data?.variants || []}

@@ -5,7 +5,6 @@ import CandidateCapNotice, { type CandidateCapFlags } from './CandidateCapNotice
 import ResultsPagination from './ResultsPagination';
 import StructuralVariantCards from './StructuralVariantCards';
 import StructuralVariantColumnControls from './StructuralVariantColumnControls';
-import StructuralVariantSummaryTable from './StructuralVariantSummaryTable';
 import StructuralVariantTable from './StructuralVariantTable';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import CnvAcmgClassificationModal from './CnvAcmgClassificationModal';
@@ -13,7 +12,6 @@ import {
   CARD_VIEW_THRESHOLD,
   sortStructuralVariants,
   type StructuralSortableKeys,
-  type StructuralSummary,
   type StructuralVariant,
   type StructuralVariantFamilyMember,
   type StructuralVariantReviewSavePayload,
@@ -43,7 +41,6 @@ type StructuralVariantResultsProps = {
   projectId?: string;
   reviewError?: string | null;
   reviewIsPending?: boolean;
-  summary: StructuralSummary;
   tags: StructuralVariantTagDefinition[];
   totalPages: number;
   variants: StructuralVariant[];
@@ -71,7 +68,6 @@ export default function StructuralVariantResults({
   projectId,
   reviewError = null,
   reviewIsPending = false,
-  summary,
   tags,
   totalPages,
   variants,
@@ -224,8 +220,6 @@ export default function StructuralVariantResults({
         ) : null}
 
         <CandidateCapNotice page={candidateCap} noun="SVs" />
-
-        <StructuralVariantSummaryTable summary={summary} />
 
         {resolvedViewMode === 'cards' ? (
           <StructuralVariantCards

@@ -31,6 +31,8 @@ vi.mock('../../../lib/api', () => ({
               },
             ],
             total: 1,
+            // The count per type and caller the list sends; the page shows no table of it.
+            summary: { DEL: { needlr: 1 } },
           },
         });
       }
@@ -116,6 +118,8 @@ describe('FamilyStructuralVariantsPage', () => {
       expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument()
     );
     expect(screen.getByText(factText(/All variants 5/))).toBeInTheDocument();
+    // The counts are in the header; the list has no count per type and caller of its own.
+    expect(screen.queryByRole('columnheader', { name: 'Type / source' })).not.toBeInTheDocument();
     expect(screen.getByText(/Pedigree/)).toBeInTheDocument();
     expect(screen.getByText(factText(/Tag library 2/))).toBeInTheDocument();
     expect(screen.getByText('1p36.33')).toBeInTheDocument();
