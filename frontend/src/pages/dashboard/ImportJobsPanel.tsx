@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
@@ -21,6 +21,13 @@ import {
 type ImportJob = FamilyPackageImportJobOut;
 
 const activeStatuses = new Set<ImportJob['status']>(['queued', 'validating', 'running']);
+
+// The table lists the latest 10 jobs; "Show all" lists every job the history returns, at most
+// 100 (the endpoint's maximum, routers/family_imports.py), in a list that scrolls. Collapsed,
+// the panel reads 25, as many as it needs to know there are more.
+const RECENT_JOBS_SHOWN = 10;
+const RECENT_JOBS_LIMIT = 25;
+const ALL_JOBS_LIMIT = 100;
 
 const issueLabel = (issue: FamilyImportValidationIssue) =>
   [issue.dataset, issue.sample_id, issue.path].filter(Boolean).join(' · ');
@@ -172,15 +179,19 @@ const ImportJobReport: React.FC<{ job: ImportJob; now: number }> = ({ job, now }
 
 /**
  * The import jobs an approved delivery queued (docs/data-import.md, "The import job"): the
- * latest first, each one's report on View, followed while it runs.
+ * latest 10 first, all of them on "Show all", each one's report on View, followed while it runs.
  */
 const ImportJobsPanel: React.FC = () => {
   const [jobId, setJobId] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const limit = showAll ? ALL_JOBS_LIMIT : RECENT_JOBS_LIMIT;
 
   const recentJobsQuery = useQuery<ImportJob[]>({
-    queryKey: ['family-import-jobs'],
+    queryKey: ['family-import-jobs', limit],
     queryFn: async () =>
-      (await api.get('/family-imports', { params: { limit: 25 } })).data as ImportJob[],
+      (await api.get('/family-imports', { params: { limit } })).data as ImportJob[],
+    // The list stays while "Show all" loads the longer one.
+    placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       const jobs = query.state.data as ImportJob[] | undefined;
       return jobs?.some((job) => activeStatuses.has(job.status)) ? 5000 : 15000;
@@ -198,6 +209,8 @@ const ImportJobsPanel: React.FC = () => {
   });
 
   const recentJobs = recentJobsQuery.data ?? [];
+  const listedJobs = showAll ? recentJobs : recentJobs.slice(0, RECENT_JOBS_SHOWN);
+  const hasMore = recentJobs.length > RECENT_JOBS_SHOWN;
   const currentJob = jobQuery.data;
   const anyJobRunning =
     recentJobs.some((job) => job.status === 'running') || currentJob?.status === 'running';
@@ -218,7 +231,9 @@ const ImportJobsPanel: React.FC = () => {
         </p>
       ) : null}
       {recentJobs.length > 0 ? (
-        <div className="data-table-shell overflow-x-auto">
+        <div
+          className={`data-table-shell overflow-x-auto${showAll ? ' import-jobs-table--all' : ''}`}
+        >
           <table className="analysis-table table-sticky">
             <thead>
               <tr>
@@ -232,7 +247,7 @@ const ImportJobsPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {recentJobs.map((job) => (
+              {listedJobs.map((job) => (
                 <tr key={job._id}>
                   <td>
                     {job.status}
@@ -260,6 +275,22 @@ const ImportJobsPanel: React.FC = () => {
       ) : (
         <p className="table-subtle">No family import jobs have been submitted yet.</p>
       )}
+      {hasMore || showAll ? (
+        <p className="import-jobs-more table-subtle">
+          {showAll
+            ? recentJobs.length >= ALL_JOBS_LIMIT
+              ? `The latest ${ALL_JOBS_LIMIT} jobs, the most the history lists.`
+              : `All ${recentJobs.length} jobs.`
+            : `The latest ${RECENT_JOBS_SHOWN} jobs.`}{' '}
+          <button
+            type="button"
+            className="button-link"
+            onClick={() => setShowAll((current) => !current)}
+          >
+            {showAll ? `Show the latest ${RECENT_JOBS_SHOWN}` : 'Show all'}
+          </button>
+        </p>
+      ) : null}
       {jobQuery.error ? (
         <p className="status-note status-note--error">
           {getErrorMessage(jobQuery.error, 'Import job status could not be loaded.')}

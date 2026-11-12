@@ -476,7 +476,8 @@ ends. The decided and superseded deliveries are listed on request.
    delivery whose folder changed since it was checked is refused. A job also imports nothing when the
    folder changed after it was queued, and is undone when it changed while it was read: a new family
    is removed, an existing family put back as it was (*package fingerprint*, shown with the job).
-5. **Follow the job** under *Recent family imports*: status, log, validation errors, warnings and a
+5. **Follow the job** under *Recent family imports*, which lists the latest 10 jobs (**Show all** lists
+   up to 100, in a list that scrolls): status, log, validation errors, warnings and a
    summary per dataset. While a dataset imports, the page shows how much of its files has been read and
    about how long it should still take, at the pace so far. A finished dataset shows how long it took.
    The estimate covers the running dataset only; the page says how many datasets follow. A dataset
