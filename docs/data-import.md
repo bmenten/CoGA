@@ -392,7 +392,8 @@ so a share or bucket mounted read-only serves as it is: the import reads the man
 
 The Package Import page shows the deliveries ([below](#watched-import-folders)), where a package
 is checked, corrected and approved, and **Recent family imports**, the import jobs an approval
-queued: each one's status, its progress while it runs (each dataset's share read and the time
+queued, the latest 10 first (**Show all** lists up to 100, the most the job history returns, in a
+list that scrolls): each one's status, its progress while it runs (each dataset's share read and the time
 left), and on **View** its report: the datasets, validation errors and warnings, the log, the
 SHA-256 of the manifest CoGA kept and the package fingerprint, and a link to the imported family.
 
