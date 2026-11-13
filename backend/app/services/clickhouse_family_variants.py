@@ -145,6 +145,7 @@ from .clickhouse_variant_storage import (
     get_family_structural_variant_data_version,
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
+from .sample_integrity_qc import MIN_GENOTYPE_QUALITY
 
 logger = logging.getLogger(__name__)
 
@@ -1788,7 +1789,9 @@ async def fetch_genotype_site_sample(
     returned. A variant stored more than once (the family linked to two projects, or
     ``source`` matching two callsets) counts once, so a sample can hold fewer sites.
     Only SNVs are sampled: an indel's genotype is called with more error, and every check
-    reads the sample as genotypes (the owner's decision of 2026-10-27).
+    reads the sample as genotypes (the owner's decision of 2026-10-27). A call with a GQ
+    below ``MIN_GENOTYPE_QUALITY`` is returned as a no-call (``./.``): the checks read only
+    the genotypes the caller is sure of. A call without a GQ is returned as called.
     Each row is ``(chrom, pos, ref, alt, sample_ids, gts)``."""
     if not context.assembly_name:
         return []
@@ -1814,7 +1817,8 @@ async def fetch_genotype_site_sample(
     allele_depths = ", e.calls.ad AS sample_ads" if per_sample else ""
     query = f"""
         SELECT e.key AS key, e.chrom AS chrom, e.pos AS pos, e.ref AS ref, e.alt AS alt,
-               e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts{allele_depths}
+               e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts,
+               e.calls.gq AS sample_gqs{allele_depths}
         FROM {entries_table} AS e
         WHERE {where}
           -- The sample's largest key, found from the keys alone: only the sample's rows
@@ -1844,23 +1848,34 @@ def _genotype_site_rows(
     rows: Sequence[Sequence[Any]], *, per_sample: bool
 ) -> list[tuple[str, int, str, str, list[str], list[str]]]:
     """``fetch_genotype_site_sample``'s rows from its query's: one per variant, the genotypes
-    of a per-sample callset read from their allele depths."""
+    of a per-sample callset read from their allele depths, a call below
+    ``MIN_GENOTYPE_QUALITY`` a no-call."""
     sample: list[tuple[str, int, str, str, list[str], list[str]]] = []
     seen_keys: set[int] = set()
     for row in rows:
-        key, chrom, pos, ref, alt, sample_ids, gts = row[:7]
+        key, chrom, pos, ref, alt, sample_ids, gts, gqs = row[:8]
         if int(key) in seen_keys:
             continue
         seen_keys.add(int(key))
         genotypes = [str(g) for g in gts]
-        if per_sample and len(row) > 7:
-            ads = list(row[7] or [])
+        if per_sample and len(row) > 8:
+            ads = list(row[8] or [])
             genotypes = [
                 vaf_genotype(ads[index] if index < len(ads) else None, genotype)
                 for index, genotype in enumerate(genotypes)
             ]
+        qualities = list(gqs or [])
+        genotypes = [
+            "./." if index < len(qualities) and _below_genotype_quality(qualities[index]) else genotype
+            for index, genotype in enumerate(genotypes)
+        ]
         sample.append((str(chrom), int(pos), str(ref), str(alt), [str(s) for s in sample_ids], genotypes))
     return sample
+
+
+def _below_genotype_quality(gq: float | None) -> bool:
+    """Whether a call's GQ is below ``MIN_GENOTYPE_QUALITY``; a call without one is not."""
+    return gq is not None and gq < MIN_GENOTYPE_QUALITY
 
 
 async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[str]:

@@ -1549,7 +1549,8 @@ def _failed_trio_beside_an_unchecked_relative() -> SampleIntegrityReport:
             ),
             RelatednessCheck(
                 "CHILD", "MOTHER", "parent-child", "parent-child", 0.25, 0.0, 5000, "pass",
-                "Confirmed parent-child (kinship 0.250, IBS0 0.00%, 5000 sites).",
+                "Confirmed parent-child (kinship 0.250, IBS0 0.00% (parent-child below 0.80%), "
+                "5000 sites).",
             ),
             RelatednessCheck(
                 "FATHER", "MOTHER", "unrelated", "third-degree", 0.06, 0.01, 5000, "warn",

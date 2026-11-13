@@ -64,7 +64,8 @@ logger = logging.getLogger(__name__)
 # chrX outside the pseudo-autosomal regions, for sex (fetch_genotype_site_sample). The
 # sample must span the genome. Siblings share 0, 1 or 2 haplotypes in blocks tens of Mb
 # long, so the first 30,000 sites of chr1-3 would measure three such blocks, and sibling
-# embryos would look like duplicates.
+# embryos would look like duplicates. A call with a GQ below MIN_GENOTYPE_QUALITY comes back
+# as a no-call, which no check counts.
 QC_AUTOSOMAL_SITES = 90_000
 QC_X_SITES = 20_000
 # A callset whose sampled sites lie on fewer autosomes than this covers part of the genome
