@@ -253,7 +253,6 @@ async def _ensure_assembly(session, species_id: str) -> str:
             """
             SELECT id::text AS id FROM assemblies
             WHERE species_id = CAST(:sid AS uuid) AND assembly_name = :name
-            ORDER BY release_date DESC, version DESC LIMIT 1
             """
         ),
         {"sid": species_id, "name": ASSEMBLY},

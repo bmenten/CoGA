@@ -66,10 +66,8 @@ class _RecordingSession:
             return _FakeExecuteResult([])
         if "INSERT INTO species" in sql:
             return _FakeExecuteResult([{"id": "species-1", "name": "Homo sapiens"}])
-        if "FROM assemblies" in sql and "SELECT id::text AS id" in sql:
-            return _FakeExecuteResult([])
         if "INSERT INTO assemblies" in sql:
-            return _FakeExecuteResult([{"id": "assembly-1"}])
+            return _FakeExecuteResult([{"id": "assembly-1", "created": True}])
         raise AssertionError(f"Unexpected SQL: {sql}")
 
     async def commit(self):
@@ -217,30 +215,25 @@ class _FakeResult:
 
 
 class _AssemblyInsertSession:
-    """Fake AsyncSession: the existence SELECT finds no row, the INSERT captures its
-    params and returns a fresh id — enough to exercise _get_or_create_assembly's
-    release_date fallback without a database."""
+    """Fake AsyncSession: the upsert captures its params and answers a row it inserted —
+    enough to exercise _store_assembly's release_date fallback without a database."""
 
     def __init__(self) -> None:
-        self.calls = 0
         self.insert_params: dict = {}
 
     async def execute(self, _query, params=None):
-        self.calls += 1
-        if self.calls == 1:
-            return _FakeResult(_FakeMappings(first=None))
         self.insert_params = dict(params or {})
         return _FakeResult(
-            _FakeMappings(one={"id": "11111111-1111-1111-1111-111111111111"})
+            _FakeMappings(first={"id": "11111111-1111-1111-1111-111111111111", "created": True})
         )
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_assembly_writes_unknown_sentinel_when_release_date_missing() -> None:
+async def test_store_assembly_writes_unknown_sentinel_when_release_date_missing() -> None:
     # An unparseable UCSC source date must not fabricate today() as the assembly's
     # release_date (clinical provenance); it writes the honest 0001-01-01 sentinel.
     session = _AssemblyInsertSession()
-    assembly_id, created = await reference_source_service._get_or_create_assembly(
+    assembly_id, created = await reference_source_service._store_assembly(
         session,
         species_id="22222222-2222-2222-2222-222222222222",
         assembly_name="FooAsm",
@@ -254,9 +247,9 @@ async def test_get_or_create_assembly_writes_unknown_sentinel_when_release_date_
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_assembly_preserves_a_real_release_date() -> None:
+async def test_store_assembly_preserves_a_real_release_date() -> None:
     session = _AssemblyInsertSession()
-    await reference_source_service._get_or_create_assembly(
+    await reference_source_service._store_assembly(
         session,
         species_id="22222222-2222-2222-2222-222222222222",
         assembly_name="FooAsm",

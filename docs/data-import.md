@@ -155,13 +155,22 @@ Admins manage reference data on **Admin → Species & assemblies**
   above; other genomes use a UCSC gene table. For GRCh37 and GRCh38 the import then starts, in
   the background and as the importing administrator, what the assembly does not have yet: the
   clinical CNV knowledgebase build and the load of the pinned DGV release (below). Its result
-  says what it started, or that it waits on another rebuild or load.
+  says what it started, or that it waits on another rebuild or load. An assembly is its name:
+  CoGA never holds two of one name. A genome whose assembly is already there keeps that
+  assembly, its id and everything loaded for it, and takes the version and release date UCSC
+  states now (the GRC patch, such as `p14`, also when UCSC has moved to a later one). With
+  *overwrite* its cytobands and genes are replaced; without it an assembly that holds them is
+  refused (409) and nothing changes. A name that is another species' assembly is refused (409).
 - **A start** does the same for a GRCh37 or GRCh38 assembly already there, the bootstrap
   assembly (`REFERENCE_BOOTSTRAP_ASSEMBLY_NAME`) first, as no account (`startup-bootstrap`):
   `REFERENCE_BOOTSTRAP_CLINICAL_CNVS` and `REFERENCE_BOOTSTRAP_DGV` (both on by default, under
   `REFERENCE_BOOTSTRAP_ENABLED`) switch each off. One rebuild and one DGV load run at a time, so a
   second assembly's waits for the next start or its button. An assembly that already has the data
-  gets nothing new: a newer release is an administrator's step.
+  gets nothing new: a newer release is an administrator's step. A GRCh38 that lacks cytobands or
+  genes, such as the empty one a first start makes when it cannot reach UCSC (version `hg38`), is
+  completed in place and takes the version and release date UCSC states.
+- **Add assembly manually** (`POST /assemblies`) makes an empty assembly to upload files into. A
+  name that is already there is refused (409), whatever its version.
 - **Rebuild** (the ↻ beside *Clin CNVs*) builds the clinical CNV knowledgebase again from ClinGen,
   UCSC, ClinVar, Orphanet and OMIM (`POST /admin/clinical-cnv-kb/rebuild`).
 - **Load DGV** (the ↻ beside *DGV*, for an assembly with a pinned release) loads the pinned DGV

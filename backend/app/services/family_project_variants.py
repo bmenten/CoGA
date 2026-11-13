@@ -93,7 +93,7 @@ async def _project_assembly_names(session: AsyncSession, project_ids: list[str])
 async def _all_assembly_names(session: AsyncSession) -> set[str]:
     """Every assembly, by name. CoGA deletes none, so the one a family's rows were imported on
     is among them."""
-    result = await session.execute(text("SELECT DISTINCT assembly_name FROM assemblies"))
+    result = await session.execute(text("SELECT assembly_name FROM assemblies"))
     return {str(name) for name in result.scalars().all() if str(name or "").strip()}
 
 
