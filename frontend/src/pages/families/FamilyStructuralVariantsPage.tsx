@@ -174,7 +174,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   // The page waits for the reference (below), so it is never shown as loading here.
   // As every family page's header names it: the assembly and its version.
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion, isError: referenceFailed },
+    { assemblyName, isError: referenceFailed },
     'Not linked',
   );
 

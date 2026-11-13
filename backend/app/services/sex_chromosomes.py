@@ -102,6 +102,25 @@ def is_t2t_chm13(assembly_name: str | None) -> bool:
     return _T2T_CHM13_NAME.fullmatch(str(assembly_name or "").strip().lower()) is not None
 
 
+def same_assembly(first: str | None, second: str | None) -> bool:
+    """Do two assembly names denote the same assembly?
+
+    The same GRC build under any name ``grc_build`` reads (``GRCh38``, ``hg38`` and
+    ``GRCh38.p14`` are one: a patch adds scaffolds and leaves the chromosomes' coordinates as
+    they are), T2T-CHM13v2.0 under any name ``is_t2t_chm13`` reads, and any other assembly
+    under exactly its name. A package file's assembly is checked against its project's by it."""
+    first_text = str(first or "").strip()
+    second_text = str(second or "").strip()
+    if not first_text or not second_text:
+        return False
+    build = grc_build(first_text)
+    if build is not None or grc_build(second_text) is not None:
+        return build == grc_build(second_text)
+    if is_t2t_chm13(first_text) or is_t2t_chm13(second_text):
+        return is_t2t_chm13(first_text) and is_t2t_chm13(second_text)
+    return first_text == second_text
+
+
 def assembly_display_rank(assembly_name: str | None) -> int:
     """Where an assembly comes in a list of assemblies: GRCh38, T2T-CHM13, GRCh37, then the rest.
 

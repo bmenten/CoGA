@@ -635,7 +635,7 @@ describe('GeneInfoPage', () => {
   it('finds the T2T-CHM13 locus under UCSC’s name for the assembly', async () => {
     renderGeneFrom('BRCA2', renameT2t('hs1', 'hs1'));
 
-    expect(await screen.findByText(/T2T chr17:43,110,000-43,190,000 \(hs1 hs1\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/T2T chr17:43,110,000-43,190,000 \(hs1\)/)).toBeInTheDocument();
   });
 
   it('takes no other telomere-to-telomere genome for T2T-CHM13', async () => {
@@ -654,7 +654,7 @@ describe('GeneInfoPage', () => {
   it('finds the GRCh38 locus under UCSC’s name for the assembly', async () => {
     renderGeneFrom('BRCA2', renameGrch38('hg38', 'hg38'));
 
-    expect(await screen.findByText(/hg38 chr17:43,044,295-43,125,482 \(hg38 hg38\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/hg38 chr17:43,044,295-43,125,482 \(GRCh38\)/)).toBeInTheDocument();
   });
 
   it('takes no assembly whose label merely holds hg38 for GRCh38', async () => {

@@ -90,7 +90,6 @@ interface ChromosomeViewWorkspaceProps {
   familyDisplayId: string;
   chrom: string;
   speciesName?: string;
-  assemblyVersion?: string;
   assembly: string;
   assemblyId?: string;
   /** Inside the validated scope; undefined while unknown. */
@@ -180,7 +179,6 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   familyDisplayId,
   chrom,
   speciesName,
-  assemblyVersion,
   assembly,
   assemblyId,
   assemblyValidated,
@@ -226,7 +224,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   const regionStartParam = Math.max(0, Math.floor(region.start));
   const regionEndParam = Math.ceil(region.end);
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName: assembly, assemblyVersion },
+    { speciesName, assemblyName: assembly },
     'Reference not linked',
   );
   const [jumpQuery, setJumpQuery] = useState('');

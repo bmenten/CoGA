@@ -73,7 +73,6 @@ interface GenomeOverviewWorkspaceProps {
   familyId: string;
   familyDisplayId: string;
   speciesName?: string;
-  assemblyVersion?: string;
   assembly: string;
   /** Inside the validated scope; undefined while unknown. */
   assemblyValidated?: boolean;
@@ -258,7 +257,6 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   familyId,
   familyDisplayId,
   speciesName,
-  assemblyVersion,
   assembly,
   assemblyValidated,
   familyMetadata,
@@ -288,7 +286,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
 }) => {
   const roiTitle = visibleRoi ? `ROI: ${visibleRoi.label}` : undefined;
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName: assembly, assemblyVersion },
+    { speciesName, assemblyName: assembly },
     'Reference not linked',
   );
   const suppressedChromClick = useRef<{ chrom: string; ts: number } | null>(null);

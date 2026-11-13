@@ -23,6 +23,7 @@ import type {
   VariantExplorerAssembly,
 } from './types';
 import { apiPath, raw } from '../../lib/apiPath';
+import { assemblyChoiceLabel } from '../../lib/reference';
 import { describeCsvExport, saveCsvBlob, truncatedExportMessage } from '../../lib/csvExport';
 import QueryFailure from '../../components/QueryFailure';
 
@@ -217,8 +218,7 @@ const GlobalSmallVariantExplorerPage = () => {
               {assemblies && assemblies.length > 0 ? (
                 assemblies.map((assembly) => (
                   <option key={assembly.assembly_id} value={assembly.assembly_id}>
-                    {assembly.assembly_name}
-                    {assembly.version ? ` (${assembly.version})` : ''} · {assembly.project_count}{' '}
+                    {assemblyChoiceLabel(assembly, assemblies)} · {assembly.project_count}{' '}
                     project{assembly.project_count === 1 ? '' : 's'}
                   </option>
                 ))

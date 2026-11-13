@@ -134,7 +134,7 @@ classification ([clinical-traceability.md](../clinical-traceability.md)).
 
 | Source | Role | Version capture | Notes |
 | --- | --- | --- | --- |
-| Reference assembly (GRCh38, …) | Coordinate system | `assemblies` table (version, release_date) | Per-family manifest |
+| Reference assembly (GRCh38, …) | Coordinate system | The build: the project's assembly (`assemblies`, whose version and release date are those of the reference data loaded). The FASTA the pipeline aligned to: the family's manifest, from the package file's `reference` and the VCFs' `##reference` | Per-family manifest; shown by build, never by patch |
 | UCSC cytobands | Band names for CNV and region labels, the ideograms | `reference_dataset_imports.source_version`: the file and its SHA-256 | Read as published when the assembly is imported. When UCSC cannot serve it, the shipped backup for hg38 or hg19, pinned by SHA-256 (`CYTOBAND_BACKUP_FILES`; [README](../../data/ref-data/cytobands/README.md)) |
 | VEP (+ cache) | Functional annotation | per-family pipeline manifest / VCF header | Produced upstream; version recorded |
 | ClinVar | Clinical significance | reference import bookkeeping / manifest | Release date pinned |

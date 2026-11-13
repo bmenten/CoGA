@@ -164,7 +164,6 @@ const ChromosomeViewPage: React.FC = () => {
     speciesName,
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     assemblyId,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
@@ -554,7 +553,6 @@ const ChromosomeViewPage: React.FC = () => {
         familyDisplayId={data.family_id}
         chrom={chrom}
         speciesName={speciesName}
-        assemblyVersion={assemblyVersion}
         assembly={assemblyName}
         assemblyId={assemblyId}
         assemblyValidated={assemblyValidated}

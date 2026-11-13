@@ -655,6 +655,21 @@ async def test_a_project_deleted_or_of_another_assembly_since_the_check_is_a_cha
 
 
 @pytest.mark.asyncio
+async def test_a_package_files_assembly_is_checked_against_the_projects_by_its_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _coga(monkeypatch, project=("p1", "GRCh38"))
+    for assembly in ("GRCh38", "GRCh38.p14", "hg38"):
+        assert await watcher._project_issues(_Session([]), "WGS", assembly) == ("p1", [])
+
+    project_id, issues = await watcher._project_issues(_Session([]), "WGS", "GRCh37")
+    assert project_id == "p1"
+    assert [(issue.code, issue.message) for issue in issues] == [
+        ("package_assembly_differs", "coga-package.json gives the assembly GRCh37; the project's is GRCh38.")
+    ]
+
+
+@pytest.mark.asyncio
 async def test_a_family_imported_or_deleted_since_the_check_is_a_change(monkeypatch: pytest.MonkeyPatch) -> None:
     ready = _seen(state="ready", issues=[], project_id="p1")
     _coga(monkeypatch, project=("p1", "GRCh38"), existing=("existing_family", "existing_samples"))

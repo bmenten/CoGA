@@ -299,7 +299,7 @@ describe('GlobalSmallVariantExplorerPage', () => {
       const assembly = screen.getByLabelText('Assembly') as HTMLSelectElement;
       expect(assembly.value).toBe('asm-38');
       expect([...assembly.options].map((option) => option.textContent)).toEqual([
-        'GRCh38 (p14) · 3 projects',
+        'GRCh38 · 3 projects',
         'GRCh37 · 1 project',
       ]);
       // No search goes out before an assembly is chosen, so none goes out without one.

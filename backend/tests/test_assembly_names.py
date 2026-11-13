@@ -7,7 +7,8 @@ reads GRCh38 or hg38, GRCh37 or hg19, in any case and with or without a patch su
 (``GRCh38.p14``); the PARs are looked up by it. The gene page's UCSC and gnomAD links and the
 order of a gene's assemblies and of a panel's regions read ``grc_build`` too, and both lists
 take one order, ``sex_chromosomes.assembly_display_rank``: GRCh38, T2T-CHM13, GRCh37, then the
-rest.
+rest. ``sex_chromosomes.same_assembly`` reads two names as one assembly by the same rules, as a
+package file's assembly is checked against its project's.
 
 T2T-CHM13. The UCSC reference import names T2T-CHM13v2.0 the way UCSC's description of
 it does, ``T2T CHM13v2.0`` with a space. NCBI writes ``T2T-CHM13v2.0``, its ClickHouse tables are
@@ -155,6 +156,47 @@ def test_t2t_has_no_grc_build_and_its_own_pars_under_each_name() -> None:
     assert [sex_chromosomes.pseudoautosomal_regions(name) for name in NOT_T2T_CHM13_NAMES if not sex_chromosomes.grc_build(name)] == [
         None
     ] * len([name for name in NOT_T2T_CHM13_NAMES if not sex_chromosomes.grc_build(name)])
+
+
+# ---- One assembly under two names: same_assembly ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("GRCh38", "GRCh38.p14"),
+        ("hg38", "GRCh38"),
+        ("GRCh38.p13", "GRCh38.p14"),
+        ("GRCh37.p13", "hg19"),
+        (" GRCh38 ", "grch38"),
+        (UCSC_IMPORT_NAME, "hs1"),
+        ("T2T-CHM13v2.0", "T2T_CHM13v2.0"),
+        ("GRCm39", "GRCm39"),
+    ],
+)
+def test_same_assembly_reads_one_assembly_under_each_of_its_names(first: str, second: str) -> None:
+    assert sex_chromosomes.same_assembly(first, second) is True
+    assert sex_chromosomes.same_assembly(second, first) is True
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("GRCh38", "GRCh37"),
+        ("GRCh38.p14", "hg19"),
+        ("GRCh38", UCSC_IMPORT_NAME),
+        ("hs1", "T2T-CHM13v1.0"),
+        # A name the rules do not read is the same assembly only under exactly that name.
+        ("GRCh38_no_alt", "GRCh38"),
+        ("GRCm39", "grcm39"),
+        ("GRCm39", "GRCm38"),
+        ("GRCh38", ""),
+        (None, None),
+    ],
+)
+def test_same_assembly_tells_other_assemblies_apart(first: str | None, second: str | None) -> None:
+    assert sex_chromosomes.same_assembly(first, second) is False
+    assert sex_chromosomes.same_assembly(second, first) is False
 
 
 # ---- The gene page's links ---------------------------------------------------------------------

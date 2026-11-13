@@ -43,7 +43,7 @@ const renderHeader = (current: 'repeat-expansions' | 'paraphase' | 'report' | un
           familyId="F1"
           family={family}
           projectId="p1"
-          assemblyLabel="GRCh38 p14"
+          assemblyLabel="GRCh38"
           current={current}
           facts={
             <div className="family-workspace-stat">
@@ -71,7 +71,7 @@ describe('FamilyCaseHeader', () => {
     const facts = container.querySelector('.family-workspace-summary') as HTMLElement;
     expect(
       Array.from(facts.querySelectorAll('.family-workspace-stat')).map((fact) => fact.textContent),
-    ).toEqual(['Members3', 'AssemblyGRCh38 p14', 'ProjectsRare disease', 'Loci with calls3']);
+    ).toEqual(['Members3', 'AssemblyGRCh38', 'ProjectsRare disease', 'Loci with calls3']);
   });
 
   it('offers the case fields, Sample QC and the report on an analysis page', async () => {
@@ -149,7 +149,7 @@ describe('FamilyCaseHeader', () => {
             familyId="F1"
             family={family}
             projectId="p1"
-            assemblyLabel="GRCh38 p14"
+            assemblyLabel="GRCh38"
             current="structural-variants"
             views={
               <a href="/families/F1/genome" className="family-module-link family-module-link--view">
@@ -187,7 +187,7 @@ describe('FamilyCaseHeader', () => {
             familyId="F1"
             family={nipt}
             projectId="p1"
-            assemblyLabel="GRCh38 p14"
+            assemblyLabel="GRCh38"
             current="nipt"
             niptReportSearch="?project_id=p1&panel_id=panel-1"
           />

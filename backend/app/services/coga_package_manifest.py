@@ -14,6 +14,8 @@ approved import reads.
   person checks it before approving.
 - What the file gives always wins over the draft: the family ID, the analysis, the region of
   interest and the PGT details.
+- The reference genome the run used (``reference``, its FASTA's name) becomes the manifest's
+  ``reference``, which the import records in the family's annotation manifest.
 - ``proposed_package`` writes the draft into the package itself: the members (as the import reads
   Discover's draft: from the PED, with Discover's roles and carrier fields), the couples and
   relatives, assays, HPO terms, the PGT details and the datasets. The package then says
@@ -103,6 +105,8 @@ def package_manifest(package: CogaPackage, draft: dict[str, Any] | None) -> dict
         manifest["family_id"] = draft["family_id"]
     if package.analysis_type is not None:
         manifest["analysis_type"] = package.analysis_type
+    if package.reference is not None:
+        manifest["reference"] = package.reference
     roi = package.family.roi if package.family is not None else None
     if roi is not None:
         manifest["roi"] = roi

@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import api from '../lib/api';
 import type { FamilyOut } from '../lib/apiSchema.generated';
 import { formatShortDate } from '../lib/format';
-import { useProjectCatalog } from '../lib/reference';
+import { assemblyDisplayName, useProjectCatalog } from '../lib/reference';
 import { formatUserRef } from '../lib/users';
 import FamilyStatusBadge from './FamilyStatusBadge';
 import PageState from './PageState';
@@ -323,7 +323,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
               {filteredProjects.map((project) => {
                 const referenceLabel =
                   project.species_name && project.assembly_name
-                    ? `${project.species_name} • ${project.assembly_name}${project.assembly_version ? ` ${project.assembly_version}` : ''}`
+                    ? `${project.species_name} • ${assemblyDisplayName(project.assembly_name)}`
                     : 'Reference not set';
                 const showMatchingFamilies =
                   normalizedSearch.length > 0 && project.matchingFamilies.length > 0;

@@ -42,7 +42,6 @@ const FamilyIgvPage: React.FC = () => {
     speciesName,
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
@@ -52,7 +51,7 @@ const FamilyIgvPage: React.FC = () => {
   );
   const resolvedGenome = useMemo(() => mapAssemblyToIgvGenome(assemblyName), [assemblyName]);
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
+    { speciesName, assemblyName, isError: referenceFailed },
     'Reference not linked',
   );
 

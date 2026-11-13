@@ -36,6 +36,7 @@ from .clickhouse_variant_storage import (
     delete_family_structural_variants,
 )
 from .clinical_audit_service import audit_actor
+from .coga_package import PACKAGE_FILE_NAME
 from .data_scope import normalize_chromosome
 from .family_identifiers import identifier_problem, visible
 from .family_structure_audit import (
@@ -59,6 +60,7 @@ from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import family_managed_files, record_raw_import_file, store_managed_file
 from .roi_gene_lookup import roi_gene_region
+from .vcf_header_provenance import reference_name
 
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ImportRefused, ParsedPed, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
 from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
@@ -609,6 +611,39 @@ async def _register_package_provenance(
     )
     await _record_package_raw_files(
         session, bundle=bundle, family_uuid=family_uuid, family_identifier=family_identifier
+    )
+    await session.commit()
+
+
+async def _record_package_reference(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    context: FamilyMetadataContext,
+) -> None:
+    """Record the reference genome the package names (its ``reference``, the FASTA the pipeline
+    aligned to) as the Reference assembly of the family's annotation manifest, under the modality
+    ``package``, beside the ``##reference`` its VCF headers give. The project names the build
+    (GRCh38), the FASTA what the calls were made on (an analysis set, with or without ALT contigs,
+    decoys or masked regions), and the manifest is frozen into every sign-out.
+
+    The import calls it in its dataset loop, once the first dataset of the package is the
+    family's: with the data it describes, so a failed import that removes the family or puts it
+    back (``postgres_family_snapshot``) takes it away too."""
+    name = reference_name(bundle.manifest.reference)
+    if not name:
+        return
+    # Imported here, as the dataset importers do: the manifest service reads the family record.
+    from .annotation_manifest_service import merge_vcf_header_provenance
+
+    await merge_vcf_header_provenance(
+        session,
+        family_uuid=context.family_uuid,
+        assembly_id=context.assembly_id,
+        modules={"assembly": {"version": name, "detail": f"from {PACKAGE_FILE_NAME}"}},
+        modality="package",
+        recorded_by=f"import ({PACKAGE_FILE_NAME})",
+        source="manifest",
     )
     await session.commit()
 

@@ -145,6 +145,18 @@ ordered GRCh38, T2T-CHM13, GRCh37, then any other assembly by name (`assembly_di
 `services/sex_chromosomes.py`; `compareAssemblyNames` in the frontend); the gene page opens on
 the first that has the gene.
 
+Wherever a project, a family, a gene or the explorers name an assembly, they show its build
+(`GRCh38`, `GRCh37`) or, for any other assembly, its name: never its version
+(`assemblyDisplayName` in `lib/reference.ts`). The version names the release of the reference
+data CoGA loaded (UCSC's hg38 is `GRCh38.p14`), not the reference a family's data was aligned
+to. A patch adds scaffolds and leaves the chromosomes' coordinates as they are; the FASTA the
+pipeline aligned to (an analysis set, with or without ALT contigs, decoys or masked regions) is
+the family's, named in its annotation manifest as its Reference assembly
+([annotation-provenance.md](annotation-provenance.md)). A list to choose an assembly from adds
+the version only where two assemblies would read alike. **Admin → Species & assemblies** shows
+the version, as the release of the reference data. A package file's `assembly` is checked
+against its project's by build (`same_assembly` in `services/sex_chromosomes.py`).
+
 ### Loading or replacing reference data
 
 Admins manage reference data on **Admin → Species & assemblies**
@@ -1385,6 +1397,7 @@ schema_version: 1          # must be 1
 family_id: FAM001          # defaults to the folder name
 analysis_type: monogenic_nipt   # optional
 roi: CFTR                  # optional region of interest
+reference: GRCh38_no_alt_analysis_set.fasta   # optional: the FASTA the pipeline aligned to
 
 metadata:
   pgt:
@@ -1456,6 +1469,11 @@ or none:
   ahead of the import. With no project and no existing family to look it up in,
   they say it was not checked (`manifest_roi_not_checked`).
 - A manifest without `roi` leaves the family's region as it is.
+
+`reference` is the reference genome the pipeline aligned to, the package file's `reference`. The
+import records its FASTA's name (without a path before it) as the Reference assembly of the
+family's annotation manifest, under the modality `package`, beside the `##reference` of its VCF
+headers ([annotation-provenance.md](annotation-provenance.md)).
 
 `metadata.pgt.affected_parents` names the parent whose condition the PGT tests for (the PGT
 pipeline's `affected_parent`, which Discover copies). `metadata.pgt.indexes` names the index, the
