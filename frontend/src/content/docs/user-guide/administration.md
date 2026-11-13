@@ -57,7 +57,8 @@ page is an administrator's alone.
     the organisation, *waits for approval*: these accounts come first, and every active administrator
     gets an e-mail about each when a mail server is set (the page says who, and **Send a test mail**
     checks it). Activate the account, or **Delete** it when it is not relevant; only an account that
-    was never active can be deleted.
+    was never active can be deleted. With a mail server set, an account you activate (or activate
+    again) gets an e-mail that it can sign in.
   - Deactivate an account to revoke access without deleting its history. **Archive** one that is
     not coming back: it is deactivated and leaves the list (tick **Show archived accounts** to see
     it), every record still names it, and the same person signing in again makes no new request.

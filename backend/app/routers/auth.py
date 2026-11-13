@@ -34,6 +34,7 @@ from ..schemas import (
     UserLogin,
     UserUpdate,
 )
+from ..services.account_activation_mail import AccountActivation, notify_account_activation
 from ..services.account_notifications import (
     AccountRequest,
     administrator_addresses,
@@ -483,6 +484,7 @@ async def update_user(
     user_id: str,
     update: UserUpdate,
     request: Request,
+    background_tasks: BackgroundTasks,
     current: CurrentUser = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_postgres_session),
 ):
@@ -496,7 +498,8 @@ async def update_user(
     project's ``user_ids`` and ``reader_user_ids`` set its members: the same rows, from the
     account's side. A project that does not exist, or names no UUID, answers 404 and nothing is
     changed. What changed, each field from and to, is recorded with the request in the audit
-    log (``request_meta.account_change``).
+    log (``request_meta.account_change``). An account the change makes active is told by
+    e-mail, after the answer (``account_activation_mail.py``).
     """
     user_uuid = require_uuid(user_id, "Invalid user id")
     project_ids = (
@@ -546,6 +549,18 @@ async def update_user(
             "account %s changed: %s (who changed it, and from and to, in the request audit)",
             updated.id,
             ", ".join(field for field in ACCOUNT_CHANGE_FIELDS if field in changes),
+        )
+    if changes.get("is_active", {}).get("to") is True:
+        background_tasks.add_task(
+            notify_account_activation,
+            AccountActivation(
+                email=updated.email,
+                name=f"{updated.first_name or ''} {updated.last_name or ''}".strip(),
+                sign_in=updated.sign_in,
+                activated_by=(
+                    f"{current.first_name} {current.last_name}".strip() or current.username or current.email
+                ),
+            ),
         )
     return updated
 

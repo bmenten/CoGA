@@ -228,7 +228,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - stored job errors: `dgv_load_jobs.py` (~678, ~681), `clinical_cnv_kb_jobs.py` (~677), `hpo_service.py` (~1646);
     - CoGA error classes that wrap another error's text, which `own_error_message` would keep: `monarch_ingest.py` (~114), `monarch_semsim.py` (~113), `hpo_release_download.py` (~151, ~177), `hpo_service.py` (~682), `reference_source_service.py` (~696), `postgres_migrations.py` (~215, ~263);
     - HTTP answers that quote an exception's text: `routers/admin.py` (~943, ~945, ~1012, ~1018), `routers/families.py` (~298), `routers/auth.py` (~627), and `family_package_discovery.py` (~2303, a YAML error quoting the manifest);
-    - log lines with an exception's text: `dependencies.py` (~130), `routers/auth.py` (~372, ~626), `account_notifications.py` (~135), `family_assignment_mail.py` (~92), `monarch_ingest.py` (~124, ~532), `monarch_semsim.py` (~112), `hpo_service.py` (~759, ~825, ~847), `reference_metadata_service.py` (~640), `reference_source_service.py` (~691).
+    - log lines with an exception's text: `dependencies.py` (~130), `routers/auth.py` (~372, ~626), `account_notifications.py` (~135), `account_activation_mail.py` (~94), `family_assignment_mail.py` (~92), `monarch_ingest.py` (~124, ~532), `monarch_semsim.py` (~112), `hpo_service.py` (~759, ~825, ~847), `reference_metadata_service.py` (~640), `reference_source_service.py` (~691).
 
 ### UI-8 · Held tags and detached tags
 
