@@ -11,8 +11,16 @@ import type {
 import GlobalSmallVariantTable from './GlobalSmallVariantTable';
 import VariantCarrierModal from './VariantCarrierModal';
 import {
+  ExplorerFrequencyView,
+  ExplorerGeneView,
+  ExplorerTranscriptView,
+  PendingFamiliesNotice,
+} from './ExplorerViews';
+import {
+  cohortCellLabel,
   GLOBAL_UNSUPPORTED_FILTERS,
   useGlobalSmallVariantSearchState,
+  type ExplorerView,
   type GenotypeFilterMode,
   type SampleGenotypeFilter,
 } from './globalSmallVariantSearch';
@@ -38,6 +46,14 @@ const GENOTYPE_MODE_LABELS: Record<GenotypeFilterMode, string> = {
 
 const noopSavePreset = async () => {};
 
+// The explorer's views over the same filters.
+const VIEW_LABELS: Record<ExplorerView, string> = {
+  variants: 'Variants',
+  genes: 'Genes',
+  transcripts: 'Transcripts',
+  frequency: 'Cohort frequency',
+};
+
 const GlobalSmallVariantExplorerPage = () => {
   const search = useGlobalSmallVariantSearchState();
   const {
@@ -54,6 +70,12 @@ const GlobalSmallVariantExplorerPage = () => {
     setIncludeImputed,
     applyGenotypeFilters,
     genotypeFilters,
+    filterQueryString,
+    view,
+    setView,
+    cohortCell,
+    showCohortCell,
+    showGene,
   } = search;
 
   // Draft rows for the per-sample genotype filter (applied on "Apply").
@@ -81,7 +103,15 @@ const GlobalSmallVariantExplorerPage = () => {
       // under a name that says so, and the page says so too, as for the family exports.
       const info = describeCsvExport(res, `variant-explorer-${assemblyId ?? 'export'}`);
       saveCsvBlob(res.data, info.filename);
-      if (info.truncated) setExportWarning(truncatedExportMessage(info));
+      // Families being written, or changed moments before, may be missing from the file.
+      const pending = Number(res.headers?.['x-coga-export-pending-families'] ?? 0);
+      const warnings = [
+        info.truncated ? truncatedExportMessage(info) : null,
+        pending > 0
+          ? `${pending} famil${pending === 1 ? 'y was' : 'ies were'} being added to the explorer's counts or brought up to date: the file may lack ${pending === 1 ? 'its' : 'their'} variants, or count them as before the change.`
+          : null,
+      ].filter(Boolean);
+      if (warnings.length) setExportWarning(warnings.join(' '));
     } catch {
       setExportError('Could not export variants. Try narrowing your filters and retry.');
     } finally {
@@ -176,7 +206,7 @@ const GlobalSmallVariantExplorerPage = () => {
     isFetching,
   } = useQuery<GlobalVariantPage>({
     queryKey: ['variant-explorer', 'small-variants', requestQueryString],
-    enabled: Boolean(assemblyId),
+    enabled: Boolean(assemblyId) && view === 'variants',
     queryFn: async () => {
       const res = await api.get(apiPath`/variant-explorer/small-variants?${raw(requestQueryString)}`);
       return res.data as GlobalVariantPage;
@@ -202,7 +232,8 @@ const GlobalSmallVariantExplorerPage = () => {
           <h1 className="catalog-card-title">Variant explorer</h1>
           <p className="page-copy">
             Aggregate SNVs and small indels across every project you can access. Each row is a
-            unique variant with carrier counts summarised across the whole cohort.
+            unique variant with carrier counts summarised across the whole cohort; the same
+            variants can be viewed by gene, by transcript and by cohort frequency.
           </p>
         </div>
         <div className="variant-explorer-controls">
@@ -367,6 +398,70 @@ const GlobalSmallVariantExplorerPage = () => {
       ) : null}
 
       <section className="surface-card space-y-4">
+        <div className="analysis-nav" role="tablist" aria-label="Explorer views">
+          {(Object.keys(VIEW_LABELS) as ExplorerView[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={view === key}
+              className={`pill-toggle${view === key ? ' pill-toggle--active' : ''}`}
+              onClick={() => setView(key)}
+            >
+              {VIEW_LABELS[key]}
+            </button>
+          ))}
+        </div>
+
+        {cohortCell ? (
+          <div className="table-chip-list">
+            <span className="table-chip">
+              Cohort frequency: {cohortCellLabel(cohortCell)}{' '}
+              <button
+                type="button"
+                className="button-link"
+                aria-label="Remove the cohort-frequency filter"
+                onClick={() => showCohortCell(null)}
+              >
+                ✕
+              </button>
+            </span>
+          </div>
+        ) : null}
+
+        {view === 'variants' ? null : assembliesLoading ? (
+          <p className="table-subtle">Loading the accessible assemblies…</p>
+        ) : assembliesFailed ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--error" role="alert">
+            Could not load the accessible assemblies.{' '}
+            <button type="button" className="button-link" onClick={() => void refetchAssemblies()}>
+              Retry
+            </button>
+          </div>
+        ) : noAssemblies ? (
+          <p className="table-subtle">
+            You have no access to a project with small variants, so there is nothing to search.
+          </p>
+        ) : view === 'genes' ? (
+          <ExplorerGeneView queryString={filterQueryString} enabled={Boolean(assemblyId)} onShowGene={showGene} />
+        ) : view === 'transcripts' ? (
+          <ExplorerTranscriptView
+            queryString={filterQueryString}
+            enabled={Boolean(assemblyId)}
+            onShowGene={showGene}
+          />
+        ) : (
+          <ExplorerFrequencyView
+            queryString={filterQueryString}
+            enabled={Boolean(assemblyId)}
+            onShowCell={showCohortCell}
+          />
+        )}
+      </section>
+
+      {/* The variant view; hidden while another view is shown. */}
+      <section className="surface-card space-y-4" hidden={view !== 'variants'}>
+        <PendingFamiliesNotice count={variantPage?.pending_families ?? 0} />
         <div className="variant-explorer-results-header">
           <p className="analysis-section-title">
             {/* A failed search has no count: never "0 variants" above the failure. */}

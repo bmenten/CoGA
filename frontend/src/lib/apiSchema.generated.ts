@@ -664,6 +664,86 @@ export interface DgvVariantOut {
   source: string | null;
 }
 
+/**
+ * The kept variants with a number of carriers in one class (``carrier_min`` to
+ * ``carrier_max`` samples, no maximum for the last) and a gnomAD frequency in one class.
+ */
+export interface ExplorerFrequencyCellOut {
+  carrier_class: string;
+  carrier_min: number;
+  carrier_max: number | null;
+  gnomad_af_class: string;
+  variants: number;
+}
+
+export interface ExplorerFrequencyOut {
+  assembly_id: string | null;
+  assembly_name: string | null;
+  pending_families: number;
+  carrier_classes: string[];
+  gnomad_af_classes: string[];
+  cells: ExplorerFrequencyCellOut[];
+}
+
+export interface ExplorerGenePageOut {
+  total: number;
+  assembly_id: string | null;
+  assembly_name: string | null;
+  pending_families: number;
+  sort: string;
+  order: string;
+  offset: number;
+  genes: ExplorerGeneRowOut[];
+}
+
+/**
+ * One gene of the Variant Explorer's gene view: the kept variants its annotation names,
+ * by their most severe impact on it, and their carriers summed over those variants (a
+ * sample with two variants in the gene counts twice).
+ */
+export interface ExplorerGeneRowOut {
+  gene: string;
+  variants: number;
+  high: number;
+  moderate: number;
+  low: number;
+  modifier: number;
+  carriers: number;
+  het: number;
+  hom: number;
+}
+
+export interface ExplorerTranscriptPageOut {
+  total: number;
+  assembly_id: string | null;
+  assembly_name: string | null;
+  pending_families: number;
+  transcripts: string;
+  sort: string;
+  order: string;
+  offset: number;
+  rows: ExplorerTranscriptRowOut[];
+}
+
+/**
+ * One transcript of the Variant Explorer's transcript view: the kept variants its
+ * annotation names, by their most severe consequence class on it, and their carriers
+ * summed over those variants.
+ */
+export interface ExplorerTranscriptRowOut {
+  transcript_id: string;
+  gene: string | null;
+  mane: boolean;
+  canonical: boolean;
+  variants: number;
+  lof: number;
+  missense: number;
+  splice: number;
+  synonymous: number;
+  other: number;
+  carriers: number;
+}
+
 export interface FamilyAncestryOut {
   project_id: string;
   state: string;
@@ -1552,6 +1632,7 @@ export interface GlobalVariantPageOut {
   next_cursor: string | null;
   assembly_id: string | null;
   assembly_name: string | null;
+  pending_families: number;
   variants: GlobalVariantRowOut[];
 }
 

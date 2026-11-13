@@ -1111,6 +1111,8 @@ names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`). The family page also reads a family's own rows here: by position, to apply a gene panel's regions (a join on 64-kb windows); and by key, so that each annotation filter gathers the family's own variants into its set, not every family's (`_small_family_key_condition`) |
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
+| `SNV_INDEL/carriers` | the Variant Explorer's carrier summary: per variant, the carriers each family adds, kept as the families' rows are written (below, "The variant carrier summary") |
+| `SNV_INDEL/carrier_generations` | what each family's contribution to the carrier summary was computed from |
 | `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the SVLEN its caller wrote (`svLen`; the SV length filters measure it), the full annotation. A call written as a sequence allele without SVLEN (VCF 4.4 writes it `.`) is stored with the length its alleles state, len(ALT) − len(REF), negative for a deletion; any other call without SVLEN is stored with none and measured by END − POS |
 | `SV/key_lookup` | maps a family's variant ids, per source, to their internal keys |
 | `SV/entries` | the structural-variant calls per family and sample |
@@ -1448,6 +1450,72 @@ them could make the answer miss a row.
 a snapshot restore, appends a token. The SV→gene index stores the version it was built from in
 `family_sv_gene_index_status.sv_data_version` and is rebuilt when the family's version has moved.
 
+### The variant carrier summary
+
+The Variant Explorer counts, per variant, the families and samples that carry it in the
+projects a user may read. It reads them from `SNV_INDEL/carriers`
+([variant_carrier_summary.py](../backend/app/services/variant_carrier_summary.py)), not from
+every family's `entries` rows, which at three or four whole genomes no longer fit a page's 110 s
+([clickhouse-scale-benchmark.md](clickhouse-scale-benchmark.md#variant-explorer)). It is derived
+data: every row can be computed again from `entries` and the families' members and projects in
+Postgres.
+
+A family's **contribution** is read from its rows under one project it is linked to (the first
+in sorted order that holds rows; every write stores a family's rows under each of its projects,
+so each copy holds the same rows, "A family's rows follow its projects"), with `FINAL`. It
+counts the calls with an ALT allele of the members the family shows (its active members), each
+row's class kept apart: its annotation set (`annotationSetHash`), rsID, gene symbols and whether
+its callset is imputed, the columns the explorer's filters read on a row.
+
+| Row | Sort key | Holds |
+| --- | --- | --- |
+| aggregate | `xpos, key, '', '', projects, class…, 0` | the families (1), carriers, heterozygous and homozygous carriers that families of the same projects add to a variant of one class, summed over those families. A family adds one when all its rows of the variant share one class and no carrier is a sample another family shows too; its carriers are deduplicated over its callsets and project copies |
+| carrier | `xpos, key, family, sample, projects, class…, 0` | one sample's call, in one class: a family whose rows of the variant fall in several classes (two callsets annotated apart, a called and an imputed callset), or a sample two families show. The explorer counts a sample once over the rows its filters keep, by its ID |
+| marker | `0, 0, family, '', [], …, generation` | `applied` = 1 for the generation of the family's contribution the table holds |
+
+`SummingMergeTree((families, samples, het, hom, applied))` sums the rows of one sort key. A
+contribution is written to a staging table of the same structure
+(`<assembly>/SNV_INDEL/carriers_stage/<unix seconds>-<hex>`), merged into one part (`OPTIMIZE …
+FINAL`), checked to hold its marker once, and attached in one step (`ALTER TABLE … ATTACH
+PARTITION tuple() FROM`): the table holds a contribution with its marker, or neither. None of
+these statements is retried after a lost answer: a second run of an `INSERT … SELECT` could
+write its rows twice; a failed attach is read back from the markers. A staging table left by a
+stopped process is dropped after an hour.
+
+A contribution is taken out by writing the same rows negated, its marker at -1: the sums net out
+whether or not the parts have merged, and merges drop the rows that sum to zero (a row of a
+table with a nested column would stay; the summary has none). The explorer reads the table
+without `FINAL`, grouped by `xpos, key` in the table's order (`optimize_aggregation_in_order`),
+so it holds one variant's sums at a time; a carrier row counts while its sample's rows sum above
+zero.
+
+`carrier_generations` (`ReplacingMergeTree`, by family and generation) holds, per generation,
+the family's projects, the samples it showed and those of them another family shows, the
+project whose copy was read and the family's data version. A row of an empty `family_guid` asks
+for the summary to be emptied. The records of generations the table no longer holds are deleted
+synchronously once the next one is in.
+
+**Who keeps it.**
+
+- Every function that writes a family's `entries` rows takes its contribution out first
+  (`detach_family_variant_carriers`, called by `clickhouse_variant_storage` and the snapshot
+  restore), under the family's write lock ("One write at a time per family"). It recomputes the
+  contribution from the rows it was computed from, which the data version proves unchanged.
+  The hook never stops the write: a contribution it cannot take out exactly (the rows changed
+  while it was in, or a ClickHouse error) has the summary emptied and rebuilt.
+- The reconciler (`reconcile_variant_carriers`) adds the contribution of every family whose
+  rows, shown members, shared samples or projects differ from what the table holds, taking out
+  the old one first, each under the family's write lock, which it only tries: a family a writer
+  holds (an import in progress) waits for the next round. The variant-carrier worker runs it
+  every 5 s where the package imports run (the API or the import-worker processes); several may
+  run, each family refreshed by one.
+- Emptying (`TRUNCATE` of both tables) takes the summary's Postgres advisory lock
+  (`variant-carriers:<assembly>`) exclusively and only when free; every change of a
+  contribution holds it shared. The reconciler then adds every family again.
+- A family whose contribution the table does not hold as it is now is *pending*: the explorer
+  names how many of the families in scope are, and counts them as the table holds them (left
+  out while a write runs, as before a member or project change until the next round).
+
 ### One write at a time per family
 
 ClickHouse has no transactions, and a write of a family's variants replaces rows it has read:
@@ -1461,7 +1529,9 @@ ClickHouse has no transactions, and a write of a family's variants replaces rows
 So each writer holds a transaction-scoped Postgres advisory lock
 (`pg_advisory_xact_lock(hashtext('family-variant-writes:<type>:<family uuid>'))`, `<type>`
 being `small_variants` or `structural_variants`) from before its first read of the rows until
-its transaction ends
+its transaction ends. Before its first write of the family's `entries` rows it takes the family's
+contribution out of the variant carrier summary, and the reconciler adds it again under the same
+lock ("The variant carrier summary")
 ([family_variant_write_lock.py](../backend/app/services/family_variant_write_lock.py)). A second
 write of the same family and type waits for the first to commit or roll back, in any worker or
 process. Readers take no lock. A write that needs both locks takes the small-variant lock first.
@@ -1501,8 +1571,10 @@ same way, under its locks and before its transaction updates or deletes the fami
 The `entries` tables are `CollapsingMergeTree(sign)`, but CoGA never uses the collapse: no
 writer stores a `sign = -1` row. Every delete or rewrite of a family's rows runs `ALTER TABLE …
 DELETE … SETTINGS mutations_sync = 1`, which returns once the old rows are gone, so the readers
-that filter `sign = 1` without `FINAL` (the family views, the variant explorer,
-`count_cfdna_recurrence`) never see a stale row. A new writer deletes synchronously before it
+that filter `sign = 1` without `FINAL` (the family views, the variant explorer's sample
+genotype filter and carriers, `count_cfdna_recurrence`) never see a stale row. The variant
+carrier summary reads a family's rows with `FINAL`, so a contribution is the same rows whatever
+has merged, and takes its own rows out by negation, not by a delete. A new writer deletes synchronously before it
 inserts. One that stored cancel rows, or a replacement that relies on a merge to drop the old
 row, would need `FINAL` on all of those reads.
 

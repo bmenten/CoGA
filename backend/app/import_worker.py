@@ -20,7 +20,8 @@ the import's own tasks from taking the locks they hold already).
 
 It also runs the worker of the exploratory ancestry PCA (``ancestry_service``), whose jobs parse
 a whole-genome VCF in Python: work of the same kind, kept off the API's loop for the same reason;
-and, when FAMILY_IMPORT_WATCH_ROOTS names any, the import watcher (``import_watcher``), which
+the variant-carrier worker (``variant_carrier_summary``), which adds each family's carriers to
+the Variant Explorer's summary once its variants are written; and, when FAMILY_IMPORT_WATCH_ROOTS names any, the import watcher (``import_watcher``), which
 looks into those folders for packages pipelines delivered. One watcher looks at a time, whichever
 process it runs in.
 
@@ -47,6 +48,7 @@ from .core.coga_logging import configure_json_logging, install_event_loop_except
 from .core.config import settings
 from .core.postgres import close_postgres_engine, verify_postgres_schema_revision, wait_for_postgres
 from .services.ancestry_service import ancestry_worker, stop_ancestry_worker
+from .services.variant_carrier_summary import stop_variant_carrier_worker, variant_carrier_worker
 from .services.family_package_import import (
     drop_orphaned_import_backups,
     family_package_import_worker,
@@ -86,6 +88,7 @@ async def run_import_workers(count: int, stop: asyncio.Event) -> int:
     stopping = asyncio.create_task(stop.wait())
     workers: list[asyncio.Task[None]] = []
     ancestry: asyncio.Task[None] | None = None
+    carriers: asyncio.Task[None] | None = None
     watcher: asyncio.Task[None] | None = None
     try:
         start = asyncio.create_task(start_import_worker_process())
@@ -100,17 +103,23 @@ async def run_import_workers(count: int, stop: asyncio.Event) -> int:
         start.result()
         workers = [asyncio.create_task(family_package_import_worker(stop)) for _ in range(count)]
         ancestry = asyncio.create_task(ancestry_worker(stop))
+        carriers = asyncio.create_task(variant_carrier_worker(stop))
         # The watched import folders, when there are any; one process's watcher looks at a time.
         if settings.family_import_watch_roots:
             watcher = asyncio.create_task(import_watcher(stop))
         logger.info("Import worker process started with %d package-import worker(s)", count)
-        done, _ = await asyncio.wait({stopping, ancestry, *workers}, return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait({stopping, ancestry, carriers, *workers}, return_when=asyncio.FIRST_COMPLETED)
         if stopping in done:
             logger.info("Import worker process stopping")
             return EXIT_STOPPED
         if ancestry in done:
             problem = None if ancestry.cancelled() else ancestry.exception()
             logger.error("The ancestry worker ended by itself; the import worker process stops", exc_info=problem)
+        if carriers in done:
+            problem = None if carriers.cancelled() else carriers.exception()
+            logger.error(
+                "The variant-carrier worker ended by itself; the import worker process stops", exc_info=problem
+            )
         for ended in [worker for worker in workers if worker in done]:
             workers.remove(ended)
             problem = None if ended.cancelled() else ended.exception()
@@ -125,6 +134,8 @@ async def run_import_workers(count: int, stop: asyncio.Event) -> int:
             await stop_import_watcher(watcher, stop)
         if ancestry is not None:
             await stop_ancestry_worker(ancestry, stop)
+        if carriers is not None:
+            await stop_variant_carrier_worker(carriers, stop)
         for worker in workers:
             await stop_family_package_import_worker(worker, stop)
         await close_clickhouse_client()

@@ -536,6 +536,9 @@ class GlobalVariantPageOut(BaseModel):
     next_cursor: Optional[str] = None
     assembly_id: Optional[str] = None
     assembly_name: Optional[str] = None
+    # Families of the scope whose variants the explorer's carrier summary does not hold as
+    # they are now (being written, or changed moments ago): left out, or counted as before.
+    pending_families: int = 0
     variants: List[GlobalVariantRowOut] = Field(default_factory=list)
 
 
@@ -570,6 +573,84 @@ class VariantCarriersOut(BaseModel):
     hom_samples: int = 0
     truncated: bool = False
     families: List[VariantCarrierFamilyGroupOut] = Field(default_factory=list)
+
+
+class ExplorerGeneRowOut(BaseModel):
+    """One gene of the Variant Explorer's gene view: the kept variants its annotation names,
+    by their most severe impact on it, and their carriers summed over those variants (a
+    sample with two variants in the gene counts twice)."""
+
+    gene: str
+    variants: int = 0
+    high: int = 0
+    moderate: int = 0
+    low: int = 0
+    modifier: int = 0
+    carriers: int = 0
+    het: int = 0
+    hom: int = 0
+
+
+class ExplorerGenePageOut(BaseModel):
+    total: int
+    assembly_id: Optional[str] = None
+    assembly_name: Optional[str] = None
+    pending_families: int = 0
+    sort: str = "variants"
+    order: str = "desc"
+    offset: int = 0
+    genes: List[ExplorerGeneRowOut] = Field(default_factory=list)
+
+
+class ExplorerTranscriptRowOut(BaseModel):
+    """One transcript of the Variant Explorer's transcript view: the kept variants its
+    annotation names, by their most severe consequence class on it, and their carriers
+    summed over those variants."""
+
+    transcript_id: str
+    gene: Optional[str] = None
+    mane: bool = False
+    canonical: bool = False
+    variants: int = 0
+    lof: int = 0
+    missense: int = 0
+    splice: int = 0
+    synonymous: int = 0
+    other: int = 0
+    carriers: int = 0
+
+
+class ExplorerTranscriptPageOut(BaseModel):
+    total: int
+    assembly_id: Optional[str] = None
+    assembly_name: Optional[str] = None
+    pending_families: int = 0
+    # Which transcripts are listed: all, mane (Select or Plus Clinical) or canonical.
+    transcripts: str = "all"
+    sort: str = "variants"
+    order: str = "desc"
+    offset: int = 0
+    rows: List[ExplorerTranscriptRowOut] = Field(default_factory=list)
+
+
+class ExplorerFrequencyCellOut(BaseModel):
+    """The kept variants with a number of carriers in one class (``carrier_min`` to
+    ``carrier_max`` samples, no maximum for the last) and a gnomAD frequency in one class."""
+
+    carrier_class: str
+    carrier_min: int
+    carrier_max: Optional[int] = None
+    gnomad_af_class: str
+    variants: int = 0
+
+
+class ExplorerFrequencyOut(BaseModel):
+    assembly_id: Optional[str] = None
+    assembly_name: Optional[str] = None
+    pending_families: int = 0
+    carrier_classes: List[str] = Field(default_factory=list)
+    gnomad_af_classes: List[str] = Field(default_factory=list)
+    cells: List[ExplorerFrequencyCellOut] = Field(default_factory=list)
 
 
 class VariantLengthOut(BaseModel):

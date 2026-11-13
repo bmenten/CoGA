@@ -283,7 +283,10 @@ async def reset_clickhouse_client(client: Any | None = None) -> None:
             await target.close()
 
 
-async def execute_clickhouse(query: str, parameters: Any = None) -> Any:
+async def execute_clickhouse(query: str, parameters: Any = None, *, retry: bool = True) -> Any:
+    """Run ``query``; a transient error is retried once on a fresh client. With ``retry``
+    False it is raised instead: for a statement whose second run could write its rows twice
+    (an ``INSERT … SELECT`` that may have taken effect before its answer was lost)."""
     if isinstance(parameters, list) and _INSERT_QUERY_PATTERN.match(query):
         return await insert_clickhouse(query, parameters)
     returns_rows = _query_returns_rows(query)
@@ -295,7 +298,7 @@ async def execute_clickhouse(query: str, parameters: Any = None) -> Any:
                 return list(result.result_rows)
             return await client.command(query, parameters=parameters or {})
         except Exception as exc:
-            if attempt == 0 and _is_retryable_error(exc, _QUERY_RETRY_ERROR_MARKERS):
+            if retry and attempt == 0 and _is_retryable_error(exc, _QUERY_RETRY_ERROR_MARKERS):
                 # Named, not quoted: a transport error's text can hold the request URL,
                 # whose query string carries the query's bound parameters.
                 logger.warning(
