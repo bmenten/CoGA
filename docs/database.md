@@ -57,9 +57,9 @@ erDiagram
     }
     assemblies {
         uuid id PK
-        uuid species_id FK "unique with assembly_name and version"
-        text assembly_name
-        text version
+        uuid species_id FK
+        text assembly_name UK
+        text version "GRC patch the last UCSC import stated"
     }
     chromosomes {
         uuid id PK
@@ -117,7 +117,7 @@ The core diagram above draws every table of this file.
 | Table | Holds |
 | --- | --- |
 | `species` | organisms: name, common name, NCBI taxonomy id |
-| `assemblies` | genome assemblies per species |
+| `assemblies` | genome assemblies per species, one per name: `assembly_name` is unique, because the ClickHouse variant tables and every lookup by name read the name alone. `version` and `release_date` are what the assembly's last import from UCSC stated: the GRC patch, such as `p14` (the UCSC genome name, `hg38`, for the GRCh38 a start makes when it cannot reach UCSC). An import of an assembly already there keeps its row and id and updates the two (`reference_source_service._store_assembly`; [data-import.md](data-import.md#loading-or-replacing-reference-data)); a name of another species' assembly is refused. Admin → Species & assemblies shows them |
 | `chromosomes` | chromosome sizes and cytobands per assembly |
 | `users` | accounts: username, password hash, role and active flag. The role is one of five, lowest first, each with every right of the ones before it (`services/access_control.py`): `viewer` (reads the records of their projects), `analyst` (also analyses them), `supervisor` (also signs an analysis out), `superuser` (also every project, and the gene panels, variant tags, filter presets, sequencing QC thresholds and package import) and `admin` (the whole administration). An account made at its first Microsoft sign-in, or at its first sign-in through the organisation's CAS server (which releases that ID; the account starts inactive, waiting for approval), holds the user's Microsoft Entra ID object ID (`azure_object_id`, unique), by which every later sign-in finds it, and no password (`hashed_password` holds a marker no password matches). A local account, such as the emergency administrator, has no object ID. `activated_at` is when the account was first active: its creation's time for an account made active, NULL for a sign-up or a first CAS sign-in until an administrator activates it; only an account with no `activated_at` can be deleted (`DELETE /api/auth/users/{id}`), any other is archived. `archived_at` is when an administrator archived it; `users_archived_inactive_check` holds an archived account inactive. Archiving keeps the row, so every record that names the account still does. `sessions_ended_at` is when the account last signed out (`POST /api/auth/logout`): every token issued to it before then, CoGA's own and Microsoft's, is refused, on every device; NULL until its first logout |
 | `projects` | projects, each bound to one species and assembly |

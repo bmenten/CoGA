@@ -777,7 +777,7 @@ async def _get_or_create_species(
     return str(created_row["id"]), str(created_row["name"]), True
 
 
-async def _get_or_create_assembly(
+async def _store_assembly(
     session: AsyncSession,
     *,
     species_id: str,
@@ -785,49 +785,42 @@ async def _get_or_create_assembly(
     assembly_version: str,
     release_date: date | None,
 ) -> tuple[str, bool]:
-    existing = await session.execute(
-        text(
-            """
-            SELECT id::text AS id
-            FROM assemblies
-            WHERE species_id = CAST(:species_id AS uuid)
-              AND assembly_name = :assembly_name
-              AND version = :version
-            LIMIT 1
-            """
-        ),
-        {
-            "species_id": species_id,
-            "assembly_name": assembly_name,
-            "version": assembly_version,
-        },
-    )
-    row = existing.mappings().first()
-    if row is not None:
-        return str(row["id"]), False
-
-    created = await session.execute(
-        text(
-            """
-            INSERT INTO assemblies (species_id, assembly_name, version, release_date)
-            VALUES (
-                CAST(:species_id AS uuid),
-                :assembly_name,
-                :version,
-                :release_date
-            )
-            RETURNING id::text AS id
-            """
-        ),
-        {
-            "species_id": species_id,
-            "assembly_name": assembly_name,
-            "version": assembly_version,
-            "release_date": release_date or _UNKNOWN_RELEASE_DATE,
-        },
-    )
-    created_row = created.mappings().one()
-    return str(created_row["id"]), True
+    """The assembly of this name, and whether it was created. An assembly is its name
+    (``assemblies.assembly_name`` is unique): an assembly already there keeps its id and takes
+    the version and release date this import states, so a re-import, also after UCSC moved to a
+    later patch, never makes a second one. 409 when the name is another species' assembly."""
+    row = (
+        await session.execute(
+            text(
+                """
+                INSERT INTO assemblies (species_id, assembly_name, version, release_date)
+                VALUES (
+                    CAST(:species_id AS uuid),
+                    :assembly_name,
+                    :version,
+                    :release_date
+                )
+                ON CONFLICT (assembly_name) DO UPDATE
+                    SET version = EXCLUDED.version, release_date = EXCLUDED.release_date
+                    WHERE assemblies.species_id = EXCLUDED.species_id
+                -- xmax is 0 on a row this statement inserted, and set on one it updated.
+                RETURNING id::text AS id, (xmax = 0) AS created
+                """
+            ),
+            {
+                "species_id": species_id,
+                "assembly_name": assembly_name,
+                "version": assembly_version,
+                "release_date": release_date or _UNKNOWN_RELEASE_DATE,
+            },
+        )
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Assembly {assembly_name} already exists for another species",
+        )
+    return str(row["id"]), bool(row["created"])
 
 
 async def _find_human_grch38_assembly(
@@ -886,7 +879,7 @@ async def ensure_human_grch38_species_assembly(
         common_name=HUMAN_GRCH38_COMMON_NAME,
         tax_id=HUMAN_GRCH38_TAX_ID,
     )
-    assembly_id, created_assembly = await _get_or_create_assembly(
+    assembly_id, created_assembly = await _store_assembly(
         session,
         species_id=species_id,
         assembly_name=HUMAN_GRCH38_ASSEMBLY_NAME,
@@ -935,13 +928,11 @@ async def import_reference_from_ucsc(
         else None
     )
     if existing_startup_assembly is not None:
+        # A start completes the GRCh38 it finds, under the name that one has.
         species_id = str(existing_startup_assembly["species_id"])
         species_name = str(existing_startup_assembly["species_name"])
-        assembly_id = str(existing_startup_assembly["assembly_id"])
         assembly_name = str(existing_startup_assembly["assembly_name"])
-        assembly_version = str(existing_startup_assembly["version"])
         created_species = False
-        created_assembly = False
     else:
         species_id, species_name, created_species = await _get_or_create_species(
             session,
@@ -949,13 +940,13 @@ async def import_reference_from_ucsc(
             common_name=source_assembly.common_name,
             tax_id=source_assembly.tax_id,
         )
-        assembly_id, created_assembly = await _get_or_create_assembly(
-            session,
-            species_id=species_id,
-            assembly_name=assembly_name,
-            assembly_version=assembly_version,
-            release_date=source_assembly.release_date,
-        )
+    assembly_id, created_assembly = await _store_assembly(
+        session,
+        species_id=species_id,
+        assembly_name=assembly_name,
+        assembly_version=assembly_version,
+        release_date=source_assembly.release_date,
+    )
 
     cytobands_existing = (
         await _assembly_dataset_count(

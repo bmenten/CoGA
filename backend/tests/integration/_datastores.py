@@ -238,6 +238,23 @@ async def fresh_assembly(session: Any, species_id: str, name: str) -> str:
     ).scalar_one()
 
 
+async def named_assembly(session: Any, name: str, species_label: str) -> tuple[str, str]:
+    """The assembly of ``name`` and its species, not committed: (species UUID, assembly UUID).
+    An assembly is its name (``assemblies.assembly_name`` is unique), so a test on a real name
+    such as GRCh38 shares the one the database holds, else makes it under a fresh species."""
+
+    held = (
+        await session.execute(
+            text("SELECT species_id::text, id::text FROM assemblies WHERE assembly_name = :a"),
+            {"a": name},
+        )
+    ).first()
+    if held is not None:
+        return str(held[0]), str(held[1])
+    species = await fresh_species(session, species_label)
+    return species, await fresh_assembly(session, species, name)
+
+
 async def gene_locus(session: Any, assembly_id: str, symbol: str, chrom: str, start: int, end: int) -> None:
     """A protein-coding gene of the assembly at chrom:start-end (a gene id of its own), not
     committed."""

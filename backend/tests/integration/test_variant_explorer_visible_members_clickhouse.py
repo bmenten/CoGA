@@ -33,8 +33,7 @@ import pytest
 
 from backend.tests.integration._datastores import (
     admin_account,
-    fresh_assembly,
-    fresh_species,
+    named_assembly,
     run_closing_stores,
 )
 
@@ -104,8 +103,7 @@ def stored() -> dict[str, Any]:
 
     async def _write() -> dict[str, Any]:
         async with get_postgres_sessionmaker()() as session:
-            species = await fresh_species(session, f"explorer-visible {tag}")
-            assembly_id = await fresh_assembly(session, species, _ASSEMBLY)
+            species, assembly_id = await named_assembly(session, _ASSEMBLY, f"explorer-visible {tag}")
             project = (
                 await session.execute(
                     text(

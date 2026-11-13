@@ -74,7 +74,7 @@ async def queue_startup_reference_loads(session: AsyncSession) -> None:
         key=lambda name: (name != settings.reference_bootstrap_assembly_name, name),
     )
     try:
-        present = set((await session.execute(text("SELECT DISTINCT assembly_name FROM assemblies"))).scalars())
+        present = set((await session.execute(text("SELECT assembly_name FROM assemblies"))).scalars())
     except Exception as exc:  # noqa: BLE001 - a start never stops on it; logged by type
         logger.error("Could not read the assemblies to complete their reference data (%s)", describe_error(exc))
         await _rollback_quietly(session)

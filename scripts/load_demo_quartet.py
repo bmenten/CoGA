@@ -309,8 +309,6 @@ async def ensure_assembly(session: AsyncSession, species_id: str, assembly_name:
             FROM assemblies
             WHERE species_id = CAST(:species_id AS uuid)
               AND assembly_name = :assembly_name
-            ORDER BY release_date DESC, version DESC
-            LIMIT 1
             """
         ),
         {"species_id": species_id, "assembly_name": assembly_name},

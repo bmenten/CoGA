@@ -265,6 +265,10 @@ describe('ReferenceCatalogPage', () => {
     fireEvent.change(screen.getByLabelText(/source assembly/i), {
       target: { value: 'hg38' },
     });
+    // GRCh38 is already here: the import updates it, never a second GRCh38.
+    expect(
+      screen.getByText(/the import updates that assembly in place, with the version and release date ucsc states/i)
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /download cytobands and genes/i }));
 
     await waitFor(() =>

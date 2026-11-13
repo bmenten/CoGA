@@ -24,7 +24,9 @@ Het Postgres-schema staat in vijf SQL-bestanden in `backend/db/schema/postgres/`
 
 Twee kenmerken vallen op. Bijna alle referentiedata per assembly verwijst naar `assemblies` met `ON DELETE CASCADE`; de Monarch-tabellen zijn bewust assembly-onafhankelijk (gekoppeld op HGNC- en MONDO-id's). En het bevroren ACMG-bewijs per classificatie staat in de kolom `small_variant_reviews.acmg_evidence_snapshot`, dat van een CNV-classificatie in `structural_variant_reviews.cnv_evidence_snapshot` (hoofdstuk 10).
 
-**Waar in de code:** de bestanden in `backend/db/schema/postgres/`; de volledige kolomreferentie in `docs/database.md`, met een ERD van de kern en één per domein van elk baseline-bestand (*Postgres Tables*).
+**Een assembly is haar naam.** `assemblies.assembly_name` is uniek. De varianttabellen in ClickHouse (hierna) en elke opzoeking op naam lezen alleen de naam. Twee assemblies met één naam zouden dus één set varianttabellen delen, terwijl genen, cytobanden, panels, DGV en klinische CNV's elk aan een andere rij konden hangen. `version` en `release_date` zijn wat de laatste import uit UCSC opgaf: de GRC-patch, bv. `p14`. Een volgende import van die assembly houdt dezelfde rij en hetzelfde id en werkt die twee bij, ook als UCSC intussen een latere patch beschrijft (hoofdstuk 4). *Add assembly manually* weigert een naam die er al is (`409`).
+
+**Waar in de code:** de bestanden in `backend/db/schema/postgres/`; `_store_assembly` in `backend/app/services/reference_source_service.py` en `create_assembly_record` in `backend/app/services/metadata_service.py` (de assembly op naam); de volledige kolomreferentie in `docs/database.md`, met een ERD van de kern en één per domein van elk baseline-bestand (*Postgres Tables*).
 
 ## ClickHouse: tabellen per assembly
 

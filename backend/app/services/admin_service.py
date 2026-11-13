@@ -768,9 +768,8 @@ async def list_clickhouse_variant_status(
     assembly_result = await session.execute(
         text(
             """
-            SELECT DISTINCT assembly_name
+            SELECT assembly_name
             FROM assemblies
-            WHERE assembly_name IS NOT NULL
             ORDER BY assembly_name
             """
         )
