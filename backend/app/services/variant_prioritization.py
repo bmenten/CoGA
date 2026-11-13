@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Final, Iterable, Literal
 
 from .sv_copy_change import COPY_GAIN, COPY_LOSS, CopyChange, sv_kind
 
@@ -36,8 +36,20 @@ _SEG_WEIGHT_NONE = 0.6
 # relevance reorders candidates: a variant in a phenotype-matched gene can outrank an
 # equally deleterious variant in a phenotype-irrelevant gene. Genes with no Monarch
 # phenotype data score 0 on the phenotype axis (shown explicitly in the UI, beside the
-# variant score in the score breakdown); the variant score breaks ties in the ranking.
+# variant score in the score breakdown); the variant score breaks ties in the ranking, and
+# a ranking can be ordered by the variant score instead (``RANK_BY_VARIANT_SCORE``).
 _PHENOTYPE_WEIGHT = 0.5
+
+# The orders a ranking takes (``rank_by``). By the combined score, the default, phenotype
+# relevance reorders the candidates. By the variant score, the phenotype match is left out
+# of the order: a variant in a gene without Monarch phenotype data, which scores 0 on
+# phenotype and sinks in the combined order, ranks with equally deleterious variants in
+# phenotype-matched genes (novel-gene candidates). Either order ranks the same variants
+# with the same scores; only their order and rank differ.
+RankBy = Literal["combined_score", "variant_score"]
+RANK_BY_COMBINED_SCORE: Final = "combined_score"
+RANK_BY_VARIANT_SCORE: Final = "variant_score"
+
 # Predictor-only evidence is capped below 1.0; a perfect score is reserved for ClinVar
 # pathogenic assertions, so variant scores spread out instead of saturating.
 _MAX_PREDICTOR_PATHOGENICITY = 0.9
@@ -211,6 +223,16 @@ def combine(variant_score: float, phenotype_score: float | None) -> float:
     """
     phenotype = phenotype_score or 0.0
     return (1.0 - _PHENOTYPE_WEIGHT) * variant_score + _PHENOTYPE_WEIGHT * phenotype
+
+
+def priority_order_key(
+    *, combined_score: float, variant_score: float, rank_by: RankBy
+) -> tuple[float, float]:
+    """What a ranking orders a variant by, highest first: the score ``rank_by`` names, then
+    the other score to break ties. The caller breaks the remaining ties by variant id."""
+    if rank_by == RANK_BY_VARIANT_SCORE:
+        return (variant_score, combined_score)
+    return (combined_score, variant_score)
 
 
 # --- Structural / copy-number variant scoring -------------------------------

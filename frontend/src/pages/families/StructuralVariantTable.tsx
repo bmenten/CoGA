@@ -12,6 +12,7 @@ import {
 import {
   COLLABORATION_QUICK_TAGS,
   getTagDefinitionMap,
+  type RankedBy,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
@@ -42,6 +43,8 @@ interface StructuralVariantTableProps {
   onEditReview?: (variant: StructuralVariant) => void;
   onClassifyCnv?: (variant: StructuralVariant) => void;
   onToggleReviewTag?: (variant: StructuralVariant, tagKey: string) => Promise<void>;
+  // The score the page is ranked by, which the Score column shows.
+  rankedBy?: RankedBy;
 }
 
 function MetricTextList({
@@ -104,6 +107,7 @@ export default function StructuralVariantTable({
   onEditReview,
   onClassifyCnv,
   onToggleReviewTag,
+  rankedBy = null,
 }: StructuralVariantTableProps) {
   // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
@@ -123,7 +127,11 @@ export default function StructuralVariantTable({
               <th
                 className="table-sortable"
                 onClick={() => onSort('priority')}
-                title="Exomiser-style priority: event class + gene constraint + rarity + segregation + gene–phenotype match"
+                title={
+                  rankedBy === 'variant_score'
+                    ? 'Variant score, which the ranking follows: event class + gene constraint + rarity + segregation, without the gene–phenotype match'
+                    : 'Exomiser-style priority: event class + gene constraint + rarity + segregation + gene–phenotype match'
+                }
               >
                 Score {sortKey === 'priority' && (sortAsc ? '▲' : '▼')}
               </th>
@@ -237,7 +245,7 @@ export default function StructuralVariantTable({
 
               return (
               <tr key={structuralVariantRowKey(variant)} className={isExcluded ? 'variant-table-row--excluded' : undefined}>
-                {hasPriority && <VariantScoreCell variant={variant} />}
+                {hasPriority && <VariantScoreCell variant={variant} rankedBy={rankedBy} />}
                 {visible.chr && <td className="whitespace-nowrap">{variant.chr}</td>}
                 {visible.start && <td className="table-mono">{variant.start}</td>}
                 {visible.end && <td className="table-mono">{variant.end}</td>}

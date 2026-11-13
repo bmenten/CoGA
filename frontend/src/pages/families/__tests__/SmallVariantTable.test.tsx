@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import SmallVariantTable from '../SmallVariantTable';
-import { ACMG_CLASSIFICATION_LABELS, type SmallVariantReview } from '../smallVariantSearch';
+import { ACMG_CLASSIFICATION_LABELS, type SmallVariant, type SmallVariantReview } from '../smallVariantSearch';
 import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
 import { compoundHetReview, niptClassification, review, smallVariant, svSecondHit } from '../../../test/variants';
 import reviewClassCases from './fixtures/review-class-cases.json';
@@ -147,8 +147,8 @@ describe('SmallVariantTable', () => {
     expect(screen.getAllByText(/^Filters met on/)).toHaveLength(1);
   });
 
-  it('shows a Score column and ranks prioritized variants highest-first', () => {
-    const mkVariant = (id: string, gene: string, combined: number) => smallVariant({
+  const rankedVariant = (id: string, gene: string, combined: number, variant: number, rank: number) =>
+    smallVariant({
       _id: id,
       chr: '1',
       start: 100,
@@ -162,22 +162,23 @@ describe('SmallVariantTable', () => {
       genotypes: [],
       priority: {
         combined_score: combined,
-        variant_score: combined,
+        variant_score: variant,
         pathogenicity_score: 0.85,
         frequency_score: 1,
         segregation_weight: 1,
-        phenotype_score: combined > 0.5 ? 0.9 : null,
+        phenotype_score: combined > variant / 2 ? 0.9 : null,
         segregation_modes: ['de_novo'],
         phenotype_gene: gene,
-        phenotype_matches: combined > 0.5 ? [{ hpo_id: 'HP:0001250', label: 'Seizure' }] : [],
-        rank: null,
+        phenotype_matches: combined > variant / 2 ? [{ hpo_id: 'HP:0001250', label: 'Seizure' }] : [],
+        rank,
       },
     });
 
+  const renderRanked = (variants: SmallVariant[], rankedBy?: 'combined_score' | 'variant_score') =>
     render(
       <MemoryRouter>
         <SmallVariantTable
-          variants={[mkVariant('low', 'LOWG', 0.3), mkVariant('high', 'TOPG', 0.92)]}
+          variants={variants}
           members={[]}
           familyId="F1"
           projectId="P1"
@@ -186,15 +187,47 @@ describe('SmallVariantTable', () => {
           onEditReview={vi.fn()}
           onAcmgClassify={vi.fn()}
           onToggleReviewTag={vi.fn(async () => undefined)}
+          rankedBy={rankedBy}
         />
       </MemoryRouter>,
     );
 
+  const geneOrder = () =>
+    screen
+      .getAllByRole('link')
+      .filter((el) => /^(TOPG|NOVG)$/.test((el.textContent || '').trim()))
+      .map((el) => (el.textContent || '').trim());
+
+  it('shows a Score column and lists prioritized variants in the ranking order', () => {
+    // The server ranked TOPG first by the combined score: the page lists it first whatever
+    // order the rows arrive in, with its combined score.
+    renderRanked(
+      [rankedVariant('novel', 'NOVG', 0.3, 0.6, 2), rankedVariant('top', 'TOPG', 0.92, 0.5, 1)],
+      'combined_score',
+    );
+
     expect(screen.getByText(/^Score/)).toBeInTheDocument();
-    // Higher combined score sorts to the top row.
-    const geneLinks = screen.getAllByRole('link').filter((el) => /TOPG|LOWG/.test(el.textContent || ''));
-    expect(geneLinks[0]).toHaveTextContent('TOPG');
+    expect(geneOrder()).toEqual(['TOPG', 'NOVG']);
     expect(screen.getByText('0.92')).toBeInTheDocument();
+    expect(screen.queryByText('0.60')).not.toBeInTheDocument();
+  });
+
+  it('lists a page ranked by the variant score in its order, showing the variant score', () => {
+    // Ranked by the variant score the novel gene's variant leads, though its combined score is
+    // lower: the column follows the rank and shows the score the rank follows.
+    renderRanked(
+      [rankedVariant('top', 'TOPG', 0.92, 0.5, 2), rankedVariant('novel', 'NOVG', 0.3, 0.6, 1)],
+      'variant_score',
+    );
+
+    expect(geneOrder()).toEqual(['NOVG', 'TOPG']);
+    expect(screen.getByRole('button', { name: /^Variant score 0\.60/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Variant score 0\.50/ })).toBeInTheDocument();
+    expect(screen.queryByText('0.92')).not.toBeInTheDocument();
+    expect(screen.getByText(/^Score/).closest('th')).toHaveAttribute(
+      'title',
+      expect.stringMatching(/^Variant score, which the ranking follows/),
+    );
   });
 
   it('reveals the priority breakdown in a popover on score hover', async () => {

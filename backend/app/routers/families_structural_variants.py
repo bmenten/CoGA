@@ -33,7 +33,8 @@ from ..services.structural_variant_review_pg import (
     save_structural_variant_filter_preset as save_structural_variant_filter_preset_record,
     upsert_structural_variant_review as upsert_structural_variant_review_record,
 )
-from .families_small_variants import _family_export_cell
+from ..services.variant_prioritization import RANK_BY_COMBINED_SCORE, RankBy
+from .families_small_variants import PRIORITY_EXPORT_COLUMNS, _family_export_cell
 from .query_params import FiniteThreshold
 
 
@@ -136,6 +137,8 @@ async def get_family_structural_variants(
     project_id: str | None = None,
     overlap: bool = False,
     prioritize: bool = False,
+    # The ranking's order, when prioritized: by the combined score, or by the variant score.
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
     track_mode: bool = False,
     count_only: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
@@ -163,6 +166,7 @@ async def get_family_structural_variants(
         # it): the list's alone, as the SV page never sends it and the export never took it.
         filters=replace(filters, overlap=overlap),
         prioritize=prioritize,
+        rank_by=rank_by,
         track_mode=track_mode,
         count_only=count_only,
     )
@@ -184,7 +188,7 @@ async def get_family_structural_variants(
 # the SV list's names (Remote chr, Remote start) and empty for an SV without one, stands
 # beside the locus, where the reader of a translocation looks for its partner.
 # The file is read by its header, not by position: the ranked export already shifts
-# every column by its Priority and Rank.
+# every column by its Priority, Variant score and Rank.
 _FAMILY_SV_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("chr", "Chromosome"),
     ("start", "Start"),
@@ -227,6 +231,7 @@ async def export_family_structural_variants_csv(
     family_id: str,
     project_id: str | None = None,
     prioritize: bool = False,
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
     # The list's filters, read by the same dependency, after the user as there.
@@ -258,10 +263,11 @@ async def export_family_structural_variants_csv(
         context=context,
         filters=filters,
         prioritize=prioritize,
+        rank_by=rank_by,
     )
 
     columns = (
-        [("priority_score", "Priority"), ("priority_rank", "Rank"), *_FAMILY_SV_EXPORT_COLUMNS]
+        [*PRIORITY_EXPORT_COLUMNS, *_FAMILY_SV_EXPORT_COLUMNS]
         if prioritize
         else _FAMILY_SV_EXPORT_COLUMNS
     )

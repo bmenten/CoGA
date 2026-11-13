@@ -511,6 +511,7 @@ async def test_a_panel_served_from_a_broader_ranking_names_the_transcript(monkey
         pairing=False,
         page=1,
         page_size=50,
+        rank_by="combined_score",
         small_variant_summary=None,
     )
 
