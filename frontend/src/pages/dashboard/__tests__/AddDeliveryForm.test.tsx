@@ -110,6 +110,7 @@ describe('AddDeliveryForm', () => {
       'Select the analysis…',
       'LR-WGS',
       'LR-AS (long-read adaptive sampling)',
+      'SR-WGS',
       'PGT',
       'Expanded Carrier Screening',
       'mNIPT',

@@ -533,6 +533,29 @@ def test_vep_max_af_is_kept_apart_from_gnomads_popmax() -> None:
     assert _annotation_columns(both).gnomad_popmax_af == pytest.approx(0.0006)
 
 
+def test_the_short_read_annotations_names_for_vep_caches_fields_are_read_as_vep_names_them() -> None:
+    # The short-read WGS annotation names VEP's MAX_AF and CLIN_SIG after their source. Unread,
+    # a variant common in one population and rare in gnomAD overall passed a frequency ceiling.
+    state = _clinvar_state(
+        '##INFO=<ID=CSQ,Number=.,Type=String,Description="Format: Allele|Consequence|SYMBOL|Feature|gnomADg_AF|'
+        'MAX_AF_VEP_ALL_POPULATIONS|MAX_AF_POPS_VEP_ALL_POPULATIONS|CLIN_SIG_VEP_CACHE|ClinVar_CLNSIG">'
+    )
+    [annotation] = extract_small_variant_annotations(
+        {"CSQ": "G|missense_variant|GENE1|ENST1|0.0004|0.0123|gnomADg_AFR|benign|Uncertain_significance"}, state
+    )
+    assert annotation["population_frequencies"]["max_af"] == pytest.approx(0.0123)
+    assert _annotation_columns(annotation).gnomad_popmax_af == pytest.approx(0.0123)
+    # A ClinVar file was annotated: the cache's classification stays apart.
+    assert annotation["clinvar"] == "Uncertain_significance"
+    assert annotation["clinvar_vep_cache"] == "benign"
+    # Without a ClinVar file, the cache's is the record's ClinVar classification.
+    state = _clinvar_state(
+        '##INFO=<ID=CSQ,Number=.,Type=String,Description="Format: Allele|Consequence|SYMBOL|Feature|CLIN_SIG_VEP_CACHE">'
+    )
+    [annotation] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|pathogenic"}, state)
+    assert annotation["clinvar"] == "pathogenic"
+
+
 # --------------------------------------------------------------------------- #
 # The fields the new annotation workflow delivers (the field contract in data-import.md)
 # --------------------------------------------------------------------------- #

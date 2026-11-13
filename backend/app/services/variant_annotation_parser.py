@@ -50,7 +50,8 @@ _ANN_ALIASES = {
     "exon": ["EXON", "Exon_Rank"],
     "intron": ["INTRON"],
     "clinvar": list(CLINVAR_FILE_ALIASES),
-    _CLINVAR_CACHE_KEY: ["CLIN_SIG"],
+    # The short-read WGS annotation names VEP's cache fields after their source.
+    _CLINVAR_CACHE_KEY: ["CLIN_SIG", "CLIN_SIG_VEP_CACHE"],
     "rsid": ["Existing_variation", "DBSNP", "RSID", "ID"],
     "lof": ["LoF", "LOF"],
     "lof_filter": ["LoF_filter", "LOF_FILTER"],
@@ -112,7 +113,8 @@ _POPULATION_ALIASES = {
     # popmax where the record has no combined one, as for the allele frequency.
     "gnomad_exomes_popmax_af": ["gnomADe_AF_grpmax", "gnomADe_AF_popmax", "GNOMADE_AF_GRPMAX", "GNOMADE_AF_POPMAX"],
     "gnomad_genomes_popmax_af": ["gnomADg_AF_grpmax", "gnomADg_AF_popmax", "GNOMADG_AF_GRPMAX", "GNOMADG_AF_POPMAX"],
-    "max_af": ["MAX_AF", "POPMAX_AF"],
+    # MAX_AF_VEP_ALL_POPULATIONS is VEP's MAX_AF as the short-read WGS annotation names it.
+    "max_af": ["MAX_AF", "MAX_AF_VEP_ALL_POPULATIONS", "POPMAX_AF"],
     "topmed_af": ["TOPMed_AF", "TOPMED_AF"],
     # gnomAD's filtering allele frequency (95 % confidence, the highest over its genetic
     # ancestry groups), which BA1 and BS1 read where it is annotated; the higher of the exome

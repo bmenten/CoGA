@@ -218,6 +218,22 @@ without DeepVariant's reference and no-call records. It takes only `bams/<sample
 sample's alignment, not a `<sample>_phased.bam` beside it. When the run was started several times, it names
 the pipeline records of the last run that completed.
 
+A family on conventional short-read WGS (Illumina, the SR-WGS analysis) has its PED, its joint GATK call
+set twice at the top of the folder, and a folder per sample for its alignment:
+
+```text
+FAM001/
+  FAM001.ped
+  FAM001.GRCh38.annotated.vcf.gz (+ .tbi)   the call set, VEP-annotated: the one CoGA reads
+  FAM001.vcf.gz (+ .tbi)                    the same call set unannotated: not read
+  PROBAND/    PROBAND.cram (+ .crai)        alignments, one folder per sample; optional
+```
+
+CoGA reads the annotated call set as GATK's own calls, never as imputed genotypes (its header speaks of
+phasing, and some of its genotypes are phased). A sample without a CRAM has calls but no reads in the genome
+browser. Such a family goes into the folder of its project like any delivery; without a `coga-package.json`
+it is added by hand (below).
+
 PGT packages from the PGT pipeline (nf-cmgg/copgtm) are laid out per tool:
 
 ```text
@@ -427,7 +443,7 @@ with the delivery.
   - Someone else may have corrected the delivery since you opened it: the save is refused, and you
     open it again.
 - **Add a folder by hand** (above the list) adds a folder no pipeline delivered: choose it (or type
-  its path), its project and its analysis (LR-WGS, LR-AS, PGT, Expanded Carrier Screening or mNIPT),
+  its path), its project and its analysis (LR-WGS, LR-AS, SR-WGS, PGT, Expanded Carrier Screening or mNIPT),
   and, when it is not the folder's name, its family ID: left empty, the family ID is the folder's
   name, and it cannot be changed once the folder is added. CoGA
   makes its package from the folder, with the members and datasets it proposes from the folder's PED

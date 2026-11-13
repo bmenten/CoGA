@@ -270,6 +270,7 @@ class ImportDeliveryAdd(BaseModel):
         Literal[
             "long_read_wgs",
             "long_read_adaptive_sampling",
+            "short_read_wgs",
             "pgt",
             "expanded_carrier_screening",
             "monogenic_nipt",
