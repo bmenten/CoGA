@@ -715,7 +715,7 @@ python docs/handleiding/build_site.py
 </section><section id="hs-3" class="chapter">
 <h1>3. Databankstructuren (Postgres &amp; ClickHouse)</h1>
 <p>CoGA verdeelt zijn gegevens over twee databanken: <strong>Postgres</strong> voor metadata, toegangsrechten, reviewtoestand en de klinische papiersporen, en <strong>ClickHouse</strong> voor de enorme aantallen variant- en trackrijen. De tabel-per-tabelreferentie is <code>docs/database.md</code>; die geldt als bron van waarheid.</p>
-<p>Enkele begrippen: <strong>DDL</strong> (<em>Data Definition Language</em>) zijn de SQL-commando's die tabellen aanmaken of wijzigen; een <strong>foreign key</strong> is een verwijzing van een rij naar een rij in een andere tabel.</p>
+<p>Enkele begrippen: <strong>DDL</strong> (<em>Data Definition Language</em>) zijn de SQL-commando's die tabellen aanmaken of wijzigen; een <strong>foreign key</strong> is een verwijzing van een rij naar een rij in een andere tabel; een <strong>ERD</strong> (<em>entity-relationship diagram</em>) tekent de tabellen met hun sleutels en de verwijzingen ertussen.</p>
 <h2>Twee databanken, één afspraak</h2>
 <p>Postgres is de bron van waarheid voor alles wat relationeel, transactioneel en veiligheidskritisch is. Het biedt foreign keys, <code>CHECK</code>-regels en triggers: precies wat toegangscontrole en een onwrikbaar auditspoor nodig hebben. ClickHouse filtert en telt snel over honderden miljoenen rijen; daar staan de varianten en de grote interval-tracks (hoofdstuk 1 legt de keuze uit).</p>
 <p>Metadatarijen gebruiken UUID's als sleutel. De variant-id's die de API toont, zijn stabiele tekenreeksen (bv. <code>1-1000-A-T</code>), los van de opslag. Voor mensen blijven <code>family_id</code> en <code>sample_id</code> de herkenbare namen.</p>
@@ -758,7 +758,7 @@ python docs/handleiding/build_site.py
 </tbody>
 </table></div>
 <p>Twee kenmerken vallen op. Bijna alle referentiedata per assembly verwijst naar <code>assemblies</code> met <code>ON DELETE CASCADE</code>; de Monarch-tabellen zijn bewust assembly-onafhankelijk (gekoppeld op HGNC- en MONDO-id's). En het bevroren ACMG-bewijs per classificatie staat in de kolom <code>small_variant_reviews.acmg_evidence_snapshot</code>, dat van een CNV-classificatie in <code>structural_variant_reviews.cnv_evidence_snapshot</code> (hoofdstuk 10).</p>
-<p class="waar"><strong>Waar in de code:</strong> de bestanden in <code>backend/db/schema/postgres/</code>; de volledige kolomreferentie in <code>docs/database.md</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> de bestanden in <code>backend/db/schema/postgres/</code>; de volledige kolomreferentie in <code>docs/database.md</code>, met een ERD van de kern en één per domein van elk baseline-bestand (<em>Postgres Tables</em>).</p>
 <h2>ClickHouse: tabellen per assembly</h2>
 <p>Het ClickHouse-schemabestand <code>backend/db/schema/clickhouse/001_coga_variant_storage.sql</code> maakt alleen de databank aan. De backend maakt de eigenlijke tabellen tijdens het draaien aan, <strong>per assembly</strong>: hun namen beginnen met de assembly (bv. <code>`GRCh38/SNV_INDEL/entries`</code>). Eerst wordt de assemblynaam omgezet naar een veilige sleutel: tekens buiten letters, cijfers, punt, underscore en koppelteken (bv. een spatie) worden <code>_</code>, dus <code>T2T CHM13v2.0</code> wordt <code>T2T_CHM13v2.0</code>. Import en lezen gebruiken dezelfde functie en vinden dus altijd dezelfde tabel.</p>
 <div class="scroll"><table>
@@ -800,7 +800,7 @@ python docs/handleiding/build_site.py
 <li>Een rij in <code>entries</code> is de call van één callset (<code>source</code>) voor één variant, in één familie en één project. Wanneer ClickHouse de onderdelen van een tabel samenvoegt, houdt het één rij per sorteersleutel over; daarom eindigt de sorteersleutel op <code>key, source</code>. Zo blijven de rechtstreekse call (clair3) en de geïmputeerde call (GLIMPSE2) van één variant twee rijen; de diagnostische lijsten tonen de rechtstreekse. De callset <code>nipt</code> van een monogene NIPT komt uit twee VCF's met elk één sample, het plasma en de vader. Elk bestand vult in dezelfde rij per variant alleen de call van zijn eigen sample in. Bij een SV bevat ook de sleutel zelf de bron, omdat de id van een SV uit een upload per sample de caller niet noemt: twee callers op dezelfde breekpunten blijven twee rijen. De variant-id van een small variant hangt niet af van de callset. Die van een SV meestal ook niet: alleen een HiFiCNV-call zonder eigen VCF-id en een mtDNA-SV dragen hun bron in de id, en krijgen zo een eigen review. Reviews, classificatiesnapshots, de ranking-cache en de SV-index voor de tweede hit hangen aan die id vast.</li>
 <li>Er is geen aparte, vooraf berekende telling over het cohort: de Variant Explorer telt dragers rechtstreeks uit <code>entries</code>, met <code>sign = 1</code> en de projectfilter (hoofdstuk 14).</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>ensure_clickhouse_variant_tables(assembly_name)</code> in <code>backend/app/services/clickhouse_variant_storage.py</code>, <code>ensure_clickhouse_interval_table(assembly_name)</code> in <code>backend/app/services/clickhouse_interval_tracks.py</code>, en <code>clickhouse_dataset_key</code> in <code>backend/app/core/clickhouse.py</code>. De sleutels worden gebouwd in <code>backend/app/services/clickhouse_variant_ids.py</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> de ERD's van de ClickHouse-tabellen en van hun koppeling met Postgres in <code>docs/database.md</code> (<em>ClickHouse Tables</em>); <code>ensure_clickhouse_variant_tables(assembly_name)</code> in <code>backend/app/services/clickhouse_variant_storage.py</code>, <code>ensure_clickhouse_interval_table(assembly_name)</code> in <code>backend/app/services/clickhouse_interval_tracks.py</code>, en <code>clickhouse_dataset_key</code> in <code>backend/app/core/clickhouse.py</code>. De sleutels worden gebouwd in <code>backend/app/services/clickhouse_variant_ids.py</code>.</p>
 <h2>Hoe een ClickHouse-rij aan Postgres gekoppeld wordt</h2>
 <p>De twee databanken delen geen fysieke join; de applicatie koppelt ze via gedeelde sleutels. De ClickHouse-kolom <code>project_guid</code> bevat de Postgres-project-UUID (<code>projects.id</code>) als tekst, en <code>family_guid</code> de familie-UUID (<code>families.id</code>).</p>
 <ol>
@@ -847,7 +847,7 @@ python docs/handleiding/build_site.py
 <tbody>
 <tr>
 <td><code>docs/database.md</code></td>
-<td>Referentie van alle tabellen en kolommen (bron van waarheid)</td>
+<td>Referentie van alle tabellen en kolommen (bron van waarheid), met de ERD's van beide databanken</td>
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/01_access.sql</code> … <code>05_grants.sql</code></td>

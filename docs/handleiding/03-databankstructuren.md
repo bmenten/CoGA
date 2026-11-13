@@ -2,7 +2,7 @@
 
 CoGA verdeelt zijn gegevens over twee databanken: **Postgres** voor metadata, toegangsrechten, reviewtoestand en de klinische papiersporen, en **ClickHouse** voor de enorme aantallen variant- en trackrijen. De tabel-per-tabelreferentie is `docs/database.md`; die geldt als bron van waarheid.
 
-Enkele begrippen: **DDL** (*Data Definition Language*) zijn de SQL-commando's die tabellen aanmaken of wijzigen; een **foreign key** is een verwijzing van een rij naar een rij in een andere tabel.
+Enkele begrippen: **DDL** (*Data Definition Language*) zijn de SQL-commando's die tabellen aanmaken of wijzigen; een **foreign key** is een verwijzing van een rij naar een rij in een andere tabel; een **ERD** (*entity-relationship diagram*) tekent de tabellen met hun sleutels en de verwijzingen ertussen.
 
 ## Twee databanken, één afspraak
 
@@ -24,7 +24,7 @@ Het Postgres-schema staat in vijf SQL-bestanden in `backend/db/schema/postgres/`
 
 Twee kenmerken vallen op. Bijna alle referentiedata per assembly verwijst naar `assemblies` met `ON DELETE CASCADE`; de Monarch-tabellen zijn bewust assembly-onafhankelijk (gekoppeld op HGNC- en MONDO-id's). En het bevroren ACMG-bewijs per classificatie staat in de kolom `small_variant_reviews.acmg_evidence_snapshot`, dat van een CNV-classificatie in `structural_variant_reviews.cnv_evidence_snapshot` (hoofdstuk 10).
 
-**Waar in de code:** de bestanden in `backend/db/schema/postgres/`; de volledige kolomreferentie in `docs/database.md`.
+**Waar in de code:** de bestanden in `backend/db/schema/postgres/`; de volledige kolomreferentie in `docs/database.md`, met een ERD van de kern en één per domein van elk baseline-bestand (*Postgres Tables*).
 
 ## ClickHouse: tabellen per assembly
 
@@ -48,7 +48,7 @@ Voor een reviewer zijn vier dingen belangrijk:
 - Een rij in `entries` is de call van één callset (`source`) voor één variant, in één familie en één project. Wanneer ClickHouse de onderdelen van een tabel samenvoegt, houdt het één rij per sorteersleutel over; daarom eindigt de sorteersleutel op `key, source`. Zo blijven de rechtstreekse call (clair3) en de geïmputeerde call (GLIMPSE2) van één variant twee rijen; de diagnostische lijsten tonen de rechtstreekse. De callset `nipt` van een monogene NIPT komt uit twee VCF's met elk één sample, het plasma en de vader. Elk bestand vult in dezelfde rij per variant alleen de call van zijn eigen sample in. Bij een SV bevat ook de sleutel zelf de bron, omdat de id van een SV uit een upload per sample de caller niet noemt: twee callers op dezelfde breekpunten blijven twee rijen. De variant-id van een small variant hangt niet af van de callset. Die van een SV meestal ook niet: alleen een HiFiCNV-call zonder eigen VCF-id en een mtDNA-SV dragen hun bron in de id, en krijgen zo een eigen review. Reviews, classificatiesnapshots, de ranking-cache en de SV-index voor de tweede hit hangen aan die id vast.
 - Er is geen aparte, vooraf berekende telling over het cohort: de Variant Explorer telt dragers rechtstreeks uit `entries`, met `sign = 1` en de projectfilter (hoofdstuk 14).
 
-**Waar in de code:** `ensure_clickhouse_variant_tables(assembly_name)` in `backend/app/services/clickhouse_variant_storage.py`, `ensure_clickhouse_interval_table(assembly_name)` in `backend/app/services/clickhouse_interval_tracks.py`, en `clickhouse_dataset_key` in `backend/app/core/clickhouse.py`. De sleutels worden gebouwd in `backend/app/services/clickhouse_variant_ids.py`.
+**Waar in de code:** de ERD's van de ClickHouse-tabellen en van hun koppeling met Postgres in `docs/database.md` (*ClickHouse Tables*); `ensure_clickhouse_variant_tables(assembly_name)` in `backend/app/services/clickhouse_variant_storage.py`, `ensure_clickhouse_interval_table(assembly_name)` in `backend/app/services/clickhouse_interval_tracks.py`, en `clickhouse_dataset_key` in `backend/app/core/clickhouse.py`. De sleutels worden gebouwd in `backend/app/services/clickhouse_variant_ids.py`.
 
 ## Hoe een ClickHouse-rij aan Postgres gekoppeld wordt
 
@@ -102,7 +102,7 @@ Veel IVDR-garanties zitten in de databank zelf, zodat ook een fout in de applica
 
 | Bestand | Rol |
 | --- | --- |
-| `docs/database.md` | Referentie van alle tabellen en kolommen (bron van waarheid) |
+| `docs/database.md` | Referentie van alle tabellen en kolommen (bron van waarheid), met de ERD's van beide databanken |
 | `backend/db/schema/postgres/01_access.sql` … `05_grants.sql` | De vijf Postgres-baselines |
 | `backend/db/schema/clickhouse/001_coga_variant_storage.sql` | Maakt de ClickHouse-databank aan |
 | `backend/app/core/postgres.py` | Postgres-verbinding en het toepassen van het schema |
