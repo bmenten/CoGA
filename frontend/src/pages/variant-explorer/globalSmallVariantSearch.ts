@@ -74,6 +74,7 @@ const GLOBAL_UNREAD_PARAMS = [
   'max_unexplained_recurrence',
   'ps',
   'prioritize',
+  'rank_by',
   'require_sv_second_hit',
   'expanded_carrier_screening',
   'source',

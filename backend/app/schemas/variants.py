@@ -425,6 +425,10 @@ class VariantPage(BaseModel):
     # the ranking was computed (so the UI can show a "from cache · N min ago" indicator).
     ranking_cached: bool = False
     ranking_computed_at: Optional[datetime] = None
+    # The score a prioritized page is ordered and its variants ranked by (the request's
+    # ``rank_by``): the combined score, or the variant score alone. None for a page that is
+    # not ranked.
+    ranked_by: Optional[Literal["combined_score", "variant_score"]] = None
     variants: List[VariantOut] = Field(default_factory=list)
     variant_groups: List[SmallVariantGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None

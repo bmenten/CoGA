@@ -47,6 +47,7 @@ from ..services.small_variant_review_presets import (
     list_small_variant_filter_presets_for_owner,
     save_small_variant_filter_preset as save_small_variant_filter_preset_record,
 )
+from ..services.variant_prioritization import RANK_BY_COMBINED_SCORE, RankBy
 from ..services.variant_upload_service import SmallVariantFormat, upload_family_small_variant_file
 from .query_params import FiniteThreshold
 
@@ -223,6 +224,9 @@ async def get_family_small_variants(
     overlap: bool = False,
     require_sv_second_hit: bool = False,
     prioritize: bool = False,
+    # The ranking's order, when prioritized: by the combined score, or by the variant score
+    # alone (novel-gene candidates rank with phenotype-matched genes).
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
     track_mode: bool = False,
     track_result_limit: int | None = None,
     count_only: bool = False,
@@ -248,6 +252,7 @@ async def get_family_small_variants(
         overlap=overlap,
         require_sv_second_hit=require_sv_second_hit,
         prioritize=prioritize,
+        rank_by=rank_by,
         track_mode=track_mode,
         track_result_limit=track_result_limit,
         count_only=count_only,
@@ -324,6 +329,14 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
 
 _FILTER_TRANSCRIPT_FIELD = "filter_transcript."
 
+# The columns a prioritized export puts first: both scores and the rank, so the file holds
+# the score its order follows, whichever ``rank_by`` it was ranked by.
+PRIORITY_EXPORT_COLUMNS: list[tuple[str, str]] = [
+    ("priority_score", "Priority"),
+    ("priority_variant_score", "Variant score"),
+    ("priority_rank", "Rank"),
+]
+
 
 def _family_export_cell(variant: VariantOut, field: str) -> str:
     if field.startswith(_FILTER_TRANSCRIPT_FIELD):
@@ -336,6 +349,8 @@ def _family_export_cell(variant: VariantOut, field: str) -> str:
         return "" if value is None else str(value)
     if field == "priority_score":
         return f"{variant.priority.combined_score:.4f}" if variant.priority else ""
+    if field == "priority_variant_score":
+        return f"{variant.priority.variant_score:.4f}" if variant.priority else ""
     if field == "priority_rank":
         return str(variant.priority.rank) if variant.priority and variant.priority.rank else ""
     if field == "classification":
@@ -364,6 +379,7 @@ async def export_family_small_variants_csv(
     family_id: str,
     project_id: str | None = None,
     prioritize: bool = False,
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
     filters: Dict[str, Any] = Depends(_family_small_variant_filters),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -393,13 +409,14 @@ async def export_family_small_variants_csv(
         session,
         context=context,
         prioritize=prioritize,
+        rank_by=rank_by,
         **filters,
     )
 
-    # When prioritizing, prepend the priority score/rank so the CSV matches the ranked
-    # on-screen order and carries the score.
+    # When prioritizing, prepend the scores and rank so the CSV matches the ranked
+    # on-screen order and carries the score it follows.
     columns = (
-        [("priority_score", "Priority"), ("priority_rank", "Rank"), *_FAMILY_EXPORT_COLUMNS]
+        [*PRIORITY_EXPORT_COLUMNS, *_FAMILY_EXPORT_COLUMNS]
         if prioritize
         else _FAMILY_EXPORT_COLUMNS
     )

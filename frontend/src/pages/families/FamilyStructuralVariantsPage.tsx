@@ -490,6 +490,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         assemblyName={assemblyName}
         assemblyVersion={assemblyVersion}
         candidateCap={data}
+        rankedBy={data?.ranked_by ?? null}
         filteredTotal={filteredTotal}
         filteredTotalIsEstimated={Boolean(data?.total_is_estimated)}
         linkSearch={linkSearch}

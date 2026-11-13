@@ -70,6 +70,7 @@ describe('smallVariantSearch preset helpers', () => {
         intervals: '',
         inheritance: '',
         prioritize: '',
+        rank_by: '',
         require_sv_second_hit: '',
         expanded_carrier_screening: '',
         ps: '',
@@ -238,6 +239,37 @@ describe('smallVariantSearch preset helpers', () => {
     expect(deserializePresetFilters(serializePresetFilters(filters)).pass_only).toBe('true');
   });
 
+  // The ranking's order: sent for a prioritised search ranked by the variant score only, and
+  // read back from a link as the variant score or the default.
+  it('serializes the ranking order of a prioritised search only', () => {
+    const filters = createEmptySmallFilters();
+    const samples = { S1: defaultSampleFilter(), S2: defaultSampleFilter() };
+    filters.rank_by = 'variant_score';
+    expect(buildSmallVariantQueryParams(filters, samples, 1).has('rank_by')).toBe(false);
+    filters.prioritize = 'true';
+    expect(buildSmallVariantQueryParams(filters, samples, 1).get('rank_by')).toBe('variant_score');
+    filters.rank_by = '';
+    expect(buildSmallVariantQueryParams(filters, samples, 1).has('rank_by')).toBe(false);
+    filters.rank_by = 'variant_score';
+    expect(deserializePresetFilters(serializePresetFilters(filters)).rank_by).toBe('variant_score');
+  });
+
+  it('names the order on the chip of a prioritised search, and gives the order no chip of its own', () => {
+    const filters = createEmptySmallFilters();
+    filters.prioritize = 'true';
+    filters.rank_by = 'variant_score';
+    const members = [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'female' }];
+    const ranking = (chips: ReturnType<typeof buildActiveFilterChips>) =>
+      chips.filter((chip) => chip.kind === 'top' && (chip.key === 'prioritize' || chip.key === 'rank_by'));
+    expect(ranking(buildActiveFilterChips(filters, members, {})).map((chip) => chip.label)).toEqual([
+      'Phenotype prioritization, ranked by variant score',
+    ]);
+    filters.rank_by = '';
+    expect(ranking(buildActiveFilterChips(filters, members, {})).map((chip) => chip.label)).toEqual([
+      'Phenotype prioritization',
+    ]);
+  });
+
   it('preserves project scope in the query string', () => {
     const params = buildSmallVariantQueryParams(
       createEmptySmallFilters(),
@@ -293,6 +325,26 @@ describe('useSmallVariantSearchState default (fresh open)', () => {
     await waitFor(() => expect(result.current.filters.gene).toBe('BRCA1'));
     // The Mendeliome default is not force-applied over an explicit query.
     expect(result.current.filters.panel_id).toBe('');
+  });
+
+  it.each([
+    ['?prioritize=true&rank_by=variant_score', 'variant_score'],
+    ['?prioritize=true&rank_by=combined_score', ''],
+    ['?prioritize=true&rank_by=anything', ''],
+    ['?prioritize=true', ''],
+  ])('reads the ranking order of a link %s', async (search, rankBy) => {
+    const { result } = renderHook(() =>
+      useSmallVariantSearchState({
+        family,
+        locationSearch: search,
+        navigate: () => {},
+        mendeliomePanelId: 'mendel-1',
+        panelsLoaded: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.filters.prioritize).toBe('true'));
+    expect(result.current.filters.rank_by).toBe(rankBy);
+    expect(new URLSearchParams(result.current.requestQueryString).get('rank_by')).toBe(rankBy || null);
   });
 
   it('waits for the panels query before applying the default', async () => {

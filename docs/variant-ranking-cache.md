@@ -55,7 +55,10 @@ runs cannot pair the ranking with the panel's next version.
 
 A request whose inputs differ from every cached row misses: an exact hit is never a ranking
 computed on other inputs. The page number is not in the key; the whole order is cached and each
-page is a slice of it.
+page is a slice of it. Nor is the order (`rank_by`): a ranking is cached in the combined-score
+order, and a request for the variant-score order reorders it, renumbering the ranks, before the page
+is cut, whether it was read from its own row, narrowed from a broader panel's, or computed. Both orders
+are served from one row.
 
 The scoring reads pLI and missense Z from the gene profiles of the family's assembly (the profiles
 the key's `gene_info.updated_at` covers), matching the gene's symbol in any case

@@ -22,6 +22,7 @@ import {
 } from './smallVariantSearch';
 import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';
 import { countNonEmpty } from './variantFilterFormUtils';
+import RankByField from './RankByField';
 import { FilterSection } from './VariantFilterAccordion';
 
 const TYPE_OPTIONS = ['', 'SNV', 'INDEL', 'MNV'];
@@ -754,6 +755,11 @@ export const PhenotypeFilterSection = ({ form }: { form: FilterSectionForm }) =>
           Rank candidate variants by how well each gene matches the affected
           individuals’ HPO phenotypes (Monarch / Exomiser-style).
         </p>
+        <RankByField
+          prioritize={draftFilters.prioritize === 'true'}
+          rankBy={draftFilters.rank_by}
+          onChange={(value) => setDraftFilterValue('rank_by', value)}
+        />
       </div>
     </FilterSection>
   );

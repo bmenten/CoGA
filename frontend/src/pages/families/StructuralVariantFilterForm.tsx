@@ -31,6 +31,7 @@ import {
   normalizePercentValue,
 } from './variantFilterFormUtils';
 import { FilterAccordion, FilterSection } from './VariantFilterAccordion';
+import RankByField from './RankByField';
 
 type StructuralVariantFilterFormProps = Pick<
   StructuralVariantSearchState,
@@ -455,6 +456,11 @@ const StructuralVariantFilterForm = ({
               individuals’ HPO phenotypes (Monarch / Exomiser-style), blended with event class,
               gene constraint, rarity, and segregation.
             </p>
+            <RankByField
+              prioritize={draftFilters.prioritize === 'true'}
+              rankBy={draftFilters.rank_by}
+              onChange={(value) => setDraftFilterValue('rank_by', value)}
+            />
           </div>
         </FilterSection>
 

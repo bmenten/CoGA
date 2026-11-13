@@ -1050,7 +1050,13 @@ describe('SmallVariantCards', () => {
     expect(screen.getByText("gnomAD genomes filter (fails gnomAD's own QC)")).toBeInTheDocument();
   });
 
-  it('shows the priority breakdown on a prioritized variant card', () => {
+  it.each([
+    ['combined_score', /Priority 0.46/, ['Variant', '0.85']],
+    ['variant_score', /Variant score 0.85/, ['Priority', '0.46']],
+  ] as const)(
+    'shows the priority breakdown on a prioritized variant card ranked by the %s',
+    (rankedBy, head, [otherLabel, otherScore]) => {
+    // The card leads with the score its rank follows, and lists the other among the metrics.
     renderCards(
         <SmallVariantCards
           variants={[
@@ -1090,14 +1096,18 @@ describe('SmallVariantCards', () => {
           onEditReview={vi.fn()}
           onAcmgClassify={vi.fn()}
           onToggleReviewTag={vi.fn(async () => undefined)}
+          rankedBy={rankedBy}
         />,
     );
 
-    expect(screen.getByText(/Priority 0.46/)).toBeInTheDocument();
+    expect(screen.getByText(head)).toBeInTheDocument();
+    const other = screen.getByText(otherLabel, { selector: '.variant-card-priority-metric-label' });
+    expect(other.nextElementSibling).toHaveTextContent(otherScore);
     expect(screen.getByText('#1')).toBeInTheDocument();
     expect(screen.getByText(/Inheritance: homozygous recessive/i)).toBeInTheDocument();
     expect(screen.getByText(/Congenital hypothyroidism/)).toBeInTheDocument();
-  });
+    },
+  );
 
   // A failed lookup is not a gene without diseases, nor transcripts without CCDS or RefSeq;
   // the failure of the URL given lasts until recover() is called.

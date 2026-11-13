@@ -7,6 +7,7 @@ import pytest
 
 from backend.app.routers.families_small_variants import (
     _FAMILY_EXPORT_COLUMNS,
+    PRIORITY_EXPORT_COLUMNS,
     _family_export_cell,
 )
 from backend.app.routers.families_structural_variants import (
@@ -21,6 +22,7 @@ from backend.app.schemas import (
     SmallVariantFilterTranscriptOut,
     SmallVariantReviewOut,
     VariantOut,
+    VariantPriorityOut,
 )
 
 
@@ -78,7 +80,7 @@ def test_family_export_columns_are_resolvable() -> None:
     # field reads as an empty cell (getattr's default), so each one must name what a row
     # holds: a field of the variant, of the filter-matched transcript, or a computed one.
     row = _variant()
-    computed = {"priority_score", "priority_rank", "classification", "classification_text", "tags", "genotypes"}
+    computed = {"classification", "classification_text", "tags", "genotypes"}
     for field, label in _FAMILY_EXPORT_COLUMNS:
         assert label.strip()
         assert isinstance(_family_export_cell(row, field), str)
@@ -88,6 +90,30 @@ def test_family_export_columns_are_resolvable() -> None:
             assert field in computed or field in VariantOut.model_fields, field
     # Each column says what it is once.
     labels = [label for _field, label in _FAMILY_EXPORT_COLUMNS]
+    assert len(labels) == len(set(labels))
+
+
+def test_a_prioritized_export_writes_both_scores_and_the_rank() -> None:
+    # A ranked file carries the score its order follows, whichever score it was ranked by:
+    # ranked by the variant score, the combined score alone would not explain the order.
+    row = _variant().model_copy(
+        update={
+            "priority": VariantPriorityOut(
+                combined_score=0.45,
+                variant_score=0.9,
+                pathogenicity_score=0.9,
+                frequency_score=1.0,
+                segregation_weight=1.0,
+                rank=3,
+            )
+        }
+    )
+    cells = {label: _family_export_cell(row, field) for field, label in PRIORITY_EXPORT_COLUMNS}
+    assert cells == {"Priority": "0.4500", "Variant score": "0.9000", "Rank": "3"}
+    # An unranked row leaves them empty.
+    assert {_family_export_cell(_variant(), field) for field, _label in PRIORITY_EXPORT_COLUMNS} == {""}
+    # Each says what it is once, and none repeats a column of the rest of the file.
+    labels = [label for _field, label in [*PRIORITY_EXPORT_COLUMNS, *_FAMILY_EXPORT_COLUMNS]]
     assert len(labels) == len(set(labels))
 
 

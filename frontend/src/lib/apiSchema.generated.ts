@@ -4575,6 +4575,7 @@ export interface VariantPage {
   candidate_limit: number | null;
   ranking_cached: boolean;
   ranking_computed_at: string | null;
+  ranked_by: "combined_score" | "variant_score" | null;
   variants: VariantOut[];
   variant_groups: SmallVariantGroupOut[];
   summary: Record<string, Record<string, number>> | null;

@@ -12,7 +12,8 @@ the affected members as carriers. Its filters sit under **Advanced filters**, cl
 opens and laid out as on the small-variant page: **Phenotype**, **Inheritance and Support**,
 **Locations**, **Class and Breakpoints**, **Needlr Annotations** and **Review**; the presets are
 *Mendeliome*, *Dominant*, *Recessive-like* and *Any affected*. **Phenotype prioritization** ranks SVs by
-the same phenotype score as small variants. **Clear all filters** removes the default.
+the same phenotype score as small variants, and **Rank by** *Variant score* orders them by the variant
+score alone, as on the small-variant page. **Clear all filters** removes the default.
 
 **Save current** keeps your filters as a saved search: for this family, or, with *Every family I open
 (reusable)*, for each family you open. Your saved searches are listed under the presets. Choose one and

@@ -745,6 +745,23 @@ export const buildLiteraturePubmedHref = ({
   return `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(`${anchor}${phenotypeGroup}`)}`;
 };
 
+/**
+ * The ranking's own order of two prioritised variants: by the rank the server gave each, in the
+ * order the search was ranked by (the combined or the variant score), the better rank first,
+ * and a variant without a rank after every ranked one. Negative when `left` comes first.
+ */
+export const compareByRank = (
+  left: { priority?: { rank?: number | null } | null },
+  right: { priority?: { rank?: number | null } | null },
+): number => {
+  const leftRank = left.priority?.rank ?? null;
+  const rightRank = right.priority?.rank ?? null;
+  if (leftRank === null && rightRank === null) return 0;
+  if (leftRank === null) return 1;
+  if (rightRank === null) return -1;
+  return leftRank - rightRank;
+};
+
 export const sortSmallVariants = (
   variants: SmallVariant[],
   tableSortKey: TableSortKey,
@@ -755,15 +772,8 @@ export const sortSmallVariants = (
     let diff = 0;
 
     if (tableSortKey === 'priority') {
-      // Higher combined score first; variants without a score fall to the bottom.
-      const leftScore = left.priority?.combined_score ?? -1;
-      const rightScore = right.priority?.combined_score ?? -1;
-      diff = rightScore - leftScore;
-      if (diff === 0) {
-        const leftVar = left.priority?.variant_score ?? -1;
-        const rightVar = right.priority?.variant_score ?? -1;
-        diff = rightVar - leftVar;
-      }
+      // The ranking's order, by whichever score it was ranked by; unranked variants last.
+      diff = compareByRank(left, right);
       if (diff === 0) diff = compareChromosomes(left.chr, right.chr);
       if (diff === 0) diff = left.start - right.start;
       // Priority is intrinsically descending; the asc/desc toggle still flips it below.

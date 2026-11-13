@@ -256,7 +256,7 @@ def _mates(table: list[list[str]]) -> dict[tuple[str, str, str, str], tuple[str,
 @pytest.mark.parametrize("search", sorted(_SEARCHES))
 def test_the_mate_stands_beside_the_locus_under_the_sv_lists_names(export, search: str) -> None:
     # The mate's columns follow End.
-    expected = ["Priority", "Rank", *_COLUMNS] if search == "ranked" else _COLUMNS
+    expected = ["Priority", "Variant score", "Rank", *_COLUMNS] if search == "ranked" else _COLUMNS
     assert export(**_SEARCHES[search])[0] == expected
 
 

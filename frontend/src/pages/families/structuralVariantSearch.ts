@@ -26,7 +26,8 @@ import {
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
-import { setLocationParams } from './variantFilterFormUtils';
+import { RANK_BY_VARIANT_SCORE, readRankBy, setLocationParams } from './variantFilterFormUtils';
+import { compareByRank } from './smallVariantResultUtils';
 
 export type StructuralVariantGenotype = GenotypeOut;
 
@@ -157,6 +158,8 @@ export type StructuralFilterState = {
   exclude_review_tags: string;
   has_notes: string;
   prioritize: string;
+  // The prioritised ranking's order: '' by the combined score, or RANK_BY_VARIANT_SCORE.
+  rank_by: string;
 };
 
 export type ActiveStructuralFilterChip =
@@ -221,6 +224,7 @@ const STRUCTURAL_FILTER_LABELS: Record<keyof StructuralFilterState, string> = {
   exclude_review_tags: 'Exclude review tags',
   has_notes: 'Has notes',
   prioritize: 'Phenotype prioritization',
+  rank_by: 'Ranked by',
 };
 
 const SAMPLE_FIELD_LABELS: Record<Exclude<keyof StructuralSampleFilter, 'gt'>, string> = {
@@ -257,6 +261,7 @@ export const createEmptyStructuralFilters = (): StructuralFilterState => ({
   has_notes: '',
   // Phenotype prioritization is on by default for the SV workbench.
   prioritize: 'true',
+  rank_by: '',
 });
 
 const STRUCTURAL_GT_GROUPS = {
@@ -331,7 +336,7 @@ const countActiveFilters = (
 ) => {
   const topLevel =
     Object.entries(filters).filter(
-      ([key, value]) => key !== 'locus' && key !== 'prioritize' && value.trim(),
+      ([key, value]) => key !== 'locus' && key !== 'prioritize' && key !== 'rank_by' && value.trim(),
     ).length + (filters.locus.trim() ? 1 : 0);
 
   const sampleLevel = Object.values(sampleFilters).reduce((sum, filter) => {
@@ -455,6 +460,10 @@ export const buildStructuralVariantQueryParams = (
   });
   if (currentFilters.has_notes === 'true') params.set('has_notes', 'true');
   if (currentFilters.prioritize === 'true') params.set('prioritize', 'true');
+  // The ranking's order, sent only for a prioritised search: the combined score unless set.
+  if (currentFilters.prioritize === 'true' && currentFilters.rank_by === RANK_BY_VARIANT_SCORE) {
+    params.set('rank_by', RANK_BY_VARIANT_SCORE);
+  }
 
   Object.entries(currentSampleFilters).forEach(([sample, filter]) => {
     const { gt, qual, read_support, filter: filterText } = filter;
@@ -479,9 +488,9 @@ const buildActiveFilterChips = (
   (Object.entries(filters) as [keyof StructuralFilterState, string][]).forEach(([key, value]) => {
     if (!value) return;
     if (skipDerivedLocusKeys?.has(key)) return;
-    // `prioritize` is a ranking mode shown in the Phenotype section, not a removable
-    // filter chip.
-    if (key === 'prioritize') return;
+    // `prioritize` and its order `rank_by` are a ranking mode shown in the Phenotype section,
+    // not removable filter chips.
+    if (key === 'prioritize' || key === 'rank_by') return;
     chips.push({
       id: `top:${key}`,
       label:
@@ -617,6 +626,7 @@ export const useStructuralVariantSearchState = ({
       initialFilters.exclude_review_tags = joinFilterValues(excludeReviewTags);
     }
     if (params.get('has_notes') === 'true') initialFilters.has_notes = 'true';
+    initialFilters.rank_by = readRankBy(params.get('rank_by'));
     if (initialFilters.locus) {
       initialFilters.chr = '';
       initialFilters.start = '';
@@ -848,14 +858,9 @@ export const sortStructuralVariants = (
 ) =>
   [...variants].sort((a, b) => {
     if (sortKey === 'priority') {
-      // Higher combined score first; the sort toggle flips it. Falls back to the raw
-      // variant score, then leaves unscored variants last.
-      const leftScore = a.priority?.combined_score ?? -1;
-      const rightScore = b.priority?.combined_score ?? -1;
-      let diff = rightScore - leftScore;
-      if (diff === 0) {
-        diff = (b.priority?.variant_score ?? -1) - (a.priority?.variant_score ?? -1);
-      }
+      // The ranking's order, by whichever score it was ranked by, unranked SVs last; the sort
+      // toggle flips it.
+      const diff = compareByRank(a, b);
       return sortAsc ? diff : -diff;
     }
     const readValue = (variant: StructuralVariant) => {
