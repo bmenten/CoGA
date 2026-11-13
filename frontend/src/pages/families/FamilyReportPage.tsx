@@ -215,7 +215,6 @@ const LiveFamilyReport: React.FC = () => {
     speciesName,
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     projectId,
     isLoading: referenceLoading,
     isError: referenceFailed,
@@ -223,7 +222,7 @@ const LiveFamilyReport: React.FC = () => {
   } = useFamilyReference(family?.projects as string[] | undefined, preferredProjectId);
 
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
+    { speciesName, assemblyName, isError: referenceFailed },
     'Reference not linked',
   );
 

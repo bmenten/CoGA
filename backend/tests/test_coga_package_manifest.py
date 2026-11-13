@@ -5,13 +5,16 @@ read; carrier fields, HPO terms and assays land where a manifest keeps them. Wha
 out (its members, its datasets) is taken from Discover's draft of the folder, and what it gives
 always wins. A member without a role gets one from the pedigree, as a PED row does. The whole
 chain is checked on a synthetic copgtm package: the import watcher's check of a full package file
-reads the members from the file, never from the folder's PED.
+reads the members from the file, never from the folder's PED. The reference genome the run used
+(its FASTA) becomes the Reference assembly of the family's annotation manifest, beside a VCF
+header's ``##reference``.
 
 All samples and values here are synthetic.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -23,9 +26,13 @@ import yaml
 
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildRequest
+from backend.app.services import annotation_manifest_service
+from backend.app.services import family_package_registration as registration
 from backend.app.services import import_watcher as watcher
+from backend.app.services.annotation_manifest_service import _refresh_modules
 from backend.app.services.coga_package import PACKAGE_FILE_NAME, CogaPackage
 from backend.app.services.coga_package_manifest import package_manifest, proposed_package, proposed_sections
+from backend.app.services.family_package_common import PackageManifest
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_manifest import _ped_members_for_import
 from backend.app.services.family_package_validation import load_validated_family_package
@@ -230,6 +237,83 @@ def test_a_file_that_gives_its_members_and_datasets_keeps_them() -> None:
     )
     completed = proposed_package(package, {"roi": None, "datasets": {"snv": {"family_vcf": "a.vcf.gz"}}}, [])
     assert completed.members == package.members and completed.datasets == package.datasets
+
+
+# --- the reference genome --------------------------------------------------------------------
+
+FAMILY_UUID = "00000000-0000-0000-0000-00000000f001"
+ASSEMBLY_ID = "00000000-0000-0000-0000-0000000000a1"
+
+
+class _CommitSession:
+    def __init__(self) -> None:
+        self.commits = 0
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
+def _recorded_reference(monkeypatch: pytest.MonkeyPatch, package: CogaPackage) -> tuple[list[dict[str, Any]], int]:
+    """What the import's registration records of the package's reference: the merges into the
+    family's annotation manifest, and its commits."""
+    merged: list[dict[str, Any]] = []
+
+    async def merge(_session: Any, **kwargs: Any) -> None:
+        merged.append(kwargs)
+
+    monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", merge)
+    session = _CommitSession()
+    bundle = SimpleNamespace(manifest=PackageManifest.model_validate(package_manifest(package, None)))
+    context = SimpleNamespace(family_uuid=FAMILY_UUID, assembly_id=ASSEMBLY_ID)
+    asyncio.run(registration._record_package_reference(session, bundle=bundle, context=context))  # type: ignore[arg-type]
+    return merged, session.commits
+
+
+@pytest.mark.parametrize(
+    ("given", "recorded"),
+    [
+        ("GRCh38_full_analysis_set_plus_decoy_hla.fa", "GRCh38_full_analysis_set_plus_decoy_hla.fa"),
+        # Its FASTA's name, as a VCF's ##reference is read: without the path before it.
+        ("/refs/GRCh38_no_alt_analysis_set.fasta", "GRCh38_no_alt_analysis_set.fasta"),
+    ],
+)
+def test_the_packages_reference_is_the_reference_assembly_of_the_familys_annotation_manifest(
+    monkeypatch: pytest.MonkeyPatch, given: str, recorded: str
+) -> None:
+    package = _package(reference=given)
+    assert package_manifest(package, None)["reference"] == given
+
+    merged, commits = _recorded_reference(monkeypatch, package)
+
+    assert merged == [
+        {
+            "family_uuid": FAMILY_UUID,
+            "assembly_id": ASSEMBLY_ID,
+            "modules": {"assembly": {"version": recorded, "detail": f"from {PACKAGE_FILE_NAME}"}},
+            "modality": "package",
+            "recorded_by": f"import ({PACKAGE_FILE_NAME})",
+            "source": "manifest",
+        }
+    ]
+    assert commits == 1
+
+
+def test_a_package_without_a_reference_records_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    package = _package()
+    assert "reference" not in package_manifest(package, None)
+    assert _recorded_reference(monkeypatch, package) == ([], 0)
+
+
+def test_the_packages_fasta_and_a_vcfs_reference_are_both_kept() -> None:
+    # The package names one FASTA, the SNV VCF's ##reference another: the manifest keeps each
+    # under its modality, so the record shows they differ.
+    stored = _refresh_modules(
+        {}, {"assembly": {"version": "GRCh38_no_alt.fa", "detail": f"from {PACKAGE_FILE_NAME}"}}, modality="package"
+    )
+    stored = _refresh_modules(
+        stored, {"assembly": {"version": "hg38_alt_masked.fa", "detail": "from VCF ##reference"}}, modality="snv"
+    )
+    assert stored["assembly"]["by_modality"] == {"package": "GRCh38_no_alt.fa", "snv": "hg38_alt_masked.fa"}
 
 
 # --- read by the import ----------------------------------------------------------------------

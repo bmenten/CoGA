@@ -196,6 +196,13 @@ def _clean(value: Any) -> str:
     return "" if text.lower() in _NULL else text
 
 
+def reference_name(value: Any) -> str:
+    """A reference genome as the annotation manifest names it: its FASTA's name, without the path
+    or URL before it (``file:///ref/GRCh38_no_alt.fa`` is ``GRCh38_no_alt.fa``), so that a VCF's
+    ``##reference`` and a package file's ``reference`` name one FASTA alike. Empty for none."""
+    return _clean(value).rsplit("/", 1)[-1]
+
+
 def _truncate(value: str) -> str:
     value = value.strip()
     return value if len(value) <= _MAX_RAW_VALUE else value[: _MAX_RAW_VALUE - 1] + "…"
@@ -434,7 +441,7 @@ def extract_header_provenance(
             elif low in {"filedate", "file_date"}:
                 prov.file_date = _clean(value)
             elif low == "reference":
-                prov.reference = prov.reference or _clean(value).rsplit("/", 1)[-1]
+                prov.reference = prov.reference or reference_name(value)
             elif low == "source":
                 tool = _parse_source(value, prov)
                 if tool and tool not in source_tools:

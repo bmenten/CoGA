@@ -391,7 +391,6 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   const {
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
     isError: referenceFailed,
@@ -469,7 +468,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
     [repeatTable?.loci],
   );
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion, isError: referenceFailed },
+    { assemblyName, isError: referenceFailed },
     'Not linked',
   );
   const repeatQueryKey = useMemo(

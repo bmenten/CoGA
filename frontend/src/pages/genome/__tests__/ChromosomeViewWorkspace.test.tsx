@@ -170,7 +170,6 @@ const renderWorkspace = (overrides: Partial<Props> = {}) => {
           familyDisplayId="F1"
           chrom="1"
           speciesName="Homo sapiens"
-          assemblyVersion="p14"
           assembly="GRCh38"
           assemblyId="asm1"
           projectId="p1"

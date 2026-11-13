@@ -551,7 +551,7 @@ const FamilyNiptPage: React.FC = () => {
           onRetry: retryReference,
         }}
         assemblyLabel={formatResolvedReferenceLabel(
-          { assemblyName, assemblyVersion, isError: referenceFailed },
+          { assemblyName, isError: referenceFailed },
           'Not linked',
         )}
         kicker="Monogenic NIPT"

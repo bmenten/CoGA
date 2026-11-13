@@ -81,7 +81,6 @@ const FamilyVariantSummaryPage: React.FC = () => {
   const {
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     projectId,
     isLoading: referenceLoading,
     isError: referenceFailed,
@@ -224,7 +223,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
           onRetry: retryReference,
         }}
         assemblyLabel={formatResolvedReferenceLabel(
-          { assemblyName, assemblyVersion, isError: referenceFailed },
+          { assemblyName, isError: referenceFailed },
           'Not linked'
         )}
         kicker="Variant summary"

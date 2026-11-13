@@ -89,7 +89,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const {
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     projectId,
     isLoading: referenceLoading,
     isError: referenceFailed,
@@ -113,7 +112,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   // Monogenic NIPT families surface a dedicated analysis tab (see docs/monogenic-nipt.md).
   const isMonogenicNipt = data?.metadata?.analysis_type === MONOGENIC_NIPT_ANALYSIS_TYPE;
   const assemblyLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion, isError: referenceFailed },
+    { assemblyName, isError: referenceFailed },
     'Not linked',
   );
   const { data: reviewSummary, isError: reviewSummaryFailed } = useQuery<ApiSmallVariantReviewSummary>({

@@ -92,6 +92,7 @@ from .family_package_registration import (
     _clear_family_import_incomplete,
     _mark_family_import_restoring,
     _record_family_import_finished,
+    _record_package_reference,
     _enabled_dataset_summaries,
     datasets_brought_again,
     imported_dataset_scopes,
@@ -777,6 +778,7 @@ async def _import_family_datasets(
             postgres_snapshot = None
 
     package_changed = False
+    reference_recorded = False
     for summary in _enabled_dataset_summaries(validation):
         index = next(
             (idx for idx, item in enumerate(datasets) if item.dataset_type == summary.dataset_type),
@@ -847,6 +849,11 @@ async def _import_family_datasets(
             if progress is not None:
                 await progress(validation, datasets, logs, family_context.family_id)
             continue
+        # The reference genome the package names, with the first of its datasets the family
+        # holds: inside the loop, so a failed import that is undone takes it away with its data.
+        if not reference_recorded and datasets[index].status in _IMPORTED_DATASET_STATUSES:
+            await _record_package_reference(session, bundle=bundle, context=family_context)
+            reference_recorded = True
         # Recorded on the family once the dataset has finished, never before: one this
         # import stops inside, or fails, stays pending in its entry.
         if import_mark is not None and datasets[index].status in _FINISHED_DATASET_STATUSES:

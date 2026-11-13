@@ -71,7 +71,7 @@ describe('FamilyIgvPage', () => {
 
     await waitFor(() => expect(screen.getByText(/IGV for family F1/i)).toBeInTheDocument());
     await waitFor(() =>
-      expect(screen.getByText(/Homo sapiens • GRCh38 p14 • chr1:10-20/i)).toBeInTheDocument(),
+      expect(screen.getByText(/Homo sapiens • GRCh38 • chr1:10-20/i)).toBeInTheDocument(),
     );
     expect(screen.getByTestId('igv-viewer')).toHaveTextContent('hg38|PROBAND,DAD|chr1:10-20');
 
@@ -131,7 +131,7 @@ describe('FamilyIgvPage', () => {
     renderPage('/families/F1/igv?locus=chr1:10-20&project_id=p2');
 
     await waitFor(() =>
-      expect(screen.getByText(/Homo sapiens • GRCh38 p14 • chr1:10-20/i)).toBeInTheDocument(),
+      expect(screen.getByText(/Homo sapiens • GRCh38 • chr1:10-20/i)).toBeInTheDocument(),
     );
     expect(screen.queryByText(/Mus musculus • GRCm39 v1/i)).not.toBeInTheDocument();
   });

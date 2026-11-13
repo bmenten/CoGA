@@ -176,6 +176,9 @@ class PackageManifest(BaseModel):
     # and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
     analysis_type: str | None = None
     roi: str | dict[str, Any] | None = None
+    # The reference genome the pipeline aligned to (its FASTA's name), as the package file gives
+    # it: the import records it as the Reference assembly of the family's annotation manifest.
+    reference: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     samples: dict[str, Any] | list[Any] | None = None
     phenotypes: ManifestPhenotypes | None = None
