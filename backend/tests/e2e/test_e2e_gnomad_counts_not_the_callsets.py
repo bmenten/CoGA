@@ -22,6 +22,11 @@ gives them, and none where the CSQ gives none. Everything runs over HTTP through
 in-process ``httpx.ASGITransport`` client, on one event loop (see test_e2e_api_contract.py
 for why).
 
+Each annotated variant is served with the gnomAD datasets its header declares an allele
+frequency of (``gnomAD exomes``, which the CSQ's ``gnomADe_AF`` holds): stored with the
+annotation and read back, as PM2 reads them. The record without a CSQ has no annotation, and
+names none.
+
 Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e``
 job sets it.
 """
@@ -160,6 +165,11 @@ async def _exercise(family_id: str) -> dict[str, Any]:
             if response.status_code == 200
             else (response.status_code, response.text)
         )
+        out["gnomad_annotated"] = (
+            {variant["_id"]: variant.get("gnomad_annotated") for variant in response.json()["variants"]}
+            if response.status_code == 200
+            else (response.status_code, response.text)
+        )
 
         explorer_scope = {"assembly_id": assembly_id, **_LOCUS}
         for name, (filters, _expected) in _CASES.items():
@@ -223,6 +233,15 @@ def test_the_page_serves_gnomads_counts_and_none_where_the_csq_has_none(run: dic
         _GNOMAD_COUNTS_WITHIN: (1, 0, 0),
         _GNOMAD_COUNTS_ABOVE: (5, 3, 1),
         _WITHOUT_CSQ: (None, None, None),
+    }
+
+
+def test_the_page_serves_the_gnomad_datasets_the_header_declares(run: dict[str, Any]) -> None:
+    assert run["gnomad_annotated"] == {
+        _COUNTS_IN_INFO_ONLY: ["exomes"],
+        _GNOMAD_COUNTS_WITHIN: ["exomes"],
+        _GNOMAD_COUNTS_ABOVE: ["exomes"],
+        _WITHOUT_CSQ: [],
     }
 
 

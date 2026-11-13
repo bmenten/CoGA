@@ -267,6 +267,9 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                 served.gnomad_af,
                 served.gnomad_hom_count,
             )
+            # The gnomAD datasets the CSQ header declares, stored with the annotation in ClickHouse
+            # and served as they are frozen: PM2 reads them for a variant without a frequency.
+            assert frequencies["gnomad_annotated"] == served.gnomad_annotated == ["exomes", "genomes"]
             for field in ("gnomad_exomes_af", "gnomad_genomes_af", "gnomad_popmax_af", "max_af", "topmed_af"):
                 assert frequencies[field] == served.population_frequencies.get(field), field
             assert frequencies["gnomad_ac"] == served.annotation_extra.get("gnomad_ac") == 4

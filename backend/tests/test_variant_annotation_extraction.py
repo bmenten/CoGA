@@ -19,8 +19,9 @@ from backend.app.services.variant_annotation_parser import (
     _parse_spliceai_pred,
     _spliceai_delta,
     clinvar_file_annotated,
-    clinvar_file_in_description,
+    file_in_description,
     extract_small_variant_annotations,
+    gnomad_dataset,
     normalize_small_variant_annotation_entry,
     update_annotation_header_state,
 )
@@ -68,6 +69,8 @@ def test_extract_small_variant_annotations_from_csq() -> None:
             "spliceai_max": 0.6,
             "gnomad_af": 0.0002,
             "population_frequencies": {"gnomad_af": 0.0002},
+            # gnomAD_AF names no dataset, and no file names one.
+            "gnomad_annotated": ["unspecified"],
         }
     ]
 
@@ -269,6 +272,7 @@ def test_an_unprefixed_info_count_fills_no_gnomad_count(key: str) -> None:
             "effect": "missense_variant",
             "gnomad_af": 0.0001,
             "population_frequencies": {"gnomad_exomes_af": 0.0001, "gnomad_af": 0.0001},
+            "gnomad_annotated": ["exomes"],
         }
     ]
 
@@ -406,8 +410,8 @@ def test_the_header_names_the_clinvar_file_vep_annotated() -> None:
     # A ClinVar field in the CSQ alone (no INFO line describing it) still counts.
     assert clinvar_file_annotated(_clinvar_state(_CLINVAR_CSQ_HEADER))
     # ClinVar's own CLNSIG description names no file.
-    assert clinvar_file_in_description("Aggregate germline classification for this single variant") is None
-    assert clinvar_file_in_description("CLNSIG. CLNSIG field from /data/ref/clinvar.vcf.gz") == "clinvar.vcf.gz"
+    assert file_in_description("Aggregate germline classification for this single variant") is None
+    assert file_in_description("CLNSIG. CLNSIG field from /data/ref/clinvar.vcf.gz") == "clinvar.vcf.gz"
 
 
 def test_a_vep_table_row_reads_clinvar_by_what_the_table_declares() -> None:
@@ -643,3 +647,113 @@ def test_gnomad_mt_frequencies_are_read_homoplasmic_and_heteroplasmic_apart() ->
     assert annotation["population_frequencies"] == {"gnomad_mt_af_hom": 0.0012, "gnomad_mt_af_het": 0.0001}
     assert annotation["gnomad_mt_max_hl"] == 0.92
     assert annotation["extra"]["gnomad_mt_an"] == 56434
+
+
+# --------------------------------------------------------------------------- #
+# The gnomAD datasets a callset was annotated with (PM2 reads a variant without a
+# gnomAD frequency as absent from gnomAD where genomes or the joint set were annotated)
+# --------------------------------------------------------------------------- #
+
+
+def _gnomad_state(fields: str, *info_lines: str) -> AnnotationHeaderState:
+    state = AnnotationHeaderState()
+    for line in (
+        f'##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: {fields}">',
+        *info_lines,
+    ):
+        update_annotation_header_state(state, line)
+    return state
+
+
+def test_each_annotation_names_the_gnomad_datasets_of_vep_caches_fields() -> None:
+    # VEP's cache (--af_gnomade, --af_gnomadg): the CSQ fields, no INFO line; both datasets
+    # named, also on a transcript and a record without a frequency.
+    state = _gnomad_state("Allele|Consequence|SYMBOL|Feature|gnomADe_AF|gnomADg_AF")
+    annotations = extract_small_variant_annotations(
+        {"CSQ": "G|missense_variant|GENE1|ENST1|0.001|,G|intron_variant|GENE1|ENST2||"}, state
+    )
+    assert [annotation["gnomad_annotated"] for annotation in annotations] == [
+        ["exomes", "genomes"],
+        ["exomes", "genomes"],
+    ]
+    assert "gnomad_af" not in annotations[1]
+
+
+def test_a_gnomad_file_named_in_the_header_says_which_dataset_its_field_holds() -> None:
+    # VEP --custom describes each field with the file it comes from: its name says the dataset,
+    # whatever the short name the pipeline gave it.
+    joint = _gnomad_state(
+        "Allele|Consequence|SYMBOL|Feature|gnomAD_AF",
+        '##INFO=<ID=gnomAD_AF,Number=.,Type=String,Description="Alternate allele frequency. '
+        'AF field from [PATH]/gnomad.joint.v4.1.sites.chr1.vcf.bgz">',
+    )
+    exomes = _gnomad_state(
+        "Allele|Consequence|SYMBOL|Feature|gnomADg_AF",
+        '##INFO=<ID=gnomADg_AF,Number=.,Type=String,Description="Alternate allele frequency. '
+        'AF field from [PATH]/gnomad.exomes.v4.1.sites.chr1.vcf.bgz">',
+    )
+    [from_joint] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|"}, joint)
+    [from_exomes] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|"}, exomes)
+    assert (from_joint["gnomad_annotated"], from_exomes["gnomad_annotated"]) == (["joint"], ["exomes"])
+    assert joint.gnomad_field_files == {"gnomAD_AF": "gnomad.joint.v4.1.sites.chr1.vcf.bgz"}
+
+
+def test_an_info_gnomad_frequency_without_a_named_dataset_is_unspecified() -> None:
+    # bcftools annotate (or vcfanno) writes gnomAD's AF into INFO, its description gnomAD's own.
+    state = AnnotationHeaderState()
+    update_annotation_header_state(
+        state, '##INFO=<ID=gnomAD_AF,Number=A,Type=Float,Description="Alternate allele frequency in samples">'
+    )
+    update_annotation_header_state(state, '##INFO=<ID=CLNSIG,Number=.,Type=String,Description="ClinVar">')
+    [annotation] = extract_small_variant_annotations({"CLNSIG": "Benign"}, state)
+    assert annotation["gnomad_annotated"] == ["unspecified"]
+    # A record that holds none of the keys the parser reads has no annotation to name it on.
+    assert extract_small_variant_annotations({"DP": "30"}, state) == []
+
+
+def test_a_header_without_a_gnomad_frequency_names_no_gnomad_dataset() -> None:
+    # gnomAD's popmax, FAF95 or counts alone are not the frequency PM2 reads.
+    state = _gnomad_state("Allele|Consequence|SYMBOL|Feature|gnomADg_AF_grpmax|gnomADe_fafmax_faf95_max|MAX_AF")
+    [annotation] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|||0.01"}, state)
+    assert "gnomad_annotated" not in annotation
+    # A record VEP did not annotate (no CSQ) has no annotation, in a header that declares gnomAD.
+    cached = _gnomad_state("Allele|Consequence|SYMBOL|Feature|gnomADg_AF")
+    assert extract_small_variant_annotations({"DP": "30"}, cached) == []
+
+
+def test_a_header_line_read_later_changes_the_datasets_named() -> None:
+    state = _gnomad_state("Allele|Consequence|SYMBOL|Feature|gnomADe_AF")
+    [before] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|"}, state)
+    update_annotation_header_state(
+        state, '##INFO=<ID=gnomADg_AF,Number=A,Type=Float,Description="AF field from /ref/gnomad.genomes.v4.1.vcf.gz">'
+    )
+    [after] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|"}, state)
+    assert (before["gnomad_annotated"], after["gnomad_annotated"]) == (["exomes"], ["exomes", "genomes"])
+
+
+@pytest.mark.parametrize(
+    ("field", "file_name", "dataset"),
+    [
+        ("gnomADe_AF", None, "exomes"),
+        ("gnomADg_AF", None, "genomes"),
+        ("gnomAD_AF", None, "unspecified"),
+        ("gnomAD_AF", "gnomad.genomes.r2.1.1.sites.vcf.bgz", "genomes"),
+        ("gnomAD_AF", "gnomad.exomes.r2.1.1.sites.vcf.bgz", "exomes"),
+        ("gnomAD_AF", "gnomad_v4.1_joint.vcf.gz", "joint"),
+        ("gnomAD_AF", "gnomad.genome.vcf.gz", "genomes"),
+        # A word that merely contains the dataset's name names none.
+        ("gnomAD_AF", "gnomadgenomesv4.vcf.gz", "unspecified"),
+        ("gnomADg_AF", "population_frequencies.vcf.gz", "genomes"),
+    ],
+)
+def test_the_gnomad_dataset_of_a_field(field: str, file_name: str | None, dataset: str) -> None:
+    assert gnomad_dataset(field, file_name) == dataset
+
+
+def test_a_vep_table_row_names_the_gnomad_datasets_the_table_declares() -> None:
+    annotation = normalize_small_variant_annotation_entry(
+        {"SYMBOL": "GENE1", "Consequence": "missense_variant"}, gnomad_annotated=("genomes",)
+    )
+    assert annotation["gnomad_annotated"] == ["genomes"]
+    # A row with nothing the parser reads stays empty.
+    assert normalize_small_variant_annotation_entry({"Uploaded_variation": "x"}, gnomad_annotated=("genomes",)) == {}

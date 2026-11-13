@@ -1095,11 +1095,12 @@ const parseAcmgCriteria = (acmg: Json | null): { criteria: SignedAcmgCriterion[]
 // freezes from its primary transcript, and its gene's missense Z (backend
 // `small_variant_review_acmg.small_variant_evidence`), in the order a reviewer reads them, each
 // with how the report writes it: an allele frequency as the variant description does, a count
-// whole, a score to its digits, a consequence or a prediction as annotated.
+// whole, a score to its digits, a consequence or a prediction as annotated, a list of names
+// joined.
 interface EvidenceField {
   key: string;
   label: string;
-  format: 'frequency' | 'count' | 'text' | number;
+  format: 'frequency' | 'count' | 'text' | 'names' | number;
 }
 
 // The consequence term(s), the impact and LOFTEE's loss-of-function call, as the variant card
@@ -1117,6 +1118,9 @@ const CONSEQUENCE_FIELDS: EvidenceField[] = [
 
 const FREQUENCY_FIELDS: EvidenceField[] = [
   { key: 'gnomad_af', label: 'gnomAD AF', format: 'frequency' },
+  // The gnomAD datasets the variant's callset was annotated with, which say whether a variant
+  // without a gnomAD AF is absent from gnomAD (PM2).
+  { key: 'gnomad_annotated', label: 'gnomAD datasets', format: 'names' },
   { key: 'gnomad_exomes_af', label: 'gnomAD exomes AF', format: 'frequency' },
   { key: 'gnomad_genomes_af', label: 'gnomAD genomes AF', format: 'frequency' },
   { key: 'gnomad_popmax_af', label: 'gnomAD popmax AF', format: 'frequency' },
@@ -1163,6 +1167,10 @@ const missenseZSourceLabel = (source: unknown): string | null => {
 // A value of the wrong type for its field is not guessed: it reads as no value.
 const formatEvidenceValue = (field: EvidenceField, value: unknown): string | null => {
   if (field.format === 'text') return text(value);
+  if (field.format === 'names') {
+    const names = Array.isArray(value) ? value.filter((item): item is string => text(item) !== null) : [];
+    return names.length ? names.join(' and ') : null;
+  }
   const numeric = number(value);
   if (numeric === null) return null;
   if (field.format === 'frequency') return formatAlleleFrequency(numeric);

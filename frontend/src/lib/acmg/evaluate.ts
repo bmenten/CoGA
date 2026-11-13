@@ -7,6 +7,7 @@
 // derive from data (PS1, PS3, PM5, segregation, de novo, …) are never emitted.
 
 import type { VariantOut } from '../apiSchema.generated';
+import { NUCLEAR_CHROMOSOMES, normalizeChrom } from '../chromosomes';
 import { clinvarClass } from '../clinvar';
 import { classifyGenotype } from '../genotypes';
 import { ACMG_CRITERIA_BY_CODE } from './criteria';
@@ -29,7 +30,9 @@ import type {
 // with it (likely_benign, ambiguous, likely_pathogenic): the value an ACMG classification's
 // evidence snapshot freezes; `chr` and `hemizygous_in_males` the locus, for the sex-aware de
 // novo rule; `gene_missense_z` the gene profile's gnomAD missense Z and
-// `annotation_extra` the VCF's own MISSENSE_Z (its `gene_missense_z`), which PP2 reads.
+// `annotation_extra` the VCF's own MISSENSE_Z (its `gene_missense_z`), which PP2 reads;
+// `gnomad_annotated` the gnomAD datasets the variant's callset was annotated with, which PM2
+// reads for a variant without a gnomAD frequency.
 export type AcmgVariantInput = Partial<
   Pick<
     VariantOut,
@@ -45,6 +48,7 @@ export type AcmgVariantInput = Partial<
     | 'nmd'
     | 'population_frequencies'
     | 'gnomad_af'
+    | 'gnomad_annotated'
     | 'gnomad_hom_count'
     | 'gene_missense_z'
     | 'annotation_extra'
@@ -311,20 +315,22 @@ export function evaluateAcmg(
       notApplicable('BS1', `${benignLabel} ${fmtAf(benignAf ?? af)} is below the BS1 threshold.`);
     }
   } else {
-    // No gnomAD frequency in the annotation: the variant is absent from gnomAD, or gnomAD was
-    // not annotated for it (a source the pipeline did not load, a VEP cache without the
-    // variant). The annotation does not say which, so PM2 is offered for review, never
-    // applied, and BA1 / BS1 are left open (unless a FAF95 rules them out): never "Absent from
-    // gnomAD.", nor BA1 and BS1 ruled out, for a frequency nothing has looked up.
-    add(
-      'PM2',
-      'supporting',
-      'No gnomAD allele frequency in the annotation: absent from gnomAD, or gnomAD not annotated for this variant — check gnomAD before applying.',
-      'consider',
-    );
-    if (benignAf != null) {
-      notApplicable('BA1', `${benignLabel} ${fmtAf(benignAf)} is below 5%.`);
-      notApplicable('BS1', `${benignLabel} ${fmtAf(benignAf)} is below the BS1 threshold.`);
+    // No gnomAD allele frequency in the annotation. The variant is absent from gnomAD where its
+    // callset was annotated with gnomAD's genomes or its joint set (`gnomadAbsence`): PM2
+    // applies, and BA1 and BS1 are ruled out. Anywhere else nothing has looked it up across the
+    // genome, so PM2 is offered for review, never applied, and BA1 / BS1 are left open (unless
+    // a FAF95 rules them out).
+    const absence = gnomadAbsence(variant);
+    if (absence.absent) {
+      add('PM2', 'supporting', absence.evidence);
+      notApplicable('BA1', 'Absent from gnomAD.');
+      notApplicable('BS1', 'Absent from gnomAD.');
+    } else {
+      add('PM2', 'supporting', absence.evidence, 'consider');
+      if (benignAf != null) {
+        notApplicable('BA1', `${benignLabel} ${fmtAf(benignAf)} is below 5%.`);
+        notApplicable('BS1', `${benignLabel} ${fmtAf(benignAf)} is below the BS1 threshold.`);
+      }
     }
   }
 
@@ -419,6 +425,80 @@ export function evaluateAcmg(
   }
 
   return out;
+}
+
+// ---- gnomAD absence (PM2) ----
+
+// The gnomAD datasets the variant's callset was annotated with (the backend's
+// variant_annotation_parser.GNOMAD_ANNOTATED_KEY), as the PM2 evidence names them.
+const GNOMAD_DATASET_LABELS: Record<string, string> = {
+  exomes: 'gnomAD exomes',
+  genomes: 'gnomAD genomes',
+  joint: "gnomAD's joint exomes and genomes",
+  unspecified: 'a gnomAD frequency of a set it does not name',
+};
+
+// gnomAD's genomes and its joint set cover the genome; its exomes only the exome capture
+// regions, where an intronic or intergenic variant is never found.
+const GNOMAD_GENOME_WIDE = new Set(['genomes', 'joint']);
+
+// The chromosomes gnomAD's genome and exome sets hold: chrM is gnomAD-MT's own dataset, and an
+// alternate or unplaced contig none of gnomAD's.
+const GNOMAD_CHROMOSOMES = new Set(NUCLEAR_CHROMOSOMES);
+
+const NO_GNOMAD_FREQUENCY = 'No gnomAD allele frequency in the annotation';
+
+/**
+ * Whether a variant without a gnomAD allele frequency is absent from gnomAD, with the PM2
+ * evidence that says why or why not. Absent where its callset was annotated with gnomAD's
+ * genomes or joint set (the owner's choice of 2026-11-13: VEP's cache counts as annotated, and
+ * exomes alone do not), on a chromosome those sets hold, and the annotation holds no other
+ * gnomAD frequency of it (popmax, FAF95). Anywhere else the annotation does not say it is
+ * absent from gnomAD.
+ */
+export function gnomadAbsence(variant: AcmgVariantInput): { absent: boolean; evidence: string } {
+  const datasets = (variant.gnomad_annotated ?? []).filter((dataset) => dataset in GNOMAD_DATASET_LABELS);
+  if (!datasets.length) {
+    return {
+      absent: false,
+      evidence: `${NO_GNOMAD_FREQUENCY}: gnomAD was not annotated for this variant's callset — check gnomAD before applying.`,
+    };
+  }
+  const chrom = normalizeChrom(variant.chr ?? '');
+  if (chrom === 'MT') {
+    return {
+      absent: false,
+      evidence: `${NO_GNOMAD_FREQUENCY}: gnomAD's exome and genome sets hold no mtDNA variants — check gnomAD-MT before applying.`,
+    };
+  }
+  if (!GNOMAD_CHROMOSOMES.has(chrom)) {
+    return {
+      absent: false,
+      evidence: `${NO_GNOMAD_FREQUENCY}: gnomAD holds no variants on ${variant.chr || 'this contig'} — check gnomAD before applying.`,
+    };
+  }
+  const annotated = datasets.map((dataset) => GNOMAD_DATASET_LABELS[dataset]).join(' and ');
+  if (!datasets.some((dataset) => GNOMAD_GENOME_WIDE.has(dataset))) {
+    return {
+      absent: false,
+      evidence:
+        datasets.length === 1 && datasets[0] === 'exomes'
+          ? `${NO_GNOMAD_FREQUENCY}: the callset was annotated with gnomAD exomes only, which cover the exome capture regions — check gnomAD genomes before applying.`
+          : `${NO_GNOMAD_FREQUENCY}: the callset was annotated with ${annotated}, not with gnomAD genomes — check gnomAD genomes before applying.`,
+    };
+  }
+  const frequencies = variant.population_frequencies ?? {};
+  const other = ['gnomad_popmax_af', 'gnomad_faf95_af'].find((key) => typeof frequencies[key] === 'number');
+  if (other) {
+    return {
+      absent: false,
+      evidence: `${NO_GNOMAD_FREQUENCY}, though it holds a gnomAD ${other === 'gnomad_faf95_af' ? 'FAF95' : 'popmax frequency'} — check gnomAD before applying.`,
+    };
+  }
+  return {
+    absent: true,
+    evidence: `Absent from gnomAD: the callset was annotated with ${annotated}, which hold no allele frequency for this variant.`,
+  };
 }
 
 // 'X' or 'Y' where a male carries one copy (the backend knows the PARs), else null.

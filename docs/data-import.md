@@ -1983,7 +1983,7 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 | ClinVar conditions | `ClinVar_CLNDN`, `CLNDN` | card, PP5/BP6 evidence |
 | ClinVar VariationID | `ClinVar` (the matched record's ID, VEP `--custom`), digits only | the card's ClinVar link |
 | ClinVar AlleleID | `ClinVar_ALLELEID`, `ALLELEID` | card |
-| gnomAD AF (overall, exomes, genomes) | `gnomAD_AF`, `gnomADe_AF`, `gnomADg_AF` | filters, PM2 |
+| gnomAD AF (overall, exomes, genomes) | `gnomAD_AF`, `gnomADe_AF`, `gnomADg_AF` | filters, PM2 (with the gnomAD datasets the header declares them of) |
 | gnomAD popmax | `gnomAD_AF_POPMAX`, `gnomAD_AF_grpmax`, `gnomADe_AF_grpmax`, `gnomADg_AF_grpmax` (and `…_popmax`) | popmax filter, card |
 | VEP MAX_AF | `MAX_AF` (`MAX_AF_VEP_ALL_POPULATIONS`), `POPMAX_AF` | popmax filter where gnomAD has none, card |
 | gnomAD FAF95 | `gnomAD_fafmax_faf95_max`, `gnomADe_fafmax_faf95_max`, `gnomADg_fafmax_faf95_max` (and `…_faf95_popmax`) | BA1/BS1, card |
@@ -2011,6 +2011,10 @@ What the workflow should hold to:
   the annotation manifest reads the release from it.
 - **ClinVar as a `--custom` file.** Use the short name `ClinVar`, so the fields are
   `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`.
+- **gnomAD genomes.** Annotate gnomAD's genomes (`--af_gnomadg`, or its genomes or joint file
+  with `--custom`), not its exomes alone: a variant without a gnomAD frequency is then read as
+  absent from gnomAD, and PM2 applies. A `--custom` file keeps its dataset in its name
+  (`gnomad.genomes.…`, `gnomad.joint.…`), or its short name says it (`gnomADg`).
 
 The mtDNA page also reads a mutserve table's columns (HelixMTdb's `Helix_vaf_hom` and
 `Helix_vaf_het`, among others; [Where each dataset lands](#where-each-dataset-lands)).
@@ -2220,6 +2224,18 @@ A family small-variant upload is one family VCF from one callset:
   - A gnomAD count is gnomAD's total, as its browser shows it: the combined count, else the exome
     and genome counts added, either alone when the other is missing (the owner's choice
     of 2026-10-27).
+  - Each annotation names the gnomAD datasets whose allele frequency its file's header declares
+    (`gnomad_annotated`): a field the gnomAD allele frequency is read from (`gnomAD_AF`,
+    `gnomADe_AF`, `gnomADg_AF`) as a CSQ or ANN field, an INFO key, or a VEP table's column or
+    described Extra key, whether VEP's cache, a VEP `--custom` file or another tool wrote it. A
+    field holds the dataset the gnomAD file its description names says (`… AF field from
+    [PATH]/gnomad.genomes.v4.1.sites.vcf.bgz`: `exomes`, `genomes` or `joint`), else the one its
+    name says (`gnomADe_`: exomes, `gnomADg_`: genomes), else `unspecified`. A variant without a
+    gnomAD frequency in a callset annotated with gnomAD's genomes or joint set is absent from
+    gnomAD, which PM2 reads (the owner's choice of 2026-11-13;
+    [acmg-classification.md](../frontend/src/content/docs/acmg-classification.md#frequency-pm2-bs1-ba1)).
+    A record without a `CSQ` or `ANN` entry and none of the INFO keys the parser reads has no
+    annotation, and names no dataset.
   - The INFO's `AC`, the callset's own allele count, is never read as gnomAD's, nor are `AC_Adj`,
     `nhomalt` and `hemi` without a prefix.
   - A variant without a population value has none, and a maximum frequency or count filter keeps

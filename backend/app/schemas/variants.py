@@ -217,6 +217,11 @@ class VariantOut(ApiDocumentModel):
     # nonsense-mediated decay.
     nmd: Optional[str] = None
     gnomad_af: Optional[float] = None
+    # Small variants: the gnomAD datasets whose allele frequency the header of the variant's
+    # callset declares (``exomes``, ``genomes``, ``joint``, ``unspecified``), empty where it
+    # declares none. Without a gnomAD allele frequency, a variant whose callset was annotated
+    # with gnomAD's genomes or joint set is absent from gnomAD, which PM2 reads.
+    gnomad_annotated: List[str] = Field(default_factory=list)
     gnomad_hom_count: Optional[int] = None
     gene_pli: Optional[float] = None
     gene_missense_z: Optional[float] = None
