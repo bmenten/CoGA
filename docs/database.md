@@ -14,7 +14,105 @@ applies them to an empty database, as the table owner, at the first start in the
 at, and `schema_baselines` the digest of the baselines it was made from
 ([Schema Migrations](#schema-migrations)).
 
+### Entity-relationship diagrams
+
+Each section below opens with an entity-relationship diagram (ERD) of its tables, drawn from the
+baseline files. How to read them:
+
+- Crow's-foot notation: `||` exactly one, `|o` zero or one, `o{` zero or more.
+- A solid line is a foreign key, labelled with its column and its `ON DELETE` rule. A dotted line
+  is a link the application makes by value, without a foreign key.
+- A box shows the table's keys (`PK`, `UK` for a unique column, `FK`) and the columns that link
+  it, not every column. A box without columns is drawn in full in another diagram.
+- A link to `users` that only records who asked for or changed something, and that the
+  account's deletion unlinks (`ON DELETE SET NULL`), is left out, except on the audit trail.
+  These are:
+
+| Baseline | Columns that name an account, not drawn |
+| --- | --- |
+| `02_reference.sql` | `gene_info_refresh_jobs.requested_by_id`, `clinical_cnv_kb_jobs.requested_by_id`, `dgv_load_jobs.requested_by_id`, `gene_panel_versions.created_by`, `repeat_locus_count_units.updated_by` |
+| `03_assay.sql` | `family_statuses.created_by`, `families.assigned_to_id`, `families.reviewed_by_id`, `family_structure_versions.created_by`, `family_import_jobs.requested_by_id`, `import_delivery_revisions.created_by`, `nipt_artifact_variants.created_by`, `qc_threshold_profiles.created_by`, `qc_thresholds.updated_by`, `qc_threshold_changes.changed_by` |
+
+The core: who sees what. A user reaches a family or a sample through the projects it is linked
+to; every record of a family hangs off `families` or `samples`.
+
+```mermaid
+erDiagram
+    species ||--o{ assemblies : "species_id (cascade)"
+    species ||--o{ projects : "species_id (restrict)"
+    assemblies ||--o{ projects : "assembly_id (restrict)"
+    assemblies ||--o{ chromosomes : "assembly_id (cascade)"
+    projects ||--o{ project_users : "project_id (cascade)"
+    users ||--o{ project_users : "user_id (cascade)"
+    projects ||--o{ family_projects : "project_id (cascade)"
+    families ||--o{ family_projects : "family_id (cascade)"
+    projects ||--o{ sample_projects : "project_id (cascade)"
+    samples ||--o{ sample_projects : "sample_id (cascade)"
+    families ||--o{ samples : "family_id (cascade)"
+
+    species {
+        uuid id PK
+        text name UK
+        integer tax_id UK
+    }
+    assemblies {
+        uuid id PK
+        uuid species_id FK "unique with assembly_name and version"
+        text assembly_name
+        text version
+    }
+    chromosomes {
+        uuid id PK
+        uuid assembly_id FK "unique with chr"
+        text chr
+        jsonb bands "cytobands"
+    }
+    projects {
+        uuid id PK
+        text name UK
+        uuid species_id FK
+        uuid assembly_id FK
+    }
+    users {
+        uuid id PK
+        text username UK
+        text email UK
+        uuid azure_object_id UK
+        text role "viewer, analyst, supervisor, superuser or admin"
+    }
+    project_users {
+        uuid project_id PK, FK
+        uuid user_id PK, FK
+        text access_level "analyst or reader"
+    }
+    auth_login_attempts {
+        text scope_type PK
+        text scope_value PK
+        integer failure_count
+    }
+    families {
+        uuid id PK
+        text family_id UK "the ID people see"
+    }
+    samples {
+        uuid id PK
+        text sample_id UK "the ID people see"
+        uuid family_id FK
+        text sex
+    }
+    family_projects {
+        uuid family_id PK, FK
+        uuid project_id PK, FK
+    }
+    sample_projects {
+        uuid sample_id PK, FK
+        uuid project_id PK, FK
+    }
+```
+
 ### 01_access.sql: genome foundation and access
+
+The core diagram above draws every table of this file.
 
 | Table | Holds |
 | --- | --- |
@@ -27,6 +125,170 @@ at, and `schema_baselines` the digest of the baselines it was made from
 | `auth_login_attempts` | failed-login counts and back-off per email and per client address, and sign-up attempts per address |
 
 ### 02_reference.sql: reference and annotation data
+
+The reference data per assembly, and its jobs:
+
+```mermaid
+erDiagram
+    genes }o--|| assemblies : "assembly_id (cascade)"
+    gene_info }o--|| assemblies : "assembly_id (cascade)"
+    blacklist }o--|| assemblies : "assembly_id (cascade)"
+    segmental_duplications }o--|| assemblies : "assembly_id (cascade)"
+    assemblies ||--o{ clinical_cnvs : "assembly_id (cascade)"
+    assemblies ||--o{ clinical_cnv_kb_jobs : "assembly_id (cascade)"
+    assemblies ||--o{ dgv_variants : "assembly_id (cascade)"
+    assemblies ||--o{ dgv_load_jobs : "assembly_id (cascade)"
+    assemblies ||--o{ reference_dataset_imports : "assembly_id (cascade)"
+
+    genes {
+        uuid id PK
+        uuid assembly_id FK
+        text gene_id
+        text hgnc_symbol
+        text chr "with start and end"
+    }
+    gene_info {
+        uuid id PK
+        uuid assembly_id FK "unique with hgnc_symbol"
+        text hgnc_symbol
+        text hgnc_id
+    }
+    gene_info_refresh_jobs {
+        uuid id PK
+        text scope
+        text status
+    }
+    blacklist {
+        uuid id PK
+        uuid assembly_id FK
+        text chr "with start and end"
+    }
+    segmental_duplications {
+        uuid id PK
+        uuid assembly_id FK
+        text chr "with start and end"
+    }
+    clinical_cnvs {
+        uuid id PK
+        uuid assembly_id FK
+        text chr "with start and end"
+        text label
+    }
+    clinical_cnv_kb_jobs {
+        uuid id PK
+        uuid assembly_id FK
+        text status "queued, running, completed or failed"
+    }
+    dgv_variants {
+        uuid id PK
+        uuid assembly_id FK
+        text accession
+        text variant_class "gain, loss or mixed"
+    }
+    dgv_load_jobs {
+        uuid id PK
+        uuid assembly_id FK
+        text release
+        text status "queued, running, completed or failed"
+    }
+    reference_dataset_imports {
+        uuid id PK
+        uuid assembly_id FK
+        text dataset_type
+        text source_version
+    }
+```
+
+The gene panels and the repeat catalogue:
+
+```mermaid
+erDiagram
+    users ||--o{ gene_panels : "created_by (restrict)"
+    gene_panels ||--o{ gene_panel_genes : "panel_id (cascade)"
+    gene_panels ||--o{ gene_panel_versions : "panel_id (cascade)"
+    gene_panels ||--o{ gene_panel_regions : "panel_id (cascade)"
+    assemblies ||--o{ gene_panel_regions : "assembly_id (cascade)"
+    repeat_loci ||--o| repeat_locus_count_units : "locus_id (cascade)"
+
+    gene_panels {
+        uuid id PK
+        text name UK
+        text source
+        text external_id "unique with source and external_selection"
+        integer version
+        uuid created_by FK
+    }
+    gene_panel_genes {
+        uuid panel_id PK, FK
+        text gene_symbol PK
+    }
+    gene_panel_regions {
+        uuid panel_id PK, FK
+        uuid assembly_id PK, FK
+        text gene PK "with chr, start and end"
+    }
+    gene_panel_versions {
+        uuid id PK
+        uuid panel_id FK "unique with version"
+        integer version
+        jsonb genes
+    }
+    repeat_loci {
+        uuid id PK
+        text locus_id UK "the TRGT TRID"
+        text gene
+    }
+    repeat_locus_count_units {
+        text locus_id PK, FK
+        integer count_offset "from -20 to 20"
+        boolean validated
+        text reason
+    }
+```
+
+The phenotype ontologies, HPO and Monarch:
+
+```mermaid
+erDiagram
+    hpo_synonym }o--|| hpo_term : "hpo_id (cascade)"
+    monarch_gene_disease }o..o{ monarch_disease_phenotype : "mondo_id"
+    hpo_term |o..o{ monarch_disease_phenotype : "hpo_id"
+    hpo_term ||--o{ hpo_edge : "child_id (cascade)"
+    hpo_term ||--o{ hpo_edge : "parent_id (cascade)"
+    hpo_term ||--o{ hpo_closure : "hpo_id (cascade)"
+    hpo_term ||--o{ hpo_closure : "ancestor_id (cascade)"
+
+    hpo_term {
+        text hpo_id PK
+        text label
+        text replaced_by
+    }
+    hpo_synonym {
+        text hpo_id PK, FK
+        text synonym PK
+    }
+    hpo_edge {
+        text child_id PK, FK
+        text parent_id PK, FK
+        text relation PK
+    }
+    hpo_closure {
+        text hpo_id PK, FK
+        text ancestor_id PK, FK
+        integer distance
+    }
+    monarch_gene_disease {
+        text hgnc_id PK
+        text mondo_id PK
+        text gene_symbol
+        boolean causal
+    }
+    monarch_disease_phenotype {
+        text mondo_id PK
+        text hpo_id PK
+        boolean negated
+    }
+```
 
 | Table | Holds |
 | --- | --- |
@@ -114,6 +376,302 @@ source states about itself:
 reference file is recorded under its file name.
 
 ### 03_assay.sql: families, samples, assay data and review
+
+A family and its pedigree:
+
+```mermaid
+erDiagram
+    family_statuses |o--o{ families : "status_id (set null)"
+    assemblies |o--o{ families : "roi_assembly_id (set null)"
+    families ||--o{ samples : "family_id (cascade)"
+    families ||--o{ family_members : "family_id (cascade)"
+    samples ||--o{ family_members : "sample_id (cascade)"
+    families ||--o{ family_relationships : "family_id (cascade)"
+    samples ||--o{ family_relationships : "sample_id_a (cascade)"
+    samples ||--o{ family_relationships : "sample_id_b (cascade)"
+    families |o--o{ family_structure_versions : "family_id (set null)"
+    family_structure_versions |o..o| family_structure_versions : "prev_hash"
+    families ||--o{ individual_hpo : "family_id (cascade)"
+    samples ||--o{ individual_hpo : "sample_id (cascade)"
+    hpo_term ||--o{ individual_hpo : "hpo_id (restrict)"
+
+    family_statuses {
+        uuid id PK
+        text key UK
+        text label
+    }
+    families {
+        uuid id PK
+        text family_id UK "the ID people see"
+        uuid status_id FK
+        uuid roi_assembly_id FK
+        text pedigree "the PED text"
+        jsonb metadata
+    }
+    samples {
+        uuid id PK
+        text sample_id UK "the ID people see"
+        uuid family_id FK
+    }
+    family_members {
+        uuid family_id PK, FK
+        uuid sample_id PK, FK
+        text role
+        text clinical_status
+        text carrier_status
+        boolean active
+    }
+    family_relationships {
+        uuid id PK
+        uuid family_id FK
+        uuid sample_id_a FK
+        uuid sample_id_b FK
+        text relationship_type "parent_child, couple or relative"
+        text source "pedigree, manifest or manual"
+    }
+    family_structure_versions {
+        uuid id PK
+        uuid family_id FK "unique with version"
+        text family_identifier "kept when the family is deleted"
+        integer version
+        text row_hash
+        text prev_hash
+    }
+    individual_hpo {
+        uuid id PK
+        uuid family_id FK "unique with sample_id, hpo_id and status"
+        uuid sample_id FK
+        text hpo_id FK
+        text status "present, absent or unknown"
+    }
+```
+
+The assay data of each sample. The rows of the interval tracks themselves are in ClickHouse
+(`INTERVAL/entries`); `sample_interval_track_sources` holds one record per track:
+
+```mermaid
+erDiagram
+    families ||--o{ repeat_expansions : "family_id (cascade)"
+    samples ||--o{ repeat_expansions : "sample_id (cascade)"
+    assemblies |o--o{ repeat_expansions : "assembly_id (set null)"
+    repeat_expansions }o..o| repeat_loci : "locus_id"
+    families ||--o{ sample_paraphase_results : "family_id (cascade)"
+    samples ||--o{ sample_paraphase_results : "sample_id (cascade)"
+    assemblies |o--o{ sample_paraphase_results : "assembly_id (set null)"
+    families ||--o{ sample_interval_track_sources : "family_id (cascade)"
+    samples ||--o{ sample_interval_track_sources : "sample_id (cascade)"
+    assemblies |o--o{ sample_interval_track_sources : "assembly_id (set null)"
+    assemblies ||--o{ nipt_artifact_variants : "assembly_id (cascade)"
+
+    repeat_expansions {
+        uuid id PK
+        uuid sample_id FK
+        uuid family_id FK
+        uuid assembly_id FK
+        text locus_id "the TRGT TRID"
+        text source
+        text status
+    }
+    sample_paraphase_results {
+        uuid id PK
+        uuid sample_id FK "unique with gene_symbol"
+        uuid family_id FK
+        uuid assembly_id FK
+        text gene_symbol
+        integer total_cn
+    }
+    sample_interval_track_sources {
+        uuid id PK
+        uuid sample_id FK "unique with track_type, source and filename"
+        uuid family_id FK
+        uuid assembly_id FK
+        text track_type
+        text source
+        text filename
+        bigint row_count
+    }
+    nipt_artifact_variants {
+        uuid id PK
+        uuid assembly_id FK "unique with assay_key and variant_id"
+        text assay_key
+        text variant_id
+        text source "curated or auto"
+    }
+```
+
+The analyst's reviews, and the caches built per family. The reviews attach to the variants in
+ClickHouse by their IDs ([ClickHouse Tables](#clickhouse-tables), the diagram of the links
+between the two databases):
+
+```mermaid
+erDiagram
+    families ||--o{ small_variant_reviews : "family_id (cascade)"
+    families ||--o{ structural_variant_reviews : "family_id (cascade)"
+    families ||--o{ repeat_expansion_reviews : "family_id (cascade)"
+    assemblies ||--o{ repeat_expansion_reviews : "assembly_id (cascade)"
+    repeat_expansion_reviews }o..o| repeat_loci : "locus_id"
+    families ||--o{ paraphase_reviews : "family_id (cascade)"
+    assemblies ||--o{ paraphase_reviews : "assembly_id (cascade)"
+    family_sv_gene_index }o--|| families : "family_id (cascade)"
+    family_sv_gene_index_status |o--|| families : "family_id (cascade)"
+    family_variant_ranking_cache }o--|| families : "family_id (cascade)"
+
+    small_variant_reviews {
+        uuid id PK
+        uuid family_id FK "unique with variant_id, and with variant_key"
+        text variant_id "the API's variant ID"
+        bigint variant_key "the ClickHouse key"
+        text classification
+        jsonb tags
+        jsonb acmg_evidence_snapshot
+    }
+    structural_variant_reviews {
+        uuid id PK
+        uuid family_id FK "unique with variant_id"
+        text variant_id
+        text classification
+        jsonb cnv_evidence_snapshot
+    }
+    repeat_expansion_reviews {
+        uuid id PK
+        uuid family_id FK "unique with assembly_id and locus_id"
+        uuid assembly_id FK
+        text locus_id
+        text classification
+        jsonb evidence_snapshot
+    }
+    paraphase_reviews {
+        uuid id PK
+        uuid family_id FK "unique with assembly_id and gene_symbol"
+        uuid assembly_id FK
+        text gene_symbol
+        text classification
+        jsonb evidence_snapshot
+    }
+    family_sv_gene_index {
+        uuid family_id PK, FK
+        text gene_symbol PK
+        integer sv_count
+    }
+    family_sv_gene_index_status {
+        uuid family_id PK, FK
+        text sv_data_version
+    }
+    family_variant_ranking_cache {
+        uuid id PK
+        uuid family_id FK "unique with inputs_hash"
+        text inputs_hash
+        jsonb ranking
+    }
+```
+
+The package imports. A job and a delivery name their family by its `family_id` text, which the
+family may not have yet:
+
+```mermaid
+erDiagram
+    projects |o--o{ family_import_jobs : "project_id (set null)"
+    projects |o--o{ import_deliveries : "project_id (set null)"
+    family_import_jobs |o--o{ import_deliveries : "job_id (set null)"
+    import_deliveries ||--o{ import_delivery_revisions : "delivery_id (restrict)"
+    families |o..o{ family_import_jobs : "family_id"
+    families |o..o{ import_deliveries : "family_id"
+
+    family_import_jobs {
+        uuid id PK
+        text family_id "families.family_id"
+        uuid project_id FK
+        text status
+        text package_fingerprint
+        text manifest_sha256
+    }
+    import_deliveries {
+        uuid id PK
+        text folder_path "unique with package_fingerprint, for a watched folder"
+        text package_fingerprint
+        text origin "watched or manual"
+        text state
+        text family_id "families.family_id"
+        uuid project_id FK
+        uuid job_id FK
+    }
+    import_delivery_revisions {
+        uuid id PK
+        uuid delivery_id FK "unique with revision"
+        integer revision
+        text base_sha256
+        text package_sha256
+        text reason
+    }
+```
+
+The review tags and the saved filter sets:
+
+```mermaid
+erDiagram
+    projects |o--o{ small_variant_tag_definitions : "project_id (set null)"
+    families |o--o{ small_variant_tag_definitions : "family_id (cascade)"
+    small_variant_tag_definitions ||--o{ small_variant_tag_definition_project_links : "tag_id (cascade)"
+    projects ||--o{ small_variant_tag_definition_project_links : "project_id (cascade)"
+    families |o--o{ structural_variant_filter_presets : "family_id (cascade)"
+    users ||--o{ structural_variant_filter_presets : "owner_id (cascade)"
+    users ||--o{ small_variant_filter_presets : "owner_id (cascade)"
+
+    small_variant_tag_definitions {
+        uuid id PK
+        text key UK "what reviews and presets hold"
+        text scope "global or project"
+        uuid project_id FK
+        uuid family_id FK
+        boolean is_active
+    }
+    small_variant_tag_definition_project_links {
+        uuid tag_id PK, FK
+        uuid project_id PK, FK
+    }
+    small_variant_filter_presets {
+        uuid id PK
+        uuid owner_id FK "unique with name"
+        text name
+        jsonb filters
+    }
+    structural_variant_filter_presets {
+        uuid id PK
+        uuid owner_id FK "unique with family_id, scope and name"
+        uuid family_id FK
+        text scope "family or global"
+        text name
+    }
+```
+
+The sequencing-QC limits. A family names its profile by key in `metadata`, and each recorded
+change names it by key as well:
+
+```mermaid
+erDiagram
+    qc_threshold_profiles ||--o{ qc_thresholds : "profile_id (cascade)"
+    qc_threshold_profiles |o..o{ qc_threshold_changes : "profile_key"
+    qc_threshold_profiles |o..o{ families : "metadata qc_profile"
+
+    qc_threshold_profiles {
+        uuid id PK
+        text key UK
+        boolean is_default "one profile at most"
+    }
+    qc_thresholds {
+        uuid id PK
+        uuid profile_id FK "unique with metric_key"
+        text metric_key
+        double warn_value
+        double error_value
+    }
+    qc_threshold_changes {
+        uuid id PK
+        text profile_key "qc_threshold_profiles.key"
+        text metric_key
+        text reason
+    }
+```
 
 | Table | Holds |
 | --- | --- |
@@ -211,6 +769,105 @@ whether a structure update kept the imported data; see
   old value was.
 
 ### 04_traceability.sql: provenance, audit and integrity
+
+The provenance of a family's data, and the schema ledger:
+
+```mermaid
+erDiagram
+    families ||--o{ raw_import_files : "family_id (cascade)"
+    samples |o--o{ raw_import_files : "sample_id (cascade)"
+    families ||--o| family_annotation_manifest : "family_id (cascade)"
+    assemblies |o--o{ family_annotation_manifest : "assembly_id (set null)"
+
+    raw_import_files {
+        uuid id PK
+        uuid family_id FK "unique with sample_id and storage_path"
+        uuid sample_id FK
+        text dataset
+        text storage_path
+        text sha256
+    }
+    family_annotation_manifest {
+        uuid id PK
+        uuid family_id FK, UK
+        uuid assembly_id FK
+        jsonb modules
+        text source "manifest, vcf_header or manual"
+    }
+    alembic_version {
+        varchar version_num PK
+    }
+    schema_baselines {
+        boolean singleton PK
+        text digest "SHA-256 of the five baselines"
+    }
+```
+
+The audit trail. A dotted `prev_hash` loop is a hash chain: each row holds the `row_hash` of the
+row before it on its chain, one chain per `family_identifier`. An integrity anchor holds the
+head of every chain, `family_structure_versions` included, and the hash of the anchor before it.
+The ancestry PCA tables of this file have a diagram of their own
+([Exploratory ancestry PCA](#exploratory-ancestry-pca)).
+
+```mermaid
+erDiagram
+    audit_log_events }o--o| users : "user_id (set null)"
+    ui_events }o--o| users : "user_id (set null)"
+    users |o--o{ clinical_audit_events : "actor_id (set null)"
+    families |o--o{ clinical_audit_events : "family_id (set null)"
+    users |o--o{ report_signouts : "signed_out_by_id (set null)"
+    families |o--o{ report_signouts : "family_id (set null)"
+    families |o--o{ family_structure_versions : "family_id (set null)"
+    clinical_audit_events |o..o| clinical_audit_events : "prev_hash"
+    report_signouts |o..o| report_signouts : "prev_hash"
+    clinical_audit_events }o..o{ integrity_anchors : "heads"
+    report_signouts }o..o{ integrity_anchors : "heads"
+    family_structure_versions }o..o{ integrity_anchors : "heads"
+    integrity_anchors |o..o| integrity_anchors : "prev_anchor_hash"
+
+    audit_log_events {
+        uuid id PK
+        uuid event_id UK
+        uuid user_id FK
+        text route_path
+        integer status_code
+    }
+    ui_events {
+        uuid id PK
+        uuid event_id UK
+        uuid user_id FK
+        text event_type
+        timestamptz occurred_at
+    }
+    clinical_audit_events {
+        uuid id PK
+        uuid family_id FK
+        text family_identifier "the chain it is on"
+        uuid actor_id FK
+        text action
+        text row_hash
+        text prev_hash
+    }
+    report_signouts {
+        uuid id PK
+        uuid family_id FK
+        text family_identifier "unique with version"
+        integer version
+        uuid signed_out_by_id FK
+        text content_hash
+        jsonb snapshot
+        text row_hash
+        text prev_hash
+    }
+    integrity_anchors {
+        uuid id PK
+        bigint anchor_seq UK
+        jsonb heads "each chain's head"
+        text anchor_hash
+        text prev_anchor_hash
+        text signature
+    }
+```
 
 | Table | Holds |
 | --- | --- |
@@ -468,6 +1125,215 @@ when it ends. For an import whose process stopped,
 the worker that ends its job drops them, and every start drops a backup whose job has ended (or
 one made outside a job, a day after it was made). See
 [clickhouse_family_snapshot.py](../backend/app/services/clickhouse_family_snapshot.py).
+
+### Entity-relationship diagrams
+
+The diagrams read as the Postgres ones ([Entity-relationship diagrams](#entity-relationship-diagrams)),
+with three differences:
+
+- ClickHouse has no foreign keys, so every line is dotted: a link the application makes by value.
+- Each name leaves out the assembly it starts with (`GRCh38/SNV_INDEL/entries` is drawn as
+  `SNV_INDEL/entries`).
+- `PK` marks the columns of a table's sort key (`ORDER BY`), not a unique key. In a
+  `ReplacingMergeTree` or `CollapsingMergeTree` table a merge keeps one row per sort key
+  ([Row identity](#row-identity)). The plain `MergeTree` tables (`family_data_version`,
+  `INTERVAL/entries`) keep every row.
+
+The small variants. The four `variants` tables hold one variant's annotation and serve every
+family; `entries` holds each family's calls:
+
+```mermaid
+erDiagram
+    SNV_annotations }o..|| SNV_details : "key, annotation_version, annotationSetHash"
+    SNV_annotation_index |o..|| SNV_details : "key, annotation_version, annotationSetHash"
+    SNV_gene_index }o..|| SNV_details : "key, annotation_version, annotationSetHash"
+    SNV_details ||..o{ SNV_entries : "key, annotation_version, annotationSetHash"
+    SNV_entries }o..o| SNV_family_summary : "counted per family_guid and project_guid"
+    SNV_entries }o..o{ SNV_sample_summary : "counted per family_guid, project_guid and sample"
+    SNV_entries }o..o{ SNV_data_version : "family_guid: one token per write"
+
+    SNV_details["SNV_INDEL/variants/details"] {
+        UInt64 key PK "hash of the assembly and the variant ID"
+        String annotation_version PK
+        UInt64 annotationSetHash PK
+        String variantId
+        String chrom
+        UInt32 pos
+        String annotationsJson "the full annotation"
+    }
+    SNV_annotations["SNV_INDEL/variants/annotations"] {
+        String annotation_version PK
+        String chrom PK
+        UInt32 pos PK
+        UInt64 key PK
+        UInt64 annotationSetHash PK
+        UInt64 annotationHash PK
+        String transcript_id "one row per transcript"
+        String gene_symbol
+    }
+    SNV_annotation_index["SNV_INDEL/variants/annotation_index"] {
+        String annotation_version PK
+        String chrom PK
+        UInt32 pos PK
+        UInt64 key PK
+        UInt64 annotationSetHash PK
+        Array gene_symbols "pooled over the transcripts"
+    }
+    SNV_gene_index["SNV_INDEL/variants/gene_index"] {
+        String annotation_version PK
+        String gene_term PK "a gene symbol or ID"
+        String chrom PK
+        UInt32 pos PK
+        UInt64 key PK
+        UInt64 annotationSetHash PK
+    }
+    SNV_entries["SNV_INDEL/entries"] {
+        String project_guid PK "the partition"
+        String family_guid PK
+        UInt64 xpos PK
+        UInt64 key PK
+        String source PK "the callset"
+        String variantId
+        String annotation_version
+        UInt64 annotationSetHash
+        Nested calls "calls.sampleId, calls.gt and the other call fields, one per sample"
+        Int8 sign "always 1"
+    }
+    SNV_family_summary["SNV_INDEL/family_variant_summary"] {
+        String family_guid PK
+        String project_guid PK
+        UInt64 total_variants
+    }
+    SNV_sample_summary["SNV_INDEL/family_sample_variant_summary"] {
+        String family_guid PK
+        String project_guid PK
+        String sample_id PK
+        UInt64 non_ref_count
+    }
+    SNV_data_version["SNV_INDEL/family_data_version"] {
+        String family_guid PK
+        DateTime64 bumped_at PK
+        UInt64 token
+    }
+```
+
+The structural variants and the interval tracks. An SV's key hashes its family and its source,
+so these tables hold one family's rows each:
+
+```mermaid
+erDiagram
+    SV_key_lookup }o..|| SV_details : "key"
+    SV_details ||..o{ SV_entries : "key"
+    SV_entries }o..o{ SV_data_version : "family_guid: one token per write"
+
+    SV_key_lookup["SV/key_lookup"] {
+        String family_guid PK
+        String variantId PK
+        String source PK "the caller"
+        UInt64 key
+    }
+    SV_details["SV/variants/details"] {
+        UInt64 key PK "hash of the assembly, family, variant ID and source"
+        String variantId
+        String family_guid
+        String source
+        String svType
+        String chrom "with start and end"
+        Int32 svLen
+        String annotationsJson "the full annotation"
+    }
+    SV_entries["SV/entries"] {
+        String project_guid PK "the partition"
+        String family_guid PK
+        String svType PK
+        String chrom PK
+        UInt32 start PK
+        UInt64 key PK
+        String source PK
+        String variantId
+        Nested calls "calls.sampleId, calls.gt, calls.cn and the other call fields, one per sample"
+        Int8 sign "always 1"
+    }
+    SV_data_version["SV/family_data_version"] {
+        String family_guid PK
+        DateTime64 bumped_at PK
+        UInt64 token
+    }
+    INTERVAL_entries["INTERVAL/entries"] {
+        String family_guid PK
+        String sample_guid PK
+        String track_type PK "the partition"
+        String chrom PK
+        UInt64 start PK
+        UInt64 end PK
+        String source PK
+        String filename
+        Float64 value
+    }
+```
+
+The links between the two databases. ClickHouse holds the Postgres UUIDs as text, and a call
+names its sample by the `sample_id` people see. The API decides in Postgres which families and
+projects the user may read, then passes their UUIDs to ClickHouse as query parameters:
+
+```mermaid
+erDiagram
+    pg_projects |o..o{ SNV_entries : "project_guid = id, or unassigned"
+    pg_projects |o..o{ SV_entries : "project_guid = id, or unassigned"
+    pg_families ||..o{ SNV_entries : "family_guid = id"
+    pg_families ||..o{ SV_entries : "family_guid = id"
+    pg_families ||..o{ INTERVAL_entries : "family_guid = id"
+    pg_samples ||..o{ SNV_entries : "calls.sampleId = sample_id"
+    pg_samples ||..o{ SV_entries : "calls.sampleId = sample_id"
+    pg_samples ||..o{ INTERVAL_entries : "sample_guid = id"
+    INTERVAL_entries }o..|| pg_track_sources : "sample, track_type, source, filename"
+    SNV_entries }o..o{ pg_small_reviews : "family_guid, variantId, key"
+    SV_entries }o..o{ pg_sv_reviews : "family_guid, variantId"
+    SNV_entries }o..o{ SNV_data_version : "family_guid"
+    SV_entries }o..o{ SV_data_version : "family_guid"
+    SNV_data_version }o..o{ pg_ranking_cache : "in inputs_hash"
+    SV_data_version }o..o| pg_sv_gene_index_status : "sv_data_version"
+
+    pg_projects["projects (Postgres)"] {
+        uuid id PK
+    }
+    pg_families["families (Postgres)"] {
+        uuid id PK
+        text family_id UK
+    }
+    pg_samples["samples (Postgres)"] {
+        uuid id PK
+        text sample_id UK
+    }
+    pg_track_sources["sample_interval_track_sources (Postgres)"] {
+        uuid sample_id FK
+        text track_type
+        text source
+        text filename
+    }
+    pg_small_reviews["small_variant_reviews (Postgres)"] {
+        uuid family_id FK
+        text variant_id
+        bigint variant_key
+    }
+    pg_sv_reviews["structural_variant_reviews (Postgres)"] {
+        uuid family_id FK
+        text variant_id
+    }
+    pg_sv_gene_index_status["family_sv_gene_index_status (Postgres)"] {
+        uuid family_id PK, FK
+        text sv_data_version
+    }
+    pg_ranking_cache["family_variant_ranking_cache (Postgres)"] {
+        uuid family_id FK
+        text inputs_hash
+    }
+    SNV_entries["SNV_INDEL/entries"]
+    SV_entries["SV/entries"]
+    INTERVAL_entries["INTERVAL/entries"]
+    SNV_data_version["SNV_INDEL/family_data_version"]
+    SV_data_version["SV/family_data_version"]
+```
 
 Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
 (`ensure_clickhouse_variant_tables`) and `clickhouse_interval_tracks.py`. Notable columns:
@@ -768,19 +1634,6 @@ commits before the count, and one written after waits and then finds no project.
 - API-facing variant IDs are stable string identifiers.
 - People see `family_id` and `sample_id`.
 
-## Relationships
-
-- `species -> assemblies`
-- `assemblies -> chromosomes / genes / blacklist / clinical_cnvs / dgv_variants / segmental_duplications / gene_panel_regions`
-- `projects -> species + assemblies`
-- `families <-> projects`, `samples <-> projects`
-- `samples -> families`
-- `family_members` maps pedigree roles and affected state
-- `small_variant_reviews` and `structural_variant_reviews` attach Postgres review state to
-  ClickHouse variant IDs and keys
-- `repeat_expansion_reviews` and `paraphase_reviews` attach it to a family's repeat loci and
-  Paraphase regions in its assembly (`families`, `assemblies`; both deleted with them)
-
 ## Startup Behavior
 
 When `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default), every start runs the
@@ -799,9 +1652,64 @@ data it loads is listed in [data-import.md](data-import.md), section 1.
 
 ### Exploratory ancestry PCA
 
-Seven tables in `04_traceability.sql` hold the exploratory ancestry PCA, which is outside the
+Six tables in `04_traceability.sql` hold the exploratory ancestry PCA, which is outside the
 intended purpose and never enters a sign-out or the signed record ([ancestry-pca.md](ancestry-pca.md)).
 A projection reads the family's stored small variants in ClickHouse at the reference markers.
+The tables name the family, the project and the accounts by value, without foreign keys:
+
+```mermaid
+erDiagram
+    ancestry_reference_panels ||--o{ ancestry_runs : "reference_sha256 (no action)"
+    ancestry_reference_panels ||--o{ ancestry_results : "reference_sha256 (no action)"
+    ancestry_runs ||--o| ancestry_results : "run_id (no action)"
+    ancestry_files ||--o{ ancestry_file_scans : "file_id (no action)"
+    ancestry_reference_panels |o..o{ ancestry_file_scans : "reference_sha256"
+    families |o..o{ ancestry_runs : "family_uuid"
+    families |o..o{ ancestry_sample_choices : "family_uuid"
+    families |o..o{ ancestry_files : "family_uuid"
+    family_import_jobs |o..o{ ancestry_files : "import_job_id"
+
+    ancestry_reference_panels {
+        text sha256 PK "of the model NPZ"
+        jsonb snapshot
+    }
+    ancestry_runs {
+        uuid id PK
+        uuid family_uuid "families.id"
+        uuid project_id "projects.id"
+        text reference_sha256 FK
+        uuid requested_by "users.id"
+        text storage_version
+        text status
+    }
+    ancestry_results {
+        uuid run_id PK, FK
+        text reference_sha256 FK
+        jsonb samples
+    }
+    ancestry_sample_choices {
+        uuid id PK
+        uuid family_uuid "families.id"
+        uuid project_id "projects.id"
+        text sample_id "samples.sample_id"
+        text mode "auto, callset or exclude"
+        uuid chosen_by "users.id"
+    }
+    ancestry_files {
+        uuid id PK
+        uuid family_uuid "families.id"
+        uuid project_id "projects.id"
+        uuid import_job_id "family_import_jobs.id"
+        text relative_path
+    }
+    ancestry_file_scans {
+        uuid id PK
+        uuid file_id FK
+        text status "scanned or failed"
+        text sha256
+        text reference_sha256 "ancestry_reference_panels.sha256"
+    }
+```
 
 | Table | Holds |
 | --- | --- |
