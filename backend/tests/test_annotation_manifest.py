@@ -125,34 +125,32 @@ def test_a_shapeit5_header_adds_no_version_beside_the_pipeline_record() -> None:
     }
 
 
-def test_get_family_manifest_falls_back_to_family_metadata(monkeypatch) -> None:
-    # No explicit family_annotation_manifest row -> read the import-captured manifest
-    # from family.metadata.annotation_manifest.
+def _patch_manifest_read(monkeypatch, *, row) -> None:
     async def _context(session, *, family_identifier, user, project_id=None):
         return types.SimpleNamespace(
             family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38"
         )
 
-    async def _family(session, family_id, user):
-        return types.SimpleNamespace(metadata={"annotation_manifest": {"clinvar": "2026-05"}})
-
-    async def _no_row(session, family_uuid):
-        return None
+    async def _row(session, family_uuid):
+        return row
 
     async def _no_platform(session, assembly_id):
         return {}
 
     monkeypatch.setattr(ams, "build_family_metadata_context", _context)
-    monkeypatch.setattr(ams, "get_family_record", _family)
-    monkeypatch.setattr(ams, "_family_manifest_row", _no_row)
+    monkeypatch.setattr(ams, "_family_manifest_row", _row)
     monkeypatch.setattr(ams, "_platform_modules", _no_platform)
+
+
+def test_a_family_without_a_recorded_manifest_states_no_pipeline_layer(monkeypatch) -> None:
+    # The pipeline layer is the family_annotation_manifest row and nothing else.
+    _patch_manifest_read(monkeypatch, row=None)
 
     out = asyncio.run(
         ams.get_family_annotation_manifest(session=None, family_id="FAM1", user=None)
     )
     assert out["family_id"] == "FAM1" and out["assembly"] == "GRCh38"
-    assert out["source"] == "manifest"
-    assert any(m["key"] == "clinvar" and m["version"] == "2026-05" for m in out["modules"])
+    assert (out["source"], out["recorded_at"], out["recorded_by"], out["modules"]) == (None, None, None, [])
 
 
 @pytest.mark.parametrize(
@@ -160,36 +158,24 @@ def test_get_family_manifest_falls_back_to_family_metadata(monkeypatch) -> None:
     [
         # A driver without the jsonb codec hands the recorded modules back as JSON text.
         (json.dumps({"clinvar": {"version": "2026-09"}}), "pipeline"),
-        # Text that is no JSON object holds nothing recorded: the import's manifest is read.
-        ("{not json", "manifest"),
-        (json.dumps(["clinvar"]), "manifest"),
-        ("  ", "manifest"),
+        # Text that is no JSON object holds nothing recorded: the family states no pipeline layer.
+        ("{not json", None),
+        (json.dumps(["clinvar"]), None),
+        ("  ", None),
     ],
     ids=["json-text", "not-json", "json-not-an-object", "blank"],
 )
 def test_a_recorded_manifest_read_back_as_text_is_read_as_the_object_it_is(monkeypatch, stored, source) -> None:
-    async def _context(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38")
-
-    async def _family(session, family_id, user):
-        return types.SimpleNamespace(metadata={"annotation_manifest": {"clinvar": "2026-05"}})
-
-    async def _row(session, family_uuid):
-        return {"modules": stored, "source": "pipeline", "recorded_at": None, "recorded_by": "importer"}
-
-    async def _no_platform(session, assembly_id):
-        return {}
-
-    monkeypatch.setattr(ams, "build_family_metadata_context", _context)
-    monkeypatch.setattr(ams, "get_family_record", _family)
-    monkeypatch.setattr(ams, "_family_manifest_row", _row)
-    monkeypatch.setattr(ams, "_platform_modules", _no_platform)
+    _patch_manifest_read(
+        monkeypatch,
+        row={"modules": stored, "source": "pipeline", "recorded_at": None, "recorded_by": "importer"},
+    )
 
     out = asyncio.run(ams.get_family_annotation_manifest(session=None, family_id="FAM1", user=None))
 
     assert out["source"] == source
-    clinvar = next(module for module in out["modules"] if module["key"] == "clinvar")
-    assert clinvar["version"] == ("2026-09" if source == "pipeline" else "2026-05")
+    versions = {module["key"]: module["version"] for module in out["modules"]}
+    assert versions == ({"clinvar": "2026-09"} if source == "pipeline" else {})
 
 
 def test_unknown_module_labels_are_not_renamed_by_title_casing() -> None:
@@ -395,7 +381,7 @@ def _manifest_user(role: str):
     )
 
 
-def _patch_replacement(monkeypatch, *, stored_row=None, captured=None):
+def _patch_replacement(monkeypatch, *, stored_row=None):
     session = _ManifestWriteSession()
     events: list[dict] = []
 
@@ -407,9 +393,6 @@ def _patch_replacement(monkeypatch, *, stored_row=None, captured=None):
     async def _row(session_, family_uuid):
         return stored_row
 
-    async def _family(session_, family_id, user):
-        return types.SimpleNamespace(metadata={"annotation_manifest": captured} if captured else {})
-
     async def _event(session_, **kwargs):
         # Snapshot what the transaction had done when the event was written.
         events.append({**kwargs, "_statements": list(session.statements), "_commits": session.commits})
@@ -419,7 +402,6 @@ def _patch_replacement(monkeypatch, *, stored_row=None, captured=None):
 
     monkeypatch.setattr(ams, "build_family_metadata_context", _context)
     monkeypatch.setattr(ams, "_family_manifest_row", _row)
-    monkeypatch.setattr(ams, "get_family_record", _family)
     monkeypatch.setattr(ams, "record_clinical_event", _event, raising=False)
     monkeypatch.setattr(ams, "get_family_annotation_manifest", _manifest)
     return session, events
@@ -480,26 +462,6 @@ def test_replacing_the_manifest_records_the_prior_and_new_modules(monkeypatch, r
     assert session.commits == 1
     # Concurrent replacements are serialised, so each event's "before" is the true prior.
     assert "pg_advisory_xact_lock" in session.statements[0]
-
-
-def test_replacing_the_manifest_the_import_captured_records_it_as_the_prior(monkeypatch) -> None:
-    # No recorded row: the report showed the manifest the import captured into
-    # family.metadata, so that is what the replacement supersedes.
-    session, events = _patch_replacement(monkeypatch, captured={"clinvar": "2026-05"})
-    asyncio.run(
-        ams.set_family_annotation_manifest(
-            session, family_id="FAM1", user=_manifest_user("admin"), modules={"clinvar": "2026-09"}
-        )
-    )
-    assert events[0]["before"] == {
-        "source": "manifest",
-        "recorded_by": None,
-        "recorded_at": None,
-        "modules": {"clinvar": "2026-05"},
-    }
-    assert events[0]["summary"] == (
-        "Annotation manifest replaced (was manifest, now manual): ClinVar 2026-05 → 2026-09"
-    )
 
 
 def test_a_first_manifest_is_recorded_with_no_prior(monkeypatch) -> None:
