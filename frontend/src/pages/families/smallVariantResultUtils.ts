@@ -401,9 +401,11 @@ export const visibleReviewTagKeys = (tagKeys: string[]): string[] =>
   );
 
 /**
- * How a small-variant review, or a compound-het pair review, shows its class beside its tag
- * chips: once, by the one rule (normalizeReviewClassification: a bare class word in the
- * text, else the most severe class tag, else the text as stored).
+ * How a small-variant review, a compound-het pair review or an SV review shows its class beside
+ * its tag chips: once, by the one rule (normalizeReviewClassification: a bare class word in the
+ * text, else the most severe class tag, else the text as stored). Every table and card of the
+ * family page that shows a review's class reads it here: the small-variant, compound-het pair,
+ * mtDNA and SV ones.
  *
  * - `label`: the class it shows, '' for none; `tone`: that class's chip tone.
  * - `tagKeys`: `chipTagKeys` without the ACMG class tags that are not the class shown, so a

@@ -506,7 +506,11 @@ class GlobalVariantRowOut(BaseModel):
     hgvsc: Optional[str] = None
     hgvsp: Optional[str] = None
     clinvar: Optional[str] = None
+    # The most severe class the variant's reviews show, each by the family page's rule
+    # (review_class_label), and the classification text of the review that shows it, as
+    # stored: its own text, or its compound-het pair's.
     classification: Optional[str] = None
+    classification_text: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     total_samples: int = 0
     het_samples: int = 0

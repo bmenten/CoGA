@@ -164,7 +164,8 @@ lacks (through a region of its own, such as the position PanelApp gives for a ge
 variant of a compound-het pair without the other.
 
 **Download CSV** exports the list, with *Priority* and *Rank* columns when the ranking is on. Its
-*Classification* column holds the class each review shows on the page; *Tags* holds the review's tags.
+*Classification* column holds the class each review shows on the page, *Classification text* the
+classification as typed, and *Tags* the review's tags.
 
 ### Also hit by a structural variant
 

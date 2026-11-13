@@ -50,10 +50,12 @@ show a more severe class, from another family's review.
   Mendeliome included.
 - Click a het, hom or family count to see the carriers per family, with links to their family pages.
 - Imputed calls are left out unless you tick **Include imputed variants (GLIMPSE2 / SHAPEIT)**.
-- **Download CSV** exports the filtered variants with their annotation, up to 50,000 rows. A file that
-  misses matches has *TRUNCATED* in its name, and the page says why: more variants matched than the
-  50,000 rows (narrow the filters), or the tag or classification filter matched more than the 200,000
-  variants one search takes (filter on fewer tags or classifications).
+- **Download CSV** exports the filtered variants with their annotation, up to 50,000 rows. Its
+  *Classification* column holds the class the row shows, *Classification text* the classification as
+  typed in the review that shows it. A file that misses matches has *TRUNCATED* in its name, and the
+  page says why: more variants matched than the 50,000 rows (narrow the filters), or the tag or
+  classification filter matched more than the 200,000 variants one search takes (filter on fewer tags
+  or classifications).
 - The counts come from a summary CoGA keeps as families' variants are written. While a family is being
   imported, or for a few seconds after its members or projects change, the page says how many families
   are being added or brought up to date: their variants may be missing, or counted as before the change.

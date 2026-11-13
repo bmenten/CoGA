@@ -296,7 +296,10 @@ _EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("hgvsc", "HGVSc"),
     ("hgvsp", "HGVSp"),
     ("clinvar", "ClinVar"),
+    # The class the variant's reviews show (the most severe), then the classification text of
+    # the review that shows it, as written.
     ("classification", "Classification"),
+    ("classification_text", "Classification text"),
     ("tags", "Tags"),
     ("total_samples", "Total samples"),
     ("het_samples", "Het"),

@@ -201,7 +201,9 @@ _FAMILY_SV_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("population_af", "Population AF"),
     ("gene_pli", "pLI"),
     ("region_flags", "Region flags"),
+    # The class the review shows, then its classification text as written.
     ("classification", "Classification"),
+    ("classification_text", "Classification text"),
     ("tags", "Tags"),
     ("genotypes", "Genotypes"),
 ]

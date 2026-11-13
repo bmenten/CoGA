@@ -31,6 +31,11 @@ with the class it saved as the classification. So *Likely pathogenic - class 4* 
 classified by its class tag alone, and not one classified as *VUS - class 3* beside the *Pathogenic -
 class 5* tag: that SV shows class 5. Capitals do not matter.
 
+A row or card shows its review's class once, by that rule, as on the small-variant page. A class tag of
+another class is not shown beside it; the VUS tiers and *Secondary finding* are tags, never the class.
+**Download CSV** exports the list: its *Classification* column holds the class shown, *Classification
+text* the classification as typed, and *Tags* the review's tags.
+
 **Min length** and **Exact length**, under **Class and Breakpoints**, measure an SV by the **Length**
 the list shows, without a deletion's minus sign. That length is:
 

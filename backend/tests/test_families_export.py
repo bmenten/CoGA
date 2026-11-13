@@ -9,8 +9,15 @@ from backend.app.routers.families_small_variants import (
     _FAMILY_EXPORT_COLUMNS,
     _family_export_cell,
 )
+from backend.app.routers.families_structural_variants import (
+    _FAMILY_SV_EXPORT_COLUMNS,
+    _family_sv_export_cell,
+)
+from backend.app.routers.variant_explorer import _EXPORT_COLUMNS as _EXPLORER_EXPORT_COLUMNS
+from backend.app.routers.variant_explorer import _export_cell as _explorer_export_cell
 from backend.app.schemas import (
     GenotypeOut,
+    GlobalVariantRowOut,
     SmallVariantFilterTranscriptOut,
     SmallVariantReviewOut,
     VariantOut,
@@ -51,6 +58,8 @@ def test_family_export_cell_scalars_review_and_genotypes() -> None:
     # Review fields are pulled from the nested review object; the classification as the class
     # the review shows, a class word as its label.
     assert _family_export_cell(row, "classification") == "Pathogenic - class 5"
+    # Beside it the classification text as stored.
+    assert _family_export_cell(row, "classification_text") == "pathogenic"
     assert _family_export_cell(row, "tags") == "candidate; confirmed"
     # Genotypes are flattened to "sample=gt" pairs.
     assert _family_export_cell(row, "genotypes") == "proband=0/1; mother=0/0"
@@ -59,6 +68,7 @@ def test_family_export_cell_scalars_review_and_genotypes() -> None:
 def test_family_export_cell_handles_missing_review() -> None:
     row = VariantOut(id="1-1-A-T", chr="1", start=1, end=1, length=1, type="SNV")
     assert _family_export_cell(row, "classification") == ""
+    assert _family_export_cell(row, "classification_text") == ""
     assert _family_export_cell(row, "tags") == ""
     assert _family_export_cell(row, "genotypes") == ""
 
@@ -68,7 +78,7 @@ def test_family_export_columns_are_resolvable() -> None:
     # field reads as an empty cell (getattr's default), so each one must name what a row
     # holds: a field of the variant, of the filter-matched transcript, or a computed one.
     row = _variant()
-    computed = {"priority_score", "priority_rank", "classification", "tags", "genotypes"}
+    computed = {"priority_score", "priority_rank", "classification", "classification_text", "tags", "genotypes"}
     for field, label in _FAMILY_EXPORT_COLUMNS:
         assert label.strip()
         assert isinstance(_family_export_cell(row, field), str)
@@ -119,7 +129,7 @@ def test_family_export_names_the_transcript_the_filters_held_on() -> None:
         "Chromosome", "Start", "End", "Type", "Ref", "Alt", "rsID", "Gene", "Gene ID",
         "Transcript", "Impact", "Effect", "HGVSc", "HGVSp", "ClinVar", "gnomAD AF",
         "gnomAD hom", "CADD", "REVEL", "SpliceAI", "SIFT", "PolyPhen", "Classification",
-        "Tags", "Genotypes",
+        "Classification text", "Tags", "Genotypes",
     ]
     assert {label: cells[label] for label in labels[labels.index("Genotypes") + 1 :]} == {
         "Filter-matched transcript": "ENST_SYN51_2",
@@ -198,3 +208,76 @@ def test_the_export_writes_the_class_each_review_shows_on_the_family_page() -> N
         assert _family_export_cell(row, "classification") == case["shown"], case["why"]
         # The tags stay as the review holds them.
         assert _family_export_cell(row, "tags") == "; ".join(case["tags"]), case["why"]
+
+
+def _sv_variant() -> VariantOut:
+    return VariantOut(
+        id="SV-1-1000-5000-DEL",
+        chr="1",
+        start=1000,
+        end=5000,
+        length=-4000,
+        type="DEL",
+        source="sniffles",
+        gene="GENE1",
+        genotypes=[GenotypeOut(sample="PROBAND", gt="0/1")],
+        review=SmallVariantReviewOut(variant_id="SV-1-1000-5000-DEL"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("columns", "export"),
+    [
+        (_FAMILY_EXPORT_COLUMNS, "small variants"),
+        (_FAMILY_SV_EXPORT_COLUMNS, "structural variants"),
+        (_EXPLORER_EXPORT_COLUMNS, "Variant Explorer"),
+    ],
+)
+def test_each_export_writes_the_classification_text_next_to_the_class_shown(columns, export) -> None:
+    # The owner's decision of 2026-11-10: the Classification column holds the class the review
+    # shows, and a Classification text column beside it the classification as
+    # written, so the file keeps what the reviewer typed where the rule shows another class.
+    labels = [label for _field, label in columns]
+    assert labels.count("Classification") == 1, export
+    assert labels.count("Classification text") == 1, export
+    at = labels.index("Classification")
+    assert labels[at : at + 3] == ["Classification", "Classification text", "Tags"], export
+    assert dict(columns)["classification_text"] == "Classification text", export
+
+
+def test_the_family_exports_write_the_class_shown_and_the_text_as_stored() -> None:
+    # The small-variant and the SV export (which shares its review cells) write, for every
+    # case of the shared review-class-cases.json, the class shown under Classification and the
+    # text as stored under Classification text: "VUS" beside the tag of class 4 is "VUS - class 3"
+    # and "VUS", a review classified by its class tag alone the tag's class and nothing.
+    cases = json.loads(_REVIEW_CLASS_CASES.read_text(encoding="utf-8"))["cases"]
+    for case in cases:
+        for row, cell in ((_variant(), _family_export_cell), (_sv_variant(), _family_sv_export_cell)):
+            assert row.review is not None
+            row.review.classification = case["classification"]
+            row.review.tags = case["tags"]
+            assert cell(row, "classification") == case["shown"], case["why"]
+            assert cell(row, "classification_text") == (case["classification"] or ""), case["why"]
+            assert cell(row, "tags") == "; ".join(case["tags"]), case["why"]
+    # An SV without a review writes neither.
+    bare = _sv_variant()
+    bare.review = None
+    assert _family_sv_export_cell(bare, "classification") == ""
+    assert _family_sv_export_cell(bare, "classification_text") == ""
+
+
+def test_the_explorer_export_writes_the_class_shown_and_its_text() -> None:
+    # The Explorer row carries the class shown (the most severe its reviews show) and the
+    # text of the review that shows it; the export writes both, each in its column.
+    row = GlobalVariantRowOut(
+        key="1",
+        variant_id="1-100-A-T",
+        chr="1",
+        pos=100,
+        classification="VUS - class 3",
+        classification_text="VUS",
+        tags=["acmg_class_4"],
+    )
+    assert _explorer_export_cell(row, "classification") == "VUS - class 3"
+    assert _explorer_export_cell(row, "classification_text") == "VUS"
+    assert _explorer_export_cell(row.model_copy(update={"classification_text": None}), "classification_text") == ""
