@@ -57,6 +57,7 @@ const ABSENT_VARIANT_FIELDS: Omit<
   lof_flags: null,
   nmd: null,
   gnomad_af: null,
+  gnomad_annotated: [],
   gnomad_hom_count: null,
   gene_pli: null,
   gene_missense_z: null,

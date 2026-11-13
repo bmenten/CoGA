@@ -24,8 +24,9 @@ from .family_package_common import _normalize_header_key
 from .variant_annotation_parser import (
     ALT_ALLELE_KEY,
     CLINVAR_FILE_ALIASES,
-    clinvar_file_in_description,
+    declared_gnomad_datasets,
     entry_alt_allele,
+    file_in_description,
     normalize_small_variant_annotation_entry,
     vep_allele_forms,
 )
@@ -254,6 +255,12 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
     # row's ClinVar classification is that file's, never the cache's CLIN_SIG.
     clinvar_file_annotated = False
     clinvar_file_name: str | None = None
+    # The columns and Extra keys the table describes, each with the file its description names
+    # (VEP --custom), and the gnomAD datasets whose allele frequency the table declares
+    # (``declared_gnomad_datasets``), as a column or a described Extra key.
+    described_files: dict[str, str] = {}
+    described_fields: set[str] = set()
+    gnomad_annotated: tuple[str, ...] = ()
 
     for raw_line in lines:
         line = raw_line.rstrip("\n\r")
@@ -263,15 +270,21 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
             if len(provenance_header) < 80:
                 provenance_header.append(line)
             described = _VEP_TAB_FIELD_DESCRIPTION.match(line)
+            if described:
+                described_fields.add(described.group(1))
+                described_file = file_in_description(described.group(2))
+                if described_file:
+                    described_files.setdefault(described.group(1), described_file)
             if described and described.group(1) in CLINVAR_FILE_ALIASES:
                 clinvar_file_annotated = True
-                clinvar_file_name = clinvar_file_name or clinvar_file_in_description(described.group(2))
+                clinvar_file_name = clinvar_file_name or described_files.get(described.group(1))
             continue
         if line.startswith("#"):
             header = line.lstrip("#").split("\t")
             clinvar_file_annotated = clinvar_file_annotated or not set(header).isdisjoint(
                 CLINVAR_FILE_ALIASES
             )
+            gnomad_annotated = declared_gnomad_datasets(described_fields.union(header), described_files)
             continue
         if header is None:
             continue
@@ -283,7 +296,7 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
         for key, value in _vep_extra_fields(row.pop("Extra", "")).items():
             row.setdefault(key, value)
         annotation = normalize_small_variant_annotation_entry(
-            row, clinvar_file_annotated=clinvar_file_annotated
+            row, clinvar_file_annotated=clinvar_file_annotated, gnomad_annotated=gnomad_annotated
         )
         if not annotation:
             continue

@@ -86,6 +86,7 @@ const FROZEN_EVIDENCE = {
   transcript_id: 'ENST00000000001',
   frequencies: {
     gnomad_af: 3.1e-5,
+    gnomad_annotated: ['exomes', 'genomes'],
     gnomad_exomes_af: 1.2e-5,
     gnomad_genomes_af: 3.1e-5,
     gnomad_popmax_af: 0.0002,
@@ -403,6 +404,7 @@ describe('parseSignedReport', () => {
     // writes it; one without a value, or of the wrong type, reads as none.
     expect(variant.evidence?.frequencies).toEqual([
       { label: 'gnomAD AF', value: '3.10e-5' },
+      { label: 'gnomAD datasets', value: 'exomes and genomes' },
       { label: 'gnomAD exomes AF', value: '1.20e-5' },
       { label: 'gnomAD genomes AF', value: '3.10e-5' },
       { label: 'gnomAD popmax AF', value: '0.0002' },
@@ -422,7 +424,7 @@ describe('parseSignedReport', () => {
     ]);
     expect(describeFrozenEvidenceValues(variant.evidence!)).toBe(
       'Read from its primary transcript ENST00000000001: population frequencies gnomAD AF 3.10e-5, ' +
-        'gnomAD exomes AF 1.20e-5, gnomAD genomes AF 3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, ' +
+        'gnomAD datasets exomes and genomes, gnomAD exomes AF 1.20e-5, gnomAD genomes AF 3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, ' +
         'gnomAD allele count 4, gnomAD homozygotes 0 and gnomAD hemizygotes not annotated; in silico scores ' +
         'CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT deleterious(0.01), PolyPhen probably_damaging(0.981), ' +
         'AlphaMissense class not annotated and AlphaMissense score not annotated.',
@@ -497,7 +499,8 @@ describe('parseSignedReport', () => {
     // The consequence first, read from the primary transcript; the missense Z is the gene's.
     expect(describeFrozenEvidenceValues(variant.evidence!)).toBe(
       'Read from its primary transcript ENST00000000001: consequence missense_variant, impact MODERATE and LoF ' +
-        'not annotated; population frequencies gnomAD AF 3.10e-5, gnomAD exomes AF 1.20e-5, gnomAD genomes AF ' +
+        'not annotated; population frequencies gnomAD AF 3.10e-5, gnomAD datasets exomes and genomes, ' +
+        'gnomAD exomes AF 1.20e-5, gnomAD genomes AF ' +
         '3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, gnomAD allele count 4, gnomAD homozygotes 0 ' +
         'and gnomAD hemizygotes not annotated; in silico scores CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT ' +
         'deleterious(0.01), PolyPhen probably_damaging(0.981), AlphaMissense class not annotated and ' +
@@ -957,6 +960,16 @@ describe('the signed report’s wording', () => {
         evidenceTo: { gnomad_af: 0.012, revel: 0.951 },
       }),
     ).toBe('ClinVar VUS → Pathogenic; gnomAD AF 3.10e-5 → 0.012; REVEL 0.412 → 0.951');
+    // The gnomAD datasets the callset was annotated with, which PM2 reads, by name.
+    expect(
+      describeSignedDrift({
+        ...item,
+        status: 'drifted',
+        changed: ['gnomad_annotated', 'annotations'],
+        evidenceFrom: { gnomad_annotated: ['exomes', 'genomes'] },
+        evidenceTo: { gnomad_annotated: null },
+      }),
+    ).toBe('gnomAD datasets exomes and genomes → n/a');
   });
 
   it('names what moved in a small-variant classification’s frozen values', () => {

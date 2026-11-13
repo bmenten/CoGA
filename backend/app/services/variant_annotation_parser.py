@@ -11,9 +11,15 @@ class AnnotationHeaderState:
     ann_fields: List[str] | None = None
     csq_fields: List[str] | None = None
     # The INFO keys the header declares (``##INFO=<ID=…``), and the ClinVar file the INFO
-    # line of a ClinVar field names (``clinvar_file_annotated``, ``clinvar_file_in_description``).
+    # line of a ClinVar field names (``clinvar_file_annotated``, ``file_in_description``).
     info_ids: set[str] = field(default_factory=set)
     clinvar_file_name: str | None = None
+    # The file the INFO line of each gnomAD allele-frequency field names (VEP --custom), which
+    # says which gnomAD dataset it holds (``gnomad_dataset``).
+    gnomad_field_files: dict[str, str] = field(default_factory=dict)
+    # ``gnomad_datasets`` of the header read so far, kept until the next header line: every
+    # record of a file reads it.
+    gnomad_datasets_read: tuple[str, ...] | None = None
 
 
 # "-" is how VEP's table output writes an empty value: read as one, it became a ClinVar
@@ -133,6 +139,14 @@ _POPULATION_ALIASES = {
     "gnomad_mt_af_hom": ["GNOMAD_MT31_AF_hom", "gnomAD_MT_AF_hom", "gnomADmt_AF_hom"],
     "gnomad_mt_af_het": ["GNOMAD_MT31_AF_het", "gnomAD_MT_AF_het", "gnomADmt_AF_het"],
 }
+
+# The fields the gnomAD allele frequency PM2 reads comes from (``gnomad_af``: the combined one,
+# else the higher of the exome and genome ones), by the dataset their name says.
+_GNOMAD_EXOMES_AF_FIELDS = frozenset(_POPULATION_ALIASES["gnomad_exomes_af"])
+_GNOMAD_GENOMES_AF_FIELDS = frozenset(_POPULATION_ALIASES["gnomad_genomes_af"])
+_GNOMAD_AF_FIELDS = (
+    frozenset(_POPULATION_ALIASES["gnomad_af"]) | _GNOMAD_EXOMES_AF_FIELDS | _GNOMAD_GENOMES_AF_FIELDS
+)
 
 # gnomAD's counts are read as gnomAD's total: its combined count where the record
 # has one, else its exome and genome counts added (``gnomADe_…`` and ``gnomADg_…``, as VEP
@@ -461,7 +475,7 @@ _INFO_DESCRIPTION = re.compile(r'Description="((?:[^"\\]|\\.)*)"')
 _FIELD_FROM_FILE = re.compile(r"field from\s+(\S+)\s*$")
 
 
-def clinvar_file_in_description(description: str) -> str | None:
+def file_in_description(description: str) -> str | None:
     """The name of the file a field's description says it comes from (VEP --custom), without
     its folder; None when the description names none."""
     match = _FIELD_FROM_FILE.search(description.strip())
@@ -471,6 +485,7 @@ def clinvar_file_in_description(description: str) -> str | None:
 
 
 def update_annotation_header_state(state: AnnotationHeaderState, line: str) -> None:
+    state.gnomad_datasets_read = None
     ann_fields = _extract_format_fields(line, info_id="ANN")
     if ann_fields:
         state.ann_fields = ann_fields
@@ -485,7 +500,12 @@ def update_annotation_header_state(state: AnnotationHeaderState, line: str) -> N
     if key in CLINVAR_FILE_ALIASES and state.clinvar_file_name is None:
         description = _INFO_DESCRIPTION.search(line)
         if description:
-            state.clinvar_file_name = clinvar_file_in_description(description.group(1))
+            state.clinvar_file_name = file_in_description(description.group(1))
+    if key in _GNOMAD_AF_FIELDS:
+        description = _INFO_DESCRIPTION.search(line)
+        file_name = file_in_description(description.group(1)) if description else None
+        if file_name:
+            state.gnomad_field_files[key] = file_name
 
 
 def clinvar_file_annotated(state: AnnotationHeaderState) -> bool:
@@ -494,6 +514,67 @@ def clinvar_file_annotated(state: AnnotationHeaderState) -> bool:
     is kept apart."""
     declared = state.info_ids.union(state.csq_fields or (), state.ann_fields or ())
     return not declared.isdisjoint(CLINVAR_FILE_ALIASES)
+
+
+# --- The gnomAD datasets a callset was annotated with ---------------------------------- #
+# A variant without a gnomAD allele frequency is absent from gnomAD only where its callset was
+# annotated with gnomAD. Each annotation therefore records the gnomAD datasets whose allele
+# frequency its file's header declares (``GNOMAD_ANNOTATED_KEY``): a field CoGA reads the gnomAD
+# allele frequency from, as a CSQ or ANN field, an INFO key, or a VEP table's column or described
+# Extra key, whether VEP's cache, a VEP --custom file or another tool wrote it (the owner's
+# choice of 2026-11-13). The PM2 suggestion reads it (``lib/acmg/evaluate.ts``).
+#
+# Which dataset a field holds: the one its gnomAD file's name says (``gnomad.exomes.…``,
+# ``gnomad.genomes.…``, ``gnomad.joint.…``), else the one its name says (``gnomADe_AF``: exomes,
+# ``gnomADg_AF``: genomes). A combined field (``gnomAD_AF``) from a file whose name says neither,
+# or from no named file, holds a dataset nothing names: ``unspecified``. Only genomes and the
+# joint set cover the genome beyond the exome capture regions.
+GNOMAD_ANNOTATED_KEY = "gnomad_annotated"
+GNOMAD_DATASETS = ("exomes", "genomes", "joint", "unspecified")
+_GNOMAD_FILE_DATASET = re.compile(r"(?:^|[._-])(joint|genomes?|exomes?)(?=[._-]|$)", re.IGNORECASE)
+
+
+def gnomad_dataset(field_name: str, file_name: str | None) -> str:
+    """The gnomAD dataset a gnomAD allele-frequency field holds (``GNOMAD_DATASETS``)."""
+    if file_name:
+        named = _GNOMAD_FILE_DATASET.search(file_name)
+        if named:
+            word = named.group(1).lower()
+            return "joint" if word == "joint" else ("genomes" if word.startswith("genome") else "exomes")
+    if field_name in _GNOMAD_EXOMES_AF_FIELDS:
+        return "exomes"
+    if field_name in _GNOMAD_GENOMES_AF_FIELDS:
+        return "genomes"
+    return "unspecified"
+
+
+def declared_gnomad_datasets(fields: Any, field_files: Dict[str, str]) -> tuple[str, ...]:
+    """The gnomAD datasets of the gnomAD allele-frequency fields among ``fields``, in
+    ``GNOMAD_DATASETS`` order, each field's file named by ``field_files``."""
+    datasets = {
+        gnomad_dataset(field_name, field_files.get(field_name))
+        for field_name in fields
+        if field_name in _GNOMAD_AF_FIELDS
+    }
+    return tuple(dataset for dataset in GNOMAD_DATASETS if dataset in datasets)
+
+
+def gnomad_datasets(state: AnnotationHeaderState) -> tuple[str, ...]:
+    """The gnomAD datasets whose allele frequency the header declares, as an INFO key or a CSQ
+    or ANN field."""
+    if state.gnomad_datasets_read is None:
+        declared = state.info_ids.union(state.csq_fields or (), state.ann_fields or ())
+        state.gnomad_datasets_read = declared_gnomad_datasets(declared, state.gnomad_field_files)
+    return state.gnomad_datasets_read
+
+
+def _mark_gnomad_datasets(annotations: List[Dict[str, Any]], datasets: Sequence[str]) -> List[Dict[str, Any]]:
+    """``annotations``, each naming the gnomAD datasets its header declares, when it declares
+    any."""
+    if datasets:
+        for annotation in annotations:
+            annotation[GNOMAD_ANNOTATED_KEY] = list(datasets)
+    return annotations
 
 
 def _annotation_entries(
@@ -782,7 +863,8 @@ def extract_small_variant_annotations(
 ) -> List[Dict[str, Any]]:
     """The record's annotations, one per CSQ or ANN entry (else one from its INFO). With the
     record's ``ref`` and ``alt``, each entry of a multi-allelic record names its ALT
-    (``alt_allele``)."""
+    (``alt_allele``). Each names the gnomAD datasets the header declares
+    (``GNOMAD_ANNOTATED_KEY``)."""
     base_annotation = _base_info_annotation(info)
     # A ClinVar file declared in the header (VEP --custom describes its fields as INFO keys),
     # or a ClinVar file's key in the record's INFO; an entry may name one of its own.
@@ -806,15 +888,21 @@ def extract_small_variant_annotations(
                     annotation[ALT_ALLELE_KEY] = allele
             if annotation:
                 annotations.append(annotation)
-        return annotations
+        return _mark_gnomad_datasets(annotations, gnomad_datasets(state))
 
     _settle_clinvar(base_annotation, clinvar_file_annotated=clinvar_file_in_info)
-    return [base_annotation] if base_annotation else []
+    return _mark_gnomad_datasets([base_annotation] if base_annotation else [], gnomad_datasets(state))
 
 
 def normalize_small_variant_annotation_entry(
-    raw_entry: Dict[str, str], *, clinvar_file_annotated: bool = False
+    raw_entry: Dict[str, str],
+    *,
+    clinvar_file_annotated: bool = False,
+    gnomad_annotated: Sequence[str] = (),
 ) -> Dict[str, Any]:
     """A VEP table row's annotation. ``clinvar_file_annotated``: the table declares a ClinVar
-    file's field, as a column or an Extra key, which a row without a value leaves out."""
-    return _normalize_annotation_entry(raw_entry, {}, clinvar_file_annotated=clinvar_file_annotated)
+    file's field, as a column or an Extra key, which a row without a value leaves out.
+    ``gnomad_annotated``: the gnomAD datasets whose allele frequency the table declares
+    (``declared_gnomad_datasets``), which the annotation names."""
+    annotation = _normalize_annotation_entry(raw_entry, {}, clinvar_file_annotated=clinvar_file_annotated)
+    return _mark_gnomad_datasets([annotation], gnomad_annotated)[0] if annotation else annotation

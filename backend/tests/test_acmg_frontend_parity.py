@@ -12,6 +12,9 @@ only by a client calling the API.
 The missense Z the dialog's PP2 suggestion reads is frozen by the server with the
 classification: the dialog's sources and their order are the server's.
 
+The gnomAD datasets the dialog's PM2 suggestion reads are the ones the import names on each
+annotation.
+
 The class labels the server stores with a classification are the ones the dialogs show, and
 the built-in classification and VUS-tier tags carry them; all are in sentence case.
 
@@ -43,6 +46,7 @@ from backend.app.services.small_variant_review_acmg import (
     _normalize_acmg_payload,
 )
 from backend.app.services.structural_variant_review_pg import _normalize_cnv_acmg_payload
+from backend.app.services.variant_annotation_parser import GNOMAD_DATASETS
 
 FRONTEND_LIB = Path(__file__).resolve().parents[2] / "frontend" / "src" / "lib"
 ACMG_CRITERIA_TS = FRONTEND_LIB / "acmg" / "criteria.ts"
@@ -175,6 +179,19 @@ def test_the_missense_z_pp2_reads_comes_from_the_sources_the_server_freezes_in_i
     assert head >= 0, "pp2MissenseZ not found in evaluate.ts"
     body = source[head : source.index("\n}\n", head)]
     assert body.index("variant.gene_missense_z") < body.index("variant.annotation_extra?.gene_missense_z")
+
+
+def test_the_gnomad_datasets_pm2_reads_are_the_ones_the_import_names() -> None:
+    # The import names each annotation's gnomAD datasets (variant_annotation_parser.
+    # GNOMAD_DATASETS); the dialog's PM2 (gnomadAbsence) reads a name it does not know as no
+    # gnomAD dataset, so a name only the server writes would never read as absent from gnomAD.
+    source = ACMG_EVALUATE_TS.read_text(encoding="utf-8")
+    labels = re.search(r"const GNOMAD_DATASET_LABELS: Record<string, string> = \{(.*?)\n\};", source, re.S)
+    assert labels, "GNOMAD_DATASET_LABELS not found in evaluate.ts"
+    assert tuple(re.findall(r"^\s+(\w+):", labels.group(1), re.M)) == GNOMAD_DATASETS
+    genome_wide = re.search(r"const GNOMAD_GENOME_WIDE = new Set\(\[([^\]]*)\]\)", source)
+    assert genome_wide, "GNOMAD_GENOME_WIDE not found in evaluate.ts"
+    assert set(re.findall(r"'(\w+)'", genome_wide.group(1))) == {"genomes", "joint"} <= set(GNOMAD_DATASETS)
 
 
 # --- copy-number variants (ClinGen 2019) ------------------------------------------------------

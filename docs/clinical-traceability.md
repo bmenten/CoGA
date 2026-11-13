@@ -54,8 +54,10 @@ then most severe impact; its id in `transcript_id`), through the variant list's 
   (`lof_flags`) and VEP's NMD prediction (`nmd`), either of which makes PVS1 Consider; for a multi-allelic
   record (ALT `G,T`) only, the ALT these values are of (`alt_allele`): the transcript alone does not
   say which allele's annotation was read;
-- under `frequencies`: the gnomAD allele frequency the frequency criteria read (`gnomad_af`), and
-  the exome, genome, gnomAD popmax, VEP `MAX_AF` (`max_af`) and TOPMed frequencies and gnomAD
+- under `frequencies`: the gnomAD allele frequency the frequency criteria read (`gnomad_af`), the
+  gnomAD datasets the variant's callset was annotated with (`gnomad_annotated`; none when it was
+  annotated with none), which say whether a variant without that frequency is absent from gnomAD
+  (PM2), and the exome, genome, gnomAD popmax, VEP `MAX_AF` (`max_af`) and TOPMed frequencies and gnomAD
   allele, homozygote and hemizygote counts the filters read, and gnomAD's FAF95 (`gnomad_faf95_af`)
   that BA1 and BS1 read; for a chrM variant only, the homoplasmic and heteroplasmic frequencies the
   mtDNA criteria read (`gnomad_mt_af_hom`, `gnomad_mt_af_het`, `helix_af_hom`, `helix_af_het`);

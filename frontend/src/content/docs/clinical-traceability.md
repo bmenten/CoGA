@@ -55,7 +55,9 @@ When you save a classification, CoGA freezes the evidence it rests on:
   - its ClinVar significance with the record's review status, consequence, impact, LoF call
     (LOFTEE) with its flags, and VEP's NMD prediction;
   - the population frequencies and in-silico scores the dialog read: the gnomAD frequencies (overall,
-    exomes, genomes, popmax, FAF95), VEP's MAX_AF, for a chrM variant the gnomAD-MT and HelixMTdb
+    exomes, genomes, popmax, FAF95), the gnomAD datasets the variant's callset was annotated with
+    (which say whether a variant without a gnomAD frequency is absent from gnomAD, for PM2), VEP's
+    MAX_AF, for a chrM variant the gnomAD-MT and HelixMTdb
     homoplasmic and heteroplasmic frequencies, the TOPMed frequency, the gnomAD allele, homozygote and hemizygote counts,
     CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense. They are taken from the variant's primary
     transcript, as the dialog shows them, and for a variant with two ALT alleles the ALT they are of;

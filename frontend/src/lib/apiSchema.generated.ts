@@ -2643,6 +2643,7 @@ export interface NiptVariantOut {
   lof_flags: string | null;
   nmd: string | null;
   gnomad_af: number | null;
+  gnomad_annotated: string[];
   gnomad_hom_count: number | null;
   gene_pli: number | null;
   gene_missense_z: number | null;
@@ -4531,6 +4532,7 @@ export interface VariantOut {
   lof_flags: string | null;
   nmd: string | null;
   gnomad_af: number | null;
+  gnomad_annotated: string[];
   gnomad_hom_count: number | null;
   gene_pli: number | null;
   gene_missense_z: number | null;
