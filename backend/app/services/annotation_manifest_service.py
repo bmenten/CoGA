@@ -4,9 +4,9 @@ Consolidates which annotation modules/versions backed a family's data so a repor
 can state its provenance (see docs/clinical-traceability.md). It merges two layers:
 
 * the per-family *pipeline* manifest — the upstream tools that produced this family's
-  annotated VCF (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, …). Recorded explicitly in
-  ``family_annotation_manifest`` (manual/admin), or captured for free from
-  ``family.metadata.annotation_manifest`` when the import manifest declares it.
+  annotated VCF (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, …), recorded in
+  ``family_annotation_manifest``: by an import, from the VCF headers (``vcf_header``) or
+  the package's run manifest (``manifest``), or by an admin's replacement (``manual``).
 * the platform *reference* layer — versions of what CoGA itself loaded (the assembly,
   the gene loci, the Monarch and HPO releases), read live from the reference tables.
 """
@@ -24,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_metadata_context import build_family_metadata_context
 from .hpo_service import get_loaded_hpo_release
-from .metadata_service import get_family_record
 from .access_control import CurrentUser, is_admin_user
 from .stored_values import json_object as _as_dict
 
@@ -299,11 +298,8 @@ def _module_list(
     return result
 
 
-async def _pipeline_manifest(
-    session: AsyncSession, *, family_uuid: str, family_id: str, user: CurrentUser
-) -> dict[str, Any]:
-    """The family's pipeline layer as its report states it: the recorded row, else the
-    manifest the import captured into ``family.metadata`` (source ``'manifest'``)."""
+async def _pipeline_manifest(session: AsyncSession, *, family_uuid: str) -> dict[str, Any]:
+    """The family's pipeline layer as its report states it: the recorded row, or none."""
     row = await _family_manifest_row(session, family_uuid)
     if row and _as_dict(row.get("modules")):
         return {
@@ -312,11 +308,6 @@ async def _pipeline_manifest(
             "recorded_at": row.get("recorded_at"),
             "recorded_by": row.get("recorded_by"),
         }
-    # Fall back to the manifest the import captured into family.metadata.
-    family = await get_family_record(session, family_id, user)
-    captured = (getattr(family, "metadata", None) or {}).get("annotation_manifest")
-    if isinstance(captured, dict):
-        return {"modules": captured, "source": "manifest", "recorded_at": None, "recorded_by": None}
     return {"modules": {}, "source": None, "recorded_at": None, "recorded_by": None}
 
 
@@ -326,9 +317,7 @@ async def get_family_annotation_manifest(
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
-    pipeline = await _pipeline_manifest(
-        session, family_uuid=context.family_uuid, family_id=family_id, user=user
-    )
+    pipeline = await _pipeline_manifest(session, family_uuid=context.family_uuid)
     platform_modules = await _platform_modules(session, context.assembly_id)
     return {
         "family_id": context.family_id,
@@ -537,9 +526,7 @@ async def set_family_annotation_manifest(
         session, family_identifier=family_id, user=user
     )
     await _lock_family_manifest(session, context.family_uuid)
-    prior = await _pipeline_manifest(
-        session, family_uuid=context.family_uuid, family_id=family_id, user=user
-    )
+    prior = await _pipeline_manifest(session, family_uuid=context.family_uuid)
     new_modules = modules or {}
     await session.execute(
         text(

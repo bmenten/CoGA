@@ -324,8 +324,9 @@ def _ped_upload_proband_id(members: list[dict[str, str]], *, parent_ids: set[str
 
 # The metadata the Family Builder may set, with the values each key may take: what its page sends
 # for a monogenic NIPT family and the mother's cfDNA sample. Every other key is written
-# by an import or by an edit the audit trail records (a family's annotation manifest, a sample's
-# sequencing QC, the import state), and is trusted where it is read, so a request does not set it.
+# by an import or by an edit the audit trail records (the package folder a family was imported from,
+# a sample's sequencing QC, the import state), and is trusted where it is read, so a request does
+# not set it.
 MANUAL_FAMILY_METADATA: dict[str, frozenset[str]] = {
     FAMILY_ANALYSIS_TYPE_KEY: frozenset({MONOGENIC_NIPT_ANALYSIS_TYPE}),
 }
