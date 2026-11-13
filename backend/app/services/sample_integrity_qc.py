@@ -22,6 +22,7 @@ aligned by index (same site at the same position in every sample's list).
 
 from __future__ import annotations
 
+import statistics
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal, TypeVar
@@ -47,12 +48,23 @@ KINSHIP_FIRST_DEGREE = 0.177
 KINSHIP_SECOND_DEGREE = 0.0884
 KINSHIP_THIRD_DEGREE = 0.0442
 # Within first-degree, parent and child share an allele at every site, so their
-# IBS0 is genotype error alone. Full siblings are opposite homozygotes only where
-# they share no haplotype (about a quarter of the genome), at a rate set by the
-# allele frequencies of the sites, so their IBS0 depends on the callset. A sibling
-# pair below the cut reads as parent-child, which a recorded sibling pair accepts
-# as first degree.
+# IBS0 is genotype error alone. Full siblings share no haplotype over about a
+# quarter of the genome, and there they are opposite homozygotes as often as two
+# unrelated people are on the same sites: their IBS0 is about a quarter of an
+# unrelated pair's, which the allele frequencies of the callset's sites set. The
+# family's co-parents are that unrelated pair, so a first-degree pair reads as
+# parent-child when its IBS0 is below an eighth of theirs, half the siblings'
+# expectation. With no co-parent pair read as unrelated (one parent, or
+# consanguineous parents) the fixed cut applies. A sibling pair below the cut reads
+# as parent-child, which a recorded sibling pair accepts as first degree.
+IBS0_PARENT_CHILD_SHARE_OF_UNRELATED = 0.125
 IBS0_PARENT_CHILD_MAX = 0.008
+# A genotype the caller is less sure of than this (GQ, phred-scaled: 20 is 99%)
+# reads as a no-call in every genotype check. Unfiltered, a raw joint callset's
+# low-depth homozygous calls can make a parent and child opposite homozygotes at
+# close to 1% of the sites, near the IBS0 of siblings. A callset without GQ
+# (imputed GLIMPSE2, Mutect2) is read as called.
+MIN_GENOTYPE_QUALITY = 20
 
 # --- Sex inference (chrX heterozygosity) ------------------------------------
 MIN_X_SITES = 200
@@ -358,13 +370,19 @@ def king_relatedness(
     return kinship, opp_hom / n, n
 
 
-def classify_relatedness(kinship: float, ibs0_rate: float, n_sites: int) -> str:
+def classify_relatedness(
+    kinship: float,
+    ibs0_rate: float,
+    n_sites: int,
+    *,
+    ibs0_parent_child_max: float = IBS0_PARENT_CHILD_MAX,
+) -> str:
     if n_sites < MIN_RELATEDNESS_SITES:
         return "indeterminate"
     if kinship > KINSHIP_DUPLICATE:
         return "duplicate"
     if kinship > KINSHIP_FIRST_DEGREE:
-        return "parent-child" if ibs0_rate < IBS0_PARENT_CHILD_MAX else "sibling"
+        return "parent-child" if ibs0_rate < ibs0_parent_child_max else "sibling"
     if kinship > KINSHIP_SECOND_DEGREE:
         return "second-degree"
     if kinship > KINSHIP_THIRD_DEGREE:
@@ -522,17 +540,59 @@ def _evaluate_read_sex(
                     f"({evidence}) — possible sample swap or mislabel.")
 
 
+@dataclass(frozen=True, slots=True)
+class Ibs0Cut:
+    """The IBS0 below which a first-degree pair reads as parent-child, and the co-parents'
+    IBS0 it is a share of (None: the fixed cut)."""
+
+    parent_child_max: float = IBS0_PARENT_CHILD_MAX
+    unrelated_ibs0: float | None = None
+
+    def describe(self) -> str:
+        """The cut, as a pair's message gives it beside the pair's IBS0."""
+        if self.unrelated_ibs0 is None:
+            return f"parent-child below {self.parent_child_max:.2%}"
+        return (
+            f"parent-child below {self.parent_child_max:.2%}, an eighth of the parents' "
+            f"{self.unrelated_ibs0:.2%}"
+        )
+
+
+PairStats = tuple[float, float, int]  # king_relatedness: (kinship, IBS0 rate, sites)
+
+
+def ibs0_parent_child_cut(
+    stats: Mapping[tuple[str, str], PairStats], coparent_pairs: set[tuple[str, str]]
+) -> Ibs0Cut:
+    """The family's parent-child IBS0 cut: an eighth of the IBS0 of its co-parents read as
+    unrelated (the median, with more than one such pair), else the fixed cut."""
+    unrelated = [
+        ibs0
+        for pair in sorted(coparent_pairs)
+        if pair in stats
+        for kinship, ibs0, n in (stats[pair],)
+        if ibs0 > 0 and classify_relatedness(kinship, ibs0, n) == "unrelated"
+    ]
+    if not unrelated:
+        return Ibs0Cut()
+    baseline = statistics.median(unrelated)
+    return Ibs0Cut(baseline * IBS0_PARENT_CHILD_SHARE_OF_UNRELATED, baseline)
+
+
 def _relationship_check(
     a: str,
     b: str,
     expected: str,
-    autosomal: dict[str, list[Genotype | None]],
+    stats: PairStats,
+    cut: Ibs0Cut,
     *,
     coparents: bool = False,
 ) -> RelatednessCheck:
-    kinship, ibs0, n = king_relatedness(autosomal.get(a, []), autosomal.get(b, []))
-    inferred = classify_relatedness(kinship, ibs0, n)
-    metrics = f"kinship {kinship:.3f}, IBS0 {ibs0:.2%}, {n} sites"
+    kinship, ibs0, n = stats
+    inferred = classify_relatedness(kinship, ibs0, n, ibs0_parent_child_max=cut.parent_child_max)
+    # The cut decides only between the two first-degree readings: those give it.
+    told_apart = f" ({cut.describe()})" if inferred in _FIRST_DEGREE else ""
+    metrics = f"kinship {kinship:.3f}, IBS0 {ibs0:.2%}{told_apart}, {n} sites"
     status, message = _relationship_status(expected, inferred, n, metrics, coparents=coparents)
     return RelatednessCheck(a, b, expected, inferred, kinship, ibs0, n, status, message)
 
@@ -908,24 +968,28 @@ def evaluate_sample_integrity(
 
     relatedness_checks: list[RelatednessCheck] = []
     if profile.run_relatedness:
-        for i, a in enumerate(samples):
-            for b in samples[i + 1:]:
-                pair = (a, b)
-                is_coparent = pair in coparent_pairs
-                exp = expected.get(pair, "unrelated")
-                check = _relationship_check(a, b, exp, autosomal, coparents=is_coparent)
-                # For a couple, or co-parents (consanguinity check), the "unrelated"
-                # confirmation IS a wanted result, so keep it; elsewhere suppress the
-                # noise of expected-unrelated passes and keep only asserted pairs or
-                # surprising findings.
-                if (
-                    exp == "unrelated"
-                    and check.status == "pass"
-                    and profile.application != "couple"
-                    and not is_coparent
-                ):
-                    continue
-                relatedness_checks.append(check)
+        pair_stats = {
+            (a, b): king_relatedness(autosomal[a], autosomal[b])
+            for i, a in enumerate(samples)
+            for b in samples[i + 1:]
+        }
+        cut = ibs0_parent_child_cut(pair_stats, coparent_pairs)
+        for pair, stats in pair_stats.items():
+            is_coparent = pair in coparent_pairs
+            exp = expected.get(pair, "unrelated")
+            check = _relationship_check(*pair, exp, stats, cut, coparents=is_coparent)
+            # For a couple, or co-parents (consanguinity check), the "unrelated"
+            # confirmation IS a wanted result, so keep it; elsewhere suppress the
+            # noise of expected-unrelated passes and keep only asserted pairs or
+            # surprising findings.
+            if (
+                exp == "unrelated"
+                and check.status == "pass"
+                and profile.application != "couple"
+                and not is_coparent
+            ):
+                continue
+            relatedness_checks.append(check)
 
     mendelian_checks: list[MendelianCheck] = []
     if profile.run_mendelian:

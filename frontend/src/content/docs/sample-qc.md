@@ -32,7 +32,10 @@ both, from the first call set the family has.
 ### Which sites are read
 
 The checks read a fixed sample of that call set's single-base (SNV) sites; an indel's genotype is
-called with more error.
+called with more error. A genotype with a quality (GQ) below **20** counts as a no-call: the checks read
+only the calls the caller is at least 99% sure of. Unfiltered, a raw joint call set's low-depth
+homozygous calls can make a parent and child look like opposite homozygotes at close to 1% of the sites. A
+call set without a GQ (imputed GLIMPSE2 calls) is read as called.
 
 - **Relatedness and Mendelian errors:** up to **90,000** sites spread over all 22 autosomes.
 - **Sex:** up to **20,000** sites on chromosome X outside the pseudo-autosomal regions (the regions
@@ -94,15 +97,25 @@ where the two samples are opposite homozygotes). The kinship bands:
 | Kinship φ | Inferred relationship |
 | --- | --- |
 | above 0.354 | duplicate or identical twin |
-| 0.177 – 0.354 | first degree: **parent–child** when IBS0 is below 0.8%, otherwise **sibling** |
+| 0.177 – 0.354 | first degree: **parent–child** when IBS0 is below the family's cut (below), otherwise **sibling** |
 | 0.0884 – 0.177 | second degree |
 | 0.0442 – 0.0884 | third degree |
 | below 0.0442 | unrelated |
 
-Over the whole genome, siblings' kinship stays close to 0.25. Their IBS0 depends on the call set,
-because siblings can be opposite homozygotes only where they share no parental copy. On some data it is
-below 0.8%, and the pair is inferred as parent–child; a recorded sibling pair accepts that as first
-degree. A parent and child share a copy everywhere, so their IBS0 comes from genotyping errors alone.
+Over the whole genome, siblings' kinship stays close to 0.25, like a parent and child's. IBS0 tells
+them apart. A parent and child share a copy everywhere, so their IBS0 comes from genotyping errors
+alone. Siblings share no parental copy over about a quarter of the genome, and there they are opposite
+homozygotes as often as two unrelated people. Their IBS0 is about a quarter of an unrelated pair's on
+the same sites, and that depends on the call set: on a short-read genome about 8% for unrelated people,
+so about 2% for siblings.
+
+The family's parents are that unrelated pair. A first-degree pair reads as **parent–child** when its
+IBS0 is below **an eighth of the parents' IBS0**, half what siblings are expected to show. Each
+first-degree pair's message gives the cut, for example *IBS0 0.30% (parent-child below 0.99%, an eighth
+of the parents' 7.90%)*. With more than one pair of parents in the pedigree, the median of their IBS0
+is used. When there is no such pair, the cut is a fixed **0.8%**: only one parent was sequenced, or the
+parents look related (consanguinity), or they share too few sites. A sibling pair below the cut is
+inferred as parent–child, and a recorded sibling pair accepts that as first degree.
 
 Each pair's inferred relationship is compared with the pedigree:
 

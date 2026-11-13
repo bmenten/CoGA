@@ -35,11 +35,19 @@ _SITES_PER_AUTOSOME = 500
 
 
 def _record(
-    chrom: str, pos: int, samples: list[str], gts: list[str], *, source: str, ref: str = "A", alt: str = "G"
+    chrom: str,
+    pos: int,
+    samples: list[str],
+    gts: list[str],
+    *,
+    source: str,
+    ref: str = "A",
+    alt: str = "G",
+    gqs: list[float | None] | None = None,
 ) -> SmallVariantRecord:
     calls = [
-        SmallVariantCall(sample=sample, gt=gt, gq=99.0, dp=30, af=[0.5], ad=[15, 15], ps=None)
-        for sample, gt in zip(samples, gts)
+        SmallVariantCall(sample=sample, gt=gt, gq=gq, dp=30, af=[0.5], ad=[15, 15], ps=None)
+        for sample, gt, gq in zip(samples, gts, gqs or [99.0] * len(samples))
     ]
     return SmallVariantRecord(
         variant_key=None,
@@ -211,6 +219,22 @@ def test_genotype_site_sample_against_clickhouse(monkeypatch: pytest.MonkeyPatch
         await insert_small_variant_records(_ASSEMBLY, family, [project], not_snvs)
         snvs_only = await fetch_genotype_site_sample(ctx, scope="autosomes", limit=90_000, source="glimpse2")
         assert sorted((row[0], row[1]) for row in snvs_only) == sorted(by_site)
+
+        # A call below GQ 20 is read as a no-call; one at 20, or without a GQ, as called.
+        low_gq = str(uuid4())
+        await insert_small_variant_records(
+            _ASSEMBLY,
+            low_gq,
+            [project],
+            [_record("chr6", 9_000_001, _SAMPLES, ["1/1", "0/0", "0/1", "0/0"], source="clair3",
+                     gqs=[99.0, 20.0, None, 19.0])],
+        )
+        ((*_site, low_gq_samples, low_gq_gts),) = await fetch_genotype_site_sample(
+            _context(low_gq, [project], _SAMPLES), scope="autosomes", limit=90_000, source="clair3"
+        )
+        assert dict(zip(low_gq_samples, low_gq_gts)) == {
+            "FATHER": "1/1", "MOTHER": "0/0", "E1": "0/1", "E2": "./."
+        }
 
         # The QC service on these rows (the Postgres side stubbed): the embryos read as siblings.
         current = {"context": ctx}
