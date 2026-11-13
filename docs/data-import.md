@@ -948,8 +948,8 @@ with its SHA-256. The import reads the latest.
 A folder no pipeline delivered, or delivered without a package file, goes the same way
 ([import_manual_delivery.py](../backend/app/services/import_manual_delivery.py)). On the Package
 Import page, **Add a folder by hand** under **Deliveries** (or `POST /family-imports/deliveries`, superuser) takes a folder under the import
-roots, the project it belongs to, its analysis (LR-WGS, LR-AS (long-read adaptive sampling), PGT,
-Expanded Carrier Screening or mNIPT: the package's `analysis_type`,
+roots, the project it belongs to, its analysis (LR-WGS, LR-AS (long-read adaptive sampling), SR-WGS
+(short-read WGS), PGT, Expanded Carrier Screening or mNIPT: the package's `analysis_type`,
 [coga-package.md](coga-package.md)) and, where it is not the folder's name, its family ID. Left
 empty, the family ID is the folder's name; it is fixed once the folder is added, as a pipeline's
 is. CoGA makes the package a pipeline's `coga-package.json` would hold: the project and its
@@ -1151,6 +1151,28 @@ FAM001/
 Discover takes `bams/<sample>/<sample>.cram` (or `.bam`) as the sample's alignment, never another
 file in that folder (a `<sample>_phased.bam` beside it). For the family callset it sets
 `source_format: clair3` and `exclude_filters`, as for the long-read per-sample callsets (below).
+
+A family on conventional short-read WGS (Illumina, analysis `short_read_wgs`, SR-WGS) has its PED,
+its joint callset (GATK HaplotypeCaller per sample, joint-genotyped with GenotypeGVCFs) twice at
+the top of the folder, and a folder per sample for its alignment:
+
+```text
+FAM001/
+  FAM001.ped
+  FAM001.GRCh38.annotated.vcf.gz (+ .tbi)   the callset, VEP-annotated: the family's SNV callset
+  FAM001.vcf.gz (+ .tbi)                    the same callset unannotated: not read
+  vep-commands.json                         the annotation's VEP commands: not read
+  PROBAND/PROBAND.cram (+ .crai)            and MOTHER's, FATHER1's; optional
+```
+
+Discover takes the annotated callset as the family's SNV callset, never the unannotated one, and
+`<sample>/<sample>.cram` (or `.bam`) as each sample's alignment; a sample without one has calls
+but no reads in the genome browser. It sets `source_format: clair3`: GATK's header describes its
+physical phasing, so a file whose first record is physically phased (`0|1`) would otherwise be
+read as imputed genotypes, which the diagnostic views leave out. A package file the pipeline writes
+for such a family should say the same in its `snv` dataset. The callset's records carry no FILTER
+of their own (`.`, as GATK writes them without VQSR), which a PASS-only filter keeps; its contigs
+are in the order the joint calling concatenated them, which the import does not need sorted.
 
 A PGT package from nf-cmgg/copgtm is laid out per tool, and holds the files Discover reads for
 each dataset:
@@ -1956,14 +1978,14 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 
 | What CoGA shows and reads | Field names read | Used by |
 | --- | --- | --- |
-| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; VEP cache `CLIN_SIG` only without those | card, filters, ranking, PP5/BP6 |
+| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; VEP cache `CLIN_SIG` (`CLIN_SIG_VEP_CACHE`) only without those | card, filters, ranking, PP5/BP6 |
 | ClinVar review status (stars) | `ClinVar_CLNREVSTAT`, `CLNREVSTAT` | card, PP5/BP6 evidence, frozen evidence |
 | ClinVar conditions | `ClinVar_CLNDN`, `CLNDN` | card, PP5/BP6 evidence |
 | ClinVar VariationID | `ClinVar` (the matched record's ID, VEP `--custom`), digits only | the card's ClinVar link |
 | ClinVar AlleleID | `ClinVar_ALLELEID`, `ALLELEID` | card |
 | gnomAD AF (overall, exomes, genomes) | `gnomAD_AF`, `gnomADe_AF`, `gnomADg_AF` | filters, PM2 |
 | gnomAD popmax | `gnomAD_AF_POPMAX`, `gnomAD_AF_grpmax`, `gnomADe_AF_grpmax`, `gnomADg_AF_grpmax` (and `…_popmax`) | popmax filter, card |
-| VEP MAX_AF | `MAX_AF`, `POPMAX_AF` | popmax filter where gnomAD has none, card |
+| VEP MAX_AF | `MAX_AF` (`MAX_AF_VEP_ALL_POPULATIONS`), `POPMAX_AF` | popmax filter where gnomAD has none, card |
 | gnomAD FAF95 | `gnomAD_fafmax_faf95_max`, `gnomADe_fafmax_faf95_max`, `gnomADg_fafmax_faf95_max` (and `…_faf95_popmax`) | BA1/BS1, card |
 | gnomAD counts and allele number | `…_AC`, `…_nhomalt` (`…_Hom`), `…_Hemi`, `…_AN` with `gnomAD`, `gnomADe` or `gnomADg` | count filters, BS2, card |
 | gnomAD site filter | `gnomAD_FILTER`, `gnomADe_FILTER`, `gnomADg_FILTER` | card (a site failing gnomAD's QC) |

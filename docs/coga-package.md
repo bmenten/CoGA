@@ -79,7 +79,7 @@ member's status unset without a word. Information of your own goes under `extra`
 | `pipeline` | always | `name`, `version` and `run_id`: one `run_id` per run, the same in each file it writes | pipeline |
 | `project` | complete | the CoGA project, by its name; it fixes the assembly | samplesheet |
 | `assembly` | complete | the reference assembly (`GRCh38`); must be the project's | pipeline |
-| `analysis_type` | complete | `long_read_wgs` (LR-WGS), `long_read_adaptive_sampling` (LR-AS, long-read adaptive sampling), `pgt` (PGT), `expanded_carrier_screening` (expanded carrier screening) or `monogenic_nipt` (mNIPT) | samplesheet |
+| `analysis_type` | complete | `long_read_wgs` (LR-WGS), `long_read_adaptive_sampling` (LR-AS, long-read adaptive sampling), `short_read_wgs` (SR-WGS, short-read Illumina WGS), `pgt` (PGT), `expanded_carrier_screening` (expanded carrier screening) or `monogenic_nipt` (mNIPT) | samplesheet |
 | `family` | complete | `family_id`; `roi`, the region of interest (a gene or `chr7:1000-2000`); for PGT `pgt` (below) | samplesheet |
 | `members` | no | every member of the family, the pedigree (below) | pipeline and laboratory |
 | `couples` | no | each couple: `partners` (two members) and `context` (`reproductive`, `carrier screening`) | pipeline |
