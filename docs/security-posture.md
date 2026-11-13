@@ -45,7 +45,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   account a Microsoft sign-in finds, never linked by e-mail address. CAS admits every account
   of the organisation, so a first sign-in makes an **inactive** viewer account in no project
   that waits for approval, and every active administrator is e-mailed (with `SMTP_HOST`); it
-  signs in once an administrator activates it. An account that was never active can be deleted;
+  signs in once an administrator activates it, which e-mails the account. An account that was never active can be deleted;
   any other is archived (inactive, out of the default list, its row kept so every record that
   names it still does). Each activation, archive, restore and deletion is asked for
   confirmation on *Users* and recorded in the request audit (`request_meta.account_change`). A refused ticket
@@ -703,7 +703,10 @@ What the application relies on there:
   (`services/outgoing_mail.py`), encrypted with `SMTP_STARTTLS` and signed in to with
   `SMTP_USERNAME` only after STARTTLS outside development. Every active administrator gets a
   mail about an account that waits for approval (the account's name, address and affiliation,
-  no patient data). The user a family is newly assigned to gets a mail that names the family's
+  no patient data). The user whose account an administrator makes active (approved, or activated
+  again) gets a mail at that account's address that it can sign in, naming who activated it and
+  how it signs in, with a link to the sign-in page; no patient data. The user a family is newly
+  assigned to gets a mail that names the family's
   ID, the lab's pseudonymous ID (the owner's choice), who assigned it and when, and links the
   family; no other patient data, and its subject names no family. No mail goes out when
   someone assigns a family to themselves. The log names neither an address, nor the family, nor

@@ -381,7 +381,8 @@ class Settings(BaseSettings):
     admin_email: str = Field(default="admin@example.com", alias="ADMIN_EMAIL")
     # The mail server CoGA sends its mail through (services/outgoing_mail.py): to the
     # administrators about an account that waits for approval (a sign-up, a first CAS
-    # sign-in) and to the user a family is assigned to. No mail goes out without SMTP_HOST.
+    # sign-in), to the user whose account an administrator activates, and to the user a family
+    # is assigned to. No mail goes out without SMTP_HOST.
     # SMTP_FROM is the sender, ADMIN_EMAIL when it is not set; with SMTP_USERNAME the server
     # is signed in to, which needs SMTP_STARTTLS outside development.
     smtp_host: str = Field(default="", alias="SMTP_HOST")
