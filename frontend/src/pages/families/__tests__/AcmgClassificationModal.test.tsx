@@ -394,4 +394,84 @@ describe('AcmgClassificationModal', () => {
     await screen.findByRole('button', { name: 'Needs segregation' });
     expect(screen.queryByRole('button', { name: /Probe X/ })).toBeNull();
   });
+
+  // The data the criteria are weighed on is in the dialog itself, each kind of data in its
+  // own card, and a value the annotation does not hold reads "—", never as evidence either way.
+  it('shows the evidence beside the criteria: consequence, frequencies, in silico, gene, ClinVar, phenotype and family', async () => {
+    const evidenceVariant: SmallVariant = smallVariant({
+      ...variant,
+      effect: 'missense_variant',
+      impact: 'MODERATE',
+      lof: null,
+      hgvsc: 'c.298C>T',
+      hgvsp: 'p.Arg100Trp',
+      transcript_id: 'ENST0001',
+      mane_select: true,
+      exon: '3/12',
+      gnomad_af: 2e-5,
+      gnomad_hom_count: 0,
+      population_frequencies: { gnomad_faf95_af: 1e-5 },
+      internal_cohort: { samples: 2, het: 2, hom: 0, families: 1 },
+      revel: 0.91,
+      cadd_phred: 28.4,
+      alpha_missense_pathogenicity: 0.987,
+      alpha_missense_class: 'likely_pathogenic',
+      gene_pli: 0.99,
+      clinvar: 'Likely_pathogenic',
+      clinvar_stars: 2,
+      clinvar_conditions: ['Disorder X'],
+      genotypes: [genotype({ sample: 'PROBAND', gt: '0/1', dp: 41 }), genotype({ sample: 'MOTHER', gt: '0/0', dp: 35 })],
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <AcmgClassificationModal
+          variant={evidenceVariant}
+          familyId="F1"
+          members={[
+            { sample_id: 'PROBAND', role: 'proband', sex: 'female', affected: true },
+            { sample_id: 'MOTHER', role: 'mother', sex: 'female', affected: false },
+          ]}
+          onClose={vi.fn()}
+          onSave={vi.fn(async () => undefined)}
+        />
+      </QueryClientProvider>,
+    );
+
+    const card = (name: string) => within(screen.getByRole('region', { name }));
+    const value = (name: string, label: string) =>
+      card(name).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent;
+
+    expect(value('Consequence', 'Consequence')).toBe('missense variant (MODERATE)');
+    expect(value('Consequence', 'HGVS c.')).toBe('c.298C>T');
+    expect(value('Consequence', 'Transcript')).toBe('ENST0001 (MANE Select)');
+    expect(value('Consequence', 'Exon / intron')).toBe('exon 3/12');
+    expect(card('Consequence').getByText('Informs PVS1 · PM1 · PM4 · BP1 · BP3 · BP7')).toBeInTheDocument();
+
+    expect(value('Population frequency', 'gnomAD AF')).toBe('2.0e-5');
+    expect(value('Population frequency', 'gnomAD FAF95')).toBe('1.0e-5');
+    expect(value('Population frequency', 'gnomAD homozygotes')).toBe('0');
+    expect(value('Population frequency', 'In-house cohort')).toBe('2 samples (2 het / 0 hom) · 1 family');
+
+    expect(value('In silico', 'REVEL')).toBe('0.91');
+    expect(value('In silico', 'CADD')).toBe('28.40');
+    expect(value('In silico', 'AlphaMissense')).toBe('0.987 · likely pathogenic');
+    // Not annotated: shown as absent, not left out.
+    expect(value('In silico', 'SpliceAI')).toBe('—');
+
+    expect(value('Gene', 'pLI')).toBe('0.990');
+    expect(await card('Gene').findByText('Sufficient evidence for dosage pathogenicity')).toBeInTheDocument();
+
+    expect(value('ClinVar', 'Classification')).toBe('Likely pathogenic ★★☆☆');
+    expect(value('ClinVar', 'Conditions')).toBe('Disorder X');
+
+    expect(await card('Phenotype').findByText('none recorded')).toBeInTheDocument();
+
+    const family = within(screen.getByRole('region', { name: 'Family' }));
+    expect(
+      family.getAllByRole('row').slice(1).map((row) => within(row).getAllByRole('cell').map((cell) => cell.textContent)),
+    ).toEqual([
+      ['PROBAND', 'proband', 'affected', '0/1', '41'],
+      ['MOTHER', 'mother', 'unaffected', '0/0', '35'],
+    ]);
+  });
 });

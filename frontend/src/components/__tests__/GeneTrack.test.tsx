@@ -1,5 +1,6 @@
 // The gene track: where each gene is drawn in the region, how
-// overlapping genes stack, the exon/intron and strand drawing, and the panel tooltip.
+// overlapping genes stack, the exon/intron and strand drawing, and the hover tooltip (strand,
+// exon or intron number, transcript, panels).
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
@@ -28,7 +29,7 @@ type TestGene = {
 };
 
 const gene = (overrides: Partial<TestGene>): TestGene => ({
-  gene_id: 'ENSG0',
+  gene_id: 'ENST0',
   hgnc_symbol: 'GENE',
   start: 0,
   end: 100,
@@ -180,6 +181,81 @@ test('points the strand arrow the way the gene is read', async () => {
   expect(minus).toBe('M 4 0 L 0 4 L 4 8');
 });
 
+// The chevrons of a gene's strand path, each as [back x, front x] (its tip is the front).
+const chevrons = (container: HTMLElement) => {
+  const d = container.querySelector('path.gene-strand')?.getAttribute('d') ?? '';
+  return Array.from(d.matchAll(/M ([-\d.]+) [-\d.]+ L ([-\d.]+) [-\d.]+ L [-\d.]+ [-\d.]+/g)).map(
+    ([, back, front]) => [Number(back), Number(front)],
+  );
+};
+
+test('draws chevrons along the introns, pointing the way the gene is read, never over an exon', async () => {
+  const exons = [
+    { start: 100, end: 200, name: 'exon1' },
+    { start: 500, end: 600, name: 'exon2' },
+  ];
+  answer({ genes: [gene({ hgnc_symbol: 'PLUS', start: 100, end: 600, strand: 1, exons })] });
+  const { container, unmount } = renderTrack();
+  await waitFor(() => expect(chevrons(container).length).toBeGreaterThan(0));
+  // Gene-relative x: the exons are drawn at 0–100 and 400–500, the intron between them.
+  for (const [back, front] of chevrons(container)) {
+    expect(front).toBeGreaterThan(back);
+    expect(Math.min(back, front)).toBeGreaterThan(100);
+    expect(Math.max(back, front)).toBeLessThan(400);
+  }
+  unmount();
+
+  answer({ genes: [gene({ hgnc_symbol: 'MINUS', start: 100, end: 600, strand: -1, exons })] });
+  const minus = renderTrack();
+  await waitFor(() => expect(chevrons(minus.container).length).toBeGreaterThan(0));
+  for (const [back, front] of chevrons(minus.container)) {
+    expect(front).toBeLessThan(back);
+  }
+});
+
+test('draws chevrons along the whole line when the view falls inside an intron', async () => {
+  answer({
+    genes: [
+      gene({
+        start: 0,
+        end: 1000,
+        strand: -1,
+        exons: [
+          { start: 0, end: 100, name: 'e2' },
+          { start: 900, end: 1000, name: 'e1' },
+        ],
+      }),
+    ],
+  });
+  const { container } = renderTrack(300, 600);
+  await waitFor(() => expect(chevrons(container).length).toBeGreaterThan(20));
+});
+
+test('names the exon or intron under the pointer, numbered from the transcript 5′ end, and the strand', async () => {
+  const exons = [
+    { start: 100, end: 200, name: 'a' },
+    { start: 300, end: 400, name: 'b' },
+    { start: 500, end: 600, name: 'c' },
+  ];
+  const hover = async (strand: number, clientX: number) => {
+    answer({ genes: [gene({ hgnc_symbol: 'G', start: 100, end: 600, strand, exons })] });
+    const { container, unmount } = renderTrack();
+    await waitFor(() => expect(geneGroups(container)).toHaveLength(1));
+    fireEvent.mouseMove(geneGroups(container)[0].group, { clientX, clientY: 5 });
+    const text = Array.from(document.body.querySelectorAll('.viz-tooltip div')).map((line) => line.textContent);
+    unmount();
+    return text;
+  };
+  // The + strand reads left to right: the leftmost exon is exon 1.
+  expect(await hover(1, 150)).toEqual(['G', 'Strand + (transcribed left → right)', 'Exon 1 / 3', 'Transcript ENST0']);
+  expect(await hover(1, 450)).toContain('Intron 2 / 2');
+  // The − strand reads right to left: the leftmost exon is the last.
+  expect(await hover(-1, 150)).toEqual(['G', 'Strand − (transcribed right → left)', 'Exon 3 / 3', 'Transcript ENST0']);
+  expect(await hover(-1, 550)).toContain('Exon 1 / 3');
+  expect(await hover(-1, 250)).toContain('Intron 2 / 2');
+  expect(await hover(-1, 450)).toContain('Intron 1 / 2');
+});
+
 test('keeps a gene narrower than 6 px visible as a 6 px block', async () => {
   answer({ genes: [gene({ start: 100, end: 102 })] });
   const { container } = renderTrack();
@@ -201,7 +277,9 @@ test('names the gene and its panels on hover, with the symbol escaped', async ()
   fireEvent.mouseMove(geneGroups(container)[0].group, { clientX: 50, clientY: 20 });
   const tooltip = document.body.querySelector<HTMLElement>('.viz-tooltip');
   expect(tooltip?.style.display).toBe('block');
-  expect(tooltip?.textContent).toBe('BRCA2<img src=x onerror=alert(1)>Panels: Hereditary cancer');
+  expect(tooltip?.textContent).toBe(
+    'BRCA2<img src=x onerror=alert(1)>Strand + (transcribed left → right)Transcript ENST0Panels: Hereditary cancer',
+  );
   expect(tooltip?.querySelector('img')).toBeNull();
   fireEvent.mouseOut(geneGroups(container)[0].group);
   expect(tooltip?.style.display).toBe('none');

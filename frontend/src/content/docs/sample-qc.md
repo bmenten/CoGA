@@ -18,7 +18,7 @@ application, then runs only the checks that fit it:
 
 | Application | How CoGA recognises it | Checks |
 | --- | --- | --- |
-| **Long-read WGS family** | a pedigree with parent–child links | sex · relatedness · Mendelian errors |
+| **Family with parents** | a pedigree with parent–child links | sex · relatedness · Mendelian errors |
 | **Shallow-WGS PGT** | a member with the embryo role (imputed genotypes) | sex · **parentage** (embryos ↔ parents) · Mendelian errors |
 | **Monogenic NIPT (cfDNA)** | the family was created as a Monogenic NIPT family | **paternity** · **fetal sex** · **parent sex** · **cfDNA category check** |
 | **Carrier couple** | two members, no parent–child link | sex · confirmation that the two are unrelated |

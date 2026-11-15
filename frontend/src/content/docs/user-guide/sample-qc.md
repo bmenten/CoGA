@@ -8,7 +8,7 @@ female. A pass does not rule contamination out.
 
 The page first works out what kind of case it is and runs only the checks that fit:
 
-- **Long-read WGS family** — sex, relatedness against the pedigree, Mendelian errors.
+- **Family with parents** — sex, relatedness against the pedigree, Mendelian errors.
 - **Shallow-WGS PGT** — embryo sex and parentage (each embryo a child of both parents), Mendelian
   errors.
 - **Monogenic NIPT** — paternity, fetal sex, parent sex and a check of the cfDNA categories.
