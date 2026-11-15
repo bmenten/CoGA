@@ -213,7 +213,7 @@ const ApproveDialog: React.FC<ApproveDialogProps> = ({
         if (!busy) onCancel();
       }}
       labelledBy={headingId}
-      className="modal-surface surface-card confirm-delete-modal"
+      className="modal-surface surface-card confirm-delete-modal import-approve-modal"
       closeOnBackdrop={false}
       confirmDiscard={false}
     >
@@ -226,8 +226,18 @@ const ApproveDialog: React.FC<ApproveDialogProps> = ({
             ? `Dry-run ${deliveries.length === 1 ? deliveries[0].folder_name : `${deliveries.length} deliveries`}?`
             : `Import ${deliveries.length === 1 ? deliveries[0].folder_name : `${deliveries.length} deliveries`}?`}
         </h2>
+        {warned.length > 0 && deliveries.length > 1 ? (
+          <p className="text-sm">
+            {warned.length} of {deliveries.length} deliveries have warnings.
+          </p>
+        ) : null}
       </div>
-      <ul className="space-y-2 text-sm">
+      {/* The deliveries and their warnings scroll; the heading, the check and the buttons
+          stay in view however many families are approved at once. */}
+      <ul
+        className="import-approve-list space-y-2 text-sm"
+        aria-label="Deliveries to approve"
+      >
         {deliveries.map((delivery) => (
           <li key={delivery._id}>
             <strong>{delivery.family_id || delivery.folder_name}</strong> into{' '}

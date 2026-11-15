@@ -652,6 +652,17 @@ describe('ImportDeliveriesPanel', () => {
     );
 
     const dialog = screen.getByRole('dialog', { name: 'Import 2 deliveries?' });
+    // How many warn, and the deliveries with their warnings in a list of their own, which
+    // scrolls while the check and the buttons stay in view.
+    expect(dialog).toHaveClass('import-approve-modal');
+    expect(
+      within(dialog).getByText('1 of 2 deliveries have warnings.')
+    ).toBeInTheDocument();
+    const list = within(dialog).getByRole('list', {
+      name: 'Deliveries to approve',
+    });
+    expect(list).toHaveClass('import-approve-list');
+    expect(within(list).getByText('No coverage dataset.')).toBeInTheDocument();
     fireEvent.click(
       within(dialog).getByRole('checkbox', { name: 'I checked the warnings' })
     );

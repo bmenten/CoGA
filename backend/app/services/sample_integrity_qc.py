@@ -715,7 +715,7 @@ def resolve_application(
 
 _PROFILES: dict[ApplicationKind, QcProfile] = {
     "wgs": QcProfile(
-        "wgs", "Long-read WGS family",
+        "wgs", "Family with parents",
         "Full pedigree QC on the SNV call set: sex concordance, relatedness vs the "
         "pedigree, and the Mendelian-error rate for parent-child pairs.",
         run_sex=True, run_relatedness=True, run_mendelian=True,

@@ -34,6 +34,11 @@ the family genotypes, and scores them on the ClinGen points scale.
   against) or **n/a** (cannot apply). Hover it for the evidence; click to change it, and pick its
   strength. Only checked criteria count.
 - The bar at the top shows the points, the class and, for a VUS, the tier (*hot*, *warm* or *cold*).
+- Under it, the **Evidence** cards show the data the criteria are weighed on: the consequence and
+  transcript, the population frequencies (gnomAD AF and FAF95, homozygotes, the in-house cohort), the
+  in silico scores (REVEL, CADD, AlphaMissense, SpliceAI), the gene's inheritance and constraint,
+  ClinVar, the proband's HPO terms and each member's genotype. Each card names the criteria it informs.
+  A value the annotation does not hold shows as —. Fold the cards away to see only the criteria.
 - The header links to gnomAD, ClinVar, DECIPHER and a PubMed search on the gene and the patient's HPO
   terms.
 - **Save classification** stores the class as the variant's classification and review tag, with every

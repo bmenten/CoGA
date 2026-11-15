@@ -529,7 +529,7 @@ const FamilySampleQcPage: React.FC = () => {
           { assemblyName, isError: referenceFailed },
           'Not linked',
         )}
-        kicker={`Sample-integrity QC · ${qc.application_label || qc.application}`}
+        kicker="Sample-integrity QC"
         familyId={familyId}
         family={family}
         projectId={projectId}
