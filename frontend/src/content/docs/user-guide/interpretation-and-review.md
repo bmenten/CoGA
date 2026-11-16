@@ -17,7 +17,8 @@ its row is dimmed.
   (*VUS*) gives its class; otherwise the review's class tag gives it, the most severe of two;
   otherwise the classification as typed. A class tag of another class is not shown beside it. The VUS
   tiers and *Secondary finding* are tags, never the class. The filters, the Variant Explorer and
-  **Download CSV** read the class the same way.
+  **Download CSV** read the class the same way; the CSV also gives the classification as typed, in
+  *Classification text*.
 - **Review**, **Exclude** and **Report** change the tags only: the classification stays as stored.
   **Tags & notes** opens on the class shown. Choosing another class there, or none, replaces the
   classification and every class tag; left alone, the save keeps both as they are.
@@ -33,6 +34,11 @@ the family genotypes, and scores them on the ClinGen points scale.
   against) or **n/a** (cannot apply). Hover it for the evidence; click to change it, and pick its
   strength. Only checked criteria count.
 - The bar at the top shows the points, the class and, for a VUS, the tier (*hot*, *warm* or *cold*).
+- Under it, the **Evidence** cards show the data the criteria are weighed on: the consequence and
+  transcript, the population frequencies (gnomAD AF and FAF95, homozygotes, the in-house cohort), the
+  in silico scores (REVEL, CADD, AlphaMissense, SpliceAI), the gene's inheritance and constraint,
+  ClinVar, the proband's HPO terms and each member's genotype. Each card names the criteria it informs.
+  A value the annotation does not hold shows as —. Fold the cards away to see only the criteria.
 - The header links to gnomAD, ClinVar, DECIPHER and a PubMed search on the gene and the patient's HPO
   terms.
 - **Save classification** stores the class as the variant's classification and review tag, with every

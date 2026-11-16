@@ -46,7 +46,7 @@ from backend.app.services.family_variant_filters import (
     StructuralVariantQueryFilters,
     parse_genotype_filter,
 )
-from backend.app.schemas import SmallVariantSummaryOut, VariantPage
+from backend.app.schemas import SmallVariantSummaryOut, VariantPage, VariantPriorityOut
 import backend.app.services.clickhouse_family_variants as _cfv
 from backend.app.services.genotypes import genotype_vocabulary
 from backend.app.services.clickhouse_variant_rows import _annotation_columns
@@ -2251,9 +2251,11 @@ def test_a_cached_ranking_that_cannot_be_read_is_never_served(ranking) -> None:
     assert _cfv._priorities_from_ranking(ranking, records, {}) is None
 
 
-async def _serve_from_cache(monkeypatch: pytest.MonkeyPatch, cached: dict, records: list) -> tuple:
-    """The page ``_serve_ranking_from_cache`` builds from ``cached``, the family's stored
-    records being ``records``; and the variant ids it fetched, per fetch."""
+async def _serve_from_cache(
+    monkeypatch: pytest.MonkeyPatch, cached: dict, records: list, rank_by: str = "combined_score"
+) -> tuple:
+    """The page ``_serve_ranking_from_cache`` builds from ``cached`` in the order ``rank_by``,
+    the family's stored records being ``records``; and the variant ids it fetched, per fetch."""
     fetched: list[list[str]] = []
 
     async def _fetch(_context, _filters, *, include_variant_ids=None, **_k):
@@ -2272,6 +2274,7 @@ async def _serve_from_cache(monkeypatch: pytest.MonkeyPatch, cached: dict, recor
         cached=cached,
         page=1,
         page_size=50,
+        rank_by=rank_by,  # type: ignore[arg-type]
         small_variant_summary=None,
     )
     return page, fetched
@@ -2304,6 +2307,7 @@ async def test_a_cached_ranking_fetches_its_variants_in_the_searchs_own_callset(
         cached={"ranking": ranking, "total": 1},
         page=1,
         page_size=50,
+        rank_by="combined_score",
         small_variant_summary=None,
     )
 
@@ -2337,23 +2341,87 @@ async def test_a_cached_ranking_serves_its_order_over_the_records_still_stored(m
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rank_by", ["combined_score", "variant_score"])
 @pytest.mark.parametrize(
     "cached",
     [
         {"ranking": "not a ranking", "total": 1},
         {"ranking": [{"variant_id": "1-100-A-G", "priority": _cached_priority("high")}], "total": 1},
+        {"ranking": {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9)}, "total": 1},
     ],
-    ids=["text-that-is-no-json", "priority-refused"],
+    ids=["text-that-is-no-json", "priority-refused", "no-list"],
 )
 async def test_a_cached_ranking_the_page_cannot_be_built_from_is_computed_again(
-    monkeypatch: pytest.MonkeyPatch, cached: dict
+    monkeypatch: pytest.MonkeyPatch, cached: dict, rank_by: str
 ) -> None:
-    # None: the caller computes the ranking live rather than serve a page nobody ranked.
+    # None: the caller computes the ranking live rather than serve a page nobody ranked,
+    # in either order.
     stored = [_small_variant("1-100-A-G", "GENE1", calls=[_small_call("PROBAND", "0/1")])]
 
-    page, _fetched = await _serve_from_cache(monkeypatch, cached, stored)
+    page, _fetched = await _serve_from_cache(monkeypatch, cached, stored, rank_by)
 
     assert page is None
+
+
+@pytest.mark.asyncio
+async def test_a_cached_ranking_is_served_in_the_variant_score_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = [_small_call("PROBAND", "0/1")]
+    stored = [
+        _small_variant(variant_id, "GENE1", calls=calls, start=int(variant_id.split("-")[1]))
+        for variant_id in ("1-100-A-G", "1-200-A-G", "1-300-A-G", "1-400-A-G")
+    ]
+    # Cached in the combined order. By the variant score 1-300 leads; 1-100 and 1-400 tie on
+    # it, and the better combined score goes first.
+    ranking = [
+        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, variant_score=0.4, rank=1)},
+        {"variant_id": "1-200-A-G", "priority": _cached_priority(0.8, variant_score=0.2, rank=2)},
+        {"variant_id": "1-300-A-G", "priority": _cached_priority(0.5, variant_score=0.9, rank=3)},
+        {"variant_id": "1-400-A-G", "priority": _cached_priority(0.3, variant_score=0.4, rank=4)},
+    ]
+
+    page, fetched = await _serve_from_cache(
+        monkeypatch, {"ranking": json.dumps(ranking), "total": 4}, stored, "variant_score"
+    )
+
+    assert fetched == [["1-300-A-G", "1-100-A-G", "1-400-A-G", "1-200-A-G"]]
+    assert [(str(v.id), v.priority.rank, v.priority.variant_score, v.priority.combined_score) for v in page.variants] == [
+        ("1-300-A-G", 1, 0.9, 0.5),
+        ("1-100-A-G", 2, 0.4, 0.9),
+        ("1-400-A-G", 3, 0.4, 0.3),
+        ("1-200-A-G", 4, 0.2, 0.8),
+    ]
+    assert (page.total, page.ranking_cached) == (4, True)
+
+
+def test_priorities_in_the_variant_score_order_leave_the_cached_ones_as_they_were() -> None:
+    priorities = {
+        variant_id: VariantPriorityOut.model_validate(_cached_priority(combined, variant_score=variant, rank=rank))
+        for variant_id, combined, variant, rank in [
+            ("1-100-A-G", 0.9, 0.4, 1),
+            ("1-200-A-G", 0.5, 0.9, 2),
+            ("1-300-A-G", 0.4, 0.4, 3),
+            ("1-150-A-G", 0.4, 0.4, 4),
+        ]
+    }
+
+    ordered = _cfv._priorities_in_order(priorities, "variant_score")
+
+    # The variant score, then the combined score, then the variant id, highest first, as the
+    # combined order breaks its ties.
+    assert [(variant_id, p.rank) for variant_id, p in ordered.items()] == [
+        ("1-200-A-G", 1),
+        ("1-100-A-G", 2),
+        ("1-300-A-G", 3),
+        ("1-150-A-G", 4),
+    ]
+    # The ranking computed (and cached) in the combined order keeps its order and ranks.
+    assert [(variant_id, p.rank) for variant_id, p in priorities.items()] == [
+        ("1-100-A-G", 1),
+        ("1-200-A-G", 2),
+        ("1-300-A-G", 3),
+        ("1-150-A-G", 4),
+    ]
+    assert _cfv._priorities_in_order(priorities, "combined_score") is priorities
 
 
 @pytest.mark.asyncio
@@ -2945,9 +3013,9 @@ async def test_genotype_site_sample_takes_the_smallest_keys_over_every_autosome(
         queries.append((query, dict(params)))
         # A family linked to two projects stores each variant once per project.
         return [
-            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"]),
-            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"]),
-            (9, "17", 200, "C", "T", ["PROBAND", "MOM"], ["1|1", "0|1"]),
+            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"], [99]),
+            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"], [99]),
+            (9, "17", 200, "C", "T", ["PROBAND", "MOM"], ["1|1", "0|1"], [40, None]),
         ]
 
     monkeypatch.setattr(
@@ -2966,6 +3034,7 @@ async def test_genotype_site_sample_takes_the_smallest_keys_over_every_autosome(
     query, params = queries[0]
     # A fixed pseudo-random sample over chromosomes 1-22, not the first sites by position.
     assert "ORDER BY e.key, e.source, e.project_guid" in query
+    assert "e.calls.gq AS sample_gqs" in query
     assert "ORDER BY e.pos" not in query
     assert "e.xpos BETWEEN %(sample_xpos_start)s AND %(sample_xpos_end)s" in query
     assert (params["sample_xpos_start"], params["sample_xpos_end"]) == (1_000_000_000, 22_999_999_999)
@@ -2980,6 +3049,39 @@ async def test_genotype_site_sample_takes_the_smallest_keys_over_every_autosome(
     assert params["source"] == "glimpse2"
     rendered_query, _ = bind_query(query, params)
     assert "%(" not in rendered_query
+
+
+@pytest.mark.asyncio
+async def test_genotype_site_sample_reads_a_call_below_gq_20_as_a_no_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A raw joint callset calls low-depth sites homozygous with a low GQ; read as genotypes,
+    # they can make a parent and child opposite homozygotes at close to 1% of the sites.
+    # Below MIN_GENOTYPE_QUALITY a call is a no-call; at it, and without a GQ, it is read.
+    from backend.app.services.sample_integrity_qc import MIN_GENOTYPE_QUALITY
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        return [
+            (
+                1, "2", 100, "A", "G", ["FATHER", "MOTHER", "CHILD"], ["1/1", "0/0", "0/0"],
+                [99, MIN_GENOTYPE_QUALITY, MIN_GENOTYPE_QUALITY - 1],
+            ),
+            (2, "3", 200, "C", "T", ["FATHER", "CHILD"], ["0/1", "1/1"], [None, 0]),
+            (3, "4", 300, "C", "T", ["FATHER"], ["0/1"], None),
+        ]
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    rows = await fetch_genotype_site_sample(
+        _family_context(), scope="autosomes", limit=90_000, source="clair3"
+    )
+
+    assert [row[5] for row in rows] == [["1/1", "0/0", "./."], ["0/1", "./."], ["0/1"]]
+    # The sample keeps the site and the sample: a no-call is missing, never reference.
+    assert [row[4] for row in rows] == [["FATHER", "MOTHER", "CHILD"], ["FATHER", "CHILD"], ["FATHER"]]
 
 
 @pytest.mark.asyncio
@@ -3055,8 +3157,8 @@ async def test_genotype_site_sample_reads_its_rows_off_the_event_loop(
 
     async def fake_execute_clickhouse(query: str, params: dict[str, object]):
         return [
-            (1, "X", 3_000_100, "A", "G", ["PROBAND", "MOM"], ["0/1", "0/1"], [[1, 299], [150, 150]]),
-            (2, "X", 3_000_200, "C", "T", ["MOM"], ["0/1"], [[280, 20]]),
+            (1, "X", 3_000_100, "A", "G", ["PROBAND", "MOM"], ["0/1", "0/1"], [None, None], [[1, 299], [150, 150]]),
+            (2, "X", 3_000_200, "C", "T", ["MOM"], ["0/1"], [None], [[280, 20]]),
         ]
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute_clickhouse)

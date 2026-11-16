@@ -24,19 +24,80 @@ describe('evaluateAcmg', () => {
     expect(find(suggestions, 'PM2')?.disposition).toBe('applies');
   });
 
-  it('offers PM2 for review, and leaves BA1 / BS1 open, without a gnomAD frequency in the annotation', () => {
-    // Absent from gnomAD, or gnomAD not annotated for the variant: the annotation does not say
-    // which, so PM2 is not applied as "Absent from gnomAD." and BA1 / BS1 are not ruled out.
-    for (const gnomad_af of [undefined, null]) {
-      const suggestions = evaluateAcmg({ effect: 'missense_variant', gnomad_af: gnomad_af as number | undefined });
-      expect(find(suggestions, 'PM2')?.disposition).toBe('consider');
-      expect(find(suggestions, 'PM2')?.strength).toBe('supporting');
-      expect(find(suggestions, 'PM2')?.evidence).toContain('or gnomAD not annotated');
-      expect(find(suggestions, 'BA1')).toBeUndefined();
-      expect(find(suggestions, 'BS1')).toBeUndefined();
-      expect(buildInitialSelections(suggestions).find((selection) => selection.code === 'PM2')?.accepted).toBe(
-        false,
-      );
+  it('offers PM2 for review, and leaves BA1 / BS1 open, where gnomAD was not annotated for the callset', () => {
+    // Without a gnomAD frequency, and no gnomAD dataset the callset was annotated with, nothing
+    // looked the variant up: PM2 is not applied as "Absent from gnomAD." and BA1 / BS1 are not
+    // ruled out.
+    for (const gnomad_annotated of [undefined, []]) {
+      for (const gnomad_af of [undefined, null]) {
+        const suggestions = evaluateAcmg({
+          chr: '1',
+          effect: 'missense_variant',
+          gnomad_af: gnomad_af as number | undefined,
+          gnomad_annotated,
+        });
+        expect(find(suggestions, 'PM2')?.disposition).toBe('consider');
+        expect(find(suggestions, 'PM2')?.strength).toBe('supporting');
+        expect(find(suggestions, 'PM2')?.evidence).toContain("gnomAD was not annotated for this variant's callset");
+        expect(find(suggestions, 'BA1')).toBeUndefined();
+        expect(find(suggestions, 'BS1')).toBeUndefined();
+        expect(buildInitialSelections(suggestions).find((selection) => selection.code === 'PM2')?.accepted).toBe(
+          false,
+        );
+      }
+    }
+  });
+
+  it('applies PM2, and rules out BA1 / BS1, for a variant absent from the gnomAD genomes its callset was annotated with', () => {
+    // The owner's choice of 2026-11-13: a callset annotated with gnomAD's genomes or joint set
+    // (VEP's cache counts) looked the variant up, so no frequency is absence from gnomAD.
+    for (const gnomad_annotated of [['genomes'], ['exomes', 'genomes'], ['joint'], ['genomes', 'unspecified']]) {
+      for (const chr of ['1', 'chr22', 'X', 'Y']) {
+        const suggestions = evaluateAcmg({ chr, effect: 'missense_variant', gnomad_af: null, gnomad_annotated });
+        expect(find(suggestions, 'PM2')?.disposition).toBe('applies');
+        expect(find(suggestions, 'PM2')?.strength).toBe('supporting');
+        expect(find(suggestions, 'BA1')?.disposition).toBe('not_applicable');
+        expect(find(suggestions, 'BS1')?.disposition).toBe('not_applicable');
+        expect(buildInitialSelections(suggestions).find((selection) => selection.code === 'PM2')?.accepted).toBe(
+          true,
+        );
+      }
+    }
+    const pm2 = find(
+      evaluateAcmg({ chr: '7', effect: 'missense_variant', gnomad_annotated: ['exomes', 'genomes'] }),
+      'PM2',
+    );
+    expect(pm2?.evidence).toBe(
+      'Absent from gnomAD: the callset was annotated with gnomAD exomes and gnomAD genomes, which hold no allele frequency for this variant.',
+    );
+  });
+
+  it('offers PM2 for review where the gnomAD its callset was annotated with does not cover the variant', () => {
+    const pm2 = (variant: AcmgVariantInput) =>
+      find(evaluateAcmg({ effect: 'missense_variant', gnomad_af: null, ...variant }), 'PM2');
+    // gnomAD exomes alone cover the exome capture regions only (the owner's choice of 2026-11-13).
+    const exomes = pm2({ chr: '1', gnomad_annotated: ['exomes'] });
+    expect(exomes?.disposition).toBe('consider');
+    expect(exomes?.evidence).toContain('gnomAD exomes only');
+    // A combined frequency of a set nothing names as genomes.
+    const unspecified = pm2({ chr: '1', gnomad_annotated: ['exomes', 'unspecified'] });
+    expect(unspecified?.disposition).toBe('consider');
+    expect(unspecified?.evidence).toContain('a gnomAD frequency of a set it does not name, not with gnomAD genomes');
+    // chrM is gnomAD-MT's own dataset; an alternate contig is in none of gnomAD's.
+    const mito = pm2({ chr: 'MT', gnomad_annotated: ['genomes'] });
+    expect(mito?.disposition).toBe('consider');
+    expect(mito?.evidence).toContain('check gnomAD-MT');
+    const contig = pm2({ chr: 'chrUn_KI270742v1', gnomad_annotated: ['genomes'] });
+    expect(contig?.disposition).toBe('consider');
+    expect(contig?.evidence).toContain('no variants on chrUn_KI270742v1');
+    expect(pm2({ chr: undefined, gnomad_annotated: ['genomes'] })?.disposition).toBe('consider');
+    // A dataset name the evaluator does not know is no gnomAD dataset.
+    expect(pm2({ chr: '1', gnomad_annotated: ['topmed'] })?.evidence).toContain('gnomAD was not annotated');
+    // A gnomAD FAF95 or popmax of the variant says it is in gnomAD.
+    for (const frequency of ['gnomad_faf95_af', 'gnomad_popmax_af']) {
+      const other = pm2({ chr: '1', gnomad_annotated: ['genomes'], population_frequencies: { [frequency]: 1e-6 } });
+      expect(other?.disposition).toBe('consider');
+      expect(other?.evidence).toContain('though it holds a gnomAD');
     }
   });
 

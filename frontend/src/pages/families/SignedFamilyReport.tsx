@@ -936,7 +936,7 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
     </RecordSectionBlock>
 
     <RecordSectionBlock
-      title="Repeat expansions (TRGT)"
+      title="Repeat expansions"
       what="the repeat-expansion calls"
       section={record.repeatExpansions}
       version={version}

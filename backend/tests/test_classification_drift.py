@@ -240,6 +240,8 @@ def test_the_snapshot_freezes_the_primary_transcripts_frequencies_and_in_silico_
     assert snap["frequencies"] == {
         # No gnomAD_AF in the file: the higher of the exome and genome frequencies.
         "gnomad_af": 3.1e-05,
+        # The gnomAD datasets the header declares (gnomADe_AF, gnomADg_AF), which PM2 reads.
+        "gnomad_annotated": ["exomes", "genomes"],
         "gnomad_exomes_af": 1.2e-05,
         "gnomad_genomes_af": 3.1e-05,
         "gnomad_popmax_af": 0.0002,
@@ -288,6 +290,7 @@ def test_the_frozen_values_are_the_ones_the_acmg_dialog_is_given() -> None:
     frequencies, in_silico = snap["frequencies"], snap["in_silico"]
     assert snap["transcript_id"] == served.transcript_id
     assert frequencies["gnomad_af"] == served.gnomad_af
+    assert frequencies["gnomad_annotated"] == served.gnomad_annotated
     assert frequencies["gnomad_hom_count"] == served.gnomad_hom_count
     for field in ("gnomad_exomes_af", "gnomad_genomes_af", "gnomad_popmax_af", "topmed_af"):
         assert frequencies[field] == served.population_frequencies.get(field), field
@@ -312,6 +315,33 @@ def test_a_variant_without_annotation_freezes_every_value_as_none() -> None:
     assert set(snap["in_silico"].values()) == {None}
     # Without a consequence it is no missense variant: PP2 reads no missense Z for it.
     assert "gene_constraint" not in snap
+
+
+def test_a_callset_annotated_with_other_gnomad_datasets_reads_as_drift_naming_them() -> None:
+    # A re-import from a callset annotated with gnomAD exomes alone: a variant without a gnomAD
+    # frequency is no longer read as absent from gnomAD, so PM2 reads otherwise.
+    from backend.app.services.variant_annotation_parser import (
+        AnnotationHeaderState,
+        extract_small_variant_annotations,
+        update_annotation_header_state,
+    )
+
+    entry = _csq(transcript="ENST00000000001", mane=True, gnomad_exomes="", gnomad_genomes="", popmax="")
+    frozen = _stored(_freeze(_annotated("h1", entry)))
+    state = AnnotationHeaderState()
+    update_annotation_header_state(state, _CSQ_HEADER.replace("|gnomADg_AF|", "|GENOMES_NOT_ANNOTATED|"))
+    exomes_only = types.SimpleNamespace(
+        annotation_version="v1",
+        annotation_set_hash="h2",
+        annotations=extract_small_variant_annotations({"CSQ": entry}, state),
+    )
+    diff = cds._diff(frozen, _now(exomes_only))
+    assert diff["status"] == "drifted"
+    assert diff["changed"] == ["gnomad_annotated", "annotations"]
+    assert (diff["evidence_from"]["gnomad_annotated"], diff["evidence_to"]["gnomad_annotated"]) == (
+        ["exomes", "genomes"],
+        ["exomes"],
+    )
 
 
 def test_a_value_jsonb_cannot_hold_is_frozen_as_none() -> None:

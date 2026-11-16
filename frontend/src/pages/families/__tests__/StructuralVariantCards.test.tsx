@@ -3,8 +3,11 @@ import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import StructuralVariantCards from '../StructuralVariantCards';
+import { ACMG_CLASSIFICATION_LABELS, type SmallVariantReview } from '../smallVariantSearch';
 import type { StructuralVariant } from '../structuralVariantSearch';
-import { structuralVariant } from '../../../test/variants';
+import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
+import { review, structuralVariant } from '../../../test/variants';
+import reviewClassCases from './fixtures/review-class-cases.json';
 
 const variant = structuralVariant({
   _id: '2-160120294-160120688-DEL---',
@@ -186,5 +189,63 @@ describe('StructuralVariantCards excluded variant', () => {
     expect(card.querySelector('.variant-card-cols')).toBeNull();
     fireEvent.click(within(card).getByRole('button', { name: /show the excluded card of ITGB6/i }));
     expect(card.querySelector('.variant-card-cols')).not.toBeNull();
+  });
+});
+
+// The owner's decision of 2026-11-10: an SV card shows its review's class by the one rule of the
+// family page (reviewClassChips), as a small-variant card does: once, in its heading, and in its
+// tag row only as its own class tag. Text "VUS" beside the tag of class 4 shows *VUS - class 3*
+// alone, not *Likely pathogenic - class 4* beside it.
+describe('StructuralVariantCards review class', () => {
+  const renderReview = (fields: Partial<SmallVariantReview>) =>
+    render(
+      <MemoryRouter>
+        <StructuralVariantCards
+          familyId="F1"
+          projectId="P1"
+          linkSearch=""
+          members={[]}
+          variants={[{ ...variant, review: review({ variant_id: variant._id, ...fields }) }]}
+          tags={BUILT_IN_REVIEW_TAGS}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+
+  const classLabels = Object.values(ACMG_CLASSIFICATION_LABELS).map((label) => label.toLowerCase());
+  // The classes a card shows: its heading's and its tag row's chips that read as a class, or as
+  // the text shown.
+  const classesOn = (card: HTMLElement, shown: string) =>
+    Array.from(card.querySelectorAll('.variant-card-headtags .variant-card-chip, .variant-card-tag-row .variant-card-chip'))
+      .map((chip) => chip.textContent ?? '')
+      .filter((text) => classLabels.includes(text.toLowerCase()) || (shown !== '' && text === shown));
+
+  it.each(reviewClassCases.cases)('shows the class the rule gives, in its heading, once: $why', ({ classification, tags, shown }) => {
+    const { container } = renderReview({ classification, tags });
+    const card = container.querySelector('article') as HTMLElement;
+    // Once in the heading; among the tags only as the class shown's own tag.
+    expect([...new Set(classesOn(card, shown))]).toEqual(shown ? [shown] : []);
+    const heading = card.querySelector('.variant-card-headtags');
+    if (shown) {
+      expect(within(heading as HTMLElement).getByText(shown)).toBeInTheDocument();
+    } else {
+      expect(heading).toBeNull();
+    }
+  });
+
+  it('keeps a VUS tier and Secondary finding as tags beside the class word', () => {
+    const { container } = renderReview({ classification: 'VUS', tags: ['acmg_vus_warm', 'secondary_finding'] });
+    const card = container.querySelector('article') as HTMLElement;
+    const tagRow = card.querySelector('.variant-card-tag-row') as HTMLElement;
+    expect(within(tagRow).getByText('VUS — warm')).toBeInTheDocument();
+    expect(within(tagRow).getByText('Secondary finding')).toBeInTheDocument();
+    expect(classesOn(card, 'VUS - class 3')).toEqual(['VUS - class 3']);
+  });
+
+  it('shows no class tag but the class shown’s own in its tag row', () => {
+    const { container } = renderReview({ classification: 'VUS', tags: ['acmg_class_4'] });
+    const card = container.querySelector('article') as HTMLElement;
+    expect(card.querySelector('.variant-card-tag-row')).toBeNull();
+    expect(classesOn(card, 'VUS - class 3')).toEqual(['VUS - class 3']);
   });
 });

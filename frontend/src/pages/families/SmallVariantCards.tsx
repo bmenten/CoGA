@@ -9,6 +9,7 @@ import {
   COLLABORATION_QUICK_TAGS,
   getTagDefinitionMap,
   type FamilyMember,
+  type RankedBy,
   type SmallVariant,
   type SmallVariantTranscript,
   type SmallVariantTagDefinition,
@@ -75,6 +76,8 @@ interface SmallVariantCardsProps {
   onEditReview: (variant: SmallVariant) => void;
   onAcmgClassify: (variant: SmallVariant) => void;
   onToggleReviewTag: (variant: SmallVariant, tagKey: string) => Promise<void>;
+  // The score the page is ranked by, which each card's priority leads with.
+  rankedBy?: RankedBy;
 }
 
 const transcriptSourceFor = (transcriptId?: string | null) => {
@@ -568,6 +571,7 @@ export default function SmallVariantCards({
   onEditReview,
   onAcmgClassify,
   onToggleReviewTag,
+  rankedBy = null,
 }: SmallVariantCardsProps) {
   // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
@@ -787,7 +791,7 @@ export default function SmallVariantCards({
 
                 {variant.nipt ? <NiptClassificationBlock nipt={variant.nipt} /> : null}
 
-                {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
+                {variant.priority ? <VariantPriorityBlock priority={variant.priority} rankedBy={rankedBy} /> : null}
 
                 {visibleReviewTags.length || variant.review?.compound_het ? (
                   <div className="variant-card-chip-row variant-card-tag-row">

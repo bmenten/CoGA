@@ -1112,7 +1112,7 @@ def test_an_imputed_family_vcf_is_left_to_the_loaders_own_reading(tmp_path: Path
 def test_a_family_vcf_another_caller_made_is_left_to_the_loaders_own_reading(tmp_path: Path) -> None:
     _gz_text(
         tmp_path / f"snv/{TRIO_FAMILY}_phased.vcf.gz",
-        _trio_snv_vcf().replace("##DeepVariant_version=1.10.0\n", "##source=GATK HaplotypeCaller\n"),
+        _trio_snv_vcf().replace("##DeepVariant_version=1.10.0\n", "##source=strelka\n"),
     )
 
     payload, _availability = _trio_payload(tmp_path)

@@ -420,6 +420,20 @@
   gap: 0.5625rem;
 }
 
+/* Every import job ("Show all"): a list that scrolls under its sticky header, not a page. */
+.import-jobs-table--all {
+  max-height: 28rem;
+  overflow-y: auto;
+}
+
+.import-jobs-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.375rem;
+  margin: 0;
+}
+
 .family-intake-page .member-card {
   gap: 0.5625rem;
 }

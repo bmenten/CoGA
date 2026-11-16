@@ -5,20 +5,20 @@ import CandidateCapNotice, { type CandidateCapFlags } from './CandidateCapNotice
 import ResultsPagination from './ResultsPagination';
 import StructuralVariantCards from './StructuralVariantCards';
 import StructuralVariantColumnControls from './StructuralVariantColumnControls';
-import StructuralVariantSummaryTable from './StructuralVariantSummaryTable';
 import StructuralVariantTable from './StructuralVariantTable';
+import { RankedByNote } from './RankByField';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import CnvAcmgClassificationModal from './CnvAcmgClassificationModal';
 import {
   CARD_VIEW_THRESHOLD,
   sortStructuralVariants,
   type StructuralSortableKeys,
-  type StructuralSummary,
   type StructuralVariant,
   type StructuralVariantFamilyMember,
   type StructuralVariantReviewSavePayload,
   type StructuralVariantTagDefinition,
 } from './structuralVariantSearch';
+import { type RankedBy } from './smallVariantSearch';
 import { apiPath, raw } from '../../lib/apiPath';
 import { FamilyReadOnlyContext } from '../../lib/familyAccess';
 
@@ -43,7 +43,6 @@ type StructuralVariantResultsProps = {
   projectId?: string;
   reviewError?: string | null;
   reviewIsPending?: boolean;
-  summary: StructuralSummary;
   tags: StructuralVariantTagDefinition[];
   totalPages: number;
   variants: StructuralVariant[];
@@ -53,6 +52,8 @@ type StructuralVariantResultsProps = {
   // The caller is a reader in the family's projects: the review controls inside are
   // disabled, and the reviews stay readable.
   readOnly?: boolean;
+  /** The score the page is ranked by; null for a page that is not ranked. */
+  rankedBy?: RankedBy;
 };
 
 export default function StructuralVariantResults({
@@ -71,7 +72,6 @@ export default function StructuralVariantResults({
   projectId,
   reviewError = null,
   reviewIsPending = false,
-  summary,
   tags,
   totalPages,
   variants,
@@ -79,6 +79,7 @@ export default function StructuralVariantResults({
   onSaveReview,
   onToggleReviewTag,
   readOnly = false,
+  rankedBy = null,
 }: StructuralVariantResultsProps) {
   const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
   const [selectedVariant, setSelectedVariant] = useState<StructuralVariant | null>(null);
@@ -225,7 +226,7 @@ export default function StructuralVariantResults({
 
         <CandidateCapNotice page={candidateCap} noun="SVs" />
 
-        <StructuralVariantSummaryTable summary={summary} />
+        <RankedByNote rankedBy={rankedBy} />
 
         {resolvedViewMode === 'cards' ? (
           <StructuralVariantCards
@@ -248,6 +249,7 @@ export default function StructuralVariantResults({
             reviewIsPending={reviewIsPending}
             tags={tags}
             variants={sortedVariants}
+            rankedBy={rankedBy}
           />
         ) : (
           <>
@@ -274,6 +276,7 @@ export default function StructuralVariantResults({
               hasPriority={hasPriority}
               visible={visible}
               onSort={handleSort}
+              rankedBy={rankedBy}
             />
           </>
         )}

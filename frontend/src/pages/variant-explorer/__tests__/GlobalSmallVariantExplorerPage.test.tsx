@@ -94,6 +94,7 @@ const page = (overrides: Partial<GlobalVariantPage> = {}): GlobalVariantPage => 
   next_cursor: null,
   assembly_id: 'asm-38',
   assembly_name: 'GRCh38',
+  pending_families: 0,
   variants: [BRCA2, MECP2],
   ...overrides,
 });
@@ -299,7 +300,7 @@ describe('GlobalSmallVariantExplorerPage', () => {
       const assembly = screen.getByLabelText('Assembly') as HTMLSelectElement;
       expect(assembly.value).toBe('asm-38');
       expect([...assembly.options].map((option) => option.textContent)).toEqual([
-        'GRCh38 (p14) · 3 projects',
+        'GRCh38 · 3 projects',
         'GRCh37 · 1 project',
       ]);
       // No search goes out before an assembly is chosen, so none goes out without one.
@@ -734,6 +735,26 @@ describe('GlobalSmallVariantExplorerPage', () => {
       expect(notice).toHaveTextContent(
         'The export was capped at 50,000 rows — the filtered result is larger, so the file is incomplete. Narrow the filters to export everything.',
       );
+    });
+
+    it('says when the file may lack the variants of families being added to the counts', async () => {
+      const user = userEvent.setup();
+      mockApi({
+        exportCsv: () =>
+          exportReply({
+            'x-coga-export-truncated': 'false',
+            'x-coga-export-rows': '2',
+            'x-coga-export-limit': '50000',
+            'x-coga-export-pending-families': '2',
+          }),
+      });
+      renderPage();
+      await findResults();
+
+      expect(await downloadOnce(user)).toBe('variant-explorer-asm-38.csv');
+      const notice = await screen.findByText(/2 families were being added to the explorer's counts/);
+      expect(notice).toHaveAttribute('role', 'alert');
+      expect(notice).toHaveTextContent('the file may lack their variants, or count them as before the change.');
     });
 
     it('says when the tag or classification filter matched more variants than one search takes', async () => {

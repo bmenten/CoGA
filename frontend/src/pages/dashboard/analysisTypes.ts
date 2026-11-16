@@ -7,6 +7,7 @@ export type AnalysisType = NonNullable<ImportDeliveryAdd['analysis_type']>;
 export const ANALYSIS_TYPES: readonly (readonly [AnalysisType, string])[] = [
   ['long_read_wgs', 'LR-WGS'],
   ['long_read_adaptive_sampling', 'LR-AS (long-read adaptive sampling)'],
+  ['short_read_wgs', 'SR-WGS'],
   ['pgt', 'PGT'],
   ['expanded_carrier_screening', 'Expanded Carrier Screening'],
   ['monogenic_nipt', 'mNIPT'],

@@ -28,7 +28,8 @@ must carry FORMAT/AD.
   section opens folded, with one verdict: **Pass** when every check passed, **Fail** as soon as one
   failed, **Warning** otherwise (a check that could not run counts as a warning). Click it for the
   details. A failed paternity check means another father or a sample mix-up: do not read the variants.
-- **The filters** are the small-variant page's *Pathogenicity*, *Annotations*, *In silico*, *Frequency*,
+- **The filters** sit under **Advanced filters**, closed when the page opens, as on the small-variant
+  page. They are the small-variant page's *Pathogenicity*, *Annotations*, *In silico*, *Frequency*,
   *Locations* and *Exclude* filters and its review tags (*Review and curation*: the tags, not the
   classification or saved notes), plus **Maternal/fetal categories** (tick any of the eight; each
   shows its count), a minimum classification confidence, **Hide recurrent low-VAF calls** (below) and

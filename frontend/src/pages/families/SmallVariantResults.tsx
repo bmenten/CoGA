@@ -16,6 +16,7 @@ import SmallVariantCards from './SmallVariantCards';
 import SmallVariantPairCards from './SmallVariantPairCards';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import SmallVariantTable from './SmallVariantTable';
+import { RankedByNote } from './RankByField';
 import { formatVariantTotal } from './smallVariantResultUtils';
 import { gnomadCountNotes } from './gnomadCountNotes';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -211,6 +212,8 @@ export default function SmallVariantResults({
           </p>
         ) : null}
 
+        <RankedByNote rankedBy={data?.ranked_by} />
+
         {!hasResults ? (
           <div className="variant-results-empty">
             <p className="table-empty">No variants match the current search.</p>
@@ -233,6 +236,7 @@ export default function SmallVariantResults({
                   locationSearch={locationSearch}
                   tags={tags}
                   onEditReview={setSelectedVariant}
+                  rankedBy={data?.ranked_by}
                 />
               </div>
             ) : null}
@@ -268,6 +272,7 @@ export default function SmallVariantResults({
                       setAcmgVariant(variant);
                     }}
                     onToggleReviewTag={onToggleReviewTag}
+                    rankedBy={data?.ranked_by}
                   />
                 ) : (
                   <SmallVariantTable
@@ -287,6 +292,7 @@ export default function SmallVariantResults({
                       setAcmgVariant(variant);
                     }}
                     onToggleReviewTag={onToggleReviewTag}
+                    rankedBy={data?.ranked_by}
                   />
                 )}
               </div>

@@ -12,7 +12,9 @@
   parent's segments are drawn over the points. From HiFiCNV the track holds the folded minor allele
   fraction instead (0 to 0.5), with no parent of origin. The analyst judges an embryo's aneuploidy and
   large structural variants partly on this track; CoGA makes no call from it.
-- **Assembly** — the reference genome build (for example GRCh38) a project uses.
+- **Assembly** — the reference genome build (for example GRCh38) a project uses, shown without a
+  patch. The reference genome a family's data was aligned to (its FASTA) is among the family's
+  annotation versions, as its *Reference assembly*.
 - **cfDNA** — cell-free DNA. In NIPT: the DNA in maternal plasma, mostly maternal with a small fetal part.
 - **ClinVar** — the public archive of variant–condition interpretations.
 - **CNV / SV** — a copy-number variant is a deletion or duplication; a structural variant is any larger

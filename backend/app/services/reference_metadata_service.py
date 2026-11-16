@@ -225,8 +225,6 @@ async def _get_assembly_by_name(
             SELECT id::text AS id, assembly_name, version
             FROM assemblies
             WHERE assembly_name = :assembly_name
-            ORDER BY release_date DESC, version DESC
-            LIMIT 1
             """
         ),
         {"assembly_name": assembly_name},

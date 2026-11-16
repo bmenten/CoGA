@@ -259,6 +259,7 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
         _scope_to(monkeypatch, svc, project, assembly_id, base_family)
         families = [base_family]
         same_time: dict[str, str] = {}
+        same_time_text: dict[str, str | None] = {}
         async with session_factory() as session:
             for variant_id, review, saved in (
                 # Classified by the class tag alone, beside a milder class in another family.
@@ -308,6 +309,7 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
                     same_time[family] = (
                         "VUS - class 3" if review.get("tags") else str(review.get("classification"))
                     )
+                    same_time_text[family] = review.get("classification")
             await session.commit()
 
         async with session_factory() as session:
@@ -320,6 +322,14 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
         assert shown["1-300-A-G"] == "VUS - class 3"
         assert shown["1-100-A-G"] == "Likely pathogenic - class 4"
         assert shown["1-200-A-G"] == same_time[min(same_time)]
+        # Beside the class shown, the classification text of the review that shows it, as stored:
+        # none for a review classified by its class tag alone.
+        texts = {row.variant_id: row.classification_text for row in exported.rows}
+        assert texts["1-400-A-G"] is None
+        assert texts["1-500-A-G"] is None
+        assert texts["1-300-A-G"] == "VUS"
+        assert texts["1-100-A-G"] is None
+        assert texts["1-200-A-G"] == same_time_text[min(same_time)]
 
         # The classification filter keeps the variants a family search's classification filter
         # keeps in some family: by the class each review, or its pair review, shows.

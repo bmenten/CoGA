@@ -60,10 +60,11 @@ PACKAGE_MAX_BYTES = 20 * 1024 * 1024
 
 PackageStatus = Literal["running", "complete", "failed"]
 # The analyses a package may name: the laboratory's LR-WGS, LR-AS (long-read adaptive sampling),
-# PGT, expanded carrier screening and mNIPT (the owner's list of 2026-11-11).
+# SR-WGS (conventional short-read Illumina WGS), PGT, expanded carrier screening and mNIPT.
 AnalysisType = Literal[
     "long_read_wgs",
     "long_read_adaptive_sampling",
+    "short_read_wgs",
     "pgt",
     "expanded_carrier_screening",
     "monogenic_nipt",

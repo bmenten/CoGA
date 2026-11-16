@@ -14,6 +14,7 @@ from .clickhouse_variant_records import (
     _annotation_float,
     _annotation_gene,
     _annotation_gene_id,
+    _annotation_gnomad_annotated,
     _annotation_int,
     _annotation_polyphen,
     _annotation_population_frequencies,
@@ -39,11 +40,14 @@ EVIDENCE_CONSEQUENCE_FIELDS: tuple[str, ...] = ("effect", "impact", "lof", "lof_
 EVIDENCE_ALLELE_FIELD = "alt_allele"
 # The population frequencies a small-variant classification rests on, in the order
 # a reviewer reads them: the gnomAD allele frequency the frequency criteria read (PM2, BS1,
-# BA1), and the other frequencies and the gnomAD allele, homozygote and hemizygote counts
-# the filters read (BS2 reads the homozygote count). Each is frozen, also without a value,
-# so one that appears later reads as a change.
+# BA1) and the gnomAD datasets the variant's callset was annotated with, which say whether a
+# variant without that frequency is absent from gnomAD (PM2), then the other frequencies and
+# the gnomAD allele, homozygote and hemizygote counts the filters read (BS2 reads the
+# homozygote count). Each is frozen, also without a value, so one that appears later reads as
+# a change.
 EVIDENCE_FREQUENCY_FIELDS: tuple[str, ...] = (
     "gnomad_af",
+    "gnomad_annotated",
     "gnomad_exomes_af",
     "gnomad_genomes_af",
     "gnomad_popmax_af",
@@ -296,6 +300,7 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
         },
         "frequencies": {
             "gnomad_af": _frozen_float(annotation, "gnomad_af"),
+            "gnomad_annotated": _annotation_gnomad_annotated(annotation) or None,
             "gnomad_exomes_af": _population("gnomad_exomes_af"),
             "gnomad_genomes_af": _population("gnomad_genomes_af"),
             "gnomad_popmax_af": _population("gnomad_popmax_af"),

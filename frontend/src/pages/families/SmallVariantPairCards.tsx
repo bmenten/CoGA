@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import {
   getTagDefinitionMap,
   type FamilyMember,
+  type RankedBy,
   type SmallVariant,
   type SmallVariantGroup,
   type SmallVariantTagDefinition,
@@ -29,6 +30,8 @@ interface SmallVariantPairCardsProps {
   locationSearch: string;
   tags: SmallVariantTagDefinition[];
   onEditReview: (variant: SmallVariant) => void;
+  // The score the page is ranked by, which each variant's priority leads with.
+  rankedBy?: RankedBy;
 }
 
 const buildCompactGenotypeText = (variant: SmallVariant, members: FamilyMember[]) =>
@@ -56,6 +59,7 @@ export default function SmallVariantPairCards({
   locationSearch,
   tags,
   onEditReview,
+  rankedBy = null,
 }: SmallVariantPairCardsProps) {
   const tagMap = getTagDefinitionMap(tags);
 
@@ -214,7 +218,7 @@ export default function SmallVariantPairCards({
                         </span>
                       </div>
                       {variant.priority ? (
-                        <VariantPriorityBlock priority={variant.priority} />
+                        <VariantPriorityBlock priority={variant.priority} rankedBy={rankedBy} />
                       ) : null}
                       <p className="table-subtle">
                         {buildCompactGenotypeText(variant, members) || 'No family genotypes available'}

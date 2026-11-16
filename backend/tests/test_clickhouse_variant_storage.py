@@ -237,7 +237,9 @@ async def test_get_clickhouse_variant_storage_status_reports_missing_tables_and_
 
     assert status["assembly_name"] == "GRCh38"
     assert status["health"] == "missing"
-    assert status["expected_table_count"] == 10
+    # The small-variant tables (with the Variant Explorer's carrier summary and its
+    # generations) and the SV tables.
+    assert status["expected_table_count"] == 12
     assert status["existing_table_count"] == 3
     assert status["small_variant_rows"] == 5000
     assert status["structural_variant_rows"] == 1200
@@ -262,7 +264,7 @@ async def test_optimize_clickhouse_variant_tables_skips_materialized_views(
 
     assert status["assembly_name"] == "GRCh38"
     queries = [sent.query for sent in clickhouse.sent]
-    assert len(queries) == 10
+    assert len(queries) == 12
     assert all("OPTIMIZE TABLE" in query for query in queries)
     assert all("FINAL" in query for query in queries)
     assert not any("_mv" in query for query in queries)

@@ -376,7 +376,7 @@ async def test_a_family_in_no_project_is_looked_for_on_every_assembly(monkeypatc
 async def test_every_assembly_is_read_by_name_without_blank_ones() -> None:
     session = _AssemblySession(["GRCh38", "GRCh37", "", "  ", None])
     assert await family_project_variants._all_assembly_names(session) == {"GRCh38", "GRCh37"}
-    assert session.statements == ["SELECT DISTINCT assembly_name FROM assemblies"]
+    assert session.statements == ["SELECT assembly_name FROM assemblies"]
 
 
 class _Session:

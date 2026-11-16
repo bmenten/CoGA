@@ -51,3 +51,22 @@ export const formatPercentFilterValue = (value: string) => {
   if (!Number.isFinite(parsed) || parsed <= 0) return 'Any';
   return `${(parsed * 100).toFixed(2).replace(/\.?0+$/, '')}%`;
 };
+
+/**
+ * The order of a prioritised ranking (the routes' `rank_by`): by the combined score, the
+ * default, which the filter state holds as '', or by the variant score, which leaves the
+ * phenotype match out of the order. A variant in a gene without Monarch phenotype data scores 0
+ * on phenotype and sinks in the combined order; by the variant score such a novel-gene
+ * candidate ranks by its own evidence. Either order ranks the same variants with the same scores.
+ */
+export const RANK_BY_VARIANT_SCORE = 'variant_score';
+
+/** The order a link or a saved search names: the variant score, or '' (the combined score). */
+export const readRankBy = (value: string | null | undefined): string =>
+  value === RANK_BY_VARIANT_SCORE ? RANK_BY_VARIANT_SCORE : '';
+
+/** The chip of a prioritised search, naming its order when it is not the default. */
+export const prioritizationChipLabel = (rankBy: string): string =>
+  rankBy === RANK_BY_VARIANT_SCORE
+    ? 'Phenotype prioritization, ranked by variant score'
+    : 'Phenotype prioritization';

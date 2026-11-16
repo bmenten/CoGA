@@ -5,6 +5,7 @@ import {
   COLLABORATION_QUICK_TAGS,
   getTagDefinitionMap,
   type FamilyMember,
+  type RankedBy,
   type SmallVariant,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
@@ -39,6 +40,8 @@ interface SmallVariantTableProps {
   onEditReview: (variant: SmallVariant) => void;
   onAcmgClassify: (variant: SmallVariant) => void;
   onToggleReviewTag: (variant: SmallVariant, tagKey: string) => Promise<void>;
+  // The score the page is ranked by, which the Score column shows.
+  rankedBy?: RankedBy;
 }
 
 const MAX_ALLELE_DISPLAY_LENGTH = 48;
@@ -73,6 +76,7 @@ export default function SmallVariantTable({
   onEditReview,
   onAcmgClassify,
   onToggleReviewTag,
+  rankedBy = null,
 }: SmallVariantTableProps) {
   // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
@@ -120,7 +124,11 @@ export default function SmallVariantTable({
               <th
                 className="table-sortable"
                 onClick={() => handleTableSort('priority')}
-                title="Exomiser-style priority: variant impact + rarity + segregation + gene–phenotype match"
+                title={
+                  rankedBy === 'variant_score'
+                    ? 'Variant score, which the ranking follows: variant impact + rarity + segregation, without the gene–phenotype match'
+                    : 'Exomiser-style priority: variant impact + rarity + segregation + gene–phenotype match'
+                }
               >
                 Score {getSortIndicator('priority')}
               </th>
@@ -182,7 +190,7 @@ export default function SmallVariantTable({
                   isExcluded ? ' variant-table-row--excluded' : ''
                 }`}
               >
-                {hasPriority && <VariantScoreCell variant={variant} />}
+                {hasPriority && <VariantScoreCell variant={variant} rankedBy={rankedBy} />}
                 {hasNipt && (
                   <td className="table-wrap-cell">
                     {variant.nipt ? (

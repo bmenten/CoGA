@@ -6,7 +6,7 @@ import PageState from '../../components/PageState';
 import { getErrorMessage } from '../../lib/errorMessage';
 import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
-import { humanAssemblyOf, useFamilyReference } from '../../lib/reference';
+import { assemblyDisplayName, humanAssemblyOf, useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
 import type {
@@ -268,10 +268,6 @@ const formatLocus = (profile: Pick<GeneProfile, 'chr' | 'start' | 'end'>) => {
   return `${chrom}:${profile.start.toLocaleString()}-${profile.end.toLocaleString()}`;
 };
 
-const formatAssemblyLabel = (
-  location: Pick<GeneAssemblyLocationOut, 'assembly_name' | 'assembly_version'>,
-) => `${location.assembly_name}${location.assembly_version ? ` ${location.assembly_version}` : ''}`;
-
 const formatPercent = (value?: number | null, digits = 1) =>
   typeof value === 'number' ? `${value.toFixed(digits)}%` : '—';
 
@@ -408,7 +404,7 @@ const pickAssemblyLocation = (
 ) => locations.find((location) => matcher(location)) || null;
 
 const formatAssemblyCoordinate = (location: GeneAssemblyLocationOut | null) =>
-  location ? `${formatLocus(location)} (${formatAssemblyLabel(location)})` : 'Not imported';
+  location ? `${formatLocus(location)} (${assemblyDisplayName(location.assembly_name)})` : 'Not imported';
 
 const MONARCH_PREDICATE_LABELS: Record<string, string> = {
   causes: 'Causes',

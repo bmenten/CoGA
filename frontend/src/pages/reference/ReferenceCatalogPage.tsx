@@ -307,6 +307,15 @@ const ReferenceCatalogPage: React.FC = () => {
     [autoImportForm.ucsc_genome, sourceAssemblies]
   );
 
+  // An assembly is its name: an import of one already here updates it in place.
+  const existingSourceAssembly = useMemo(
+    () =>
+      selectedSourceAssembly
+        ? assemblies.find((entry) => entry.assembly_name === selectedSourceAssembly.assembly_name) ?? null
+        : null,
+    [assemblies, selectedSourceAssembly]
+  );
+
   const handleSpeciesSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -991,6 +1000,14 @@ const ReferenceCatalogPage: React.FC = () => {
                   version <strong>{selectedSourceAssembly.assembly_version}</strong> and mapped to
                   UCSC assembly <strong>{selectedSourceAssembly.ucsc_genome}</strong>.
                 </p>
+                {existingSourceAssembly && (
+                  <p className="dashboard-link-note">
+                    <strong>{existingSourceAssembly.assembly_name}</strong> already exists (version{' '}
+                    {existingSourceAssembly.version}). The import updates that assembly in place, with the
+                    version and release date UCSC states, and never adds a second one. Without{' '}
+                    <em>Replace existing cytobands and genes</em> it is refused while the assembly holds them.
+                  </p>
+                )}
                 <p className="dashboard-link-note">
                   Release date: {selectedSourceAssembly.release_date || 'unknown'}.
                 </p>

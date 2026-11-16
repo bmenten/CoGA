@@ -56,8 +56,9 @@ differs.
   - the consequence, impact and LOFTEE call (read by PVS1, PM4, PP2, BP7 and the consequence's
     not-applicable criteria);
   - the population frequencies and in-silico scores the criteria read: gnomAD and the other
-    frequencies and counts the filters read, CADD, REVEL, SpliceAI, SIFT, PolyPhen and
-    AlphaMissense;
+    frequencies and counts the filters read, the gnomAD datasets the callset was annotated with
+    (`gnomad_annotated`, which PM2 reads for a variant without a gnomAD frequency), CADD, REVEL,
+    SpliceAI, SIFT, PolyPhen and AlphaMissense;
   - for a missense variant only, the gene's gnomAD missense Z that PP2 reads, with its source
     (`gene_missense_z_source`: `gene_profile` or `vcf`; `pp2_gene_missense_z`). It comes
     from the gene's profile through the variant list's own lookup (`evidence_gene_missense_z`),

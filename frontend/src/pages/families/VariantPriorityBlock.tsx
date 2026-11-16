@@ -1,15 +1,20 @@
-import { type SmallVariantPriority } from './smallVariantSearch';
+import { type RankedBy, type SmallVariantPriority } from './smallVariantSearch';
 import { SEGREGATION_MODE_LABELS } from './smallVariantResultUtils';
 
 /**
  * Visible priority breakdown for a prioritized variant — used on the cards so the
  * score and the reasons behind it are readable without hovering or opening the dialog.
+ * It leads with the score the page is ranked by (`rankedBy`) beside the rank, and lists the
+ * other among the metrics.
  */
 export default function VariantPriorityBlock({
   priority,
+  rankedBy = null,
 }: {
   priority: SmallVariantPriority;
+  rankedBy?: RankedBy;
 }) {
+  const byVariantScore = rankedBy === 'variant_score';
   const modes = (priority.segregation_modes || [])
     .map((mode) => SEGREGATION_MODE_LABELS[mode] || mode)
     .join(', ');
@@ -18,7 +23,9 @@ export default function VariantPriorityBlock({
     .slice(0, 5);
 
   const metrics: Array<[string, string]> = [
-    ['Variant', priority.variant_score.toFixed(2)],
+    byVariantScore
+      ? ['Priority', priority.combined_score.toFixed(2)]
+      : ['Variant', priority.variant_score.toFixed(2)],
     ['Pathogenicity', priority.pathogenicity_score.toFixed(2)],
     ['Rarity', priority.frequency_score.toFixed(2)],
     [
@@ -33,7 +40,9 @@ export default function VariantPriorityBlock({
     <div className="variant-card-priority">
       <div className="variant-card-priority-head">
         <span className="variant-card-priority-score">
-          Priority {priority.combined_score.toFixed(2)}
+          {byVariantScore
+            ? `Variant score ${priority.variant_score.toFixed(2)}`
+            : `Priority ${priority.combined_score.toFixed(2)}`}
         </span>
         {priority.rank ? (
           <span className="variant-card-priority-rank">#{priority.rank}</span>

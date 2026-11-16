@@ -5,8 +5,9 @@ Every start seeds the repeat catalogue from the built-in loci and a STRchive fil
 repository's ``data/ref-data/STRchive-loci.json``. The built-in loci carry the shipped
 release's thresholds, and test_repeat_thresholds_follow_strchive.py checks them
 against the shipped file only, so another release in the bucket would make the built-in rows and
-the STRchive rows disagree: a call read differently depending on its TRID. The shipped, validated
-release is the source (the owner's decision of 2026-10-14). The file states no release of
+the STRchive rows disagree: a call read differently depending on its TRID. The shipped release
+is the source (the owner's decision of 2026-10-14), and its thresholds are CoGA's cut-offs as
+STRchive states them (the owner's decision of 2026-11-16). The file states no release of
 its own, so its SHA-256 is its identity, pinned in ``core/config.py``
 (``STRCHIVE_PINNED_LOCI_SHA256``), which no setting overrides.
 
@@ -17,6 +18,7 @@ its own, so its SHA-256 is its identity, pinned in ``core/config.py``
 - The application's start stops there: nothing after the catalogue runs.
 - A start removes STRchive rows the shipped release does not list (another release's, seeded
   earlier), in the same transaction as its upserts.
+- Every row names the STRchive locus whose page on strchive.org the repeat pages link to.
 (integration/test_repeat_multi_locus_storage.py runs the removal on Postgres.)
 """
 
@@ -126,7 +128,7 @@ async def test_an_identical_copy_in_the_bucket_is_read(monkeypatch: pytest.Monke
 
     shipped_ids = [entry["id"] for entry in json.loads(_SHIPPED.read_bytes())]
     assert sorted(_strchive_upserts(session)) == sorted(shipped_ids)
-    assert len(shipped_ids) == 75
+    assert len(shipped_ids) == 82
     assert session.committed
 
 
@@ -139,8 +141,46 @@ async def test_the_repository_copy_is_read_when_the_setting_names_no_file(
 
     await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
 
-    assert len(_strchive_upserts(session)) == 75
+    assert len(_strchive_upserts(session)) == 82
     assert session.committed
+
+
+@pytest.mark.asyncio
+async def test_every_row_names_the_strchive_locus_that_describes_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A STRchive row names itself; a built-in row its gene's one STRchive locus, whose
+    thresholds it carries. The repeat pages link to that locus's page on strchive.org."""
+    _configure(monkeypatch, setting=tmp_path / "unmounted" / "STRchive-loci.json", repository=_SHIPPED)
+    session = RecordingSession()
+
+    await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
+
+    pages = {
+        params["locus_id"]: json.loads(params["metadata_json"]).get("strchive_id")
+        for sql, params in session.statements
+        if "INSERT INTO repeat_loci" in sql
+    }
+    assert pages["HD_HTT"] == "HD_HTT"
+    assert pages["HTT"] == "HD_HTT"
+    assert pages["FMR1"] == "FXS_FMR1"
+    assert pages["C9orf72"] == "FTDALS1_C9orf72"
+    # Every built-in gene has one STRchive locus in the shipped release, and every page named is one.
+    shipped = {entry["id"] for entry in json.loads(_SHIPPED.read_bytes())}
+    assert set(pages.values()) <= shipped
+
+
+def test_a_built_in_gene_with_several_strchive_loci_or_none_names_no_page() -> None:
+    # A gene's name cannot choose one of several tracts (ARX), nor name a locus STRchive lacks.
+    rows = repeat_expansion_pg._with_strchive_pages(
+        [{"locus_id": "ARX", "gene": "ARX"}, {"locus_id": "GENE1", "gene": "GENE1"}, {"locus_id": "HTT", "gene": "htt"}],
+        [
+            {"locus_id": "EIEE1_ARX", "gene": "ARX"},
+            {"locus_id": "PRTS_ARX", "gene": "ARX"},
+            {"locus_id": "HD_HTT", "gene": "HTT"},
+        ],
+    )
+    assert [row["metadata"]["strchive_id"] for row in rows] == [None, None, "HD_HTT"]
 
 
 # ---- Any other file refuses the start, before anything is written ---------------------------------
@@ -325,7 +365,7 @@ async def test_the_application_starts_on_an_identical_copy(monkeypatch: pytest.M
     async with app_main.lifespan(_App()):
         started = list(recorder.calls)
 
-    assert len(_strchive_upserts(session)) == 75
+    assert len(_strchive_upserts(session)) == 82
     assert "wait_for_clickhouse" in started
 
 

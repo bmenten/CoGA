@@ -532,7 +532,6 @@ const FamilyParaphasePage: React.FC = () => {
   const {
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
     isError: referenceFailed,
@@ -561,7 +560,7 @@ const FamilyParaphasePage: React.FC = () => {
     [family?.members, paraphaseTable?.samples],
   );
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion, isError: referenceFailed },
+    { assemblyName, isError: referenceFailed },
     'Not linked',
   );
 

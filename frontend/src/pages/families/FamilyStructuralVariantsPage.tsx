@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
@@ -156,6 +156,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   } | null>(null);
   // Collapse the whole filter panel to give the variant table more room.
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const filterPanelId = useId();
 
   const {
     speciesName,
@@ -173,7 +174,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   // The page waits for the reference (below), so it is never shown as loading here.
   // As every family page's header names it: the assembly and its version.
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion, isError: referenceFailed },
+    { assemblyName, isError: referenceFailed },
     'Not linked',
   );
 
@@ -420,9 +421,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
 
         <FilterCollapseToggle
           collapsed={filtersCollapsed}
+          controls={filterPanelId}
           onToggle={() => setFiltersCollapsed((current) => !current)}
         />
-        {!filtersCollapsed && (
+        <div id={filterPanelId} hidden={filtersCollapsed}>
         <StructuralVariantFilterForm
           activeFilterChips={activeFilterChips}
           applyPreset={applyPreset}
@@ -451,7 +453,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           tags={tags}
           toggleDraftFilterListValue={toggleDraftFilterListValue}
         />
-        )}
+        </div>
           </>
         }
       />
@@ -488,6 +490,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         assemblyName={assemblyName}
         assemblyVersion={assemblyVersion}
         candidateCap={data}
+        rankedBy={data?.ranked_by ?? null}
         filteredTotal={filteredTotal}
         filteredTotalIsEstimated={Boolean(data?.total_is_estimated)}
         linkSearch={linkSearch}
@@ -503,7 +506,6 @@ const FamilyStructuralVariantsPage: React.FC = () => {
             ? getErrorMessage(reviewMutation.error, 'Unable to save the variant review')
             : null
         }
-        summary={data?.summary || {}}
         tags={tags}
         totalPages={totalPages}
         variants={data?.variants || []}

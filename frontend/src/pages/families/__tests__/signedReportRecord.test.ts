@@ -86,6 +86,7 @@ const FROZEN_EVIDENCE = {
   transcript_id: 'ENST00000000001',
   frequencies: {
     gnomad_af: 3.1e-5,
+    gnomad_annotated: ['exomes', 'genomes'],
     gnomad_exomes_af: 1.2e-5,
     gnomad_genomes_af: 3.1e-5,
     gnomad_popmax_af: 0.0002,
@@ -403,6 +404,7 @@ describe('parseSignedReport', () => {
     // writes it; one without a value, or of the wrong type, reads as none.
     expect(variant.evidence?.frequencies).toEqual([
       { label: 'gnomAD AF', value: '3.10e-5' },
+      { label: 'gnomAD datasets', value: 'exomes and genomes' },
       { label: 'gnomAD exomes AF', value: '1.20e-5' },
       { label: 'gnomAD genomes AF', value: '3.10e-5' },
       { label: 'gnomAD popmax AF', value: '0.0002' },
@@ -422,7 +424,7 @@ describe('parseSignedReport', () => {
     ]);
     expect(describeFrozenEvidenceValues(variant.evidence!)).toBe(
       'Read from its primary transcript ENST00000000001: population frequencies gnomAD AF 3.10e-5, ' +
-        'gnomAD exomes AF 1.20e-5, gnomAD genomes AF 3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, ' +
+        'gnomAD datasets exomes and genomes, gnomAD exomes AF 1.20e-5, gnomAD genomes AF 3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, ' +
         'gnomAD allele count 4, gnomAD homozygotes 0 and gnomAD hemizygotes not annotated; in silico scores ' +
         'CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT deleterious(0.01), PolyPhen probably_damaging(0.981), ' +
         'AlphaMissense class not annotated and AlphaMissense score not annotated.',
@@ -497,7 +499,8 @@ describe('parseSignedReport', () => {
     // The consequence first, read from the primary transcript; the missense Z is the gene's.
     expect(describeFrozenEvidenceValues(variant.evidence!)).toBe(
       'Read from its primary transcript ENST00000000001: consequence missense_variant, impact MODERATE and LoF ' +
-        'not annotated; population frequencies gnomAD AF 3.10e-5, gnomAD exomes AF 1.20e-5, gnomAD genomes AF ' +
+        'not annotated; population frequencies gnomAD AF 3.10e-5, gnomAD datasets exomes and genomes, ' +
+        'gnomAD exomes AF 1.20e-5, gnomAD genomes AF ' +
         '3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, gnomAD allele count 4, gnomAD homozygotes 0 ' +
         'and gnomAD hemizygotes not annotated; in silico scores CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT ' +
         'deleterious(0.01), PolyPhen probably_damaging(0.981), AlphaMissense class not annotated and ' +
@@ -957,6 +960,16 @@ describe('the signed report’s wording', () => {
         evidenceTo: { gnomad_af: 0.012, revel: 0.951 },
       }),
     ).toBe('ClinVar VUS → Pathogenic; gnomAD AF 3.10e-5 → 0.012; REVEL 0.412 → 0.951');
+    // The gnomAD datasets the callset was annotated with, which PM2 reads, by name.
+    expect(
+      describeSignedDrift({
+        ...item,
+        status: 'drifted',
+        changed: ['gnomad_annotated', 'annotations'],
+        evidenceFrom: { gnomad_annotated: ['exomes', 'genomes'] },
+        evidenceTo: { gnomad_annotated: null },
+      }),
+    ).toBe('gnomAD datasets exomes and genomes → n/a');
   });
 
   it('names what moved in a small-variant classification’s frozen values', () => {
@@ -1312,7 +1325,7 @@ describe('what the analysis looked at', () => {
   });
 });
 
-// Each repeat call's near-boundary warning and each locus's QA record of TRGT's counting units,
+// Each repeat call's near-boundary warning and each locus's QA count correction,
 // frozen with the calls (signed_record_sections.repeat_expansion_calls, repeat_count_units.py).
 describe('the repeat calls’ near-boundary warnings', () => {
   const repeatsOf = (snapshot: Record<string, unknown>): SignedRepeatExpansions => {
@@ -1328,8 +1341,7 @@ describe('the repeat calls’ near-boundary warnings', () => {
     const [htt, fmr1] = repeats.loci;
     expect(htt.countUnits).toEqual({
       countOffset: 0,
-      validated: true,
-      reason: 'Validation report 7',
+      reason: 'Report 7',
       updatedBy: 'qa-lead',
       updatedAt: '2026-10-15T09:00:00+00:00',
     });
@@ -1338,7 +1350,7 @@ describe('the repeat calls’ near-boundary warnings', () => {
       [18, 18],
       [40, 40],
     ]);
-    expect(fmr1.countUnits).toEqual({ countOffset: 0, validated: false, reason: null, updatedBy: null, updatedAt: null });
+    expect(fmr1.countUnits).toEqual({ countOffset: 0, reason: null, updatedBy: null, updatedAt: null });
     expect(fmr1.calls[0].alleles.map((allele) => allele.countUnitWarning)).toEqual([
       null,
       { repeatCount: 53, margin: 3, boundaries: [{ repeatCount: 55, status: 'premutation' }], unreadableBoundaries: 0 },
@@ -1356,23 +1368,22 @@ describe('the repeat calls’ near-boundary warnings', () => {
       describeCountUnitWarning({ repeat_count: 53, margin: 3, boundaries: [{ repeat_count: 55, status: 'premutation' }] }),
     );
     expect(describeRepeatLocusCalls(fmr1)).toBe(
-      'MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
+      'MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). Count correction: none (no QA record).',
     );
     expect(describeRepeatLocusCalls(htt)).toBe(
-      'PROBAND 0/1: 18, 40 repeats — Pathogenic. TRGT’s counting units: validated — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+      'PROBAND 0/1: 18, 40 repeats — Pathogenic. Count correction: none — Report 7 (qa-lead, 2026-10-15 09:00 UTC).',
     );
-    // A validation QA withdrew: its reason, by whom and when.
+    // A record that confirms no correction: its reason, by whom and when.
     expect(
       describeCountUnits({
         countOffset: 0,
-        validated: false,
         reason: 'New TRGT catalogue',
         updatedBy: 'qa-lead',
         updatedAt: '2026-10-21T08:00:00+00:00',
       }),
-    ).toBe('not validated — New TRGT catalogue (qa-lead, 2026-10-21 08:00 UTC)');
+    ).toBe('none — New TRGT catalogue (qa-lead, 2026-10-21 08:00 UTC)');
     expect(describeCountUnitMargin(3)).toBe(
-      'While QA had not validated TRGT’s counting units at a locus, a count within 3 repeats of a classification boundary was marked ⚠ Near a boundary: a difference of that size between TRGT’s count and the clinical repeat number could change its status. The status stands as classified.',
+      'A count within 3 repeats of a classification boundary was marked ⚠ Near a boundary: TRGT’s count need not be the clinical repeat number the cut-offs count, and a difference of that size could change its status. The status stands as classified.',
     );
   });
 
@@ -1385,11 +1396,11 @@ describe('the repeat calls’ near-boundary warnings', () => {
       [40, 41],
     ]);
     expect(describeRepeatLocusCalls(htt)).toBe(
-      'PROBAND 0/1: 18 (TRGT 19), 40 (TRGT 41) repeats — Pathogenic. TRGT’s counting units: validated, corrected to TRGT’s count −1 — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+      'PROBAND 0/1: 18 (TRGT 19), 40 (TRGT 41) repeats — Pathogenic. Count correction: TRGT’s count −1 — Report 7 (qa-lead, 2026-10-15 09:00 UTC).',
     );
-    // A locus without a correction reads as before.
+    // A locus without a correction says none.
     expect(describeRepeatLocusCalls(fmr1)).toBe(
-      'MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
+      'MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). Count correction: none (no QA record).',
     );
     expect(describeCountCorrections(repeats)).toBe(
       'Where QA had recorded a count correction for a locus, each count there is TRGT’s count with that correction, the count its status was classified from; TRGT’s own count follows in brackets.',
@@ -1397,8 +1408,8 @@ describe('the repeat calls’ near-boundary warnings', () => {
     // Without a correction anywhere, nothing is said of them.
     expect(describeCountCorrections(repeatsOf({ ...SNAPSHOT, ...SIGNED_ANALYSIS }))).toBeNull();
     expect(
-      describeCountUnits({ countOffset: 2, validated: false, reason: 'Offset from VAL-7', updatedBy: null, updatedAt: null }),
-    ).toBe('not validated, corrected to TRGT’s count +2 — Offset from VAL-7');
+      describeCountUnits({ countOffset: 2, reason: 'Offset from VAL-7', updatedBy: null, updatedAt: null }),
+    ).toBe('TRGT’s count +2 — Offset from VAL-7');
   });
 
   it('keeps a warning or a record it cannot fully read, and says so', () => {
@@ -1409,7 +1420,7 @@ describe('the repeat calls’ near-boundary warnings', () => {
         loci: [
           {
             locus_id: 'L1',
-            count_units: { validated: 'yes', reason: '  ', updated_by: 7 },
+            count_units: { count_offset: 'one', reason: '  ', updated_by: 7 },
             calls: [
               {
                 sample: 'S1',
@@ -1434,9 +1445,8 @@ describe('the repeat calls’ near-boundary warnings', () => {
     });
     expect(repeats.countUnitMargin).toBeNull();
     const [l1, l2] = repeats.loci;
-    // Only `true` is validated; a reason that is blank is none; a record that states no
-    // correction reads none.
-    expect(l1.countUnits).toEqual({ countOffset: null, validated: false, reason: null, updatedBy: null, updatedAt: null });
+    // A correction that is no number, and a reason that is blank, read none.
+    expect(l1.countUnits).toEqual({ countOffset: null, reason: null, updatedBy: null, updatedAt: null });
     expect(l2.countUnits).toBeNull();
     const [kept, bare, none] = l1.calls[0].alleles.map((allele) => allele.countUnitWarning);
     expect(kept).toEqual({
@@ -1454,7 +1464,7 @@ describe('the repeat calls’ near-boundary warnings', () => {
     ).toBe('11 is within 3 repeats of a boundary this view cannot read');
     expect(none).toBeNull();
     // A locus without calls says its record alone.
-    expect(describeRepeatLocusCalls({ ...l1, calls: [] })).toBe('TRGT’s counting units: not validated (no QA record).');
+    expect(describeRepeatLocusCalls({ ...l1, calls: [] })).toBe('Count correction: none (no QA record).');
   });
 });
 

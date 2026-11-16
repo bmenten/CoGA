@@ -56,20 +56,19 @@ count. Checked in the public HG002 TRGT output and the laboratory's long-read fi
   reads 18.
 - POLG: it counts four flanking GCT copies, so the common 10-repeat allele reads 14.
 
-QA and the laboratory director check per catalogue locus that TRGT's count is the clinical
-repeat number. An administrator records the result on the admin page **Repeat catalogue**
-(`repeat_locus_count_units`, which no start rewrites; [database.md](database.md)):
+Neither the cut-offs nor TRGT's count against the clinical repeat number are validated per locus
+(the owner's decision, 2026-11-16). So at every locus the repeat page and the genome tracks mark a
+count within 3 repeats of a boundary its classification uses (`services/repeat_count_units.py`);
+the mark changes no status.
 
-- a count correction, in repeats, added to TRGT's count before the count is classified (−1 turns
-  TRGT's 18 into 17). It applies at import, on the repeat page, in the genome tracks and in the
-  signed record, validated or not. TRGT's own count stays shown beside the corrected one;
-- whether the locus is validated: TRGT's count, with its correction, is the clinical repeat
-  number. Until it is, the repeat page and the genome tracks mark a count within 3 repeats of a
-  boundary its classification uses (`services/repeat_count_units.py`); the mark changes no status.
+QA can record a count correction per locus on the admin page **Repeat catalogue**
+(`repeat_locus_count_units`, which no start rewrites; [database.md](database.md)): repeats added
+to TRGT's count before the count is classified (−1 turns TRGT's 18 into 17). It applies at
+import, on the repeat page, in the genome tracks and in the signed record, and TRGT's own count
+stays shown beside the corrected one. A correction does not lift the mark.
 
 No correction is recorded in advance, for HTT, POLG or any other locus. FMR1 has no constant
-correction (its count is 1 to 3 low, by the number of AGG interruptions), so it stays at 0 and
-not validated.
+correction (its count is 1 to 3 low, by the number of AGG interruptions), so it stays at 0.
 
 Segmental duplications load only into the assembly `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME` names
 (GRCh38), and only if it is GRCh38, as the shipped file holds GRCh38 coordinates. An assembly is
@@ -145,6 +144,18 @@ ordered GRCh38, T2T-CHM13, GRCh37, then any other assembly by name (`assembly_di
 `services/sex_chromosomes.py`; `compareAssemblyNames` in the frontend); the gene page opens on
 the first that has the gene.
 
+Wherever a project, a family, a gene or the explorers name an assembly, they show its build
+(`GRCh38`, `GRCh37`) or, for any other assembly, its name: never its version
+(`assemblyDisplayName` in `lib/reference.ts`). The version names the release of the reference
+data CoGA loaded (UCSC's hg38 is `GRCh38.p14`), not the reference a family's data was aligned
+to. A patch adds scaffolds and leaves the chromosomes' coordinates as they are; the FASTA the
+pipeline aligned to (an analysis set, with or without ALT contigs, decoys or masked regions) is
+the family's, named in its annotation manifest as its Reference assembly
+([annotation-provenance.md](annotation-provenance.md)). A list to choose an assembly from adds
+the version only where two assemblies would read alike. **Admin → Species & assemblies** shows
+the version, as the release of the reference data. A package file's `assembly` is checked
+against its project's by build (`same_assembly` in `services/sex_chromosomes.py`).
+
 ### Loading or replacing reference data
 
 Admins manage reference data on **Admin → Species & assemblies**
@@ -155,13 +166,22 @@ Admins manage reference data on **Admin → Species & assemblies**
   above; other genomes use a UCSC gene table. For GRCh37 and GRCh38 the import then starts, in
   the background and as the importing administrator, what the assembly does not have yet: the
   clinical CNV knowledgebase build and the load of the pinned DGV release (below). Its result
-  says what it started, or that it waits on another rebuild or load.
+  says what it started, or that it waits on another rebuild or load. An assembly is its name:
+  CoGA never holds two of one name. A genome whose assembly is already there keeps that
+  assembly, its id and everything loaded for it, and takes the version and release date UCSC
+  states now (the GRC patch, such as `p14`, also when UCSC has moved to a later one). With
+  *overwrite* its cytobands and genes are replaced; without it an assembly that holds them is
+  refused (409) and nothing changes. A name that is another species' assembly is refused (409).
 - **A start** does the same for a GRCh37 or GRCh38 assembly already there, the bootstrap
   assembly (`REFERENCE_BOOTSTRAP_ASSEMBLY_NAME`) first, as no account (`startup-bootstrap`):
   `REFERENCE_BOOTSTRAP_CLINICAL_CNVS` and `REFERENCE_BOOTSTRAP_DGV` (both on by default, under
   `REFERENCE_BOOTSTRAP_ENABLED`) switch each off. One rebuild and one DGV load run at a time, so a
   second assembly's waits for the next start or its button. An assembly that already has the data
-  gets nothing new: a newer release is an administrator's step.
+  gets nothing new: a newer release is an administrator's step. A GRCh38 that lacks cytobands or
+  genes, such as the empty one a first start makes when it cannot reach UCSC (version `hg38`), is
+  completed in place and takes the version and release date UCSC states.
+- **Add assembly manually** (`POST /assemblies`) makes an empty assembly to upload files into. A
+  name that is already there is refused (409), whatever its version.
 - **Rebuild** (the ↻ beside *Clin CNVs*) builds the clinical CNV knowledgebase again from ClinGen,
   UCSC, ClinVar, Orphanet and OMIM (`POST /admin/clinical-cnv-kb/rebuild`).
 - **Load DGV** (the ↻ beside *DGV*, for an assembly with a pinned release) loads the pinned DGV
@@ -248,14 +268,27 @@ imported on its own: it changes phenotype matching, so it is an administrator's 
 ### The STRchive release
 
 The repeat catalogue is built from one STRchive release: the one shipped as
-`data/ref-data/STRchive-loci.json` and validated with the built-in loci, which carry its
-thresholds. That is STRchive release **v2.18.0** (2026-04-28), `STRCHIVE_PINNED_RELEASE`. The
-file is byte-identical to the `STRchive-loci-v2.18.0.json` STRchive published with that release
-(found on 2026-10-20 by comparing the SHA-256 with the loci file of every published release).
-The file states no release of its own, so its SHA-256 identifies it: `a0295e1fe3e2…` (75 loci),
-held in full as `STRCHIVE_PINNED_LOCI_SHA256` in `backend/app/core/config.py`. No setting
-overrides the pin, and `.gitattributes` keeps git from changing the file's line endings in a
-checkout.
+`data/ref-data/STRchive-loci.json`. That is STRchive release **v2.28.0** (2026-10-08),
+`STRCHIVE_PINNED_RELEASE`. The file is byte-identical to the `STRchive-loci-v2.28.0.json`
+STRchive published with that release: its SHA-256 is the digest GitHub lists for that release
+asset. The file states no release of its own, so its SHA-256 identifies it: `16301ecb0023…`
+(82 loci), held in full as `STRCHIVE_PINNED_LOCI_SHA256` in `backend/app/core/config.py`. No
+setting overrides the pin, and `.gitattributes` keeps git from changing the file's line endings
+in a checkout.
+
+STRchive's thresholds are CoGA's repeat cut-offs, as the release states them (the owner's
+decision, 2026-11-16): each locus's benign, intermediate and pathogenic ranges are taken from
+the release without a validation of their own per locus, and the built-in loci carry the same
+thresholds. CoGA adds one range STRchive does not state, FMR1's premutation (from 55 repeats,
+ACMG). A locus's thresholds change only when the pin moves to another release.
+
+The pipeline's TRGT catalogue is the same release's `STRchive-disease-loci-v2.28.0.<assembly>.TRGT.bed`:
+its IDs are the TRIDs CoGA looks up, and its motifs the ones whose counts CoGA reads. A call
+whose TRID the release does not list reads *not assessed*. An allele's count is the copies TRGT
+counts of the locus's motif (STRchive's first pathogenic motif) in every rotation the call
+lists: STRchive's TRGT file lists FXN's repeat as both `GAA` and `AAG`, and TRGT can count one
+tract partly under each, so CoGA adds them up. A call that lists no rotation of the motif is
+read at the row's motif index.
 
 Every start reads the file `TRGT_STRCHIVE_LOCI_PATH` names (`/data/ref-data/STRchive-loci.json`;
 on Cloud Run the reference-data bucket), or the repository's copy when that file does not exist.
@@ -280,9 +313,9 @@ other name several STRchive loci share, such as a tag, is resolved the same way.
 Moving to another STRchive release is a reviewed change, made in one pull request:
 
 1. replace `data/ref-data/STRchive-loci.json` with the new release's file, byte for byte as
-   published;
-2. set `STRCHIVE_PINNED_LOCI_SHA256` to its digest (`shasum -a 256`), and give the shortened
-   digest here and in TF-08;
+   published, and check its SHA-256 against the digest the release lists for it;
+2. set `STRCHIVE_PINNED_LOCI_SHA256` to its digest (`shasum -a 256`) and
+   `STRCHIVE_PINNED_RELEASE` to the release, and give both here and in TF-08;
 3. give the built-in loci the new release's thresholds
    (`test_repeat_thresholds_follow_strchive.py` fails until they agree);
 4. update the expected loci of the repeat tests.
@@ -392,7 +425,8 @@ so a share or bucket mounted read-only serves as it is: the import reads the man
 
 The Package Import page shows the deliveries ([below](#watched-import-folders)), where a package
 is checked, corrected and approved, and **Recent family imports**, the import jobs an approval
-queued: each one's status, its progress while it runs (each dataset's share read and the time
+queued, the latest 10 first (**Show all** lists up to 100, the most the job history returns, in a
+list that scrolls): each one's status, its progress while it runs (each dataset's share read and the time
 left), and on **View** its report: the datasets, validation errors and warnings, the log, the
 SHA-256 of the manifest CoGA kept and the package fingerprint, and a link to the imported family.
 
@@ -947,8 +981,8 @@ with its SHA-256. The import reads the latest.
 A folder no pipeline delivered, or delivered without a package file, goes the same way
 ([import_manual_delivery.py](../backend/app/services/import_manual_delivery.py)). On the Package
 Import page, **Add a folder by hand** under **Deliveries** (or `POST /family-imports/deliveries`, superuser) takes a folder under the import
-roots, the project it belongs to, its analysis (LR-WGS, LR-AS (long-read adaptive sampling), PGT,
-Expanded Carrier Screening or mNIPT: the package's `analysis_type`,
+roots, the project it belongs to, its analysis (LR-WGS, LR-AS (long-read adaptive sampling), SR-WGS
+(short-read WGS), PGT, Expanded Carrier Screening or mNIPT: the package's `analysis_type`,
 [coga-package.md](coga-package.md)) and, where it is not the folder's name, its family ID. Left
 empty, the family ID is the folder's name; it is fixed once the folder is added, as a pipeline's
 is. CoGA makes the package a pipeline's `coga-package.json` would hold: the project and its
@@ -1150,6 +1184,28 @@ FAM001/
 Discover takes `bams/<sample>/<sample>.cram` (or `.bam`) as the sample's alignment, never another
 file in that folder (a `<sample>_phased.bam` beside it). For the family callset it sets
 `source_format: clair3` and `exclude_filters`, as for the long-read per-sample callsets (below).
+
+A family on conventional short-read WGS (Illumina, analysis `short_read_wgs`, SR-WGS) has its PED,
+its joint callset (GATK HaplotypeCaller per sample, joint-genotyped with GenotypeGVCFs) twice at
+the top of the folder, and a folder per sample for its alignment:
+
+```text
+FAM001/
+  FAM001.ped
+  FAM001.GRCh38.annotated.vcf.gz (+ .tbi)   the callset, VEP-annotated: the family's SNV callset
+  FAM001.vcf.gz (+ .tbi)                    the same callset unannotated: not read
+  vep-commands.json                         the annotation's VEP commands: not read
+  PROBAND/PROBAND.cram (+ .crai)            and MOTHER's, FATHER1's; optional
+```
+
+Discover takes the annotated callset as the family's SNV callset, never the unannotated one, and
+`<sample>/<sample>.cram` (or `.bam`) as each sample's alignment; a sample without one has calls
+but no reads in the genome browser. It sets `source_format: clair3`: GATK's header describes its
+physical phasing, so a file whose first record is physically phased (`0|1`) would otherwise be
+read as imputed genotypes, which the diagnostic views leave out. A package file the pipeline writes
+for such a family should say the same in its `snv` dataset. The callset's records carry no FILTER
+of their own (`.`, as GATK writes them without VQSR), which a PASS-only filter keeps; its contigs
+are in the order the joint calling concatenated them, which the import does not need sorted.
 
 A PGT package from nf-cmgg/copgtm is laid out per tool, and holds the files Discover reads for
 each dataset:
@@ -1353,6 +1409,7 @@ schema_version: 1          # must be 1
 family_id: FAM001          # defaults to the folder name
 analysis_type: monogenic_nipt   # optional
 roi: CFTR                  # optional region of interest
+reference: GRCh38_no_alt_analysis_set.fasta   # optional: the FASTA the pipeline aligned to
 
 metadata:
   pgt:
@@ -1424,6 +1481,11 @@ or none:
   ahead of the import. With no project and no existing family to look it up in,
   they say it was not checked (`manifest_roi_not_checked`).
 - A manifest without `roi` leaves the family's region as it is.
+
+`reference` is the reference genome the pipeline aligned to, the package file's `reference`. The
+import records its FASTA's name (without a path before it) as the Reference assembly of the
+family's annotation manifest, under the modality `package`, beside the `##reference` of its VCF
+headers ([annotation-provenance.md](annotation-provenance.md)).
 
 `metadata.pgt.affected_parents` names the parent whose condition the PGT tests for (the PGT
 pipeline's `affected_parent`, which Discover copies). `metadata.pgt.indexes` names the index, the
@@ -1955,14 +2017,14 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 
 | What CoGA shows and reads | Field names read | Used by |
 | --- | --- | --- |
-| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; VEP cache `CLIN_SIG` only without those | card, filters, ranking, PP5/BP6 |
+| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; VEP cache `CLIN_SIG` (`CLIN_SIG_VEP_CACHE`) only without those | card, filters, ranking, PP5/BP6 |
 | ClinVar review status (stars) | `ClinVar_CLNREVSTAT`, `CLNREVSTAT` | card, PP5/BP6 evidence, frozen evidence |
 | ClinVar conditions | `ClinVar_CLNDN`, `CLNDN` | card, PP5/BP6 evidence |
 | ClinVar VariationID | `ClinVar` (the matched record's ID, VEP `--custom`), digits only | the card's ClinVar link |
 | ClinVar AlleleID | `ClinVar_ALLELEID`, `ALLELEID` | card |
-| gnomAD AF (overall, exomes, genomes) | `gnomAD_AF`, `gnomADe_AF`, `gnomADg_AF` | filters, PM2 |
+| gnomAD AF (overall, exomes, genomes) | `gnomAD_AF`, `gnomADe_AF`, `gnomADg_AF` | filters, PM2 (with the gnomAD datasets the header declares them of) |
 | gnomAD popmax | `gnomAD_AF_POPMAX`, `gnomAD_AF_grpmax`, `gnomADe_AF_grpmax`, `gnomADg_AF_grpmax` (and `…_popmax`) | popmax filter, card |
-| VEP MAX_AF | `MAX_AF`, `POPMAX_AF` | popmax filter where gnomAD has none, card |
+| VEP MAX_AF | `MAX_AF` (`MAX_AF_VEP_ALL_POPULATIONS`), `POPMAX_AF` | popmax filter where gnomAD has none, card |
 | gnomAD FAF95 | `gnomAD_fafmax_faf95_max`, `gnomADe_fafmax_faf95_max`, `gnomADg_fafmax_faf95_max` (and `…_faf95_popmax`) | BA1/BS1, card |
 | gnomAD counts and allele number | `…_AC`, `…_nhomalt` (`…_Hom`), `…_Hemi`, `…_AN` with `gnomAD`, `gnomADe` or `gnomADg` | count filters, BS2, card |
 | gnomAD site filter | `gnomAD_FILTER`, `gnomADe_FILTER`, `gnomADg_FILTER` | card (a site failing gnomAD's QC) |
@@ -1988,6 +2050,10 @@ What the workflow should hold to:
   the annotation manifest reads the release from it.
 - **ClinVar as a `--custom` file.** Use the short name `ClinVar`, so the fields are
   `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`.
+- **gnomAD genomes.** Annotate gnomAD's genomes (`--af_gnomadg`, or its genomes or joint file
+  with `--custom`), not its exomes alone: a variant without a gnomAD frequency is then read as
+  absent from gnomAD, and PM2 applies. A `--custom` file keeps its dataset in its name
+  (`gnomad.genomes.…`, `gnomad.joint.…`), or its short name says it (`gnomADg`).
 
 The mtDNA page also reads a mutserve table's columns (HelixMTdb's `Helix_vaf_hom` and
 `Helix_vaf_het`, among others; [Where each dataset lands](#where-each-dataset-lands)).
@@ -2197,6 +2263,18 @@ A family small-variant upload is one family VCF from one callset:
   - A gnomAD count is gnomAD's total, as its browser shows it: the combined count, else the exome
     and genome counts added, either alone when the other is missing (the owner's choice
     of 2026-10-27).
+  - Each annotation names the gnomAD datasets whose allele frequency its file's header declares
+    (`gnomad_annotated`): a field the gnomAD allele frequency is read from (`gnomAD_AF`,
+    `gnomADe_AF`, `gnomADg_AF`) as a CSQ or ANN field, an INFO key, or a VEP table's column or
+    described Extra key, whether VEP's cache, a VEP `--custom` file or another tool wrote it. A
+    field holds the dataset the gnomAD file its description names says (`… AF field from
+    [PATH]/gnomad.genomes.v4.1.sites.vcf.bgz`: `exomes`, `genomes` or `joint`), else the one its
+    name says (`gnomADe_`: exomes, `gnomADg_`: genomes), else `unspecified`. A variant without a
+    gnomAD frequency in a callset annotated with gnomAD's genomes or joint set is absent from
+    gnomAD, which PM2 reads (the owner's choice of 2026-11-13;
+    [acmg-classification.md](../frontend/src/content/docs/acmg-classification.md#frequency-pm2-bs1-ba1)).
+    A record without a `CSQ` or `ANN` entry and none of the INFO keys the parser reads has no
+    annotation, and names no dataset.
   - The INFO's `AC`, the callset's own allele count, is never read as gnomAD's, nor are `AC_Adj`,
     `nhomalt` and `hemi` without a prefix.
   - A variant without a population value has none, and a maximum frequency or count filter keeps
