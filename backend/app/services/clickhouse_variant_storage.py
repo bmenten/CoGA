@@ -31,6 +31,11 @@ from .clickhouse_variant_rows import (
     _structural_variant_entry_rows,
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
+from .variant_carrier_summary import (
+    carrier_generations_table_ddl,
+    carriers_table_ddl,
+    detach_family_variant_carriers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +320,10 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         PRIMARY KEY (family_guid, project_guid, sample_id)
         ORDER BY (family_guid, project_guid, sample_id)
         """,
+        # The cohort's carriers of each variant, kept per family as its rows are written
+        # (variant_carrier_summary), and what each family's contribution was computed from.
+        carriers_table_ddl(database, dataset),
+        carrier_generations_table_ddl(database, dataset),
         # One row per mutation of a family's small variants (see
         # bump_family_small_variant_data_version). Plain MergeTree on purpose: the rows are
         # never collapsed, so the (count, sum) fingerprint changes on every write.
@@ -411,6 +420,14 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         _ensured_variant_table_assemblies.add(dataset)
 
 
+async def _before_entries_write(assembly_name: str, family_uuid: str) -> None:
+    """Take the family's contribution out of the variant carrier summary before its
+    ``entries`` rows change (``variant_carrier_summary``): every function below that writes
+    them calls this first, as does the snapshot restore. The caller holds the family's
+    small-variant write lock."""
+    await detach_family_variant_carriers(assembly_name, family_uuid)
+
+
 async def _bump_family_data_version(version_table: str, family_uuid: str) -> None:
     await _execute(
         f"INSERT INTO {version_table} (family_guid, token) VALUES",
@@ -492,6 +509,7 @@ async def delete_family_small_variants(
     source: str | None = None,
 ) -> None:
     await ensure_clickhouse_variant_tables(assembly_name)
+    await _before_entries_write(assembly_name, family_uuid)
     params: dict[str, Any] = {"family_guid": family_uuid}
     if source is not None:
         # Source-scoped delete: only clear this callset's entries (e.g. re-importing
@@ -575,6 +593,8 @@ async def insert_small_variant_records(
     )
     if not entries:
         entry_rows = []
+    if entry_rows:
+        await _before_entries_write(assembly_name, family_uuid)
     if detail_rows:
         await _execute_insert_chunks(
             f"""
@@ -926,6 +946,8 @@ async def refresh_family_small_variant_summaries(
     family_uuid: str,
 ) -> None:
     await ensure_clickhouse_variant_tables(assembly_name)
+    # It moves the data version, which the carrier summary checks its contribution against.
+    await _before_entries_write(assembly_name, family_uuid)
     params: dict[str, Any] = {"family_guid": family_uuid}
     for suffix in ("family_variant_summary", "family_sample_variant_summary"):
         await _execute(
@@ -1412,6 +1434,7 @@ async def copy_family_variants_to_projects(
     the family's variant-write locks, both types (``family_variant_write_lock``).
     """
     await ensure_clickhouse_variant_tables(assembly_name)
+    await _before_entries_write(assembly_name, family_uuid)
     targets = _normalized_project_ids(project_ids)
     linked = set(_normalized_project_ids(linked_project_ids))
     written: set[str] = set()
@@ -1504,6 +1527,8 @@ async def prune_family_variant_projects(
         )
         if not left:
             continue
+        if kind == _SMALL:
+            await _before_entries_write(assembly_name, family_uuid)
         await _execute(
             f"ALTER TABLE {table} DELETE WHERE family_guid = %(family_guid)s "
             "AND project_guid NOT IN %(keep)s SETTINGS mutations_sync = 1",

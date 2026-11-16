@@ -1,11 +1,10 @@
-"""The signed record freezes each repeat call's near-boundary warning, QA's counting-units record and
-QA's count correction, E2E.
+"""The signed record freezes each repeat call's near-boundary warning and QA's count correction, E2E.
 
 TRGT's count need not be the clinical repeat number (at FMR1 it leaves out the AGG
-interruptions: a 55-repeat premutation can read 53), so until QA validates a catalogue locus the
-repeat page marks a count within 3 repeats of a classification boundary. The signed record
-freezes that warning beside each allele, and per locus QA's record of TRGT's counting units
-as ``repeat_locus_count_units`` holds it at sign-out.
+interruptions: a 55-repeat premutation can read 53), so at every locus the repeat page marks a
+count within 3 repeats of a classification boundary. The signed record freezes that warning
+beside each allele, and per locus QA's record (its count correction, the reason, by whom and
+when) as ``repeat_locus_count_units`` holds it at sign-out.
 
 Here a one-member family (a woman, a new id each run) goes through the package import into real
 Postgres and ClickHouse with a TRGT call at FXS_FMR1 of 30 and 53 repeats and one at HD_HTT of 18
@@ -13,12 +12,13 @@ and 36, at loci without a QA record. Through the API, this:
 
 * reads the repeat page: the 53 reads grey zone and is marked with the premutation at 55;
 * signs the family out and reads the record back: the warning beside the 53, none beside the 30,
-  the locus not validated with no record, the margin; a verified content hash and chain; a check
-  that matches, with nothing of the section not captured;
-* validates the locus as an admin (``PUT /admin/repeat-loci/FXS_FMR1/count-units``): the repeat
-  page no longer marks the 53, and the check names the repeat expansions as changed since sign-out;
-* signs out again: the record holds the locus validated, with the reason, by whom and when, and no
-  warning; then withdraws the validation: the check names the repeat expansions as changed again;
+  the locus without a record, the margin; a verified content hash and chain; a check that
+  matches, with nothing of the section not captured;
+* records QA's record at FMR1 as an admin, no correction with a reason
+  (``PUT /admin/repeat-loci/FXS_FMR1/count-units``): the repeat page still marks the 53, and the
+  check names the repeat expansions as changed since sign-out;
+* signs out again: the record holds QA's record, with the reason, by whom and when, and the
+  warning still beside the 53;
 * records QA's count correction of -1 at HD_HTT (CLIN-57), which TRGT reads one above the usual
   count: the repeat page reads the 36 as 35, grey zone, with TRGT's 36 beside it; the check names
   the repeat expansions as changed; a sign-out freezes both counts and the correction. The
@@ -55,8 +55,7 @@ SIGN_OUT_BODY = {
     "acknowledge_unreviewed_findings": True,
     "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
 }
-VALIDATION_REASON = "e2e: validation report of TRGT's counting units at FMR1"
-WITHDRAWAL_REASON = "e2e: a new TRGT catalogue"
+RECORD_REASON = "e2e: no constant correction fits FMR1"
 CORRECTION_REASON = "e2e: TRGT counts HTT one above the usual count"
 WARNING_53 = {"repeat_count": 53, "margin": 3, "boundaries": [{"repeat_count": 55, "status": "premutation"}]}
 
@@ -109,14 +108,13 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     async with sessionmaker() as session:
         admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
         await seed_builtin_repeat_catalog(session)
-        # The loci start without a QA record (no correction, not validated); their records are
-        # put back below.
+        # The loci start without a QA record (no correction); their records are put back below.
         priors = [
             dict(row)
             for row in (
                 await session.execute(
                     text(
-                        "SELECT locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at "
+                        "SELECT locus_id, count_offset, reason, updated_by, updated_by_name, updated_at "
                         "FROM repeat_locus_count_units WHERE locus_id IN (:l, :h)"
                     ),
                     {"l": LOCUS, "h": HTT_LOCUS},
@@ -166,27 +164,19 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             await sign_out("signout")
             r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
-            # QA validates TRGT's counting units at FMR1 after sign-out.
-            r["validate"] = capture(
-                await ac.put(units, json={"validated": True, "count_offset": 0, "reason": VALIDATION_REASON})
-            )
-            r["table_validated"] = capture(await ac.get(f"{family}/repeat-expansions"))
-            r["check_validated"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-            await sign_out("signout_validated")
-            r["check_signed_validated"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-
-            # And withdraws it.
-            r["withdraw"] = capture(
-                await ac.put(units, json={"validated": False, "count_offset": 0, "reason": WITHDRAWAL_REASON})
-            )
-            r["check_withdrawn"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+            # QA records FMR1 after sign-out: no correction, with its reason.
+            r["record"] = capture(await ac.put(units, json={"count_offset": 0, "reason": RECORD_REASON}))
+            r["table_recorded"] = capture(await ac.get(f"{family}/repeat-expansions"))
+            r["check_recorded"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+            await sign_out("signout_recorded")
+            r["check_signed_recorded"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
             # QA's count correction at HTT (CLIN-57), after a sign-out.
             await sign_out("signout_before_correction")
             r["correct"] = capture(
                 await ac.put(
                     f"/api/admin/repeat-loci/{HTT_LOCUS}/count-units",
-                    json={"validated": False, "count_offset": -1, "reason": CORRECTION_REASON},
+                    json={"count_offset": -1, "reason": CORRECTION_REASON},
                 )
             )
             r["table_corrected"] = capture(await ac.get(f"{family}/repeat-expansions"))
@@ -214,8 +204,8 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                 await session.execute(
                     text(
                         "INSERT INTO repeat_locus_count_units "
-                        "(locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at) "
-                        "VALUES (:locus_id, :validated, :count_offset, :reason, :updated_by, :updated_by_name, "
+                        "(locus_id, count_offset, reason, updated_by, updated_by_name, updated_at) "
+                        "VALUES (:locus_id, :count_offset, :reason, :updated_by, :updated_by_name, "
                         ":updated_at)"
                     ),
                     prior,
@@ -265,22 +255,21 @@ def test_the_family_imports_with_a_grey_zone_fmr1_count(run) -> None:
     assert imported["datasets"]["repeats_trgt"] == "imported"
 
 
-def test_the_repeat_page_marks_the_53_while_the_locus_is_not_validated(run) -> None:
+def test_the_repeat_page_marks_the_53(run) -> None:
     [locus] = [row for row in ok_json(run, "table")["loci"] if row["locus_id"] == LOCUS]
-    assert locus["count_units_validated"] is False
+    assert "count_units_validated" not in locus
     alleles = locus["calls"][run["sample"]]["alleles"]
     assert [(allele["repeat_count"], allele["status"]) for allele in alleles] == [(30, "normal"), (53, "intermediate")]
     assert [allele["count_unit_warning"] for allele in alleles] == [None, WARNING_53]
 
 
-def test_the_record_freezes_the_warning_beside_the_call_and_the_locus_not_validated(run) -> None:
+def test_the_record_freezes_the_warning_beside_the_call_and_the_locus_without_a_record(run) -> None:
     detail = ok_json(run, "signout_detail")
     section = detail["snapshot"]["repeat_expansions"]
     assert section["count_unit_margin"] == 3
     locus = _fmr1(section)
     assert locus["count_units"] == {
         "count_offset": 0,
-        "validated": False,
         "reason": None,
         "updated_by": None,
         "updated_at": None,
@@ -304,55 +293,42 @@ def test_the_check_matches_the_record_right_after_it_was_signed(run) -> None:
     assert _section_gaps(check["not_captured"]) == []
 
 
-def test_a_validation_since_sign_out_reads_as_a_change(run) -> None:
-    validated = ok_json(run, "validate")
-    assert (validated["locus_id"], validated["validated"], validated["reason"]) == (LOCUS, True, VALIDATION_REASON)
-    # The repeat page no longer marks the 53; its status is the same.
-    [locus] = [row for row in ok_json(run, "table_validated")["loci"] if row["locus_id"] == LOCUS]
-    assert locus["count_units_validated"] is True
+def test_a_record_since_sign_out_reads_as_a_change_and_keeps_the_mark(run) -> None:
+    recorded = ok_json(run, "record")
+    assert (recorded["locus_id"], recorded["count_offset"], recorded["reason"]) == (LOCUS, 0, RECORD_REASON)
+    assert "validated" not in recorded
+    # A record is no statement that TRGT's count is the clinical number: the 53 stays marked.
+    [locus] = [row for row in ok_json(run, "table_recorded")["loci"] if row["locus_id"] == LOCUS]
     alleles = locus["calls"][run["sample"]]["alleles"]
-    assert [allele["count_unit_warning"] for allele in alleles] == [None, None]
+    assert [allele["count_unit_warning"] for allele in alleles] == [None, WARNING_53]
     assert [allele["status"] for allele in alleles] == ["normal", "intermediate"]
-    # The record held the 53 marked at a locus not validated: the check says the repeat
-    # expansions changed since sign-out, and so did the findings without a review, which
-    # listed the 53 near a boundary (REQ-TRACE-016).
-    check = ok_json(run, "check_validated")
+    # The record held the locus without QA's record: the check says the repeat expansions
+    # changed since sign-out.
+    check = ok_json(run, "check_recorded")
     assert check["matches"] is False
-    assert check["changed_sections"] == ["unreviewed_findings", "repeat_expansions"]
+    assert "repeat_expansions" in check["changed_sections"]
 
 
-def test_the_next_record_freezes_the_validation_with_its_reason_by_whom_and_when(run) -> None:
-    detail = ok_json(run, "signout_validated_detail")
+def test_the_next_record_freezes_qas_record_with_its_reason_by_whom_and_when(run) -> None:
+    detail = ok_json(run, "signout_recorded_detail")
     locus = _fmr1(detail["snapshot"]["repeat_expansions"])
     units = locus["count_units"]
-    assert (units["validated"], units["reason"]) == (True, VALIDATION_REASON)
-    assert units["updated_by"] == ok_json(run, "validate")["updated_by"] and units["updated_by"]
+    assert (units["count_offset"], units["reason"]) == (0, RECORD_REASON)
+    assert "validated" not in units
+    assert units["updated_by"] == ok_json(run, "record")["updated_by"] and units["updated_by"]
     assert units["updated_at"]
-    assert [allele["count_unit_warning"] for allele in _alleles(locus, run["sample"])] == [None, None]
+    assert [allele["count_unit_warning"] for allele in _alleles(locus, run["sample"])] == [None, WARNING_53]
     assert detail["verified"] is True
-    assert ok_json(run, "check_signed_validated")["matches"] is True
-
-
-def test_a_withdrawal_since_sign_out_reads_as_a_change(run) -> None:
-    withdrawn = ok_json(run, "withdraw")
-    assert (withdrawn["validated"], withdrawn["reason"]) == (False, WITHDRAWAL_REASON)
-    check = ok_json(run, "check_withdrawn")
-    assert check["matches"] is False
-    # The 53 is near a boundary again, so it is again a finding without a review.
-    assert check["changed_sections"] == ["unreviewed_findings", "repeat_expansions"]
+    assert ok_json(run, "check_signed_recorded")["matches"] is True
 
 
 def test_a_count_correction_reclassifies_the_call_with_trgts_count_beside_it(run) -> None:
     corrected = ok_json(run, "correct")
-    assert (corrected["locus_id"], corrected["validated"], corrected["count_offset"]) == (HTT_LOCUS, False, -1)
+    assert (corrected["locus_id"], corrected["count_offset"]) == (HTT_LOCUS, -1)
     [locus] = [row for row in ok_json(run, "table_corrected")["loci"] if row["locus_id"] == HTT_LOCUS]
-    assert (locus["count_offset"], locus["count_units_validated"], locus["count_units_reason"]) == (
-        -1,
-        False,
-        CORRECTION_REASON,
-    )
+    assert (locus["count_offset"], locus["count_units_reason"]) == (-1, CORRECTION_REASON)
     alleles = locus["calls"][run["sample"]]["alleles"]
-    # TRGT's 36 (pathogenic) is 35: grey zone, still marked while HTT is not validated.
+    # TRGT's 36 (pathogenic) is 35: grey zone, still marked near the threshold at 36.
     assert [(allele["repeat_count"], allele["trgt_repeat_count"], allele["status"]) for allele in alleles] == [
         (17, 18, "normal"),
         (35, 36, "intermediate"),
@@ -375,7 +351,7 @@ def test_the_record_freezes_the_corrected_count_trgts_count_and_the_correction(r
     locus = _htt(detail["snapshot"]["repeat_expansions"])
     assert locus["status"] == "intermediate"
     units = locus["count_units"]
-    assert (units["count_offset"], units["validated"], units["reason"]) == (-1, False, CORRECTION_REASON)
+    assert (units["count_offset"], units["reason"]) == (-1, CORRECTION_REASON)
     assert units["updated_by"] and units["updated_at"]
     alleles = _alleles(locus, run["sample"])
     assert [(allele["repeat_count"], allele["trgt_repeat_count"], allele["status"]) for allele in alleles] == [
@@ -391,7 +367,8 @@ def test_the_record_freezes_the_corrected_count_trgts_count_and_the_correction(r
 
 def test_the_admin_list_names_the_correction(run) -> None:
     [htt] = [locus for locus in ok_json(run, "listed")["loci"] if locus["locus_id"] == HTT_LOCUS]
-    assert (htt["count_offset"], htt["validated"], htt["offset_note"]) == (-1, False, None)
+    assert (htt["count_offset"], htt["offset_note"]) == (-1, None)
+    assert ok_json(run, "listed")["strchive_release"] == "v2.28.0"
     [fmr1] = [locus for locus in ok_json(run, "listed")["loci"] if locus["locus_id"] == LOCUS]
     assert fmr1["count_offset"] == 0 and "AGG" in fmr1["offset_note"]
     assert ok_json(run, "listed")["offset_limit"] == 20

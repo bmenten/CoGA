@@ -2,13 +2,16 @@
 
 A sign-up (and a first CAS sign-in) makes an inactive account that was never active
 (``users.activated_at`` empty). Every active administrator is told by e-mail; an administrator
-activates it, archives it, or deletes it when it is not relevant.
+activates it, which tells the account by e-mail, archives it, or deletes it when it is not
+relevant.
 
 On real Postgres, through the app with real sign-ins:
 
 * a sign-up makes an inactive account that waits for approval, and the mail about it goes to
   every active administrator and not to an inactive one; the *Users* page reads who it reaches,
   and a test mail goes to the same addresses;
+* an activated account is told by e-mail, at its own address alone; archiving, a refused
+  activation and restoring send no mail;
 * an account activated once can no longer be deleted (409); archived, it is inactive, cannot
   sign in and cannot be activated until it is restored (409), and restored it stays inactive
   with its first activation's time; the database refuses an archived account that is active;
@@ -144,8 +147,14 @@ async def _exercise(run: str) -> dict[str, Any]:
 
             # --- activated once: archived, never deleted ---------------------------------------
             approved = f"/api/auth/users/{ids['approved']}"
+            mailed_before = len(_FakeSmtp.sent)
             activated = await admin.patch(approved, json={"is_active": True})
             out["activated"] = (activated.status_code, activated.json()["is_active"], activated.json()["activated_at"])
+            out["activation_mail"] = [
+                (message["To"], message["Subject"], message.get_content())
+                for message in _FakeSmtp.sent[mailed_before:]
+            ]
+            mailed_before = len(_FakeSmtp.sent)
             out["delete_activated"] = (await admin.delete(approved)).json()
             archived = await admin.patch(approved, json={"archived": True})
             out["archived"] = (
@@ -168,6 +177,7 @@ async def _exercise(run: str) -> dict[str, Any]:
                 restored.json()["activated_at"] == activated.json()["activated_at"],
             )
             out["delete_restored"] = (await admin.delete(approved)).status_code
+            out["mailed_after_activation"] = len(_FakeSmtp.sent) - mailed_before
 
             # --- waiting for approval: deleted, unless a record names it ------------------------
             panel_delete = await admin.delete(f"/api/auth/users/{ids['panel']}")
@@ -268,6 +278,15 @@ def test_the_users_page_reads_who_is_told_and_a_test_mail_reaches_them(ran: dict
     test_status, test_body, test_to = ran["test_mail"]
     assert (test_status, test_body["recipients"]) == (200, mail["recipients"])
     assert test_to == ", ".join(mail["recipients"])
+
+
+def test_an_activated_account_is_told_by_e_mail(ran: dict[str, Any]) -> None:
+    ((to, subject, body),) = ran["activation_mail"]
+    assert (to, subject) == (ran["emails"]["approved"], "CoGA: your account is active")
+    assert f"Account: {ran['emails']['approved']}\n" in body
+    assert "Sign in with: this e-mail address and the password you chose when you signed up\n" in body
+    # Archiving, the refused activation of an archived account and restoring mail no one.
+    assert ran["mailed_after_activation"] == 0
 
 
 def test_an_account_activated_once_is_archived_and_never_deleted(ran: dict[str, Any]) -> None:

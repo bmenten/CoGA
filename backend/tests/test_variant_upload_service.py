@@ -990,7 +990,11 @@ def test_vep_default_output_reads_its_extra_column_as_tab_output_reads_its_colum
     }
     columns = "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence"
     row = "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST1\tTranscript\tmissense_variant"
+    # VEP describes each Extra key it may write, as it writes none without a value: the
+    # gnomAD frequency the table declares (a --tab column declares it as its column).
     default_output = (
+        "## Extra column keys:\n"
+        "## gnomADe_AF : Frequency of existing variant in gnomAD exomes combined population\n"
         f"{columns}\tExisting_variation\tExtra\n"
         f"{row}\trs1\t{';'.join(f'{key}={value}' for key, value in fields.items())}\n"
     )
@@ -1011,6 +1015,31 @@ def test_vep_default_output_reads_its_extra_column_as_tab_output_reads_its_colum
     for key in ("sift", "polyphen", "clinvar", "hgvsc", "hgvsp"):
         assert default_annotation.get(key) not in (None, ""), key
     assert default_annotation["population_frequencies"]["gnomad_exomes_af"] == 0.0001
+    assert default_annotation["gnomad_annotated"] == ["exomes"]
+
+
+def test_a_vep_table_names_the_gnomad_datasets_it_declares_on_every_row() -> None:
+    # A --tab column declares its field; an Extra key its description, which names the gnomAD
+    # file VEP --custom read it from. A row without a frequency names them too: PM2 reads it as
+    # absent from gnomAD's joint set.
+    lookup = _parse_vep_tsv_annotation_upload(
+        _vep_upload(
+            "## ENSEMBL VARIANT EFFECT PREDICTOR v115.1\n"
+            "## Extra column keys:\n"
+            "## gnomAD_AF : Alternate allele frequency. AF field from [PATH]/gnomad.joint.v4.1.sites.vcf.bgz\n"
+            "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tConsequence\tSYMBOL\tgnomADe_AF\tExtra\n"
+            "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST1\tmissense_variant\tGENE1\t0.001\tgnomAD_AF=0.002\n"
+            "chr1_201_C/T\tchr1:201\tT\tENSG1\tENST1\tmissense_variant\tGENE1\t-\t-\n"
+        )
+    )
+    try:
+        [found] = lookup.get(build_small_variant_id("1", 101, "A", "G"), "1", 101, "A", "G") or []
+        [absent] = lookup.get(build_small_variant_id("1", 201, "C", "T"), "1", 201, "C", "T") or []
+    finally:
+        lookup.close()
+    assert found["gnomad_af"] == 0.002
+    assert found["gnomad_annotated"] == absent["gnomad_annotated"] == ["exomes", "joint"]
+    assert "gnomad_af" not in absent
 
 
 def test_parse_vep_tsv_annotation_upload_only_marks_true_mane_flags() -> None:

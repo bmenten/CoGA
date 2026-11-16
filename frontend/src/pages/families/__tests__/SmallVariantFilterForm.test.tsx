@@ -180,6 +180,63 @@ test('marks a deleted tag on the active review-tag and exclude chips', () => {
   expect(screen.getByRole('button', { name: 'Review tags: Needs segregation' })).toBeInTheDocument();
 });
 
+// The categories, one row each in a single column: a row with a filter set is marked, so the
+// closed rows show where the filters are; "Expand all" and "Collapse all" open or close them all.
+test('marks the categories with a filter set, and opens or closes every one at once', () => {
+  const { container } = render(
+    <MemoryRouter>
+      <SmallVariantFilterForm
+        {...(props({
+          draftFilters: { ...createEmptySmallFilters(), clinvar: 'Pathogenic' },
+          sampleDraftFilters: {},
+        }) as unknown as ComponentProps<typeof SmallVariantFilterForm>)}
+      />
+    </MemoryRouter>,
+  );
+  const row = (title: string) =>
+    screen.getByText(title, { selector: '.variant-filter-dropdown-title' }).closest('details') as HTMLElement;
+  expect(row('Pathogenicity')).toHaveClass('variant-filter-dropdown--active');
+  expect(row('Frequency')).not.toHaveClass('variant-filter-dropdown--active');
+  expect(row('Inheritance')).not.toHaveClass('variant-filter-dropdown--active');
+
+  const rows = Array.from(container.querySelectorAll('details.variant-filter-dropdown')) as HTMLDetailsElement[];
+  expect(rows.length).toBeGreaterThan(1);
+  expect(rows.every((entry) => !entry.open)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+  expect(rows.every((entry) => entry.open)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+  expect(rows.every((entry) => !entry.open)).toBe(true);
+});
+
+// The NIPT categories row also holds the inheritance view, the minimum confidence and the
+// recurrence limit: any of them marks it, not only a ticked category.
+test('marks the NIPT categories row by every filter it holds', () => {
+  renderWith({
+    mode: 'nipt',
+    familyAware: false,
+    unsupportedFilters: NIPT_UNSUPPORTED_FILTERS,
+    draftFilters: { ...createEmptySmallFilters(), inheritance: 'de_novo' },
+    sampleDraftFilters: {},
+    categoryLabels: { 1: 'De novo' },
+    niptInheritancePresets: [{ value: 'de_novo', label: 'De novo', categories: '' }],
+  });
+  const row = screen
+    .getByText('Maternal/fetal categories', { selector: '.variant-filter-dropdown-title' })
+    .closest('details') as HTMLElement;
+  expect(row).toHaveClass('variant-filter-dropdown--active');
+  expect(row.querySelector('.variant-filter-dropdown-meta')).toHaveTextContent('1 active');
+});
+
+test('offers "Expand all" only once the advanced filters are shown', () => {
+  renderWith({ collapsibleAdvanced: true });
+  const toggle = screen.getByRole('button', { name: /Advanced filters/ });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('button', { name: 'Expand all' })).not.toBeInTheDocument();
+  fireEvent.click(toggle);
+  expect(screen.getByRole('button', { name: 'Expand all' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Collapse all' })).toBeInTheDocument();
+});
+
 // The Annotations, Frequency and Call quality sections, laid out as seqr's.
 const renderWith = (overrides: Record<string, unknown>) => {
   const formProps = props(overrides);

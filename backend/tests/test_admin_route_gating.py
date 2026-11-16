@@ -294,9 +294,6 @@ def test_a_replacement_is_recorded_as_manual_whatever_source_the_caller_sends(mo
     async def _no_row(session, family_uuid):
         return None
 
-    async def _family(session, family_id, user):
-        return types.SimpleNamespace(metadata={})
-
     async def _event(session, **kwargs):
         events.append(kwargs)
 
@@ -305,7 +302,6 @@ def test_a_replacement_is_recorded_as_manual_whatever_source_the_caller_sends(mo
 
     monkeypatch.setattr(ams, "build_family_metadata_context", _context)
     monkeypatch.setattr(ams, "_family_manifest_row", _no_row)
-    monkeypatch.setattr(ams, "get_family_record", _family)
     monkeypatch.setattr(ams, "record_clinical_event", _event)
     monkeypatch.setattr(ams, "get_family_annotation_manifest", _manifest)
 

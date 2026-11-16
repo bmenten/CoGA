@@ -40,6 +40,10 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "snv/{family_id}/{family_id}.vcf.gz",
                     "snv/{family_id}_phased.vcf.gz",
                     "snv/family.annotated.vcf.gz",
+                    # Conventional short-read (Illumina) WGS: the joint GATK callset,
+                    # VEP-annotated, at the top of the family folder and named after its
+                    # assembly. The unannotated callset beside it (<family>.vcf.gz) is not read.
+                    "{family_id}.GRCh38.annotated.vcf.gz",
                     # nf-core/lrsvar writes the VEP-annotated callset per sample. For a
                     # single-sample family that file *is* the family callset, so these
                     # are only rendered when the family has exactly one sample.
@@ -55,6 +59,8 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "snv/{family_id}_phased.vcf.gz.tbi",
                     "snv/{family_id}_phased.vcf.gz.csi",
                     "snv/family.annotated.vcf.gz.tbi",
+                    "{family_id}.GRCh38.annotated.vcf.gz.tbi",
+                    "{family_id}.GRCh38.annotated.vcf.gz.csi",
                     "snv/{sample_id}/annotation/{sample_id}_annot.vcf.gz.tbi",
                     "snv/{sample_id}/annotation/{sample_id}_annot.vcf.gz.csi",
                     "snv/annotation/{sample_id}/{sample_id}_annot.vcf.gz.tbi",
@@ -469,6 +475,9 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     # takes S10's file.
                     "cram/{sample_id}.cram",
                     "cram/{sample_id}.*.cram",
+                    # Short-read WGS: one folder per sample at the top of the family folder.
+                    "{sample_id}/{sample_id}.cram",
+                    "{sample_id}/{sample_id}.bam",
                     "{sample_id}.cram",
                     "{sample_id}.bam",
                 ],
@@ -482,6 +491,8 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "cram/{sample_id}.cram.crai",
                     "cram/{sample_id}.crai",
                     "cram/{sample_id}.*.cram.crai",
+                    "{sample_id}/{sample_id}.cram.crai",
+                    "{sample_id}/{sample_id}.bam.bai",
                     "{sample_id}.cram.crai",
                     "{sample_id}.bam.bai",
                 ],
@@ -1085,14 +1096,25 @@ _FIELD_DECLARATION = re.compile(r"##(INFO|FORMAT|FILTER|ALT|contig)=", re.IGNORE
 _IMPUTATION_TOOL = re.compile(r"glimpse|beagle|impute|minimac|shapeit", re.IGNORECASE)
 
 
-def _is_deepvariant_direct_callset(path: Path) -> bool:
-    """Whether a family VCF is DeepVariant's own calls (``##DeepVariant_version``, also once
-    merged and phased by read-based phasing, as nf-LRSvar's trio callset is), not imputed
-    genotypes: its header declares no genotype posteriors (FORMAT ``GP``, which the loader
+# The header lines a variant caller that calls genotypes from the reads writes: DeepVariant's,
+# and GATK HaplotypeCaller's (its command line, in the current and the older notation).
+_DIRECT_CALLER_LINES = (
+    "##DeepVariant_version=",
+    "##GATKCommandLine=<ID=HaplotypeCaller,",
+    "##GATKCommandLine.HaplotypeCaller=",
+)
+
+
+def _is_direct_callset(path: Path) -> bool:
+    """Whether a family VCF holds a caller's own calls, not imputed genotypes: DeepVariant's
+    (``##DeepVariant_version``, also once merged and phased by read-based phasing, as
+    nf-LRSvar's trio callset is) or GATK HaplotypeCaller's (a short-read WGS family's joint
+    callset, whose header describes its physical phasing and so reads as phased to the
+    loader); its header declares no genotype posteriors (FORMAT ``GP``, which the loader
     reads as imputed) and names no imputation or statistical phasing tool. Only such a file
     is declared the primary callset without the loader's own reading of it."""
     lines = _vcf_meta_lines(path)
-    if not any(line.startswith("##DeepVariant_version=") for line in lines):
+    if not any(line.startswith(_DIRECT_CALLER_LINES) for line in lines):
         return False
     if any(line.startswith("##FORMAT=<ID=GP,") for line in lines):
         return False
@@ -1101,21 +1123,21 @@ def _is_deepvariant_direct_callset(path: Path) -> bool:
     )
 
 
-def _with_long_read_snv_settings(
+def _with_direct_callset_snv_settings(
     root: Path,
     block: dict[str, Any],
     *,
     sample_ids: list[str],
     patterns: dict[str, list[str]],
 ) -> dict[str, Any]:
-    """The ``snv`` block with what a long-read callset needs: ``source_format: clair3`` (a
-    phased primary callset would otherwise be guessed imputed and hidden from the diagnostic
-    views, and a per-sample callset is read only so declared) and ``exclude_filters`` for
-    the DeepVariant records without a variant. It applies to the long-read pipeline's
-    per-sample annotated callsets, and to a family VCF of DeepVariant's own calls
-    (``_is_deepvariant_direct_callset``: nf-LRSvar's merged, phased trio callset). Any other
-    callset's block, imputed genotypes among them, is returned as it is; what the block
-    already says wins."""
+    """The ``snv`` block with what a callset of direct calls needs: ``source_format: clair3``
+    (a phased primary callset would otherwise be guessed imputed and hidden from the
+    diagnostic views, and a per-sample callset is read only so declared) and
+    ``exclude_filters`` for the DeepVariant records without a variant. It applies to the
+    long-read pipeline's per-sample annotated callsets, and to a family VCF of a caller's own
+    calls (``_is_direct_callset``: nf-LRSvar's merged, phased trio callset, a short-read WGS
+    family's GATK callset). Any other callset's block, imputed genotypes among them, is
+    returned as it is; what the block already says wins."""
     per_sample = block.get("per_sample")
     if isinstance(per_sample, dict) and per_sample and not block.get("family_vcf"):
         paths = [entry.get("vcf") for entry in per_sample.values() if isinstance(entry, dict)]
@@ -1128,7 +1150,7 @@ def _with_long_read_snv_settings(
         family_vcf = block.get("family_vcf")
         family_path = package_path_within(root, family_vcf) if isinstance(family_vcf, str) else None
         if family_vcf in long_read_paths or (
-            family_path is not None and family_path.is_file() and _is_deepvariant_direct_callset(family_path)
+            family_path is not None and family_path.is_file() and _is_direct_callset(family_path)
         ):
             paths = [family_vcf]
         else:
@@ -1524,7 +1546,7 @@ def _build_manifest_payload(
                 fallback=(item, block),
             )
         if dataset_type == "snv" and item.complete:
-            block = _with_long_read_snv_settings(root, block, sample_ids=sample_ids, patterns=scheme["snv"])
+            block = _with_direct_callset_snv_settings(root, block, sample_ids=sample_ids, patterns=scheme["snv"])
         if not item.complete and dataset_type == "repeats_trgt":
             # No joint TRGT VCF: fall back to the pipeline's per-sample repeat calls.
             sample_item, sample_block = _optional_role_dataset_availability(

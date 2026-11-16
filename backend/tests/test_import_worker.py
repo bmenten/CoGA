@@ -85,6 +85,12 @@ def _patch_process(
         await stop_event.wait()
 
     monkeypatch.setattr(import_worker, "ancestry_worker", ancestry_waits_for_its_stop)
+
+    async def carriers_wait_for_their_stop(stop_event: asyncio.Event) -> None:
+        recorder.calls.append("variant_carrier_worker")
+        await stop_event.wait()
+
+    monkeypatch.setattr(import_worker, "variant_carrier_worker", carriers_wait_for_their_stop)
     return stop_events
 
 
@@ -95,7 +101,11 @@ def test_the_process_checks_what_the_api_checks_and_never_migrates(monkeypatch) 
     async def run() -> int:
         stop = asyncio.Event()
         running = asyncio.create_task(import_worker.run_import_workers(3, stop))
-        while recorder.calls.count("family_package_import_worker") < 3 or "ancestry_worker" not in recorder.calls:
+        while (
+            recorder.calls.count("family_package_import_worker") < 3
+            or "ancestry_worker" not in recorder.calls
+            or "variant_carrier_worker" not in recorder.calls
+        ):
             await asyncio.sleep(0)
         stop.set()
         return await running
@@ -108,8 +118,10 @@ def test_the_process_checks_what_the_api_checks_and_never_migrates(monkeypatch) 
         "family_package_import_worker",
         "family_package_import_worker",
         "family_package_import_worker",
-        # The exploratory ancestry PCA's worker runs beside them, off the API's loop.
+        # The exploratory ancestry PCA's worker runs beside them, off the API's loop, and so
+        # does the worker that keeps the Variant Explorer's carrier summary.
         "ancestry_worker",
+        "variant_carrier_worker",
         "close_clickhouse_client",
         "close_postgres_engine",
     ]
@@ -320,9 +332,11 @@ def test_the_api_starts_as_many_import_workers_as_it_is_given(monkeypatch, caplo
         "gene_reference_refresh_worker",
         "family_package_import_worker",
         "ancestry_worker",
+        "variant_carrier_worker",
         "stop_gene_reference_worker",
         "stop_family_package_import_worker",
         "stop_ancestry_worker",
+        "stop_variant_carrier_worker",
         "stop_clickhouse_integrity_monitor",
         "stop_audit_log_worker",
         "stop_ui_event_worker",
@@ -345,6 +359,12 @@ def test_the_api_starts_as_many_import_workers_as_it_is_given(monkeypatch, caplo
     assert recorder.calls.count("stop_family_package_import_worker") == count
     # The ancestry PCA's worker runs where the imports run: in the API only with its own.
     assert recorder.calls.count("ancestry_worker") == recorder.calls.count("stop_ancestry_worker") == min(count, 1)
+    # So does the worker that keeps the Variant Explorer's carrier summary.
+    assert (
+        recorder.calls.count("variant_carrier_worker")
+        == recorder.calls.count("stop_variant_carrier_worker")
+        == min(count, 1)
+    )
     # The rest of the start runs whatever the count: the API migrates and serves.
     assert "init_postgres_schema" in recorder.calls
     assert "gene_reference_refresh_worker" in recorder.calls
@@ -355,7 +375,13 @@ def test_the_api_starts_as_many_import_workers_as_it_is_given(monkeypatch, caplo
 def test_every_worker_is_stopped_one_way() -> None:
     # The gene-reference refresh, the package imports, the ancestry PCA and the import
     # watcher each kept a copy of this stop; each keeps its name, which the start calls.
-    from backend.app.services import ancestry_service, family_package_import, gene_info_jobs_pg, import_watcher
+    from backend.app.services import (
+        ancestry_service,
+        family_package_import,
+        gene_info_jobs_pg,
+        import_watcher,
+        variant_carrier_summary,
+    )
     from backend.app.services.worker_tasks import stop_worker
 
     assert {
@@ -363,6 +389,7 @@ def test_every_worker_is_stopped_one_way() -> None:
         family_package_import.stop_family_package_import_worker,
         ancestry_service.stop_ancestry_worker,
         import_watcher.stop_import_watcher,
+        variant_carrier_summary.stop_variant_carrier_worker,
     } == {stop_worker}
 
     async def stop_a_running_worker() -> tuple[bool, bool, bool]:

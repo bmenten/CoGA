@@ -18,9 +18,13 @@ The page opens with the **Phenotype priority (Exomiser-style)** preset on the **
 
 ### Filters and presets
 
-The filters sit under **Advanced filters**, grouped as on the screen: **Phenotype**, **Structural
-second hit**, **Inheritance**, **Pathogenicity**, **Annotations**, **In silico**, **Frequency**, **Call
-quality**, **Locations**, **Exclude** and **Review and curation**.
+The filters sit under **Advanced filters**, closed when the page opens, one category to a row across
+the page: **Phenotype**, **Structural second hit**, **Inheritance**, **Pathogenicity**, **Annotations**,
+**In silico**, **Frequency**, **Call quality**, **Locations**, **Exclude** and **Review and curation**.
+Closed, **Advanced filters** says how many categories have a filter set. A row's bar says how many
+filters its category holds and carries its quick choice at the right; click the bar for the
+category's fields. A category with a filter set is marked red at the left of its bar. **Expand all**
+and **Collapse all** open or close every row.
 
 - **Annotations** groups the VEP consequences as seqr does: nonsense, essential splice site,
   frameshift, missense, in frame, synonymous, extended splice site, other, motif feature and regulatory
@@ -135,7 +139,11 @@ score, or read the card, for the breakdown: *Variant*, *Pathogenicity*, *Rarity*
 compatible inheritance modes and the matched phenotypes.
 
 - A gene without Monarch data gets no phenotype credit and ranks lower; its *Variant* score is not
-  affected. Look further down for strong variants, or untick **Phenotype prioritization**.
+  affected. To find such novel-gene candidates, set **Rank by** in the **Phenotype** filters to
+  *Variant score*: the whole ranking, not only the page shown, is then ordered by the variant score,
+  the phenotype match left out of the order. The scores stay the same; the **Score** column and each
+  card show the variant score and the rank in that order, and a note above the list says it is ranked
+  so. The CSV export of a ranked list writes both scores and the rank.
 - Without HPO terms on the affected members, the ranking uses the variant evidence only.
 - The ranking changes the order of a search, not what it finds. With an inheritance mode or
   *Expanded carrier screening* it ranks the same variants and compound-het pairs the search finds
@@ -159,8 +167,10 @@ computed. The smaller panel gets its own ranking instead when it reaches a varia
 lacks (through a region of its own, such as the position PanelApp gives for a gene), or keeps one
 variant of a compound-het pair without the other.
 
-**Download CSV** exports the list, with *Priority* and *Rank* columns when the ranking is on. Its
-*Classification* column holds the class each review shows on the page; *Tags* holds the review's tags.
+**Download CSV** exports the list, with *Priority*, *Variant score* and *Rank* columns when the
+ranking is on, in the order it was ranked by. Its
+*Classification* column holds the class each review shows on the page, *Classification text* the
+classification as typed, and *Tags* the review's tags.
 
 ### Also hit by a structural variant
 

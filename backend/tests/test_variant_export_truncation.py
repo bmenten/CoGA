@@ -217,8 +217,12 @@ def _explorer_service(monkeypatch, *, matching: int) -> tuple[types.ModuleType, 
     async def _shown_members(session, project_ids):
         return [svc._ShownMember(family_uuid="family-1", sample_id="PROBAND", sample_uuid="sample-1")]
 
+    async def _no_pending(session, scope):
+        return []
+
     monkeypatch.setattr(svc, "resolve_scope", _resolve_scope)
     monkeypatch.setattr(svc, "_shown_members", _shown_members)
+    monkeypatch.setattr(svc, "_pending_families", _no_pending)
     monkeypatch.setattr(svc, "_fetch_variant_rows", _fetch_variant_rows)
     return svc, seen
 

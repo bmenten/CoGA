@@ -33,15 +33,12 @@ brackets.
 
 ## Product
 
-- **Variant Explorer** (PROD-2): gene-, transcript- and cohort-frequency views beside the variant view.
 - **Variant summary statistics** (PROD-1): what the family's *Variant summary* still lacks ([#1](https://github.com/bmenten/CoGA/issues/1)):
   - A call of uniparental disomy or of runs of homozygosity. The page counts the inconsistencies and the homozygous share per chromosome but calls nothing; a call needs its own requirement and validation (REG-15).
   - Speed at genome scale: the statistics are counted on each visit. A synthetic trio of five million variants took about 6 s on a laptop's Docker, with up to 2 GiB for one query; a real genome on the real stack is not yet timed (OPS-9). If it proves slow, keep the statistics at import beside the family's summary tables.
   - A Mendelian table for a callset of one file per sample: a trio's calls then lie in different rows, so it has no sites.
-- **Annotation coverage per callset** (PROD-10): CoGA cannot tell a variant absent from gnomAD from one the pipeline did not annotate with gnomAD, so PM2 is offered to consider, never applied, without a gnomAD frequency (and BP4/BP7 without a prediction). Recording, per callset, which sources its VCF header declares would let PM2 be applied where gnomAD was annotated.
 - **Long-read packages** (PROD-4): no dataset type reads a plain multi-sample Sniffles2 VCF, and QDNAseq-style raw-bin CNV files are not importable.
 - **Per-sample GLIMPSE2 haplotypes** (PROD-5): per-sample GLIMPSE2 BCF haplotypes are registered but not imported.
 - **Single-parent recessive risk** (PROD-6): it reads "uninformative" by design; a later version could say "carries the known parent's risk allele, donor unknown".
 - **Haplogroup comparison** (PROD-7): REQ-MITO-003 has no automated haplogroup comparison; the analyst compares the haplogroups CoGA lists, and the owner decides whether that stays a manual review step (TF-09b §3).
 - **More than one PGT region** (PROD-9): a PGT family has one ROI, and the signed record's PGT section holds one, so two loci need its format extended after the RC.
-- **Sort by the raw variant score** (ENG-9): the UI could offer novel-gene candidates sorted by the raw variant score.

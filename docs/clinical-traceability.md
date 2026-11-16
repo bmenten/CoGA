@@ -54,8 +54,10 @@ then most severe impact; its id in `transcript_id`), through the variant list's 
   (`lof_flags`) and VEP's NMD prediction (`nmd`), either of which makes PVS1 Consider; for a multi-allelic
   record (ALT `G,T`) only, the ALT these values are of (`alt_allele`): the transcript alone does not
   say which allele's annotation was read;
-- under `frequencies`: the gnomAD allele frequency the frequency criteria read (`gnomad_af`), and
-  the exome, genome, gnomAD popmax, VEP `MAX_AF` (`max_af`) and TOPMed frequencies and gnomAD
+- under `frequencies`: the gnomAD allele frequency the frequency criteria read (`gnomad_af`), the
+  gnomAD datasets the variant's callset was annotated with (`gnomad_annotated`; none when it was
+  annotated with none), which say whether a variant without that frequency is absent from gnomAD
+  (PM2), and the exome, genome, gnomAD popmax, VEP `MAX_AF` (`max_af`) and TOPMed frequencies and gnomAD
   allele, homozygote and hemizygote counts the filters read, and gnomAD's FAF95 (`gnomad_faf95_af`)
   that BA1 and BS1 read; for a chrM variant only, the homoplasmic and heteroplasmic frequencies the
   mtDNA criteria read (`gnomad_mt_af_hom`, `gnomad_mt_af_het`, `helix_af_hom`, `helix_af_het`);
@@ -111,8 +113,7 @@ cannot drift from the data. It is written by:
   (`repeat:<locus_id>`) or Paraphase region (`paraphase:<gene_symbol>`);
 - sign-out, and an admin's manifest replacement;
 - every NIPT artifact-list change, on its own chain (`system:nipt-artifacts`, not a family);
-- every record of a repeat locus's count correction and of whether TRGT's counting units there
-  are validated, on another (`system:repeat-loci`);
+- every record of a repeat locus's count correction, on another (`system:repeat-loci`);
 - every change to a family's phenotypes.
 
 A phenotype edit writes one `phenotype` event per HPO term added, changed or removed: the member,
@@ -148,8 +149,8 @@ The actions are `classification`, `tags`, `note`, `compound_het_pair`, `pedigree
 `panel_applied` (below), `sign_out`, `nipt_artifact_added`, `nipt_artifact_updated`,
 `nipt_artifact_removed`, `nipt_artifacts_auto_seeded`, `nipt_artifacts_imported` (an import of
 the NIPT-M pipeline's recurrent table, naming the file and every allele it listed), and
-`repeat_count_units_validated` and `repeat_count_units_not_validated` (the locus, and the record
-before and after: its count correction, `count_offset`, whether it is validated, and its reason).
+`repeat_count_correction_recorded` (the locus, and the record before and after: its count
+correction, `count_offset`, and its reason).
 
 `classification`, for a small variant, holds the ACMG class, the accepted criteria, the point
 total, the VUS tier and every stored criterion (its strength, whether accepted, its evidence text,
@@ -318,8 +319,8 @@ them, so it cannot clear a change without a new judgement. The repeat and Paraph
 `unchanged`; `changed`, with `changes` listing each difference as `path: before → after` and a
 member's call named by its sample (`calls[PROBAND].alleles[1].repeat_count: 34 → 38`);
 `not_found` (no call at the locus or region now); `no_snapshot`; or `unverifiable`. A re-import
-with other counts or copy numbers, a new catalogue threshold, or a validation of TRGT's counting
-units at the locus each changes what a review froze. A review with only tags or a note is not
+with other counts or copy numbers, a new catalogue threshold, or a count correction at the locus
+each changes what a review froze. A review with only tags or a note is not
 checked.
 
 ## Sign-out
@@ -408,12 +409,11 @@ in the EPD refers to the signed version by its report code (*The report code* be
     the margin on each side that reads another status, and the margin; the allele's own status
     is the one on its side of the boundary; null when there is none). Per locus, QA's record of
     TRGT's counting units there, as `repeat_locus_count_units` held it (`count_units`: the
-    correction `count_offset`, `validated`, the `reason`, who (`updated_by`) and when
-    (`updated_at`); for a locus without a record `count_offset: 0`, `validated: false` and the
-    rest null), with the margin in force (`count_unit_margin`). The counts, statuses and warnings
-    and the record never disagree: the family table reads QA's record in the statement that reads
-    the calls, and the record frozen is the one they were classified and marked with. A locus
-    validated, withdrawn or corrected since reads as a change;
+    correction `count_offset`, the `reason`, who (`updated_by`) and when (`updated_at`); for a
+    locus without a record `count_offset: 0` and the rest null), with the margin in force
+    (`count_unit_margin`). The counts, statuses and warnings and the record never disagree: the
+    family table reads QA's record in the statement that reads the calls, and the record frozen
+    is the one they were classified and marked with. A locus corrected since reads as a change;
   - `paraphase`: every Paraphase result of the family's samples, with its status as CoGA reads it
     at sign-out, its copy numbers, the region's status rule and copy-number norm, and the
     catalogue of regions (how many, and a digest of their rules);
@@ -744,8 +744,8 @@ Seven gates run first, in this order:
    abnormal call and no review gets 409 (`gate: "unreviewed_findings"`), unless the request sets
    `acknowledge_unreviewed_findings` with an `unreviewed_findings_acknowledgement_reason` (422
    without). A repeat call is abnormal when its status is `pathogenic`, `premutation`, `review`
-   or `not_assessed`, or when one of its counts lies near a boundary at a locus whose counting
-   units QA has not validated (a grey zone alone is not). A Paraphase call is abnormal when its
+   or `not_assessed`, or when one of its counts lies near a boundary (a grey zone alone is
+   not). A Paraphase call is abnormal when its
    status is `pathogenic`, `carrier` or `review`. A review with a classification, a tag or a note
    counts as a review. The 409 lists each finding in `unreviewed_findings` (kind, key, gene, and
    each abnormal member's sample and status, with `near_boundary` for a repeat), as the record
@@ -881,9 +881,8 @@ version; one never signed out opens on the live report.
 - the gene panels applied; the repeat expansions (each count near a
   boundary marked beside its call, *⚠ Near a boundary: 53 is within 3 repeats of 55
   (Premutation)*; a count QA's correction changed with TRGT's own in brackets, *18 (TRGT 19)*; and
-  each locus's counting units, *TRGT’s counting units: not validated (no QA record)*, or validated
-  or not, *corrected to TRGT’s count −1*, with the reason, by whom and when; where a record holds a
-  correction, one sentence says what the bracketed count is); the Paraphase results; the
+  each locus's count correction (*TRGT’s count −1*, or none), with the reason, by whom and when;
+  where a record holds a correction, one sentence says what the bracketed count is); the Paraphase results; the
   coverage tracks (*Coverage tracks*: per sample and caller, what the track held, read depth, a
   log2 ratio or unknown, and the file it was loaded from, from where and when); the delivered
   package and its corrections (*Package intake*: the run, the package file and the revision
@@ -958,8 +957,8 @@ release of one, is a change to `modules`.
 Each of the parts below is compared whole, so a change since signing reads as a change:
 
 - **A PGT embryo's QC verdict**: a verdict or threshold changed since signing.
-- **The repeat calls' near-boundary warnings**: a locus whose counting units QA validated or
-  withdrew since signing.
+- **The repeat calls' near-boundary warnings**: a warning a count correction or a catalogue
+  threshold added or lifted since signing.
 - **QA's count corrections** (CLIN-57): a correction recorded or changed since signing that moves
   a count or a status.
 - **The NIPT coverage check's notes** over the coverage tracks (as null too, with a per-target

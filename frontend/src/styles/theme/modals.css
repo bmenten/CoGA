@@ -375,6 +375,27 @@
   width: min(560px, 100%);
 }
 
+/* The approval of package deliveries (ImportDeliveriesPanel): many families with warnings make a
+   long list, so the list scrolls inside a dialog no taller than the window, and the heading, the
+   warnings check and the buttons stay in view. */
+.import-approve-modal {
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
+.import-approve-modal > * {
+  flex-shrink: 0;
+}
+
+.import-approve-modal > .import-approve-list {
+  flex: 1 1 auto;
+  min-height: 3rem;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-grid);
+  border-bottom: 1px solid var(--color-grid);
+  padding: 0.375rem 0.25rem 0.375rem 0;
+}
+
 /* A delivered package corrected before its approval (DeliveryCorrectionDialog): its members
    table is wide, so the dialog takes the window's width and scrolls inside it. */
 .delivery-correction-modal {

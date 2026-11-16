@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import type { ChangeEvent, SyntheticEvent } from 'react';
 import {
   ALL_GT_GROUPS,
@@ -39,6 +39,7 @@ import {
   ExcludeFilterSection,
   ReviewFilterSection,
 } from './smallVariantFilterSections';
+import { FilterAccordion } from './VariantFilterAccordion';
 import { reviewTagLabel } from '../../lib/reviewTags';
 
 type SmallVariantFilterFormProps = Pick<
@@ -129,7 +130,8 @@ type SmallVariantFilterFormProps = Pick<
   } | null;
   /**
    * When true, the filter categories sit behind an "Advanced filters" toggle, collapsed on
-   * open. The fields stay mounted while collapsed, so collapsing never changes a filter.
+   * open (the family small-variant and NIPT pages). The fields stay mounted while collapsed,
+   * so collapsing never changes a filter.
    */
   collapsibleAdvanced?: boolean;
 };
@@ -214,8 +216,6 @@ const SmallVariantFilterForm = ({
   const [openSections, setOpenSections] = useState<OpenSections>(DEFAULT_OPEN_SECTIONS);
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
-  const [advancedOpen, setAdvancedOpen] = useState(!collapsibleAdvanced);
-  const advancedPanelId = useId();
   const [loadedPreset, setLoadedPreset] = useState<LoadedPreset | null>(null);
   const [initialPresetTaken, setInitialPresetTaken] = useState(false);
   const currentDraftKey = draftKey(draftFilters, sampleDraftFilters);
@@ -259,6 +259,15 @@ const SmallVariantFilterForm = ({
         [section]: nextOpen,
       }));
     };
+
+  // "Expand all" / "Collapse all": every category open, or every one closed.
+  const setAllSections = (open: boolean) => {
+    setOpenSections(
+      Object.fromEntries(
+        Object.keys(DEFAULT_OPEN_SECTIONS).map((section) => [section, open]),
+      ) as OpenSections,
+    );
+  };
 
   const getActiveChipLabel = (chip: ActiveSmallFilterChip) => {
     if (chip.kind === 'top' && chip.key === 'panel_id' && chip.value) {
@@ -622,63 +631,36 @@ const SmallVariantFilterForm = ({
         </section>
       ) : null}
 
-      <section className="variant-search-section">
-        {collapsibleAdvanced ? (
-          <button
-            type="button"
-            className="variant-advanced-toggle"
-            aria-expanded={advancedOpen}
-            aria-controls={advancedPanelId}
-            onClick={() => setAdvancedOpen((current) => !current)}
-          >
-            <span className="variant-filter-dropdown-caret" aria-hidden="true">
-              ▾
-            </span>
-            <span className="variant-advanced-toggle-title">Advanced filters</span>
-            <span className="variant-advanced-toggle-meta">
-              ({visibleSections.length} categories
-              {sectionsWithFilters > 0 ? `, ${sectionsWithFilters} with filters set` : ''})
-            </span>
-          </button>
-        ) : null}
-        {/* Hidden, not unmounted: collapsing keeps every field and its value as it is. */}
-        <div
-          id={collapsibleAdvanced ? advancedPanelId : undefined}
-          className="variant-filter-dropdown-grid"
-          hidden={collapsibleAdvanced && !advancedOpen}
-        >
-          {familyAware ? (
-          <PhenotypeFilterSection form={form} />
-          ) : null}
-          {familyAware ? (
-          <SvSecondHitFilterSection form={form} />
-          ) : null}
-          {familyAware ? (
-          <InheritanceFilterSection form={form} />
-          ) : null}
+      <FilterAccordion
+        collapsible={collapsibleAdvanced}
+        categoryCount={visibleSections.length}
+        activeCategoryCount={sectionsWithFilters}
+        onExpandAll={() => setAllSections(true)}
+        onCollapseAll={() => setAllSections(false)}
+      >
+        {familyAware ? <PhenotypeFilterSection form={form} /> : null}
+        {familyAware ? <SvSecondHitFilterSection form={form} /> : null}
+        {familyAware ? <InheritanceFilterSection form={form} /> : null}
 
-          {mode === 'nipt' ? (
-          <NiptCategoriesFilterSection form={form} />
-          ) : null}
+        {mode === 'nipt' ? <NiptCategoriesFilterSection form={form} /> : null}
 
-          <PathogenicityFilterSection form={form} />
+        <PathogenicityFilterSection form={form} />
 
-          <AnnotationsFilterSection form={form} />
+        <AnnotationsFilterSection form={form} />
 
-          <InSilicoFilterSection form={form} />
+        <InSilicoFilterSection form={form} />
 
-          <FrequencyFilterSection form={form} />
+        <FrequencyFilterSection form={form} />
 
-          {/* Per-member call minimums: a family's members only (as Inheritance). */}
-          {familyAware ? <CallQualityFilterSection form={form} /> : null}
+        {/* Per-member call minimums: a family's members only (as Inheritance). */}
+        {familyAware ? <CallQualityFilterSection form={form} /> : null}
 
-          <LocationsFilterSection form={form} />
+        <LocationsFilterSection form={form} />
 
-          <ExcludeFilterSection form={form} />
+        <ExcludeFilterSection form={form} />
 
-          <ReviewFilterSection form={form} />
-        </div>
-      </section>
+        <ReviewFilterSection form={form} />
+      </FilterAccordion>
     </form>
   );
 };

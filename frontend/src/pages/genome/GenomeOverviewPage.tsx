@@ -150,7 +150,6 @@ const GenomeOverviewPage: React.FC = () => {
     speciesName,
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     assemblyId,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
@@ -538,7 +537,6 @@ const GenomeOverviewPage: React.FC = () => {
         familyId={familyId || data.family_id}
         familyDisplayId={data.family_id}
         speciesName={speciesName}
-        assemblyVersion={assemblyVersion}
         assembly={assemblyName}
         assemblyValidated={assemblyValidated}
         familyMetadata={data.metadata}

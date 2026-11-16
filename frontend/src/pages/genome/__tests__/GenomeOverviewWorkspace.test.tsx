@@ -132,7 +132,6 @@ const renderWorkspace = (overrides: Partial<Props> = {}) =>
         familyId="F1"
         familyDisplayId="F1"
         speciesName="Homo sapiens"
-        assemblyVersion="p14"
         assembly="GRCh38"
         projectId="p1"
         trackAreaRef={{ current: null }}
@@ -411,9 +410,8 @@ describe('GenomeOverviewWorkspace', () => {
     ['log2_ratio', 'yes'],
   ])('draws a coverage BED declared as %s on that axis, without a note (segments: %s)', (content, segments) => {
     renderWorkspace({
-      // A header without the species, version or project: the reference label reads the assembly alone.
+      // A header without the species or project: the reference label reads the assembly alone.
       speciesName: undefined,
-      assemblyVersion: undefined,
       projectId: undefined,
       membersWithData: [MEMBER],
       trackVisibility: tracksShown({ segments: true }),
