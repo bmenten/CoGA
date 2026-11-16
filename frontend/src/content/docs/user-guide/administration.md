@@ -26,7 +26,7 @@ page is an administrator's alone.
   release at its first start; load a newer one about monthly. Loading it here also rebuilds the
   Mendeliome panel; after the first start, build that panel on the Gene panels page.
 - **Repeat catalogue** — for each repeat locus, QA's record of TRGT's count there, with the reason,
-  who and when, and the history of these records:
+  who and when, and the history of these records (a locus's disease links to its page on STRchive):
   - a **count correction**, in repeats, added to TRGT's count before every call at the locus is
     classified (−1 turns TRGT's 18 into 17; from −20 to 20). It applies whether or not the locus is
     validated, and TRGT's own count stays shown beside the corrected one. **Set count correction**

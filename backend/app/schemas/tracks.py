@@ -347,6 +347,9 @@ class RepeatExpansionRowOut(BaseModel):
     # The first count of a premutation (FMR1 55), between the grey zone and the
     # pathogenic threshold; None for a locus without one.
     premutation_min: Optional[int] = None
+    # The STRchive locus whose page on strchive.org describes the catalogue row classifying
+    # the calls; None where there is none (no row matched, or a gene with several loci).
+    strchive_id: Optional[str] = None
     # QA's record for the catalogue row classifying the calls (repeat_count_units), read in the
     # statement that read the calls: the correction added to TRGT's count before it is
     # classified (0: none); whether QA validated that the count, so corrected, is the clinical

@@ -3585,6 +3585,7 @@ export interface RepeatExpansionRowOut {
   benign_max: number | null;
   pathogenic_max: number | null;
   premutation_min: number | null;
+  strchive_id: string | null;
   count_offset: number;
   count_units_validated: boolean;
   count_units_reason: string | null;
@@ -3678,6 +3679,7 @@ export interface RepeatLocusCountUnitsOut {
   benign_max: number | null;
   premutation_min: number | null;
   source: string;
+  strchive_id: string | null;
   validated: boolean;
   count_offset: number;
   reason: string | null;

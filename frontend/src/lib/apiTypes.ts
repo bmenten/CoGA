@@ -595,6 +595,9 @@ export interface ApiRepeatExpansionRow {
   // The first count of a premutation (FMR1 55), between the grey zone and the pathogenic
   // threshold; absent for a locus without one.
   premutation_min?: number | null;
+  // The STRchive locus whose page describes the catalogue row classifying the calls; null where
+  // there is none (no row matched, or a gene with several loci).
+  strchive_id?: string | null;
   // QA's record for the locus: the correction added to TRGT's count before it is classified
   // (0: none), whether QA validated that the count, so corrected, is the clinical repeat number,
   // and the record's reason, who and when; and what is known of TRGT's count at the gene

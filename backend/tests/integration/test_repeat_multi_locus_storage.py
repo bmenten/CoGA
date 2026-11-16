@@ -6,7 +6,7 @@ their own, deleted afterwards. Only Postgres is needed. Skipped unless ``RUN_INT
 (see conftest.py); the CI ``smoke`` job sets it.
 
 - A STRchive row the shipped release does not list, as a start on another release left it, is
-  gone after the next start; the built-in rows and the release's 75 loci stay.
+  gone after the next start; the built-in rows and the release's 82 loci stay.
 - TRID ARX at PRTS_ARX's region is stored and read against PRTS_ARX's thresholds (17 GCN
   repeats normal, pathogenic from 20), at EIEE1_ARX's region against EIEE1_ARX's (17
   pathogenic). A call whose region overlaps neither is stored not assessed, with the reason,

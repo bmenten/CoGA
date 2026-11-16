@@ -43,7 +43,7 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 | SEC-40 | P3 | Keep an error's text out of the last stored job errors, HTTP answers and log lines | developer | |
 | UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
 | DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
-| CLIN-14 | P3 | Settle the repeat catalogue's open points; move to STRchive v2.28.0 | QA, owner, developer | |
+| CLIN-14 | P3 | Settle the repeat catalogue's open points | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
 | CLIN-39 | P3 | Decide whether one SV in two siblings' per-sample records gets one second-hit verdict | owner | |
 | CLIN-50 | P3 | Decide whether carrier screening reads Ensembl-only genes | owner | |
@@ -237,8 +237,9 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ### CLIN-14 · Repeat catalogue
 
-- STRchive's gaps and overlaps: ATXN7 36 intermediate, PPP2R2B 33–39 normal and 50 intermediate, ATXN10 800–850 pathogenic.
-- Motif orientation differs at nine loci; PABPN1's `GCN` is unchecked against the pipeline's TRGT BED; STRchive tags as TRID aliases name no locus. Move to v2.28.0 after CLIN-57.
+- STRchive's thresholds are the cut-offs as the release states them (owner, 2026-11-16). A count in a gap between its ranges reads by the cut-off below it: between the benign range and the grey zone normal (AR 35, PPP2R2B 33–39, DIP2B 24–138, ZNF713 23–41, FAM193B 51–157), between the grey zone and the pathogenic threshold intermediate (ATXN7 36, PPP2R2B 50, RFC1 201–399, CSNK1E 132–744); ATXN10's grey zone runs to 850, past its pathogenic threshold of 800, which wins.
+- RFC1's count is its first pathogenic motif's (AAGGG): an ACAGG or AAAGG expansion is not counted.
+- Motif orientation differs at nine loci; PABPN1's `GCN` is unchecked against the pipeline's TRGT BED; STRchive tags as TRID aliases name no locus.
 
 ### CLIN-72 · INFO flags
 

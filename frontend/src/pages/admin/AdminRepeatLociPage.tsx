@@ -11,6 +11,7 @@ import type {
   RepeatLocusCountUnitsOut,
 } from '../../lib/apiSchema.generated';
 import { describeCountOffset } from '../../lib/repeatStatus';
+import { strchiveLocusHref } from '../../lib/strchive';
 import type { StatusTone } from './dataManagementTypes';
 
 const QUERY_KEY = ['admin', 'repeat-loci'];
@@ -148,7 +149,7 @@ const AdminRepeatLociPage: React.FC = () => {
     <div className="page-shell admin-compact space-y-5">
       <PageHeader
         kicker="Administration"
-        title="Repeat catalogue: TRGT counting units"
+        title="Repeat catalogue: counting units"
         description={
           <>
             TRGT counts the motif across the region its own catalogue gives a locus, which need not be the clinical repeat
@@ -213,7 +214,21 @@ const AdminRepeatLociPage: React.FC = () => {
                     <div className="table-subtle">
                       {locus.locus_id} · {locus.source}
                     </div>
-                    <div className="table-subtle">{locus.disease}</div>
+                    <div className="table-subtle">
+                      {locus.strchive_id ? (
+                        <a
+                          className="table-link"
+                          href={strchiveLocusHref(locus.strchive_id)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Open ${locus.strchive_id} on STRchive`}
+                        >
+                          {locus.disease}
+                        </a>
+                      ) : (
+                        locus.disease
+                      )}
+                    </div>
                   </td>
                   <td className="table-subtle">{locus.motif ?? '—'}</td>
                   <td className="table-subtle">{locus.call_count.toLocaleString()}</td>

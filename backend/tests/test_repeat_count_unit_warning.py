@@ -56,8 +56,8 @@ FMR1 = {
 }
 HTT = {"warning_min": 27, "pathogenic_min": 36, "benign_min": 6, "benign_max": 26, "pathogenic_max": 250}
 PABPN1 = {"warning_min": 11, "pathogenic_min": 12, "benign_min": 10, "benign_max": 10, "pathogenic_max": 18}
-# Pathogenic by contraction: normal at exactly 2, pathogenic at 1 or 3.
-VWA1 = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
+# Pathogenic on both sides of its normal count (synthetic): normal at exactly 2, pathogenic at 1 or 3.
+TWO_SIDED = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
 # No catalogue row, or one that states nothing (STRchive's ADTKD_MUC1).
 NO_THRESHOLDS = {"warning_min": None, "pathogenic_min": None}
 
@@ -142,8 +142,8 @@ def test_a_count_between_two_boundaries_is_marked_with_both() -> None:
 
 
 def test_a_contraction_locus_is_marked_on_each_side_of_its_normal_count() -> None:
-    # VWA1 is normal at exactly 2: one repeat either way reads pathogenic.
-    assert boundaries(2, VWA1) == [(1, "pathogenic"), (3, "pathogenic")]
+    # Normal at exactly 2: one repeat either way reads pathogenic.
+    assert boundaries(2, TWO_SIDED) == [(1, "pathogenic"), (3, "pathogenic")]
 
 
 def test_a_benign_range_the_classification_uses_is_a_boundary() -> None:

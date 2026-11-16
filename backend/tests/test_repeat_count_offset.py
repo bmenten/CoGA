@@ -54,8 +54,8 @@ FMR1 = {
 HTT = {"warning_min": 27, "pathogenic_min": 36, "benign_min": 6, "benign_max": 26, "pathogenic_max": 250}
 # STRchive's POLG: no threshold, a benign count of exactly 10.
 POLG = {"warning_min": None, "pathogenic_min": None, "benign_min": 10, "benign_max": 10, "pathogenic_max": None}
-# Pathogenic by contraction: normal at exactly 2, pathogenic at 1 or 3.
-VWA1 = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
+# Pathogenic on both sides of its normal count (synthetic): normal at exactly 2, pathogenic at 1 or 3.
+TWO_SIDED = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
 
 _SCHEMA_DIR = Path(__file__).resolve().parents[1] / "db" / "schema" / "postgres"
 _MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "db" / "migrations" / "versions"
@@ -173,7 +173,7 @@ def test_a_correction_moves_every_boundary_of_a_locus_with_a_premutation_range(t
     ],
 )
 def test_a_contraction_locus_is_classified_from_the_corrected_count(trgt, expected) -> None:
-    [(count, _trgt, status)] = _reclassified([trgt], VWA1, 1)
+    [(count, _trgt, status)] = _reclassified([trgt], TWO_SIDED, 1)
     assert (count, status) == expected
 
 

@@ -63,13 +63,14 @@ def _fmr1(counts: list[int], *, stored: str, sample: str = PROBAND) -> dict[str,
     }
 
 
-def _vwa1(counts: list[int], *, stored: str) -> dict[str, Any]:
-    """A VWA1 call: pathogenic by contraction, normal exactly 2, pathogenic 1 or 3."""
+def _two_sided(counts: list[int], *, stored: str) -> dict[str, Any]:
+    """A call at a synthetic locus pathogenic on both sides of its normal count: normal exactly
+    2, pathogenic 1 or 3."""
     return {
         **_fmr1(counts, stored=stored),
-        "locus_id": "VWA1",
-        "gene": "VWA1",
-        "display_name": "VWA1",
+        "locus_id": "TWO_SIDED",
+        "gene": "GENE2",
+        "display_name": "GENE2",
         "disease": "Neuropathy",
         "inheritance": "AR",
         "chr": "chr1",
@@ -148,7 +149,7 @@ async def test_a_mans_two_chrx_alleles_read_review_for_that_reason() -> None:
 
 @pytest.mark.asyncio
 async def test_a_count_the_catalogue_cannot_classify_reads_review_for_that_reason() -> None:
-    call = _vwa1([2, 5], stored="normal")
+    call = _two_sided([2, 5], stored="normal")
 
     [locus] = (await _table([call])).loci
 
@@ -159,8 +160,8 @@ async def test_a_count_the_catalogue_cannot_classify_reads_review_for_that_reaso
 @pytest.mark.asyncio
 async def test_a_locus_gives_the_catalogue_reason_before_the_note() -> None:
     # Two calls at one locus: one a count no range covers, one a man's two chrX alleles.
-    unclassified = {**_vwa1([2, 5], stored="normal"), "chr": "chrX", "start": 147_912_049}
-    mans = {**_vwa1([2, 2], stored="normal"), "sample_uuid": FATHER, "chr": "chrX", "start": 147_912_049}
+    unclassified = {**_two_sided([2, 5], stored="normal"), "chr": "chrX", "start": 147_912_049}
+    mans = {**_two_sided([2, 2], stored="normal"), "sample_uuid": FATHER, "chr": "chrX", "start": 147_912_049}
     mans["alleles"] = [{"repeat_count": 2, "bp_length": 6, "status": "normal"}, {"repeat_count": 2, "bp_length": 9, "status": "normal"}]
 
     [locus] = (await _table([mans, unclassified])).loci

@@ -37,6 +37,8 @@ const locus = (overrides: Partial<RepeatLocusCountUnitsOut>): RepeatLocusCountUn
   benign_max: null,
   premutation_min: null,
   source: 'built-in',
+  // A built-in row names its gene's one STRchive locus.
+  strchive_id: 'SCA1_ATXN1',
   validated: false,
   count_offset: 0,
   reason: null,
@@ -60,6 +62,7 @@ const CATALOGUE: RepeatLocusCountUnitsCatalogueOut = {
       disease: 'Fragile X syndrome',
       motif: 'CGG',
       source: 'STRchive',
+      strchive_id: 'FXS_FMR1',
       call_count: 4,
       known_difference: FMR1_NOTE,
       offset_note: FMR1_OFFSET_NOTE,
@@ -70,6 +73,7 @@ const CATALOGUE: RepeatLocusCountUnitsCatalogueOut = {
       display_name: 'HTT',
       disease: 'Huntington disease',
       source: 'STRchive',
+      strchive_id: 'HD_HTT',
       validated: true,
       count_offset: -1,
       reason: 'Validation report 12, TRGT 5 catalogue',
@@ -119,7 +123,7 @@ describe('AdminRepeatLociPage', () => {
   it('lists the loci the stored calls name first, with what is known and QA’s record', async () => {
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Repeat catalogue: TRGT counting units' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Repeat catalogue: counting units' })).toBeInTheDocument();
     expect(mockedGet).toHaveBeenCalledWith('/admin/repeat-loci');
     const [fmr1, htt, atxn1] = locusRows();
     expect(within(fmr1).getByText('FXS_FMR1 · STRchive')).toBeInTheDocument();
@@ -134,6 +138,31 @@ describe('AdminRepeatLociPage', () => {
     expect(within(atxn1).getByText('ATXN1 · built-in')).toBeInTheDocument();
     expect(screen.getByText(/within 3 repeats of a boundary/)).toBeInTheDocument();
     expect(screen.getByText(/1 of 3 loci validated/)).toBeInTheDocument();
+  });
+
+  it('links each locus’s disease to its page on STRchive', async () => {
+    renderPage();
+
+    await screen.findByText('FXS_FMR1 · STRchive');
+    const [fmr1, , atxn1] = locusRows();
+    const fmr1Link = within(fmr1).getByRole('link', { name: 'Fragile X syndrome' });
+    expect(fmr1Link).toHaveAttribute('href', 'https://strchive.org/loci/FXS_FMR1');
+    expect(fmr1Link).toHaveAttribute('target', '_blank');
+    // A built-in row opens its gene's STRchive locus.
+    expect(within(atxn1).getByRole('link', { name: 'Spinocerebellar ataxia type 1' })).toHaveAttribute(
+      'href',
+      'https://strchive.org/loci/SCA1_ATXN1',
+    );
+  });
+
+  it('shows a disease without a link where no STRchive locus describes the row', async () => {
+    mockedGet.mockResolvedValue({
+      data: { ...CATALOGUE, loci: [locus({ locus_id: 'ARX', gene: 'ARX', display_name: 'ARX', disease: 'ARX disorders', strchive_id: null })] },
+    });
+    renderPage();
+
+    expect(await screen.findByText('ARX disorders')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'ARX disorders' })).not.toBeInTheDocument();
   });
 
   it('shows only the loci with calls when asked', async () => {
