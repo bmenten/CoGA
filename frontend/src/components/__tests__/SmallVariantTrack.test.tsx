@@ -72,11 +72,12 @@ test('renders loader while small variants are loading', () => {
   expect(screen.getByText(/loading small variants/i)).toBeInTheDocument();
 });
 
-// The span does not gate the request — it fires at any zoom and the variant cap governs.
+// The request fires at any zoom (a wide window asks for the salient variants alone) and the
+// variant cap governs.
 test.each([
   ['a broad region', 10_000_000],
   ['a bounded region', 100],
-])('requests %s and shows too many when over the cap (no span gate)', (_label, regionEnd) => {
+])('requests %s and shows too many when over the cap', (_label, regionEnd) => {
   useQueryMock.mockImplementation(({ queryKey }) =>
     queryKey[0] === 'small-variant-track-tags'
       ? { data: [], isLoading: false }
@@ -130,6 +131,59 @@ test('requests small variants carried by the displayed sample before pagination'
       }),
     }),
   );
+});
+
+test.each([
+  ['up to 250 kb, every variant', 250_000, undefined],
+  ['wider, the salient variants alone', 250_001, true],
+  ['in a 2 Mb window, the salient variants alone', 2_000_000, true],
+])('asks, %s', async (_label, regionEnd, salientOnly) => {
+  useQueryMock.mockReturnValue({ data: { variants: [] }, isLoading: false });
+  apiGetMock.mockResolvedValue({ data: { variants: [] } });
+
+  render(
+    <SmallVariantTrack
+      familyId="F1"
+      sampleId="S1"
+      chrom="1"
+      regionStart={0}
+      regionEnd={regionEnd}
+      width={100}
+      height={20}
+      // The user's own filters still apply on top.
+      filters={{ max_gnomad_af: '0.01' }}
+    />
+  );
+
+  const query = useQueryMock.mock.calls[0][0];
+  expect(query.queryKey).toContain(salientOnly === true);
+  await query.queryFn();
+  const { params } = apiGetMock.mock.calls[0][1];
+  expect(params.salient_only).toBe(salientOnly);
+  expect(params).toMatchObject({ max_gnomad_af: '0.01', sample_filter: 'S1:het|hom', track_mode: true });
+});
+
+test('a wide window says it draws the salient variants alone, also when it holds none', () => {
+  useQueryMock.mockImplementation(({ queryKey }) =>
+    queryKey[0] === 'small-variant-track-tags'
+      ? { data: [], isLoading: false }
+      : { data: { total: 0, variants: [] }, isLoading: false },
+  );
+
+  render(
+    <SmallVariantTrack familyId="F1" sampleId="S1" chrom="13" regionStart={32_000_000} regionEnd={34_000_000} width={100} height={20} />,
+  );
+
+  expect(
+    screen.getByText('No ClinVar P/LP, HIGH or MODERATE variants here. Zoom in to 250 kb or less for all variants.'),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('img', {
+      name:
+        'Small variants of S1 on chr13:32,000,000–34,000,000: none ' +
+        '(wider than 250 kb: ClinVar P/LP, HIGH and MODERATE only)',
+    }),
+  ).toBeInTheDocument();
 });
 
 test('preserves an explicit small-variant sample filter', async () => {

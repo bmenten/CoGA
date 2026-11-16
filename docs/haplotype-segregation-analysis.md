@@ -111,6 +111,9 @@ Elsewhere:
   (`ROI_WINDOW_FLANK`).
 - The phased-marker fetch is capped at 500,000 sites (`PHASED_FETCH_LIMIT`,
   `phased_marker_service.py`); beyond that the marker overlay is hidden.
+- The chromosome view asks for the markers, and shows a child's informative sites, only in a window
+  of 5 Mb or less (`PHASED_MARKER_MAX_SPAN`, `frontend/src/lib/trackSampling.ts`), which holds the
+  ROI with 1 Mb on each side; over a whole chromosome the ticks would hide the blocks.
 
 An embryo call's phasing QC at the ROI is checked in one place
 (`backend/app/services/pgt_embryo_qc.py`) against three warning thresholds and one gate. It is
@@ -179,7 +182,7 @@ both.
   serves the result at `GET /families/{family_id}/pgt-analysis`. The family page shows those calls
   (`frontend/src/lib/useEmbryoSegregation.ts`; `embryoSegregation.ts` reads and words them), and a
   sign-out freezes the same object (`pgt_analysis` in `signed_record_sections.py`).
-  The haplotype tracks still draw the risk line and each member's risk state in the browser, in
+  The haplotype tracks still draw the risk lane and each member's risk state in the browser, in
   `frontend/src/lib/haplotypeRisk.ts` (`inferDiseaseHaplotypes`, `assessSampleHaplotypeRisk`,
   `getHaplotypeLaneSignature`), by the same rules. Both sides prove them on the parity cases of
   `frontend/src/lib/__tests__/fixtures/pgtEmbryoCallCases.json` (`test_pgt_embryo_calls.py`,

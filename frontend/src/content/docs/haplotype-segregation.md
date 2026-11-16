@@ -20,8 +20,8 @@ and each embryo's call are **computed** from the phased genotypes and the pedigr
 - the **inheritance model**. If none is set, CoGA assumes recessive when any member is marked as a
   carrier, and dominant otherwise;
 - the **region of interest (ROI)**: the disease locus. The embryo calls on the family page and the
-  risk line on the genome overview need an ROI; without one they read "not assessed". In the chromosome
-  view, when the ROI is not on the chromosome shown, the risk line is worked out over the region in
+  risk lane on the genome overview need an ROI; without one they read "not assessed". In the chromosome
+  view, when the ROI is not on the chromosome shown, the risk lane is worked out over the region in
   view instead: set the ROI to read it at the locus.
 
 ---
@@ -32,7 +32,9 @@ and each embryo's call are **computed** from the phased genotypes and the pedigr
   per homolog; a block changes colour at each recombination. This is the layer you read.
 - **Raw marker dots** — one dot per informative imputed marker, with no smoothing. This is the layer
   you check: it shows isolated phasing switches, noise at block edges, and the exact marker where a
-  crossover happens.
+  crossover happens. The chromosome view draws them in a window of 5 Mb or less, such as the ROI with
+  1 Mb on each side; over a wider window they would hide the blocks, and the track's head says to zoom
+  in.
 
 Use the dots to confirm that a breakpoint is real before you trust an embryo call.
 
@@ -91,14 +93,16 @@ Which homolog is P1 and which P2 is arbitrary (it comes from the phasing). What 
 physical haplotype keeps its colour across the whole family, so you can follow it from a grandparent to
 an embryo.
 
-**The risk line.** A line under the band marks the disease haplotype:
+**The risk lane.** The lane of the disease haplotype is marked by an edge in the risk colour along its
+top and its bottom. In the chromosome view the lane is also tinted in that colour behind its band; the
+band keeps its homolog's colour, so its origin stays readable.
 
-| Line | Legend | Meaning |
+| Edges | Legend | Meaning |
 | --- | --- | --- |
-| Solid red | Affected | the affected haplotype for a dominant or an X-linked model |
-| Dashed orange | Carrier | a recessive carrier haplotype: an affected member carries two, a carrier one |
+| Solid, red | Affected | the affected haplotype for a dominant or an X-linked model |
+| Dashed, orange | Carrier | a recessive carrier haplotype: an affected member carries two, a carrier one |
 
-On the genome overview the risk line appears only on the ROI's chromosome: which homolog carries the
+On the genome overview the risk lane appears only on the ROI's chromosome: which homolog carries the
 disease allele is known only at the ROI.
 
 ---
@@ -190,7 +194,7 @@ In the dominant models, only members recorded as **not a carrier** remove a fals
 unaffected member whose carrier status is unknown is not used.
 
 If this does not lead to exactly one haplotype (for recessive, one on each side), the model is
-**uninformative**: no risk line is drawn and every embryo reads *Uninformative*.
+**uninformative**: no risk lane is drawn and every embryo reads *Uninformative*.
 
 ---
 
@@ -198,7 +202,7 @@ If this does not lead to exactly one haplotype (for recessive, one on each side)
 
 For each embryo, CoGA compares the haplotypes it carries at the ROI with the disease haplotype(s). The
 call appears as a badge in the **Family members** table on the family page. The server works out the
-calls from the stored haplotype blocks over the ROI and 1 Mb on each side. The tracks' risk line and
+calls from the stored haplotype blocks over the ROI and 1 Mb on each side. The tracks' risk lane and
 risk state follow the same rules. **Sign out report** freezes the same calls into the signed version,
 each with:
 

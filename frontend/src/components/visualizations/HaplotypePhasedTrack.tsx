@@ -4,11 +4,13 @@ import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import {
-  drawHaplotypeRiskOverlay,
+  drawHaplotypeRiskLane,
+  fillHaplotypeRiskTint,
   haplotypeLaneColor,
   haplotypeRiskPattern,
   readHaplotypePalette,
 } from '../../lib/haplotypeCanvas';
+import { usePhasedMarkers } from '../../lib/usePhasedMarkers';
 import { BLOCKS_OUTDATED_WARNING, segregationStateLabel } from '../../lib/embryoSegregation';
 import { describePhaseCorrection, type HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import {
@@ -30,12 +32,7 @@ import VizTooltip from './VizTooltip';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { apiPath } from '../../lib/apiPath';
-import type {
-  HaplotypeResponse,
-  HaplotypeSegment,
-  PhasedMarker,
-  PhasedMarkerResponse,
-} from '../../lib/apiSchema.generated';
+import type { HaplotypeResponse, HaplotypeSegment, PhasedMarker } from '../../lib/apiSchema.generated';
 import {
   NO_ALLELE,
   alleleBase,
@@ -172,10 +169,6 @@ const BAND_THICKNESS = 4;
 // sharp (no anti-alias blur) and taller than the band so disagreements stand out.
 const MARKER_WIDTH = 1;
 const MARKER_LANE_PADDING = 2;
-// A child's Mendel-error rate above this fraction of informative sites is a real
-// signal (likely sample swap / wrong pedigree), not phasing noise; below it we stay
-// silent so a stray imputation glitch never raises a false alarm in a clinical view.
-const MENDEL_WARN_RATE = 0.02;
 // Stable empty fallback so the optional familyMembers prop keeps one reference
 // across renders (an inline `= []` default would defeat the memos below).
 const EMPTY_MEMBERS: HaplotypeMemberLike[] = [];
@@ -230,41 +223,25 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
 
-  // Raw per-marker phasing (computed server-side, returned per member). Only
-  // fetched when we are overlaying markers. The per-site fetch is capped server-side and
-  // drops the highest-coordinate tail when the region holds too many sites: `truncated` then
-  // empties the markers and sites, as the overlay would be partial and misleading, and a
-  // 'zoom in' hint shows. `hemizygous_x_ranges` are where in the window a man has one X
-  // (chrX outside the PARs of the family's assembly).
-  const { data: rawPhasedData, isError: markersError } = useQuery<PhasedMarkerResponse>({
-    queryKey: ['phased-markers', familyId, chrom, regionStart, regionEnd],
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/phased-markers`, {
-        params: { chr: chrom, start: regionStart, end: regionEnd },
-      });
-      return res.data as PhasedMarkerResponse;
-    },
+  // Raw per-marker phasing (computed server-side, returned per member). Only fetched when we
+  // are overlaying markers; a truncated fetch draws none and shows a 'zoom in' hint.
+  const { data: phasedData, isError: markersError } = usePhasedMarkers({
+    familyId,
+    chrom,
+    regionStart,
+    regionEnd,
     enabled: hasRegion && showMarkers,
-    staleTime: Infinity,
-    gcTime: Infinity,
   });
 
   // Keep the previous window painted across a pan (same span); dropped on zoom.
   // Scoped to the family + chromosome: a jump to another chromosome at the same zoom must
   // not keep painting the previous chromosome's blocks, and a failed request never falls
   // back to stale data.
-  const fallbackScope = `${familyId}|${chrom}`;
   const haplotypeData = useSameSpanFallbackData(
     rawHaplotypeData,
     (regionEnd ?? 0) - (regionStart ?? 0),
-    fallbackScope,
+    `${familyId}|${chrom}`,
     haplotypeError,
-  );
-  const phasedData = useSameSpanFallbackData(
-    rawPhasedData,
-    (regionEnd ?? 0) - (regionStart ?? 0),
-    fallbackScope,
-    markersError,
   );
   const isLoading = haplotypeLoading && haplotypeData === null;
 
@@ -377,16 +354,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   // would render as a partial, misleading overlay. Suppress them entirely and show a
   // 'zoom in' hint; the haplotype blocks still render normally.
   const markersTruncated = showMarkers && phasedData?.truncated === true;
-  // This track member's per-region QC (present only for the index couple's children).
-  // Surfaced as a small informative-site count, with a Mendel-error warning when the
-  // inconsistency rate clears the threshold. Hidden when the overlay is truncated
-  // (the counts then reflect only the partial covered span, so they'd mislead).
-  const sampleQc = useMemo(
-    () => phasedData?.samples.find((entry) => entry.sample === sampleId)?.qc ?? null,
-    [phasedData?.samples, sampleId],
-  );
-  const showQc = showMarkers && !markersTruncated && !!sampleQc;
-  const mendelWarning = !!sampleQc && sampleQc.mendel_rate > MENDEL_WARN_RATE;
+  // This member's informative-site count and Mendel-error warning are in the track's head
+  // (HaplotypeMarkerNote), read from the same markers.
 
   // The palette and lane colours the canvas draws the blocks with, for the tooltip, so
   // its swatches exactly match the rendered blocks.
@@ -431,6 +400,9 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
 
     const laneCenter = (lane: HaplotypeLane, single: boolean): number =>
       single ? half : lane === 'hap1' ? half / 2 : half + half / 2;
+    // The lane's own strip, top and height: half the track per homolog, all of it for one.
+    const laneStrip = (lane: HaplotypeLane, single: boolean): [number, number] =>
+      single ? [0, height] : lane === 'hap1' ? [0, half] : [half, half];
 
     const baseColorForLane = (seg: Segment, lane: HaplotypeLane): string =>
       haplotypeLaneColor(colors, currentMember, seg, lane, chrom);
@@ -447,6 +419,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
 
     // Haplotype blocks — always a thin line; markers (when shown) sit on top.
     const recombXs: number[] = [];
+    // The risk lanes' edges, drawn once the bands and the markers are, so nothing covers them.
+    const riskEdges: Array<{ x: number; top: number; w: number; h: number; kind: DiseaseHaplotypeKind }> = [];
     segments.forEach((seg, idx) => {
       const x1 = ((seg.start - regionStart) / span) * width;
       const x2 = ((seg.end - regionStart) / span) * width;
@@ -460,6 +434,14 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       const lanes = getRenderableHaplotypeLanes(currentMember, seg, chrom);
       const single = lanes.length === 1;
       lanes.forEach((lane) => {
+        // The risk haplotype's lane is tinted in the risk colour behind its band (and behind the
+        // markers drawn later), so the band keeps its homolog colour; its edges come last.
+        const riskKind = laneRiskKind(seg, lane);
+        if (riskKind) {
+          const [stripTop, stripHeight] = laneStrip(lane, single);
+          fillHaplotypeRiskTint(ctx, x1, stripTop, w, stripHeight, colors.risk[riskKind]);
+          riskEdges.push({ x: x1, top: stripTop, w, h: stripHeight, kind: riskKind });
+        }
         const y = laneCenter(lane, single) - BAND_THICKNESS / 2;
         ctx.fillStyle = baseColorForLane(seg, lane);
         ctx.fillRect(x1, y, w, BAND_THICKNESS);
@@ -470,14 +452,6 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
           ctx.moveTo(x1 + 0.75, y);
           ctx.lineTo(x2 - 0.75, y + BAND_THICKNESS);
           ctx.stroke();
-        }
-        const riskKind = laneRiskKind(seg, lane);
-        // The band is thin, so the risk line goes just below it and the band stays whole.
-        if (riskKind) {
-          drawHaplotypeRiskOverlay(ctx, x1, y, w, BAND_THICKNESS, colors.risk[riskKind], {
-            pattern: haplotypeRiskPattern(riskKind),
-            placement: 'below',
-          });
         }
       });
     });
@@ -493,6 +467,12 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       ctx.stroke();
     });
     ctx.setLineDash([]);
+
+    const drawRiskEdges = () => {
+      riskEdges.forEach(({ x, top, w, h, kind }) =>
+        drawHaplotypeRiskLane(ctx, x, top, w, h, colors.risk[kind], { pattern: haplotypeRiskPattern(kind) }),
+      );
+    };
 
     // Where this parent's phase was swapped back: a solid line in the warning colour
     // with a triangle on top, apart from the dashed recombination lines. Drawn last, so
@@ -521,13 +501,14 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     // Truncated fetch -> markers are partial/misleading, so draw none (the blocks
     // above are already rendered) and let the 'zoom in' overlay explain why.
     if (!showMarkers || markersTruncated) {
+      drawRiskEdges();
       drawPhaseCorrections();
       return;
     }
 
     // Covering cleaned block for a position. Raw markers inherit that block's
-    // lineage — so an untransmitted (grey) lane greys its markers too — and its
-    // affected-haplotype risk flag.
+    // lineage — so an untransmitted (grey) lane greys its markers too; they sit on its
+    // lane's risk tint.
     const blockAt = (pos: number): Segment | null => findCoveringBlock(segments, pos);
     // Raw per-marker calls as dots on top of the thin line. The dot keeps the raw
     // value's shade (so phasing disagreements stay visible) but takes its
@@ -557,33 +538,13 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       ctx.fillStyle = color;
       ctx.fillRect(Math.floor(x), cy - markerHalfHeight, MARKER_WIDTH, markerHalfHeight * 2);
     };
-    // Markers sitting on the affected haplotype get the same risk line the cleaned
-    // block carries, drawn at the bottom of the marker tick.
-    const drawMarkerRisk = (x: number, cy: number, block: Segment | null, lane: HaplotypeLane) => {
-      const kind = block ? laneRiskKind(block, lane) : null;
-      if (!kind) return;
-      drawHaplotypeRiskOverlay(
-        ctx,
-        Math.floor(x),
-        cy - markerHalfHeight,
-        MARKER_WIDTH,
-        markerHalfHeight * 2,
-        colors.risk[kind],
-        { pattern: haplotypeRiskPattern(kind) },
-      );
-    };
     markers.forEach((marker) => {
       const x = ((marker.pos - regionStart) / span) * width;
       const block = blockAt(marker.pos);
-      if (marker.hap1 !== null) {
-        drawMarker(x, paternalCy, dotColor(marker, 'hap1', block));
-        drawMarkerRisk(x, paternalCy, block, 'hap1');
-      }
-      if (marker.hap2 !== null) {
-        drawMarker(x, maternalCy, dotColor(marker, 'hap2', block));
-        drawMarkerRisk(x, maternalCy, block, 'hap2');
-      }
+      if (marker.hap1 !== null) drawMarker(x, paternalCy, dotColor(marker, 'hap1', block));
+      if (marker.hap2 !== null) drawMarker(x, maternalCy, dotColor(marker, 'hap2', block));
     });
+    drawRiskEdges();
     drawPhaseCorrections();
   }, [
     segments,
@@ -836,34 +797,6 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
           title="The per-site marker overlay is capped for performance; zoom in to a smaller region to see it."
         >
           too many sites — zoom in
-        </div>
-      )}
-      {/* Per-child QC: informative-site count, plus a Mendel-error warning when the
-          inconsistency rate clears the threshold (likely sample swap / wrong pedigree).
-          Small and unobtrusive, top-right, pointer-events off so it never blocks hover. */}
-      {!isLoading && hasSegments && showQc && sampleQc && (
-        <div
-          className="viz-phased-qc"
-          style={{
-            position: 'absolute',
-            top: 1,
-            right: 4,
-            fontSize: 10,
-            lineHeight: '12px',
-            color: mendelWarning ? '#d6453d' : '#9ca3af',
-            fontWeight: mendelWarning ? 700 : 400,
-            pointerEvents: 'none',
-          }}
-          title={
-            mendelWarning
-              ? `${sampleQc.mendel_errors} Mendelian inconsistencies in ${sampleQc.informative_sites} informative sites ` +
-                `(${(sampleQc.mendel_rate * 100).toFixed(1)}%) — check sample identity / pedigree.`
-              : `${sampleQc.informative_sites} informative sites in this region.`
-          }
-        >
-          {mendelWarning
-            ? `⚠ ${sampleQc.mendel_errors}/${sampleQc.informative_sites} Mendel errors`
-            : `${sampleQc.informative_sites} informative`}
         </div>
       )}
       {tooltip && (

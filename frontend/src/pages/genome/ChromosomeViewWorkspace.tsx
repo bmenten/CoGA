@@ -27,6 +27,8 @@ import DgvTrack from '../../components/visualizations/DgvTrack';
 import SegmentalDuplicationTrack from '../../components/visualizations/SegmentalDuplicationTrack';
 import SmallVariantTrack from '../../components/visualizations/SmallVariantTrack';
 import SmallVariantLegend from '../../components/visualizations/SmallVariantLegend';
+import HaplotypeMarkerNote from '../../components/visualizations/HaplotypeMarkerNote';
+import { SALIENT_ONLY_HEAD_NOTE, shouldShowPhasedMarkers, smallVariantTrackScope } from '../../lib/trackSampling';
 import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansionTrack';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
 import QueryFailure from '../../components/QueryFailure';
@@ -50,8 +52,9 @@ const NO_PHASE_CORRECTIONS: HaplotypePhaseCorrection[] = [];
 const VARIANT_TRACK_HEIGHT = 80;
 // Combined haplotype + phased-marker track: two lanes (paternal / maternal),
 // each a thin haplotype line. Taller (room for the marker dots in both lanes)
-// when the overlay is on, a slim two-line band when it is off.
-const HAPLOTYPE_TRACK_HEIGHT = 20;
+// when the overlay is drawn, a slim two-line band when it is not: tall enough that a risk
+// lane's tint shows on both sides of its band.
+const HAPLOTYPE_TRACK_HEIGHT = 24;
 const HAPLOTYPE_MARKERS_TRACK_HEIGHT = 40;
 const ZOOMED_IDEOGRAM_HEIGHT = 40;
 const CNV_TRACK_HEIGHT = 20;
@@ -279,6 +282,12 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   const hasBothParents =
     familyMembers.some((member) => (member.role || '').toLowerCase() === 'father') &&
     familyMembers.some((member) => (member.role || '').toLowerCase() === 'mother');
+  // The detail of a track is drawn only when zoomed in: the raw phased markers in a window of
+  // 5 Mb or less, every small variant in one of 250 kb or less (the salient ones beyond).
+  const regionSpan = region.end - region.start;
+  const markersWanted = trackVisibility.phasedMarkers && hasBothParents;
+  const markersInView = shouldShowPhasedMarkers(regionSpan);
+  const smallVariantsSalientOnly = smallVariantTrackScope(regionSpan) === 'salient';
   const fatherSampleId =
     familyMembers.find((member) => (member.role || '').toLowerCase() === 'father')?.sample_id ?? null;
   const motherSampleId =
@@ -681,6 +690,11 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       <ViewerTrackBlock
                         label="Small variants"
                         width={trackWidth}
+                        labelNote={
+                          smallVariantsSalientOnly ? (
+                            <span className="viewer-track-note">{SALIENT_ONLY_HEAD_NOTE}</span>
+                          ) : undefined
+                        }
                         meta={
                           <span className="viewer-track-meta-group">
                             <TrackMeta
@@ -721,19 +735,31 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                 {trackVisibility.haplotypes &&
                   availability[member.sample_id]?.haplotypes &&
                   (() => {
-                    // Markers are drawn for the whole family (parents included)
-                    // when both parents are present and the overlay is enabled.
-                    const showMarkers = trackVisibility.phasedMarkers && hasBothParents;
+                    // Markers are drawn for the whole family (parents included) when both
+                    // parents are present, the overlay is enabled and the window is narrow
+                    // enough to tell them apart.
+                    const showMarkers = markersWanted && markersInView;
                     return (
                       <ViewerTrackBlock
                         label="Haplotypes"
                         width={trackWidth}
+                        labelNote={
+                          <HaplotypeMarkerNote
+                            familyId={familyDisplayId}
+                            sampleId={member.sample_id}
+                            chrom={chrom}
+                            regionStart={region.start}
+                            regionEnd={region.end}
+                            markersShown={showMarkers}
+                            zoomedOut={markersWanted && !markersInView}
+                          />
+                        }
                         meta={
                           highlightRiskHaplotype ? (
                             <HaplotypeLegend inheritanceModel={resolvedHaplotypeInheritanceModel} />
                           ) : undefined
                         }
-                        frameClassName={showMarkers ? 'h-[40px]' : 'h-[20px]'}
+                        frameClassName={showMarkers ? 'h-[40px]' : 'h-[24px]'}
                         roiRange={regionRoiRange}
                         roiTitle={roiTitle}
                         viewportInteraction={viewportInteraction}

@@ -12,9 +12,11 @@ import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import {
+  SMALL_VARIANT_ALL_MARKS_MAX_SPAN,
   SMALL_VARIANT_TRACK_RESULT_LIMIT,
   TRACK_DOT_RADIUS,
-  shouldShowSmallVariantDetails,
+  formatSpanLimit,
+  smallVariantTrackScope,
 } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
@@ -57,10 +59,10 @@ interface Props {
 // and multi-allelic calls count as present too.
 const samplePresenceFilter = (sampleId: string) => `${sampleId}:het|hom`;
 
-const hasActiveFilterValue = (value: unknown): boolean => {
-  if (Array.isArray(value)) return value.some(hasActiveFilterValue);
-  return String(value ?? '').trim().length > 0;
-};
+const ALL_MARKS_LIMIT = formatSpanLimit(SMALL_VARIANT_ALL_MARKS_MAX_SPAN);
+/** What a window wider than SMALL_VARIANT_ALL_MARKS_MAX_SPAN draws, in words, for the chart's
+ * accessible name (the track's head says it as SALIENT_ONLY_HEAD_NOTE). */
+const SALIENT_ONLY_NOTE = `wider than ${ALL_MARKS_LIMIT}: ClinVar P/LP, HIGH and MODERATE only`;
 
 type ParentalOrigin = 'paternal' | 'maternal' | 'unknown';
 
@@ -166,16 +168,11 @@ const SmallVariantTrack: React.FC<Props> = ({
   maternalSampleId,
 }) => {
   const pageSize = SMALL_VARIANT_TRACK_RESULT_LIMIT - 1;
-  const hasUserFilters = React.useMemo(
-    () => Object.values(filters || {}).some(hasActiveFilterValue),
-    [filters],
-  );
-  const regionRestricted = React.useMemo(
-    () => shouldShowSmallVariantDetails(regionEnd - regionStart),
-    [regionEnd, regionStart],
-  );
   const regionInView = hasRegionInView(regionStart, regionEnd);
-  const canRequestSmallVariants = regionInView && (hasUserFilters || regionRestricted);
+  // A wide window draws the salient variants alone: the server reads only those, so a
+  // whole-genome trio's thousands of variants per member are never fetched to be drawn as dots.
+  const salientOnly = smallVariantTrackScope(regionEnd - regionStart) === 'salient';
+  const canRequestSmallVariants = regionInView;
   const requestFilters = React.useMemo(() => {
     const nextFilters = { ...(filters || {}) };
     if (!nextFilters.sample_filter) {
@@ -192,6 +189,7 @@ const SmallVariantTrack: React.FC<Props> = ({
       regionStart,
       regionEnd,
       pageSize,
+      salientOnly,
       requestFilters,
     ],
     queryFn: async () => {
@@ -204,6 +202,7 @@ const SmallVariantTrack: React.FC<Props> = ({
         track_mode: true,
         track_result_limit: SMALL_VARIANT_TRACK_RESULT_LIMIT,
         ...requestFilters,
+        ...(salientOnly ? { salient_only: true } : {}),
       };
       const res = await api.get(apiPath`/families/${familyId}/small-variants`, {
         params,
@@ -230,14 +229,12 @@ const SmallVariantTrack: React.FC<Props> = ({
   });
 
   // A view with no width asks for nothing; that is not a view with too many.
-  const tooManyVariants =
-    (regionInView && !canRequestSmallVariants) ||
-    Boolean(
-      data &&
-        (data.total_is_estimated ||
-          data.total >= SMALL_VARIANT_TRACK_RESULT_LIMIT ||
-          (data.count_limit != null && data.total >= data.count_limit)),
-    );
+  const tooManyVariants = Boolean(
+    data &&
+      (data.total_is_estimated ||
+        data.total >= SMALL_VARIANT_TRACK_RESULT_LIMIT ||
+        (data.count_limit != null && data.total >= data.count_limit)),
+  );
   const tagByKey = React.useMemo(() => {
     const byKey = new Map<string, TagDefinition>();
     if (Array.isArray(tagDefinitions)) {
@@ -287,7 +284,9 @@ const SmallVariantTrack: React.FC<Props> = ({
     ? 'No region in view'
     : tooManyVariants
       ? 'Too many variants to display. Zoom in or apply filters.'
-      : 'no small variants for this region / sample';
+      : salientOnly
+        ? `No ClinVar P/LP, HIGH or MODERATE variants here. Zoom in to ${ALL_MARKS_LIMIT} or less for all variants.`
+        : 'no small variants for this region / sample';
 
   // The chart's accessible name: what it shows now. A failure, a load or a view
   // over the cap is said as such, never as zero variants.
@@ -304,7 +303,9 @@ const SmallVariantTrack: React.FC<Props> = ({
           : variants.length === 0
             ? 'none'
             : markSummary;
-  const chartLabel = `Small variants of ${sampleId} on ${chartRegion}: ${chartState}`;
+  // In a wide window the chart holds the salient variants alone, and its name says so.
+  const chartScope = salientOnly && !isError && regionInView ? ` (${SALIENT_ONLY_NOTE})` : '';
+  const chartLabel = `Small variants of ${sampleId} on ${chartRegion}: ${chartState}${chartScope}`;
 
   const svgRef = React.useRef<SVGSVGElement | null>(null);
   const [tooltip, setTooltip] = React.useState<{

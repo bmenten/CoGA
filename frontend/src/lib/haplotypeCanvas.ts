@@ -9,25 +9,26 @@ import {
 import { isDeletedHaplotype } from './phasedMarkers';
 
 /**
- * Mark a haplotype band as an affected/carrier (risk) allele with a thin line in the
- * risk colour. The homolog (P1/P2/M1/M2) fill is left untouched, so origin stays fully
- * readable and the risk allele is flagged unobtrusively, on both the chromosome and
- * whole-genome tracks.
+ * Mark the lane of a haplotype that carries the disease allele (the risk haplotype): the lane
+ * is bracketed by a line in the risk colour along its top and its bottom edge
+ * (`drawHaplotypeRiskLane`), and, where the band is thinner than its lane (the chromosome view),
+ * the lane behind the band is tinted in the risk colour (`fillHaplotypeRiskTint`). The homolog
+ * (P1/P2/M1/M2) colour of the band itself is left untouched, so its origin stays readable,
+ * while the risk lane stands out as a highlighted strip.
  *
- * The line does not rely on its hue alone: a red or orange line on a dark green
- * or blue band has little contrast for many colour-blind readers. So an affected
- * haplotype's line is solid and a carrier's is dashed, and the line is set off from
- * the band by a light gap: along the band's bottom edge for a band tall enough to keep
- * its colour (`inside`), or just below a thin band, which then stays whole (`below`).
+ * The mark does not rely on its hue alone: the tint differs from the white track in lightness,
+ * and an affected haplotype's edges are solid where a recessive carrier's are dashed, so the
+ * two read apart without colour. The dashes are long enough to read as a line, and laid on a
+ * grid of the canvas, so the blocks of one risk haplotype join into one continuous line.
  *
- * Call this *after* the band's base fill has been drawn at (x, y, w, h).
+ * Fill the tint *before* the band, which then sits on it. Draw the edges *after* the band and
+ * any marker ticks, which then never cover them; on a band that fills its lane (the genome
+ * overview) they lie on the band's top and bottom.
  */
-const RISK_LINE_THICKNESS = 2.5;
-const RISK_LINE_THICKNESS_BELOW = 2;
-const RISK_GAP = 1;
-const RISK_GAP_COLOR = 'rgba(255, 255, 255, 0.85)';
-const RISK_DASH = 4;
-const RISK_DASH_GAP = 2;
+const RISK_EDGE = 2;
+const RISK_TINT_ALPHA = 0.28;
+const RISK_DASH = 7;
+const RISK_DASH_GAP = 3;
 
 export type HaplotypeRiskPattern = 'solid' | 'dashed';
 
@@ -35,48 +36,57 @@ export type HaplotypeRiskPattern = 'solid' | 'dashed';
 export const haplotypeRiskPattern = (kind: DiseaseHaplotypeKind): HaplotypeRiskPattern =>
   kind === 'recessive-maternal' || kind === 'recessive-paternal' ? 'dashed' : 'solid';
 
-const fillRiskLine = (
+const fillRiskEdge = (
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   w: number,
-  thickness: number,
   pattern: HaplotypeRiskPattern,
 ): void => {
   if (pattern === 'solid') {
-    ctx.fillRect(x, y, w, thickness);
+    ctx.fillRect(x, y, w, RISK_EDGE);
     return;
   }
-  for (let dashX = x; dashX < x + w; dashX += RISK_DASH + RISK_DASH_GAP) {
-    ctx.fillRect(dashX, y, Math.min(RISK_DASH, x + w - dashX), thickness);
+  const period = RISK_DASH + RISK_DASH_GAP;
+  const end = x + w;
+  for (let dashX = Math.floor(x / period) * period; dashX < end; dashX += period) {
+    const from = Math.max(dashX, x);
+    const to = Math.min(dashX + RISK_DASH, end);
+    if (to > from) ctx.fillRect(from, y, to - from, RISK_EDGE);
   }
 };
 
-export const drawHaplotypeRiskOverlay = (
+/** The risk lane's tint, over the lane's whole height: fill it before the band. */
+export const fillHaplotypeRiskTint = (
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   w: number,
   h: number,
   color: string,
-  {
-    pattern = 'solid',
-    placement = 'inside',
-  }: { pattern?: HaplotypeRiskPattern; placement?: 'inside' | 'below' } = {},
+): void => {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = RISK_TINT_ALPHA;
+  ctx.fillRect(x, y, Math.max(w, 0.5), h);
+  ctx.restore();
+};
+
+/** The risk lane's edges, along its top and its bottom: draw them after the band and markers. */
+export const drawHaplotypeRiskLane = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  color: string,
+  { pattern = 'solid' }: { pattern?: HaplotypeRiskPattern } = {},
 ): void => {
   const width = Math.max(w, 0.5);
   ctx.save();
-  if (placement === 'below') {
-    // The gap is left empty: the track background shows through.
-    ctx.fillStyle = color;
-    fillRiskLine(ctx, x, y + h + RISK_GAP, width, RISK_LINE_THICKNESS_BELOW, pattern);
-  } else {
-    const lineY = y + h - RISK_LINE_THICKNESS;
-    ctx.fillStyle = RISK_GAP_COLOR;
-    ctx.fillRect(x, lineY - RISK_GAP, width, RISK_GAP);
-    ctx.fillStyle = color;
-    fillRiskLine(ctx, x, lineY, width, RISK_LINE_THICKNESS, pattern);
-  }
+  ctx.fillStyle = color;
+  fillRiskEdge(ctx, x, y, width, pattern);
+  fillRiskEdge(ctx, x, y + h - RISK_EDGE, width, pattern);
   ctx.restore();
 };
 
@@ -86,7 +96,7 @@ export interface HaplotypePalette {
   father: string[];
   /** The same on the mother's side. */
   mother: string[];
-  /** The risk line's colour, by the kind of disease haplotype. */
+  /** The risk lane's colour, by the kind of disease haplotype. */
   risk: Record<DiseaseHaplotypeKind, string>;
   unknown: string;
   deletedFill: string;

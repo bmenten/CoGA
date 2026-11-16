@@ -160,11 +160,13 @@ def _family_small_variant_filters(
     review_tags: List[str] = Query(default_factory=list, alias="review_tag"),
     exclude_review_tags: List[str] = Query(default_factory=list, alias="exclude_review_tag"),
     has_notes: bool = False,
+    salient_only: bool = False,
 ) -> Dict[str, Any]:
     """Parse the shared family small-variant filter query params.
 
     Returned as kwargs for ``get_family_small_variants_page`` so the paginated
-    listing and the CSV export apply identical filtering.
+    listing and the CSV export apply identical filtering. ``salient_only`` is the
+    chromosome view's small-variant track in a wide window (``SmallVariantQueryFilters``).
     """
 
     return dict(
@@ -212,6 +214,7 @@ def _family_small_variant_filters(
         review_tags=review_tags,
         exclude_review_tags=exclude_review_tags,
         has_notes=has_notes,
+        salient_only=salient_only,
     )
 
 

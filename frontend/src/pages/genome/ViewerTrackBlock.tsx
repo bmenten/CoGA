@@ -25,6 +25,9 @@ interface ViewerTrackBlockProps {
   label: string;
   width: number;
   children: React.ReactNode;
+  /** Said right after the track's name: what the track counts or leaves out in this window. */
+  labelNote?: React.ReactNode;
+  /** On the right of the head: the track's filters and legend. */
   meta?: React.ReactNode;
   frameClassName?: string;
   roiRange?: ViewerRoiRange | null;
@@ -81,6 +84,7 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
   label,
   width,
   children,
+  labelNote,
   meta,
   frameClassName,
   roiRange,
@@ -267,7 +271,10 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
   return (
     <div className="viewer-track-block" style={{ width }}>
       <div className="viewer-track-head">
-        <span className="viewer-track-label">{label}</span>
+        <span className="viewer-track-title">
+          <span className="viewer-track-label">{label}</span>
+          {labelNote}
+        </span>
         {meta}
       </div>
       <div

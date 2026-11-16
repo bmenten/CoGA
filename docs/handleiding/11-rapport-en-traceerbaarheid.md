@@ -280,7 +280,7 @@ De negen van `variant_descriptions` tot `package_intake` leest `signed_record_se
 - Lukt het schrijven niet, dan faalt de zoekopdracht.
 - Een panel in de variant explorer, die over families heen zoekt, wordt voor geen familie vastgelegd (`panel_use_audit.py`).
 
-**De embryo-indeling.** De backend maakt ze (`pgt_embryo_calls.py`) met dezelfde regels als de haplotypesporen in de browser (`haplotypeRisk.ts`), die het risicolijntje en de risicostatus per lid tekenen. Beide antwoorden gelijk op de gevallen van `frontend/src/lib/__tests__/fixtures/pgtEmbryoCallCases.json`, die `test_pgt_embryo_calls.py` en `haplotypeRisk.test.ts` allebei draaien. De familiepagina toont de indeling die de backend geeft, en de ondertekening bevriest datzelfde object. Het record bevat dus de indeling die de analist zag, gemaakt door één implementatie uit opgeslagen data.
+**De embryo-indeling.** De backend maakt ze (`pgt_embryo_calls.py`) met dezelfde regels als de haplotypesporen in de browser (`haplotypeRisk.ts`), die de risicobaan en de risicostatus per lid tekenen. Beide antwoorden gelijk op de gevallen van `frontend/src/lib/__tests__/fixtures/pgtEmbryoCallCases.json`, die `test_pgt_embryo_calls.py` en `haplotypeRisk.test.ts` allebei draaien. De familiepagina toont de indeling die de backend geeft, en de ondertekening bevriest datzelfde object. Het record bevat dus de indeling die de analist zag, gemaakt door één implementatie uit opgeslagen data.
 
 - Het record bevat per embryo het QC-oordeel (`qc_verdict`) en de drempels waartegen het getoetst werd (`rules.qc_thresholds`). De controle vergelijkt de sectie helemaal: een oordeel of drempel die sindsdien veranderde, telt als een wijziging.
 
