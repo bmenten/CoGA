@@ -241,7 +241,6 @@ erDiagram
     repeat_locus_count_units {
         text locus_id PK, FK
         integer count_offset "from -20 to 20"
-        boolean validated
         text reason
     }
 ```
@@ -306,8 +305,8 @@ erDiagram
 | `gene_panel_versions` | a snapshot of every version of a panel: genes, regions, source, external version and author. Version 1 is archived when a panel is created by hand, built (the Mendeliome) or first imported from PanelApp. The next version is archived at each hand edit of a local panel (its genes or description), each Mendeliome rebuild that changes its genes (or is forced) and each PanelApp import that changes the panel's genes or regions. The app never rewrites a snapshot, and `UNIQUE (panel_id, version)` refuses a second one under the same number. But no trigger makes the table append-only, and deleting a panel deletes its versions (`ON DELETE CASCADE`). The panel page lists the versions; no screen shows one version's genes. `GET /api/panels/{id}/versions/{version}` returns them, to look up the panel version a report names |
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
 | `monarch_gene_disease`, `monarch_disease_phenotype` | Monarch gene-to-disease links (predicate, sources, causal or not) and disease-to-HPO annotations, including negated ones |
-| `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs): the built-in loci and the shipped STRchive release's, rewritten at every start, which removes STRchive loci the release does not list ([data-import.md](data-import.md#the-strchive-release)) |
-| `repeat_locus_count_units` | QA's record, per `repeat_loci` row: the count correction added to TRGT's count before it is classified (`count_offset`, repeat units, 0 for none), whether TRGT's count, so corrected, is the clinical repeat number its ranges count (`validated`), with the `reason`, who (`updated_by`, `updated_by_name`) and when (below) |
+| `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs): the built-in loci and the shipped STRchive release's, rewritten at every start, which removes STRchive loci the release does not list ([data-import.md](data-import.md#the-strchive-release)). `metadata.strchive_id` names the STRchive locus whose page the repeat pages link to: a STRchive row's own ID, a built-in row's gene's one STRchive locus (none where the gene has several) |
+| `repeat_locus_count_units` | QA's count correction, per `repeat_loci` row: the repeat units added to TRGT's count before it is classified (`count_offset`, 0 for none), with the `reason`, who (`updated_by`, `updated_by_name`) and when (below) |
 | `reference_dataset_imports` | every reference import and upload: dataset, rows inserted, whether it replaced data, source, the release the source states (below), who and when |
 
 `clinical_cnvs` carries the knowledgebase's ClinVar support per region:
@@ -327,29 +326,28 @@ its gene and region rows and the assembly's gene-reference imports are unchanged
 `repeat_locus_count_units` holds the laboratory's own check, not catalogue data. TRGT counts
 the motif across the region its own catalogue gives a locus, which need not be the stretch the
 clinical repeat number counts (at FMR1 it leaves out the AGG interruptions; see
-[data-import.md](data-import.md), section 1). A locus without a row has no correction and is
-not validated. No row is written in advance: a correction exists only once QA enters it.
+[data-import.md](data-import.md), section 1). A locus without a row has no correction. No row is
+written in advance: a correction exists only once QA enters it.
 
 - `count_offset` is added to TRGT's count before every classification of a call at the locus:
   at import, on the repeat page, in the genome tracks and in the signed record
   (`services/repeat_count_units.py`, `corrected_repeat_count`). A count it would take below 0
-  reads 0. It applies whether or not the locus is validated. TRGT's own count is shown beside
-  the corrected one. A `CHECK` holds it from -20 to 20 (`repeat_locus_count_units_count_offset_check`).
-- Until a locus is validated, the repeat page and the genome tracks mark a corrected count
+  reads 0. TRGT's own count is shown beside the corrected one. A `CHECK` holds it from -20 to 20
+  (`repeat_locus_count_units_count_offset_check`).
+- At every locus, corrected or not, the repeat page and the genome tracks mark a corrected count
   within 3 repeats of a boundary its classification uses. The mark changes no status.
 - The catalogue seed upserts `repeat_loci` at every start but never writes this table, so a
   start keeps QA's record. `locus_id` references `repeat_loci` (a row for a locus the catalogue
   lacks is refused); a `CHECK` refuses a blank `reason`.
 - An admin sets it on the *Repeat catalogue* page (`PUT /api/admin/repeat-loci/{locus_id}/count-units`,
-  with the correction, whether validated, and a required reason). Each change is a
+  with the correction and a required reason). Each change is a
   hash-chained `clinical_audit_events` row on a chain of its own,
   `family_identifier = system:repeat-loci`, with the record before and after.
 - The family table and the genome track read the row in the statement that reads the calls. A
   sign-out freezes it into the signed record beside the counts, statuses and warnings it led to
   (`repeat_expansions`, [clinical-traceability.md](clinical-traceability.md)).
 - FMR1 has no constant correction: TRGT leaves out 1 to 3 AGG interruptions per allele. Its
-  correction stays 0 and the locus not validated until CoGA reads the interruptions TRGT
-  reports beside the CGG copies.
+  correction stays 0, and its counts near a boundary are marked.
 
 `reference_dataset_imports.source_version` and `source_release_date` hold the release the
 source states about itself:

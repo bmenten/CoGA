@@ -3013,9 +3013,9 @@ async def test_genotype_site_sample_takes_the_smallest_keys_over_every_autosome(
         queries.append((query, dict(params)))
         # A family linked to two projects stores each variant once per project.
         return [
-            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"]),
-            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"]),
-            (9, "17", 200, "C", "T", ["PROBAND", "MOM"], ["1|1", "0|1"]),
+            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"], [99]),
+            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"], [99]),
+            (9, "17", 200, "C", "T", ["PROBAND", "MOM"], ["1|1", "0|1"], [40, None]),
         ]
 
     monkeypatch.setattr(
@@ -3034,6 +3034,7 @@ async def test_genotype_site_sample_takes_the_smallest_keys_over_every_autosome(
     query, params = queries[0]
     # A fixed pseudo-random sample over chromosomes 1-22, not the first sites by position.
     assert "ORDER BY e.key, e.source, e.project_guid" in query
+    assert "e.calls.gq AS sample_gqs" in query
     assert "ORDER BY e.pos" not in query
     assert "e.xpos BETWEEN %(sample_xpos_start)s AND %(sample_xpos_end)s" in query
     assert (params["sample_xpos_start"], params["sample_xpos_end"]) == (1_000_000_000, 22_999_999_999)
@@ -3048,6 +3049,39 @@ async def test_genotype_site_sample_takes_the_smallest_keys_over_every_autosome(
     assert params["source"] == "glimpse2"
     rendered_query, _ = bind_query(query, params)
     assert "%(" not in rendered_query
+
+
+@pytest.mark.asyncio
+async def test_genotype_site_sample_reads_a_call_below_gq_20_as_a_no_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A raw joint callset calls low-depth sites homozygous with a low GQ; read as genotypes,
+    # they can make a parent and child opposite homozygotes at close to 1% of the sites.
+    # Below MIN_GENOTYPE_QUALITY a call is a no-call; at it, and without a GQ, it is read.
+    from backend.app.services.sample_integrity_qc import MIN_GENOTYPE_QUALITY
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        return [
+            (
+                1, "2", 100, "A", "G", ["FATHER", "MOTHER", "CHILD"], ["1/1", "0/0", "0/0"],
+                [99, MIN_GENOTYPE_QUALITY, MIN_GENOTYPE_QUALITY - 1],
+            ),
+            (2, "3", 200, "C", "T", ["FATHER", "CHILD"], ["0/1", "1/1"], [None, 0]),
+            (3, "4", 300, "C", "T", ["FATHER"], ["0/1"], None),
+        ]
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    rows = await fetch_genotype_site_sample(
+        _family_context(), scope="autosomes", limit=90_000, source="clair3"
+    )
+
+    assert [row[5] for row in rows] == [["1/1", "0/0", "./."], ["0/1", "./."], ["0/1"]]
+    # The sample keeps the site and the sample: a no-call is missing, never reference.
+    assert [row[4] for row in rows] == [["FATHER", "MOTHER", "CHILD"], ["FATHER", "CHILD"], ["FATHER"]]
 
 
 @pytest.mark.asyncio
@@ -3123,8 +3157,8 @@ async def test_genotype_site_sample_reads_its_rows_off_the_event_loop(
 
     async def fake_execute_clickhouse(query: str, params: dict[str, object]):
         return [
-            (1, "X", 3_000_100, "A", "G", ["PROBAND", "MOM"], ["0/1", "0/1"], [[1, 299], [150, 150]]),
-            (2, "X", 3_000_200, "C", "T", ["MOM"], ["0/1"], [[280, 20]]),
+            (1, "X", 3_000_100, "A", "G", ["PROBAND", "MOM"], ["0/1", "0/1"], [None, None], [[1, 299], [150, 150]]),
+            (2, "X", 3_000_200, "C", "T", ["MOM"], ["0/1"], [None], [[280, 20]]),
         ]
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute_clickhouse)

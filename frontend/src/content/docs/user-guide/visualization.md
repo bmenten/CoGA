@@ -34,6 +34,13 @@ father (top), from the mother (bottom), and of unknown origin (middle: homozygou
 ambiguous). The origin comes from the parents' genotypes when both are there, otherwise from the phased
 genotype. Without a parent in the family there is one row.
 
+### The gene track
+
+The chromosome view draws each gene as its preferred transcript (MANE Select, else the Ensembl canonical one, else the longest):
+exons as blocks, introns as a line with chevrons pointing the way the gene is transcribed (› on the +
+strand, ‹ on the − strand). Hover a gene for its strand, its transcript and its panels, and, over an
+exon or an intron, its number in the transcript (*Exon 3 / 12*), counted from the transcript's start.
+
 > **Viewers show only what was imported.** A coverage, segment, APCAD or haplotype track appears when
 > that data was loaded for the sample, so an empty track usually means the layer is missing, not that
 > the viewer failed. When a view holds too many variants to draw, the track says so: zoom in or filter.

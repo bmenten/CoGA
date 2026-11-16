@@ -570,10 +570,10 @@ export interface SignedCountBoundary {
 }
 
 /**
- * A count within the margin of a classification boundary at a locus whose TRGT counting units
- * QA had not validated when the version was signed (repeat_count_units.py): a difference of that
- * size between TRGT's count and the clinical repeat number could change its status. The allele's
- * own status is the one on its side of the boundary; the warning changed none.
+ * A count within the margin of a classification boundary when the version was signed
+ * (repeat_count_units.py): a difference of that size between TRGT's count and the clinical repeat
+ * number could change its status. The allele's own status is the one on its side of the
+ * boundary; the warning changed none.
  */
 export interface SignedCountUnitWarning {
   repeatCount: number | null;
@@ -596,14 +596,12 @@ export interface SignedRepeatAllele {
 
 /**
  * QA's record of TRGT's count at the locus, as `repeat_locus_count_units` held it when the version
- * was signed: its count correction, and whether the count, so corrected, is the clinical repeat
- * number. Without a record the locus had no correction and was not validated, and the reason, who
- * and when are null.
+ * was signed: its count correction. Without a record the locus had no correction, and the reason,
+ * who and when are null.
  */
 export interface SignedCountUnits {
   /** Repeat units added to TRGT's count before it was classified. */
   countOffset: number | null;
-  validated: boolean;
   reason: string | null;
   updatedBy: string | null;
   updatedAt: string | null;
@@ -644,7 +642,7 @@ export interface SignedCatalogue {
 
 export interface SignedRepeatExpansions {
   catalogue: SignedCatalogue | null;
-  /** How close to a boundary a count was marked, in repeats, while a locus was not validated. */
+  /** How close to a boundary a count was marked, in repeats. */
   countUnitMargin: number | null;
   loci: SignedRepeatLocus[];
 }
@@ -1628,7 +1626,6 @@ const parseCountUnits = (value: unknown): SignedCountUnits | null =>
   isObject(value)
     ? {
         countOffset: number(value.count_offset),
-        validated: value.validated === true,
         reason: text(value.reason),
         updatedBy: text(value.updated_by),
         updatedAt: text(value.updated_at),
@@ -2434,13 +2431,11 @@ export const describeRepeatCall = (call: SignedRepeatCall): string => {
 };
 
 /**
- * QA's record of a locus's counting units as the record froze it: "validated — Validation report
- * 13 (qa-lead, 2026-10-20 09:30 UTC)", "not validated, corrected to TRGT's count −1 — Offset
- * from VAL-7 (…)", or "not validated (no QA record)".
+ * QA's count correction at a locus as the record froze it: "TRGT's count −1 — Offset from VAL-7
+ * (qa-lead, 2026-10-20 09:30 UTC)", "none — Checked on TRGT 5 (…)", or "none (no QA record)".
  */
 export const describeCountUnits = (units: SignedCountUnits): string => {
-  const correction = describeCountOffset(units.countOffset);
-  const state = `${units.validated ? 'validated' : 'not validated'}${correction ? `, corrected to ${correction}` : ''}`;
+  const state = describeCountOffset(units.countOffset) ?? 'none';
   if (!units.reason) return `${state} (no QA record)`;
   const recorded = [units.updatedBy, units.updatedAt ? formatReportTime(units.updatedAt) : null]
     .filter((part): part is string => Boolean(part))
@@ -2449,20 +2444,20 @@ export const describeCountUnits = (units: SignedCountUnits): string => {
 };
 
 /**
- * A locus's calls on one line, as the signed view lists them, and QA's record of TRGT's counting
- * units there: "PROBAND 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: …; MOTHER 1/2: 30, 40
- * repeats — Normal. TRGT’s counting units: not validated (no QA record)."
+ * A locus's calls on one line, as the signed view lists them, and QA's count correction there:
+ * "PROBAND 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: …; MOTHER 1/2: 30, 40 repeats —
+ * Normal. Count correction: none (no QA record)."
  */
 export const describeRepeatLocusCalls = (locus: SignedRepeatLocus): string => {
   const calls = locus.calls.map(describeRepeatCall).join('; ');
   if (!locus.countUnits) return calls;
-  const units = `TRGT’s counting units: ${describeCountUnits(locus.countUnits)}.`;
+  const units = `Count correction: ${describeCountUnits(locus.countUnits)}.`;
   return calls ? `${calls}. ${units}` : units;
 };
 
 /** Why a count was marked near a boundary, said once for the section. */
 export const describeCountUnitMargin = (margin: number): string =>
-  `While QA had not validated TRGT’s counting units at a locus, a count within ${margin} repeats of a classification boundary was marked ⚠ ${COUNT_UNIT_MARK}: a difference of that size between TRGT’s count and the clinical repeat number could change its status. The status stands as classified.`;
+  `A count within ${margin} repeats of a classification boundary was marked ⚠ ${COUNT_UNIT_MARK}: TRGT’s count need not be the clinical repeat number the cut-offs count, and a difference of that size could change its status. The status stands as classified.`;
 
 /**
  * Why a count differs from TRGT's, said once for the section, where the record froze a count
@@ -2523,7 +2518,7 @@ export const describeCnvKnowledgebase = (knowledgebase: SignedCnvKnowledgebase |
       })`
     : 'none loaded';
 
-/** A catalogue as the record names it: "75 loci (STRchive, CoGA built-in), digest 1a2b3c4d…". */
+/** A catalogue as the record names it: "82 loci (STRchive, CoGA built-in), digest 1a2b3c4d…". */
 export const describeCatalogue = (catalogue: SignedCatalogue | null, noun: string): string =>
   catalogue
     ? `${catalogue.entries ?? '?'} ${noun}${catalogue.sources.length ? ` (${catalogue.sources.join(', ')})` : ''}${

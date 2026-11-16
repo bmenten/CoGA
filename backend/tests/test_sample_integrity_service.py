@@ -1101,11 +1101,11 @@ def test_service_sexes_a_per_sample_nipt_callset_from_its_allele_depths(monkeypa
             if i % 3 == 0:
                 # The father's hemizygous allele (GT 0/1 from Mutect2), the mother's call too.
                 rows.append((i, "X", 3_000_000 + i, "A", "G", ["FATHER", "MOTHER"], ["0/1", "0/1"],
-                             [[1, 299], [1000 - mother_alt, max(mother_alt, 5)]]))
+                             [None, None], [[1, 299], [1000 - mother_alt, max(mother_alt, 5)]]))
             else:
                 # Only the mother has a call: the father's file has none (reference).
                 rows.append((i, "X", 3_000_000 + i, "A", "G", ["MOTHER"], ["0/1"],
-                             [[1000 - mother_alt, max(mother_alt, 5)]]))
+                             [None], [[1000 - mother_alt, max(mother_alt, 5)]]))
         return rows
 
     monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _nipt_source)

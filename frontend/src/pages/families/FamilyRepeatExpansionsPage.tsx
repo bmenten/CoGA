@@ -22,6 +22,7 @@ import InfoTip from '../../components/InfoTip';
 import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
 import TruncatedText from '../../components/TruncatedText';
 import { omimGeneHref, omimSearchHref } from '../../lib/omim';
+import { strchiveLocusHref } from '../../lib/strchive';
 import { geneInfoHref } from '../../lib/geneInfo';
 import InfoIcon from '../../components/InfoIcon';
 import FindingCard, { FindingLinks, type FindingRail } from './FindingCard';
@@ -45,9 +46,9 @@ const formatCountRange = (min: number, max: number): string => (min === max ? `$
 /**
  * How the catalog defines abnormal at this locus.
  *
- * Almost every locus is pathogenic by expansion, where a lower bound says it all. A
- * couple are pathogenic by *contraction* — VWA1 is normal at exactly 2 copies and
- * abnormal at 1 or 3 — and there "red ≥ 1" reads backwards, marking every healthy call.
+ * Almost every locus is pathogenic by expansion, where a lower bound says it all. MIR7-2
+ * is pathogenic by *contraction* — normal at exactly 4 copies and abnormal at 3 — and
+ * there "red ≥ 3" reads backwards, marking every healthy call.
  * Those are recognised the same way the classifier does it: a benign count sitting at or
  * above the pathogenic threshold means count and risk do not rise together.
  */
@@ -106,7 +107,7 @@ const formatAlleles = (alleles: ApiRepeatExpansionAllele[]): string =>
     alleles.map((allele) => allele.trgt_repeat_count),
   ) ?? 'No call';
 
-// QA's count correction at the locus, with its reason: "TRGT's count −1 (validation report 7)".
+// QA's count correction at the locus, with its reason: "TRGT's count −1 (report 7)".
 const formatCountCorrection = (row: ApiRepeatExpansionRow): string | null => {
   const correction = describeCountOffset(row.count_offset);
   if (!correction) return null;
@@ -130,9 +131,8 @@ const isAbnormalStatus = (status: ApiRepeatStatus): boolean =>
   status === 'premutation' ||
   status === 'pathogenic';
 
-// A call's counts near a boundary at a locus whose TRGT counting units QA has not validated:
-// a difference of a few repeats between TRGT's count and the clinical repeat number could
-// change their status (repeat_count_units.py). None once the locus is validated.
+// A call's counts near a boundary: a difference of a few repeats between TRGT's count and the
+// clinical repeat number could change their status (repeat_count_units.py).
 const countUnitWarnings = (call: ApiRepeatExpansionSampleCall): RepeatCountUnitWarningOut[] =>
   call.alleles
     .map((allele) => allele.count_unit_warning)
@@ -203,9 +203,9 @@ const REPEAT_READING_GUIDE =
   'the count is outside any benign range it states there). ' +
   'Where QA recorded a count correction for a locus, each count is TRGT’s count with that correction, ' +
   'the count the status is read from, and TRGT’s own count follows in brackets. ' +
-  `${COUNT_UNIT_MARK} marks a count a few repeats from a boundary at a locus where QA has not yet ` +
-  'validated that the count is the clinical repeat number; there, a small difference could change the ' +
-  'status. Hover over or focus it for the boundary. Aberrant only keeps such a locus too.';
+  `${COUNT_UNIT_MARK} marks a count a few repeats from a boundary: TRGT’s count need not be the clinical ` +
+  'repeat number the cut-offs count, and a small difference could change the status. Hover over or ' +
+  'focus it for the boundary. Aberrant only keeps such a locus too.';
 
 // Each status's tone on the card (FamilyGenotypeGrid): the call, its status chip and the
 // locus chip. A review call has a tone of its own, never another status's.
@@ -236,8 +236,8 @@ const writeRepeatReview = (
 });
 
 // One repeat locus as a variant card: the locus and its catalogue cutoffs at the left, each
-// member's alleles in the genotype grid, the review's actions and the genome and OMIM links in
-// the footer.
+// member's alleles in the genotype grid, the review's actions and the genome, OMIM and STRchive
+// links in the footer.
 const RepeatLocusCard: React.FC<{
   row: ApiRepeatExpansionRow;
   members: ApiFamilyMember[];
@@ -356,7 +356,19 @@ const RepeatLocusCard: React.FC<{
           label: `Chromosome view ${CHROMOSOME_VIEW_PADDING_LABEL} around ${getRepeatChromosomeViewWindow(row)}`,
         }}
         omim={locusGene(row) ? omimGeneHref(locusGene(row) as string) : null}
-      />
+      >
+        {row.strchive_id ? (
+          <a
+            href={strchiveLocusHref(row.strchive_id)}
+            target="_blank"
+            rel="noreferrer"
+            className="variant-card-resource variant-card-resource--clinical"
+            aria-label={`Open ${row.strchive_id} on STRchive`}
+          >
+            STRchive
+          </a>
+        ) : null}
+      </FindingLinks>
     }
   />
 );
@@ -456,8 +468,8 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
       ),
     [repeatTable?.loci],
   );
-  // The members' calls with a count near a boundary while TRGT's counting units are not
-  // validated, counted over the whole table, whatever the filters show.
+  // The members' calls with a count near a boundary, counted over the whole table, whatever the
+  // filters show.
   const nearBoundaryCalls = useMemo(
     () =>
       (repeatTable?.loci || []).reduce(
@@ -556,7 +568,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
       <section className="surface-card space-y-4">
         <div className="page-header">
           <div className="paraphase-section-head">
-            <h2 className="section-title">TRGT repeat expansions</h2>
+            <h2 className="section-title">Repeat expansions</h2>
             <InfoIcon name="How to read the repeat calls" text={REPEAT_READING_GUIDE} />
           </div>
         </div>

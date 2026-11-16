@@ -278,10 +278,10 @@ pull request updates this list only when it adds clinical behaviour that no area
   - One review per family and assembly per repeat locus and Paraphase region, with tags, a
     note and a classification on the type's own scale, beside the unchanged automatic status.
   - The calls a classification or the Report tag rests on, frozen and compared at sign-out (a
-    re-import, a catalogue threshold or a validation of the counting units changes them), and
+    re-import, a catalogue threshold or a count correction changes them), and
     counted in the evidence-drift gate.
-  - An abnormal call without a review acknowledged with a reason (a count near a boundary at a
-    locus not validated included, a grey zone alone not).
+  - An abnormal call without a review acknowledged with a reason (a count near a boundary
+    included, a grey zone alone not).
   - The reviews frozen into the record beside every call
     (docs/repeat-paraphase-review-design.md).
 - **Sign-out and the signed record**

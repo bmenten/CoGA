@@ -473,16 +473,13 @@ CREATE INDEX IF NOT EXISTS idx_repeat_loci_gene ON repeat_loci USING btree (gene
 -- ---------------------------------------------------------------------------
 -- repeat_locus_count_units
 -- ---------------------------------------------------------------------------
--- QA's record, per catalogue locus, of whether TRGT's repeat count there is the clinical
--- repeat number the locus's ranges count (owner's decision, 2026-10-14), and its count
--- correction: the repeat units added to TRGT's count before it is classified (owner's
--- decision, 2026-11-04; 0 for none, at most 20 either way, repeat_count_units.py). The
--- catalogue seed never writes it, so a start keeps it; a locus without a row has no
--- correction and is not validated. An admin sets it with a reason, and each change is a
+-- QA's count correction per catalogue locus: the repeat units added to TRGT's count before
+-- it is classified (owner's decision, 2026-11-04; 0 for none, at most 20 either way,
+-- repeat_count_units.py). The catalogue seed never writes it, so a start keeps it; a locus
+-- without a row has no correction. An admin sets it with a reason, and each change is a
 -- hash-chained clinical audit event (chain `system:repeat-loci`).
 CREATE TABLE IF NOT EXISTS repeat_locus_count_units (
     locus_id text NOT NULL,
-    validated boolean DEFAULT false NOT NULL,
     count_offset integer DEFAULT 0 NOT NULL,
     reason text NOT NULL,
     updated_by uuid,

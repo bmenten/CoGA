@@ -392,10 +392,9 @@ def test_each_repeat_call_is_frozen_with_its_status_and_the_thresholds_behind_it
             "count_unit_warning": None,
         },
     ]
-    # No QA record for the locus: no correction, not validated.
+    # No QA record for the locus: no correction.
     assert locus["count_units"] == {
         "count_offset": 0,
-        "validated": False,
         "reason": None,
         "updated_by": None,
         "updated_at": None,

@@ -127,8 +127,8 @@ the motif across the region its own catalogue gives a locus:
 
 QA can record a count correction per locus (admin page **Repeat catalogue**): it is added to TRGT's
 count before the count is classified, and TRGT's own count stays shown beside the corrected one. None is
-recorded in advance. Until QA validates a locus's counting units, the repeat page and the genome tracks
-mark a count within 3 repeats of a boundary there as *Near a boundary*, without changing its status. See
+recorded in advance. At every locus the repeat page and the genome tracks mark a count within 3
+repeats of a boundary as *Near a boundary*, without changing its status. See
 the [user guide](/docs), section *Structural variants, repeats, Paraphase and mtDNA*.
 
 A small variant's population frequencies and gnomAD counts come only from annotation fields that name

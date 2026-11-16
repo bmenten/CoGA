@@ -3530,10 +3530,9 @@ export interface RepeatCountBoundaryOut {
 }
 
 /**
- * A count within ``margin`` repeats of a classification boundary, at a locus whose TRGT
- * counting units QA has not validated (repeat_count_units): a difference of that size
- * between TRGT's count and the clinical repeat number could change the status. The status
- * itself is unchanged.
+ * A count within ``margin`` repeats of a classification boundary (repeat_count_units): a
+ * difference of that size between TRGT's count and the clinical repeat number could change
+ * the status. The status itself is unchanged.
  */
 export interface RepeatCountUnitWarningOut {
   repeat_count: number;
@@ -3585,8 +3584,8 @@ export interface RepeatExpansionRowOut {
   benign_max: number | null;
   pathogenic_max: number | null;
   premutation_min: number | null;
+  strchive_id: string | null;
   count_offset: number;
-  count_units_validated: boolean;
   count_units_reason: string | null;
   count_units_updated_by: string | null;
   count_units_updated_at: string | null;
@@ -3628,7 +3627,6 @@ export interface RepeatExpansionTrackItemOut {
   allele_trgt_repeat_counts: number[];
   allele_bp_lengths: number[];
   count_offset: number;
-  count_units_validated: boolean;
   count_units_note: string | null;
   count_unit_warnings: RepeatCountUnitWarningOut[];
 }
@@ -3644,27 +3642,27 @@ export interface RepeatExpansionUploadResult {
 }
 
 export interface RepeatLocusCountUnitsCatalogueOut {
+  strchive_release: string;
   margin: number;
   offset_limit: number;
   loci: RepeatLocusCountUnitsOut[];
   changes: RepeatLocusCountUnitsChangeOut[];
 }
 
-/** One change of the validation record, from its clinical audit chain. */
+/** One change of a locus's count correction, from its clinical audit chain. */
 export interface RepeatLocusCountUnitsChangeOut {
   changed_at: string;
   changed_by: string | null;
   locus_id: string | null;
   gene: string | null;
-  validated: boolean;
   count_offset: number;
   summary: string | null;
   reason: string | null;
 }
 
 /**
- * A repeat catalogue locus with QA's record of whether TRGT's count there is the
- * clinical repeat number its ranges count (services/repeat_count_units.py).
+ * A repeat catalogue locus: its cut-offs, as the STRchive release states them, and QA's
+ * count correction there (services/repeat_count_units.py).
  */
 export interface RepeatLocusCountUnitsOut {
   locus_id: string;
@@ -3676,9 +3674,10 @@ export interface RepeatLocusCountUnitsOut {
   pathogenic_min: number | null;
   benign_min: number | null;
   benign_max: number | null;
+  pathogenic_max: number | null;
   premutation_min: number | null;
   source: string;
-  validated: boolean;
+  strchive_id: string | null;
   count_offset: number;
   reason: string | null;
   updated_by: string | null;
@@ -3691,20 +3690,14 @@ export interface RepeatLocusCountUnitsOut {
 export interface RepeatLocusCountUnitsSetOut {
   locus_id: string;
   gene: string | null;
-  validated: boolean;
   count_offset: number;
   reason: string;
   updated_by: string | null;
   updated_at: string | null;
 }
 
-/**
- * A locus's whole record: its count correction, whether TRGT's counting units there are
- * validated, and why (required). Every save states both, so none is left as it was by a
- * client that did not say.
- */
+/** A locus's count correction, and why (required). */
 export interface RepeatLocusCountUnitsUpdate {
-  validated: boolean;
   count_offset: number;
   reason: string;
 }

@@ -153,18 +153,19 @@ DGV_PINNED_RELEASES: dict[str, DgvPinnedRelease] = {
     ),
 }
 # The STRchive release the repeat catalogue is built from: the shipped
-# data/ref-data/STRchive-loci.json, validated with the built-in repeat loci, which carry its
-# thresholds. The file states no release of its own, so its SHA-256 is its identity.
+# data/ref-data/STRchive-loci.json, whose thresholds are CoGA's repeat cut-offs as STRchive
+# publishes them (the built-in repeat loci carry the same thresholds). The file states no
+# release of its own, so its SHA-256 is its identity.
 # Every start reads the STRchive file (TRGT_STRCHIVE_LOCI_PATH, else the repository's copy)
 # only if its SHA-256 is this one, and refuses to start on any other file, or on none: no
 # setting overrides it. The pin moves only with the file, in a reviewed change
 # (docs/data-import.md, "The STRchive release"); test_strchive_release_pin.py fails until
 # the file, the pin and that section agree.
-STRCHIVE_PINNED_LOCI_SHA256 = "a0295e1fe3e25a9f375db25fa27c403c217c74047ec3fa4b4f8060d4868399e9"
-# The upstream STRchive release that file is: byte-identical to the `STRchive-loci-v2.18.0.json`
-# STRchive published with release v2.18.0 (2026-04-28), found on 2026-10-20 by comparing the
-# SHA-256 with the loci file of every published STRchive release. It moves with the pin.
-STRCHIVE_PINNED_RELEASE = "v2.18.0"
+STRCHIVE_PINNED_LOCI_SHA256 = "16301ecb00239f0e3c684913aefc2f48c6f5a7c2a481958aab4db55d282bca86"
+# The upstream STRchive release that file is: byte-identical to the `STRchive-loci-v2.28.0.json`
+# STRchive published with release v2.28.0 (2026-10-08), whose SHA-256 is the digest GitHub lists
+# for that release asset. It moves with the pin.
+STRCHIVE_PINNED_RELEASE = "v2.28.0"
 # The segmental-duplication file the startup loads: the shipped
 # data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed, ClinGen's
 # V2.1 recurrent-CNV file for GRCh38, checked byte-identical with ClinGen's download on 2026-10-14

@@ -8,8 +8,8 @@ such calls: an expansion at a locus the catalogue lacks, or under a TRID spelled
 is seen.
 
 A locus without thresholds has no intermediate, premutation or pathogenic threshold: no
-catalogue row matches the TRID, or the row it matches states none (STRchive's ADTKD_MUC1 and
-CPEO_POLG). A row with one threshold reads normal below it.
+catalogue row matches the TRID, or the row it matches states none (STRchive's ADTKD_MUC1,
+MODY8_CEL, CPEO_POLG and HMNR7_VWA1). A row with one threshold reads normal below it.
 
 Where such a row states a benign range, a count inside it reads ``normal`` (the owner's decision
 of 2026-10-14): STRchive's CPEO_POLG states exactly 10 repeats and no threshold, so a
@@ -71,7 +71,8 @@ FMR1 = {
     "pathogenic_max": 2000,
     "premutation_min": 55,
 }
-VWA1 = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
+# Pathogenic on both sides of its normal count (synthetic): normal exactly 2, pathogenic 1 or 3.
+TWO_SIDED = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
 # A pathogenic threshold and no grey zone, below it a benign range: ABCD3.
 ABCD3 = {"warning_min": None, "pathogenic_min": 118, "benign_min": 3, "benign_max": 44, "pathogenic_max": 694}
 # Rows that state no threshold: ADTKD_MUC1 states nothing, CPEO_POLG a benign count of 10.
@@ -179,9 +180,9 @@ def test_a_row_with_only_an_intermediate_threshold_keeps_it(count: int, status: 
         (FMR1, 50, "intermediate"),
         (FMR1, 60, "premutation"),
         (FMR1, 201, "pathogenic"),
-        (VWA1, 2, "normal"),
-        (VWA1, 3, "pathogenic"),
-        (VWA1, 5, "review"),
+        (TWO_SIDED, 2, "normal"),
+        (TWO_SIDED, 3, "pathogenic"),
+        (TWO_SIDED, 5, "review"),
         (HTT, None, "unknown"),
     ],
 )
@@ -297,11 +298,13 @@ async def test_a_call_at_a_catalogue_row_without_thresholds_is_stored_not_assess
 
 
 @pytest.mark.asyncio
-async def test_the_rows_a_start_seeds_without_thresholds_are_muc1_and_polg(monkeypatch) -> None:
-    """The loci the rule reaches: the seeded rows with no threshold. ADTKD_MUC1 states no
-    benign range, so every count there stays not assessed; CPEO_POLG states 10, the one count
-    that reads normal. No built-in row lacks a threshold, nor does any other STRchive row: a
-    release that adds such a row fails here, for QA to look at the range it states."""
+async def test_the_rows_a_start_seeds_without_thresholds(monkeypatch) -> None:
+    """The loci the rule reaches: the seeded rows with no threshold. ADTKD_MUC1 and MODY8_CEL
+    state no benign range, so every count there stays not assessed; CPEO_POLG states 10 and
+    HMNR7_VWA1 2, the one count that reads normal at each (VWA1's pathogenicity rests on the
+    reading frame, not a size, so STRchive states no threshold there). No built-in row lacks a
+    threshold, nor does any other STRchive row: a release that adds or removes such a row fails
+    here, so the change shows when the pin moves."""
     rows = await catalogue_after_a_start(monkeypatch)
 
     def ranges(row: dict) -> dict:
@@ -315,7 +318,9 @@ async def test_the_rows_a_start_seeds_without_thresholds_are_muc1_and_polg(monke
     }
     assert {locus_id: ranges(row) for locus_id, row in without_thresholds.items()} == {
         "ADTKD_MUC1": {"benign_min": None, "benign_max": None, "pathogenic_max": None, "premutation_min": None},
+        "MODY8_CEL": {"benign_min": None, "benign_max": None, "pathogenic_max": None, "premutation_min": None},
         "CPEO_POLG": {"benign_min": 10, "benign_max": 10, "pathogenic_max": None, "premutation_min": None},
+        "HMNR7_VWA1": {"benign_min": 2, "benign_max": 2, "pathogenic_max": None, "premutation_min": None},
     }
     counts = range(0, 501)
     read = {
@@ -323,8 +328,12 @@ async def test_the_rows_a_start_seeds_without_thresholds_are_muc1_and_polg(monke
         for locus_id, row in without_thresholds.items()
     }
     assert {count for count, status in read["ADTKD_MUC1"].items() if status != NOT_ASSESSED} == set()
+    assert {count for count, status in read["MODY8_CEL"].items() if status != NOT_ASSESSED} == set()
     assert {count for count, status in read["CPEO_POLG"].items() if status != NOT_ASSESSED} == {10}
     assert read["CPEO_POLG"][10] == "normal"
+    # VWA1's common pathogenic allele of 3 copies is not called normal: it stays not assessed.
+    assert {count for count, status in read["HMNR7_VWA1"].items() if status != NOT_ASSESSED} == {2}
+    assert read["HMNR7_VWA1"][2] == "normal"
 
 
 @pytest.mark.parametrize("trid", ["CPEO_POLG", "POLG"])

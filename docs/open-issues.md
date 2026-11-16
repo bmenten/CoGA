@@ -6,7 +6,7 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 | ID | Pri | What has to happen | Who | Blocks |
 |---|---|---|---|---|
 | REG-1 | P1 | Bring the TF-09b statuses and gap texts in line with the software | QA, owner | RC |
-| CLIN-57 | P1 | Validate TRGT's repeat count per catalogue locus; enter the count corrections of FMR1, HTT and POLG | QA, lab director | RC |
+| CLIN-57 | P1 | Enter the count corrections of HTT and POLG; word the correction's requirement and hazard | QA, lab director | RC |
 | REG-13 | P1 | Review the technical file's signed-record corrections | QA | RC |
 | OPS-2 | P1 | Make the CI `images` job a required check; configure Google Cloud so images are pushed | owner, ops | RC |
 | OPS-3 | P1 | Apply Terraform; set the deploy trigger to `release` | ops, owner | RC |
@@ -43,7 +43,7 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 | SEC-40 | P3 | Keep an error's text out of the last stored job errors, HTTP answers and log lines | developer | |
 | UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
 | DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
-| CLIN-14 | P3 | Settle the repeat catalogue's open points; move to STRchive v2.28.0 | QA, owner, developer | |
+| CLIN-14 | P3 | Settle the repeat catalogue's open points | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
 | CLIN-39 | P3 | Decide whether one SV in two siblings' per-sample records gets one second-hit verdict | owner | |
 | CLIN-50 | P3 | Decide whether carrier screening reads Ensembl-only genes | owner | |
@@ -79,11 +79,12 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - The owner rewords REQ-PGT-007, REQ-PGT-009 and TF-05's "simultaneous aneuploidy" as REQ-PGT-008 was.
 - REQ-TRACE-007: the owner answers its 🔲 (freeze frequencies, predictions, gene context too?); QA confirms the gap text.
 
-### CLIN-57 · TRGT's counting units are not validated per locus
+### CLIN-57 · TRGT's count against the clinical repeat number
 
 - TRGT counts its catalogue region: FMR1 reads 1–3 repeats low, HTT one high, POLG four high (10 reads 14).
-- QA and the lab director compare the count with the clinical number on reference samples near each boundary, and record each locus on the *Repeat Catalogue* page: validated or not, and its count correction, which CoGA adds to TRGT's count before it classifies. None is entered; until a locus is validated CoGA warns near a boundary.
-- FMR1's difference varies (1–3), so a constant correction is wrong there: it stays warned.
+- Neither the cut-offs nor TRGT's counting units are validated per locus (owner, 2026-11-16): CoGA marks a count within 3 repeats of a cut-off at every locus.
+- QA and the lab director enter the count corrections on the *Repeat catalogue* page, which CoGA adds to TRGT's count before it classifies. None is entered.
+- FMR1's difference varies (1–3), so a constant correction is wrong there: it stays at 0.
 - QA words the TF-09a requirement and a TF-06 hazard for the correction with the next free number (H17 and H18 are taken), and decides whether the backend refuses a correction at FMR1 and whether ±20 is the right bound.
 
 ### REG-13 · QA review of the signed-record corrections
@@ -118,7 +119,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - QA sets the severity matrix (TF-06 §3).
 - Assign hazards to REQ-DIAG-004, REQ-DIAG-005 and REQ-DATA-003 (none in TF-09a).
-- Consider hazards for an EPD report citing the wrong signed version, for taking CoGA's sign-out for the medical sign-off, and for CLIN-57's count units.
+- Consider hazards for an EPD report citing the wrong signed version, for taking CoGA's sign-out for the medical sign-off, and for CLIN-57's count correction.
 - Add H17 and H18 to TF-06 §6a's triad rollup. The lab director confirms the residuals and signs.
 
 ### REG-7 · Usability, DPIA, national provisions
@@ -152,7 +153,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - Review saves refuse a field they do not take (owner's decision for the SV save).
     - An in-package `manifest.yaml` link is replaced, not written through.
     - A Monarch download over the size cap answers 502, not 500.
-    - The count correction: always applied once recorded; the boundary warning lifted only by validation.
+    - The count correction: always applied once recorded; it does not lift the boundary warning, which every locus has.
     - T2T-CHM13's PARs: a man is hemizygous outside them on T2T (T2T is outside the validated scope).
 - 2026-11-05 to 2026-11-09:
     - The package file `coga-package.json`'s choices, to confirm with the pipeline owners ([coga-package.md](coga-package.md)): MD5 accepted beside SHA-256, a minimal file accepted (CoGA proposes the members and datasets), `request_id` kept, a pipeline QC `fail` needs attention, an unknown field refused.
@@ -237,8 +238,9 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 ### CLIN-14 · Repeat catalogue
 
-- STRchive's gaps and overlaps: ATXN7 36 intermediate, PPP2R2B 33–39 normal and 50 intermediate, ATXN10 800–850 pathogenic.
-- Motif orientation differs at nine loci; PABPN1's `GCN` is unchecked against the pipeline's TRGT BED; STRchive tags as TRID aliases name no locus. Move to v2.28.0 after CLIN-57.
+- STRchive's thresholds are the cut-offs as the release states them (owner, 2026-11-16). A count in a gap between its ranges reads by the cut-off below it: between the benign range and the grey zone normal (AR 35, PPP2R2B 33–39, DIP2B 24–138, ZNF713 23–41, FAM193B 51–157), between the grey zone and the pathogenic threshold intermediate (ATXN7 36, PPP2R2B 50, RFC1 201–399, CSNK1E 132–744); ATXN10's grey zone runs to 850, past its pathogenic threshold of 800, which wins.
+- RFC1's count is its first pathogenic motif's (AAGGG): an ACAGG or AAAGG expansion is not counted.
+- Motif orientation differs at nine loci; PABPN1's `GCN` is unchecked against the pipeline's TRGT BED; STRchive tags as TRID aliases name no locus.
 
 ### CLIN-72 · INFO flags
 

@@ -25,17 +25,16 @@ page is an administrator's alone.
   [phenotype matching](#phenotype-matching) and the ranking. A new installation loads the newest
   release at its first start; load a newer one about monthly. Loading it here also rebuilds the
   Mendeliome panel; after the first start, build that panel on the Gene panels page.
-- **Repeat catalogue** — for each repeat locus, QA's record of TRGT's count there, with the reason,
-  who and when, and the history of these records:
-  - a **count correction**, in repeats, added to TRGT's count before every call at the locus is
-    classified (−1 turns TRGT's 18 into 17; from −20 to 20). It applies whether or not the locus is
-    validated, and TRGT's own count stays shown beside the corrected one. **Set count correction**
-    changes it; on a validated locus a changed correction is recorded as not validated, until QA
-    validates the locus with it. No locus has one until QA enters it. At FMR1 a constant correction is wrong (TRGT is
-    1 to 3 low, by the number of AGG interruptions), and the page says so next to the field;
-  - whether the locus is **validated**: TRGT's count, with its correction, is the clinical repeat
-    number. Until it is, the repeat page marks its counts near a boundary
-    ([Structural variants, repeats, Paraphase and mtDNA](#specialised-analyses)).
+- **Repeat catalogue** — each repeat locus with its cut-offs, which are STRchive's as the pinned
+  release states them (the page names it, *STRchive v2.28.0*), what is known of TRGT's count there,
+  and QA's count correction, with the reason, who and when, and the history of these corrections (a
+  locus's disease links to its page on STRchive). The **count correction**, in repeats, is added to
+  TRGT's count before every call at the locus is classified (−1 turns TRGT's 18 into 17; from −20 to
+  20), and TRGT's own count stays shown beside the corrected one. **Set count correction** changes it.
+  No locus has one until QA enters it. At FMR1 a constant correction is wrong (TRGT is 1 to 3 low, by
+  the number of AGG interruptions), and the page says so next to the field. A correction does not lift
+  the *Near a boundary* mark, which the repeat page shows at every locus
+  ([Structural variants, repeats, Paraphase and mtDNA](#specialised-analyses)).
 
   Each change needs a reason and is kept in the clinical audit trail, with the record before and
   after. The loci the stored calls name are listed first.

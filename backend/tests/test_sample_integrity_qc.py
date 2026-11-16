@@ -12,6 +12,8 @@ from backend.app.services import report_signout_service
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.sample_integrity_qc import (
     IBS0_PARENT_CHILD_MAX,
+    IBS0_PARENT_CHILD_SHARE_OF_UNRELATED,
+    Ibs0Cut,
     MIN_MENDEL_SITES,
     MIN_RELATEDNESS_SITES,
     MIN_X_SITES,
@@ -28,6 +30,7 @@ from backend.app.services.sample_integrity_qc import (
     evaluate_nipt_category_qc,
     evaluate_paternity,
     evaluate_sample_integrity,
+    ibs0_parent_child_cut,
     infer_sex,
     king_relatedness,
     mendelian_stats,
@@ -753,6 +756,92 @@ def test_the_overall_is_not_run_only_when_no_check_ran_at_all() -> None:
 )
 def test_the_relatedness_bands_and_their_edges(kinship: float, ibs0: float, sites: int, expected: str) -> None:
     assert classify_relatedness(kinship, ibs0, sites) == expected
+
+
+@pytest.mark.parametrize(
+    ("stats", "cut"),
+    [
+        # The co-parents read as unrelated: an eighth of their IBS0. Another unrelated
+        # pair is no baseline: only co-parents are recorded as unrelated.
+        (
+            {("FATHER", "MOTHER"): (0.01, 0.08, 5_000), ("FATHER", "STRANGER"): (0.0, 0.2, 5_000)},
+            Ibs0Cut(0.01, 0.08),
+        ),
+        # Two co-parent pairs (grandparents and parents): an eighth of their median.
+        ({("FATHER", "MOTHER"): (0.0, 0.08, 5_000), ("GF", "GM"): (0.0, 0.06, 5_000)}, Ibs0Cut(0.00875, 0.07)),
+        # No co-parents with genotypes, co-parents read as related (consanguinity), too few
+        # shared sites, or no IBS0 at all: the fixed cut.
+        ({}, Ibs0Cut()),
+        ({("FATHER", "MOTHER"): (0.06, 0.05, 5_000)}, Ibs0Cut()),
+        ({("FATHER", "MOTHER"): (0.0, 0.08, MIN_RELATEDNESS_SITES - 1)}, Ibs0Cut()),
+        ({("FATHER", "MOTHER"): (0.0, 0.0, 5_000)}, Ibs0Cut()),
+    ],
+)
+def test_the_parent_child_cut_is_an_eighth_of_the_coparents_ibs0(stats, cut: Ibs0Cut) -> None:
+    found = ibs0_parent_child_cut(stats, {("FATHER", "MOTHER"), ("GF", "GM")})
+    assert found.parent_child_max == pytest.approx(cut.parent_child_max)
+    if cut.unrelated_ibs0 is None:
+        assert found.unrelated_ibs0 is None
+    else:
+        assert found.unrelated_ibs0 == pytest.approx(cut.unrelated_ibs0)
+
+
+def test_the_cut_as_a_first_degree_pairs_message_gives_it() -> None:
+    assert Ibs0Cut(0.01, 0.08).describe() == "parent-child below 1.00%, an eighth of the parents' 8.00%"
+    assert Ibs0Cut().describe() == "parent-child below 0.80%"
+    assert Ibs0Cut().parent_child_max == IBS0_PARENT_CHILD_MAX
+    assert IBS0_PARENT_CHILD_SHARE_OF_UNRELATED == 1 / 8
+
+
+def test_a_parent_and_child_are_read_against_their_familys_own_unrelated_ibs0() -> None:
+    # Genotype error makes a parent and child opposite homozygotes at 1.2% of the sites,
+    # above the fixed cut: on that cut they read as siblings, a fail. The parents are
+    # opposite homozygotes at about 12.5% of these sites, and an eighth of that is the
+    # family's cut: the pair reads as parent-child, and full siblings, at about a quarter
+    # of the parents' IBS0, still as siblings.
+    rng = random.Random(21)
+    n = 20_000
+    father, mother = _founder(rng, n), _founder(rng, n)
+    child = _child(rng, father, mother)
+    sib = _child(rng, father, mother)
+    homozygous = [i for i, gt in enumerate(father) if gt[0] == gt[1]]
+    for i in rng.sample(homozygous, n * 12 // 1_000):
+        allele = 1 - father[i][0]
+        child[i] = (allele, allele)
+    parents = {"father": "FATHER", "mother": "MOTHER"}
+    spec = PedigreeSpec(recorded_sex={}, parents_of={"CHILD": parents, "SIB": dict(parents)})
+
+    report = evaluate_sample_integrity(
+        {"FATHER": father, "MOTHER": mother, "CHILD": child, "SIB": sib}, {}, spec, profile=_WGS
+    )
+
+    checks = {(c.sample_a, c.sample_b): c for c in report.relatedness_checks}
+    parents_ibs0 = checks[("FATHER", "MOTHER")].ibs0_rate
+    cut = parents_ibs0 * IBS0_PARENT_CHILD_SHARE_OF_UNRELATED
+    father_child = checks[("CHILD", "FATHER")]
+    assert IBS0_PARENT_CHILD_MAX < father_child.ibs0_rate < cut
+    assert (father_child.inferred_relationship, father_child.status) == ("parent-child", "pass")
+    assert father_child.message == (
+        f"Confirmed parent-child (kinship {father_child.kinship:.3f}, IBS0 {father_child.ibs0_rate:.2%} "
+        f"(parent-child below {cut:.2%}, an eighth of the parents' {parents_ibs0:.2%}), {n} sites)."
+    )
+    siblings = checks[("CHILD", "SIB")]
+    assert siblings.ibs0_rate > cut
+    assert (siblings.inferred_relationship, siblings.status) == ("sibling", "pass")
+    # The cut tells the two first-degree readings apart; another reading does not give it.
+    assert "below" not in checks[("FATHER", "MOTHER")].message
+
+    # With one parent sequenced there are no co-parents: the fixed cut reads the same pair
+    # as siblings.
+    alone = evaluate_sample_integrity(
+        {"FATHER": father, "CHILD": child},
+        {},
+        PedigreeSpec(recorded_sex={}, parents_of={"CHILD": {"father": "FATHER"}}),
+        profile=_WGS,
+    )
+    (single,) = alone.relatedness_checks
+    assert (single.inferred_relationship, single.status) == ("sibling", "fail")
+    assert "(parent-child below 0.80%)" in single.message
 
 
 _REL = "metrics"

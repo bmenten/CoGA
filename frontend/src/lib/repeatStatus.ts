@@ -56,12 +56,12 @@ export const formatCorrectedCounts = (
   return corrected ? `${shown.join(' / ')} (TRGT ${trgt.join(' / ')})` : shown.join(' / ');
 };
 
-/** The mark of a count near a boundary while TRGT's counting units are not validated. */
+/** The mark of a count within a few repeats of a classification boundary, at every locus. */
 export const COUNT_UNIT_MARK = 'Near a boundary';
 
 /** Why the mark matters, said once for every count it marks at a locus. */
-export const COUNT_UNITS_NOT_VALIDATED =
-  "TRGT's counting units are not yet validated for this locus, so its count may differ from the clinical repeat number by a few repeats.";
+export const COUNT_UNITS_CAVEAT =
+  "TRGT's count need not be the clinical repeat number the cut-offs count: it may differ from it by a few repeats.";
 
 /**
  * One count near a boundary: "53 is within 3 repeats of 55 (Premutation)", or of the nearest
@@ -84,7 +84,7 @@ export const countUnitWarningText = (
   note?: string | null,
 ): string => {
   const counts = warnings.map(describeCountUnitWarning).join('; ');
-  return [`${COUNT_UNIT_MARK}: ${counts}.`, COUNT_UNITS_NOT_VALIDATED, note ? `Known: ${note}` : null]
+  return [`${COUNT_UNIT_MARK}: ${counts}.`, COUNT_UNITS_CAVEAT, note ? `Known: ${note}` : null]
     .filter((part): part is string => Boolean(part))
     .join(' ');
 };
