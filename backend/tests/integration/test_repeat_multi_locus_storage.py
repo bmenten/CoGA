@@ -93,7 +93,7 @@ def test_the_next_start_removes_strchive_rows_the_shipped_release_does_not_list(
 
     assert other_release_locus in before["strchive"]
     assert other_release_locus not in after["strchive"]
-    assert len(after["strchive"]) == 75
+    assert len(after["strchive"]) == 82
     assert after["strchive"] == before["strchive"] - {other_release_locus}
     assert {locus["locus_id"] for locus in BUILTIN_REPEAT_LOCI} <= after["other"]
 
