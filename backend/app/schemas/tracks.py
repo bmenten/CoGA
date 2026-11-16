@@ -278,10 +278,9 @@ class RepeatCountBoundaryOut(BaseModel):
 
 
 class RepeatCountUnitWarningOut(BaseModel):
-    """A count within ``margin`` repeats of a classification boundary, at a locus whose TRGT
-    counting units QA has not validated (repeat_count_units): a difference of that size
-    between TRGT's count and the clinical repeat number could change the status. The status
-    itself is unchanged."""
+    """A count within ``margin`` repeats of a classification boundary (repeat_count_units): a
+    difference of that size between TRGT's count and the clinical repeat number could change
+    the status. The status itself is unchanged."""
 
     repeat_count: int
     margin: int
@@ -305,7 +304,7 @@ class RepeatExpansionAlleleOut(BaseModel):
     interrupted: bool = False
     interruption_label: Optional[str] = None
     status: RepeatStatus = "unknown"
-    # Set when the count is near a boundary at a locus whose counting units are not validated.
+    # Set when the count is within the margin of a classification boundary.
     count_unit_warning: Optional[RepeatCountUnitWarningOut] = None
 
 
@@ -352,11 +351,9 @@ class RepeatExpansionRowOut(BaseModel):
     strchive_id: Optional[str] = None
     # QA's record for the catalogue row classifying the calls (repeat_count_units), read in the
     # statement that read the calls: the correction added to TRGT's count before it is
-    # classified (0: none); whether QA validated that the count, so corrected, is the clinical
-    # repeat number (False until it did); and the record's reason, who and when (None without
-    # a record). And what is known of TRGT's count at the gene (FMR1, HTT, POLG), or None.
+    # classified (0: none), and the record's reason, who and when (None without a record).
+    # And what is known of TRGT's count at the gene (FMR1, HTT, POLG), or None.
     count_offset: int = 0
-    count_units_validated: bool = False
     count_units_reason: Optional[str] = None
     count_units_updated_by: Optional[str] = None
     count_units_updated_at: Optional[datetime] = None
@@ -497,11 +494,9 @@ class RepeatExpansionTrackItemOut(BaseModel):
     allele_repeat_counts: List[int] = Field(default_factory=list)
     allele_trgt_repeat_counts: List[int] = Field(default_factory=list)
     allele_bp_lengths: List[int] = Field(default_factory=list)
-    # As on the family table, against the same catalogue row: QA's record for it (its
-    # correction and whether it is validated), what is known of TRGT's count at the gene, and
-    # one warning per allele near a boundary while it is not validated.
+    # As on the family table, against the same catalogue row: QA's correction for it, what is
+    # known of TRGT's count at the gene, and one warning per allele near a boundary.
     count_offset: int = 0
-    count_units_validated: bool = False
     count_units_note: Optional[str] = None
     count_unit_warnings: List[RepeatCountUnitWarningOut] = Field(default_factory=list)
 

@@ -56,20 +56,19 @@ count. Checked in the public HG002 TRGT output and the laboratory's long-read fi
   reads 18.
 - POLG: it counts four flanking GCT copies, so the common 10-repeat allele reads 14.
 
-QA and the laboratory director check per catalogue locus that TRGT's count is the clinical
-repeat number. An administrator records the result on the admin page **Repeat catalogue**
-(`repeat_locus_count_units`, which no start rewrites; [database.md](database.md)):
+Neither the cut-offs nor TRGT's count against the clinical repeat number are validated per locus
+(the owner's decision, 2026-11-16). So at every locus the repeat page and the genome tracks mark a
+count within 3 repeats of a boundary its classification uses (`services/repeat_count_units.py`);
+the mark changes no status.
 
-- a count correction, in repeats, added to TRGT's count before the count is classified (−1 turns
-  TRGT's 18 into 17). It applies at import, on the repeat page, in the genome tracks and in the
-  signed record, validated or not. TRGT's own count stays shown beside the corrected one;
-- whether the locus is validated: TRGT's count, with its correction, is the clinical repeat
-  number. Until it is, the repeat page and the genome tracks mark a count within 3 repeats of a
-  boundary its classification uses (`services/repeat_count_units.py`); the mark changes no status.
+QA can record a count correction per locus on the admin page **Repeat catalogue**
+(`repeat_locus_count_units`, which no start rewrites; [database.md](database.md)): repeats added
+to TRGT's count before the count is classified (−1 turns TRGT's 18 into 17). It applies at
+import, on the repeat page, in the genome tracks and in the signed record, and TRGT's own count
+stays shown beside the corrected one. A correction does not lift the mark.
 
 No correction is recorded in advance, for HTT, POLG or any other locus. FMR1 has no constant
-correction (its count is 1 to 3 low, by the number of AGG interruptions), so it stays at 0 and
-not validated.
+correction (its count is 1 to 3 low, by the number of AGG interruptions), so it stays at 0.
 
 Segmental duplications load only into the assembly `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME` names
 (GRCh38), and only if it is GRCh38, as the shipped file holds GRCh38 coordinates. An assembly is

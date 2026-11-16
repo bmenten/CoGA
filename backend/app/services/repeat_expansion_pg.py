@@ -233,7 +233,7 @@ def read_shipped_strchive_release(path: Path) -> bytes:
     digest = hashlib.sha256(payload).hexdigest()
     if digest != STRCHIVE_PINNED_LOCI_SHA256:
         raise _refuse_strchive_release(
-            f"The STRchive file {shown} is not the shipped, validated STRchive release: its "
+            f"The STRchive file {shown} is not the shipped STRchive release: its "
             f"SHA-256 is {digest}, the shipped release's is {STRCHIVE_PINNED_LOCI_SHA256}. The "
             "backend does not start, because the built-in repeat loci carry the shipped "
             "release's thresholds and calls would be read against two releases. "
@@ -681,7 +681,6 @@ def _reclassify_repeat_alleles(
 def _with_count_unit_warnings(
     alleles: list[dict[str, Any]],
     *,
-    validated: bool,
     warning_min: int | None,
     pathogenic_min: int | None,
     benign_min: int | None = None,
@@ -690,16 +689,17 @@ def _with_count_unit_warnings(
     premutation_min: int | None = None,
 ) -> list[dict[str, Any]]:
     """Each allele with its ``count_unit_warning`` (repeat_count_units): the boundaries within
-    the margin of its count, at a locus whose counting units QA has not validated.
+    the margin of its count, at every locus, since TRGT's count need not be the clinical repeat
+    number the locus's cut-offs count.
 
     The boundaries are found by the classifier itself, with the thresholds the status was
     read against, so the warning and the status never disagree on where a boundary is. A
-    validated locus, and a no-call, carry none. The statuses are left as they are. A locus
+    no-call carries none. The statuses are left as they are. A locus
     without any threshold or range has nothing a count could cross, so the classifier is not
     asked there: a genome-wide TRGT catalogue holds mostly such loci.
     """
     ranges = (warning_min, pathogenic_min, benign_min, benign_max, pathogenic_max, premutation_min)
-    if validated or all(value is None for value in ranges):
+    if all(value is None for value in ranges):
         return [{**allele, "count_unit_warning": None} for allele in alleles]
 
     def status_at(count: int) -> str:
@@ -841,7 +841,6 @@ def _classified_call(
     )
     alleles = _with_count_unit_warnings(
         alleles,
-        validated=bool(row.get("count_units_validated")),
         warning_min=warning_min,
         pathogenic_min=pathogenic_min,
         **ranges,
@@ -1720,9 +1719,8 @@ _CALL_CATALOGUE_COLUMNS = """                COALESCE(catalog.locus_id, repeat_e
                 -- QA's record for the catalogue row that classifies the call, read in this
                 -- statement with the call, so the correction the call is classified with and
                 -- the record the signed record freezes beside it are one (CLIN-57). A call no
-                -- row matches has no correction and is not validated.
+                -- row matches has no correction.
                 COALESCE(units.count_offset, 0) AS count_offset,
-                COALESCE(units.validated, false) AS count_units_validated,
                 units.reason AS count_units_reason,
                 units.updated_by_name AS count_units_updated_by,
                 units.updated_at AS count_units_updated_at,
@@ -1869,7 +1867,6 @@ async def get_family_repeat_expansion_table_response(
     for row in rows:
         warning_min = row.get("warning_min")
         pathogenic_min = row.get("pathogenic_min")
-        count_units_validated = bool(row.get("count_units_validated"))
         meta = member_meta.get(row["sample_uuid"], {})
         alleles, row_status, note = _classified_call(
             row, sex=meta.get("sex"), assembly_name=context.assembly_name
@@ -1899,7 +1896,6 @@ async def get_family_repeat_expansion_table_response(
                 "premutation_min": row.get("premutation_min"),
                 "strchive_id": row.get("strchive_id"),
                 "count_offset": _as_int(row.get("count_offset")) or 0,
-                "count_units_validated": count_units_validated,
                 "count_units_reason": row.get("count_units_reason"),
                 "count_units_updated_by": row.get("count_units_updated_by"),
                 "count_units_updated_at": row.get("count_units_updated_at"),
@@ -2026,7 +2022,6 @@ async def get_sample_repeat_expansion_track_response(
                     if allele.get("bp_length") is not None
                 ],
                 count_offset=_as_int(row.get("count_offset")) or 0,
-                count_units_validated=bool(row.get("count_units_validated")),
                 count_units_note=known_count_unit_difference(row.get("gene")),
                 count_unit_warnings=[
                     allele["count_unit_warning"]

@@ -107,7 +107,7 @@ const formatAlleles = (alleles: ApiRepeatExpansionAllele[]): string =>
     alleles.map((allele) => allele.trgt_repeat_count),
   ) ?? 'No call';
 
-// QA's count correction at the locus, with its reason: "TRGT's count −1 (validation report 7)".
+// QA's count correction at the locus, with its reason: "TRGT's count −1 (report 7)".
 const formatCountCorrection = (row: ApiRepeatExpansionRow): string | null => {
   const correction = describeCountOffset(row.count_offset);
   if (!correction) return null;
@@ -131,9 +131,8 @@ const isAbnormalStatus = (status: ApiRepeatStatus): boolean =>
   status === 'premutation' ||
   status === 'pathogenic';
 
-// A call's counts near a boundary at a locus whose TRGT counting units QA has not validated:
-// a difference of a few repeats between TRGT's count and the clinical repeat number could
-// change their status (repeat_count_units.py). None once the locus is validated.
+// A call's counts near a boundary: a difference of a few repeats between TRGT's count and the
+// clinical repeat number could change their status (repeat_count_units.py).
 const countUnitWarnings = (call: ApiRepeatExpansionSampleCall): RepeatCountUnitWarningOut[] =>
   call.alleles
     .map((allele) => allele.count_unit_warning)
@@ -204,9 +203,9 @@ const REPEAT_READING_GUIDE =
   'the count is outside any benign range it states there). ' +
   'Where QA recorded a count correction for a locus, each count is TRGT’s count with that correction, ' +
   'the count the status is read from, and TRGT’s own count follows in brackets. ' +
-  `${COUNT_UNIT_MARK} marks a count a few repeats from a boundary at a locus where QA has not yet ` +
-  'validated that the count is the clinical repeat number; there, a small difference could change the ' +
-  'status. Hover over or focus it for the boundary. Aberrant only keeps such a locus too.';
+  `${COUNT_UNIT_MARK} marks a count a few repeats from a boundary: TRGT’s count need not be the clinical ` +
+  'repeat number the cut-offs count, and a small difference could change the status. Hover over or ' +
+  'focus it for the boundary. Aberrant only keeps such a locus too.';
 
 // Each status's tone on the card (FamilyGenotypeGrid): the call, its status chip and the
 // locus chip. A review call has a tone of its own, never another status's.
@@ -469,8 +468,8 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
       ),
     [repeatTable?.loci],
   );
-  // The members' calls with a count near a boundary while TRGT's counting units are not
-  // validated, counted over the whole table, whatever the filters show.
+  // The members' calls with a count near a boundary, counted over the whole table, whatever the
+  // filters show.
   const nearBoundaryCalls = useMemo(
     () =>
       (repeatTable?.loci || []).reduce(

@@ -722,10 +722,9 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds', () => {
 });
 
 // TRGT's count need not be the clinical repeat number (FMR1 leaves out the AGG interruptions,
-// reading 1 to 3 below). Until QA validates a locus's counting units, a count within 3 repeats
-// of a boundary is marked, with the boundary in its tooltip; its status is unchanged (owner's
-// decision, 2026-10-14).
-describe('FamilyRepeatExpansionsPage — a count near a boundary while the counting units are not validated', () => {
+// reading 1 to 3 below). At every locus a count within 3 repeats of a boundary is marked, with
+// the boundary in its tooltip; its status is unchanged.
+describe('FamilyRepeatExpansionsPage — a count near a boundary', () => {
   const members = [
     { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
     { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
@@ -751,7 +750,7 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
     status,
     alleles,
   });
-  const fmr1 = (validated: boolean) => ({
+  const fmr1 = {
     locus_id: 'FXS_FMR1',
     gene: 'FMR1',
     display_name: 'FMR1',
@@ -763,18 +762,13 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
     warning_min: 45,
     pathogenic_min: 201,
     premutation_min: 55,
-    count_units_validated: validated,
     count_units_note: FMR1_NOTE,
     status: 'intermediate',
     calls: {
       // 53 reads grey zone; a premutation of 55 with two AGG interruptions reads 53.
       PROBAND: call('PROBAND', 'intermediate', [
         { repeat_count: 30, status: 'normal' },
-        {
-          repeat_count: 53,
-          status: 'intermediate',
-          ...(validated ? {} : { count_unit_warning: near(53, 55, 'premutation') }),
-        },
+        { repeat_count: 53, status: 'intermediate', count_unit_warning: near(53, 55, 'premutation') },
       ]),
       // 40 is far from every boundary.
       MOTHER: call('MOTHER', 'normal', [
@@ -782,7 +776,7 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
         { repeat_count: 40, status: 'normal' },
       ]),
     },
-  });
+  };
   // A normal HTT allele of 26, one below the grey zone.
   const htt = {
     locus_id: 'HD_HTT',
@@ -795,7 +789,6 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
     motif: 'CAG',
     warning_min: 27,
     pathogenic_min: 36,
-    count_units_validated: false,
     status: 'normal',
     calls: {
       PROBAND: call('PROBAND', 'normal', [
@@ -815,7 +808,6 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
     motif: 'CAG',
     warning_min: 36,
     pathogenic_min: 39,
-    count_units_validated: false,
     status: 'normal',
     calls: { PROBAND: call('PROBAND', 'normal', [{ repeat_count: 29, status: 'normal' }]) },
   };
@@ -839,7 +831,7 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
       ?.querySelector('.family-workspace-stat-value')?.textContent;
 
   it('marks the FMR1 count of 53 and not the one of 40, with the boundary, the count and why in its tooltip', async () => {
-    renderWith([fmr1(false)]);
+    renderWith([fmr1]);
 
     const row = await screen.findByRole('article', { name: /FMR1/ });
     const [mark] = within(row).getAllByText('Near a boundary');
@@ -852,22 +844,13 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
 
     fireEvent.mouseEnter(mark);
     expect(screen.getByRole('tooltip')).toHaveTextContent(
-      `Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT's counting units are not yet validated for this locus, so its count may differ from the clinical repeat number by a few repeats. Known: ${FMR1_NOTE}`,
+      `Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT's count need not be the clinical repeat number the cut-offs count: it may differ from it by a few repeats. Known: ${FMR1_NOTE}`,
     );
     // Reachable without a mouse: the mark takes focus and is described by its tooltip.
     expect(mark).toHaveAttribute('tabindex', '0');
     expect(mark).toHaveAttribute('aria-describedby', screen.getByRole('tooltip').id);
     fireEvent.mouseLeave(mark);
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-  });
-
-  it('marks nothing once QA has validated the locus', async () => {
-    renderWith([fmr1(true)]);
-
-    const row = await screen.findByRole('article', { name: /FMR1/ });
-    expect(within(row).queryByText('Near a boundary')).not.toBeInTheDocument();
-    expect(within(row).getByText('30 / 53').closest('.variant-card-gtline')).toHaveTextContent('Grey zone');
-    expect(callsNearABoundary()).toBe('0');
   });
 
   it('keeps a normal locus with a count near a boundary in the aberrant-only view', async () => {
@@ -929,7 +912,7 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
       {
         ...htt,
         count_offset: -1,
-        count_units_reason: 'Offset from validation report VAL-7',
+        count_units_reason: 'Offset from report VAL-7',
         status: 'pathogenic',
         calls: {
           PROBAND: call('PROBAND', 'pathogenic', [
@@ -944,7 +927,7 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
         },
       },
       // Without a correction the counts read as TRGT's, with nothing beside them.
-      fmr1(true),
+      fmr1,
     ]);
 
     const row = await screen.findByRole('article', { name: /HTT/ });
@@ -952,7 +935,7 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
       'Pathogenic',
     );
     expect(within(row).getByText('Count correction').nextElementSibling).toHaveTextContent(
-      'TRGT’s count −1 (Offset from validation report VAL-7)',
+      'TRGT’s count −1 (Offset from report VAL-7)',
     );
     const fmr1Row = screen.getByRole('article', { name: /FMR1/ });
     expect(within(fmr1Row).getByText('30 / 53')).toBeInTheDocument();

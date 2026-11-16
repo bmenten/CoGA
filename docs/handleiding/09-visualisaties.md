@@ -40,7 +40,7 @@ Het ideogram is de gestreepte chromosoomtekening. De cytobanden komen uit Postgr
 
 **Een gecorrigeerde repeattelling.** Heeft QA voor een locus een telcorrectie vastgelegd (hoofdstuk 8), dan tekent de track de status van de gecorrigeerde telling en noemt de tooltip de gecorrigeerde tellingen met die van TRGT tussen haakjes, en de correctie (`allele_repeat_counts`, `allele_trgt_repeat_counts`, `count_offset`).
 
-**Een repeattelling dicht bij een grens.** Zolang QA de telwijze van TRGT bij een locus niet gevalideerd heeft, noemt de tooltip van het teken elke telling op 3 repeats of minder van een grens. Hij geeft de grens, waarom, en wat er over de telling van TRGT bij het gen bekend is (`count_unit_warnings` in hetzelfde antwoord; hoofdstuk 8). De toegankelijke naam van de track telt zulke loci (*1 near a boundary*).
+**Een repeattelling dicht bij een grens.** Bij elk locus noemt de tooltip van het teken elke telling op 3 repeats of minder van een grens. Hij geeft de grens, waarom, en wat er over de telling van TRGT bij het gen bekend is (`count_unit_warnings` in hetzelfde antwoord; hoofdstuk 8). De toegankelijke naam van de track telt zulke loci (*1 near a boundary*).
 
 **Aneuploïdie en grote SV's bij PGT: de analist beoordeelt.** Op de segment-, kopieaantal- (dekking) en APCAD-tracks van elk embryo beoordeelt de analist zelf de aneuploïdie en de structurele varianten groter dan 10 Mb. CoGA toont die tracks, maar heeft geen automatische aneuploïdiedetectie (`TF-09a`, REQ-PGT-008). De grenzen van die beoordeling (mozaïcisme boven 35 %, SV's boven 10 Mb) moet de klinische validatie nog vaststellen (`TF-10` §3.2).
 
