@@ -16,7 +16,7 @@
 
 # compile-requirements.sh, verify-requirements.sh and generate-sbom.sh: the Python the
 # backend locks are compiled and checked with (linux/amd64).
-FROM python:3.12@sha256:17b9724493d916f56565c131f389faff2597f46dec6ce09516f95125bc9f519f AS python
+FROM python:3.12@sha256:cad37dd20c7cac861af9003af8796d03ea7a998ec1e3a664429740fc9d7d2691 AS python
 
 # generate-sbom.sh: the frontend's SBOM, outside CI (CI runs it --native).
 FROM node:22@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd AS node
@@ -26,7 +26,7 @@ FROM node:22@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef9
 FROM fsouza/fake-gcs-server:1.56.1@sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef AS fake-gcs-server
 
 # The builder that ci/cloudbuild.backend.yaml and ci/cloudbuild.frontend.yaml run.
-FROM gcr.io/cloud-builders/docker:20.10.24@sha256:fbc05705e6f24467e40ae8a4097ab9b8fae1116551f838fa2c55f4367427fc36 AS cloud-build-docker
+FROM gcr.io/cloud-builders/docker:20.10.24@sha256:91eaff0806a70dc0b3c853191a2da9995b2aa88d9b24196182344a4cef633603 AS cloud-build-docker
 
 # The Terraform version .github/workflows/build.yml installs (terraform_version).
 FROM hashicorp/terraform:1.17.1@sha256:a5d5a5a892c98f60fcbfa81eac2a40fc19e7b3fa7719bccae10ff6111d22524a AS terraform
