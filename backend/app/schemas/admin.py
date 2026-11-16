@@ -128,8 +128,8 @@ class ClickHouseIntegrityMonitorOut(BaseModel):
 
 
 class RepeatLocusCountUnitsOut(BaseModel):
-    """A repeat catalogue locus with QA's record of whether TRGT's count there is the
-    clinical repeat number its ranges count (services/repeat_count_units.py)."""
+    """A repeat catalogue locus: its cut-offs, as the STRchive release states them, and QA's
+    count correction there (services/repeat_count_units.py)."""
 
     locus_id: str
     gene: str
@@ -140,13 +140,16 @@ class RepeatLocusCountUnitsOut(BaseModel):
     pathogenic_min: Optional[int] = None
     benign_min: Optional[int] = None
     benign_max: Optional[int] = None
+    pathogenic_max: Optional[int] = None
     premutation_min: Optional[int] = None
     # "STRchive", or "built-in" for a row of repeat_expansion_catalog.py.
     source: str
-    # False until QA records otherwise; with the reason, who and when of the last record.
-    validated: bool = False
+    # The STRchive locus whose page on strchive.org describes the row: a STRchive row's own ID,
+    # a built-in row's gene's one STRchive locus; None where there is none.
+    strchive_id: Optional[str] = None
     # QA's correction: repeat units added to TRGT's count before it is classified (-1 turns
-    # TRGT's 18 into 17); 0 for none, the default until QA records one.
+    # TRGT's 18 into 17); 0 for none, the default until QA records one. With the reason, who
+    # and when of the last record.
     count_offset: int = 0
     reason: Optional[str] = None
     updated_by: Optional[str] = None
@@ -160,13 +163,12 @@ class RepeatLocusCountUnitsOut(BaseModel):
 
 
 class RepeatLocusCountUnitsChangeOut(BaseModel):
-    """One change of the validation record, from its clinical audit chain."""
+    """One change of a locus's count correction, from its clinical audit chain."""
 
     changed_at: datetime
     changed_by: Optional[str] = None
     locus_id: Optional[str] = None
     gene: Optional[str] = None
-    validated: bool
     # The correction the change left (0: none).
     count_offset: int = 0
     summary: Optional[str] = None
@@ -174,7 +176,9 @@ class RepeatLocusCountUnitsChangeOut(BaseModel):
 
 
 class RepeatLocusCountUnitsCatalogueOut(BaseModel):
-    # How close to a boundary a count is marked while its locus is not validated.
+    # The STRchive release the cut-offs are taken from (STRCHIVE_PINNED_RELEASE, "v2.28.0").
+    strchive_release: str
+    # How close to a boundary a count is marked, at every locus.
     margin: int
     # The largest correction that can be recorded, either way, in repeat units.
     offset_limit: int
@@ -239,11 +243,8 @@ class FamilyProjectsUpdateOut(BaseModel):
 
 
 class RepeatLocusCountUnitsUpdate(BaseModel):
-    """A locus's whole record: its count correction, whether TRGT's counting units there are
-    validated, and why (required). Every save states both, so none is left as it was by a
-    client that did not say."""
+    """A locus's count correction, and why (required)."""
 
-    validated: bool
     # Repeat units added to TRGT's count before it is classified (0: none). Bounded by
     # repeat_count_units.COUNT_OFFSET_LIMIT, which the service checks too.
     count_offset: int = Field(ge=-20, le=20, strict=True)
@@ -253,7 +254,6 @@ class RepeatLocusCountUnitsUpdate(BaseModel):
 class RepeatLocusCountUnitsSetOut(BaseModel):
     locus_id: str
     gene: Optional[str] = None
-    validated: bool
     count_offset: int
     reason: str
     updated_by: Optional[str] = None

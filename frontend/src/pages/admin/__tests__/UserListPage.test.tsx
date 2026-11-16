@@ -709,9 +709,24 @@ describe('UserListPage', () => {
       expect(dialog).toHaveTextContent('it can no longer be deleted, only archived');
       // With no project yet, it says where to give it one.
       expect(dialog).toHaveTextContent('none yet: give it access with Edit, under Project access');
+      // A mail server is set: the account is told.
+      expect(dialog).toHaveTextContent('CoGA e-mails new.registrant@example.com that the account is active.');
       await user.keyboard('{Escape}');
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       expect(mockedPatch).not.toHaveBeenCalled();
+    });
+
+    it('promises no mail on activation without a mail server', async () => {
+      const user = userEvent.setup();
+      serve([PENDING], { enabled: false, recipients: [] });
+      renderPage();
+      await screen.findByRole('table');
+      expect(await screen.findByText(/no mail server is set \(SMTP_HOST\)/)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('checkbox', { name: 'Active: new.registrant@example.com' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Activate new.registrant@example.com?' });
+      expect(dialog).toHaveTextContent('Once activated, it can no longer be deleted, only archived.');
+      expect(dialog).not.toHaveTextContent('e-mails');
     });
   });
 

@@ -12,6 +12,7 @@ import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatShortDate } from '../../lib/format';
 import { apiPath } from '../../lib/apiPath';
+import { assemblyChoiceLabel, assemblyDisplayName } from '../../lib/reference';
 import { userAccountsQuery } from '../../lib/users';
 import type { ProjectAccessLevel } from '../../lib/familyAccess';
 import AccessLevelPicker, { type AccessLevelPickerText } from '../../components/AccessLevelPicker';
@@ -72,11 +73,8 @@ const getSpeciesLabel = (project: Project, speciesNameById: Map<string, string>)
   project.species_name || speciesNameById.get(project.species_id ?? '') || 'Not set';
 
 const getAssemblyLabel = (project: Project, assemblyById: Map<string, Assembly>) => {
-  if (project.assembly_name) {
-    return `${project.assembly_name}${project.assembly_version ? ` ${project.assembly_version}` : ''}`;
-  }
-  const assembly = assemblyById.get(project.assembly_id ?? '');
-  return assembly ? `${assembly.assembly_name} ${assembly.version}` : 'Reference not set';
+  const assemblyName = project.assembly_name || assemblyById.get(project.assembly_id ?? '')?.assembly_name;
+  return assemblyName ? assemblyDisplayName(assemblyName) : 'Reference not set';
 };
 
 const getUserLabel = (user: User) => {
@@ -548,7 +546,7 @@ const ProjectsPage: React.FC = () => {
                   <option value="">Select assembly</option>
                   {createAssemblies.map((entry) => (
                     <option key={entry.id} value={entry.id}>
-                      {entry.assembly_name} {entry.version}
+                      {assemblyChoiceLabel(entry, createAssemblies)}
                     </option>
                   ))}
                 </select>
@@ -797,7 +795,7 @@ const ProjectsPage: React.FC = () => {
                   <option value="">Select assembly</option>
                   {editAssemblies.map((entry) => (
                     <option key={entry.id} value={entry.id}>
-                      {entry.assembly_name} {entry.version}
+                      {assemblyChoiceLabel(entry, editAssemblies)}
                     </option>
                   ))}
                 </select>

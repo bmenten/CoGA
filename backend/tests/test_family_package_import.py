@@ -1335,6 +1335,69 @@ def _single_sample_context(*, family_id: str = "FAM001") -> FamilyMetadataContex
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("outcomes", "recorded_after"),
+    [
+        # The first dataset fails, the next two import: recorded once, with the first that imports.
+        ({"snv": "failed", "repeats_trgt": "imported", "paraphase": "warning"}, "repeats_trgt"),
+        # Nothing of the package becomes the family's: nothing recorded.
+        ({"snv": "registered", "repeats_trgt": "skipped"}, None),
+    ],
+)
+async def test_the_packages_reference_is_recorded_with_the_first_dataset_it_imports(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, outcomes: dict[str, str], recorded_after: str | None
+) -> None:
+    # The FASTA the package names goes into the family's annotation manifest inside the dataset
+    # loop, so a failed import that removes the family or puts it back takes it away with its data.
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    manifest = yaml.safe_load((package_root / "manifest.yaml").read_text(encoding="utf-8"))
+    manifest["reference"] = "GRCh38_no_alt_analysis_set.fasta"
+    ran: list[str] = []
+    recorded: list[tuple[list[str], str | None]] = []
+
+    async def fake_ensure_family_from_ped(session, **_kwargs):
+        return _single_sample_context(), True
+
+    async def fake_import_dataset(session, *, summary, **_kwargs):
+        ran.append(summary.dataset_type)
+        if outcomes[summary.dataset_type] == "failed":
+            raise RuntimeError("The dataset failed")
+        return summary.model_copy(update={"status": outcomes[summary.dataset_type], "message": "ok"})
+
+    async def record_package_reference(session, *, bundle, context):
+        recorded.append((list(ran), bundle.manifest.reference))
+
+    class FakeSession:
+        async def rollback(self) -> None:
+            return None
+
+    monkeypatch.setattr(package_import, "_ensure_family_from_ped", fake_ensure_family_from_ped)
+    monkeypatch.setattr(
+        package_import,
+        "_enabled_dataset_summaries",
+        lambda _validation: [FamilyImportDatasetSummary(dataset_type=name, status="valid") for name in outcomes],
+    )
+    monkeypatch.setattr(package_import, "_import_dataset", fake_import_dataset)
+    monkeypatch.setattr(package_import, "_record_package_reference", record_package_reference)
+
+    await package_import.execute_family_package_import(
+        FakeSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        manifest_text=kept_manifest(package_root, manifest),
+        project_id="project-uuid",
+        dry_run=False,
+        user=admin_user(),
+    )
+
+    assert ran == list(outcomes)
+    if recorded_after is None:
+        assert recorded == []
+    else:
+        assert recorded == [(ran[: ran.index(recorded_after) + 1], "GRCh38_no_alt_analysis_set.fasta")]
+
+
+@pytest.mark.asyncio
 async def test_each_dataset_is_timed_and_a_running_one_tells_its_time_left(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -29,7 +29,12 @@ import {
 import { intervalListProblems, parseGeneOrRegionInput } from '../../lib/variantSearch';
 import { reviewTagLabel } from '../../lib/reviewTags';
 import type { AcmgMitoContext } from '../../lib/acmg';
-import { setLocationParams } from './variantFilterFormUtils';
+import {
+  RANK_BY_VARIANT_SCORE,
+  prioritizationChipLabel,
+  readRankBy,
+  setLocationParams,
+} from './variantFilterFormUtils';
 
 export type SmallVariantGenotype = GenotypeOut;
 
@@ -113,6 +118,10 @@ export type SvSecondHit = SvSecondHitOut;
 
 export type SmallVariantPriority = VariantPriorityOut;
 
+// The score a ranked page is ordered and numbered by (the request's `rank_by`): the combined
+// score, or the variant score alone; null for a page that is not ranked.
+export type RankedBy = VariantPage['ranked_by'];
+
 // A page of variants as the variant list shows it: the family list's (VariantPage) or the
 // monogenic NIPT list's (NiptVariantPage), which has no pairs, no ranking and no candidate
 // window. NIPT only: `recessive_genes`, the genes of the recessive view where both parents
@@ -129,6 +138,7 @@ export type SmallVariantPage = Pick<VariantPage, 'total' | 'total_is_estimated' 
       | 'candidate_limit'
       | 'ranking_cached'
       | 'ranking_computed_at'
+      | 'ranked_by'
       | 'small_variant_summary'
     >
   > &
@@ -203,6 +213,8 @@ export type SmallFilterState = {
   inheritance: string;
   expanded_carrier_screening: string;
   prioritize: string;
+  // The prioritised ranking's order: '' by the combined score, or RANK_BY_VARIANT_SCORE.
+  rank_by: string;
   require_sv_second_hit: string;
   ps: string;
   type: string;
@@ -644,6 +656,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   inheritance: 'Inheritance',
   expanded_carrier_screening: 'Expanded carrier screening',
   prioritize: 'Phenotype prioritization',
+  rank_by: 'Ranked by',
   require_sv_second_hit: 'Also hit by an SV',
   ps: 'Phase set',
   type: 'Variant type',
@@ -797,6 +810,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   inheritance: '',
   expanded_carrier_screening: '',
   prioritize: '',
+  rank_by: '',
   require_sv_second_hit: '',
   ps: '',
   type: '',
@@ -1106,6 +1120,9 @@ const buildPresetState = (
   return { filters, sampleFilters };
 };
 
+// The ranking's mode and order: how a search is ordered, not what it keeps.
+const RANKING_MODE_KEYS: ReadonlySet<string> = new Set(['prioritize', 'rank_by']);
+
 const countActiveFilters = (
   filters: SmallFilterState,
   sampleFilters: Record<string, SmallVariantSampleFilter>,
@@ -1113,7 +1130,7 @@ const countActiveFilters = (
   const topLevel = Object.entries(filters).reduce((sum, [key, value]) => {
     if (!value.trim()) return sum;
     // Behaviour modifiers, not narrowing filters — don't inflate the count.
-    if (key === 'prioritize' || key === 'clinvar_overrides_frequency') return sum;
+    if (RANKING_MODE_KEYS.has(key) || key === 'clinvar_overrides_frequency') return sum;
     if (MULTI_VALUE_FILTER_KEYS.has(key as keyof SmallFilterState)) {
       return sum + parseCommaSeparatedValues(value).length;
     }
@@ -1137,7 +1154,7 @@ const activeFilterKeys = (filters: SmallFilterState): string[] =>
   Object.entries(filters)
     .filter(
       ([key, value]) =>
-        value.trim() && key !== 'prioritize' && key !== 'clinvar_overrides_frequency',
+        value.trim() && !RANKING_MODE_KEYS.has(key) && key !== 'clinvar_overrides_frequency',
     )
     .map(([key]) => key);
 
@@ -1251,6 +1268,10 @@ export const buildSmallVariantQueryParams = (
   );
   // Standard on: only an explicit "false" turns phenotype prioritization off.
   params.set('prioritize', currentFilters.prioritize === 'true' ? 'true' : 'false');
+  // The ranking's order, sent only for a prioritised search: the combined score unless set.
+  if (currentFilters.prioritize === 'true' && currentFilters.rank_by === RANK_BY_VARIANT_SCORE) {
+    params.set('rank_by', RANK_BY_VARIANT_SCORE);
+  }
   if (currentFilters.require_sv_second_hit === 'true') {
     params.set('require_sv_second_hit', 'true');
   }
@@ -1321,7 +1342,7 @@ export const buildActiveFilterChips = (
   if (filters.prioritize === 'true' && members.length > 0) {
     chips.push({
       id: 'top:prioritize',
-      label: SMALL_FILTER_LABELS.prioritize,
+      label: prioritizationChipLabel(filters.rank_by),
       kind: 'top',
       key: 'prioritize',
       value: 'true',
@@ -1335,9 +1356,10 @@ export const buildActiveFilterChips = (
   (Object.entries(filters) as [keyof SmallFilterState, string][]).forEach(([key, value]) => {
     if (!value) return;
     if (skipDerivedLocusKeys?.has(key)) return;
-    // Prioritization is surfaced as its own toggle, not as a removable chip.
-    // (The ClinVar-overrides-frequency modifier does get a chip when on.)
-    if (key === 'prioritize') return;
+    // Prioritization and its order are surfaced as their own controls (and the one chip above),
+    // not as removable chips of their own. (The ClinVar-overrides-frequency modifier does get a
+    // chip when on.)
+    if (RANKING_MODE_KEYS.has(key)) return;
     if (MULTI_VALUE_FILTER_KEYS.has(key)) {
       parseCommaSeparatedValues(value).forEach((entry) => {
         chips.push({
@@ -1661,6 +1683,10 @@ export const useSmallVariantSearchState = ({
         // Standard on: only an explicit "false" turns it off; absence keeps the default.
         initialFilters.prioritize =
           params.get('prioritize') === 'false' ? '' : 'true';
+        return;
+      }
+      if (key === 'rank_by') {
+        initialFilters.rank_by = readRankBy(params.get('rank_by'));
         return;
       }
       if (key === 'clinvar_overrides_frequency') {

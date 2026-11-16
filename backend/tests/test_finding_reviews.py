@@ -57,7 +57,7 @@ def _locus(locus_id: str, gene: str, status: str, calls: list[dict[str, Any]]) -
         "motif": "CAG",
         "thresholds": {"intermediate_min": 27, "premutation_min": None, "pathogenic_min": 36},
         "status": status,
-        "count_units": {"validated": False},
+        "count_units": {"count_offset": 0},
         "calls": calls,
     }
 
@@ -298,7 +298,7 @@ def test_the_gate_lists_each_abnormal_call_without_a_review(monkeypatch) -> None
             _locus("HTT", "HTT", "pathogenic", [_call("PROBAND", "pathogenic", [18, 42])]),
             # A grey zone alone is not abnormal (B12)...
             _locus("ATXN2", "ATXN2", "intermediate", [_call("PROBAND", "intermediate", [22, 30])]),
-            # ...but a count near a boundary at a locus not validated is, whatever its status.
+            # ...but a count near a boundary is, whatever its status.
             _locus("ATXN1", "ATXN1", "normal", [_call("MOTHER", "normal", [30, 34], warning=_WARNING)]),
             _locus("FXS_FMR1", "FMR1", "premutation", [_call("MOTHER", "premutation", [30, 60]), _call("PROBAND", "normal", [29, 30])]),
         ),

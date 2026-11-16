@@ -50,7 +50,7 @@ _LOOP_MODIFIED_TABLES: tuple[str, ...] = (
     "sample_paraphase_results",       # paraphase dataset (delete-then-insert per sample)
     "sample_interval_track_sources",  # wisecondorx/qdnaseq/apcad/coverage/pcf/haplotype tracks
     "individual_hpo",                 # phenotypes dataset (additive upsert -> snapshot also fixes stale rows)
-    "family_annotation_manifest",     # SNV + repeats VCF-header provenance (upsert)
+    "family_annotation_manifest",     # VCF-header provenance and the package's reference (upsert)
 )
 
 

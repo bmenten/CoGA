@@ -20,6 +20,7 @@ import {
   type AcmgStrength,
   type AcmgVariantInput,
 } from '../../lib/acmg';
+import AcmgEvidencePanel from './AcmgEvidencePanel';
 import AcmgScaleBar from './AcmgScaleBar';
 import {
   buildLiteraturePubmedHref,
@@ -50,7 +51,8 @@ import ReadOnlyNote from '../../components/ReadOnlyNote';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 // The variant the modal classifies: the fields it reads, a SmallVariant's. The small-variant
-// lists hand it their variants; the mtDNA page an MT variant adapted to them.
+// lists hand it their variants; the mtDNA page an MT variant adapted to them. The optional
+// fields are shown as evidence beside the criteria (AcmgEvidencePanel) where the variant has them.
 export type AcmgModalVariant = AcmgVariantInput &
   Pick<
     SmallVariant,
@@ -74,7 +76,32 @@ export type AcmgModalVariant = AcmgVariantInput &
     genotypes: Pick<SmallVariantGenotype, 'sample' | 'gt' | 'dp'>[];
     // A multi-allelic record's: the ALT the annotation the criteria read is of.
     alt_allele?: SmallVariant['alt_allele'];
-  };
+  } & Partial<
+    Pick<
+      SmallVariant,
+      | 'transcript_id'
+      | 'canonical'
+      | 'mane_select'
+      | 'mane_plus_clinical'
+      | 'exon'
+      | 'intron'
+      | 'lof_filter'
+      | 'gene_pli'
+      | 'cadd_phred'
+      | 'sift'
+      | 'polyphen'
+      | 'spliceai_ds_ag'
+      | 'spliceai_ds_al'
+      | 'spliceai_ds_dg'
+      | 'spliceai_ds_dl'
+      | 'spliceai_dp_ag'
+      | 'spliceai_dp_al'
+      | 'spliceai_dp_dg'
+      | 'spliceai_dp_dl'
+      | 'alpha_missense_pathogenicity'
+      | 'internal_cohort'
+    >
+  >;
 
 type AcmgClassificationModalProps = {
   familyId?: string;
@@ -503,6 +530,14 @@ export default function AcmgClassificationModal({
             <span className="acmg-key acmg-key--na"> n/a</span> = unlikely for this variant type.
             All of them can be overridden; hover a criterion for its evidence.
           </p>
+
+          <AcmgEvidencePanel
+            variant={variant}
+            geneContext={geneContext}
+            familyContext={familyContext}
+            probandHpoLabels={probandHpo.labels}
+            probandHpoUnavailable={probandHpo.unavailable}
+          />
 
           <div className="acmg-family-grid">
             {FAMILY_GROUPS.map((group) => (

@@ -6,6 +6,8 @@ import { createTestQueryClient } from '../../test/createTestQueryClient';
 import {
   assemblyDisplayRank,
   compareAssemblyNames,
+  assemblyChoiceLabel,
+  assemblyDisplayName,
   formatResolvedReferenceLabel,
   grcBuild,
   humanAssemblyOf,
@@ -100,6 +102,10 @@ describe('useFamilyReference', () => {
     expect(formatResolvedReferenceLabel({ isError: true }, 'Not linked')).toBe('Reference could not be loaded');
     expect(formatResolvedReferenceLabel({ assemblyName: 'GRCh38', isError: false })).toBe('GRCh38');
     expect(formatResolvedReferenceLabel({}, 'Not linked')).toBe('Not linked');
+    // The build, never a patch: a family's own reference is the one its pipeline names.
+    expect(formatResolvedReferenceLabel({ speciesName: 'Homo sapiens', assemblyName: 'GRCh38.p14' })).toBe(
+      'Homo sapiens • GRCh38',
+    );
   });
 
   it('only resolves preferred projects that are linked to the family', async () => {
@@ -276,6 +282,43 @@ describe('grcBuild', () => {
     expect(others.map((name) => grcBuild(name))).toEqual(others.map(() => null));
     expect(grcBuild(undefined)).toBeNull();
     expect(grcBuild(null)).toBeNull();
+  });
+});
+
+describe('assemblyDisplayName', () => {
+  it('shows GRCh38 and GRCh37 as their build, under any name and patch', () => {
+    expect(GRCH38_NAMES.map((name) => assemblyDisplayName(name))).toEqual(GRCH38_NAMES.map(() => 'GRCh38'));
+    expect(GRCH37_NAMES.map((name) => assemblyDisplayName(name))).toEqual(GRCH37_NAMES.map(() => 'GRCh37'));
+  });
+
+  it('shows any other assembly under its name as stored', () => {
+    expect(assemblyDisplayName('T2T CHM13v2.0')).toBe('T2T CHM13v2.0');
+    expect(assemblyDisplayName(' GRCm39 ')).toBe('GRCm39');
+    expect(assemblyDisplayName('GRCh38_no_alt')).toBe('GRCh38_no_alt');
+    expect(assemblyDisplayName(undefined)).toBe('');
+  });
+});
+
+describe('assemblyChoiceLabel', () => {
+  it('names each choice by its display name, without its version', () => {
+    const entries = [
+      { assembly_name: 'GRCh38', version: 'p14' },
+      { assembly_name: 'GRCh37', version: 'p13' },
+    ];
+    expect(entries.map((entry) => assemblyChoiceLabel(entry, entries))).toEqual(['GRCh38', 'GRCh37']);
+  });
+
+  it('adds the version only where two choices would read alike', () => {
+    const entries = [
+      { assembly_name: 'GRCh38', version: 'p14' },
+      { assembly_name: 'hg38', version: 'hg38' },
+      { assembly_name: 'GRCm39', version: 'mm39' },
+    ];
+    expect(entries.map((entry) => assemblyChoiceLabel(entry, entries))).toEqual([
+      'GRCh38 (p14)',
+      'GRCh38 (hg38)',
+      'GRCm39',
+    ]);
   });
 });
 

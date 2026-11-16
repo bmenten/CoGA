@@ -385,9 +385,9 @@ describe('GenomeRepeatExpansionTrack', () => {
     expect(document.body.querySelector('.viz-tooltip')).toBeNull();
   });
 
-  // Until QA validates TRGT's counting units at a locus, a count within 3 repeats of a boundary
-  // is marked (owner's decision, 2026-10-14): the tooltip says where, why, and what is known.
-  it('says on hover that a count is near a boundary while the counting units are not validated', () => {
+  // At every locus a count within 3 repeats of a boundary is marked: the tooltip says where, why,
+  // and what is known.
+  it('says on hover that a count is near a boundary', () => {
     const note =
       'TRGT counts the CGG copies only, not the AGG interruptions: an allele reads 1 to 3 below its clinical repeat number (about 31 triplets read 29).';
     serve({
@@ -401,7 +401,6 @@ describe('GenomeRepeatExpansionTrack', () => {
             chr: 'X',
             status: 'intermediate',
             allele_repeat_counts: [30, 53],
-            count_units_validated: false,
             count_units_note: note,
             count_unit_warnings: [
               { repeat_count: 53, margin: 3, boundaries: [{ repeat_count: 55, status: 'premutation' }] },
@@ -421,7 +420,7 @@ describe('GenomeRepeatExpansionTrack', () => {
       'Fragile X syndrome',
       '30 / 53 repeats',
       'Near a boundary: 53 is within 3 repeats of 55 (Premutation)',
-      "TRGT's counting units are not yet validated for this locus, so its count may differ from the clinical repeat number by a few repeats.",
+      "TRGT's count need not be the clinical repeat number the cut-offs count: it may differ from it by a few repeats.",
       `Known: ${note}`,
     ]);
     expect(

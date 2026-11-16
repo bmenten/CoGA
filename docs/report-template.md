@@ -85,8 +85,8 @@ A signed version is rendered from its frozen record alone:
   thresholds the record states;
 - the gene panels applied;
 - the repeat-expansion and Paraphase results. Each repeat count near a classification boundary is
-  marked beside its call, with whether QA had validated TRGT's counting units at that locus; a count
-  QA's correction changed shows TRGT's own count beside it, and the locus its correction;
+  marked beside its call; a count QA's correction changed shows TRGT's own count beside it, and the
+  locus its correction;
 - the reference-data releases;
 - the checks at sign-out.
 

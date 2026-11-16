@@ -93,7 +93,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     familyId && family && (!(family.projects?.length) || projectId),
   );
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion, isError: referenceFailed },
+    { assemblyName, isError: referenceFailed },
     'Not linked',
   );
 

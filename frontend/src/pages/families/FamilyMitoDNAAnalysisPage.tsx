@@ -504,7 +504,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   const excludedCards = useUnfoldedExcludedCards();
 
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion, isError: referenceFailed },
+    { assemblyName, isError: referenceFailed },
     'Not linked',
   );
   const orderedSamples = useMemo(() => orderedByFamilyRole(mtDNA?.samples || []), [mtDNA?.samples]);

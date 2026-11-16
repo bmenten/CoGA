@@ -167,7 +167,7 @@ describe('ProjectsPage', () => {
     expect(screen.getByRole('button', { name: /create new project/i })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/2 families · 3 samples/)).toBeInTheDocument());
     expect(screen.getAllByText(/Homo sapiens/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/GRCh38 p14/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/GRCh38/).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getAllByDisplayValue('Project One').length).toBeGreaterThan(0));
     await waitFor(() =>
       expect(screen.getAllByDisplayValue('Pilot oncology cohort').length).toBeGreaterThan(0),
@@ -224,7 +224,7 @@ describe('ProjectsPage', () => {
     renderPage();
 
     await screen.findByRole('button', { name: 'Project Two' });
-    await waitFor(() => expect(within(catalogRow('Project One')).getByText('GRCh38 p14')).toBeInTheDocument());
+    await waitFor(() => expect(within(catalogRow('Project One')).getByText('GRCh38')).toBeInTheDocument());
     await waitFor(() => expect(within(catalogRow('Project One')).getByText('Homo sapiens')).toBeInTheDocument());
     expect(within(catalogRow('Project One')).getByText('Pilot oncology cohort')).toBeInTheDocument();
 
@@ -256,7 +256,7 @@ describe('ProjectsPage', () => {
     ['the organism it names', 'danio', 'Project Two'],
     ['the assembly it names', 'grcz11', 'Project Two'],
     ['the organism of the record it points to', 'homo sapiens', 'Project One'],
-    ['the assembly of the record it points to', 'grch38 p14', 'Project One'],
+    ['the assembly of the record it points to', 'grch38', 'Project One'],
     ['a family ID', 'f9', 'Project Two'],
     ['a sample ID', 's9', 'Project Two'],
   ])('finds a project by %s', async (_field, term, expected) => {
@@ -422,11 +422,11 @@ describe('ProjectsPage', () => {
     await waitFor(() => expect(assembly).toHaveValue('asm1'));
     const offered = () =>
       within(assembly).getAllByRole('option').map((option) => option.textContent);
-    expect(offered()).toEqual(['Select assembly', 'GRCh38 p14']);
+    expect(offered()).toEqual(['Select assembly', 'GRCh38']);
 
     fireEvent.change(organism, { target: { value: 'sp2' } });
     expect(assembly).toHaveValue('');
-    expect(offered()).toEqual(['Select assembly', 'GRCm39 v1']);
+    expect(offered()).toEqual(['Select assembly', 'GRCm39']);
     fireEvent.change(assembly, { target: { value: 'asm2' } });
     fireEvent.change(within(settings).getByRole('textbox', { name: /^Title/ }), { target: { value: 'Mouse model' } });
     fireEvent.change(within(settings).getByRole('textbox', { name: /^Notes/ }), { target: { value: 'Knock-out line' } });
@@ -460,7 +460,7 @@ describe('ProjectsPage', () => {
     expect(assembly).toHaveValue('');
     expect(within(assembly).getAllByRole('option').map((option) => option.textContent)).toEqual([
       'Select assembly',
-      'GRCh38 p14',
+      'GRCh38',
     ]);
     fireEvent.change(assembly, { target: { value: 'asm1' } });
     fireEvent.click(within(form).getByRole('button', { name: /^Add Stu Dent/ }));

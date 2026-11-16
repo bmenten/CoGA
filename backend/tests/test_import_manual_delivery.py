@@ -198,12 +198,13 @@ def test_the_import_root_is_the_configured_root_the_folder_lies_under(tmp_path: 
 
 def test_a_folder_added_by_hand_takes_the_analyses_a_package_names() -> None:
     """The form's analyses are the format's (``coga_package.AnalysisType``), in its order: the
-    laboratory's LR-WGS, LR-AS, PGT, expanded carrier screening and mNIPT."""
+    laboratory's LR-WGS, LR-AS, SR-WGS, PGT, expanded carrier screening and mNIPT."""
     schema = ImportDeliveryAdd.model_json_schema()["properties"]["analysis_type"]
     offered = next(option["enum"] for option in schema["anyOf"] if "enum" in option)
     assert offered == list(get_args(AnalysisType)) == [
         "long_read_wgs",
         "long_read_adaptive_sampling",
+        "short_read_wgs",
         "pgt",
         "expanded_carrier_screening",
         "monogenic_nipt",

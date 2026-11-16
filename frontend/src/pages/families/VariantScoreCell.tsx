@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
-import { type SmallVariantPriority } from './smallVariantSearch';
+import { type RankedBy, type SmallVariantPriority } from './smallVariantSearch';
 import VariantPriorityBlock from './VariantPriorityBlock';
 
 const VIEWPORT_MARGIN = 8;
@@ -16,11 +16,16 @@ type TriggerRect = { top: number; bottom: number; left: number };
  * The popover sizes to its content (no inner scrollbar — a tooltip can't be
  * scrolled); after it renders we measure it and clamp/flip it so it always stays
  * within the viewport.
+ *
+ * The cell shows the score the page is ranked by (`rankedBy`): the combined score, or the
+ * variant score for a page ranked by it, so the column reads in the order of its ranks.
  */
 export default function VariantScoreCell({
   variant,
+  rankedBy = null,
 }: {
   variant: { priority?: SmallVariantPriority | null };
+  rankedBy?: RankedBy;
 }) {
   const [trigger, setTrigger] = useState<TriggerRect | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -61,6 +66,8 @@ export default function VariantScoreCell({
     setTrigger(null);
     setPos(null);
   };
+  const byVariantScore = rankedBy === 'variant_score';
+  const shownScore = (byVariantScore ? priority.variant_score : priority.combined_score).toFixed(2);
 
   return (
     <td className="table-mono variant-score-cell">
@@ -68,13 +75,13 @@ export default function VariantScoreCell({
         className="variant-priority-score"
         tabIndex={0}
         role="button"
-        aria-label={`Priority score ${priority.combined_score.toFixed(2)} — hover for the breakdown`}
+        aria-label={`${byVariantScore ? 'Variant score' : 'Priority score'} ${shownScore} — hover for the breakdown`}
         onMouseEnter={open}
         onMouseLeave={close}
         onFocus={open}
         onBlur={close}
       >
-        {priority.combined_score.toFixed(2)}
+        {shownScore}
         {priority.phenotype_matches.length ? (
           <span className="variant-priority-pheno" aria-hidden>
             ✦
@@ -89,7 +96,7 @@ export default function VariantScoreCell({
           // Keep it invisible (but measurable) until positioned to avoid a flash.
           style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: 'hidden' }}
         >
-          <VariantPriorityBlock priority={priority} />
+          <VariantPriorityBlock priority={priority} rankedBy={rankedBy} />
         </div>
       ) : null}
     </td>

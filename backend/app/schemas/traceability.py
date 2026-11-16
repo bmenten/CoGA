@@ -53,7 +53,8 @@ class ClassificationDriftItem(BaseModel):
     # are read from); its consequence ("effect", "impact", "lof": the LOFTEE call); a
     # population frequency ("gnomad_af", "gnomad_exomes_af", "gnomad_genomes_af",
     # "gnomad_popmax_af", "topmed_af", "gnomad_ac", "gnomad_hom_count",
-    # "gnomad_hemi_count"); an in-silico score ("cadd_phred", "revel", "spliceai_max",
+    # "gnomad_hemi_count") or the gnomAD datasets the callset was annotated with
+    # ("gnomad_annotated"); an in-silico score ("cadd_phred", "revel", "spliceai_max",
     # "sift", "polyphen", "alpha_missense_class", "alpha_missense_pathogenicity"); a
     # missense variant's gene "gene_missense_z" and its source "gene_missense_z_source"
     # ("gene_profile" or "vcf"); or "annotations", the annotation set.

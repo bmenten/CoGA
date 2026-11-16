@@ -908,7 +908,7 @@ async def list_assembly_records(session: AsyncSession) -> list[AssemblyOut]:
                 version,
                 release_date
             FROM assemblies
-            ORDER BY assembly_name, version
+            ORDER BY assembly_name
             """
         )
     )
@@ -923,43 +923,32 @@ async def create_assembly_record(
     version: str,
     release_date: Any,
 ) -> AssemblyOut:
+    """An assembly is its name (``assemblies.assembly_name`` is unique): 409 when one of that
+    name exists, whatever its species or version."""
     await get_species_mapping(session, species_id)
-    existing = await session.execute(
-        text(
-            """
-            SELECT id
-            FROM assemblies
-            WHERE species_id = CAST(:species_id AS uuid)
-              AND assembly_name = :assembly_name
-              AND version = :version
-            """
-        ),
-        {
-            "species_id": species_id,
-            "assembly_name": assembly_name,
-            "version": version,
-        },
-    )
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=409, detail="Assembly already exists")
-
-    created = await session.execute(
-        text(
-            """
-            INSERT INTO assemblies (species_id, assembly_name, version, release_date)
-            VALUES (CAST(:species_id AS uuid), :assembly_name, :version, :release_date)
-            RETURNING id::text AS id, species_id::text AS species_id, assembly_name, version, release_date
-            """
-        ),
-        {
-            "species_id": species_id,
-            "assembly_name": assembly_name,
-            "version": version,
-            "release_date": release_date,
-        },
-    )
+    created = (
+        await session.execute(
+            text(
+                """
+                INSERT INTO assemblies (species_id, assembly_name, version, release_date)
+                VALUES (CAST(:species_id AS uuid), :assembly_name, :version, :release_date)
+                ON CONFLICT (assembly_name) DO NOTHING
+                RETURNING id::text AS id, species_id::text AS species_id, assembly_name, version, release_date
+                """
+            ),
+            {
+                "species_id": species_id,
+                "assembly_name": assembly_name,
+                "version": version,
+                "release_date": release_date,
+            },
+        )
+    ).mappings().first()
+    if created is None:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=f"An assembly named {assembly_name} already exists")
     await session.commit()
-    return _assembly_out_from_mapping(dict(created.mappings().one()))
+    return _assembly_out_from_mapping(dict(created))
 
 
 async def _validate_project_user_ids(session: AsyncSession, user_ids: list[str]) -> list[str]:

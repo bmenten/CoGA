@@ -7,6 +7,7 @@ import {
   buildStructuralVariantQueryParams,
   cloneSingleSampleFilter,
   createEmptyStructuralFilters,
+  sortStructuralVariants,
   structuralLocationProblem,
   structuralVariantRowKey,
   useStructuralVariantSearchState,
@@ -189,5 +190,65 @@ describe('buildStructuralVariantQueryParams', () => {
       'page=1&page_size=100&min_length=10000000&type=DEL%2C+DUP&prioritize=true',
     );
     expect(query({ length: '5000' })).toBe('page=1&page_size=100&length=5000&prioritize=true');
+  });
+
+  // The ranking's order: sent for a prioritised search ranked by the variant score only.
+  it('sends the ranking order of a prioritised search only', () => {
+    expect(query({ rank_by: 'variant_score' })).toBe('page=1&page_size=100&prioritize=true&rank_by=variant_score');
+    expect(query({ rank_by: '' })).toBe('page=1&page_size=100&prioritize=true');
+    expect(query({ prioritize: '', rank_by: 'variant_score' })).toBe('page=1&page_size=100');
+  });
+});
+
+it.each([
+  ['?prioritize=true&rank_by=variant_score', 'variant_score'],
+  ['?prioritize=true&rank_by=anything', ''],
+])('reads the ranking order of a link %s', async (search, rankBy) => {
+  const { result } = renderHook(() =>
+    useStructuralVariantSearchState({
+      family,
+      locationSearch: search,
+      navigate: () => {},
+      mendeliomePanelId: 'mendel-1',
+      panelsLoaded: true,
+    }),
+  );
+  await waitFor(() => expect(result.current.filters.prioritize).toBe('true'));
+  expect(result.current.filters.rank_by).toBe(rankBy);
+});
+
+// The Score column's order is the ranking's: by the rank the server gave each SV, whichever
+// score it ranked by, not by the combined score the cell may not show.
+describe('sortStructuralVariants by priority', () => {
+  const sv = (id: string, combined: number, variant: number, rank: number | null) =>
+    ({
+      _id: id,
+      chr: '1',
+      start: 1,
+      end: 2,
+      type: 'DEL',
+      priority:
+        rank === null
+          ? null
+          : {
+              combined_score: combined,
+              variant_score: variant,
+              pathogenicity_score: variant,
+              frequency_score: 1,
+              segregation_weight: 1,
+              phenotype_score: null,
+              segregation_modes: [],
+              phenotype_gene: null,
+              phenotype_matches: [],
+              rank,
+            },
+    }) as never;
+
+  it('lists the SVs in rank order, the unranked last, and the toggle flips it', () => {
+    const variants = [sv('unranked', 0, 0, null), sv('second', 0.9, 0.3, 2), sv('first', 0.4, 0.8, 1)];
+    const ids = (asc: boolean) =>
+      sortStructuralVariants(variants, 'priority', asc).map((variant) => variant._id);
+    expect(ids(true)).toEqual(['first', 'second', 'unranked']);
+    expect(ids(false)).toEqual(['unranked', 'second', 'first']);
   });
 });

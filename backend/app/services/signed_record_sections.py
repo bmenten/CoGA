@@ -140,7 +140,7 @@ REFERENCE_DATA = RecordSection(
 )
 REPEAT_EXPANSIONS = RecordSection(
     "repeat_expansions",
-    "Repeat expansions (TRGT)",
+    "Repeat expansions",
     "The repeat-expansion calls could not be read.",
 )
 PARAPHASE = RecordSection(
@@ -548,13 +548,11 @@ COUNT_OFFSET_KEY = "count_offset"
 
 def _count_units(locus: RepeatExpansionRowOut) -> dict[str, Any]:
     """QA's record of a locus's counting units as the record freezes it: its count correction,
-    validated or not, the reason, by whom and when. The family table read it in the statement
-    that read the calls, so the correction and validation frozen here are the ones the calls'
-    counts, statuses and warnings were made with. A locus without a record has no correction and
-    is not validated, and the rest is null."""
+    the reason, by whom and when. The family table read it in the statement that read the
+    calls, so the correction frozen here is the one the calls' counts, statuses and warnings
+    were made with. A locus without a record has no correction, and the rest is null."""
     return {
         COUNT_OFFSET_KEY: int(locus.count_offset or 0),
-        "validated": bool(locus.count_units_validated),
         "reason": _text(locus.count_units_reason),
         "updated_by": _text(locus.count_units_updated_by),
         "updated_at": _iso(locus.count_units_updated_at),
@@ -572,8 +570,8 @@ async def repeat_expansion_calls(
     locus, CLIN-57) and TRGT's own count beside it (``trgt_repeat_count``), and its near-boundary
     warning (``count_unit_warning``: the corrected count, the nearest count within the margin on
     each side that reads another status, and the margin; null when there is none). Per locus
-    QA's record of TRGT's counting units there (``count_units``: the correction, validated or
-    not, the reason, by whom and when), with the margin in force (``count_unit_margin``). The
+    QA's record of TRGT's counting units there (``count_units``: the correction, the reason, by
+    whom and when), with the margin in force (``count_unit_margin``). The
     warning changes no status: the allele's own status is the one on its side of the boundary.
 
     The calls and QA's record come from one statement of the family table, so the record frozen

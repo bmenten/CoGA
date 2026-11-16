@@ -555,7 +555,7 @@ async def test_manual_family_creation_threads_family_and_sample_metadata(
 # What an import or an audited edit writes, and the backend trusts where it reads it:
 # the Family Builder refuses it before anything is replaced or written.
 REFUSED_METADATA = [
-    pytest.param({"annotation_manifest": {"pipeline": "client"}}, {}, "Family", id="family-annotation-manifest"),
+    pytest.param({"package_import": {"folder_path": "/client"}}, {}, "Family", id="family-package-record"),
     pytest.param({"import_incomplete": False}, {}, "Family", id="family-import-state"),
     pytest.param({"analysis_type": "pgt"}, {}, "Family", id="family-other-analysis-type"),
     pytest.param({}, {"sequencing_qc": {"mean_coverage": 40}}, "Sample S2", id="sample-sequencing-qc"),

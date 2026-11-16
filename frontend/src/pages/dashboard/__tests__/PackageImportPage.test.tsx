@@ -145,6 +145,79 @@ describe('PackageImportPage', () => {
     );
   });
 
+  it('lists the latest 10 jobs, and every job in a scrolling list on "Show all"', async () => {
+    // Jobs numbered 1 (latest) to n, as the history returns them, latest first.
+    const jobs = (n: number) =>
+      Array.from({ length: n }, (_, index) => ({
+        _id: `job-${index + 1}`,
+        submitted_path: `/data/FAM-${index + 1}`,
+        family_id: `FAM-${index + 1}`,
+        status: 'completed',
+        dry_run: false,
+        requested_by: 'admin@example.com',
+        requested_at: '2026-04-29T12:00:00Z',
+        heartbeat_at: '2026-04-29T12:00:01Z',
+        validation_errors: [],
+        validation_warnings: [],
+        logs: [],
+        metadata: {},
+        datasets: [],
+      }));
+    get.mockImplementation((url, config) => {
+      if (url === '/family-imports') {
+        const limit = Number((config as { params?: { limit?: number } } | undefined)?.params?.limit);
+        return Promise.resolve({ data: jobs(Math.min(limit, 40)) });
+      }
+      return factory(url, config);
+    });
+    renderPage();
+
+    expect(await screen.findByText('/data/FAM-10')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'View' })).toHaveLength(10);
+    expect(screen.queryByText('/data/FAM-11')).not.toBeInTheDocument();
+    expect(screen.getByText(/The latest 10 jobs\./)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
+    expect(await screen.findByText('/data/FAM-40')).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith('/family-imports', { params: { limit: 100 } });
+    expect(screen.getAllByRole('button', { name: 'View' })).toHaveLength(40);
+    expect(screen.getByText(/All 40 jobs\./)).toBeInTheDocument();
+    // The whole history scrolls inside its frame, under its header.
+    expect(screen.getByText('/data/FAM-40').closest('.data-table-shell')).toHaveClass('import-jobs-table--all');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show the latest 10' }));
+    expect(screen.getAllByRole('button', { name: 'View' })).toHaveLength(10);
+    expect(screen.getByText('/data/FAM-10').closest('.data-table-shell')).not.toHaveClass('import-jobs-table--all');
+  });
+
+  it('says so when the history holds more jobs than it lists', async () => {
+    get.mockImplementation((url, config) => {
+      if (url === '/family-imports') {
+        const limit = Number((config as { params?: { limit?: number } } | undefined)?.params?.limit);
+        return Promise.resolve({
+          data: Array.from({ length: limit }, (_, index) => ({
+            _id: `job-${index + 1}`,
+            submitted_path: `/data/FAM-${index + 1}`,
+            family_id: `FAM-${index + 1}`,
+            status: 'completed',
+            dry_run: true,
+            requested_at: '2026-04-29T12:00:00Z',
+            validation_errors: [],
+            validation_warnings: [],
+            logs: [],
+            datasets: [],
+          })),
+        });
+      }
+      return factory(url, config);
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Show all' }));
+    expect(await screen.findByText('/data/FAM-100')).toBeInTheDocument();
+    expect(screen.getByText(/The latest 100 jobs, the most the history lists\./)).toBeInTheDocument();
+  });
+
   it('shows a running import’s progress and time left', async () => {
     const now = Date.now();
     const runningJob = {

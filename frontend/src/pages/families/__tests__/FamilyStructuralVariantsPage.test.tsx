@@ -31,6 +31,8 @@ vi.mock('../../../lib/api', () => ({
               },
             ],
             total: 1,
+            // The count per type and caller the list sends; the page shows no table of it.
+            summary: { DEL: { needlr: 1 } },
           },
         });
       }
@@ -116,6 +118,8 @@ describe('FamilyStructuralVariantsPage', () => {
       expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument()
     );
     expect(screen.getByText(factText(/All variants 5/))).toBeInTheDocument();
+    // The counts are in the header; the list has no count per type and caller of its own.
+    expect(screen.queryByRole('columnheader', { name: 'Type / source' })).not.toBeInTheDocument();
     expect(screen.getByText(/Pedigree/)).toBeInTheDocument();
     expect(screen.getByText(factText(/Tag library 2/))).toBeInTheDocument();
     expect(screen.getByText('1p36.33')).toBeInTheDocument();
@@ -124,6 +128,42 @@ describe('FamilyStructuralVariantsPage', () => {
     expect(screen.getByRole('button', { name: /apply filters/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /review/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: /clear all filters/i }).length).toBeGreaterThan(0);
+  });
+
+  it('opens with the filter categories collapsed, and opens or closes every one at once', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
+
+    // As on the small-variant page: the categories sit behind "Advanced filters", which says
+    // how many there are while collapsed.
+    const toggle = screen.getByRole('button', { name: /Advanced filters/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveTextContent(/\(6 categories(, \d+ with filters set)?\)/);
+    const panel = document.getElementById(toggle.getAttribute('aria-controls') ?? '') as HTMLElement;
+    expect(panel).not.toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Expand all' })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(panel).toBeVisible();
+    const rows = Array.from(panel.querySelectorAll('details'));
+    expect(rows).toHaveLength(6);
+    expect(rows.every((row) => !row.open)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+    expect(rows.every((row) => row.open)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    expect(rows.every((row) => !row.open)).toBe(true);
+  });
+
+  it('keeps the filters as they are while the filter panel is hidden', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
+    fireEvent.change(screen.getByPlaceholderText('Gene or region'), { target: { value: 'BRCA2' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide filters' }));
+    expect(screen.getByRole('button', { name: 'Show filters' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Show filters' }));
+    expect(screen.getByPlaceholderText('Gene or region')).toHaveValue('BRCA2');
   });
 
   it('shows the Source column by default, since several callers call one SV under one id', async () => {
@@ -423,6 +463,7 @@ describe('FamilyStructuralVariantsPage', () => {
       expect(await screen.findByText(/Could not load the gene panel list — this is not an empty result/)).toHaveTextContent(
         /Panels cannot be chosen, and the default Mendeliome scope is not applied/,
       );
+      fireEvent.click(screen.getByRole('button', { name: /Advanced filters/ }));
       const panelSelect = screen.getByRole('combobox', { name: /panel/i });
       expect(panelSelect).toHaveValue('P1');
       expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
@@ -437,6 +478,7 @@ describe('FamilyStructuralVariantsPage', () => {
       renderPage('/families/F1/structural-variants?page=1&panel_id=PA');
 
       expect(await screen.findByText('Gene panel: Panel A')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Advanced filters/ }));
       fireEvent.change(screen.getByRole('combobox', { name: /panel/i }), { target: { value: 'PB' } });
 
       // The results are filtered by Panel A until the form is applied; the chip said Panel B.

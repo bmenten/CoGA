@@ -352,6 +352,7 @@ def test_a_family_export_past_its_cap_is_cut_at_the_cap_and_says_so(monkeypatch)
         tagged = [i for i, row in enumerate(small_rows) if row["Tags"] == "report"]
         assert tagged == [0, _PAST_THE_LIMIT]
         assert small_rows[_PAST_THE_LIMIT]["Classification"] == "VUS - class 3"
+        assert small_rows[_PAST_THE_LIMIT]["Classification text"] == "VUS - class 3"
         # Each row read was looked up: the gene constraint and the SV second hit reach the
         # row past the limit too (a failed second-hit lookup is only logged: no badge).
         rows = small_seen["export"].rows
@@ -363,6 +364,10 @@ def test_a_family_export_past_its_cap_is_cut_at_the_cap_and_says_so(monkeypatch)
         _assert_cut_at_the_cap(svs, f"family-{label}-structural-variants")
         assert [int(row["Start"]) for row in sv_rows] == [_FIRST_POS + 10 * i for i in range(_EXPORT_CAP)]
         assert [i for i, row in enumerate(sv_rows) if row["Tags"] == "report"] == [0, _PAST_THE_LIMIT]
+        assert (sv_rows[_PAST_THE_LIMIT]["Classification"], sv_rows[_PAST_THE_LIMIT]["Classification text"]) == (
+            "VUS - class 3",
+            "VUS - class 3",
+        )
         assert len(sv_seen["export"].rows) == _EXPORT_CAP
 
     run_closing_stores(_scenario)

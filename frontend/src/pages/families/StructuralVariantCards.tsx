@@ -4,14 +4,14 @@ import {
   buildGnomadSvRegionHref,
   formatFrequency,
   formatScore,
-  getReviewClassificationTone,
+  reviewClassChips,
   sortReviewTagKeys,
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import {
   COLLABORATION_QUICK_TAGS,
   getTagDefinitionMap,
-  normalizeReviewClassification,
+  type RankedBy,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
@@ -48,6 +48,8 @@ interface StructuralVariantCardsProps {
   onEditReview?: (variant: StructuralVariant) => void;
   onClassifyCnv?: (variant: StructuralVariant) => void;
   onToggleReviewTag?: (variant: StructuralVariant, tagKey: string) => Promise<void>;
+  // The score the page is ranked by, which each card's priority leads with.
+  rankedBy?: RankedBy;
 }
 
 const parseHpoTerms = (value?: string | number | boolean | string[]) => {
@@ -101,6 +103,7 @@ export default function StructuralVariantCards({
   onEditReview,
   onClassifyCnv,
   onToggleReviewTag,
+  rankedBy = null,
 }: StructuralVariantCardsProps) {
   // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
@@ -144,11 +147,15 @@ export default function StructuralVariantCards({
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
         const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
         const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-        const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
-        const normalizedClassification = normalizeReviewClassification(
+        // The review's class once, by the one rule of the family page: in the
+        // heading, and among the tags only as its own class tag; a class tag that is not the
+        // class shown is no chip.
+        const reviewClass = reviewClassChips(
           variant.review?.classification,
           variant.review?.tags,
+          visibleReviewTagKeys(sortedReviewTags),
         );
+        const visibleReviewTags = reviewClass.tagKeys;
 
         const freqRows = [
           { label: 'Control', value: formatFrequency(extra.control_af) },
@@ -195,14 +202,10 @@ export default function StructuralVariantCards({
                   <span className="variant-card-chip variant-card-chip--strong">{extra.inheritance}</span>
                 ) : null}
               </GeneDiseaseHeading>
-              {normalizedClassification ? (
+              {reviewClass.label ? (
                 <div className="variant-card-headtags">
-                  <span
-                    className={`variant-card-chip variant-card-chip--${getReviewClassificationTone(
-                      normalizedClassification,
-                    )}`}
-                  >
-                    {normalizedClassification}
+                  <span className={`variant-card-chip variant-card-chip--${reviewClass.tone}`}>
+                    {reviewClass.label}
                   </span>
                 </div>
               ) : null}
@@ -224,7 +227,7 @@ export default function StructuralVariantCards({
             {/* An excluded variant folds to its heading and the bar above. */}
             {isExcluded && !excludedCards.isUnfolded(rowKey) ? null : (
               <>
-                {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
+                {variant.priority ? <VariantPriorityBlock priority={variant.priority} rankedBy={rankedBy} /> : null}
 
                 {visibleReviewTags.length ? (
                   <div className="variant-card-chip-row variant-card-tag-row">

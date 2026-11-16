@@ -67,6 +67,10 @@ missing. Load it before you load a family.
   loaded for that assembly yet.
 - The segmental-duplication file and the HPO ontology must be the files CoGA ships, recognized by their
   SHA-256. Another file is not loaded, and the server log says which file and how to fix it.
+- Projects, families and genes name an assembly by its build (GRCh38). The version the *Reference
+  catalogue* shows (GRCh38 *p14*) is the release of the reference data CoGA loaded, not the reference
+  a family's data was aligned to: that one is among the family's annotation versions, as its
+  *Reference assembly*.
 - In the **Reference catalogue** an administrator can set up another assembly (cytobands and genes are
   downloaded automatically) and upload files for cytobands, genes, the blacklist, clinical CNVs,
   segmental duplications and DGV variants. Everyone else sees the catalogue read-only.
@@ -123,8 +127,8 @@ the motif across the region its own catalogue gives a locus:
 
 QA can record a count correction per locus (admin page **Repeat catalogue**): it is added to TRGT's
 count before the count is classified, and TRGT's own count stays shown beside the corrected one. None is
-recorded in advance. Until QA validates a locus's counting units, the repeat page and the genome tracks
-mark a count within 3 repeats of a boundary there as *Near a boundary*, without changing its status. See
+recorded in advance. At every locus the repeat page and the genome tracks mark a count within 3
+repeats of a boundary as *Near a boundary*, without changing its status. See
 the [user guide](/docs), section *Structural variants, repeats, Paraphase and mtDNA*.
 
 A small variant's population frequencies and gnomAD counts come only from annotation fields that name
@@ -217,6 +221,22 @@ CoGA reads the family call set as DeepVariant's own calls: not as imputed genoty
 without DeepVariant's reference and no-call records. It takes only `bams/<sample>/<sample>.cram` as a
 sample's alignment, not a `<sample>_phased.bam` beside it. When the run was started several times, it names
 the pipeline records of the last run that completed.
+
+A family on conventional short-read WGS (Illumina, the SR-WGS analysis) has its PED, its joint GATK call
+set twice at the top of the folder, and a folder per sample for its alignment:
+
+```text
+FAM001/
+  FAM001.ped
+  FAM001.GRCh38.annotated.vcf.gz (+ .tbi)   the call set, VEP-annotated: the one CoGA reads
+  FAM001.vcf.gz (+ .tbi)                    the same call set unannotated: not read
+  PROBAND/    PROBAND.cram (+ .crai)        alignments, one folder per sample; optional
+```
+
+CoGA reads the annotated call set as GATK's own calls, never as imputed genotypes (its header speaks of
+phasing, and some of its genotypes are phased). A sample without a CRAM has calls but no reads in the genome
+browser. Such a family goes into the folder of its project like any delivery; without a `coga-package.json`
+it is added by hand (below).
 
 PGT packages from the PGT pipeline (nf-cmgg/copgtm) are laid out per tool:
 
@@ -375,13 +395,16 @@ the repository (`docs/coga-package.md`, `docs/schemas/`). A short one:
 - `members` is the pedigree: the import reads it, not a PED. A package file without `members` or
   `datasets` has them proposed from the folder (from its PED and its layout); the delivery then warns
   you to check them.
+- `reference`, the reference genome the run used (its FASTA's name), is optional. CoGA records it
+  with the family's annotation versions as its *Reference assembly*.
 - A field the format does not know is refused, so a misspelt one is never ignored.
 
 **What CoGA checks.** The package file follows the format. Every listed file is there at its size,
 with its checksum where the package file gives one; a file listed without one has its SHA-256
 computed by CoGA, and the delivery warns that the copy was not checked against what the pipeline
 made (acknowledge it to approve). Every file the import reads is listed; a file in the folder the package file
-does not list is a warning. The project exists with the package file's assembly, and the package
+does not list is a warning. The project exists with the package file's assembly (by its build:
+`GRCh38.p14` and `hg38` are a GRCh38 project's), and the package
 passes validation as a dry run runs it. A PED in the folder that says otherwise than the
 package file's members is a warning: the pipeline may have used it. Each check that fails is listed
 with the delivery.
@@ -427,7 +450,7 @@ with the delivery.
   - Someone else may have corrected the delivery since you opened it: the save is refused, and you
     open it again.
 - **Add a folder by hand** (above the list) adds a folder no pipeline delivered: choose it (or type
-  its path), its project and its analysis (LR-WGS, LR-AS, PGT, Expanded Carrier Screening or mNIPT),
+  its path), its project and its analysis (LR-WGS, LR-AS, SR-WGS, PGT, Expanded Carrier Screening or mNIPT),
   and, when it is not the folder's name, its family ID: left empty, the family ID is the folder's
   name, and it cannot be changed once the folder is added. CoGA
   makes its package from the folder, with the members and datasets it proposes from the folder's PED
@@ -476,7 +499,8 @@ ends. The decided and superseded deliveries are listed on request.
    delivery whose folder changed since it was checked is refused. A job also imports nothing when the
    folder changed after it was queued, and is undone when it changed while it was read: a new family
    is removed, an existing family put back as it was (*package fingerprint*, shown with the job).
-5. **Follow the job** under *Recent family imports*: status, log, validation errors, warnings and a
+5. **Follow the job** under *Recent family imports*, which lists the latest 10 jobs (**Show all** lists
+   up to 100, in a list that scrolls): status, log, validation errors, warnings and a
    summary per dataset. While a dataset imports, the page shows how much of its files has been read and
    about how long it should still take, at the pace so far. A finished dataset shows how long it took.
    The estimate covers the running dataset only; the page says how many datasets follow. A dataset

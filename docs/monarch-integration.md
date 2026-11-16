@@ -69,8 +69,15 @@ Both are in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); c
   only what the same search keeps unranked: with compound-het or recessive pairing, or
   expanded carrier screening, the pairs' variants, the single variants and the couple's findings. Each
   pair is listed at its better-ranked variant; past the window it also sets `candidates_capped`.
-  Rankings are cached ([variant-ranking-cache.md](variant-ranking-cache.md)).
-  `GET /api/families/{family_id}/structural-variants?prioritize=true` (not cached) scores an SV's
+  Rankings are cached ([variant-ranking-cache.md](variant-ranking-cache.md)), in the combined order.
+  `rank_by=variant_score` orders the whole ranking by the variant score instead (the combined score,
+  then the variant id, break ties), so a variant in a gene without Monarch data ranks by its own
+  evidence; the scores are the same, the ranks are numbered in that order, and the page names its
+  order in `ranked_by`. The order is put on the cached ranking as the page is served, so it needs no
+  cache row of its own. The CSV export of a ranked search writes the combined score (*Priority*), the
+  *Variant score* and the *Rank*.
+  `GET /api/families/{family_id}/structural-variants?prioritize=true` (not cached, `rank_by` as for
+  small variants) scores an SV's
   pathogenicity from its event class, the genes it overlaps and their pLI
   (`structural_pathogenicity_score`). A copy-number change is scored by its direction, with the rule of
   the SNV + SV second hit (`sv_copy_change.copy_change`):

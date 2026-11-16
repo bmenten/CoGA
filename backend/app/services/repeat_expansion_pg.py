@@ -139,6 +139,8 @@ def _normalize_strchive_repeat_locus(entry: dict[str, Any]) -> dict[str, Any] | 
         "notes": _as_text(entry.get("details") or entry.get("disease_description")),
         "metadata": {
             "source": "STRchive",
+            # The locus whose page on strchive.org the repeat pages link to: this one.
+            "strchive_id": locus_id,
             "reference_motifs": reference_motifs,
             "pathogenic_motifs": pathogenic_motifs,
             "interruption_motifs": interruption_motifs,
@@ -231,7 +233,7 @@ def read_shipped_strchive_release(path: Path) -> bytes:
     digest = hashlib.sha256(payload).hexdigest()
     if digest != STRCHIVE_PINNED_LOCI_SHA256:
         raise _refuse_strchive_release(
-            f"The STRchive file {shown} is not the shipped, validated STRchive release: its "
+            f"The STRchive file {shown} is not the shipped STRchive release: its "
             f"SHA-256 is {digest}, the shipped release's is {STRCHIVE_PINNED_LOCI_SHA256}. The "
             "backend does not start, because the built-in repeat loci carry the shipped "
             "release's thresholds and calls would be read against two releases. "
@@ -253,7 +255,7 @@ def _load_configured_strchive_repeat_loci() -> list[dict[str, Any]]:
         if not path.exists():
             continue
         entries = _strchive_repeat_loci_from_payload(json.loads(read_shipped_strchive_release(path)))
-        if not entries:  # the shipped release has 75 loci: reading none is a defect here
+        if not entries:  # the shipped release has 82 loci: reading none is a defect here
             raise _refuse_strchive_release(
                 f"No locus was read from the STRchive file {scrub_log(path)}, although it is the "
                 "shipped release. The backend does not start."
@@ -360,6 +362,31 @@ _DELETE_STRCHIVE_LOCI_OUTSIDE_RELEASE_SQL = text(
 )
 
 
+def _with_strchive_pages(
+    builtin_loci: Iterable[dict[str, Any]], strchive_loci: Iterable[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The built-in rows, each naming the STRchive locus of its gene (``strchive_id``), whose
+    thresholds it carries: the release's one locus for that gene, or none where the release
+    has none or several (ARX, HOXA13), since a gene's name cannot choose a tract."""
+    by_gene: dict[str, list[str]] = {}
+    for entry in strchive_loci:
+        by_gene.setdefault(str(entry.get("gene") or "").upper(), []).append(str(entry["locus_id"]))
+    rows = []
+    for entry in builtin_loci:
+        loci = by_gene.get(str(entry.get("gene") or "").upper(), [])
+        metadata = entry.get("metadata")
+        rows.append(
+            {
+                **entry,
+                "metadata": {
+                    **(metadata if isinstance(metadata, dict) else {}),
+                    "strchive_id": loci[0] if len(loci) == 1 else None,
+                },
+            }
+        )
+    return rows
+
+
 async def seed_builtin_repeat_catalog(session: AsyncSession) -> None:
     """Write the repeat catalogue every start: the built-in loci and the shipped STRchive
     release, upserted by ``locus_id``, in one transaction.
@@ -369,7 +396,7 @@ async def seed_builtin_repeat_catalog(session: AsyncSession) -> None:
     The STRchive rows then become exactly that release's: a STRchive row it does not list,
     left by an earlier start, is removed, so no TRID can find another release's thresholds."""
     strchive_loci = _load_configured_strchive_repeat_loci()
-    await _seed_repeat_catalog_entries(session, BUILTIN_REPEAT_LOCI)
+    await _seed_repeat_catalog_entries(session, _with_strchive_pages(BUILTIN_REPEAT_LOCI, strchive_loci))
     await _seed_repeat_catalog_entries(session, strchive_loci)
     await session.execute(
         _DELETE_STRCHIVE_LOCI_OUTSIDE_RELEASE_SQL,
@@ -431,6 +458,24 @@ def _known_interruption_motifs(locus_document: dict[str, Any]) -> set[str]:
     return {motif.upper() for motif in _text_list(motifs)}
 
 
+def catalogue_motif_indices(catalog_motif: str | None, motifs: list[str]) -> list[int]:
+    """The indices, in a TRGT call's MOTIFS, of the catalogue's motif: the counts CoGA adds up
+    and classifies.
+
+    The motif itself and the same motif read from another base: a rotation is the same tandem
+    repeat. STRchive writes FRDA_FXN's motif AAG and its TRGT catalogue lists A, GAA and AAG,
+    so TRGT can count one GAA tract partly as GAA and partly as AAG; the repeat's count is the
+    sum of both. Empty when the call names neither."""
+    if not catalog_motif or not motifs:
+        return []
+    wanted = catalog_motif.upper()
+    return [
+        index
+        for index, motif in enumerate(motifs)
+        if len(motif) == len(wanted) and motif.upper() in wanted + wanted
+    ]
+
+
 def _motif_count_summary(motifs: list[str], counts: list[int]) -> list[dict[str, int | str]]:
     summary: list[dict[str, int | str]] = []
     for index, count in enumerate(counts):
@@ -476,14 +521,15 @@ def classify_repeat_count(
     """Status for one allele's repeat count.
 
     Almost every locus is pathogenic by *expansion*: bigger is worse, and "at or above
-    the threshold" is the whole rule. Two catalogued loci are not. VWA1 (normal exactly
-    2, pathogenic 1 or 3) and MIR7-2 (normal 4, pathogenic 3) are pathogenic by
-    *contraction*, so their normal count sits at or above ``pathogenic_min`` and a bare
-    ``>=`` test calls every healthy call pathogenic.
+    the threshold" is the whole rule. One catalogued locus is not: MIR7-2 (normal 4,
+    pathogenic 3) is pathogenic by *contraction*, so its normal count sits above
+    ``pathogenic_min`` and a bare ``>=`` test calls every healthy call pathogenic. A locus
+    pathogenic on both sides of its normal count (normal exactly 2, pathogenic 1 or 3)
+    reads the same way.
 
     The two shapes are told apart by the catalog itself — a benign count at or above
     ``pathogenic_min`` means repeat count and risk do not rise together — rather than by
-    naming genes. ``pathogenic_max`` cannot be that test: 73 of 75 loci record one, as
+    naming genes. ``pathogenic_max`` cannot be that test: 78 of 82 loci record one, as
     the largest count observed rather than a ceiling on harm, so treating it as a bound
     would downgrade a 300-repeat HTT allele.
 
@@ -504,11 +550,11 @@ def classify_repeat_count(
     in a child, which a carrier screen reports.
 
     A locus without thresholds -- no intermediate, premutation or pathogenic threshold:
-    no catalogue row matches the call's TRID, or the row states none (STRchive's MUC1 and
-    POLG) -- gives a called allele ``not_assessed``. Read as ``normal``, an expansion there
-    could not be seen. Where such a row states a benign range, a count inside it
-    is ``normal``: the catalogue calls that count benign (STRchive's POLG, exactly 10; the
-    owner's decision of 2026-10-14). Any other count there, above the range or
+    no catalogue row matches the call's TRID, or the row states none (STRchive's MUC1, CEL,
+    POLG and VWA1) -- gives a called allele ``not_assessed``. Read as ``normal``, an
+    expansion there could not be seen. Where such a row states a benign range, a count inside
+    it is ``normal``: the catalogue calls that count benign (STRchive's POLG, exactly 10, and
+    VWA1, exactly 2; the owner's decision of 2026-10-14). Any other count there, above the range or
     below it, stays ``not_assessed``: a benign range is not a threshold, and nothing says
     where harm starts. A range is stated by both of its ends.
 
@@ -635,7 +681,6 @@ def _reclassify_repeat_alleles(
 def _with_count_unit_warnings(
     alleles: list[dict[str, Any]],
     *,
-    validated: bool,
     warning_min: int | None,
     pathogenic_min: int | None,
     benign_min: int | None = None,
@@ -644,16 +689,17 @@ def _with_count_unit_warnings(
     premutation_min: int | None = None,
 ) -> list[dict[str, Any]]:
     """Each allele with its ``count_unit_warning`` (repeat_count_units): the boundaries within
-    the margin of its count, at a locus whose counting units QA has not validated.
+    the margin of its count, at every locus, since TRGT's count need not be the clinical repeat
+    number the locus's cut-offs count.
 
     The boundaries are found by the classifier itself, with the thresholds the status was
     read against, so the warning and the status never disagree on where a boundary is. A
-    validated locus, and a no-call, carry none. The statuses are left as they are. A locus
+    no-call carries none. The statuses are left as they are. A locus
     without any threshold or range has nothing a count could cross, so the classifier is not
     asked there: a genome-wide TRGT catalogue holds mostly such loci.
     """
     ranges = (warning_min, pathogenic_min, benign_min, benign_max, pathogenic_max, premutation_min)
-    if validated or all(value is None for value in ranges):
+    if all(value is None for value in ranges):
         return [{**allele, "count_unit_warning": None} for allele in alleles]
 
     def status_at(count: int) -> str:
@@ -795,7 +841,6 @@ def _classified_call(
     )
     alleles = _with_count_unit_warnings(
         alleles,
-        validated=bool(row.get("count_units_validated")),
         warning_min=warning_min,
         pathogenic_min=pathogenic_min,
         **ranges,
@@ -1191,11 +1236,13 @@ def _build_trgt_insert_params(
     allele_methylation = parse_float_list(sample_values.get("AM"))
     motif_copy_counts = parse_mc_field(sample_values.get("MC"))
     motif_spans = parse_ms_field(sample_values.get("MS"))
-    motif_index = int(locus_document.get("motif_index") or 0)
     catalog_motif = _as_text(locus_document.get("motif"))
-    if catalog_motif and motifs:
-        motif_lookup = {motif.upper(): index for index, motif in enumerate(motifs)}
-        motif_index = motif_lookup.get(catalog_motif.upper(), motif_index)
+    # The motifs whose counts make the repeat's count: the catalogue's motif in each rotation
+    # the call lists, else the row's own index.
+    counted_motifs = catalogue_motif_indices(catalog_motif, motifs) or [
+        int(locus_document.get("motif_index") or 0)
+    ]
+    motif_index = counted_motifs[0]
     warning_min = locus_document.get("warning_min")
     pathogenic_min = locus_document.get("pathogenic_min")
     locus_metadata = locus_document.get("metadata")
@@ -1217,8 +1264,10 @@ def _build_trgt_insert_params(
     )
     for index in range(allele_total):
         repeat_count = None
-        if index < len(motif_copy_counts) and motif_index < len(motif_copy_counts[index]):
-            repeat_count = motif_copy_counts[index][motif_index]
+        allele_motif_counts = motif_copy_counts[index] if index < len(motif_copy_counts) else []
+        counted = [motif for motif in counted_motifs if motif < len(allele_motif_counts)]
+        if counted:
+            repeat_count = sum(allele_motif_counts[motif] for motif in counted)
         elif index < len(allele_bp_lengths) and locus_document.get("motif"):
             motif = str(locus_document["motif"])
             if motif and set(motif) != {"N"}:
@@ -1666,12 +1715,12 @@ _CALL_CATALOGUE_COLUMNS = """                COALESCE(catalog.locus_id, repeat_e
                 catalog.benign_max AS benign_max,
                 catalog.pathogenic_max AS pathogenic_max,
                 catalog.premutation_min AS premutation_min,
+                catalog.strchive_id AS strchive_id,
                 -- QA's record for the catalogue row that classifies the call, read in this
                 -- statement with the call, so the correction the call is classified with and
                 -- the record the signed record freezes beside it are one (CLIN-57). A call no
-                -- row matches has no correction and is not validated.
+                -- row matches has no correction.
                 COALESCE(units.count_offset, 0) AS count_offset,
-                COALESCE(units.validated, false) AS count_units_validated,
                 units.reason AS count_units_reason,
                 units.updated_by_name AS count_units_updated_by,
                 units.updated_at AS count_units_updated_at,
@@ -1720,7 +1769,8 @@ _CALL_CATALOGUE_JOINS = """            -- The STRchive loci the call's names rea
                     (repeat_loci.metadata ->> 'benign_min')::int AS benign_min,
                     (repeat_loci.metadata ->> 'benign_max')::int AS benign_max,
                     (repeat_loci.metadata ->> 'pathogenic_max')::int AS pathogenic_max,
-                    (repeat_loci.metadata ->> 'premutation_min')::int AS premutation_min
+                    (repeat_loci.metadata ->> 'premutation_min')::int AS premutation_min,
+                    repeat_loci.metadata ->> 'strchive_id' AS strchive_id
                 FROM repeat_loci
                 WHERE (
                        lower(repeat_loci.locus_id) = lower(repeat_expansions.locus_id)
@@ -1817,7 +1867,6 @@ async def get_family_repeat_expansion_table_response(
     for row in rows:
         warning_min = row.get("warning_min")
         pathogenic_min = row.get("pathogenic_min")
-        count_units_validated = bool(row.get("count_units_validated"))
         meta = member_meta.get(row["sample_uuid"], {})
         alleles, row_status, note = _classified_call(
             row, sex=meta.get("sex"), assembly_name=context.assembly_name
@@ -1845,8 +1894,8 @@ async def get_family_repeat_expansion_table_response(
                 "benign_max": row.get("benign_max"),
                 "pathogenic_max": row.get("pathogenic_max"),
                 "premutation_min": row.get("premutation_min"),
+                "strchive_id": row.get("strchive_id"),
                 "count_offset": _as_int(row.get("count_offset")) or 0,
-                "count_units_validated": count_units_validated,
                 "count_units_reason": row.get("count_units_reason"),
                 "count_units_updated_by": row.get("count_units_updated_by"),
                 "count_units_updated_at": row.get("count_units_updated_at"),
@@ -1973,7 +2022,6 @@ async def get_sample_repeat_expansion_track_response(
                     if allele.get("bp_length") is not None
                 ],
                 count_offset=_as_int(row.get("count_offset")) or 0,
-                count_units_validated=bool(row.get("count_units_validated")),
                 count_units_note=known_count_unit_difference(row.get("gene")),
                 count_unit_warnings=[
                     allele["count_unit_warning"]

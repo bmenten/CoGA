@@ -115,7 +115,7 @@ otherwise the first affected member.
 | Criterion | State | Rule |
 | --- | --- | --- |
 | **PVS1** | Applied or Consider | Predicted null: stop gained, frameshift, canonical splice acceptor or donor, start lost, transcript ablation. Applied only when ClinGen scores the gene's haploinsufficiency as *Sufficient evidence*: Very strong with a LOFTEE high-confidence call, Strong without. Offered as Consider (Strong) when LOFTEE flags the call (for example `SINGLE_EXON`, `NAGNAG_SITE`) or VEP's NMD plugin predicts it escapes nonsense-mediated decay; the evidence says which. Otherwise offered as Consider. |
-| **PM2** | Applied or Consider (Supporting) | Applied: gnomAD allele frequency below 0.01%. Consider: no gnomAD frequency in the annotation (see *Frequency* below). |
+| **PM2** | Applied or Consider (Supporting) | Applied: gnomAD allele frequency below 0.01%, or none in a callset annotated with gnomAD genomes (absent from gnomAD). Consider: no gnomAD frequency otherwise (see *Frequency* below). |
 | **BA1** | Applied (Stand-alone) | gnomAD FAF95 (else allele frequency) 5% or more. |
 | **BS1** | Applied (Strong) | gnomAD FAF95 (else allele frequency) from 1% up to 5%. |
 | **BS2** | Applied (Strong) or Consider | Homozygotes in gnomAD. Applied when GenCC lists a recessive inheritance mode for the gene, otherwise Consider (Supporting). Not marked when the annotation holds no gnomAD homozygote count: check gnomAD. |
@@ -152,11 +152,26 @@ Only the criterion that fits the frequency stays active; the other two are greye
 | 1% up to 5% | BS1 | BA1, PM2 |
 | below 0.01% | PM2 | BA1, BS1 |
 | 0.01% up to 1% | none | BA1, BS1, PM2 |
-| none | PM2 as Consider | none |
+| none, absent from gnomAD | PM2 | BA1, BS1 |
+| none, otherwise | PM2 as Consider | none |
 
-With no gnomAD frequency in the annotation, the variant may be absent from gnomAD, or gnomAD was not
-annotated for it: the annotation does not say which. PM2 is then offered as Consider, not applied,
-and BA1 and BS1 stay open. Check gnomAD before you apply PM2.
+A variant with no gnomAD frequency is absent from gnomAD only where its callset was annotated with
+gnomAD. Each variant's annotation names the gnomAD datasets its VCF header declares an allele
+frequency of: exomes, genomes, the joint set, or a combined frequency whose set the header does not
+name, from VEP's cache or from a gnomAD file alike. It is absent from gnomAD, and PM2 is applied,
+where those include gnomAD's genomes or its joint set, on chromosomes 1–22, X and Y, and the
+annotation holds no gnomAD FAF95 or popmax of the variant. Anywhere else PM2 is offered as Consider,
+and BA1 and BS1 stay open. The evidence says why:
+
+- gnomAD was not annotated for the callset;
+- the callset was annotated with gnomAD exomes alone, which cover only the exome capture regions,
+  or with a combined frequency whose set it does not name;
+- a chrM variant: gnomAD-MT is a dataset of its own;
+- a contig gnomAD does not hold.
+
+Check gnomAD before you apply PM2 there. CoGA does not read gnomAD's coverage at the position:
+check it for a variant in a region gnomAD covers poorly. A classification freezes the gnomAD datasets
+with its evidence.
 
 ### In-silico evidence (PP3, BP4)
 

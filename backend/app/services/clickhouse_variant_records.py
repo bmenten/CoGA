@@ -21,6 +21,9 @@ _KNOWN_ANNOTATION_KEYS = {
     "spliceai_dp_al",
     "spliceai_dp_dg",
     "spliceai_dp_dl",
+    # The gnomAD datasets the callset's header declares an allele frequency of
+    # (``variant_annotation_parser.GNOMAD_ANNOTATED_KEY``), served as a field of its own.
+    "gnomad_annotated",
     "gene",
     "gene_id",
     "gene_symbol",
@@ -386,6 +389,13 @@ def _annotation_population_frequencies(annotation: dict[str, Any]) -> dict[str, 
         if parsed is not None:
             result[key] = parsed
     return result
+
+
+def _annotation_gnomad_annotated(annotation: dict[str, Any]) -> list[str]:
+    """The gnomAD datasets whose allele frequency the header of the annotation's callset
+    declares (``variant_annotation_parser.GNOMAD_ANNOTATED_KEY``); none when it declares none."""
+    value = annotation.get("gnomad_annotated")
+    return [str(dataset) for dataset in value] if isinstance(value, list) else []
 
 
 def _annotation_extra(annotation: dict[str, Any]) -> dict[str, Any]:

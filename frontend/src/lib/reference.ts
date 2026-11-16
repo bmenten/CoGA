@@ -130,11 +130,37 @@ export function mapAssemblyToIgvGenome(assemblyName?: string | null): string | n
   return OTHER_IGV_GENOMES.get(name) ?? null;
 }
 
+/**
+ * The name an assembly is shown under wherever a project, a family, a gene or an explorer names
+ * it: its GRC build (`GRCh38`, `GRCh37`) for a name `grcBuild` reads, with or without a patch
+ * suffix, else its name as stored. Never its version: that is the release of the reference data
+ * CoGA loaded for the assembly (UCSC's hg38 is GRCh38.p14), not the reference a family's data
+ * was aligned to, which the family's pipeline names (the Reference assembly of its annotation
+ * manifest). A patch adds scaffolds and leaves the chromosomes' coordinates as they are.
+ */
+export function assemblyDisplayName(assemblyName?: string | null): string {
+  return grcBuild(assemblyName) ?? (assemblyName ?? '').trim();
+}
+
+type AssemblyChoice = { assembly_name: string; version?: string | null };
+
+/**
+ * An assembly's label in a list to choose one from: its display name, and its version only
+ * where another assembly of the list has the same display name, so that no two choices read
+ * alike.
+ */
+export function assemblyChoiceLabel(entry: AssemblyChoice, entries: readonly AssemblyChoice[]): string {
+  const name = assemblyDisplayName(entry.assembly_name);
+  const shared = entries.some(
+    (other) => other !== entry && assemblyDisplayName(other.assembly_name) === name,
+  );
+  return shared && entry.version ? `${name} (${entry.version})` : name;
+}
+
 export function formatResolvedReferenceLabel(
   reference: {
     speciesName?: string;
     assemblyName?: string;
-    assemblyVersion?: string;
     isError?: boolean;
   },
   fallback = 'Reference not linked',
@@ -146,7 +172,7 @@ export function formatResolvedReferenceLabel(
     return fallback;
   }
 
-  const assemblyLabel = `${reference.assemblyName}${reference.assemblyVersion ? ` ${reference.assemblyVersion}` : ''}`;
+  const assemblyLabel = assemblyDisplayName(reference.assemblyName);
   return reference.speciesName ? `${reference.speciesName} • ${assemblyLabel}` : assemblyLabel;
 }
 

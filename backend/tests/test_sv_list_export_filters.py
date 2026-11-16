@@ -94,8 +94,8 @@ _FILTERS = {
 # both, and the list's page and genome-track options (``overlap`` is the track's region rule:
 # the SV page never sends it, and the export never took it).
 _OWN = {
-    _LIST_ROUTE: {"project_id", "prioritize", "page", "page_size", "overlap", "track_mode", "count_only"},
-    _EXPORT_ROUTE: {"project_id", "prioritize"},
+    _LIST_ROUTE: {"project_id", "prioritize", "rank_by", "page", "page_size", "overlap", "track_mode", "count_only"},
+    _EXPORT_ROUTE: {"project_id", "prioritize", "rank_by"},
 }
 
 
@@ -192,13 +192,16 @@ def test_both_routes_take_the_same_filters_under_their_names_types_and_defaults(
 
     assert set(listed) == set(_FILTERS) | _OWN[_LIST_ROUTE]
     assert set(exported) == set(_FILTERS) | _OWN[_EXPORT_ROUTE]
-    for name, kind in {**_FILTERS, "project_id": "string", "prioritize": "boolean"}.items():
+    for name, kind in {**_FILTERS, "project_id": "string", "prioritize": "boolean", "rank_by": "string"}.items():
         # One declaration: the same name, type, default and title on both routes.
         assert listed[name] == exported[name], name
         assert _json_type(listed[name]["schema"]) == kind, name
         assert listed[name]["required"] is False, name
     assert listed["has_notes"]["schema"]["default"] is False
     assert listed["prioritize"]["schema"]["default"] is False
+    # The ranking's order: by the combined score unless the variant score is asked for.
+    assert listed["rank_by"]["schema"]["enum"] == ["combined_score", "variant_score"]
+    assert listed["rank_by"]["schema"]["default"] == "combined_score"
 
 
 # --------------------------------------------------------------------------- #
@@ -299,7 +302,7 @@ def test_a_request_with_every_filter_hands_both_searches_the_same_filters(
 
     monkeypatch.setattr(sv_router, "get_family_structural_variants_clickhouse", list_search)
     monkeypatch.setattr(sv_router, "export_family_structural_variants", export_search)
-    query = [*_EVERY_FILTER, ("prioritize", "true")]
+    query = [*_EVERY_FILTER, ("prioritize", "true"), ("rank_by", "variant_score")]
 
     assert routes.get(_LIST, params=query).status_code == 200
     assert routes.get(_EXPORT, params=query).status_code == 200
@@ -308,9 +311,11 @@ def test_a_request_with_every_filter_hands_both_searches_the_same_filters(
     assert seen["list"]["filters"] == _EVERY_FILTER_READ
     assert seen["export"]["filters"] == _EVERY_FILTER_READ
     assert seen["list"]["prioritize"] is True and seen["export"]["prioritize"] is True
+    # The file is ranked in the order the list is.
+    assert seen["list"]["rank_by"] == seen["export"]["rank_by"] == "variant_score"
     # The list alone asks for a page and takes the genome track's options.
     assert (seen["list"]["page"], seen["list"]["page_size"]) == (1, 100)
-    assert set(seen["export"]) == {"context", "filters", "prioritize"}
+    assert set(seen["export"]) == {"context", "filters", "prioritize", "rank_by"}
 
     assert routes.get(_LIST, params=[("chr", "1"), ("overlap", "true")]).status_code == 200
     assert seen["list"]["filters"].overlap is True

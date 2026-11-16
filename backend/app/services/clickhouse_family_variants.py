@@ -61,7 +61,10 @@ from .variant_ranking_cache import (
     store_ranking,
 )
 from .variant_prioritization import (
+    RANK_BY_COMBINED_SCORE,
+    RankBy,
     clinvar_may_assert_pathogenic,
+    priority_order_key,
     score_structural_variant,
     score_variant,
 )
@@ -142,6 +145,7 @@ from .clickhouse_variant_storage import (
     get_family_structural_variant_data_version,
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
+from .sample_integrity_qc import MIN_GENOTYPE_QUALITY
 
 logger = logging.getLogger(__name__)
 
@@ -1785,7 +1789,9 @@ async def fetch_genotype_site_sample(
     returned. A variant stored more than once (the family linked to two projects, or
     ``source`` matching two callsets) counts once, so a sample can hold fewer sites.
     Only SNVs are sampled: an indel's genotype is called with more error, and every check
-    reads the sample as genotypes (the owner's decision of 2026-10-27).
+    reads the sample as genotypes (the owner's decision of 2026-10-27). A call with a GQ
+    below ``MIN_GENOTYPE_QUALITY`` is returned as a no-call (``./.``): the checks read only
+    the genotypes the caller is sure of. A call without a GQ is returned as called.
     Each row is ``(chrom, pos, ref, alt, sample_ids, gts)``."""
     if not context.assembly_name:
         return []
@@ -1811,7 +1817,8 @@ async def fetch_genotype_site_sample(
     allele_depths = ", e.calls.ad AS sample_ads" if per_sample else ""
     query = f"""
         SELECT e.key AS key, e.chrom AS chrom, e.pos AS pos, e.ref AS ref, e.alt AS alt,
-               e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts{allele_depths}
+               e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts,
+               e.calls.gq AS sample_gqs{allele_depths}
         FROM {entries_table} AS e
         WHERE {where}
           -- The sample's largest key, found from the keys alone: only the sample's rows
@@ -1841,23 +1848,34 @@ def _genotype_site_rows(
     rows: Sequence[Sequence[Any]], *, per_sample: bool
 ) -> list[tuple[str, int, str, str, list[str], list[str]]]:
     """``fetch_genotype_site_sample``'s rows from its query's: one per variant, the genotypes
-    of a per-sample callset read from their allele depths."""
+    of a per-sample callset read from their allele depths, a call below
+    ``MIN_GENOTYPE_QUALITY`` a no-call."""
     sample: list[tuple[str, int, str, str, list[str], list[str]]] = []
     seen_keys: set[int] = set()
     for row in rows:
-        key, chrom, pos, ref, alt, sample_ids, gts = row[:7]
+        key, chrom, pos, ref, alt, sample_ids, gts, gqs = row[:8]
         if int(key) in seen_keys:
             continue
         seen_keys.add(int(key))
         genotypes = [str(g) for g in gts]
-        if per_sample and len(row) > 7:
-            ads = list(row[7] or [])
+        if per_sample and len(row) > 8:
+            ads = list(row[8] or [])
             genotypes = [
                 vaf_genotype(ads[index] if index < len(ads) else None, genotype)
                 for index, genotype in enumerate(genotypes)
             ]
+        qualities = list(gqs or [])
+        genotypes = [
+            "./." if index < len(qualities) and _below_genotype_quality(qualities[index]) else genotype
+            for index, genotype in enumerate(genotypes)
+        ]
         sample.append((str(chrom), int(pos), str(ref), str(alt), [str(s) for s in sample_ids], genotypes))
     return sample
+
+
+def _below_genotype_quality(gq: float | None) -> bool:
+    """Whether a call's GQ is below ``MIN_GENOTYPE_QUALITY``; a call without one is not."""
+    return gq is not None and gq < MIN_GENOTYPE_QUALITY
 
 
 async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[str]:
@@ -2198,16 +2216,18 @@ async def _serve_ranking_from_cache(
     cached: dict[str, Any],
     page: int,
     page_size: int,
+    rank_by: RankBy,
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage | None:
     """Rebuild a prioritised page from a cached ranking, for a search that keeps each
     variant for its own record (a search that pairs works its pairs out first, see
     ``_prioritized_small_variants_page``).
 
-    The cache holds the ranked (variant id + score breakdown) order; the page's variant
-    records and review state are fetched fresh so annotations and review status are never
-    served stale. The records are fetched by id; each names the transcript the search's
-    ``filters`` held on as a computed page does. Returns None on any
+    The cache holds the ranked (variant id + score breakdown) order, best combined score
+    first, which is put in the order ``rank_by`` asks for (``_cached_ranking_in_order``);
+    the page's variant records and review state are fetched fresh so annotations and review
+    status are never served stale. The records are fetched by id; each names the transcript
+    the search's ``filters`` held on as a computed page does. Returns None on any
     reconstruction problem so the caller falls back to a live compute.
     """
     ranking = cached.get("ranking") or []
@@ -2216,6 +2236,9 @@ async def _serve_ranking_from_cache(
             ranking = json.loads(ranking)
         except json.JSONDecodeError:
             return None
+    ranking = _cached_ranking_in_order(ranking, rank_by)
+    if ranking is None:
+        return None
     total = int(cached.get("total") or 0)
     total_is_estimated = bool(cached.get("total_is_estimated"))
     ranking_truncated = bool(cached.get("ranking_truncated"))
@@ -2270,6 +2293,64 @@ async def _serve_ranking_from_cache(
         variants=page_variants,
         small_variant_summary=small_variant_summary,
     )
+
+
+def _cached_ranking_in_order(ranking: Any, rank_by: RankBy) -> list[Any] | None:
+    """A cached ranking, stored best combined score first, in the order ``rank_by`` ranks
+    it, each entry's rank its place in that order (as ``_priorities_in_order`` orders a
+    computed one). None when it is no list or an entry's scores cannot be read, so the
+    caller computes the ranking afresh."""
+    if not isinstance(ranking, list):
+        return None
+    if rank_by == RANK_BY_COMBINED_SCORE:
+        return ranking
+    keyed: list[tuple[tuple[float, float], str, dict[str, Any], dict[str, Any]]] = []
+    for entry in ranking:
+        priority = entry.get("priority") if isinstance(entry, dict) else None
+        if not isinstance(priority, dict):
+            return None
+        try:
+            key = priority_order_key(
+                combined_score=float(priority["combined_score"]),
+                variant_score=float(priority["variant_score"]),
+                rank_by=rank_by,
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+        keyed.append((key, str(entry.get("variant_id")), entry, priority))
+    keyed.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [
+        {**entry, "priority": {**priority, "rank": index}}
+        for index, (_key, _variant_id, entry, priority) in enumerate(keyed, start=1)
+    ]
+
+
+def _priorities_in_order(
+    priorities: Mapping[str, VariantPriorityOut], rank_by: RankBy
+) -> Mapping[str, VariantPriorityOut]:
+    """``priorities``, best combined score first, in the order ``rank_by`` ranks them,
+    each numbered from 1 in that order. By the variant score, ties go to the combined score,
+    then to the variant id, as the combined order breaks its ties
+    (``_rank_small_variants``). The priorities given are not changed: a computed ranking is
+    cached in the combined order whatever order its page is served in."""
+    if rank_by == RANK_BY_COMBINED_SCORE:
+        return priorities
+    ordered = sorted(
+        priorities.items(),
+        key=lambda item: (
+            priority_order_key(
+                combined_score=item[1].combined_score,
+                variant_score=item[1].variant_score,
+                rank_by=rank_by,
+            ),
+            item[0],
+        ),
+        reverse=True,
+    )
+    return {
+        variant_id: priority.model_copy(update={"rank": index})
+        for index, (variant_id, priority) in enumerate(ordered, start=1)
+    }
 
 
 def _recorded_panel_members(candidate: dict[str, Any]) -> str | None:
@@ -2380,6 +2461,7 @@ async def _serve_subpanel_from_superset(
     pairing: bool,
     page: int,
     page_size: int,
+    rank_by: RankBy,
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage | None:
     """Serve a gene panel from a broader cached ranking with the same panel-agnostic
@@ -2447,6 +2529,7 @@ async def _serve_subpanel_from_superset(
             priorities=priorities,
             page=page,
             page_size=page_size,
+            rank_by=rank_by,
             total=total,
             total_is_estimated=total >= _SMALL_COUNT_LIMIT,
             capped=False,
@@ -2578,6 +2661,7 @@ async def _prioritized_items_page(
     priorities: Mapping[str, VariantPriorityOut],
     page: int,
     page_size: int,
+    rank_by: RankBy,
     total: int,
     total_is_estimated: bool,
     capped: bool,
@@ -2587,7 +2671,8 @@ async def _prioritized_items_page(
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage:
     """A page of a ranked search: its items in the ranking's order (``priorities``, best
-    first), each variant with its priority and rank.
+    combined score first, put in the order ``rank_by`` asks for by
+    ``_priorities_in_order``), each variant with its priority and its rank in that order.
 
     An item is placed where its best-ranked variant ranks: a compound-het pair at the better
     of its two variants, and among items that share their best variant (a variant in two
@@ -2596,6 +2681,7 @@ async def _prioritized_items_page(
     the candidate window overflowed: the ranking covers only the window, and a search that
     pairs (``pairing``) also missed any pair or carrier gene beyond it.
     """
+    priorities = _priorities_in_order(priorities, rank_by)
     position = {variant_id: index for index, variant_id in enumerate(priorities)}
     ranked_items = sorted(
         items,
@@ -2640,11 +2726,14 @@ async def _prioritized_small_variants_page(
     exclude_gene_regions: Sequence[Region],
     exclude_gene_terms: Sequence[str],
     small_variant_summary: SmallVariantSummaryOut | None,
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
 ) -> VariantPage:
     """The search ranked by phenotype priority: the variants and compound-het pairs the
     same search keeps unranked, ordered by the ranking.
 
-    *Phenotype prioritization* changes the order of a search, never what it keeps.
+    *Phenotype prioritization* changes the order of a search, never what it keeps. The
+    ranking is computed and cached in the combined-score order; ``rank_by`` orders the page
+    by the combined or the variant score (``_priorities_in_order``), from the same ranking.
     The variants are fetched with the search's filters, as the unranked search fetches them:
     the SQL is the one definition of the filters, applied nowhere again (the roadmap's *One
     filter definition*). A search that keeps a variant for what else it
@@ -2724,6 +2813,7 @@ async def _prioritized_small_variants_page(
             cached=cached,
             page=page,
             page_size=page_size,
+            rank_by=rank_by,
             small_variant_summary=small_variant_summary,
         )
         if served is not None:
@@ -2772,6 +2862,7 @@ async def _prioritized_small_variants_page(
                 priorities=priorities,
                 page=page,
                 page_size=page_size,
+                rank_by=rank_by,
                 total=len(items),
                 total_is_estimated=capped or len(items) >= _SMALL_COUNT_LIMIT,
                 capped=capped,
@@ -2799,6 +2890,7 @@ async def _prioritized_small_variants_page(
             pairing=pairing,
             page=page,
             page_size=page_size,
+            rank_by=rank_by,
             small_variant_summary=small_variant_summary,
         )
         if served is not None:
@@ -2881,6 +2973,7 @@ async def _prioritized_small_variants_page(
         priorities=priorities,
         page=page,
         page_size=page_size,
+        rank_by=rank_by,
         total=total,
         total_is_estimated=total_is_estimated,
         capped=capped,
@@ -3544,6 +3637,7 @@ async def get_family_small_variants_page(
     overlap: bool = False,
     require_sv_second_hit: bool = False,
     prioritize: bool = False,
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
     track_mode: bool = False,
     track_result_limit: int | None = None,
     count_only: bool = False,
@@ -3627,6 +3721,7 @@ async def get_family_small_variants_page(
         exclude_review_tags=exclude_review_tags,
         has_notes=has_notes,
         prioritize=prioritize,
+        rank_by=rank_by,
         track_mode=track_mode,
         track_result_limit=track_result_limit,
     )
@@ -3649,11 +3744,13 @@ async def _search_family_small_variants(
     exclude_review_tags: list[str] | None,
     has_notes: bool,
     prioritize: bool,
+    rank_by: RankBy,
     track_mode: bool,
     track_result_limit: int | None,
 ) -> VariantPage:
     """The family page's search over ``filters``, by the path its view takes: the
-    prioritised ranking, a track's page, ClickHouse's own page, or the candidate read."""
+    prioritised ranking (in the order ``rank_by`` asks for), a track's page, ClickHouse's
+    own page, or the candidate read."""
     if filters.require_sv_second_hit:
         # Resolve the family's SV-hit gene set once; every query path below reads it off
         # ``filters`` to intersect results with genes that also carry a structural variant.
@@ -3673,7 +3770,7 @@ async def _search_family_small_variants(
         return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
 
     if prioritize and not track_mode:
-        return await _prioritized_small_variants_page(
+        ranked = await _prioritized_small_variants_page(
             session,
             context=context,
             filters=filters,
@@ -3688,7 +3785,10 @@ async def _search_family_small_variants(
             exclude_gene_regions=scope.exclude_gene_regions,
             exclude_gene_terms=scope.exclude_gene_terms,
             small_variant_summary=small_variant_summary,
+            rank_by=rank_by,
         )
+        ranked.ranked_by = rank_by
+        return ranked
     if track_mode and track_result_limit is not None:
         return await _small_variants_track_page(
             session,
@@ -3770,6 +3870,7 @@ async def export_family_small_variants(
     context: FamilyMetadataContext,
     limit: int = _MAX_SMALL_VARIANT_EXPORT_ROWS,
     prioritize: bool = False,
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
     **filters: Any,
 ) -> VariantExport:
     """Fetch up to ``limit`` filtered small variants for CSV export.
@@ -3795,6 +3896,7 @@ async def export_family_small_variants(
         page=1,
         page_size=limit + 1,
         prioritize=prioritize,
+        rank_by=rank_by,
         track_mode=False,
         max_page_size=limit + 1,
         **filters,
@@ -3820,6 +3922,7 @@ async def export_family_structural_variants(
     filters: StructuralVariantQueryFilters | None = None,
     limit: int = _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS,
     prioritize: bool = False,
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
 ) -> VariantExport:
     """Fetch up to ``limit`` filtered structural variants for CSV export.
 
@@ -3837,6 +3940,7 @@ async def export_family_structural_variants(
         page_size=limit + 1,
         filters=filters,
         prioritize=prioritize,
+        rank_by=rank_by,
         track_mode=False,
         max_page_size=limit + 1,
     )
@@ -3852,12 +3956,14 @@ async def _prioritized_structural_variants_page(
     page: int,
     page_size: int,
     selected_samples: Sequence[str],
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
 ) -> VariantPage:
     """Phenotype-aware ranking of structural variants (Exomiser-style).
 
     Mirrors ``_prioritized_small_variants_page``: fetch a candidate window, score each
     SV by event class + overlapped-gene constraint + rarity + segregation, blend with
-    the best overlapped-gene HPO phenotype match, sort by combined score, then paginate.
+    the best overlapped-gene HPO phenotype match, sort by the combined score or, for
+    ``rank_by`` the variant score, by the variant score, then paginate.
     """
     panel = await _structural_search_panel(session, filters, context)
     if panel is not None and not panel.genes and not panel.regions:
@@ -4020,8 +4126,11 @@ async def _prioritized_structural_variants_page(
 
     scored_records.sort(
         key=lambda item: (
-            item[1].combined_score,
-            item[1].variant_score,
+            priority_order_key(
+                combined_score=item[1].combined_score,
+                variant_score=item[1].variant_score,
+                rank_by=rank_by,
+            ),
             # Stable, fully-determined final tiebreaker (see small-variant sort):
             # equal-score SVs are ordered by variant id for reproducible ranks.
             item[0].variant_id,
@@ -4080,6 +4189,7 @@ async def get_family_structural_variants_page(
     page_size: int,
     filters: StructuralVariantQueryFilters | None = None,
     prioritize: bool = False,
+    rank_by: RankBy = RANK_BY_COMBINED_SCORE,
     track_mode: bool = False,
     count_only: bool = False,
     max_page_size: int = MAX_VARIANT_PAGE_SIZE,
@@ -4107,14 +4217,17 @@ async def get_family_structural_variants_page(
         exists = await _family_has_structural_variants(context)
         return VariantPage(total=1 if exists else 0, variants=[], summary={})
     if prioritize and not track_mode:
-        return await _prioritized_structural_variants_page(
+        ranked = await _prioritized_structural_variants_page(
             session,
             context=context,
             filters=filters,
             page=page,
             page_size=page_size,
             selected_samples=selected_samples,
+            rank_by=rank_by,
         )
+        ranked.ranked_by = rank_by
+        return ranked
     # The males, who keep one copy of chrX and chrY outside the PARs, for each row's copy
     # change (``_structural_variant_out``).
     pedigree = _family_pedigree(context)

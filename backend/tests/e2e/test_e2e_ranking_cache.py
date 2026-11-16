@@ -6,7 +6,9 @@ record of a ranking's panel goes through the jsonb round trip). Everything runs 
 loop via an in-process ``httpx.ASGITransport`` client (see test_e2e_api_contract.py for why).
 
 **A ranking does not outlive the variant data.** The view is opened twice (the second
-open is a cache hit). The family's small variants are then deleted through the admin data
+open is a cache hit). It is then opened, and exported, ranked by the variant score: served
+from the same cached row, numbered in that order, and named so; an order the route does not
+know is refused. The family's small variants are then deleted through the admin data
 endpoint. The cache key covers the family's storage-level data version, so the next open
 recomputes over the emptied data instead of serving the old ranking (with the old total over
 variants that no longer exist). The golden trio is re-imported at the end so any module
@@ -95,6 +97,12 @@ async def _exercise_cache(root: Path) -> dict:
 
         out["first"] = capture(await ac.get(url, params=_PRIORITISED))
         out["second"] = capture(await ac.get(url, params=_PRIORITISED))
+        by_variant_score = {**_PRIORITISED, "rank_by": "variant_score"}
+        out["by_variant_score"] = capture(await ac.get(url, params=by_variant_score))
+        out["by_variant_score_csv"] = capture(
+            await ac.get(f"{url}/export", params={"prioritize": "true", "rank_by": "variant_score"})
+        )
+        out["unknown_order"] = capture(await ac.get(url, params={**_PRIORITISED, "rank_by": "phenotype"}))
         out["version_before"] = await get_family_small_variant_data_version(
             _harness.ASSEMBLY, family_uuid
         )
@@ -144,6 +152,39 @@ def test_first_open_computes_and_second_is_served_from_cache(data_change) -> Non
     assert [v["_id"] for v in second["json"]["variants"]] == [
         v["_id"] for v in first["json"]["variants"]
     ]
+
+
+def test_a_ranking_by_the_variant_score_is_served_from_the_same_cached_row(data_change) -> None:
+    combined, by_variant = data_change["second"]["json"], data_change["by_variant_score"]
+    assert by_variant["status"] == 200, by_variant["text"]
+    page = by_variant["json"]
+    # No cache row of its own: the combined order's row, put in the variant-score order.
+    assert page["ranking_cached"] is True
+    assert (combined["ranked_by"], page["ranked_by"]) == ("combined_score", "variant_score")
+    # The same variants with the same scores, ranked 1..n by the variant score, the combined
+    # score breaking ties.
+    scores = {v["_id"]: (v["priority"]["combined_score"], v["priority"]["variant_score"]) for v in page["variants"]}
+    assert scores == {
+        v["_id"]: (v["priority"]["combined_score"], v["priority"]["variant_score"]) for v in combined["variants"]
+    }
+    keys = [(v["priority"]["variant_score"], v["priority"]["combined_score"]) for v in page["variants"]]
+    assert keys == sorted(keys, reverse=True)
+    assert [v["priority"]["rank"] for v in page["variants"]] == list(range(1, len(page["variants"]) + 1))
+
+
+def test_the_export_ranked_by_the_variant_score_writes_both_scores_in_that_order(data_change) -> None:
+    exported = data_change["by_variant_score_csv"]
+    assert exported["status"] == 200, exported["text"]
+    rows = list(csv.DictReader(io.StringIO(exported["text"])))
+    assert rows, "the golden trio should yield prioritised variants"
+    assert list(rows[0])[:3] == ["Priority", "Variant score", "Rank"]
+    assert [row["Rank"] for row in rows] == [str(rank) for rank in range(1, len(rows) + 1)]
+    keys = [(float(row["Variant score"]), float(row["Priority"])) for row in rows]
+    assert keys == sorted(keys, reverse=True)
+
+
+def test_an_order_the_route_does_not_know_is_refused(data_change) -> None:
+    assert data_change["unknown_order"]["status"] == 422, data_change["unknown_order"]["text"]
 
 
 def test_admin_delete_moves_the_family_data_version(data_change) -> None:
