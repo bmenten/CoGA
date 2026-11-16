@@ -332,6 +332,7 @@ _CATALOGUE_SQL = text(
         (repeat_loci.metadata ->> 'benign_max')::int AS benign_max,
         (repeat_loci.metadata ->> 'premutation_min')::int AS premutation_min,
         repeat_loci.metadata ->> 'source' AS source,
+        repeat_loci.metadata ->> 'strchive_id' AS strchive_id,
         COALESCE(units.validated, false) AS validated,
         COALESCE(units.count_offset, 0) AS count_offset,
         units.reason,

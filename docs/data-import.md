@@ -269,14 +269,27 @@ imported on its own: it changes phenotype matching, so it is an administrator's 
 ### The STRchive release
 
 The repeat catalogue is built from one STRchive release: the one shipped as
-`data/ref-data/STRchive-loci.json` and validated with the built-in loci, which carry its
-thresholds. That is STRchive release **v2.18.0** (2026-04-28), `STRCHIVE_PINNED_RELEASE`. The
-file is byte-identical to the `STRchive-loci-v2.18.0.json` STRchive published with that release
-(found on 2026-10-20 by comparing the SHA-256 with the loci file of every published release).
-The file states no release of its own, so its SHA-256 identifies it: `a0295e1fe3e2…` (75 loci),
-held in full as `STRCHIVE_PINNED_LOCI_SHA256` in `backend/app/core/config.py`. No setting
-overrides the pin, and `.gitattributes` keeps git from changing the file's line endings in a
-checkout.
+`data/ref-data/STRchive-loci.json`. That is STRchive release **v2.28.0** (2026-10-08),
+`STRCHIVE_PINNED_RELEASE`. The file is byte-identical to the `STRchive-loci-v2.28.0.json`
+STRchive published with that release: its SHA-256 is the digest GitHub lists for that release
+asset. The file states no release of its own, so its SHA-256 identifies it: `16301ecb0023…`
+(82 loci), held in full as `STRCHIVE_PINNED_LOCI_SHA256` in `backend/app/core/config.py`. No
+setting overrides the pin, and `.gitattributes` keeps git from changing the file's line endings
+in a checkout.
+
+STRchive's thresholds are CoGA's repeat cut-offs, as the release states them (the owner's
+decision, 2026-11-16): each locus's benign, intermediate and pathogenic ranges are taken from
+the release without a validation of their own per locus, and the built-in loci carry the same
+thresholds. CoGA adds one range STRchive does not state, FMR1's premutation (from 55 repeats,
+ACMG). A locus's thresholds change only when the pin moves to another release.
+
+The pipeline's TRGT catalogue is the same release's `STRchive-disease-loci-v2.28.0.<assembly>.TRGT.bed`:
+its IDs are the TRIDs CoGA looks up, and its motifs the ones whose counts CoGA reads. A call
+whose TRID the release does not list reads *not assessed*. An allele's count is the copies TRGT
+counts of the locus's motif (STRchive's first pathogenic motif) in every rotation the call
+lists: STRchive's TRGT file lists FXN's repeat as both `GAA` and `AAG`, and TRGT can count one
+tract partly under each, so CoGA adds them up. A call that lists no rotation of the motif is
+read at the row's motif index.
 
 Every start reads the file `TRGT_STRCHIVE_LOCI_PATH` names (`/data/ref-data/STRchive-loci.json`;
 on Cloud Run the reference-data bucket), or the repository's copy when that file does not exist.
@@ -301,9 +314,9 @@ other name several STRchive loci share, such as a tag, is resolved the same way.
 Moving to another STRchive release is a reviewed change, made in one pull request:
 
 1. replace `data/ref-data/STRchive-loci.json` with the new release's file, byte for byte as
-   published;
-2. set `STRCHIVE_PINNED_LOCI_SHA256` to its digest (`shasum -a 256`), and give the shortened
-   digest here and in TF-08;
+   published, and check its SHA-256 against the digest the release lists for it;
+2. set `STRCHIVE_PINNED_LOCI_SHA256` to its digest (`shasum -a 256`) and
+   `STRCHIVE_PINNED_RELEASE` to the release, and give both here and in TF-08;
 3. give the built-in loci the new release's thresholds
    (`test_repeat_thresholds_follow_strchive.py` fails until they agree);
 4. update the expected loci of the repeat tests.

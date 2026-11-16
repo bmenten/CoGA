@@ -22,6 +22,7 @@ import InfoTip from '../../components/InfoTip';
 import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
 import TruncatedText from '../../components/TruncatedText';
 import { omimGeneHref, omimSearchHref } from '../../lib/omim';
+import { strchiveLocusHref } from '../../lib/strchive';
 import { geneInfoHref } from '../../lib/geneInfo';
 import InfoIcon from '../../components/InfoIcon';
 import FindingCard, { FindingLinks, type FindingRail } from './FindingCard';
@@ -45,9 +46,9 @@ const formatCountRange = (min: number, max: number): string => (min === max ? `$
 /**
  * How the catalog defines abnormal at this locus.
  *
- * Almost every locus is pathogenic by expansion, where a lower bound says it all. A
- * couple are pathogenic by *contraction* — VWA1 is normal at exactly 2 copies and
- * abnormal at 1 or 3 — and there "red ≥ 1" reads backwards, marking every healthy call.
+ * Almost every locus is pathogenic by expansion, where a lower bound says it all. MIR7-2
+ * is pathogenic by *contraction* — normal at exactly 4 copies and abnormal at 3 — and
+ * there "red ≥ 3" reads backwards, marking every healthy call.
  * Those are recognised the same way the classifier does it: a benign count sitting at or
  * above the pathogenic threshold means count and risk do not rise together.
  */
@@ -236,8 +237,8 @@ const writeRepeatReview = (
 });
 
 // One repeat locus as a variant card: the locus and its catalogue cutoffs at the left, each
-// member's alleles in the genotype grid, the review's actions and the genome and OMIM links in
-// the footer.
+// member's alleles in the genotype grid, the review's actions and the genome, OMIM and STRchive
+// links in the footer.
 const RepeatLocusCard: React.FC<{
   row: ApiRepeatExpansionRow;
   members: ApiFamilyMember[];
@@ -356,7 +357,19 @@ const RepeatLocusCard: React.FC<{
           label: `Chromosome view ${CHROMOSOME_VIEW_PADDING_LABEL} around ${getRepeatChromosomeViewWindow(row)}`,
         }}
         omim={locusGene(row) ? omimGeneHref(locusGene(row) as string) : null}
-      />
+      >
+        {row.strchive_id ? (
+          <a
+            href={strchiveLocusHref(row.strchive_id)}
+            target="_blank"
+            rel="noreferrer"
+            className="variant-card-resource variant-card-resource--clinical"
+            aria-label={`Open ${row.strchive_id} on STRchive`}
+          >
+            STRchive
+          </a>
+        ) : null}
+      </FindingLinks>
     }
   />
 );
@@ -556,7 +569,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
       <section className="surface-card space-y-4">
         <div className="page-header">
           <div className="paraphase-section-head">
-            <h2 className="section-title">TRGT repeat expansions</h2>
+            <h2 className="section-title">Repeat expansions</h2>
             <InfoIcon name="How to read the repeat calls" text={REPEAT_READING_GUIDE} />
           </div>
         </div>

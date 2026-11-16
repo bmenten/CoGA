@@ -1,6 +1,6 @@
 ```cards
 Structural variants | Filter and review CNVs and other SVs with their genotypes, rank them by phenotype, classify copy-number changes, and tag them for the report.
-Repeat expansions (TRGT) | Per-sample repeat calls, scored against the STRchive catalogue of disease loci.
+Repeat expansions | Per-sample repeat calls, scored against the STRchive catalogue of disease loci.
 Paraphase | Genes in paralogous or duplicated regions, where standard variant calling is unreliable.
 Mitochondrial DNA | mtDNA variants and large chrM deletions and duplications, each with its heteroplasmy per member, and each sample's mtDNA coverage.
 ```
@@ -78,8 +78,8 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*. Where the
   catalogue gives a locus a benign range but no threshold (STRchive's POLG: 10 repeats), a count
   inside the range reads *Normal* and any other count *Not assessed*; the cutoff reads
-  *normal 10 · no threshold*. The count is the one TRGT reports for the catalogued motif across
-  the whole locus, flanking copies included, so it can run higher than the count the range
+  *normal 10 · no threshold*. The count is the copies TRGT reports of the catalogued motif, in
+  every rotation the call lists (GAA and AAG at FXN), across the whole locus, flanking copies included, so it can run higher than the count the range
   describes. In the TRGT catalogue in use (TRID `CPEO_POLG`), POLG's common allele of 10 repeats
   counts 14 and stays *Not assessed*.
 - A gene with several repeat tracts, each a locus of its own in STRchive (ARX, HOXA13), has
@@ -87,6 +87,10 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   overlaps. If the region overlaps none of the tracts, or more than one, the call reads *Not
   assessed*, and its note names the tracts and says why.
 - *Unknown*: no call.
+
+The cutoffs are STRchive's thresholds for the locus, as STRchive states them. **STRchive**, beside
+IGV, Chromosome view and OMIM on a locus's card, opens the locus's page on STRchive: its disease,
+ranges, motifs and references.
 
 **Aberrant only**, ticked when the page opens, keeps every locus whose status is not *Normal* or
 *Unknown*, *Not assessed* included. The page header counts the calls not assessed. This page and the

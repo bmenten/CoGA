@@ -88,6 +88,7 @@ describe('FamilyRepeatExpansionsPage', () => {
                 motif: 'CAG',
                 warning_min: 36,
                 pathogenic_min: 40,
+                strchive_id: 'HD_HTT',
                 status: 'pathogenic',
                 calls: {
                   PROBAND: {
@@ -166,7 +167,9 @@ describe('FamilyRepeatExpansionsPage', () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /trgt repeat expansions/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Repeat expansions', level: 2 })).toBeInTheDocument();
+      // The heading names the analysis, not the tool that counted the repeats.
+      expect(screen.queryByRole('heading', { name: /trgt/i })).not.toBeInTheDocument();
     });
     await showEveryLocus();
 
@@ -200,17 +203,22 @@ describe('FamilyRepeatExpansionsPage', () => {
       'https://www.omim.org/search?index=entry&search=Huntington%20disease',
     );
     expect(omimLink).toHaveAttribute('target', '_blank');
-    // The links sit in the footer in the order every card has: IGV, Chromosome view, OMIM.
+    // The links sit in the footer in the order every card has: IGV, Chromosome view, OMIM,
+    // then the locus's page on STRchive, the catalogue its cutoffs come from.
     const nav = row.querySelector('.variant-card-footer .variant-card-nav') as HTMLElement;
     expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
       'IGV',
       'Chromosome view',
       'OMIM',
+      'STRchive',
     ]);
     expect(within(nav).getByRole('link', { name: 'OMIM' })).toHaveAttribute(
       'href',
       'https://www.omim.org/search?search=HTT',
     );
+    const strchiveLink = within(nav).getByRole('link', { name: 'Open HD_HTT on STRchive' });
+    expect(strchiveLink).toHaveAttribute('href', 'https://strchive.org/loci/HD_HTT');
+    expect(strchiveLink).toHaveAttribute('target', '_blank');
     // Both genome links leave this list behind, so both open a tab — matching the
     // small-variant and structural-variant cards.
     const chromosomeLink = within(nav).getByRole('link', {
@@ -275,10 +283,10 @@ describe('FamilyRepeatExpansionsPage — review status', () => {
             samples: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
             loci: [
               {
-                locus_id: 'vwa1',
-                gene: 'VWA1',
-                display_name: 'VWA1',
-                disease: 'Hereditary motor neuropathy',
+                locus_id: 'two_sided',
+                gene: 'GENE2',
+                display_name: 'GENE2',
+                disease: 'Synthetic disease',
                 chr: '1',
                 start: 1435798,
                 end: 1435818,
@@ -288,7 +296,8 @@ describe('FamilyRepeatExpansionsPage — review status', () => {
                 benign_min: 2,
                 benign_max: 2,
                 pathogenic_max: 3,
-                // VWA1 2/5: one normal allele and one outside every catalogued range.
+                // 2/5 at a synthetic locus pathogenic on both sides of its normal count: one
+                // normal allele and one outside every catalogued range.
                 status: 'review',
                 calls: {
                   PROBAND: {
@@ -320,7 +329,7 @@ describe('FamilyRepeatExpansionsPage — review status', () => {
     fireEvent.click(screen.getByLabelText('Aberrant only'));
     // The review allele ranks above "normal": the row stays in the view.
     expect(screen.getByText('1 of 1 loci')).toBeInTheDocument();
-    expect(screen.getByRole('article', { name: /VWA1/ })).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: /GENE2/ })).toBeInTheDocument();
   });
 
   it("shows both of a male's chrX alleles and the backend's review note", async () => {
@@ -952,11 +961,11 @@ describe('FamilyRepeatExpansionsPage — a count near a boundary while the count
 });
 
 describe('repeat cutoff labels', () => {
-  // A locus that is pathogenic by contraction cannot be stated as a lower bound: VWA1
-  // is normal at exactly 2, and "red ≥ 1" would mark every healthy call.
+  // A locus that is pathogenic by contraction cannot be stated as a lower bound: one
+  // normal at exactly 2 (synthetic), and "red ≥ 1" would mark every healthy call.
   const cases: Array<[string, Parameters<typeof formatCutoff>[0], string]> = [
     [
-      'VWA1 (normal exactly 2, abnormal 1 or 3)',
+      'two-sided (normal exactly 2, abnormal 1 or 3)',
       { warning_min: null, pathogenic_min: 1, benign_min: 2, benign_max: 2, pathogenic_max: 3 },
       'normal 2 · red 1-3',
     ],
@@ -1150,8 +1159,9 @@ describe('FamilyRepeatExpansionsPage — the narrow locus column', () => {
     await showEveryLocus();
     const row = await screen.findByRole('article', { name: new RegExp(id) });
     expect(row.querySelector('.gene-disease-heading-diseases')).toBeNull();
-    // Its "gene" is its ID too: no gene page and no OMIM link.
+    // Its "gene" is its ID too: no gene page and no OMIM link; and no STRchive locus describes it.
     expect(within(row).queryByRole('link', { name: /omim/i })).not.toBeInTheDocument();
     expect(within(row).queryByRole('link', { name: id })).not.toBeInTheDocument();
+    expect(within(row).queryByRole('link', { name: /strchive/i })).not.toBeInTheDocument();
   });
 });

@@ -2523,7 +2523,7 @@ export const describeCnvKnowledgebase = (knowledgebase: SignedCnvKnowledgebase |
       })`
     : 'none loaded';
 
-/** A catalogue as the record names it: "75 loci (STRchive, CoGA built-in), digest 1a2b3c4d…". */
+/** A catalogue as the record names it: "82 loci (STRchive, CoGA built-in), digest 1a2b3c4d…". */
 export const describeCatalogue = (catalogue: SignedCatalogue | null, noun: string): string =>
   catalogue
     ? `${catalogue.entries ?? '?'} ${noun}${catalogue.sources.length ? ` (${catalogue.sources.join(', ')})` : ''}${

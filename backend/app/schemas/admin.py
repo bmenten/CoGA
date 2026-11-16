@@ -143,6 +143,9 @@ class RepeatLocusCountUnitsOut(BaseModel):
     premutation_min: Optional[int] = None
     # "STRchive", or "built-in" for a row of repeat_expansion_catalog.py.
     source: str
+    # The STRchive locus whose page on strchive.org describes the row: a STRchive row's own ID,
+    # a built-in row's gene's one STRchive locus; None where there is none.
+    strchive_id: Optional[str] = None
     # False until QA records otherwise; with the reason, who and when of the last record.
     validated: bool = False
     # QA's correction: repeat units added to TRGT's count before it is classified (-1 turns

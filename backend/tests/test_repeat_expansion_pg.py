@@ -133,6 +133,75 @@ async def test_ingest_trgt_text_stores_triplet_interruption_details() -> None:
 
 
 @pytest.mark.parametrize(
+    ("catalog_motif", "motifs", "indices"),
+    [
+        # FRDA_FXN as STRchive's TRGT catalogue lists it: GAA and AAG are one repeat.
+        ("AAG", ["A", "GAA", "AAG"], [1, 2]),
+        ("AAG", ["A", "GAA"], [1]),
+        # SCA37_DAB1: the pathogenic motif in both rotations, not the benign AAAAT.
+        ("TGAAA", ["AAAAT", "GAAAT", "TGAAA"], [1, 2]),
+        ("CCCCGG", ["CCCCGG", "GGCCCC"], [0, 1]),
+        ("NGC", ["GCN"], [0]),
+        ("CAG", ["CAG", "CCG"], [0]),  # HTT's CCG is another repeat, not a rotation of CAG
+        ("CAG", ["CTG", "CAA"], []),  # no motif of the call is the catalogue's
+        (None, ["GAA"], []),
+    ],
+)
+def test_the_counts_read_are_the_catalogue_motifs_in_every_rotation(catalog_motif, motifs, indices) -> None:
+    assert repeat_expansion_pg.catalogue_motif_indices(catalog_motif, motifs) == indices
+
+
+@pytest.mark.asyncio
+async def test_ingest_trgt_text_reads_the_count_of_the_catalogue_motif_in_another_rotation() -> None:
+    """STRchive writes FXN's motif AAG and its TRGT catalogue lists A, GAA and AAG: an allele's
+    count is its GAA and AAG copies together, never the A run's."""
+    session = _RecordingSession(
+        repeat_loci_rows=[
+            {
+                "locus_id": "FRDA_FXN",
+                "gene": "FXN",
+                "display_name": "FXN",
+                "disease": "Friedreich ataxia",
+                "inheritance": "AR",
+                "motif": "AAG",
+                "motif_index": 0,
+                "warning_min": 34,
+                "pathogenic_min": 56,
+                "aliases": ["FRDA"],
+                "notes": None,
+                "metadata": {},
+            }
+        ]
+    )
+    sample_context = SampleMetadataContext(
+        sample_uuid="sample-uuid",
+        sample_id="sample",
+        family_uuid="family-uuid",
+        family_id="demo_family",
+        sex="female",
+        project_ids=["project-uuid"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+
+    await repeat_expansion_pg.ingest_trgt_text(
+        session,
+        sample_context=sample_context,
+        text_value=(
+            "##fileformat=VCFv4.2\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n"
+            "chr9\t69037271\t.\tA\t<STR>\t.\tPASS\tEND=69037304;TRID=FRDA_FXN;MOTIFS=A,GAA,AAG\tGT:MC\t1/2:6_9_0,5_650_50\n"
+        ),
+        metadata={"filename": "sample.trgt.vcf", "source": "trgt"},
+    )
+
+    [params] = [params for sql, params in session.calls if "INSERT INTO repeat_expansions" in sql]
+    alleles = json.loads(params[0]["alleles_json"])
+    assert [allele["repeat_count"] for allele in alleles] == [9, 700]
+    assert [allele["status"] for allele in alleles] == ["normal", "pathogenic"]
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         # STRchive's list, an object keyed by locus, and either with entries no row can name.
@@ -213,6 +282,7 @@ def test_a_strchive_entry_is_normalized_into_a_catalogue_row() -> None:
             "notes": None,
             "metadata": {
                 "source": "STRchive",
+                "strchive_id": "HD_HTT",
                 "reference_motifs": ["CAG"],
                 "pathogenic_motifs": ["CAG"],
                 "interruption_motifs": ["CAA"],
