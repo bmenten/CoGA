@@ -14,7 +14,13 @@ import reviewClassCases from './fixtures/review-class-cases.json';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
-type DiseaseLinks = { monarch?: unknown[]; omim?: unknown[] };
+type DiseaseLinks = {
+  monarch?: unknown[];
+  omim?: unknown[];
+  inheritance?: unknown[];
+  dosage?: unknown;
+  acmg_secondary_finding?: unknown;
+};
 type ApiConfig = { params?: { symbol?: string[] } };
 
 // GET /genes/disease-links answers one entry per gene asked, with empty lists for a gene
@@ -25,6 +31,9 @@ const diseaseLinksAnswer = (config: ApiConfig | undefined, links: Record<string,
       symbol,
       monarch: links[symbol]?.monarch ?? [],
       omim: links[symbol]?.omim ?? [],
+      inheritance: links[symbol]?.inheritance ?? [],
+      dosage: links[symbol]?.dosage ?? null,
+      acmg_secondary_finding: links[symbol]?.acmg_secondary_finding ?? { status: 'not_listed' },
     })),
   });
 
@@ -353,12 +362,18 @@ describe('SmallVariantCards', () => {
     });
     const { container } = renderGeneCards(['BRCA2']);
 
-    const line = await within(container).findByText(/Fanconi anemia complementation group D1/);
+    const first = await within(container).findByRole('link', { name: 'Fanconi anemia complementation group D1' });
     // Causal links first, the better-supported ones first; the line names three and counts
     // the rest of the same kind.
-    expect(line).toHaveTextContent(
+    expect(first.closest('.variant-card-diseases-names')).toHaveTextContent(
       'Fanconi anemia complementation group D1 · breast-ovarian cancer, familial, susceptibility to, 2 · BRCA2-related cancer predisposition',
     );
+    // Each name opens the disease in Monarch.
+    expect(first).toHaveAttribute('href', 'https://monarchinitiative.org/MONDO:0011366');
+    expect(first).toHaveAttribute('target', '_blank');
+    expect(
+      within(diseaseLine(container)).getByRole('link', { name: 'BRCA2-related cancer predisposition' }),
+    ).toHaveAttribute('href', 'https://monarchinitiative.org/MONDO:0700269');
     expect(diseaseLine(container)).toHaveTextContent('Monarch, causal');
     expect(within(diseaseLine(container)).getByRole('button', { name: '+1 more' })).toBeInTheDocument();
     // The full list stays in the detail, which is still closed.
@@ -391,7 +406,11 @@ describe('SmallVariantCards', () => {
     });
     const { container } = renderGeneCards(['GENE1', 'GENE2', 'GENE3']);
 
-    await within(container).findByText('Some syndrome');
+    // An OMIM disease, which has no MONDO id, opens in OMIM.
+    expect(await within(container).findByRole('link', { name: 'Some syndrome' })).toHaveAttribute(
+      'href',
+      'https://www.omim.org/entry/100100',
+    );
     expect(diseaseLine(container, 0)).toHaveTextContent('Some syndrome');
     expect(diseaseLine(container, 0)).toHaveTextContent('OMIM');
     expect(diseaseLine(container, 0)).not.toHaveTextContent('associated condition');
@@ -428,16 +447,115 @@ describe('SmallVariantCards', () => {
 
     await userEvent.click(screen.getByText('More annotations & detail'));
 
-    expect(await screen.findByText(/Gene–disease associations/)).toBeInTheDocument();
+    const detail = (await screen.findByText(/Gene–disease associations/)).closest(
+      '.variant-card-section',
+    ) as HTMLElement;
     expect(
-      await screen.findByRole('link', { name: 'BRCA2-related cancer predisposition' }),
+      await within(detail).findByRole('link', { name: 'BRCA2-related cancer predisposition' }),
     ).toHaveAttribute('href', 'https://monarchinitiative.org/MONDO:0700269');
     // Causal is stated, because it changes how the association reads.
-    expect(screen.getByText('causal')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Breast cancer' })).toHaveAttribute(
+    expect(within(detail).getByText('causal')).toBeInTheDocument();
+    expect(within(detail).getByRole('link', { name: 'Breast cancer' })).toHaveAttribute(
       'href',
       'https://www.omim.org/entry/114480',
     );
+  });
+
+  const curationLine = (container: HTMLElement, index = 0) =>
+    container.querySelectorAll<HTMLElement>('.variant-card-gene-curation')[index];
+
+  it('names the gene’s curated modes of inheritance and its ClinGen dosage under its diseases', async () => {
+    mockDiseaseLinks({
+      GENE1: {
+        monarch: [monarchLink('Some disease', true)],
+        inheritance: [
+          { mode: 'AD', label: 'Autosomal dominant', evidence: ['GenCC Strong'] },
+          { mode: 'AR', label: 'Autosomal recessive', evidence: ['ClinGen Definitive', 'GenCC Definitive'] },
+        ],
+        dosage: {
+          haploinsufficiency_score: 3,
+          haploinsufficiency: 'Sufficient Evidence for Haploinsufficiency',
+          triplosensitivity_score: 0,
+          triplosensitivity: 'No Evidence for Triplosensitivity',
+          report_url: 'https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1',
+        },
+      },
+      // A disease, but no curated mode: said, as a missing mode is worth knowing.
+      GENE2: { monarch: [monarchLink('Other disease', true)] },
+      // Neither a disease nor a mode: no line. A dosage curation alone is still shown.
+      GENE3: {},
+      GENE4: {
+        dosage: {
+          haploinsufficiency_score: 30,
+          haploinsufficiency: 'Gene Associated with Autosomal Recessive Phenotype',
+          triplosensitivity_score: null,
+          triplosensitivity: null,
+          report_url: null,
+        },
+      },
+    });
+    const { container } = renderGeneCards(['GENE1', 'GENE2', 'GENE3', 'GENE4']);
+
+    const dominant = await within(container).findByText('Autosomal dominant');
+    const line = curationLine(container, 0);
+    expect(line).toContainElement(dominant);
+    // Dominant and recessive each in a colour of its own, with what states the mode on hover.
+    expect(dominant).toHaveClass('variant-card-moi--dominant');
+    const recessive = within(line).getByText('Autosomal recessive');
+    expect(recessive).toHaveClass('variant-card-moi--recessive');
+    expect(recessive).toHaveAttribute('title', 'Autosomal recessive: ClinGen Definitive, GenCC Definitive');
+    // ClinGen's dosage scores in a word, the report one click away.
+    expect(within(line).getByText('HI 3 · sufficient')).toHaveAttribute(
+      'title',
+      'Haploinsufficiency: Sufficient Evidence for Haploinsufficiency',
+    );
+    expect(within(line).getByText('TS 0 · no evidence')).toBeInTheDocument();
+    expect(within(line).getByRole('link', { name: 'ClinGen dosage' })).toHaveAttribute(
+      'href',
+      'https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1',
+    );
+
+    expect(curationLine(container, 1)).toHaveTextContent('InheritanceNone curated in GenCC or ClinGen');
+    expect(curationLine(container, 1)).not.toHaveTextContent('ClinGen dosage');
+    // GENE3 has no line; GENE4's is its dosage alone, without a link or a TS chip.
+    expect(container.querySelectorAll('.variant-card-gene-curation')).toHaveLength(3);
+    const dosageOnly = curationLine(container, 2);
+    expect(dosageOnly).not.toHaveTextContent('Inheritance');
+    expect(within(dosageOnly).getByText('HI 30 · AR phenotype')).toBeInTheDocument();
+    expect(within(dosageOnly).queryByRole('link')).not.toBeInTheDocument();
+    expect(within(dosageOnly).queryByText(/^TS/)).not.toBeInTheDocument();
+  });
+
+  it('names the gene’s place on the ACMG SF list, and a list it could not read', async () => {
+    mockDiseaseLinks({
+      GENE1: {
+        acmg_secondary_finding: {
+          status: 'listed',
+          version: '3.3',
+          phenotype: 'Some cardiomyopathy',
+          category: 'Cardiovascular',
+          inheritance: 'AD',
+          variants_to_report: 'All P and LP',
+          source_url: 'https://example.test/acmg-sf',
+        },
+      },
+      GENE2: { acmg_secondary_finding: { status: 'unread' } },
+      GENE3: { acmg_secondary_finding: { status: 'not_listed' } },
+      GENE4: { acmg_secondary_finding: { status: 'not_consulted' } },
+    });
+    const { container } = renderGeneCards(['GENE1', 'GENE2', 'GENE3', 'GENE4']);
+
+    // On the list: a chip of its own, the list's entry on hover, the list one click away.
+    const chip = await within(container).findByRole('link', { name: 'ACMG SF v3.3' });
+    expect(chip).toHaveAttribute('href', 'https://example.test/acmg-sf');
+    expect(chip).toHaveAttribute(
+      'title',
+      'On ACMG SF v3.3: Some cardiomyopathy · Cardiovascular · AD · All P and LP',
+    );
+    expect(curationLine(container, 0)).toContainElement(chip);
+    // A list that could not be read says so; a gene off the list, or never checked, shows nothing.
+    expect(curationLine(container, 1)).toHaveTextContent('The ACMG SF list could not be read');
+    expect(container.querySelectorAll('.variant-card-gene-curation')).toHaveLength(2);
   });
 
   it('keeps the card the primary view and the disclosure strictly extra', async () => {
@@ -493,13 +611,17 @@ describe('SmallVariantCards', () => {
     expect(within(silico).getByText('pLI')).toBeInTheDocument();
     // VEP joins the call to its score; the card spaces them and drops the underscores.
     expect(within(silico).getByText('probably damaging (0.998)')).toBeInTheDocument();
+    // HGVS on the transcript the card names, without the transcript's or protein's accession.
+    expect(screen.getByText('c.7007G>A')).toBeInTheDocument();
+    expect(screen.getByText('p.Arg2336His')).toBeInTheDocument();
+    expect(screen.queryByText(/ENSP00000369497/)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByText('More annotations & detail'));
 
     // Everything the card already states appears exactly once — the disclosure is extra
     // detail, not a second copy of the card.
     for (const label of [
-      'Genomic change',
+      'HGVS.g',
       'HGVS.c',
       'HGVS.p',
       'Alleles',
@@ -586,8 +708,9 @@ describe('SmallVariantCards', () => {
     expect(note).toHaveTextContent(
       'Filters met on ENST_SYN45F_2: SIFT deleterious (0.02) · PolyPhen probably damaging (0.95)',
     );
-    // It sits under the card's own transcript, in the Variant column.
-    const variantColumn = screen.getByText('Variant').closest('section') as HTMLElement;
+    // It sits under the card's own transcript, in the variant's column, which has no heading.
+    const variantColumn = screen.getByRole('region', { name: 'Variant' });
+    expect(within(variantColumn).queryByText('Variant')).not.toBeInTheDocument();
     expect(variantColumn).toContainElement(note);
     // The card's predictions stay the primary transcript's.
     const silico = screen.getByText('In silico').closest('section') as HTMLElement;
@@ -609,6 +732,97 @@ describe('SmallVariantCards', () => {
     renderOne({ ...keptOnItsSecondTranscript, filter_transcript: null });
 
     expect(screen.queryByText(/Filters met on/)).not.toBeInTheDocument();
+  });
+
+  it('shows VEP’s HGVSg as HGVS.g where the annotation has it', () => {
+    renderOne(
+      smallVariant({
+        _id: 'hgvsg',
+        chr: '13',
+        start: 32316461,
+        end: 32316462,
+        type: 'INDEL',
+        gene: 'BRCA2',
+        ref: 'GA',
+        alt: 'G',
+        hgvsg: 'NC_000013.11:g.32316463del',
+        genotypes: [],
+      }),
+    );
+    // VEP's, 3′-shifted on its RefSeq accession, rather than the change derived from the record.
+    expect(screen.getByText('NC_000013.11:g.32316463del')).toBeInTheDocument();
+    expect(screen.queryByText('chr13:g.32316462del')).not.toBeInTheDocument();
+    expect(screen.getByText('HGVS.g')).toHaveAttribute('title', expect.stringMatching(/as VEP wrote it/));
+  });
+
+  it('marks each prediction in seqr’s colours, and leaves the gene’s constraint unmarked', () => {
+    renderOne(
+      smallVariant({
+        _id: 'marks',
+        chr: '1',
+        start: 100,
+        end: 100,
+        type: 'SNV',
+        gene: 'GENE1',
+        ref: 'G',
+        alt: 'A',
+        cadd_phred: 29.4,
+        revel: 0.95,
+        alpha_missense_pathogenicity: 0.5,
+        spliceai_max: 0.05,
+        sift: 'deleterious(0)',
+        polyphen: 'benign(0.01)',
+        gene_pli: 0.99,
+        genotypes: [],
+      }),
+    );
+    const silico = screen.getByText('In silico').closest('section') as HTMLElement;
+    const markOf = (label: string) =>
+      within(silico).getByText(label).nextElementSibling?.querySelector('.variant-card-predictor-mark');
+
+    expect(markOf('CADD')).toHaveClass('variant-card-predictor-mark--pathogenic');
+    expect(markOf('REVEL')).toHaveClass('variant-card-predictor-mark--pathogenic-strong');
+    expect(markOf('AlphaMissense')).toHaveClass('variant-card-predictor-mark--indeterminate');
+    expect(markOf('SpliceAI')).toHaveClass('variant-card-predictor-mark--benign');
+    expect(markOf('SIFT')).toHaveClass('variant-card-predictor-mark--pathogenic-supporting');
+    expect(markOf('PolyPhen')).toHaveClass('variant-card-predictor-mark--benign');
+    expect(markOf('pLI')).toBeNull();
+    // The reading is named for a screen reader, and on hover with the thresholds it rests on.
+    expect(within(silico).getByRole('img', { name: 'pathogenic, strong' })).toHaveAttribute(
+      'title',
+      "REVEL 0.95: pathogenic, strong (seqr's thresholds, from ClinGen's PP3/BP4 calibration)",
+    );
+    expect(markOf('SpliceAI')).toHaveAttribute(
+      'title',
+      'SpliceAI 0.05: benign (the SpliceAI cut-offs of the ACMG evaluation)',
+    );
+  });
+
+  it('lists the other annotations across the disclosure’s width, a list of values on one line', async () => {
+    const { container } = renderOne(
+      smallVariant({
+        _id: 'extra',
+        chr: '1',
+        start: 100,
+        end: 100,
+        type: 'SNV',
+        gene: 'GENE1',
+        ref: 'G',
+        alt: 'A',
+        clinvar_conditions: ['Condition one', 'Condition two'],
+        annotation_extra: { clinvar_allele_id: 12345, gnomad_ac: 3, clndn: ['not provided', 'not specified'] },
+        genotypes: [],
+      }),
+    );
+    await userEvent.click(screen.getByText('More annotations & detail'));
+
+    const section = screen.getByText('Other scores & annotations').closest('.variant-card-section') as HTMLElement;
+    expect(section).toHaveClass('variant-card-section--wide');
+    // Under the narrower sections, as the last of the disclosure.
+    expect(container.querySelector('.variant-card-more-grid')?.lastElementChild).toBe(section);
+    expect(within(section).getByText('Condition one; Condition two')).toBeInTheDocument();
+    expect(within(section).getByText('not provided; not specified')).toBeInTheDocument();
+    expect(within(section).getByText('12345')).toBeInTheDocument();
   });
 
   it('heads the card with the genomic change and its cytoband instead of a locus', async () => {
@@ -648,9 +862,13 @@ describe('SmallVariantCards', () => {
 
     expect(screen.getByText('chr13:g.32316461G>A')).toBeInTheDocument();
     expect(screen.getByText('(13q13.1)')).toBeInTheDocument();
-    // Labelled as a genomic change, not as HGVS, which it is not normalised to.
-    expect(screen.getByText('Genomic change')).toHaveAttribute('title', expect.stringMatching(/Not HGVS-normalised/));
-    expect(screen.queryByText('HGVS.g')).not.toBeInTheDocument();
+    // Labelled HGVS.g beside HGVS.c and HGVS.p; its note says it is not HGVS-normalised.
+    expect(screen.getByText('HGVS.g')).toHaveAttribute('title', expect.stringMatching(/Not HGVS-normalised/));
+    expect(screen.queryByText('Genomic change')).not.toBeInTheDocument();
+    // HGVS.c without the transcript accession, which the transcript above names; and only
+    // there, not beside the gene in the headline.
+    expect(screen.getByText('c.7007G>A')).toBeInTheDocument();
+    expect(screen.queryByText(/ENST00000380152\.8:c\./)).not.toBeInTheDocument();
     // The headline does not repeat the position as a locus range.
     expect(screen.queryByText(/32,316,461/)).not.toBeInTheDocument();
 
@@ -1144,8 +1362,9 @@ describe('SmallVariantCards', () => {
 
     recover();
     await userEvent.click(within(diseaseLine(container)).getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByRole('link', { name: 'BRCA2-related cancer predisposition' })).toBeInTheDocument();
-    expect(diseaseLine(container)).toHaveTextContent('BRCA2-related cancer predisposition');
+    expect(
+      await within(diseaseLine(container)).findByRole('link', { name: 'BRCA2-related cancer predisposition' }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
   });
 

@@ -8,6 +8,7 @@ import {
   buildSvSecondHitHref,
   describeFilterTranscript,
   formatGenomicChange,
+  hgvsWithoutAccession,
   formatLocus,
   formatPredictionScore,
   formatReviewTagLabel,
@@ -33,6 +34,21 @@ import reviewClassCases from './fixtures/review-class-cases.json';
 
 const variant = (chr: string, start: number, ref: string, alt: string) =>
   ({ chr, start, ref, alt }) as Parameters<typeof formatGenomicChange>[0];
+
+describe('hgvsWithoutAccession', () => {
+  it('drops the accession VEP writes HGVSc and HGVSp on', () => {
+    expect(hgvsWithoutAccession('ENST00000380152.8:c.7007G>A')).toBe('c.7007G>A');
+    expect(hgvsWithoutAccession('ENSP00000369497.3:p.Arg2336His')).toBe('p.Arg2336His');
+    expect(hgvsWithoutAccession('NM_000059.4:c.-26G>A')).toBe('c.-26G>A');
+    expect(hgvsWithoutAccession('ENST00000456328.2:n.100A>G')).toBe('n.100A>G');
+  });
+
+  it('keeps a value without an accession as it is, and gives none for an empty one', () => {
+    expect(hgvsWithoutAccession('c.7007G>A')).toBe('c.7007G>A');
+    expect(hgvsWithoutAccession('something:else')).toBe('something:else');
+    expect([hgvsWithoutAccession(''), hgvsWithoutAccession('  '), hgvsWithoutAccession(null)]).toEqual([null, null, null]);
+  });
+});
 
 describe('formatGenomicChange', () => {
   it('writes a substitution at the variant position', () => {

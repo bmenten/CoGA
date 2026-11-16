@@ -75,10 +75,10 @@ const REVEL_BP4_STRONG = 0.016;
 const REVEL_BP4_MODERATE = 0.183;
 const REVEL_BP4_SUPPORTING = 0.29;
 
-// SpliceAI max delta score cut-offs.
-const SPLICEAI_PP3_MODERATE = 0.5;
-const SPLICEAI_PP3_SUPPORTING = 0.2;
-const SPLICEAI_NO_IMPACT = 0.1; // below this, no predicted splice effect
+// SpliceAI max delta score cut-offs. The variant cards colour SpliceAI by the same ones.
+export const SPLICEAI_PP3_MODERATE = 0.5;
+export const SPLICEAI_PP3_SUPPORTING = 0.2;
+export const SPLICEAI_NO_IMPACT = 0.1; // below this, no predicted splice effect
 
 // gnomAD missense-Z constraint for PP2: a Z of 3.09 or more stands in for a gene with few benign
 // missense variants, the threshold ClinGen's Sequence Variant Interpretation working group

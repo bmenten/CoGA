@@ -586,3 +586,13 @@ def test_the_new_annotation_fields_are_served_as_fields_of_their_own() -> None:
     assert (variant.clinvar_variation_id, variant.nmd, variant.spliceai_dp_dg) == ("12345", "NMD_escaping_variant", -14)
     for key in ("clinvar_review_status", "clinvar_conditions", "clinvar_variation_id", "nmd", "spliceai_dp_dg"):
         assert key not in variant.annotation_extra
+
+
+def test_vep_hgvsg_is_served_from_the_primary_transcripts_annotation() -> None:
+    # The genomic HGVS VEP wrote for the primary transcript's allele: a field of its own, not an
+    # extra annotation; None where the annotation has none.
+    annotated = _transcript("ENST_SYN51_1", canonical=True, hgvsg="NC_000001.11:g.100C>T")
+    variant = _small_variant_out(_record("1-100-C-T", [annotated]), assembly_name="GRCh38", filter_annotation_hashes=None)
+    assert variant.hgvsg == "NC_000001.11:g.100C>T"
+    assert "hgvsg" not in variant.annotation_extra
+    assert _small_variant_out(_record("1-100-C-T", [PRIMARY]), assembly_name="GRCh38", filter_annotation_hashes=None).hgvsg is None

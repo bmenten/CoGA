@@ -144,16 +144,73 @@ class GeneDiseaseOmimOut(BaseModel):
     href: Optional[str] = None
 
 
+InheritanceMode = Literal["AD", "AR", "SD", "XLD", "XLR", "XL", "MT", "YL"]
+
+
+class GeneInheritanceOut(BaseModel):
+    """A mode of inheritance the gene's curated disease relationships name, as a variant card
+    shows it.
+
+    ``mode`` is AD, AR, SD (semidominant), XLD, XLR, XL (X-linked, dominant or recessive not
+    stated), MT (mitochondrial) or YL. ``evidence`` names each curation that states it, as
+    "<source> <classification>" ("GenCC Definitive", "ClinGen Strong"), strongest first. Only a
+    relationship classified Definitive, Strong, Moderate or Supportive counts.
+    """
+
+    mode: InheritanceMode
+    label: str
+    evidence: List[str]
+
+
+class GeneDosageSensitivityOut(BaseModel):
+    """ClinGen's dosage sensitivity curation of the gene, as a variant card shows it.
+
+    A score is ClinGen's: 3 sufficient evidence, 2 emerging evidence, 1 little evidence, 0 no
+    evidence, 30 gene associated with an autosomal recessive phenotype, 40 dosage sensitivity
+    unlikely; None where the curation states none. The texts are the curation's own words.
+    ``report_url`` is ClinGen's page for the curation, where the curation names one.
+    """
+
+    haploinsufficiency_score: Optional[int] = None
+    haploinsufficiency: Optional[str] = None
+    triplosensitivity_score: Optional[int] = None
+    triplosensitivity: Optional[str] = None
+    report_url: Optional[str] = None
+
+
+class GeneAcmgSecondaryFindingOut(BaseModel):
+    """The gene's place on the ACMG secondary-findings (SF) list, as a variant card shows it.
+
+    ``status`` is how the gene reference read the list for the gene: ``listed``; ``not_listed``
+    (the list was read and leaves the gene out); ``unread`` (the list could not be read);
+    ``not_consulted`` (no gene reference sync read it for the gene). The other fields are the
+    list's entry for a listed gene, None otherwise.
+    """
+
+    status: Literal["listed", "not_listed", "unread", "not_consulted"]
+    version: Optional[str] = None
+    phenotype: Optional[str] = None
+    category: Optional[str] = None
+    inheritance: Optional[str] = None
+    variants_to_report: Optional[str] = None
+    source_url: Optional[str] = None
+
+
 class GeneDiseaseLinksOut(BaseModel):
     """The diseases one gene is linked to, for the variant cards of a result page.
 
     ``symbol`` is the symbol as asked. Monarch's links come causal first, then by name, as on
-    the gene profile; OMIM's in the order the gene reference holds them.
+    the gene profile; OMIM's in the order the gene reference holds them. ``inheritance``,
+    ``dosage`` and ``acmg_secondary_finding`` come from the same gene reference as OMIM's
+    diseases.
     """
 
     symbol: str
-    monarch: List[GeneDiseaseMonarchOut] = Field(default_factory=list)
-    omim: List[GeneDiseaseOmimOut] = Field(default_factory=list)
+    monarch: List[GeneDiseaseMonarchOut]
+    omim: List[GeneDiseaseOmimOut]
+    inheritance: List[GeneInheritanceOut]
+    dosage: Optional[GeneDosageSensitivityOut]
+    acmg_secondary_finding: GeneAcmgSecondaryFindingOut
 
 
 class GeneProfileOut(BaseModel):

@@ -17,25 +17,38 @@ export const SUMMARY_DISEASE_COUNT = 3;
  */
 export type GeneDiseaseSummaryBasis = 'causal' | 'omim' | 'associated';
 
+// A disease the top line names, with the page it links to: Monarch's for a Monarch link, OMIM's
+// for an OMIM disease (null when the gene reference gives no OMIM number).
+export interface GeneDiseaseSummaryEntry {
+  label: string;
+  href: string | null;
+}
+
 export interface GeneDiseaseSummary {
   // null when the gene has no link at all.
   basis: GeneDiseaseSummaryBasis | null;
-  names: string[];
+  diseases: GeneDiseaseSummaryEntry[];
   // The links of the same basis the line leaves out.
   more: number;
 }
 
 export const geneDiseaseKey = (symbol?: string | null) => (symbol ?? '').trim().toUpperCase();
 
-const uniqueNames = (labels: string[]) => {
+// The first entry of each name, whatever its case.
+const uniqueByLabel = (entries: GeneDiseaseSummaryEntry[]) => {
   const seen = new Set<string>();
-  return labels.filter((label) => {
-    const key = label.trim().toLowerCase();
+  return entries.filter((entry) => {
+    const key = entry.label.trim().toLowerCase();
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 };
+
+const monarchEntry = (entry: GeneDiseaseMonarchOut): GeneDiseaseSummaryEntry => ({
+  label: entry.disease_label,
+  href: entry.monarch_url,
+});
 
 // Monarch's causal links, the ones more sources back first (ClinGen, OMIM and Orphanet agreeing
 // on Marfan syndrome before a single-source entry), in the server's order otherwise.
@@ -43,21 +56,21 @@ const rankCausal = (entries: GeneDiseaseMonarchOut[]) =>
   entries
     .map((entry, index) => ({ entry, index }))
     .sort((left, right) => right.entry.sources.length - left.entry.sources.length || left.index - right.index)
-    .map(({ entry }) => entry.disease_label);
+    .map(({ entry }) => monarchEntry(entry));
 
 export const summarizeGeneDiseases = (links: GeneDiseaseLinks): GeneDiseaseSummary => {
-  const causal = uniqueNames(rankCausal(links.monarch.filter((entry) => entry.causal)));
-  const omim = uniqueNames(links.omim.map((entry) => entry.label));
-  const associated = uniqueNames(links.monarch.filter((entry) => !entry.causal).map((entry) => entry.disease_label));
-  const [basis, labels]: [GeneDiseaseSummaryBasis | null, string[]] = causal.length
+  const causal = uniqueByLabel(rankCausal(links.monarch.filter((entry) => entry.causal)));
+  const omim = uniqueByLabel(links.omim.map((entry) => ({ label: entry.label, href: entry.href })));
+  const associated = uniqueByLabel(links.monarch.filter((entry) => !entry.causal).map(monarchEntry));
+  const [basis, entries]: [GeneDiseaseSummaryBasis | null, GeneDiseaseSummaryEntry[]] = causal.length
     ? ['causal', causal]
     : omim.length
       ? ['omim', omim]
       : associated.length
         ? ['associated', associated]
         : [null, []];
-  const names = labels.slice(0, SUMMARY_DISEASE_COUNT);
-  return { basis, names, more: labels.length - names.length };
+  const diseases = entries.slice(0, SUMMARY_DISEASE_COUNT);
+  return { basis, diseases, more: entries.length - diseases.length };
 };
 
 /**

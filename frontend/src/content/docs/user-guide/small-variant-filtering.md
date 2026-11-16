@@ -104,8 +104,26 @@ candidates are shown as pairs. Up to 100 matches show as cards, more as a table.
 
 Under its heading, a card names up to three diseases its gene is linked to: Monarch's causal links,
 those more sources back first; else the gene's OMIM diseases; else Monarch's associations, marked *not
-causal*. **+N more** opens **More annotations & detail**, which lists every Monarch and OMIM link.
-*No gene–disease link cached* means CoGA's copy of Monarch and OMIM holds none for the gene.
+causal*. Each name opens the disease in Monarch, or in OMIM for an OMIM disease. **+N more** opens
+**More annotations & detail**, which lists every Monarch and OMIM link. *No gene–disease link cached*
+means CoGA's copy of Monarch and OMIM holds none for the gene.
+
+The line below names the gene's **Inheritance**: each mode a GenCC or ClinGen curation classified
+Definitive, Strong, Moderate or Supportive gives it, dominant and recessive each in a colour of its
+own. Hover a mode for the curations behind it. *None curated in GenCC or ClinGen* means the gene has a
+disease but no such curation. Where ClinGen has curated the gene's dosage, **ClinGen dosage** shows its
+haploinsufficiency (HI) and triplosensitivity (TS) scores and opens the curation. A gene on the ACMG
+secondary-findings list has a chip such as *ACMG SF v3.3*; hover it for the list's phenotype, category,
+inheritance and variants to report. *The ACMG SF list could not be read* means no chip does not tell
+you the gene is off the list; the gene page says which.
+
+The variant column gives HGVS.g, HGVS.c and HGVS.p. HGVS.c and HGVS.p are on the transcript named above
+them, without its accession. HGVS.g is VEP's (its HGVSg) where the annotation has it. Otherwise it is
+written from the VCF record and is not HGVS-normalised; hover the label to see which. Under **In silico**, a dot before each prediction shows how it reads, in
+seqr's colours: green and olive benign, grey indeterminate, yellow, red and dark red pathogenic
+(supporting, moderate, strong). The thresholds are seqr's, from ClinGen's calibration of the predictors;
+SpliceAI uses the cut-offs of CoGA's ACMG evaluation. pLI and Missense Z describe the gene and have no
+dot.
 
 *Expanded carrier screening* is for couples only. It keeps:
 

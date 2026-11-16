@@ -1290,6 +1290,24 @@ export interface FindingReviewSummaryOut {
   paraphase: FindingReviewCountsOut;
 }
 
+/**
+ * The gene's place on the ACMG secondary-findings (SF) list, as a variant card shows it.
+ *
+ * ``status`` is how the gene reference read the list for the gene: ``listed``; ``not_listed``
+ * (the list was read and leaves the gene out); ``unread`` (the list could not be read);
+ * ``not_consulted`` (no gene reference sync read it for the gene). The other fields are the
+ * list's entry for a listed gene, None otherwise.
+ */
+export interface GeneAcmgSecondaryFindingOut {
+  status: "listed" | "not_listed" | "unread" | "not_consulted";
+  version: string | null;
+  phenotype: string | null;
+  category: string | null;
+  inheritance: string | null;
+  variants_to_report: string | null;
+  source_url: string | null;
+}
+
 export interface GeneAssemblyLocationOut {
   assembly_id: string;
   assembly_name: string;
@@ -1306,12 +1324,17 @@ export interface GeneAssemblyLocationOut {
  * The diseases one gene is linked to, for the variant cards of a result page.
  *
  * ``symbol`` is the symbol as asked. Monarch's links come causal first, then by name, as on
- * the gene profile; OMIM's in the order the gene reference holds them.
+ * the gene profile; OMIM's in the order the gene reference holds them. ``inheritance``,
+ * ``dosage`` and ``acmg_secondary_finding`` come from the same gene reference as OMIM's
+ * diseases.
  */
 export interface GeneDiseaseLinksOut {
   symbol: string;
   monarch: GeneDiseaseMonarchOut[];
   omim: GeneDiseaseOmimOut[];
+  inheritance: GeneInheritanceOut[];
+  dosage: GeneDosageSensitivityOut | null;
+  acmg_secondary_finding: GeneAcmgSecondaryFindingOut;
 }
 
 /** A Monarch gene–disease link as a variant card lists it: causal or merely associated. */
@@ -1328,6 +1351,22 @@ export interface GeneDiseaseOmimOut {
   label: string;
   omim_id: string | null;
   href: string | null;
+}
+
+/**
+ * ClinGen's dosage sensitivity curation of the gene, as a variant card shows it.
+ *
+ * A score is ClinGen's: 3 sufficient evidence, 2 emerging evidence, 1 little evidence, 0 no
+ * evidence, 30 gene associated with an autosomal recessive phenotype, 40 dosage sensitivity
+ * unlikely; None where the curation states none. The texts are the curation's own words.
+ * ``report_url`` is ClinGen's page for the curation, where the curation names one.
+ */
+export interface GeneDosageSensitivityOut {
+  haploinsufficiency_score: number | null;
+  haploinsufficiency: string | null;
+  triplosensitivity_score: number | null;
+  triplosensitivity: string | null;
+  report_url: string | null;
 }
 
 export interface GeneExonOut {
@@ -1390,6 +1429,21 @@ export interface GeneInfoSourceSummaryOut {
   record_count: number;
   release: string | null;
   release_count: number;
+}
+
+/**
+ * A mode of inheritance the gene's curated disease relationships name, as a variant card
+ * shows it.
+ *
+ * ``mode`` is AD, AR, SD (semidominant), XLD, XLR, XL (X-linked, dominant or recessive not
+ * stated), MT (mitochondrial) or YL. ``evidence`` names each curation that states it, as
+ * "<source> <classification>" ("GenCC Definitive", "ClinGen Strong"), strongest first. Only a
+ * relationship classified Definitive, Strong, Moderate or Supportive counts.
+ */
+export interface GeneInheritanceOut {
+  mode: "AD" | "AR" | "SD" | "XLD" | "XLR" | "XL" | "MT" | "YL";
+  label: string;
+  evidence: string[];
 }
 
 export interface GeneLocation {
@@ -2714,6 +2768,7 @@ export interface NiptVariantOut {
   rsid: string | null;
   hgvsc: string | null;
   hgvsp: string | null;
+  hgvsg: string | null;
   canonical: boolean;
   mane_select: boolean;
   mane_plus_clinical: boolean;
@@ -4596,6 +4651,7 @@ export interface VariantOut {
   rsid: string | null;
   hgvsc: string | null;
   hgvsp: string | null;
+  hgvsg: string | null;
   canonical: boolean;
   mane_select: boolean;
   mane_plus_clinical: boolean;
