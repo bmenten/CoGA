@@ -558,8 +558,8 @@ export interface ApiRepeatExpansionAllele {
   interrupted?: boolean;
   interruption_label?: string | null;
   status: ApiRepeatStatus;
-  // Set when the count is near a boundary at a locus whose TRGT counting units QA has not
-  // validated: a difference of a few repeats there could change the status.
+  // Set when the count is near a boundary: a difference of a few repeats between TRGT's count
+  // and the clinical repeat number could change the status.
   count_unit_warning?: RepeatCountUnitWarningOut | null;
 }
 
@@ -599,11 +599,9 @@ export interface ApiRepeatExpansionRow {
   // there is none (no row matched, or a gene with several loci).
   strchive_id?: string | null;
   // QA's record for the locus: the correction added to TRGT's count before it is classified
-  // (0: none), whether QA validated that the count, so corrected, is the clinical repeat number,
-  // and the record's reason, who and when; and what is known of TRGT's count at the gene
-  // (FMR1, HTT, POLG).
+  // (0: none), and the record's reason, who and when; and what is known of TRGT's count at the
+  // gene (FMR1, HTT, POLG).
   count_offset?: number;
-  count_units_validated?: boolean;
   count_units_reason?: string | null;
   count_units_updated_by?: string | null;
   count_units_updated_at?: string | null;
@@ -875,7 +873,6 @@ export interface ApiRepeatExpansionTrackItem {
   allele_trgt_repeat_counts?: number[];
   allele_bp_lengths: number[];
   count_offset?: number;
-  count_units_validated?: boolean;
   count_units_note?: string | null;
   count_unit_warnings?: RepeatCountUnitWarningOut[];
 }

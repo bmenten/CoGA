@@ -3965,14 +3965,14 @@ def test_signout_check_reads_a_changed_qc_verdict_or_threshold_as_a_change(monke
 # (repeat_count_units). The sections are built in test_signed_record_repeat_count_units.py; here
 # the check reads them.
 
-_NOT_VALIDATED = {"validated": False, "reason": None, "updated_by": None, "updated_at": None}
-_VALIDATED = {
-    "validated": True,
-    "reason": "Validation report 13",
+_NO_RECORD = {"count_offset": 0, "reason": None, "updated_by": None, "updated_at": None}
+_RECORDED = {
+    "count_offset": 0,
+    "reason": "No constant correction fits FMR1",
     "updated_by": "qa-lead",
     "updated_at": "2026-10-20T09:30:00+00:00",
 }
-_WITHDRAWN = {**_VALIDATED, "validated": False, "reason": "New TRGT catalogue", "updated_at": "2026-10-21T08:00:00+00:00"}
+_CORRECTED = {**_RECORDED, "count_offset": 2, "reason": "Offset from report 13", "updated_at": "2026-10-21T08:00:00+00:00"}
 _WARNING_53 = {"repeat_count": 53, "margin": 3, "boundaries": [{"repeat_count": 55, "status": "premutation"}]}
 
 
@@ -4028,31 +4028,35 @@ def _check_against(monkeypatch, signed_section: dict, current_section: dict) -> 
     )
 
 
-def test_signout_check_reads_a_locus_validated_since_sign_out_as_a_change(monkeypatch) -> None:
+def test_signout_check_reads_a_correction_since_sign_out_as_a_change(monkeypatch) -> None:
     _patch_check(monkeypatch, reviews=[_REVIEW])
-    signed_section = _repeat_section(_NOT_VALIDATED, warning=_WARNING_53)
+    signed_section = _repeat_section(_NO_RECORD, warning=_WARNING_53)
     out = _check_against(monkeypatch, signed_section, signed_section)
     assert (out["matches"], out["changed_sections"]) == (True, [])
 
-    # QA validates TRGT's counting units at FMR1 after sign-out: the 53 is no longer marked, and
-    # the record held it marked at a locus not validated.
-    out = _check_against(monkeypatch, signed_section, _repeat_section(_VALIDATED))
+    # QA records a correction of +2 at FMR1 after sign-out: the 53 is classified as 55 now.
+    corrected_warning = {"repeat_count": 55, "margin": 3, "boundaries": [{"repeat_count": 54, "status": "intermediate"}]}
+    out = _check_against(monkeypatch, signed_section, _repeat_section(_CORRECTED, count=55, warning=corrected_warning))
     assert (out["matches"], out["changed_sections"]) == (False, ["repeat_expansions"])
 
 
-def test_signout_check_reads_a_withdrawn_validation_as_a_change(monkeypatch) -> None:
+def test_signout_check_reads_a_record_made_since_sign_out_as_a_change(monkeypatch) -> None:
+    # The same counts and warnings, but QA's record beside them is new: the signed record held
+    # none, so the report says the repeat expansions changed since.
     _patch_check(monkeypatch, reviews=[_REVIEW])
-    out = _check_against(monkeypatch, _repeat_section(_VALIDATED), _repeat_section(_WITHDRAWN, warning=_WARNING_53))
+    out = _check_against(
+        monkeypatch, _repeat_section(_NO_RECORD, warning=_WARNING_53), _repeat_section(_RECORDED, warning=_WARNING_53)
+    )
     assert (out["matches"], out["changed_sections"]) == (False, ["repeat_expansions"])
 
 
 def test_signout_check_compares_a_repeat_section_not_captured_at_sign_out_whole(monkeypatch) -> None:
     _patch_check(monkeypatch, reviews=[_REVIEW])
     unavailable = {"unavailable": "The repeat-expansion calls could not be read."}
-    out = _check_against(monkeypatch, unavailable, _repeat_section(_NOT_VALIDATED, warning=_WARNING_53))
+    out = _check_against(monkeypatch, unavailable, _repeat_section(_NO_RECORD, warning=_WARNING_53))
     assert (out["matches"], out["changed_sections"]) == (False, ["repeat_expansions"])
     assert out["not_captured"] == [
-        {"section": "repeat_expansions", "item": "Repeat expansions (TRGT)", "reason": unavailable["unavailable"]}
+        {"section": "repeat_expansions", "item": "Repeat expansions", "reason": unavailable["unavailable"]}
     ]
 
 

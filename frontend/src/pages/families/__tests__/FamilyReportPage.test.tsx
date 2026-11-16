@@ -1696,10 +1696,10 @@ describe('FamilyReportPage', () => {
       expect(section('Gene panels applied')).toHaveTextContent(
         'Epilepsy, version 2, 120 genes; PanelApp panel 402, version 3.1 (confidence levels 3), imported 2026-09-01 08:00 UTC; first applied 2026-10-10 09:00 UTC by analyst',
       );
-      expect(section('Repeat expansions (TRGT)')).toHaveTextContent(
+      expect(section('Repeat expansions')).toHaveTextContent(
         'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18, 40 repeats — Pathogenic',
       );
-      expect(section('Repeat expansions (TRGT)')).toHaveTextContent(
+      expect(section('Repeat expansions')).toHaveTextContent(
         'against the repeat catalogue of 96 loci (CoGA built-in, STRchive), digest abcdef012345',
       );
       expect(section('Paraphase')).toHaveTextContent(
@@ -1750,20 +1750,20 @@ describe('FamilyReportPage', () => {
       );
     });
 
-    // Each repeat call's near-boundary warning and each locus's QA record of TRGT's counting
-    // units, as the record froze them (repeat_count_units.py): beside the call, on screen and in print.
-    it('shows a count near a boundary beside its call, and each locus’s counting units, as the record froze them', async () => {
+    // Each repeat call's near-boundary warning and each locus's QA count correction, as the record
+    // froze them (repeat_count_units.py): beside the call, on screen and in print.
+    it('shows a count near a boundary beside its call, and each locus’s count correction, as the record froze them', async () => {
       mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
       renderPage();
 
-      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions (TRGT)' })).closest('section')!;
+      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions' })).closest('section')!;
       expect(repeats).toHaveTextContent(
-        'While QA had not validated TRGT’s counting units at a locus, a count within 3 repeats of a classification boundary was marked ⚠ Near a boundary: a difference of that size between TRGT’s count and the clinical repeat number could change its status. The status stands as classified.',
+        'A count within 3 repeats of a classification boundary was marked ⚠ Near a boundary: TRGT’s count need not be the clinical repeat number the cut-offs count, and a difference of that size could change its status. The status stands as classified.',
       );
       const items = within(repeats).getAllByRole('listitem');
       expect(items.map((item) => item.textContent)).toEqual([
-        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18, 40 repeats — Pathogenic. TRGT’s counting units: validated — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
-        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
+        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18, 40 repeats — Pathogenic. Count correction: none — Report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). Count correction: none (no QA record).',
       ]);
       // It prints: nothing of it is kept off the printout, and nothing is called not captured.
       expect(repeats.closest('.no-print')).toBeNull();
@@ -1779,14 +1779,14 @@ describe('FamilyReportPage', () => {
       });
       renderPage();
 
-      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions (TRGT)' })).closest('section')!;
+      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions' })).closest('section')!;
       expect(repeats).toHaveTextContent(
         'Where QA had recorded a count correction for a locus, each count there is TRGT’s count with that correction, the count its status was classified from; TRGT’s own count follows in brackets.',
       );
       const items = within(repeats).getAllByRole('listitem');
       expect(items.map((item) => item.textContent)).toEqual([
-        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18 (TRGT 19), 40 (TRGT 41) repeats — Pathogenic. TRGT’s counting units: validated, corrected to TRGT’s count −1 — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
-        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
+        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18 (TRGT 19), 40 (TRGT 41) repeats — Pathogenic. Count correction: TRGT’s count −1 — Report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). Count correction: none (no QA record).',
       ]);
       expect(repeats).not.toHaveTextContent('Not captured');
     });
@@ -4403,7 +4403,7 @@ describe('FamilyReportPage', () => {
                   classification: 'intermediate',
                   reported: true,
                   status: 'changed',
-                  changes: ['count_units.validated: False → True'],
+                  changes: ['count_units.count_offset: 0 → 2'],
                 },
               ],
               concerns_fingerprint: 'a'.repeat(64),
@@ -4417,7 +4417,7 @@ describe('FamilyReportPage', () => {
       fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
       const dialog = await screen.findByRole('dialog', { name: /Evidence drift acknowledgement required/i });
       expect(
-        within(dialog).getByText(/its calls changed since the review: count_units\.validated: False → True/),
+        within(dialog).getByText(/its calls changed since the review: count_units\.count_offset: 0 → 2/),
       ).toBeInTheDocument();
       expect(within(dialog).getByText('FXS_FMR1')).toBeInTheDocument();
     });

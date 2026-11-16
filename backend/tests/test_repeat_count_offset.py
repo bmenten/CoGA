@@ -9,11 +9,10 @@ stays beside the corrected one.
 - The corrected count: TRGT's count plus the offset, a no-call stays one, never below 0.
 - Classification with an offset at each boundary: HTT's grey zone and pathogenic threshold, the
   POLG benign count, FMR1's grey zone, premutation and full mutation, a contraction locus.
-- The near-boundary warning is made from the corrected count; validation lifts it, the
-  correction stays applied.
+- The near-boundary warning is made from the corrected count, and stays with a correction.
 - The family table, the genome track and the import read the correction of the catalogue row
   that classifies the call.
-- The record: an admin sets the correction with the validation and a reason; each change is a
+- The record: an admin sets the correction with a reason; each change is a
   clinical audit event with the correction before and after; a correction out of bounds is
   refused; nothing is recorded in advance.
 (integration/test_repeat_count_units_storage.py runs the record and the reads on Postgres;
@@ -187,16 +186,16 @@ def test_a_no_call_keeps_its_stored_status_under_a_correction() -> None:
 # ---- The warning, made from the corrected count -----------------------------------------------
 
 
-def _marked(counts: list[int], *, offset: int, validated: bool) -> list[dict]:
+def _marked(counts: list[int], *, offset: int) -> list[dict]:
     alleles = repeat_expansion_pg._reclassify_repeat_alleles(
         [{"repeat_count": count} for count in counts], count_offset=offset, **HTT
     )
-    return repeat_expansion_pg._with_count_unit_warnings(alleles, validated=validated, **HTT)
+    return repeat_expansion_pg._with_count_unit_warnings(alleles, **HTT)
 
 
 def test_the_warning_names_the_corrected_count_and_its_boundary() -> None:
     # TRGT's 37 is 36 with -1: pathogenic, and 35 (grey zone) is within the margin.
-    _short, long_allele = _marked([18, 37], offset=-1, validated=False)
+    _short, long_allele = _marked([18, 37], offset=-1)
     assert long_allele["repeat_count"] == 36 and long_allele["status"] == "pathogenic"
     assert long_allele["count_unit_warning"] == {
         "repeat_count": 36,
@@ -205,13 +204,12 @@ def test_the_warning_names_the_corrected_count_and_its_boundary() -> None:
     }
 
 
-def test_a_correction_entered_but_not_validated_keeps_the_mark_and_validation_lifts_it() -> None:
-    unvalidated = _marked([37], offset=-1, validated=False)
-    validated = _marked([37], offset=-1, validated=True)
-    # The correction applies either way: the status is read from 36.
-    assert [allele["status"] for allele in unvalidated] == [allele["status"] for allele in validated] == ["pathogenic"]
-    assert unvalidated[0]["count_unit_warning"] is not None
-    assert validated[0]["count_unit_warning"] is None
+def test_a_correction_keeps_the_mark_near_a_boundary() -> None:
+    # The status is read from 36; a correction is no statement that the count is the clinical
+    # number, so the count near the threshold stays marked.
+    [allele] = _marked([37], offset=-1)
+    assert allele["status"] == "pathogenic"
+    assert allele["count_unit_warning"] is not None
 
 
 # ---- The family table, the genome track and the import ------------------------------------------
@@ -224,7 +222,7 @@ def _context():
     return family_context((PROBAND_UUID, "PROBAND1", "proband", True, "female"))
 
 
-def _row(counts: list[int], *, locus: dict, gene: str, offset: int, validated: bool = False) -> dict:
+def _row(counts: list[int], *, locus: dict, gene: str, offset: int) -> dict:
     """A row of the family table's and the track's query: the catalogue row's thresholds, and QA's
     record for that row as the query read it with the call."""
     return {
@@ -247,10 +245,9 @@ def _row(counts: list[int], *, locus: dict, gene: str, offset: int, validated: b
         "premutation_min": None,
         **locus,
         "count_offset": offset,
-        "count_units_validated": validated,
-        "count_units_reason": "Offset from validation report VAL-7" if offset or validated else None,
-        "count_units_updated_by": "qa-lead" if offset or validated else None,
-        "count_units_updated_at": RECORDED_AT if offset or validated else None,
+        "count_units_reason": "Offset from report VAL-7" if offset else None,
+        "count_units_updated_by": "qa-lead" if offset else None,
+        "count_units_updated_at": RECORDED_AT if offset else None,
         "status": "intermediate",
     }
 
@@ -262,8 +259,8 @@ async def test_the_family_table_classifies_the_corrected_count_and_shows_trgts_b
     table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(session, context=_context())
 
     [locus] = table.loci
-    assert (locus.count_offset, locus.count_units_validated) == (-1, False)
-    assert (locus.count_units_reason, locus.count_units_updated_by) == ("Offset from validation report VAL-7", "qa-lead")
+    assert locus.count_offset == -1
+    assert (locus.count_units_reason, locus.count_units_updated_by) == ("Offset from report VAL-7", "qa-lead")
     assert locus.count_units_updated_at == RECORDED_AT
     call = locus.calls["PROBAND1"]
     assert [(allele.repeat_count, allele.trgt_repeat_count, allele.status) for allele in call.alleles] == [
@@ -409,14 +406,13 @@ class _RecordSession:
         self.statements.append((sql, params))
         if "FROM repeat_loci" in sql:
             return Result([self.locus] if self.locus else [])
-        if sql.startswith("SELECT validated, count_offset, reason FROM repeat_locus_count_units"):
+        if sql.startswith("SELECT count_offset, reason FROM repeat_locus_count_units"):
             return Result([self.previous] if self.previous else [])
         if sql.startswith("INSERT INTO repeat_locus_count_units"):
             return Result(
                 [
                     {
                         "locus_id": params["locus_id"],
-                        "validated": params["validated"],
                         "count_offset": params["count_offset"],
                         "reason": params["reason"],
                         "updated_by_name": params["user_name"],
@@ -440,55 +436,47 @@ async def test_a_correction_is_recorded_with_its_reason_and_audited_before_and_a
     record = await repeat_count_units.set_repeat_locus_count_units(
         session,
         locus_id="HD_HTT",
-        validated=False,
         count_offset=-1,
-        reason="Offset from validation report VAL-7",
+        reason="  Offset from report VAL-7  ",
         user=_admin(),
     )
 
     [upsert] = session.writes("repeat_locus_count_units")
-    assert (upsert["count_offset"], upsert["validated"]) == (-1, False)
+    assert upsert["count_offset"] == -1 and "validated" not in upsert
+    assert upsert["reason"] == "Offset from report VAL-7"
+    assert upsert["user_id"] == _admin().id
     [event] = session.writes("clinical_audit_events")
     assert event["family_identifier"] == "system:repeat-loci"
-    assert event["action"] == "repeat_count_units_not_validated"
-    assert event["summary"] == (
-        "TRGT's counting units at HD_HTT (HTT): correction no correction → TRGT's count −1"
-    )
-    assert json.loads(event["before"]) == {
-        "locus_id": "HD_HTT",
-        "gene": "HTT",
-        "validated": False,
-        "count_offset": 0,
-        "reason": None,
-    }
+    assert event["family_id"] is None and event["variant_id"] is None
+    assert event["action"] == "repeat_count_correction_recorded"
+    assert event["summary"] == "Count correction at HD_HTT (HTT): no correction → TRGT's count −1"
+    assert json.loads(event["before"]) == {"locus_id": "HD_HTT", "gene": "HTT", "count_offset": 0, "reason": None}
     assert json.loads(event["after"]) == {
         "locus_id": "HD_HTT",
         "gene": "HTT",
-        "validated": False,
         "count_offset": -1,
-        "reason": "Offset from validation report VAL-7",
+        "reason": "Offset from report VAL-7",
     }
+    assert json.loads(event["metadata"]) == {"locus_id": "HD_HTT", "gene": "HTT"}
     assert session.commits == 1
-    assert (record["count_offset"], record["validated"]) == (-1, False)
+    assert record["count_offset"] == -1 and "validated" not in record
+    assert record["reason"] == "Offset from report VAL-7"
 
 
 @pytest.mark.asyncio
-async def test_validating_a_corrected_locus_names_both_changes() -> None:
+async def test_changing_a_correction_names_both_values() -> None:
     session = _RecordSession(
         locus={"locus_id": "HD_HTT", "gene": "HTT"},
-        previous={"validated": False, "count_offset": -1, "reason": "Offset from VAL-7"},
+        previous={"count_offset": -1, "reason": "Offset from VAL-7"},
     )
 
     await repeat_count_units.set_repeat_locus_count_units(
-        session, locus_id="HD_HTT", validated=True, count_offset=-2, reason="Validation report VAL-8", user=_admin()
+        session, locus_id="HD_HTT", count_offset=-2, reason="Report VAL-8", user=_admin()
     )
 
     [event] = session.writes("clinical_audit_events")
-    assert event["action"] == "repeat_count_units_validated"
-    assert event["summary"] == (
-        "TRGT's counting units at HD_HTT (HTT): not validated → validated; "
-        "correction TRGT's count −1 → TRGT's count −2"
-    )
+    assert event["action"] == "repeat_count_correction_recorded"
+    assert event["summary"] == "Count correction at HD_HTT (HTT): TRGT's count −1 → TRGT's count −2"
     assert json.loads(event["before"])["count_offset"] == -1
     assert json.loads(event["after"])["count_offset"] == -2
 
@@ -497,23 +485,25 @@ async def test_validating_a_corrected_locus_names_both_changes() -> None:
 async def test_removing_a_correction_is_audited_and_a_confirmation_names_the_correction() -> None:
     removed = _RecordSession(
         locus={"locus_id": "HD_HTT", "gene": "HTT"},
-        previous={"validated": False, "count_offset": -1, "reason": "Offset from VAL-7"},
+        previous={"count_offset": -1, "reason": "Offset from VAL-7"},
     )
     await repeat_count_units.set_repeat_locus_count_units(
-        removed, locus_id="HD_HTT", validated=False, count_offset=0, reason="Entered on the wrong locus", user=_admin()
+        removed, locus_id="HD_HTT", count_offset=0, reason="Entered on the wrong locus", user=_admin()
     )
     [event] = removed.writes("clinical_audit_events")
-    assert event["summary"] == "TRGT's counting units at HD_HTT (HTT): correction TRGT's count −1 → no correction"
+    assert event["summary"] == "Count correction at HD_HTT (HTT): TRGT's count −1 → no correction"
 
+    # The same correction with a new reason (a check against a new TRGT catalogue) is audited too.
     confirmed = _RecordSession(
         locus={"locus_id": "HD_HTT", "gene": "HTT"},
-        previous={"validated": True, "count_offset": -1, "reason": "Validation report VAL-8"},
+        previous={"count_offset": -1, "reason": "Report VAL-8"},
     )
     await repeat_count_units.set_repeat_locus_count_units(
-        confirmed, locus_id="HD_HTT", validated=True, count_offset=-1, reason="Checked on TRGT 5", user=_admin()
+        confirmed, locus_id="HD_HTT", count_offset=-1, reason="Checked on TRGT 5", user=_admin()
     )
     [event] = confirmed.writes("clinical_audit_events")
-    assert event["summary"] == "TRGT's counting units at HD_HTT (HTT): validated, TRGT's count −1, confirmed"
+    assert event["summary"] == "Count correction at HD_HTT (HTT): TRGT's count −1, confirmed"
+    assert json.loads(event["before"])["reason"] == "Report VAL-8"
 
 
 @pytest.mark.asyncio
@@ -523,7 +513,7 @@ async def test_a_correction_out_of_bounds_or_not_a_whole_number_is_refused_and_n
 
     with pytest.raises(HTTPException) as refused:
         await repeat_count_units.set_repeat_locus_count_units(
-            session, locus_id="HD_HTT", validated=False, count_offset=offset, reason="checked", user=_admin()
+            session, locus_id="HD_HTT", count_offset=offset, reason="checked", user=_admin()
         )
 
     assert refused.value.status_code == 400
@@ -535,7 +525,7 @@ async def test_a_correction_out_of_bounds_or_not_a_whole_number_is_refused_and_n
 async def test_a_correction_at_the_bound_is_recorded(offset) -> None:
     session = _RecordSession(locus={"locus_id": "HD_HTT", "gene": "HTT"}, previous=None)
     record = await repeat_count_units.set_repeat_locus_count_units(
-        session, locus_id="HD_HTT", validated=False, count_offset=offset, reason="checked", user=_admin()
+        session, locus_id="HD_HTT", count_offset=offset, reason="checked", user=_admin()
     )
     assert record["count_offset"] == offset
 
@@ -543,14 +533,14 @@ async def test_a_correction_at_the_bound_is_recorded(offset) -> None:
 @pytest.mark.parametrize(
     ("body", "accepted"),
     [
-        ({"validated": False, "count_offset": -20, "reason": "r"}, True),
-        ({"validated": False, "count_offset": 20, "reason": "r"}, True),
-        ({"validated": False, "count_offset": 21, "reason": "r"}, False),
-        ({"validated": False, "count_offset": -21, "reason": "r"}, False),
-        ({"validated": False, "count_offset": 1.5, "reason": "r"}, False),
-        ({"validated": False, "count_offset": "1", "reason": "r"}, False),
-        ({"validated": False, "count_offset": True, "reason": "r"}, False),
-        ({"validated": False, "reason": "r"}, False),
+        ({"count_offset": -20, "reason": "r"}, True),
+        ({"count_offset": 20, "reason": "r"}, True),
+        ({"count_offset": 21, "reason": "r"}, False),
+        ({"count_offset": -21, "reason": "r"}, False),
+        ({"count_offset": 1.5, "reason": "r"}, False),
+        ({"count_offset": "1", "reason": "r"}, False),
+        ({"count_offset": True, "reason": "r"}, False),
+        ({"reason": "r"}, False),
     ],
 )
 def test_the_request_states_a_whole_correction_within_the_bound(body, accepted) -> None:

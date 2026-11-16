@@ -1,9 +1,8 @@
 """The signed record freezes each repeat call's near-boundary warning and QA's counting-units record.
 
 TRGT's count need not be the clinical repeat number (at FMR1 it leaves out the AGG
-interruptions, so a 55-repeat premutation can read 53), so until QA validates a catalogue locus
-the repeat page marks a count within 3 repeats of a classification boundary
-(``repeat_count_units``). The signed record's ``repeat_expansions`` section
+interruptions, so a 55-repeat premutation can read 53), so at every locus the repeat page marks a
+count within 3 repeats of a classification boundary (``repeat_count_units``). The signed record's ``repeat_expansions`` section
 (``signed_record_sections.repeat_expansion_calls``) holds, as they stood at sign-out:
 
 * per allele the count classified (``repeat_count``: TRGT's count with QA's correction for the
@@ -11,16 +10,15 @@ the repeat page marks a count within 3 repeats of a classification boundary
 * beside each allele its warning (``count_unit_warning``: the corrected count, the nearest count
   within the margin on each side that reads another status, the margin), null when there is
   none; the allele's own status is the one on its side of the boundary;
-* per locus QA's record (``count_units``): the correction (``count_offset``), validated or not,
-  the reason, by whom and when, as ``repeat_locus_count_units`` held it, ``count_offset: 0``,
-  ``validated: false`` and the rest null without a record;
+* per locus QA's record (``count_units``): the correction (``count_offset``), the reason, by whom
+  and when, as ``repeat_locus_count_units`` held it, ``count_offset: 0`` and the rest null
+  without a record;
 * the margin in force (``count_unit_margin``).
 
 The record holds the counts and warnings the repeat page serves, made by the family table's own
 code, beside QA's record as the table's own statement read it with the calls: no second read
-can freeze a record the calls were not classified with. A validation, a withdrawal or a
-correction since sign-out changes what the check compares, and none of these fields is "not
-captured". The check itself is tested in test_report_signout.py, and all of it on Postgres and
+can freeze a record the calls were not classified with. A correction, or a new reason, since
+sign-out changes what the check compares, and none of these fields is "not captured". The check itself is tested in test_report_signout.py, and all of it on Postgres and
 ClickHouse in e2e/test_e2e_signed_repeat_count_units.py. All samples and values are synthetic.
 """
 
@@ -90,14 +88,12 @@ def _table_row(
     locus_id: str,
     gene: str,
     locus: dict[str, Any],
-    validated: bool = False,
     units: dict[str, Any] | None = None,
     chrom: str = "X",
     start: int = 147_912_049,
 ) -> dict[str, Any]:
     """A row of the family table's query: the catalogue row's thresholds, and QA's record for that
-    row as the query read it with the call (``units``, from ``_units``; none: no record, or only
-    ``validated`` given)."""
+    row as the query read it with the call (``units``, from ``_units``; none: no record)."""
     return {
         "sample_uuid": sample_uuid,
         "locus_id": locus_id,
@@ -111,7 +107,6 @@ def _table_row(
         "motif": "CGG" if gene == "FMR1" else "CAG",
         **locus,
         "count_offset": 0,
-        "count_units_validated": validated,
         "count_units_reason": None,
         "count_units_updated_by": None,
         "count_units_updated_at": None,
@@ -124,11 +119,10 @@ def _table_row(
     }
 
 
-def _units(*, validated: bool, reason: str, by: str = "qa-lead", count_offset: int = 0) -> dict[str, Any]:
+def _units(*, reason: str, by: str = "qa-lead", count_offset: int = 0) -> dict[str, Any]:
     """QA's ``repeat_locus_count_units`` row, as the family table's query reads it with a call."""
     return {
         "count_offset": count_offset,
-        "count_units_validated": validated,
         "count_units_reason": reason,
         "count_units_updated_by": by,
         "count_units_updated_at": RECORDED_AT,
@@ -173,7 +167,7 @@ def _alleles(locus: dict[str, Any], sample: str) -> list[dict[str, Any]]:
 # ---- What the record freezes ----------------------------------------------------------------
 
 
-def test_a_count_near_a_boundary_is_frozen_with_its_warning_while_the_locus_is_not_validated() -> None:
+def test_a_count_near_a_boundary_is_frozen_with_its_warning() -> None:
     rows = [
         _table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1),
         _table_row(MOTHER_UUID, [30, 40], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1),
@@ -182,10 +176,9 @@ def test_a_count_near_a_boundary_is_frozen_with_its_warning_while_the_locus_is_n
 
     assert section["count_unit_margin"] == COUNT_UNIT_MARGIN == 3
     locus = _locus(section, "FXS_FMR1")
-    # No QA record for the locus: no correction, not validated, and nothing else to say.
+    # No QA record for the locus: no correction, and nothing else to say.
     assert locus["count_units"] == {
         "count_offset": 0,
-        "validated": False,
         "reason": None,
         "updated_by": None,
         "updated_at": None,
@@ -216,7 +209,7 @@ def test_the_record_holds_the_warning_the_repeat_page_serves() -> None:
     assert frozen == served == [None, WARNING_53]
 
 
-def test_a_validated_locus_is_frozen_with_qas_record_and_no_warning() -> None:
+def test_a_locus_with_qas_record_is_frozen_with_it_and_keeps_its_warning() -> None:
     rows = [
         _table_row(
             PROBAND_UUID,
@@ -224,7 +217,7 @@ def test_a_validated_locus_is_frozen_with_qas_record_and_no_warning() -> None:
             locus_id="FXS_FMR1",
             gene="FMR1",
             locus=FMR1,
-            units=_units(validated=True, reason="Validation report 13"),
+            units=_units(reason="No constant correction fits FMR1"),
         )
     ]
     section = _freeze(rows)
@@ -232,51 +225,26 @@ def test_a_validated_locus_is_frozen_with_qas_record_and_no_warning() -> None:
     locus = _locus(section, "FXS_FMR1")
     assert locus["count_units"] == {
         "count_offset": 0,
-        "validated": True,
-        "reason": "Validation report 13",
+        "reason": "No constant correction fits FMR1",
         "updated_by": "qa-lead",
         "updated_at": "2026-10-20T09:30:00+00:00",
     }
-    assert [allele["count_unit_warning"] for allele in _alleles(locus, "PROBAND1")] == [None, None]
-    # The statuses are the same, validated or not.
-    assert [allele["status"] for allele in _alleles(locus, "PROBAND1")] == ["normal", "intermediate"]
-
-
-def test_a_withdrawn_validation_is_frozen_with_its_reason_and_the_warning_back() -> None:
-    rows = [
-        _table_row(
-            PROBAND_UUID,
-            [30, 53],
-            locus_id="FXS_FMR1",
-            gene="FMR1",
-            locus=FMR1,
-            units=_units(validated=False, reason="New TRGT catalogue"),
-        )
-    ]
-    section = _freeze(rows)
-
-    locus = _locus(section, "FXS_FMR1")
-    assert locus["count_units"] == {
-        "count_offset": 0,
-        "validated": False,
-        "reason": "New TRGT catalogue",
-        "updated_by": "qa-lead",
-        "updated_at": "2026-10-20T09:30:00+00:00",
-    }
+    # A record is no statement that TRGT's count is the clinical number: the 53 stays marked.
     assert [allele["count_unit_warning"] for allele in _alleles(locus, "PROBAND1")] == [None, WARNING_53]
+    assert [allele["status"] for allele in _alleles(locus, "PROBAND1")] == ["normal", "intermediate"]
 
 
 def test_each_locus_is_frozen_with_its_own_record() -> None:
     rows = [
         _table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1),
-        # HTT 35 would be marked near the pathogenic threshold at 36, but HTT is validated.
+        # HTT 35 is marked near the pathogenic threshold at 36; HTT has QA's record.
         _table_row(
             PROBAND_UUID,
             [18, 35],
             locus_id="HD_HTT",
             gene="HTT",
             locus=HTT,
-            units=_units(validated=True, reason="Validation report 7"),
+            units=_units(reason="Report 7"),
             chrom="4",
             start=3_074_876,
         ),
@@ -286,9 +254,12 @@ def test_each_locus_is_frozen_with_its_own_record() -> None:
 
     assert [locus["locus_id"] for locus in section["loci"]] == ["HD_HTT", "FXS_FMR1"]
     htt, fmr1 = section["loci"]
-    assert (htt["count_units"]["validated"], htt["count_units"]["reason"]) == (True, "Validation report 7")
-    assert [allele["count_unit_warning"] for allele in _alleles(htt, "PROBAND1")] == [None, None]
-    assert fmr1["count_units"]["validated"] is False
+    assert (htt["count_units"]["reason"], htt["count_units"]["updated_by"]) == ("Report 7", "qa-lead")
+    assert [allele["count_unit_warning"] for allele in _alleles(htt, "PROBAND1")] == [
+        None,
+        {"repeat_count": 35, "margin": 3, "boundaries": [{"repeat_count": 36, "status": "pathogenic"}]},
+    ]
+    assert (fmr1["count_units"]["reason"], fmr1["count_units"]["updated_by"]) == (None, None)
     assert [allele["count_unit_warning"] for allele in _alleles(fmr1, "PROBAND1")] == [None, WARNING_53]
     # QA's records are read with the calls, in the family table's one statement, and in no other:
     # what is frozen beside a call is the record it was classified and marked with.
@@ -310,9 +281,9 @@ def test_a_family_without_repeat_calls_reads_no_record_and_holds_the_margin() ->
 # ---- The record and the calls come from one statement ------------------------------------------
 
 
-def _stub_table(monkeypatch, *, validated: bool, count_offset: int, counts: tuple[int, int], warning) -> None:
-    """The family table as its own statement read it: QA's record said ``validated`` and the
-    correction ``count_offset`` then, and the calls were classified and marked with it."""
+def _stub_table(monkeypatch, *, count_offset: int, counts: tuple[int, int], warning) -> None:
+    """The family table as its own statement read it: QA's record said the correction
+    ``count_offset`` then, and the calls were classified and marked with it."""
 
     async def _table(session, *, context):
         return FamilyRepeatExpansionTableOut(
@@ -328,8 +299,7 @@ def _stub_table(monkeypatch, *, validated: bool, count_offset: int, counts: tupl
                     motif="CGG",
                     status="intermediate",
                     count_offset=count_offset,
-                    count_units_validated=validated,
-                    count_units_reason="Validation report 13",
+                    count_units_reason="Report 13",
                     count_units_updated_by="qa-lead",
                     count_units_updated_at=RECORDED_AT,
                     calls={
@@ -357,27 +327,25 @@ def _stub_table(monkeypatch, *, validated: bool, count_offset: int, counts: tupl
 
 
 @pytest.mark.parametrize(
-    ("validated", "count_offset", "counts", "warning"),
+    ("count_offset", "counts", "warning"),
     [
-        (False, 0, (30, 53), WARNING_53),
-        (True, 0, (30, 53), None),
+        (0, (30, 53), WARNING_53),
         # A correction is frozen with the counts it made, whatever an administrator commits after
         # the table's statement: the section reads nothing else.
-        (False, 1, (31, 54), {"repeat_count": 54, "margin": 3, "boundaries": [{"repeat_count": 55, "status": "premutation"}]}),
+        (1, (31, 54), {"repeat_count": 54, "margin": 3, "boundaries": [{"repeat_count": 55, "status": "premutation"}]}),
     ],
 )
 def test_the_record_frozen_beside_the_calls_is_the_one_the_tables_statement_read(
-    monkeypatch, validated, count_offset, counts, warning
+    monkeypatch, count_offset, counts, warning
 ) -> None:
-    _stub_table(monkeypatch, validated=validated, count_offset=count_offset, counts=counts, warning=warning)
+    _stub_table(monkeypatch, count_offset=count_offset, counts=counts, warning=warning)
     session = _RepeatSession([])
     section = asyncio.run(srs.repeat_expansion_calls(session, _context()))
 
     locus = _locus(section, "FXS_FMR1")
     assert locus["count_units"] == {
         "count_offset": count_offset,
-        "validated": validated,
-        "reason": "Validation report 13",
+        "reason": "Report 13",
         "updated_by": "qa-lead",
         "updated_at": "2026-10-20T09:30:00+00:00",
     }
@@ -391,14 +359,13 @@ def test_the_record_frozen_beside_the_calls_is_the_one_the_tables_statement_read
 # ---- What the check compares ------------------------------------------------------------------
 
 
-def test_a_validation_a_withdrawal_or_a_correction_since_sign_out_changes_what_the_check_compares() -> None:
+def test_a_record_or_a_correction_since_sign_out_changes_what_the_check_compares() -> None:
     rows = [_table_row(PROBAND_UUID, [30, 53], locus_id="FXS_FMR1", gene="FMR1", locus=FMR1)]
     signed = _freeze(rows)
-    validated = _freeze([{**row, **_units(validated=True, reason="Validation report 13")} for row in rows])
-    withdrawn = _freeze([{**row, **_units(validated=False, reason="New TRGT catalogue")} for row in rows])
-    corrected = _freeze([{**row, **_units(validated=False, reason="Offset from VAL-7", count_offset=2)} for row in rows])
-    fingerprints = {rss._section_fingerprint(section) for section in (signed, validated, withdrawn, corrected)}
-    assert len(fingerprints) == 4
+    recorded = _freeze([{**row, **_units(reason="Checked on TRGT 5")} for row in rows])
+    corrected = _freeze([{**row, **_units(reason="Offset from VAL-7", count_offset=2)} for row in rows])
+    fingerprints = {rss._section_fingerprint(section) for section in (signed, recorded, corrected)}
+    assert len(fingerprints) == 3
     # The correction moved the 53 to 55: a premutation now, which the check sees.
     assert [allele["status"] for allele in _alleles(_locus(corrected, "FXS_FMR1"), "PROBAND1")] == [
         "normal",

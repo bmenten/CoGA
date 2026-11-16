@@ -232,7 +232,7 @@ describe('RepeatExpansionTrack', () => {
     expect(container.querySelector('[data-repeat-locus-id="chr1_100_110_CAG"]')).not.toBeNull();
   });
 
-  it('counts the loci with a count near a boundary while their counting units are not validated', () => {
+  it('counts the loci with a count near a boundary', () => {
     useQueryMock.mockReturnValue({
       data: {
         items: [

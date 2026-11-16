@@ -3,7 +3,7 @@ import type { RepeatCountUnitWarningOut } from '../../lib/apiSchema.generated';
 import { cssVar } from '../../lib/colors';
 import {
   COUNT_UNIT_MARK,
-  COUNT_UNITS_NOT_VALIDATED,
+  COUNT_UNITS_CAVEAT,
   describeCountOffset,
   describeCountUnitWarning,
   formatCorrectedCounts,
@@ -42,8 +42,7 @@ const NAMED_PATHOGENIC_LOCI = 3;
  * The drawn loci in words, for a repeat track's accessible name: how many, the
  * pathogenic ones by name, and how many are premutations, intermediate, not assessed (a
  * locus without thresholds), need review or are unknown — "40, 1 pathogenic (FMR1),
- * 2 intermediate" — and how many have a count near a boundary while TRGT's counting units
- * at the locus are not validated.
+ * 2 intermediate" — and how many have a count near a boundary.
  */
 export const describeRepeatLoci = (
   items: Pick<
@@ -83,8 +82,7 @@ type RepeatLocusTooltipItem = {
   allele_repeat_counts: Array<number | string>;
   allele_trgt_repeat_counts?: number[];
   count_offset?: number;
-  // A count near a boundary while TRGT's counting units at the locus are not validated,
-  // and what is known of TRGT's count at the gene.
+  // A count near a boundary, and what is known of TRGT's count at the gene.
   count_unit_warnings?: RepeatCountUnitWarningOut[];
   count_units_note?: string | null;
 };
@@ -114,7 +112,7 @@ export const RepeatLocusTooltip = ({
         <div>
           {COUNT_UNIT_MARK}: {(item.count_unit_warnings ?? []).map(describeCountUnitWarning).join('; ')}
         </div>
-        <div>{COUNT_UNITS_NOT_VALIDATED}</div>
+        <div>{COUNT_UNITS_CAVEAT}</div>
         {item.count_units_note && <div>Known: {item.count_units_note}</div>}
       </>
     )}
