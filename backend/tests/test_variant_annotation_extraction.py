@@ -470,6 +470,33 @@ def test_a_multi_allelic_indels_entries_are_read_as_vep_writes_its_alleles() -> 
     assert entry_alt_allele({"Allele": "C"}, "A", ["G", "T"]) is None
 
 
+_HGVSG_CSQ_HEADER = (
+    '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. '
+    'Format: Allele|Consequence|SYMBOL|Feature|HGVSc|HGVSg">'
+)
+
+
+def test_each_alleles_vep_hgvsg_is_read_with_its_entries() -> None:
+    # VEP's --hgvsg writes the allele's genomic HGVS on every entry of that allele.
+    state = _clinvar_state(_HGVSG_CSQ_HEADER)
+    annotations = extract_small_variant_annotations(
+        {
+            "CSQ": "G|missense_variant|GENE1|ENST1|ENST1:c.10A>G|NC_000001.11:g.100A>G,"
+            "T|stop_gained|GENE1|ENST1|ENST1:c.10A>T|NC_000001.11:g.100A>T"
+        },
+        state,
+        ref="A",
+        alt="G,T",
+    )
+    assert [(a["alt_allele"], a["hgvsg"]) for a in annotations] == [
+        ("G", "NC_000001.11:g.100A>G"),
+        ("T", "NC_000001.11:g.100A>T"),
+    ]
+    # A VEP table row reads it too; an annotation without one has none.
+    assert normalize_small_variant_annotation_entry({"HGVSg": "1:g.100A>G"})["hgvsg"] == "1:g.100A>G"
+    assert "hgvsg" not in normalize_small_variant_annotation_entry({"HGVSg": "-", "SYMBOL": "GENE1"})
+
+
 # --------------------------------------------------------------------------- #
 # A field listing several values is none of them
 # --------------------------------------------------------------------------- #

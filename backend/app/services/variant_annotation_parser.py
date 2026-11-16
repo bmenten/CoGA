@@ -53,6 +53,9 @@ _ANN_ALIASES = {
     "effect": ["Consequence", "Annotation", "EFFECT"],
     "hgvsc": ["HGVSc", "HGVS.c", "HGVS_C", "HGVS_c"],
     "hgvsp": ["HGVSp", "HGVS.p", "HGVS_P", "HGVS_p"],
+    # The allele's genomic HGVS as VEP writes it (``--hgvsg``; with ``--hgvsg_use_accession``
+    # on its RefSeq accession, NC_000013.11:g.32316461G>A). The card shows it as HGVS.g.
+    "hgvsg": ["HGVSg", "HGVS.g", "HGVS_G", "HGVS_g"],
     "exon": ["EXON", "Exon_Rank"],
     "intron": ["INTRON"],
     "clinvar": list(CLINVAR_FILE_ALIASES),

@@ -3,14 +3,16 @@
 A small-variant or monogenic NIPT card names its gene's diseases under its heading and lists
 them all in its expanded detail, from one lookup for the page
 (``gene_metadata_service.list_gene_disease_links``). It reads Monarch's gene–disease links and
-the OMIM diseases of the gene reference (``gene_info.extra``), matches a symbol whatever its
-case, leaves out a Monarch link without a disease name, and orders Monarch's links causal first,
-then by name, as the gene profile does.
+the OMIM diseases, modes of inheritance, ClinGen dosage curation and ACMG SF entry of the gene
+reference (``gene_info.extra``, ``source_status``), matches a symbol whatever its case, leaves
+out a Monarch link without a disease name, and orders Monarch's links causal first, then by
+name, as the gene profile does.
 
 Here one gene has three Monarch links (two causal, stored out of order) and two without a name,
-its symbol stored in mixed case, and an OMIM disease in the gene reference of two assemblies; a
-second gene has neither. Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see
-conftest.py); the CI ``smoke`` job sets it.
+its symbol stored in mixed case, and an OMIM disease, two curated modes of inheritance, a
+dosage curation and an ACMG SF entry in the gene reference of two assemblies; a second gene has
+none of these. Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the
+CI ``smoke`` job sets it.
 """
 
 from __future__ import annotations
@@ -34,10 +36,36 @@ async def _seed(session_factory, gene: str) -> None:
             assembly_id = await fresh_assembly(session, species, f"GENEDISEASE{assembly}{gene}")
             await session.execute(
                 text(
-                    "INSERT INTO gene_info (assembly_id, hgnc_symbol, extra) "
-                    "VALUES (CAST(:a AS uuid), :s, CAST(:e AS jsonb))"
+                    "INSERT INTO gene_info (assembly_id, hgnc_symbol, extra, source_status) "
+                    "VALUES (CAST(:a AS uuid), :s, CAST(:e AS jsonb), CAST(:st AS jsonb))"
                 ),
-                {"a": assembly_id, "s": gene, "e": json.dumps({"omim_diseases": [{"label": label, "omim_id": "100100"}]})},
+                {
+                    "a": assembly_id,
+                    "s": gene,
+                    "e": json.dumps(
+                        {
+                            "omim_diseases": [{"label": label, "omim_id": "100100"}],
+                            "gencc_assertions": [
+                                {"moi_title": f"Autosomal recessive ({assembly})", "classification_title": "Definitive"}
+                            ],
+                            "clingen_validity_assertions": [{"moi": "AD", "classification": "Moderate"}],
+                            "clingen_dosage_assertions": [
+                                {
+                                    "hgnc_id": f"HGNC:{gene}",
+                                    "haploinsufficiency": "Sufficient Evidence for Haploinsufficiency",
+                                    "triplosensitivity": "No Evidence for Triplosensitivity",
+                                    "online_report": f"https://example.test/{assembly}",
+                                }
+                            ],
+                            "acmg_secondary_finding": {
+                                "version": "3.3",
+                                "phenotype": f"Synthetic phenotype ({assembly})",
+                                "category": "Cardiovascular",
+                            },
+                        }
+                    ),
+                    "st": json.dumps({"acmg_sf": {"status": "success"}}),
+                },
             )
         for mondo, label, causal in (
             ("1", "zeta syndrome", True),
@@ -104,6 +132,22 @@ def test_a_page_reads_each_genes_disease_links_whatever_the_symbols_case() -> No
         assert [(disease.label, disease.href) for disease in found.omim] == [
             ("Syndrome from assembly A", "https://www.omim.org/entry/100100"),
         ]
-        assert (none.monarch, none.omim) == ([], [])
+        # The modes of inheritance and the dosage curation, from the same gene reference.
+        assert [(entry.mode, entry.evidence) for entry in found.inheritance] == [
+            ("AD", ["ClinGen Moderate"]),
+            ("AR", ["GenCC Definitive"]),
+        ]
+        assert found.dosage is not None
+        assert (
+            found.dosage.haploinsufficiency_score,
+            found.dosage.triplosensitivity_score,
+            found.dosage.report_url,
+        ) == (3, 0, "https://example.test/A")
+        assert (found.acmg_secondary_finding.status, found.acmg_secondary_finding.phenotype) == (
+            "listed",
+            "Synthetic phenotype (A)",
+        )
+        assert (none.monarch, none.omim, none.inheritance, none.dosage) == ([], [], [], None)
+        assert none.acmg_secondary_finding.status == "not_consulted"
 
     run_closing_stores(_scenario)

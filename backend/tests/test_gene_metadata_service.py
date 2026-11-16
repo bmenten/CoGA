@@ -622,3 +622,199 @@ def test_the_disease_link_lookup_refuses_more_genes_than_a_page_shows() -> None:
         get_gene_disease_links(symbol=asked[:-1], session=session, user=viewer)  # type: ignore[arg-type]
     )
     assert len(answered) == gene_metadata_service.MAX_DISEASE_LINK_SYMBOLS
+
+
+def test_disease_links_name_the_modes_of_inheritance_of_the_genes_counted_curations() -> None:
+    session = _DiseaseLinkSession(
+        monarch_rows=[],
+        reference_rows=[
+            {
+                "symbol_key": "GENE1",
+                "assembly_name": "GRCh38",
+                "omim_diseases": [],
+                "gencc_assertions": [
+                    {"moi_title": "Autosomal recessive", "classification_title": "Strong"},
+                    {"moi_title": "Autosomal recessive", "classification_title": "Definitive"},
+                    {"moi_title": "Autosomal dominant", "classification_title": "Supportive"},
+                    # Too weak, or no mode, or no classification: none of these counts.
+                    {"moi_title": "X-linked", "classification_title": "Limited"},
+                    {"moi_title": "Mitochondrial", "classification_title": "Disputed Evidence"},
+                    {"moi_title": "Y-linked inheritance", "classification_title": "Refuted Evidence"},
+                    {"moi_title": "Unknown", "classification_title": "Definitive"},
+                    {"moi_title": "Semidominant"},
+                    "a bare string",
+                ],
+                "clingen_validity_assertions": [
+                    {"moi": "AR", "classification": "Definitive"},
+                    {"moi": "XL", "classification": "Moderate"},
+                    {"moi": "UD", "classification": "Definitive"},
+                    {"moi": "SD", "classification": "No Known Disease Relationship"},
+                ],
+            },
+            {"symbol_key": "GENE2", "assembly_name": "GRCh38", "omim_diseases": [], "gencc_assertions": None},
+        ],
+    )
+
+    links = _disease_links(session, ["GENE1", "GENE2"])
+
+    # In the card's order (AD, AR, ..., XL), each with what states it, strongest first.
+    assert [(entry.mode, entry.label, entry.evidence) for entry in links[0].inheritance] == [
+        ("AD", "Autosomal dominant", ["GenCC Supportive"]),
+        ("AR", "Autosomal recessive", ["ClinGen Definitive", "GenCC Definitive", "GenCC Strong"]),
+        ("XL", "X-linked", ["ClinGen Moderate"]),
+    ]
+    assert links[1].inheritance == []
+
+
+def test_inheritance_modes_read_clingen_codes_and_gencc_words() -> None:
+    mode = gene_metadata_service._inheritance_mode
+    assert [mode(value) for value in ("AD", "ar", "XLD", "XLR", "MT", "UD", "Other", None, "")] == [
+        "AD",
+        "AR",
+        "XLD",
+        "XLR",
+        "MT",
+        None,
+        None,
+        None,
+        None,
+    ]
+    assert [
+        mode(value)
+        for value in (
+            "Autosomal dominant inheritance",
+            "Semidominant",
+            "X-linked recessive",
+            "X-linked dominant inheritance",
+            "X-linked",
+            "Mitochondrial",
+            "Y-linked inheritance",
+            "Somatic mosaicism",
+        )
+    ] == ["AD", "SD", "XLR", "XLD", "XL", "MT", "YL", None]
+
+
+def test_disease_links_serve_clingens_own_dosage_curation_before_dbnsfps_copy() -> None:
+    session = _DiseaseLinkSession(
+        monarch_rows=[],
+        reference_rows=[
+            {
+                "symbol_key": "GENE1",
+                "assembly_name": "GRCh38",
+                "omim_diseases": [],
+                "clingen_dosage_assertions": [
+                    {"haploinsufficiency": "3", "description": "Sufficient evidence", "pmids": ["1"]},
+                    {
+                        "hgnc_id": "HGNC:1",
+                        "haploinsufficiency": "Sufficient Evidence for Haploinsufficiency",
+                        "triplosensitivity": "No Evidence for Triplosensitivity",
+                        "online_report": "https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1",
+                        "date": "2021-09-23T08:27:44-04:00",
+                    },
+                ],
+            },
+            {
+                "symbol_key": "GENE2",
+                "assembly_name": "GRCh38",
+                "omim_diseases": [],
+                "clingen_dosage_assertions": [
+                    {"haploinsufficiency": "30", "description": "Gene associated with autosomal recessive phenotype"}
+                ],
+            },
+            {
+                "symbol_key": "GENE3",
+                "assembly_name": "GRCh38",
+                "omim_diseases": [],
+                "clingen_dosage_assertions": [
+                    {
+                        "hgnc_id": "HGNC:3",
+                        "haploinsufficiency": "Dosage Sensitivity Unlikely",
+                        "triplosensitivity": "Little Evidence for Triplosensitivity",
+                        # Only a web page is linked.
+                        "online_report": "javascript:alert(1)",
+                    }
+                ],
+            },
+            {"symbol_key": "GENE4", "assembly_name": "GRCh38", "omim_diseases": [], "clingen_dosage_assertions": [{}]},
+        ],
+    )
+
+    links = _disease_links(session, ["GENE1", "GENE2", "GENE3", "GENE4", "GENE5"])
+
+    def dosage(entry):
+        if entry.dosage is None:
+            return None
+        return (
+            entry.dosage.haploinsufficiency_score,
+            entry.dosage.haploinsufficiency,
+            entry.dosage.triplosensitivity_score,
+            entry.dosage.triplosensitivity,
+            entry.dosage.report_url,
+        )
+
+    assert [dosage(entry) for entry in links] == [
+        (
+            3,
+            "Sufficient Evidence for Haploinsufficiency",
+            0,
+            "No Evidence for Triplosensitivity",
+            "https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1",
+        ),
+        # dbNSFP's copy writes the score; its words come from the description.
+        (30, "Gene associated with autosomal recessive phenotype", None, None, None),
+        (40, "Dosage Sensitivity Unlikely", 1, "Little Evidence for Triplosensitivity", None),
+        None,
+        None,
+    ]
+
+
+def test_disease_links_place_the_gene_on_the_acmg_sf_list_only_as_the_list_was_read() -> None:
+    listed = {
+        "list": "ACMG SF",
+        "version": "3.3",
+        "gene": "GENE1",
+        "hgnc_id": "HGNC:1",
+        "phenotype": "Some cardiomyopathy",
+        "category": "Cardiovascular",
+        "inheritance": "AD",
+        "variants_to_report": "All P and LP",
+        "source_url": "https://example.test/acmg-sf",
+    }
+
+    def reference(symbol: str, entry: Any, status: Any) -> dict:
+        return {
+            "symbol_key": symbol,
+            "assembly_name": "GRCh38",
+            "omim_diseases": [],
+            "acmg_secondary_finding": entry,
+            "acmg_sf_status": status,
+        }
+
+    session = _DiseaseLinkSession(
+        monarch_rows=[],
+        reference_rows=[
+            reference("GENE1", listed, {"status": "success"}),
+            reference("GENE2", None, {"status": "missing"}),
+            reference("GENE3", None, {"status": "error"}),
+            reference("GENE4", None, {"status": "not_consulted"}),
+            reference("GENE5", {**listed, "source_url": "javascript:alert(1)"}, {"status": "success"}),
+        ],
+    )
+
+    links = _disease_links(session, ["GENE1", "GENE2", "GENE3", "GENE4", "GENE5", "GENE6"])
+
+    sf = [entry.acmg_secondary_finding for entry in links]
+    assert (sf[0].status, sf[0].version, sf[0].phenotype, sf[0].category, sf[0].inheritance) == (
+        "listed",
+        "3.3",
+        "Some cardiomyopathy",
+        "Cardiovascular",
+        "AD",
+    )
+    assert (sf[0].variants_to_report, sf[0].source_url) == ("All P and LP", "https://example.test/acmg-sf")
+    # "Not on the list" only where the list was read for the gene; a list that could not be
+    # read, or a gene no sync read it for (GENE6 has no gene reference at all), says so.
+    assert [entry.status for entry in sf[1:]] == ["not_listed", "unread", "not_consulted", "listed", "not_consulted"]
+    assert sf[1].version is None
+    # Only a web page is linked.
+    assert sf[4].source_url is None

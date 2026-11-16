@@ -242,6 +242,77 @@ button.sv-second-hit-badge--del:hover {
   font-weight: 500;
 }
 
+/* A named disease opens its page in Monarch (or OMIM): the name keeps the line's colour and
+   shows it is a link by its underline. */
+.variant-card-disease-link {
+  color: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.variant-card-disease-link:hover,
+.variant-card-disease-link:focus-visible {
+  color: var(--color-link);
+  text-decoration-style: solid;
+}
+
+/* The gene's curated modes of inheritance and its ClinGen dosage curation, one line under its
+   diseases. */
+.variant-card-gene-curation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1.25rem;
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+
+.variant-card-gene-fact {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.variant-card-gene-fact-link {
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+
+.variant-card-gene-fact-link:hover,
+.variant-card-gene-fact-link:focus-visible {
+  color: var(--color-link);
+  border-bottom-style: solid;
+}
+
+/* A mode of inheritance: dominant and recessive in colours of their own, which no variant
+   status uses, so a gene with both reads as such at a glance. */
+.variant-card-moi {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--color-border);
+  padding: 0 0.375rem;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  line-height: 1.125rem;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.variant-card-moi--dominant {
+  border-color: rgba(37, 78, 140, 0.35);
+  background: rgba(37, 78, 140, 0.1);
+  color: #254e8c;
+}
+
+.variant-card-moi--recessive {
+  border-color: rgba(18, 112, 122, 0.35);
+  background: rgba(18, 112, 122, 0.1);
+  color: #12707a;
+}
+
 /* The priority breakdown reads as one line under the gene: score, rank, the four parts
    and the inheritance it rests on. */
 .variant-card-priority {
@@ -507,6 +578,43 @@ a.variant-card-gene:hover {
 .variant-card-cytoband {
   margin-left: 0.25rem;
   color: var(--color-text-muted);
+}
+
+/* How a predictor's value reads, as a dot before it in seqr's colours: strong benign, benign,
+   indeterminate, supporting, moderate and strong pathogenic. */
+.variant-card-predictor-mark {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.3125rem;
+  border-radius: 50%;
+  vertical-align: 0.0625rem;
+  background: #767676;
+}
+
+.variant-card-predictor-mark--benign-strong {
+  background: #21ba45;
+}
+
+.variant-card-predictor-mark--benign {
+  background: #b5cc18;
+}
+
+.variant-card-predictor-mark--indeterminate {
+  background: #a0a0a0;
+}
+
+.variant-card-predictor-mark--pathogenic-supporting {
+  background: #fbbd08;
+}
+
+.variant-card-predictor-mark--pathogenic {
+  background: #db2828;
+}
+
+.variant-card-predictor-mark--pathogenic-strong {
+  background: #8b0000;
 }
 
 .variant-card-col .variant-transcript-trigger {
@@ -791,6 +899,22 @@ a.variant-card-gene:hover {
      them — which floated a short list (population frequencies especially) into the
      vertical middle of its cell. Pack the rows to the top instead. */
   align-content: start;
+}
+
+/* A section with long names and longer values takes the disclosure's whole width, under the
+   others, so a value reads in lines rather than a few characters at a time. */
+.variant-card-section--wide {
+  grid-column: 1 / -1;
+}
+
+/* Its names wrap at 18rem rather than widening the key column over the values. */
+.variant-card-detail-list--wide {
+  grid-template-columns: fit-content(18rem) minmax(0, 1fr);
+  column-gap: 1rem;
+}
+
+.variant-card-detail-list--wide dt {
+  overflow-wrap: break-word;
 }
 
 .variant-card-note-box {

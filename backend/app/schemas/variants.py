@@ -205,6 +205,9 @@ class VariantOut(ApiDocumentModel):
     rsid: Optional[str] = None
     hgvsc: Optional[str] = None
     hgvsp: Optional[str] = None
+    # A small variant's genomic HGVS as VEP wrote it (its HGVSg field), of the ALT the
+    # primary transcript's annotation is of. None where the annotation has no HGVSg.
+    hgvsg: Optional[str] = None
     canonical: bool = False
     mane_select: bool = False
     mane_plus_clinical: bool = False

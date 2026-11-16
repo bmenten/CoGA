@@ -146,16 +146,29 @@ export const formatLocus = (variant: Pick<SmallVariant, 'chr' | 'start' | 'end'>
   ).toLocaleString()}`;
 };
 
-// The genomic change in g. notation, derived from the VCF-style chr/pos/ref/alt the API
-// returns. It is *not* HGVS-compliant, and the card does not call it HGVS: the
-// reference is named by its UCSC-style chromosome rather than a versioned RefSeq accession,
+// The card's HGVS.g is VEP's own (the annotation's HGVSg) where the pipeline ran VEP with
+// --hgvsg. Without it, the card derives the change in g. notation from the VCF-style
+// chr/pos/ref/alt the API returns, which is not HGVS-normalised, and the label's note says so:
+// the reference is named by its UCSC-style chromosome rather than a versioned RefSeq accession,
 // a change in a repeat is not shifted 3′, and a duplication is written as an insertion,
 // because deciding `dup` or shifting needs the flanking reference sequence the client does
 // not have. The assembly is stated on the analysis page.
+export const VEP_HGVSG_NOTE = 'The genomic HGVS as VEP wrote it in the annotation (HGVSg).';
+
 export const GENOMIC_CHANGE_NOTE =
-  'The change in g. notation from the VCF record. Not HGVS-normalised: no 3′ shift, a ' +
-  'duplication is written as an insertion, and the chromosome is named rather than its ' +
-  'RefSeq accession.';
+  'The change in g. notation from the VCF record, as the annotation has no HGVSg. Not ' +
+  'HGVS-normalised: no 3′ shift, a duplication is written as an insertion, and the ' +
+  'chromosome is named rather than its RefSeq accession.';
+
+// VEP writes HGVSc and HGVSp on their accession (`ENST00000357654.9:c.68_69del`,
+// `ENSP00000350283.3:p.Glu23ValfsTer17`). The card names the transcript once, above them, and
+// shows the change alone.
+export const hgvsWithoutAccession = (value?: string | null): string | null => {
+  const text = (value || '').trim();
+  if (!text) return null;
+  const match = /^[^\s:]+:([cgmnpr]\..*)$/.exec(text);
+  return match ? match[1] : text;
+};
 
 export const formatGenomicChange = (
   variant: Pick<SmallVariant, 'chr' | 'start' | 'ref' | 'alt'>,

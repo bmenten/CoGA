@@ -38,6 +38,7 @@ _KNOWN_ANNOTATION_KEYS = {
     "transcript_biotype",
     "hgvsc",
     "hgvsp",
+    "hgvsg",
     "canonical",
     "mane_select",
     "mane_plus_clinical",

@@ -22,6 +22,7 @@ import {
   formatFrequency,
   formatCompoundHetPhaseStatus,
   GENOMIC_CHANGE_NOTE,
+  VEP_HGVSG_NOTE,
   formatClinvarStars,
   formatGenomicChange,
   formatLocus,
@@ -32,6 +33,7 @@ import {
   getClinvarHighlightTone,
   getClinvarTone,
   getImpactTone,
+  hgvsWithoutAccession,
   parseVariantIds,
   reviewClassChips,
   sortReviewTagKeys,
@@ -46,7 +48,17 @@ import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
 import { geneDiseaseKey, useGeneDiseaseLinks } from './geneDiseaseLinks';
-import { GeneDiseaseSummaryLine, VariantGeneDiseases } from './VariantGeneDiseases';
+import { GeneCurationLine, GeneDiseaseSummaryLine, VariantGeneDiseases } from './VariantGeneDiseases';
+import {
+  alphaMissenseTone,
+  caddTone,
+  polyphenTone,
+  PREDICTOR_TONE_LABELS,
+  revelTone,
+  siftTone,
+  spliceAiTone,
+  type PredictorTone,
+} from './inSilicoTones';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 const GENOTYPE_COLUMNS: GenotypeColumn[] = [
@@ -191,6 +203,31 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
     primary: true,
   };
   return normalizeTranscriptFlags([primary, ...listed]);
+};
+
+interface SilicoRow {
+  label: string;
+  value: string;
+  // How the value reads, for the mark before it; null for a gene constraint, which has none.
+  tone: PredictorTone | null;
+  // What the thresholds behind the mark are.
+  basis?: string;
+}
+
+const SEQR_THRESHOLDS = "seqr's thresholds, from ClinGen's PP3/BP4 calibration";
+
+/** The coloured mark before a predictor's value, as seqr shows it. */
+const PredictorMark = ({ row }: { row: SilicoRow }) => {
+  if (!row.tone) return null;
+  const reading = `${row.label} ${row.value}: ${PREDICTOR_TONE_LABELS[row.tone]}`;
+  return (
+    <span
+      className={`variant-card-predictor-mark variant-card-predictor-mark--${row.tone}`}
+      role="img"
+      aria-label={PREDICTOR_TONE_LABELS[row.tone]}
+      title={row.basis ? `${reading} (${row.basis})` : reading}
+    />
+  );
 };
 
 const transcriptRegionLabel = (transcript: SmallVariantTranscript) =>
@@ -498,6 +535,13 @@ const annotationExtraLabel = (key: string): string => {
   return key.replace(/_/g, ' ');
 };
 
+// A list (several ClinVar conditions) as one line, an object as its JSON, never "[object Object]".
+const annotationExtraValue = (value: unknown): string => {
+  if (Array.isArray(value)) return value.map((item) => annotationExtraValue(item)).join('; ');
+  if (value !== null && typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
 // Detail-disclosure annotations, built only when a card's "More annotations"
 // section is open (see openCardIds) so collapsed cards skip this per-render work.
 const buildVariantDetailData = (variant: SmallVariant) => {
@@ -647,8 +691,8 @@ export default function SmallVariantCards({
         const visibleReviewTags = reviewClass.tagKeys;
 
         const consequenceLabel = formatTokenLabel(variant.effect);
-        // The headline's genomic change carries the variant's position, in the notation a
-        // report is written in.
+        // The change in g. notation from the VCF record: the card's HGVS.g where the annotation
+        // has no HGVSg of VEP's, and what an excluded card is named by.
         const genomicChange = formatGenomicChange(variant);
         const variantIds = parseVariantIds(variant.rsid);
         const popFreq = variant.population_frequencies || {};
@@ -682,18 +726,53 @@ export default function SmallVariantCards({
             ? [{ label: 'gnomAD hom', value: String(variant.gnomad_hom_count), href: undefined }]
             : []),
         ].filter((row) => row.label === 'gnomAD' || row.value !== '—');
-        const silicoRows = [
-          typeof variant.cadd_phred === 'number' ? { label: 'CADD', value: formatScore(variant.cadd_phred) } : null,
-          typeof variant.revel === 'number' ? { label: 'REVEL', value: formatScore(variant.revel) } : null,
-          alphaMissense ? { label: 'AlphaMissense', value: alphaMissense } : null,
-          typeof variant.spliceai_max === 'number' ? { label: 'SpliceAI', value: formatSpliceAi(variant) ?? '—' } : null,
-          variant.sift ? { label: 'SIFT', value: formatPredictionScore(variant.sift) } : null,
-          variant.polyphen
-            ? { label: 'PolyPhen', value: formatPredictionScore(variant.polyphen) }
+        // Each predictor with a mark for how its value reads; pLI and Missense Z are the gene's
+        // constraint, not a prediction for the variant, and have none.
+        const silicoCandidates: Array<SilicoRow | null> = [
+          typeof variant.cadd_phred === 'number'
+            ? { label: 'CADD', value: formatScore(variant.cadd_phred), tone: caddTone(variant.cadd_phred), basis: SEQR_THRESHOLDS }
             : null,
-          typeof variant.gene_pli === 'number' ? { label: 'pLI', value: formatScore(variant.gene_pli, 3) } : null,
-          typeof variant.gene_missense_z === 'number' ? { label: 'Missense Z', value: formatScore(variant.gene_missense_z) } : null,
-        ].filter((item): item is { label: string; value: string } => Boolean(item));
+          typeof variant.revel === 'number'
+            ? { label: 'REVEL', value: formatScore(variant.revel), tone: revelTone(variant.revel), basis: SEQR_THRESHOLDS }
+            : null,
+          alphaMissense
+            ? {
+                label: 'AlphaMissense',
+                value: alphaMissense,
+                tone: alphaMissenseTone(variant.alpha_missense_pathogenicity, variant.alpha_missense_class),
+                basis:
+                  typeof variant.alpha_missense_pathogenicity === 'number'
+                    ? SEQR_THRESHOLDS
+                    : 'its class, as the ACMG evaluation reads it',
+              }
+            : null,
+          typeof variant.spliceai_max === 'number'
+            ? {
+                label: 'SpliceAI',
+                value: formatSpliceAi(variant) ?? '—',
+                tone: spliceAiTone(variant.spliceai_max),
+                basis: 'the SpliceAI cut-offs of the ACMG evaluation',
+              }
+            : null,
+          variant.sift
+            ? { label: 'SIFT', value: formatPredictionScore(variant.sift), tone: siftTone(variant.sift), basis: SEQR_THRESHOLDS }
+            : null,
+          variant.polyphen
+            ? {
+                label: 'PolyPhen',
+                value: formatPredictionScore(variant.polyphen),
+                tone: polyphenTone(variant.polyphen),
+                basis: SEQR_THRESHOLDS,
+              }
+            : null,
+          typeof variant.gene_pli === 'number'
+            ? { label: 'pLI', value: formatScore(variant.gene_pli, 3), tone: null }
+            : null,
+          typeof variant.gene_missense_z === 'number'
+            ? { label: 'Missense Z', value: formatScore(variant.gene_missense_z), tone: null }
+            : null,
+        ];
+        const silicoRows = silicoCandidates.filter((item): item is SilicoRow => Boolean(item));
         const ic = variant.internal_cohort;
 
         return (
@@ -728,9 +807,6 @@ export default function SmallVariantCards({
                     href={buildSvSecondHitHref(variant, familyId, projectId)}
                   />
                 ) : null}
-                <span className="variant-card-subtitle">
-                  {variant.hgvsc || consequenceLabel}
-                </span>
               </div>
               <div className="variant-card-headtags">
                 {variant.clinvar ? (
@@ -783,11 +859,13 @@ export default function SmallVariantCards({
             {isExcluded && !excludedCards.isUnfolded(variant._id) ? null : (
               <>
                 {/* Which diseases the gene is linked to, at a glance; every link is under
-                    "More annotations & detail". */}
+                    "More annotations & detail". Then the gene's curated modes of inheritance
+                    and its ClinGen dosage curation. */}
                 <GeneDiseaseSummaryLine
                   {...geneDiseaseState}
                   onShowAll={() => handleCardToggle(variant._id, true)}
                 />
+                <GeneCurationLine links={geneDiseaseState.links} />
 
                 {variant.nipt ? <NiptClassificationBlock nipt={variant.nipt} /> : null}
 
@@ -811,8 +889,7 @@ export default function SmallVariantCards({
                 ) : null}
 
                 <div className="variant-card-cols">
-                  <section className="variant-card-col">
-                    <p className="variant-card-col-title">Variant</p>
+                  <section className="variant-card-col" aria-label="Variant">
                     {transcripts.length || variant.mane_select || variant.canonical || variant.alt_allele ? (
                       // MANE and Canonical describe this transcript, so they ride with the
                       // accession rather than sitting up with the consequence.
@@ -858,23 +935,26 @@ export default function SmallVariantCards({
                     />
                     <dl className="variant-card-mini-dl">
                       <div>
+                        {/* VEP's HGVSg where the annotation has it; else derived from the
+                            VCF record, which the label's note says is not normalised. */}
                         <dt>
-                          <abbr title={GENOMIC_CHANGE_NOTE}>Genomic change</abbr>
+                          <abbr title={variant.hgvsg ? VEP_HGVSG_NOTE : GENOMIC_CHANGE_NOTE}>HGVS.g</abbr>
                         </dt>
                         <dd>
-                          {genomicChange || '—'}
+                          {variant.hgvsg || genomicChange || '—'}
                           {variant.cytoband ? (
                             <span className="variant-card-cytoband">({variant.cytoband})</span>
                           ) : null}
                         </dd>
                       </div>
+                      {/* On the transcript named above, so without its accession. */}
                       <div>
                         <dt>HGVS.c</dt>
-                        <dd>{variant.hgvsc || '—'}</dd>
+                        <dd>{hgvsWithoutAccession(variant.hgvsc) || '—'}</dd>
                       </div>
                       <div>
                         <dt>HGVS.p</dt>
-                        <dd>{variant.hgvsp || '—'}</dd>
+                        <dd>{hgvsWithoutAccession(variant.hgvsp) || '—'}</dd>
                       </div>
                       <div>
                         <dt>Alleles</dt>
@@ -1023,7 +1103,10 @@ export default function SmallVariantCards({
                         {silicoRows.map((item) => (
                           <div key={item.label}>
                             <dt>{item.label}</dt>
-                            <dd>{item.value}</dd>
+                            <dd>
+                              <PredictorMark row={item} />
+                              {item.value}
+                            </dd>
                           </div>
                         ))}
                       </dl>
@@ -1133,27 +1216,6 @@ export default function SmallVariantCards({
                       <VariantGeneDiseases {...geneDiseaseState} />
                     </div>
                     <div className="variant-card-section">
-                      <p className="variant-card-section-title">Other scores &amp; annotations</p>
-                      {scoreItems.length || additionalAnnotations.length ? (
-                        <dl className="variant-card-detail-list">
-                          {scoreItems.map((item) => (
-                            <div key={item.label} className="variant-card-detail-row">
-                              <dt>{item.label}</dt>
-                              <dd>{item.value}</dd>
-                            </div>
-                          ))}
-                          {additionalAnnotations.map(([label, value]) => (
-                            <div key={label} className="variant-card-detail-row">
-                              <dt>{annotationExtraLabel(label)}</dt>
-                              <dd>{String(value)}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                      ) : (
-                        <p className="variant-card-empty-note">No further annotations imported.</p>
-                      )}
-                    </div>
-                    <div className="variant-card-section">
                       <p className="variant-card-section-title">All population frequencies</p>
                       {frequencyItems.length ? (
                         <dl className="variant-card-stat-list">
@@ -1195,6 +1257,30 @@ export default function SmallVariantCards({
                         </div>
                       </div>
                     ) : null}
+                    {/* The full width of the card: its names are long and its values (ClinVar's
+                        conditions above all) longer, which a column of its own squeezed into a
+                        few characters a line. */}
+                    <div className="variant-card-section variant-card-section--wide">
+                      <p className="variant-card-section-title">Other scores &amp; annotations</p>
+                      {scoreItems.length || additionalAnnotations.length ? (
+                        <dl className="variant-card-detail-list variant-card-detail-list--wide">
+                          {scoreItems.map((item) => (
+                            <div key={item.label} className="variant-card-detail-row">
+                              <dt>{item.label}</dt>
+                              <dd>{item.value}</dd>
+                            </div>
+                          ))}
+                          {additionalAnnotations.map(([label, value]) => (
+                            <div key={label} className="variant-card-detail-row">
+                              <dt>{annotationExtraLabel(label)}</dt>
+                              <dd>{annotationExtraValue(value)}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : (
+                        <p className="variant-card-empty-note">No further annotations imported.</p>
+                      )}
+                    </div>
                   </div>
                   )}
                 </details>

@@ -1646,6 +1646,7 @@ def _small_variant_out(
         transcript_biotype=_annotation_text(annotation, "transcript_biotype"),
         hgvsc=_annotation_text(annotation, "hgvsc"),
         hgvsp=_annotation_text(annotation, "hgvsp"),
+        hgvsg=_annotation_text(annotation, "hgvsg"),
         canonical=_annotation_bool(annotation, "canonical"),
         mane_select=_annotation_bool(annotation, "mane_select"),
         mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical"),

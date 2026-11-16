@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 from fastapi import HTTPException
@@ -11,13 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
 from ..schemas import (
+    GeneAcmgSecondaryFindingOut,
     GeneAssemblyLocationOut,
     GeneDiseaseLinksOut,
     GeneDiseaseMonarchOut,
     GeneDiseaseOmimOut,
+    GeneDosageSensitivityOut,
     GeneExternalLinkOut,
     GeneHomologOut,
     GeneInfoSourceStatusOut,
+    GeneInheritanceOut,
     GeneMonarchAssociationOut,
     GenePanelMembershipOut,
     GeneProfileOut,
@@ -25,6 +28,7 @@ from ..schemas import (
     GeneTranscriptOut,
     PhenotypeTermRefOut,
 )
+from ..schemas.genes import InheritanceMode
 from .data_scope import is_primary_chromosome
 from .gene_info_jobs_pg import _assembly_priority, _get_human_context
 from .metadata_service import get_accessible_family_mapping
@@ -437,6 +441,166 @@ def _omim_disease_entries(value: Any) -> list[GeneDiseaseOmimOut]:
     return entries
 
 
+# The modes a card names, in the order it names them, with their words.
+_INHERITANCE_LABELS: dict[InheritanceMode, str] = {
+    "AD": "Autosomal dominant",
+    "AR": "Autosomal recessive",
+    "SD": "Semidominant",
+    "XLD": "X-linked dominant",
+    "XLR": "X-linked recessive",
+    "XL": "X-linked",
+    "MT": "Mitochondrial",
+    "YL": "Y-linked",
+}
+
+# A gene–disease relationship counts for its mode only at one of these classifications,
+# strongest first: a Limited, Disputed, Refuted or animal-model-only relationship, or one
+# without a classification, does not.
+_COUNTED_CLASSIFICATIONS = ("definitive", "strong", "moderate", "supportive")
+
+
+def _inheritance_mode(value: Any) -> InheritanceMode | None:
+    """The mode a curation's inheritance names: ClinGen writes AD/AR/XL/SD/MT, GenCC words
+    ("Autosomal recessive", "X-linked"). An unknown, undetermined or other mode is none."""
+    words = " ".join(str(value or "").lower().replace("_", " ").replace("-", " ").split())
+    code = words.upper()
+    if code in _INHERITANCE_LABELS:
+        return cast(InheritanceMode, code)
+    if "semidominant" in words or "semi dominant" in words:
+        return "SD"
+    for phrase, mode in (
+        ("autosomal dominant", "AD"),
+        ("autosomal recessive", "AR"),
+        ("x linked dominant", "XLD"),
+        ("x linked recessive", "XLR"),
+        ("x linked", "XL"),
+        ("mitochondrial", "MT"),
+        ("y linked", "YL"),
+    ):
+        if phrase in words:
+            return cast(InheritanceMode, mode)
+    return None
+
+
+def _inheritance_entries(gencc: Any, clingen_validity: Any) -> list[GeneInheritanceOut]:
+    """The modes of inheritance GenCC's and ClinGen's gene–disease curations name for the gene.
+
+    One entry per mode, in the card's order, each naming the curations that state it (source
+    and classification, strongest first).
+    """
+    evidence: dict[InheritanceMode, set[tuple[int, str]]] = defaultdict(set)
+    for source, assertions, mode_key, class_key in (
+        ("GenCC", gencc, "moi_title", "classification_title"),
+        ("ClinGen", clingen_validity, "moi", "classification"),
+    ):
+        if not isinstance(assertions, list):
+            continue
+        for assertion in assertions:
+            if not isinstance(assertion, dict):
+                continue
+            mode = _inheritance_mode(assertion.get(mode_key))
+            classification = " ".join(str(assertion.get(class_key) or "").split())
+            if mode is None or classification.lower() not in _COUNTED_CLASSIFICATIONS:
+                continue
+            rank = _COUNTED_CLASSIFICATIONS.index(classification.lower())
+            evidence[mode].add((rank, f"{source} {classification.capitalize()}"))
+    return [
+        GeneInheritanceOut(
+            mode=mode,
+            label=label,
+            evidence=[text for _rank, text in sorted(evidence[mode])],
+        )
+        for mode, label in _INHERITANCE_LABELS.items()
+        if evidence.get(mode)
+    ]
+
+
+# ClinGen's dosage scores by the words its curations use, the more specific first.
+_DOSAGE_SCORE_WORDS = (
+    ("unlikely", 40),
+    ("recessive", 30),
+    ("no evidence", 0),
+    ("little evidence", 1),
+    ("emerging evidence", 2),
+    ("some evidence", 2),
+    ("sufficient evidence", 3),
+)
+_DOSAGE_SCORES = {0, 1, 2, 3, 30, 40}
+_WEB_URL_PATTERN = re.compile(r"https?://\S+")
+
+
+def _dosage_score(value: Any) -> int | None:
+    """ClinGen's score for a curation, written as the score ("3") or in its words."""
+    words = " ".join(str(value or "").lower().split())
+    if not words:
+        return None
+    if words.isdigit():
+        return int(words) if int(words) in _DOSAGE_SCORES else None
+    return next((score for phrase, score in _DOSAGE_SCORE_WORDS if phrase in words), None)
+
+
+def _clean_text(value: Any) -> str | None:
+    return " ".join(str(value or "").split()) or None
+
+
+def _dosage_entry(value: Any) -> GeneDosageSensitivityOut | None:
+    """ClinGen's dosage curation of the gene, from ClinGen's own file where the gene reference
+    holds it (both curations, the report page), else dbNSFP's copy of its haploinsufficiency
+    score. None when neither states a curation."""
+    if not isinstance(value, list):
+        return None
+    entries = [entry for entry in value if isinstance(entry, dict)]
+    clingen_file = [
+        entry
+        for entry in entries
+        if any(key in entry for key in ("hgnc_id", "triplosensitivity", "online_report", "date"))
+    ]
+    for entry in clingen_file or entries:
+        haploinsufficiency = _clean_text(entry.get("haploinsufficiency"))
+        triplosensitivity = _clean_text(entry.get("triplosensitivity"))
+        hi_score = _dosage_score(haploinsufficiency)
+        ts_score = _dosage_score(triplosensitivity)
+        # dbNSFP's copy writes the score, with ClinGen's words beside it.
+        if haploinsufficiency is not None and haploinsufficiency.isdigit():
+            haploinsufficiency = _clean_text(entry.get("description"))
+        if hi_score is None and ts_score is None and haploinsufficiency is None and triplosensitivity is None:
+            continue
+        report = _clean_text(entry.get("online_report"))
+        return GeneDosageSensitivityOut(
+            haploinsufficiency_score=hi_score,
+            haploinsufficiency=haploinsufficiency,
+            triplosensitivity_score=ts_score,
+            triplosensitivity=triplosensitivity,
+            report_url=report if report is not None and _WEB_URL_PATTERN.fullmatch(report) else None,
+        )
+    return None
+
+
+def _acmg_secondary_finding_entry(entry: Any, status: Any) -> GeneAcmgSecondaryFindingOut:
+    """The gene's place on the ACMG SF list: its entry where the gene reference holds one, else
+    what the reference's reading of the list for the gene says (``source_status.acmg_sf``): a
+    list read without the gene is ``not_listed``, a list that could not be read ``unread``. A
+    missing chip on the card must never stand for a list nobody read."""
+    if isinstance(entry, dict):
+        source_url = _clean_text(entry.get("source_url"))
+        return GeneAcmgSecondaryFindingOut(
+            status="listed",
+            version=_clean_text(entry.get("version")),
+            phenotype=_clean_text(entry.get("phenotype")),
+            category=_clean_text(entry.get("category")),
+            inheritance=_clean_text(entry.get("inheritance")),
+            variants_to_report=_clean_text(entry.get("variants_to_report")),
+            source_url=source_url if source_url is not None and _WEB_URL_PATTERN.fullmatch(source_url) else None,
+        )
+    read = status.get("status") if isinstance(status, dict) else None
+    if read == "missing":
+        return GeneAcmgSecondaryFindingOut(status="not_listed")
+    if read in ("error", "success"):
+        # "success" without the entry it writes is a reading the card cannot state either way.
+        return GeneAcmgSecondaryFindingOut(status="unread")
+    return GeneAcmgSecondaryFindingOut(status="not_consulted")
+
+
 async def list_gene_disease_links(
     session: AsyncSession,
     *,
@@ -447,7 +611,9 @@ async def list_gene_disease_links(
     One entry per symbol asked, in the order asked and matched without regard to case; a
     symbol asked twice gets one entry. A gene with no link has empty lists. Monarch's links are
     read as the gene profile reads them (causal first, then by name). OMIM's come from the gene
-    reference of the first human assembly that holds the gene, GRCh38 first.
+    reference of the first human assembly that holds the gene, GRCh38 first, and so do the
+    gene's modes of inheritance (GenCC, ClinGen gene–disease validity), its ClinGen dosage
+    curation and its place on the ACMG SF list.
     """
     asked: dict[str, str] = {}
     for symbol in symbols:
@@ -488,7 +654,12 @@ async def list_gene_disease_links(
             SELECT
                 upper(g.hgnc_symbol) AS symbol_key,
                 a.assembly_name,
-                g.extra->'omim_diseases' AS omim_diseases
+                g.extra->'omim_diseases' AS omim_diseases,
+                g.extra->'gencc_assertions' AS gencc_assertions,
+                g.extra->'clingen_validity_assertions' AS clingen_validity_assertions,
+                g.extra->'clingen_dosage_assertions' AS clingen_dosage_assertions,
+                g.extra->'acmg_secondary_finding' AS acmg_secondary_finding,
+                g.source_status->'acmg_sf' AS acmg_sf_status
             FROM gene_info g
             JOIN assemblies a ON a.id = g.assembly_id
             WHERE upper(g.hgnc_symbol) = ANY(CAST(:symbols AS text[]))
@@ -499,16 +670,25 @@ async def list_gene_disease_links(
     reference_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in reference_result.mappings().all():
         reference_rows[str(row["symbol_key"])].append(dict(row))
-    omim: dict[str, list[GeneDiseaseOmimOut]] = {}
-    for key, rows in reference_rows.items():
-        first = min(rows, key=lambda row: _assembly_priority(str(row["assembly_name"])))
-        omim[key] = _omim_disease_entries(first.get("omim_diseases"))
+    reference: dict[str, dict[str, Any]] = {
+        key: min(rows, key=lambda row: _assembly_priority(str(row["assembly_name"])))
+        for key, rows in reference_rows.items()
+    }
 
     return [
         GeneDiseaseLinksOut(
             symbol=symbol,
             monarch=monarch.get(key, []),
-            omim=omim.get(key, []),
+            omim=_omim_disease_entries(reference.get(key, {}).get("omim_diseases")),
+            inheritance=_inheritance_entries(
+                reference.get(key, {}).get("gencc_assertions"),
+                reference.get(key, {}).get("clingen_validity_assertions"),
+            ),
+            dosage=_dosage_entry(reference.get(key, {}).get("clingen_dosage_assertions")),
+            acmg_secondary_finding=_acmg_secondary_finding_entry(
+                reference.get(key, {}).get("acmg_secondary_finding"),
+                reference.get(key, {}).get("acmg_sf_status"),
+            ),
         )
         for key, symbol in asked.items()
     ]

@@ -47,6 +47,7 @@ const ABSENT_VARIANT_FIELDS: Omit<
   rsid: null,
   hgvsc: null,
   hgvsp: null,
+  hgvsg: null,
   canonical: false,
   mane_select: false,
   mane_plus_clinical: false,
