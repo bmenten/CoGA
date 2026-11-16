@@ -94,7 +94,7 @@ are not installed in the production image, and the non-blocking dev-tree audit r
 
 | Component | Version | Function | Risk |
 | --- | --- | --- | --- |
-| PostgreSQL | 16 — compose and CI pinned by digest (`postgres:16@sha256:5db6dac…`); Cloud SQL `POSTGRES_16` | Metadata, review state, audit, sign-out | H |
+| PostgreSQL | 16 — compose and CI pinned by digest (`postgres:16@sha256:f9a7b9e…`); Cloud SQL `POSTGRES_16` | Metadata, review state, audit, sign-out | H |
 | ClickHouse | 26.8 LTS (26.8.36.3) — compose, CI and the Terraform VM pinned by digest (`clickhouse-server:26.8@sha256:d426d2f…`) | Variant & interval-track store | H |
 | Backend base image | `python:3.12-slim@sha256:a6e34c5…` (Python 3.12.15) | Runtime packaging | M |
 | Frontend base image | `node:22-alpine@sha256:fe4f6d7…` | Runtime packaging | M |
