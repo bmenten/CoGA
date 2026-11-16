@@ -29,6 +29,11 @@ A variant with a conflicting or uncertain ClinVar record is drawn by its impact.
 ring in the tag's colour around the mark; the mark itself does not change. Hover a mark for its impact,
 ClinVar status and parental origin.
 
+In a window of 250 kb or less the track draws every variant of the sample. In a wider window it draws
+only the variants that are ClinVar pathogenic or likely pathogenic, or of HIGH or MODERATE impact on a
+transcript and not ClinVar benign or likely benign; its head says so. Zoom in to 250 kb or less to see
+the others, such as a review-tagged variant of LOW impact. The small-variant list is not affected.
+
 When the sample shown has a parent in the family, the track has three rows: variants inherited from the
 father (top), from the mother (bottom), and of unknown origin (middle: homozygous, de novo or
 ambiguous). The origin comes from the parents' genotypes when both are there, otherwise from the phased

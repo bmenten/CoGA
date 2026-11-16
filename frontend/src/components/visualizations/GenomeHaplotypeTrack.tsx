@@ -4,7 +4,7 @@ import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
 import type { HaplotypeResponse, HaplotypeSegment } from '../../lib/apiSchema.generated';
 import {
-  drawHaplotypeRiskOverlay,
+  drawHaplotypeRiskLane,
   haplotypeLaneColor,
   haplotypeRiskPattern,
   readHaplotypePalette,
@@ -233,7 +233,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
           ctx.stroke();
         }
         if (riskKind) {
-          drawHaplotypeRiskOverlay(ctx, x1, y, w, rectHeight, palette.risk[riskKind], {
+          drawHaplotypeRiskLane(ctx, x1, y, w, rectHeight, palette.risk[riskKind], {
             pattern: haplotypeRiskPattern(riskKind),
           });
         }

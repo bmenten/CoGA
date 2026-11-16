@@ -1,10 +1,19 @@
 import { fireEvent, render, within } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));
+const { useQueryMock, riskLaneMock, riskTintMock } = vi.hoisted(() => ({
+  useQueryMock: vi.fn(),
+  riskLaneMock: vi.fn(),
+  riskTintMock: vi.fn(),
+}));
 
 vi.mock('@tanstack/react-query', () => ({ useQuery: useQueryMock, keepPreviousData: (previous: unknown) => previous }));
 vi.mock('../../lib/api', () => ({ default: { get: vi.fn() } }));
+vi.mock('../../lib/haplotypeCanvas', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/haplotypeCanvas')>()),
+  drawHaplotypeRiskLane: riskLaneMock,
+  fillHaplotypeRiskTint: riskTintMock,
+}));
 
 import HaplotypePhasedTrack from '../visualizations/HaplotypePhasedTrack';
 import { NUCLEOTIDE_FALLBACK_COLOR } from '../../lib/phasedMarkers';
@@ -117,6 +126,8 @@ const renderTrack = (showMarkers: boolean, sampleId = 'CHILD') => {
 
 beforeEach(() => {
   useQueryMock.mockReset();
+  riskLaneMock.mockReset();
+  riskTintMock.mockReset();
 });
 
 test('shows an empty message when there are no haplotype segments', () => {
@@ -307,6 +318,14 @@ test('is named with whose haplotypes, where, and the risk state at the ROI', () 
       name: 'Haplotypes of CHILD on chr1:0–1,000; risk state at chr1:400–600: affected / at risk',
     }),
   ).toBeInTheDocument();
+  // Its lane (the paternal one, the top half of the track) is tinted across the block and
+  // bracketed in solid edges; the maternal lane is not marked.
+  expect(riskTintMock).toHaveBeenCalledTimes(1);
+  expect(riskTintMock.mock.calls[0].slice(1, 5)).toEqual([0, 0, 500, 18]);
+  expect(riskLaneMock).toHaveBeenCalledTimes(1);
+  const [, x, top, w, laneHeight, , options] = riskLaneMock.mock.calls[0];
+  expect([x, top, w, laneHeight]).toEqual([0, 0, 500, 18]);
+  expect(options).toEqual({ pattern: 'solid' });
 });
 
 test('a loading, empty or failed track claims no risk state it does not have', () => {

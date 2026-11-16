@@ -19,11 +19,15 @@ disease allele, and calls each embryo from it.
 - **P1** and **P2** (blues) are the father's homologs, **M1** and **M2** (greens) the mother's.
   **Untransmitted** (grey) is a relative's homolog that was not passed down, or one CoGA could not
   place.
-- The disease haplotype has a line under the band: **solid red** (*Affected*) for a dominant or X-linked
-  model, **dashed orange** (*Carrier*) for a recessive one. On the genome overview the line appears only
-  on the ROI's chromosome.
+- The lane of the disease haplotype is highlighted: tinted and edged in **red**, with solid edges
+  (*Affected*), for a dominant or X-linked model, and in **orange**, with dashed edges (*Carrier*), for a
+  recessive one. The band in the lane keeps its homolog's colour. On the genome overview the edges
+  appear only on the ROI's chromosome.
 - The **marker dots** are the raw phased markers. Use them to check that a colour change is a real
-  recombination and not phasing noise. On a very large region they are hidden: zoom in.
+  recombination and not phasing noise. They are drawn in a window of 5 Mb or less; in a wider one the
+  track's head says to zoom in.
+- Next to the track's name, a child's head gives its **informative sites** in the window. When its
+  Mendelian errors point to a sample swap or a wrong pedigree, it gives them instead, in red.
 
 ### The embryo calls
 

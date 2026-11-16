@@ -3636,6 +3636,7 @@ async def get_family_small_variants_page(
     has_notes: bool = False,
     overlap: bool = False,
     require_sv_second_hit: bool = False,
+    salient_only: bool = False,
     prioritize: bool = False,
     rank_by: RankBy = RANK_BY_COMBINED_SCORE,
     track_mode: bool = False,
@@ -3696,6 +3697,7 @@ async def get_family_small_variants_page(
         pass_only=pass_only,
         overlap=overlap,
         require_sv_second_hit=require_sv_second_hit,
+        salient_only=salient_only,
     )
     if count_only:
         # Presence check only (family dashboard): probe the indexed family_guid

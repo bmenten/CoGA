@@ -492,6 +492,20 @@ CASES: dict[str, _Case] = {
     "ClinVar benign left out": _case(
         ALL - {MATERNAL_MNV, PATERNAL_SYNONYMOUS}, exclude_clinvar=["Benign", "Likely_benign"]
     ),
+    # --- the small-variant track's wide window: ClinVar (likely) pathogenic, or HIGH or
+    # MODERATE on a transcript and not ClinVar (likely) benign. HIGH_OFF_MANE is HIGH off its
+    # MANE transcript only; PATERNAL_SYNONYMOUS is MODERATE on one transcript but likely benign. ---
+    "salient only": _case(
+        ALL - {MATERNAL_MNV, PATERNAL_SYNONYMOUS, UNANNOTATED, WITH_RSID}, salient_only=True
+    ),
+    "salient only, in the track's window of a sample": _case(
+        {
+            DE_NOVO_MISSENSE, HIGH_OFF_MANE, MATERNAL_INSERTION, PATERNAL_DELETION, COMMON_PATHOGENIC,
+            LOW_QUALITY, FRACTION_FROM_DEPTHS,
+        },
+        chromosome="11", start=95_100_100, end=95_100_240, overlap=True,
+        sample_filters=[f"{_PROBAND}:het"], salient_only=True,
+    ),
     # --- frequencies (a variant without one passes) ---
     "gnomAD AF": _case(ALL - {MATERNAL_MNV, COMMON_PATHOGENIC}, max_gnomad_af=0.01),
     "gnomAD AF at the value": _case(

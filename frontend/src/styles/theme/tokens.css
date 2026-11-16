@@ -80,13 +80,13 @@
      in lightness (the teal is the lighter), so they stay apart as the APCAD's faint
      dots too: every pair of the four is at least ΔE 18.9 apart (OKLab ×100) for
      normal vision and 15.6 for colour-blind vision, and the teal stays apart from the
-     risk lines' red and orange under red-green colour blindness, where a warmer
+     risk lanes' red and orange under red-green colour blindness, where a warmer
      green falls onto the red. */
   --color-haplotype-father-dark: #2b55a0;
   --color-haplotype-father-light: #7f98d9;
   --color-haplotype-mother-dark: #1f8a70;
   --color-haplotype-mother-light: #90d1b0;
-  /* Risk alleles, marked by a thin line under the homolog fill. */
+  /* The risk haplotype's lane: tinted and edged in these around the homolog's band. */
   --color-haplotype-affected: #c61f2d;
   --color-haplotype-carrier: #d9822e;
   --color-haplotype-unknown: #9ca3af;

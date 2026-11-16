@@ -22,13 +22,17 @@ describe('SmallVariantLegend', () => {
 });
 
 describe('HaplotypeLegend', () => {
-  it('shows a recessive carrier line dashed and an affected line solid', () => {
+  it('shows a risk lane bracketed by edges, dashed for a recessive carrier and solid for an affected one', () => {
     const { container, rerender } = render(<HaplotypeLegend inheritanceModel="recessive" />);
     const carrier = Array.from(container.querySelectorAll<HTMLElement>('.haplotype-legend-swatch')).at(-1);
+    expect(carrier?.parentElement).toHaveTextContent('Carrier');
+    expect(carrier?.style.borderTopStyle).toBe('dashed');
     expect(carrier?.style.borderBottomStyle).toBe('dashed');
 
     rerender(<HaplotypeLegend inheritanceModel="dominant" />);
     const affected = Array.from(container.querySelectorAll<HTMLElement>('.haplotype-legend-swatch')).at(-1);
+    expect(affected?.parentElement).toHaveTextContent('Affected');
+    expect(affected?.style.borderTopStyle).toBe('solid');
     expect(affected?.style.borderBottomStyle).toBe('solid');
   });
 });

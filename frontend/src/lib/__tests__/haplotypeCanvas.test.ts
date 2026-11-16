@@ -1,20 +1,22 @@
-// The haplotype risk line: told from the band by a light gap, and affected from carrier by a
-// solid or a dashed line, never by hue alone.
+// The risk haplotype's lane: bracketed by edges in the risk colour (and tinted where the band
+// is thinner than its lane), affected told from carrier by solid or dashed edges, never by hue
+// alone.
 
 import { describe, expect, it } from 'vitest';
 
-import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../haplotypeCanvas';
+import { drawHaplotypeRiskLane, fillHaplotypeRiskTint, haplotypeRiskPattern } from '../haplotypeCanvas';
 
-type Rect = { fill: string; x: number; y: number; w: number; h: number };
+type Rect = { fill: string; alpha: number; x: number; y: number; w: number; h: number };
 
 const recordingContext = () => {
   const rects: Rect[] = [];
   const ctx = {
     fillStyle: '',
+    globalAlpha: 1,
     save: () => undefined,
     restore: () => undefined,
     fillRect(x: number, y: number, w: number, h: number) {
-      rects.push({ fill: String(this.fillStyle), x, y, w, h });
+      rects.push({ fill: String(this.fillStyle), alpha: this.globalAlpha, x, y, w, h });
     },
   };
   return { ctx: ctx as unknown as CanvasRenderingContext2D, rects };
@@ -29,31 +31,37 @@ describe('haplotypeRiskPattern', () => {
   });
 });
 
-describe('drawHaplotypeRiskOverlay', () => {
-  it('sets a solid line off from the band with a light gap along its bottom edge', () => {
+describe('the risk lane', () => {
+  it('brackets the lane with a solid edge along its top and its bottom', () => {
     const { ctx, rects } = recordingContext();
-    drawHaplotypeRiskOverlay(ctx, 10, 0, 30, 9, '#c61f2d');
+    drawHaplotypeRiskLane(ctx, 10, 0, 30, 12, '#c61f2d');
     expect(rects).toEqual([
-      { fill: 'rgba(255, 255, 255, 0.85)', x: 10, y: 5.5, w: 30, h: 1 },
-      { fill: '#c61f2d', x: 10, y: 6.5, w: 30, h: 2.5 },
+      { fill: '#c61f2d', alpha: 1, x: 10, y: 0, w: 30, h: 2 },
+      { fill: '#c61f2d', alpha: 1, x: 10, y: 10, w: 30, h: 2 },
     ]);
   });
 
-  it('dashes a carrier line: 4 px on, 2 px off, clipped at the band end', () => {
+  it('tints the whole lane, light, behind a thin band', () => {
     const { ctx, rects } = recordingContext();
-    drawHaplotypeRiskOverlay(ctx, 0, 0, 15, 9, '#d9822e', { pattern: 'dashed' });
-    const dashes = rects.filter((rect) => rect.fill === '#d9822e');
-    expect(dashes.map((dash) => [dash.x, dash.w])).toEqual([
-      [0, 4],
-      [6, 4],
-      [12, 3],
-    ]);
+    fillHaplotypeRiskTint(ctx, 0, 12, 20, 12, '#d9822e');
+    expect(rects).toEqual([{ fill: '#d9822e', alpha: 0.28, x: 0, y: 12, w: 20, h: 12 }]);
   });
 
-  it('puts the line below a thin band, which keeps its whole colour', () => {
+  it('dashes a carrier lane: 7 px on, 3 px off, on a grid of the canvas', () => {
     const { ctx, rects } = recordingContext();
-    drawHaplotypeRiskOverlay(ctx, 0, 8, 20, 4, '#c61f2d', { placement: 'below' });
-    // No light gap is painted over the band: the track background shows between.
-    expect(rects).toEqual([{ fill: '#c61f2d', x: 0, y: 13, w: 20, h: 2 }]);
+    drawHaplotypeRiskLane(ctx, 0, 0, 25, 12, '#d9822e', { pattern: 'dashed' });
+    const top = rects.filter((rect) => rect.y === 0);
+    expect(top.map((dash) => [dash.x, dash.w])).toEqual([
+      [0, 7],
+      [10, 7],
+      [20, 5],
+    ]);
+    // A block that starts mid-dash continues the dash of the block before it.
+    const next = recordingContext();
+    drawHaplotypeRiskLane(next.ctx, 25, 0, 15, 12, '#d9822e', { pattern: 'dashed' });
+    expect(next.rects.filter((rect) => rect.y === 0).map((dash) => [dash.x, dash.w])).toEqual([
+      [25, 2],
+      [30, 7],
+    ]);
   });
 });

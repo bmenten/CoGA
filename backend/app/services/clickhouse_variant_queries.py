@@ -2767,6 +2767,38 @@ def _small_detail_filter_clauses(filters: SmallVariantQueryFilters) -> tuple[lis
     return clauses, params
 
 
+# The impacts the small-variant track marks as salient (``smallVariantMarkKind`` in
+# ``frontend/src/lib/smallVariantMarks.ts``), as the import stores them (in lower case).
+_SALIENT_IMPACTS: Final = ("high", "moderate", "medium")
+
+
+def _small_salient_condition(
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+) -> str | None:
+    """With ``salient_only``, the transcript rows (alias ``a``) of a variant the small-variant
+    track marks as salient: ClinVar (likely) pathogenic, or of HIGH or MODERATE impact and
+    not ClinVar (likely) benign. A ClinVar term is read as the browser reads the record
+    (``clinvarClass``, ``frontend/src/lib/clinvar.ts``): a term naming pathogenic or benign
+    is that class, a conflicting classification neither. The impact is any transcript's, so
+    the set holds every variant the track would mark by its shown transcript, and no
+    pathogenic variant is left out for its impact.
+    """
+    if not filters.salient_only:
+        return None
+    params["salient_impacts"] = _SALIENT_IMPACTS
+    pathogenic = (
+        "arrayExists(term -> position(term, 'pathogenic') > 0"
+        " AND position(term, 'conflict') = 0, a.clinvar_terms)"
+    )
+    benign = (
+        "arrayExists(term -> position(term, 'benign') > 0"
+        " AND position(term, 'conflict') = 0, a.clinvar_terms)"
+    )
+    return f"({pathogenic} OR (a.impact IN %(salient_impacts)s AND NOT {benign}))"
+
+
 def _small_annotation_exclude_filter_condition(
     filters: SmallVariantQueryFilters,
     *,
@@ -3439,8 +3471,9 @@ def _small_annotation_filter_clauses(
     annotation (its key and annotation set, ``_OWN_ANNOTATION``): the gene
     (``_small_gene_condition``); one transcript meeting every per-transcript filter together
     (``_small_annotation_filter_condition``: impact, consequence, ClinVar, HGVS, frequency
-    with the ClinVar P/LP rescue, in-silico scores, Canonical, MANE and LoF only); and no
-    transcript of an excluded ClinVar class. The family search
+    with the ClinVar P/LP rescue, in-silico scores, Canonical, MANE and LoF only); no
+    transcript of an excluded ClinVar class; and, for the small-variant track's wide window,
+    the salient variants alone (``_small_salient_condition``). The family search
     (``_small_query_filter_parts``) and the Variant Explorer
     (``variant_explorer_service._carriers_where``) read them here, after the row filters
     (``_small_row_filter_clauses``), whose locus the annotation subqueries repeat.
@@ -3481,6 +3514,17 @@ def _small_annotation_filter_clauses(
                 params=params,
                 condition=exclude_annotation_condition,
                 negate=True,
+            )
+        )
+
+    salient_condition = _small_salient_condition(filters, params=params)
+    if salient_condition:
+        clauses.append(
+            _small_annotation_row_membership_condition(
+                context,
+                filters,
+                params=params,
+                condition=salient_condition,
             )
         )
     return clauses

@@ -539,7 +539,7 @@ it (below). In a PGT family the snapshot holds the embryo calls (`pgt_analysis`,
 owner's decision of 2026-10-14). The backend makes them from the stored haplotype blocks
 (`services/pgt_embryo_calls.py`), the family page shows the calls the backend serves, and
 sign-out freezes the same object. So the record holds the calls the analyst saw, made by one
-implementation from stored data. The haplotype tracks still draw the risk line and each member's
+implementation from stored data. The haplotype tracks still draw the risk lane and each member's
 risk state in the browser (`frontend/src/lib/haplotypeRisk.ts`). Both implementations answer the
 cases of `frontend/src/lib/__tests__/fixtures/pgtEmbryoCallCases.json` alike, which
 `test_pgt_embryo_calls.py` and `haplotypeRisk.test.ts` both run. The live family report does not

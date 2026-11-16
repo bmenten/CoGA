@@ -8,9 +8,10 @@ interface HaplotypeLegendProps {
 interface LegendEntry {
   label: string;
   color: string;
-  /** Risk alleles are marked by a thin line under the homolog fill, not a solid block. */
+  /** The risk haplotype's lane is tinted and bracketed by edges in the risk colour, around the
+   * homolog's own band (drawHaplotypeRiskLane), not filled. */
   risk?: boolean;
-  /** A carrier's line is dashed, an affected haplotype's solid. */
+  /** A carrier's edges are dashed, an affected haplotype's solid. */
   dashed?: boolean;
 }
 
@@ -34,15 +35,24 @@ const riskEntriesForModel = (inheritanceModel?: string | null): LegendEntry[] =>
   return [{ label: 'Affected', color: 'var(--color-haplotype-affected)', risk: true }];
 };
 
-const swatchStyle = (entry: LegendEntry): React.CSSProperties =>
-  entry.risk
-    ? {
-        background: 'transparent',
-        borderBottomColor: entry.color,
-        borderBottomWidth: '2px',
-        borderBottomStyle: entry.dashed ? 'dashed' : 'solid',
-      }
-    : { background: entry.color };
+// The lane as the tracks draw it: a light tint of the risk colour between two edges in it.
+const swatchStyle = (entry: LegendEntry): React.CSSProperties => {
+  if (!entry.risk) return { background: entry.color };
+  const edgeStyle = entry.dashed ? 'dashed' : 'solid';
+  return {
+    width: '1.1rem',
+    borderRadius: 0,
+    background: `color-mix(in srgb, ${entry.color} 28%, transparent)`,
+    borderLeftStyle: 'none',
+    borderRightStyle: 'none',
+    borderTopStyle: edgeStyle,
+    borderBottomStyle: edgeStyle,
+    borderTopWidth: '2px',
+    borderBottomWidth: '2px',
+    borderTopColor: entry.color,
+    borderBottomColor: entry.color,
+  };
+};
 
 const HaplotypeLegend: React.FC<HaplotypeLegendProps> = ({ inheritanceModel }) => (
   <div className="haplotype-legend" aria-label="Haplotype color legend">

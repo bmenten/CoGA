@@ -112,9 +112,20 @@ vi.mock('../ViewerMemberSection', () => ({
 vi.mock('../ViewerTrackBlock', async (importOriginal) => ({
   // TrackMeta, the filters a variant track's head lists, as drawn.
   ...(await importOriginal<typeof import('../ViewerTrackBlock')>()),
-  default: ({ children, label, meta }: { children: React.ReactNode; label: string; meta?: React.ReactNode }) => (
+  default: ({
+    children,
+    label,
+    labelNote,
+    meta,
+  }: {
+    children: React.ReactNode;
+    label: string;
+    labelNote?: React.ReactNode;
+    meta?: React.ReactNode;
+  }) => (
     <section aria-label={label}>
       <h2>{label}</h2>
+      {labelNote}
       {meta}
       {children}
     </section>
@@ -448,6 +459,28 @@ describe('ChromosomeViewWorkspace', () => {
     expect(trackProps.svs.get('PROBAND')?.filters).toEqual({ impact: 'HIGH', sample_filter: 'het' });
   });
 
+  it('says in the small-variant head when a wide window draws the salient variants alone', () => {
+    const available = { PROBAND: sampleAvailability({ smallVariants: true }) };
+    const note = 'ClinVar P/LP, HIGH and MODERATE only: zoom in to 250 kb or less for all';
+    renderWorkspace({
+      ...withMembers([{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' }]),
+      availability: available,
+      trackVisibility: tracksShown({ smallVariants: true }),
+      region: { start: 1_000_000, end: 3_000_000 },
+    });
+    expect(within(screen.getByRole('region', { name: 'Small variants' })).getByText(note)).toBeInTheDocument();
+  });
+
+  it('says nothing of it in a window of 250 kb or less', () => {
+    renderWorkspace({
+      ...withMembers([{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' }]),
+      availability: { PROBAND: sampleAvailability({ smallVariants: true }) },
+      trackVisibility: tracksShown({ smallVariants: true }),
+      region: { start: 1_000_000, end: 1_250_000 },
+    });
+    expect(screen.getByRole('region', { name: 'Small variants' })).not.toHaveTextContent(/zoom in/);
+  });
+
   // A parent's phase switches the haplotype import undid are marked on that parent's track
   // only, and only on their chromosome. The ROI is the risk region of a chromosome it lies on,
   // and an embryo the PGT analysis leaves uncalled for markers that mix both of a parent's
@@ -540,7 +573,76 @@ describe('ChromosomeViewWorkspace', () => {
     it('draws no phased markers without both parents', () => {
       renderHaplotypes([father, EMBRYO]);
 
-      expect(trackProps.haplotypes.get('EMB1')).toMatchObject({ showMarkers: false, height: 20, riskRegion: null });
+      expect(trackProps.haplotypes.get('EMB1')).toMatchObject({ showMarkers: false, height: 24, riskRegion: null });
+      expect(screen.queryByText(/Phased markers: zoom in/)).not.toBeInTheDocument();
+    });
+
+    it('draws the phased markers only in a window of 5 Mb or less, and says so', () => {
+      renderHaplotypes([father, mother, EMBRYO], { region: { start: 0, end: 5_000_000 } });
+      expect(trackProps.haplotypes.get('EMB1')).toMatchObject({ showMarkers: true, height: 40 });
+      expect(screen.queryByText(/Phased markers: zoom in/)).not.toBeInTheDocument();
+    });
+
+    it('draws the blocks alone over a whole chromosome, each head saying to zoom in', () => {
+      renderHaplotypes([father, mother, EMBRYO], { region: { start: 0, end: 248_956_422 } });
+
+      for (const sample of ['FATHER1', 'MOTHER', 'EMB1']) {
+        expect(trackProps.haplotypes.get(sample)).toMatchObject({ showMarkers: false, height: 24 });
+      }
+      expect(screen.getAllByText('Phased markers: zoom in to 5 Mb or less')).toHaveLength(3);
+    });
+
+    it('puts a child’s informative sites in the head, after the track’s name', async () => {
+      (api.get as unknown as Mock).mockImplementation((url: string) =>
+        Promise.resolve({
+          data:
+            url === '/families/F1/phased-markers'
+              ? {
+                  chr: '1',
+                  samples: [
+                    { sample: 'FATHER1', markers: [], reference: true },
+                    { sample: 'MOTHER', markers: [], reference: true },
+                    { sample: 'EMB1', markers: [], qc: { informative_sites: 1234, mendel_errors: 3, mendel_rate: 3 / 1234 } },
+                  ],
+                  sites: [],
+                }
+              : [],
+        }),
+      );
+      renderWorkspace({
+        ...withMembers([father, mother, EMBRYO]),
+        availability: { EMB1: sampleAvailability({ haplotypes: true }) },
+        membersWithData: [EMBRYO],
+        trackVisibility: tracksShown({ haplotypes: true, phasedMarkers: true }),
+      });
+
+      const head = screen.getByRole('region', { name: 'Haplotypes' });
+      expect(await within(head).findByText('1,234 informative sites')).toBeInTheDocument();
+    });
+
+    it('warns in the head when a child’s Mendelian errors point to a swap', async () => {
+      (api.get as unknown as Mock).mockImplementation((url: string) =>
+        Promise.resolve({
+          data:
+            url === '/families/F1/phased-markers'
+              ? {
+                  chr: '1',
+                  samples: [{ sample: 'EMB1', markers: [], qc: { informative_sites: 400, mendel_errors: 40, mendel_rate: 0.1 } }],
+                  sites: [],
+                }
+              : [],
+        }),
+      );
+      renderWorkspace({
+        ...withMembers([father, mother, EMBRYO]),
+        membersWithData: [EMBRYO],
+        availability: { EMB1: sampleAvailability({ haplotypes: true }) },
+        trackVisibility: tracksShown({ haplotypes: true, phasedMarkers: true }),
+      });
+
+      expect(await screen.findByRole('note')).toHaveTextContent(
+        '⚠ 40 Mendelian errors in 400 informative sites (10.0%)',
+      );
     });
   });
 

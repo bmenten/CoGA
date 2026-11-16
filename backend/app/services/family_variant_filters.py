@@ -255,6 +255,11 @@ class SmallVariantQueryFilters:
     # (not a request field) and intersected with the other gene/panel constraints.
     require_sv_second_hit: bool = False
     sv_hit_genes: List[str] = field(default_factory=list)
+    # The salient variants alone: ClinVar (likely) pathogenic, or of HIGH or MODERATE impact
+    # on a transcript and not ClinVar (likely) benign. The chromosome view's small-variant
+    # track asks for these in a wide window, where it draws no other mark
+    # (``_small_salient_condition``).
+    salient_only: bool = False
 
     def __post_init__(self) -> None:
         # Read every sample filter once, so an unreadable value is refused before any

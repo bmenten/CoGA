@@ -15,7 +15,7 @@ const { trackFetchMock, overlayMock } = vi.hoisted(() => ({
 vi.mock('../../lib/trackFetch', () => ({ fetchTrackJson: trackFetchMock }));
 vi.mock('../../lib/haplotypeCanvas', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/haplotypeCanvas')>()),
-  drawHaplotypeRiskOverlay: overlayMock,
+  drawHaplotypeRiskLane: overlayMock,
 }));
 
 import GenomeHaplotypeTrack from '../visualizations/GenomeHaplotypeTrack';
@@ -87,7 +87,7 @@ afterEach(() => {
   overlayMock.mockReset();
 });
 
-// The x of every risk overlay drawn, in track pixels.
+// The x of every risk lane drawn, in track pixels.
 const overlayXs = () => overlayMock.mock.calls.map(([, x]) => x as number);
 
 describe('GenomeHaplotypeTrack risk haplotype', () => {

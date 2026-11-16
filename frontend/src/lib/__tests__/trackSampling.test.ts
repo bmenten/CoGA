@@ -4,8 +4,12 @@ import {
   getTrackBinLimit,
   getTrackSegmentLimit,
   getTrackVariantLimit,
+  PHASED_MARKER_MAX_SPAN,
+  SMALL_VARIANT_ALL_MARKS_MAX_SPAN,
   SMALL_VARIANT_TRACK_RESULT_LIMIT,
-  shouldShowSmallVariantDetails,
+  formatSpanLimit,
+  shouldShowPhasedMarkers,
+  smallVariantTrackScope,
 } from '../trackSampling';
 
 describe('trackSampling', () => {
@@ -37,11 +41,29 @@ describe('trackSampling', () => {
     expect(getAdaptiveTrackWindow(0, 1200, 10_000)).toBe(10_000);
   });
 
-  it('enables small-variant detail at any zoom (no span gate)', () => {
-    expect(shouldShowSmallVariantDetails(5_000_000)).toBe(true);
-    expect(shouldShowSmallVariantDetails(5_000_001)).toBe(true);
-    expect(shouldShowSmallVariantDetails(250_000_000)).toBe(true);
-    expect(shouldShowSmallVariantDetails(0)).toBe(false);
+  it('draws every small variant up to 250 kb, the salient ones alone beyond', () => {
+    expect(SMALL_VARIANT_ALL_MARKS_MAX_SPAN).toBe(250_000);
+    expect(smallVariantTrackScope(1)).toBe('all');
+    expect(smallVariantTrackScope(250_000)).toBe('all');
+    expect(smallVariantTrackScope(250_001)).toBe('salient');
+    expect(smallVariantTrackScope(2_000_000)).toBe('salient');
+    expect(smallVariantTrackScope(250_000_000)).toBe('salient');
+    expect(smallVariantTrackScope(0)).toBe('none');
+    expect(smallVariantTrackScope(Number.NaN)).toBe('none');
+  });
+
+  it('draws the phased markers in a window of 5 Mb or less', () => {
+    expect(PHASED_MARKER_MAX_SPAN).toBe(5_000_000);
+    expect(shouldShowPhasedMarkers(2_400_000)).toBe(true);
+    expect(shouldShowPhasedMarkers(5_000_000)).toBe(true);
+    expect(shouldShowPhasedMarkers(5_000_001)).toBe(false);
+    expect(shouldShowPhasedMarkers(248_956_422)).toBe(false);
+    expect(shouldShowPhasedMarkers(0)).toBe(false);
+  });
+
+  it('writes a window limit as the track heads do', () => {
+    expect(formatSpanLimit(250_000)).toBe('250 kb');
+    expect(formatSpanLimit(5_000_000)).toBe('5 Mb');
   });
 
   it('uses a strict small-variant track display threshold', () => {

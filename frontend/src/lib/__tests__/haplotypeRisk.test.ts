@@ -808,7 +808,7 @@ describe('degraded / empty input fails safe (REQ-PERF-003)', () => {
 });
 
 // The embryo calls the family page shows, and a sign-out freezes, are made by the backend
-// (backend/app/services/pgt_embryo_calls.py); the haplotype tracks draw the risk line and each
+// (backend/app/services/pgt_embryo_calls.py); the haplotype tracks draw the risk lane and each
 // member's risk state with the rules here. Both answer these cases alike:
 // backend/tests/test_pgt_embryo_calls.py runs the same file through the backend.
 interface ParityCall {
