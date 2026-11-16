@@ -63,8 +63,9 @@ describe('AcmgScaleBar', () => {
     if (tier) expect(screen.getByText(tier)).toBeInTheDocument();
     else expect(container.querySelector('.acmg-vus-tier-chip')).toBeNull();
     expect(screen.getByRole('img')).toHaveAttribute('aria-label', ariaLabel);
+    // A CSS number is written to six significant digits, as a browser writes it.
     const left = (container.querySelector('.acmg-scalebar-arrow') as HTMLElement).style.left;
-    expect(parseFloat(left)).toBeCloseTo(arrow, 6);
+    expect(parseFloat(left)).toBeCloseTo(arrow, 3);
   });
 
   it('labels each VUS tick with the posterior of its point total', () => {

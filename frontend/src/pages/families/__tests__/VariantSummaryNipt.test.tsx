@@ -273,9 +273,12 @@ describe('the variant summary of a monogenic NIPT family', () => {
       ['Hom alt', '6 · Maternal & fetal hom', '30', '17.8%', '1.000', '—', '100.0%'],
       ['All groups', '169', ''],
     ]);
-    // Each share is drawn as a bar of its group's colour.
+    // Each share is drawn as a bar of its group's colour, its width the share in per cent
+    // (a CSS number is written to six significant digits, as a browser writes it).
     const bars = Array.from(table.querySelectorAll<HTMLElement>('.nipt-share-fill')).map((bar) => bar.style.width);
-    expect(bars.slice(0, 2)).toEqual([`${(51 / 169) * 100}%`, `${(1 / 169) * 100}%`]);
+    expect(bars.slice(0, 2).map((width) => width.endsWith('%'))).toEqual([true, true]);
+    expect(parseFloat(bars[0])).toBeCloseTo((51 / 169) * 100, 3);
+    expect(parseFloat(bars[1])).toBeCloseTo((1 / 169) * 100, 3);
   });
 
   it("splits each group by the father's genotype or the variant class on demand", async () => {
