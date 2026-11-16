@@ -12,21 +12,21 @@
 # build must be byte-for-byte reproducible and supply-chain-verifiable
 # (technical file TF-08 SOUP register, TF-13 cybersecurity).
 
-fastapi==0.162.0
+fastapi==0.162.4
 # Starlette is pinned explicitly: it is the ASGI core under the collection-root redirect
 # normalisation in app/main.py, which must keep /api/* from 307-redirecting to the internal
 # backend host. Re-verify that before moving the pin.
 starlette==1.10.0
 uvicorn[standard]==0.54.0
-sqlalchemy>=2.1.6
+sqlalchemy>=2.1.8
 greenlet>=3.5.6
 asyncpg
 # Postgres schema migrations: the ledger and the revisions in backend/db/migrations,
 # run by app/core/postgres_migrations.py. It brings Mako (the revision template) and
 # MarkupSafe.
 alembic==1.20.1
-clickhouse-connect[async]>=1.11.0,<2
-pydantic[email]>=2.14.2
+clickhouse-connect[async]>=1.12.0,<2
+pydantic[email]>=2.14.3
 pydantic-settings>=2.16.2
 # PyJWT (not python-jose): python-jose pulls the `ecdsa` package, which has no
 # fix for the Minerva P-256 timing attack (GHSA-wj6h-64fc-37mp). We only use
