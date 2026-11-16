@@ -382,7 +382,7 @@ async def queue_clinical_cnv_kb_rebuild_if_missing(
             text(
                 "SELECT a.id::text AS id, "
                 "EXISTS (SELECT 1 FROM clinical_cnvs c WHERE c.assembly_id = a.id) AS loaded "
-                "FROM assemblies a WHERE a.assembly_name = :assembly ORDER BY a.version DESC LIMIT 1"
+                "FROM assemblies a WHERE a.assembly_name = :assembly"
             ),
             {"assembly": assembly_name},
         )

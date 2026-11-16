@@ -60,8 +60,7 @@ version also holds what the analysis looked at:
 - the gene panels the family's searches applied;
 - the reference-data releases;
 - the repeat-expansion and Paraphase results, with each repeat count near a boundary marked, TRGT's own
-  count beside a count QA's correction changed, and each locus's correction and whether QA had
-  validated TRGT's counting units there;
+  count beside a count QA's correction changed, and each locus's correction;
 - what each coverage track held (read depth, a log2 ratio or unknown), and whether an upload or a
   package loaded it;
 - in a PGT family, each embryo's call at the region of interest as the family page shows it, with its
@@ -138,8 +137,8 @@ was signed:
 - in a monogenic NIPT family, its NIPT results (*NIPT results*);
 - the gene panels applied;
 - the repeat expansions (each count near a boundary marked beside its call, *⚠ Near a boundary*; a
-  corrected count with TRGT's own in brackets, *18 (TRGT 19)*; and each locus's counting units and
-  correction as QA had recorded them) and Paraphase results;
+  corrected count with TRGT's own in brackets, *18 (TRGT 19)*; and each locus's correction as QA had
+  recorded it) and Paraphase results;
 - the coverage tracks (*Coverage tracks*: what each held, and from which file);
 - the reference-data releases and the checks at sign-out.
 

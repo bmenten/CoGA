@@ -78,7 +78,7 @@ member's status unset without a word. Information of your own goes under `extra`
 | `written_at` | always | when the file was written, with its time zone (`2026-11-10T15:42:10+01:00`) | pipeline |
 | `pipeline` | always | `name`, `version` and `run_id`: one `run_id` per run, the same in each file it writes | pipeline |
 | `project` | complete | the CoGA project, by its name; it fixes the assembly | samplesheet |
-| `assembly` | complete | the reference assembly (`GRCh38`); must be the project's | pipeline |
+| `assembly` | complete | the reference assembly (`GRCh38`); must be the project's, compared by build (`GRCh38.p14` and `hg38` are a GRCh38 project's) | pipeline |
 | `analysis_type` | complete | `long_read_wgs` (LR-WGS), `long_read_adaptive_sampling` (LR-AS, long-read adaptive sampling), `short_read_wgs` (SR-WGS, short-read Illumina WGS), `pgt` (PGT), `expanded_carrier_screening` (expanded carrier screening) or `monogenic_nipt` (mNIPT) | samplesheet |
 | `family` | complete | `family_id`; `roi`, the region of interest (a gene or `chr7:1000-2000`); for PGT `pgt` (below) | samplesheet |
 | `members` | no | every member of the family, the pedigree (below) | pipeline and laboratory |
@@ -88,7 +88,7 @@ member's status unset without a word. Information of your own goes under `extra`
 | `files` | complete | every file of the package: `path` (in the folder, with `/`), `size` in bytes, and optionally `sha256` or `md5` | pipeline |
 | `qc` | no | the pipeline's QC: `status` (`pass`, `warn`, `fail`) and its `report`, a file of the package | pipeline |
 | `request_id` | no | the laboratory's request | samplesheet |
-| `reference` | no | the reference genome the run used (its FASTA's name) | pipeline |
+| `reference` | no | the reference genome the run used (its FASTA's name); the family's annotation manifest records it as its Reference assembly | pipeline |
 | `notes` | no | free text, shown with the delivery | pipeline |
 | `extra` | no | anything else, kept with the package and never read | pipeline |
 

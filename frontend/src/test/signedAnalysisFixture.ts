@@ -97,9 +97,9 @@ export const SIGNED_ANALYSIS = {
   },
   repeat_expansions: {
     catalogue: { loci: 96, sources: ['CoGA built-in', 'STRchive'], digest: 'abcdef0123456789' },
-    // The near-boundary warnings (repeat_count_units.py): the margin in force, each locus's QA
-    // record of TRGT's counting units and each allele's warning; QA's count corrections (CLIN-57):
-    // each record's correction (none here) and TRGT's own count beside each count classified.
+    // The near-boundary warnings (repeat_count_units.py): the margin in force and each allele's
+    // warning; QA's count corrections (CLIN-57): each locus's record, its correction (none here),
+    // and TRGT's own count beside each count classified.
     count_unit_margin: 3,
     loci: [
       {
@@ -122,8 +122,7 @@ export const SIGNED_ANALYSIS = {
         status: 'pathogenic',
         count_units: {
           count_offset: 0,
-          validated: true,
-          reason: 'Validation report 7',
+          reason: 'Report 7',
           updated_by: 'qa-lead',
           updated_at: '2026-10-15T09:00:00+00:00',
         },
@@ -157,7 +156,7 @@ export const SIGNED_ANALYSIS = {
         ],
       },
       {
-        // A grey-zone 53 at a locus QA has not validated: a premutation of 55 can read 53.
+        // A grey-zone 53, marked: a premutation of 55 can read 53.
         locus_id: 'FXS_FMR1',
         gene: 'FMR1',
         disease: 'Fragile X syndrome',
@@ -175,7 +174,7 @@ export const SIGNED_ANALYSIS = {
           pathogenic_max: 2000,
         },
         status: 'intermediate',
-        count_units: { count_offset: 0, validated: false, reason: null, updated_by: null, updated_at: null },
+        count_units: { count_offset: 0, reason: null, updated_by: null, updated_at: null },
         calls: [
           {
             sample: 'MOTHER',

@@ -127,7 +127,7 @@ def _patch_ucsc_import(
     monkeypatch.setattr(rss, "list_reference_source_assemblies", fake_catalogue)
     monkeypatch.setattr(rss, "_resolve_find_genome_record", fake_genome_record)
     monkeypatch.setattr(rss, "_get_or_create_species", fake_species)
-    monkeypatch.setattr(rss, "_get_or_create_assembly", fake_assembly)
+    monkeypatch.setattr(rss, "_store_assembly", fake_assembly)
     monkeypatch.setattr(rss, "_download_cytobands", fake_cytobands)
     monkeypatch.setattr(rss, "download_bounded_bytes", fake_download)
 

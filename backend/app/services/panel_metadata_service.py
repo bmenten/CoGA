@@ -305,7 +305,7 @@ async def check_gene_symbols(session: AsyncSession, symbols: list[str]) -> GeneS
 async def _assembly_id_by_name(session: AsyncSession, assembly_name: str) -> str | None:
     """The loaded assembly of this name, if any."""
     result = await session.execute(
-        text("SELECT id::text FROM assemblies WHERE assembly_name = :name ORDER BY id LIMIT 1"),
+        text("SELECT id::text FROM assemblies WHERE assembly_name = :name"),
         {"name": assembly_name},
     )
     return result.scalar_one_or_none()

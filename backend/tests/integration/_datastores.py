@@ -111,9 +111,15 @@ def proband_context(
 def explorer_shows(monkeypatch: Any, members: dict[str, list[str]]) -> None:
     """Have the Variant Explorer read ``members`` (family UUID -> sample IDs) as the samples
     their families show (``_shown_members``), for a test whose families have no members in
-    Postgres. Each sample's UUID is its name."""
+    Postgres. Each sample's UUID is its name.
 
+    The carrier summary reads them too, each family linked to the projects its rows are
+    stored under, and each search brings the summary up to date for these families first
+    (``reconcile_variant_carriers``), as the variant-carrier worker would have."""
+
+    import backend.app.services.variant_carrier_summary as summary
     import backend.app.services.variant_explorer_service as explorer
+    from backend.app.core.clickhouse import execute_clickhouse
 
     shown = [
         explorer._ShownMember(family_uuid=family_uuid, sample_id=sample, sample_uuid=sample)
@@ -124,7 +130,32 @@ def explorer_shows(monkeypatch: Any, members: dict[str, list[str]]) -> None:
     async def _shown_members(session: Any, project_ids: Any) -> list[Any]:
         return list(shown)
 
+    async def _desired_states(session: Any, assembly_id: Any, family_uuids: Any = None) -> dict[str, Any]:
+        wanted = [family for family in members if family_uuids is None or family in family_uuids]
+        if not wanted:
+            return {}
+        rows = await execute_clickhouse(
+            "SELECT family_guid, groupUniqArray(project_guid) "
+            f"FROM {explorer._small_table_name('GRCh38', 'entries')} "
+            "WHERE family_guid IN %(families)s AND sign = 1 GROUP BY family_guid",
+            {"families": tuple(wanted)},
+        )
+        projects = {str(family): tuple(sorted(str(value) for value in linked)) for family, linked in rows}
+        return {
+            family: (projects.get(family, ()), tuple(sorted(set(members[family]))), ())
+            for family in wanted
+        }
+
+    async def _brought_up_to_date(session: Any, scope: Any) -> list[str]:
+        status = await summary.reconcile_variant_carriers(
+            scope.assembly_id, scope.assembly_name, family_uuids=list(members)
+        )
+        assert not status.pending
+        return []
+
     monkeypatch.setattr(explorer, "_shown_members", _shown_members)
+    monkeypatch.setattr(summary, "_desired_states", _desired_states)
+    monkeypatch.setattr(explorer, "_pending_families", _brought_up_to_date)
 
 
 async def fresh_family(session: Any, label: str) -> str:
@@ -236,6 +267,23 @@ async def fresh_assembly(session: Any, species_id: str, name: str) -> str:
             {"s": species_id, "a": name},
         )
     ).scalar_one()
+
+
+async def named_assembly(session: Any, name: str, species_label: str) -> tuple[str, str]:
+    """The assembly of ``name`` and its species, not committed: (species UUID, assembly UUID).
+    An assembly is its name (``assemblies.assembly_name`` is unique), so a test on a real name
+    such as GRCh38 shares the one the database holds, else makes it under a fresh species."""
+
+    held = (
+        await session.execute(
+            text("SELECT species_id::text, id::text FROM assemblies WHERE assembly_name = :a"),
+            {"a": name},
+        )
+    ).first()
+    if held is not None:
+        return str(held[0]), str(held[1])
+    species = await fresh_species(session, species_label)
+    return species, await fresh_assembly(session, species, name)
 
 
 async def gene_locus(session: Any, assembly_id: str, symbol: str, chrom: str, start: int, end: int) -> None:

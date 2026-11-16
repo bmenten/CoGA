@@ -19,7 +19,7 @@ const FamilyCaseHeader: React.FC<{
   familyId: string;
   family: (FamilyPageHeaderFamily & { projects?: readonly string[] | null }) | null | undefined;
   projectId?: string | null;
-  /** The family's assembly as the page names it ("GRCh38 p14", "Not linked"). */
+  /** The family's assembly as the page names it ("GRCh38", "Not linked"). */
   assemblyLabel: string;
   assemblyScope?: FamilyAssemblyScope;
   /** The page this is, marked in the foot row; none on the workspace. */

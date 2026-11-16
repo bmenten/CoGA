@@ -213,13 +213,12 @@ const FamilyNiptReportPage: React.FC = () => {
     speciesName,
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(family?.projects as string[] | undefined, preferredProjectId);
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
+    { speciesName, assemblyName, isError: referenceFailed },
     'Reference not linked',
   );
 

@@ -1,6 +1,6 @@
 ```cards
 Structural variants | Filter and review CNVs and other SVs with their genotypes, rank them by phenotype, classify copy-number changes, and tag them for the report.
-Repeat expansions (TRGT) | Per-sample repeat calls, scored against the STRchive catalogue of disease loci.
+Repeat expansions | Per-sample repeat calls, scored against the STRchive catalogue of disease loci.
 Paraphase | Genes in paralogous or duplicated regions, where standard variant calling is unreliable.
 Mitochondrial DNA | mtDNA variants and large chrM deletions and duplications, each with its heteroplasmy per member, and each sample's mtDNA coverage.
 ```
@@ -78,8 +78,8 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*. Where the
   catalogue gives a locus a benign range but no threshold (STRchive's POLG: 10 repeats), a count
   inside the range reads *Normal* and any other count *Not assessed*; the cutoff reads
-  *normal 10 · no threshold*. The count is the one TRGT reports for the catalogued motif across
-  the whole locus, flanking copies included, so it can run higher than the count the range
+  *normal 10 · no threshold*. The count is the copies TRGT reports of the catalogued motif, in
+  every rotation the call lists (GAA and AAG at FXN), across the whole locus, flanking copies included, so it can run higher than the count the range
   describes. In the TRGT catalogue in use (TRID `CPEO_POLG`), POLG's common allele of 10 repeats
   counts 14 and stays *Not assessed*.
 - A gene with several repeat tracts, each a locus of its own in STRchive (ARX, HOXA13), has
@@ -87,6 +87,10 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   overlaps. If the region overlaps none of the tracts, or more than one, the call reads *Not
   assessed*, and its note names the tracts and says why.
 - *Unknown*: no call.
+
+The cutoffs are STRchive's thresholds for the locus, as STRchive states them. **STRchive**, beside
+IGV, Chromosome view and OMIM on a locus's card, opens the locus's page on STRchive: its disease,
+ranges, motifs and references.
 
 **Aberrant only**, ticked when the page opens, keeps every locus whose status is not *Normal* or
 *Unknown*, *Not assessed* included. The page header counts the calls not assessed. This page and the
@@ -101,25 +105,24 @@ not be the clinical repeat number the locus's ranges count:
 - at HTT it also counts the CAG after the CAA interruption, one above the usual count;
 - at POLG it counts four flanking GCT copies, so the common 10-repeat allele reads 14.
 
-Until QA and the laboratory director have validated a locus's counting units, a count within 3 repeats
-of a boundary the locus's classification uses is marked *Near a boundary* beside its call. Hover over
+So at every locus a count within 3 repeats of a boundary the locus's classification uses is marked
+*Near a boundary* beside its call. Hover over
 or focus the mark for the count, the nearest count on each side that reads another status, and what is
 known of TRGT's count at the gene. The status itself is not changed: read the call with the mark in
 mind. **Aberrant only** keeps such a locus whatever its status, the page header counts the calls near a
 boundary, and a genome track says it in the locus's tooltip.
 
 **Count correction.** QA can record a correction for a locus, in repeats, on the admin page **Repeat
-catalogue**. CoGA adds it to TRGT's count before the count is classified, whether or not the locus is
-validated. The call then shows the corrected count with TRGT's own in brackets, *17 / 36 (TRGT 18 /
+catalogue**. CoGA adds it to TRGT's count before the count is classified. The call then shows the corrected count with TRGT's own in brackets, *17 / 36 (TRGT 18 /
 37)*, and the card's **Count correction** line says the correction and its reason. The status, the mark,
 the genome tracks and the signed record all use the corrected count. No locus has a correction until QA
 enters one.
 
-An administrator records each locus's validation and correction, with a reason, on the admin page
-**Repeat catalogue**; a validated locus is no longer marked. Signing out freezes, beside each call, the
-corrected count, TRGT's own count and the mark, and for each locus QA's record: the correction, whether
-QA had validated its counting units, the reason, by whom and when. A locus validated, withdrawn or
-corrected after sign-out makes the report say the repeat expansions changed since.
+An administrator records each locus's correction, with a reason, on the admin page **Repeat
+catalogue**; a correction does not lift the mark. Signing out freezes, beside each call, the corrected
+count, TRGT's own count and the mark, and for each locus QA's record: the correction, the reason, by
+whom and when. A correction changed after sign-out makes the report say the repeat expansions changed
+since.
 
 ### Paraphase
 
@@ -158,7 +161,7 @@ the locus or region, so a classification that fits one member's call is not mark
 the card to its heading; the card stays in the list, **Aberrant only** included.
 
 CoGA freezes the calls a classification, or the **Report** tag, rests on when you save it. When the
-calls change after that (a new import, a locus whose counting units QA validated), the card says
+calls change after that (a new import, a count correction QA recorded), the card says
 *Changed since review*, and the tooltip names what changed. It says *No call since review* when the
 family holds no call there any more. A save of tags or a note alone keeps the calls your classification
 rests on. Sign-out checks them again (see *Clinical report*).

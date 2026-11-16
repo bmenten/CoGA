@@ -67,6 +67,10 @@ missing. Load it before you load a family.
   loaded for that assembly yet.
 - The segmental-duplication file and the HPO ontology must be the files CoGA ships, recognized by their
   SHA-256. Another file is not loaded, and the server log says which file and how to fix it.
+- Projects, families and genes name an assembly by its build (GRCh38). The version the *Reference
+  catalogue* shows (GRCh38 *p14*) is the release of the reference data CoGA loaded, not the reference
+  a family's data was aligned to: that one is among the family's annotation versions, as its
+  *Reference assembly*.
 - In the **Reference catalogue** an administrator can set up another assembly (cytobands and genes are
   downloaded automatically) and upload files for cytobands, genes, the blacklist, clinical CNVs,
   segmental duplications and DGV variants. Everyone else sees the catalogue read-only.
@@ -123,8 +127,8 @@ the motif across the region its own catalogue gives a locus:
 
 QA can record a count correction per locus (admin page **Repeat catalogue**): it is added to TRGT's
 count before the count is classified, and TRGT's own count stays shown beside the corrected one. None is
-recorded in advance. Until QA validates a locus's counting units, the repeat page and the genome tracks
-mark a count within 3 repeats of a boundary there as *Near a boundary*, without changing its status. See
+recorded in advance. At every locus the repeat page and the genome tracks mark a count within 3
+repeats of a boundary as *Near a boundary*, without changing its status. See
 the [user guide](/docs), section *Structural variants, repeats, Paraphase and mtDNA*.
 
 A small variant's population frequencies and gnomAD counts come only from annotation fields that name
@@ -391,13 +395,16 @@ the repository (`docs/coga-package.md`, `docs/schemas/`). A short one:
 - `members` is the pedigree: the import reads it, not a PED. A package file without `members` or
   `datasets` has them proposed from the folder (from its PED and its layout); the delivery then warns
   you to check them.
+- `reference`, the reference genome the run used (its FASTA's name), is optional. CoGA records it
+  with the family's annotation versions as its *Reference assembly*.
 - A field the format does not know is refused, so a misspelt one is never ignored.
 
 **What CoGA checks.** The package file follows the format. Every listed file is there at its size,
 with its checksum where the package file gives one; a file listed without one has its SHA-256
 computed by CoGA, and the delivery warns that the copy was not checked against what the pipeline
 made (acknowledge it to approve). Every file the import reads is listed; a file in the folder the package file
-does not list is a warning. The project exists with the package file's assembly, and the package
+does not list is a warning. The project exists with the package file's assembly (by its build:
+`GRCh38.p14` and `hg38` are a GRCh38 project's), and the package
 passes validation as a dry run runs it. A PED in the folder that says otherwise than the
 package file's members is a warning: the pipeline may have used it. Each check that fails is listed
 with the delivery.

@@ -317,7 +317,7 @@ async def queue_dgv_load_if_missing(
             text(
                 "SELECT a.id::text AS id, "
                 "EXISTS (SELECT 1 FROM dgv_variants d WHERE d.assembly_id = a.id) AS loaded "
-                "FROM assemblies a WHERE a.assembly_name = :assembly ORDER BY a.version DESC LIMIT 1"
+                "FROM assemblies a WHERE a.assembly_name = :assembly"
             ),
             {"assembly": assembly_name},
         )

@@ -1671,7 +1671,6 @@
       },
       "count_units": {
        "reason": null,
-       "validated": false,
        "updated_at": null,
        "updated_by": null,
        "count_offset": 0
@@ -2632,7 +2631,6 @@
       },
       "count_units": {
        "reason": null,
-       "validated": false,
        "updated_at": null,
        "updated_by": null,
        "count_offset": 0

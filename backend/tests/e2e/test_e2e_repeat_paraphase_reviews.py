@@ -8,7 +8,7 @@ acknowledged with a reason (REQ-TRACE-016); the record holds the reviews (REQ-TR
 
 A one-member family (a woman, a new id each run) goes through the package import into real
 Postgres and ClickHouse with a TRGT call at FXS_FMR1 of 30 and 53 repeats (grey zone, near the
-premutation's 55 at a locus whose counting units QA has not validated) and a Paraphase result at
+premutation's 55, so marked near a boundary) and a Paraphase result at
 GBA that reads ``review``. Through the API, this:
 
 * signs out without a review: refused by the gate of unreviewed findings, which lists FMR1 (near a
@@ -19,8 +19,8 @@ GBA that reads ``review``. Through the API, this:
 * saves a GBA review, reads both on the repeat and Paraphase tables, and signs out: no gate of
   unreviewed findings; the record holds both reviews with calls unchanged, nothing unreviewed,
   and a content hash that verifies; the check matches;
-* validates FMR1's counting units as an admin: what the FMR1 review froze is no longer the calls
-  (the warning goes, the locus reads validated); the table says so, and the sign-out's drift gate
+* records a count correction of +2 at FMR1 as an admin: what the FMR1 review froze is no longer
+  the calls (the 53 reads 55, a premutation); the table says so, and the sign-out's drift gate
   lists the review with what changed until it is acknowledged; the record freezes the drift;
 * deletes the GBA review with an empty save; the clinical audit trail holds each change of both
   reviews, named ``repeat:FXS_FMR1`` and ``paraphase:GBA`` with their modality and assembly, and
@@ -55,7 +55,7 @@ SIGN_OUT_BODY = {
     "acknowledge_qc": True,
     "qc_acknowledgement_reason": "e2e: the synthetic family has no genotypes to check",
 }
-VALIDATION_REASON = "e2e: validation report of TRGT's counting units at FMR1"
+CORRECTION_REASON = "e2e: a count correction at FMR1"
 
 _TRGT = (
     "##fileformat=VCFv4.2\n"
@@ -109,11 +109,11 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     async with sessionmaker() as session:
         admin, project_id, assembly_id = await _harness.ensure_e2e_project(session)
         await seed_builtin_repeat_catalog(session)
-        # The locus starts without a QA record (not validated); its record is put back below.
+        # The locus starts without a QA record (no correction); its record is put back below.
         prior = (
             await session.execute(
                 text(
-                    "SELECT locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at "
+                    "SELECT locus_id, count_offset, reason, updated_by, updated_by_name, updated_at "
                     "FROM repeat_locus_count_units WHERE locus_id = :l"
                 ),
                 {"l": LOCUS},
@@ -208,11 +208,11 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             r["signout_detail"] = capture(await ac.get(f"{family}/report/sign-outs/{version}"))
             r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
-            # QA validates FMR1's counting units: the FMR1 review's calls are not the calls now.
-            r["validate"] = capture(
+            # QA records a count correction at FMR1: the FMR1 review's calls are not the calls now.
+            r["correct"] = capture(
                 await ac.put(
                     f"/api/admin/repeat-loci/{LOCUS}/count-units",
-                    json={"validated": True, "count_offset": 0, "reason": VALIDATION_REASON},
+                    json={"count_offset": 2, "reason": CORRECTION_REASON},
                 )
             )
             r["repeat_table_drifted"] = capture(await ac.get(f"{family}/repeat-expansions"))
@@ -246,8 +246,8 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                 await session.execute(
                     text(
                         "INSERT INTO repeat_locus_count_units "
-                        "(locus_id, validated, count_offset, reason, updated_by, updated_by_name, updated_at) "
-                        "VALUES (:locus_id, :validated, :count_offset, :reason, :updated_by, :updated_by_name, "
+                        "(locus_id, count_offset, reason, updated_by, updated_by_name, updated_at) "
+                        "VALUES (:locus_id, :count_offset, :reason, :updated_by, :updated_by_name, "
                         ":updated_at)"
                     ),
                     prior,
@@ -288,7 +288,7 @@ def test_an_abnormal_call_without_a_review_is_acknowledged_with_a_reason(run: di
     assert detail["gate"] == "unreviewed_findings"
     findings = {(finding["kind"], finding["key"]): finding for finding in detail["unreviewed_findings"]}
     assert set(findings) == {("paraphase", GENE), ("repeat", LOCUS)}
-    # The 53 is grey zone, listed because it lies near the premutation at a locus not validated.
+    # The 53 is grey zone, listed because it lies near the premutation.
     [fmr1] = findings[("repeat", LOCUS)]["samples"]
     assert fmr1 == {"sample": run["sample"], "status": "intermediate", "near_boundary": True}
     assert "FMR1 (repeat locus)" in detail["message"]
@@ -340,11 +340,11 @@ def test_the_record_holds_the_reviews_and_nothing_unreviewed(run: dict[str, Any]
 
 
 def test_a_change_in_the_calls_under_a_review_gates_the_sign_out(run: dict[str, Any]) -> None:
-    assert ok_json(run, "validate")["validated"] is True
+    assert ok_json(run, "correct")["count_offset"] == 2
     [locus] = [locus for locus in ok_json(run, "repeat_table_drifted")["loci"] if locus["locus_id"] == LOCUS]
     drift = locus["review"]["drift"]
     assert drift["status"] == "changed"
-    assert "count_units.validated: False → True" in drift["changes"]
+    assert "count_units.count_offset: 0 → 2" in drift["changes"]
     gate = _detail(run, "drift_gate", 409)
     assert gate["gate"] == "evidence_drift"
     [listed] = gate["finding_drifted"]

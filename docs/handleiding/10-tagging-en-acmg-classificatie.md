@@ -80,7 +80,7 @@ Een repeatlocus en een Paraphase-regio krijgen een eigen review, per familie en 
 
 Vanuit een variant opent **ACMG classify** een dialoog die:
 
-1. de criteria vooraf beoordeelt uit de gegevens die CoGA al heeft;
+1. de criteria vooraf beoordeelt uit de gegevens die CoGA al heeft, en die gegevens naast de criteria toont: een kaart per soort (consequentie en transcript, populatiefrequenties, in-silicoscores, het gen, ClinVar, het fenotype van de proband en de genotypes van de familie), elk met de criteria die ze onderbouwt; een waarde die de annotatie niet heeft, staat er als — (`AcmgEvidencePanel.tsx`);
 2. elk criterium in één van vier toestanden zet;
 3. de analist elk criterium laat bevestigen, aanpassen of verwerpen;
 4. de aanvaarde criteria op een puntenschaal zet;

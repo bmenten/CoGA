@@ -101,6 +101,7 @@ async def _collect_api_responses(root: Path) -> dict:
         r["hap_batch"] = capture(await ac.get(f"/api/families/{FAMILY}/haplotypes/batch", params={"chr": ["1"]}))
         r["track_avail"] = capture(await ac.get(f"/api/families/{FAMILY}/track-availability"))
 
+        await _harness.carrier_summary_up_to_date()
         r["exp_denovo"] = capture(await ac.get("/api/variant-explorer/small-variants", params={"assembly_id": aid, "gene": "GENE_DENOVO"}))
         r["exp_mnv"] = capture(await ac.get("/api/variant-explorer/small-variants", params={"assembly_id": aid, "gene": "GENE_MNV"}))
 

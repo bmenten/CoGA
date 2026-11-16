@@ -40,7 +40,7 @@ Het ideogram is de gestreepte chromosoomtekening. De cytobanden komen uit Postgr
 
 **Een gecorrigeerde repeattelling.** Heeft QA voor een locus een telcorrectie vastgelegd (hoofdstuk 8), dan tekent de track de status van de gecorrigeerde telling en noemt de tooltip de gecorrigeerde tellingen met die van TRGT tussen haakjes, en de correctie (`allele_repeat_counts`, `allele_trgt_repeat_counts`, `count_offset`).
 
-**Een repeattelling dicht bij een grens.** Zolang QA de telwijze van TRGT bij een locus niet gevalideerd heeft, noemt de tooltip van het teken elke telling op 3 repeats of minder van een grens. Hij geeft de grens, waarom, en wat er over de telling van TRGT bij het gen bekend is (`count_unit_warnings` in hetzelfde antwoord; hoofdstuk 8). De toegankelijke naam van de track telt zulke loci (*1 near a boundary*).
+**Een repeattelling dicht bij een grens.** Bij elk locus noemt de tooltip van het teken elke telling op 3 repeats of minder van een grens. Hij geeft de grens, waarom, en wat er over de telling van TRGT bij het gen bekend is (`count_unit_warnings` in hetzelfde antwoord; hoofdstuk 8). De toegankelijke naam van de track telt zulke loci (*1 near a boundary*).
 
 **Aneuploïdie en grote SV's bij PGT: de analist beoordeelt.** Op de segment-, kopieaantal- (dekking) en APCAD-tracks van elk embryo beoordeelt de analist zelf de aneuploïdie en de structurele varianten groter dan 10 Mb. CoGA toont die tracks, maar heeft geen automatische aneuploïdiedetectie (`TF-09a`, REQ-PGT-008). De grenzen van die beoordeling (mozaïcisme boven 35 %, SV's boven 10 Mb) moet de klinische validatie nog vaststellen (`TF-10` §3.2).
 
@@ -52,7 +52,7 @@ Deze tracks hangen niet aan een sample en tonen referentieannotatie over het get
 
 | Track | Endpoint | Toont |
 | --- | --- | --- |
-| `GeneTrack` | `GET /api/genes/{assembly}/{chrom}` | Genen met exonen en intronen (D3), één transcript per gen: het MANE Select-transcript (GENCODE, of HGNC's MANE-accessies voor een RefSeq-referentie), anders het canonieke transcript van Ensembl (GENCODE's tag `Ensembl_canonical`), anders het langste; de tooltip noemt de panels waarin het gen zit |
+| `GeneTrack` | `GET /api/genes/{assembly}/{chrom}` | Genen met exonen en intronen (D3), één transcript per gen: het MANE Select-transcript (GENCODE, of HGNC's MANE-accessies voor een RefSeq-referentie), anders het canonieke transcript van Ensembl (GENCODE's tag `Ensembl_canonical`), anders het langste. Chevrons langs de intronen wijzen de richting van de transcriptie aan (› op de +-streng, ‹ op de −-streng). De tooltip noemt de streng, het transcript, boven een exon of intron zijn nummer in het transcript, geteld vanaf het begin van het transcript (*Exon 3 / 12*), en de panels waarin het gen zit |
 | `CnvTrack` | `GET /api/cnvs/{assembly}/{chrom}` | Klinische CNV's; een klik opent de detailpagina |
 | `DgvTrack` | `GET /api/dgv/{assembly}/{chrom}` | DGV-varianten; bij te veel overlap toont de server een dichtheidsprofiel in plaats van losse varianten |
 | `BlacklistTrack` · `SegmentalDuplicationTrack` | `GET /api/blacklist/…` · `GET /api/segmental-duplications/…` | Onbetrouwbare zones en segmentale duplicaties |

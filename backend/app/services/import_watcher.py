@@ -106,6 +106,7 @@ from .family_package_registration import (
 )
 from .family_package_source import _authorized_local_roots, _listed_package_folder
 from .family_package_validation import load_validated_family_package
+from .sex_chromosomes import same_assembly
 from .worker_tasks import stop_worker
 
 logger = logging.getLogger(__name__)
@@ -320,7 +321,7 @@ async def _project_issues(
 ) -> tuple[str | None, list[DeliveryIssue]]:
     """The project the package file names (``name``, with its ``assembly``) as CoGA holds it now:
     the project's id, None when CoGA has no such project, and the issues: a project CoGA lacks, or
-    one of another assembly."""
+    one of another assembly (``same_assembly``: ``GRCh38.p14`` or ``hg38`` is a GRCh38 project's)."""
     if not name:
         return None, []
     project = await _project(session, name)
@@ -332,7 +333,7 @@ async def _project_issues(
                 "CoGA checks the delivery again.",
             )
         ]
-    if assembly and project[1] and assembly != project[1]:
+    if assembly and project[1] and not same_assembly(assembly, project[1]):
         return project[0], [
             _issue("package_assembly_differs", f"{PACKAGE_FILE_NAME} gives the assembly {assembly}; the project's is {project[1]}.")
         ]

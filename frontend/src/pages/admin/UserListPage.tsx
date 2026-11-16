@@ -121,10 +121,15 @@ const AccountSummary: React.FC<{ user: User }> = ({ user }) => (
   </p>
 );
 
-const changeDialogText = (change: AccountChange): { title: string; confirm: string; body: string } => {
+// `mailEnabled`: a mail server is set, so an activated account is told by e-mail.
+const changeDialogText = (
+  change: AccountChange,
+  mailEnabled: boolean,
+): { title: string; confirm: string; body: string } => {
   const { user } = change;
   switch (change.kind) {
-    case 'activate':
+    case 'activate': {
+      const mailed = mailEnabled ? ` CoGA e-mails ${user.email} that the account is active.` : '';
       return {
         title: `Activate ${user.email}?`,
         confirm: 'Activate',
@@ -132,9 +137,10 @@ const changeDialogText = (change: AccountChange): { title: string; confirm: stri
           accountState(user) === 'waiting'
             ? `The account can then sign in, as a ${user.role}, and sees the projects it is a member of${
                 user.projects.length ? '' : ' (none yet: give it access with Edit, under Project access)'
-              }. Once activated, it can no longer be deleted, only archived.`
-            : `The account can sign in again, as a ${user.role}, with its project access as it is.`,
+              }. Once activated, it can no longer be deleted, only archived.${mailed}`
+            : `The account can sign in again, as a ${user.role}, with its project access as it is.${mailed}`,
       };
+    }
     case 'deactivate':
       return {
         title: `Deactivate ${user.email}?`,
@@ -163,17 +169,20 @@ const changeDialogText = (change: AccountChange): { title: string; confirm: stri
   }
 };
 
+// Whether a mail server is set, and who the account-request mail reaches.
+const accountRequestMailQuery = {
+  queryKey: ['admin', 'account-request-mail'],
+  queryFn: async (): Promise<AccountRequestMailOut> => {
+    const response = await api.get('/auth/account-request-mail');
+    return response.data as AccountRequestMailOut;
+  },
+  retry: false,
+};
+
 // The account-request mail: who it reaches, and a test of it.
 const AccountRequestMail: React.FC = () => {
   const [result, setResult] = React.useState<{ tone: 'success' | 'error'; text: string } | null>(null);
-  const { data: mail } = useQuery({
-    queryKey: ['admin', 'account-request-mail'],
-    queryFn: async (): Promise<AccountRequestMailOut> => {
-      const response = await api.get('/auth/account-request-mail');
-      return response.data as AccountRequestMailOut;
-    },
-    retry: false,
-  });
+  const { data: mail } = useQuery(accountRequestMailQuery);
   const testMutation = useMutation({
     mutationFn: async () => {
       const response = await api.post('/auth/account-request-mail/test');
@@ -244,6 +253,7 @@ const UserListPage: React.FC = () => {
     isLoading: usersLoading,
     error: usersError,
   } = useQuery({ ...userAccountsQuery, retry: false });
+  const { data: mail } = useQuery(accountRequestMailQuery);
 
   const {
     data: projects = [],
@@ -382,7 +392,7 @@ const UserListPage: React.FC = () => {
       return state !== 'waiting' && (showArchived || state !== 'archived');
     }),
   ];
-  const dialog = pendingChange ? changeDialogText(pendingChange) : null;
+  const dialog = pendingChange ? changeDialogText(pendingChange, mail?.enabled ?? false) : null;
 
   return (
     <div className="page-shell admin-compact space-y-5">

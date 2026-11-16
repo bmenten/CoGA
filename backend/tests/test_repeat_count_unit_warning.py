@@ -1,20 +1,18 @@
-"""A repeat count near a classification boundary is marked while TRGT's counting units at its
-locus are not validated (owner's decision, 2026-10-14).
+"""A repeat count near a classification boundary is marked, at every locus.
 
 TRGT counts the motif across the region its own catalogue gives a locus, which need not be the
 stretch the clinical repeat number counts: at FMR1 it leaves out the AGG interruptions (an
 allele reads 1 to 3 below its clinical number, so a 55-repeat premutation can read 53), at HTT
-it counts the CAG after the CAA interruption (one above), at POLG four flanking GCT copies. QA
-and the laboratory director validate, per catalogue locus, that TRGT's count is the clinical
-number. Until a locus is validated, a count within ``COUNT_UNIT_MARGIN`` (3) repeats of a
-boundary its classification uses is marked with that boundary; the status is not changed.
+it counts the CAG after the CAA interruption (one above), at POLG four flanking GCT copies. The
+cut-offs are STRchive's and neither they nor TRGT's count are validated per locus (the owner's
+decision, 2026-11-16), so a count within ``COUNT_UNIT_MARGIN`` (3) repeats of a boundary its
+classification uses is marked with that boundary at every locus; the status is not changed.
 
 - The warning: the boundaries are where the classifier itself changes status, on each side.
-- The family table and the genome track: the warning per allele while the locus is not
-  validated, none once it is; the statuses unchanged by the mark; what is known of the gene's
-  count.
-- The validation record: an admin sets it with a reason, each change a clinical audit event
-  on its own chain; the admin list; the routes refuse a viewer.
+- The family table and the genome track: the warning per allele; the statuses unchanged by the
+  mark; what is known of the gene's count.
+- QA's count correction: a save without a reason or for an unknown locus is refused; the admin
+  list (cut-offs, the STRchive release, the corrections' history); the routes refuse a viewer.
 (integration/test_repeat_count_units_storage.py runs the record and both reads on Postgres.)
 All samples and values are synthetic.
 """
@@ -37,7 +35,6 @@ from backend.app.services.access_control import CurrentUser
 from backend.app.services.repeat_count_units import (
     COUNT_UNIT_MARGIN,
     KNOWN_COUNT_UNIT_DIFFERENCES,
-    REPEAT_COUNT_UNITS_AUDIT_CHAIN,
     count_unit_warning,
     known_count_unit_difference,
 )
@@ -56,8 +53,8 @@ FMR1 = {
 }
 HTT = {"warning_min": 27, "pathogenic_min": 36, "benign_min": 6, "benign_max": 26, "pathogenic_max": 250}
 PABPN1 = {"warning_min": 11, "pathogenic_min": 12, "benign_min": 10, "benign_max": 10, "pathogenic_max": 18}
-# Pathogenic by contraction: normal at exactly 2, pathogenic at 1 or 3.
-VWA1 = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
+# Pathogenic on both sides of its normal count (synthetic): normal at exactly 2, pathogenic at 1 or 3.
+TWO_SIDED = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
 # No catalogue row, or one that states nothing (STRchive's ADTKD_MUC1).
 NO_THRESHOLDS = {"warning_min": None, "pathogenic_min": None}
 
@@ -142,8 +139,8 @@ def test_a_count_between_two_boundaries_is_marked_with_both() -> None:
 
 
 def test_a_contraction_locus_is_marked_on_each_side_of_its_normal_count() -> None:
-    # VWA1 is normal at exactly 2: one repeat either way reads pathogenic.
-    assert boundaries(2, VWA1) == [(1, "pathogenic"), (3, "pathogenic")]
+    # Normal at exactly 2: one repeat either way reads pathogenic.
+    assert boundaries(2, TWO_SIDED) == [(1, "pathogenic"), (3, "pathogenic")]
 
 
 def test_a_benign_range_the_classification_uses_is_a_boundary() -> None:
@@ -185,17 +182,13 @@ def test_a_locus_without_any_threshold_or_range_is_not_classified_again(monkeypa
     monkeypatch.setattr(repeat_expansion_pg, "classify_repeat_count", classify)
     alleles = [{"repeat_count": 12, "status": "not_assessed"}, {"status": "unknown"}]
 
-    marked = repeat_expansion_pg._with_count_unit_warnings(
-        alleles, validated=False, warning_min=None, pathogenic_min=None
-    )
+    marked = repeat_expansion_pg._with_count_unit_warnings(alleles, warning_min=None, pathogenic_min=None)
 
     assert [allele["count_unit_warning"] for allele in marked] == [None, None]
     assert [allele["status"] for allele in marked] == ["not_assessed", "unknown"]
     assert asked == []
-    # A validated locus is not classified again either; one with a threshold is.
-    repeat_expansion_pg._with_count_unit_warnings(alleles, validated=True, warning_min=45, pathogenic_min=201)
-    assert asked == []
-    repeat_expansion_pg._with_count_unit_warnings(alleles, validated=False, warning_min=45, pathogenic_min=201)
+    # A locus with a threshold is.
+    repeat_expansion_pg._with_count_unit_warnings(alleles, warning_min=45, pathogenic_min=201)
     assert asked
 
 
@@ -235,7 +228,7 @@ def _context():
 
 def _table_row(sample_uuid: str, counts: list[int], *, gene: str, locus: dict, status: str, **extra) -> dict:
     """A row of the table query: the catalogue row's thresholds, and QA's record for it when
-    ``count_units_validated`` is given."""
+    given in ``extra``."""
     return {
         "sample_uuid": sample_uuid,
         "locus_id": gene,
@@ -267,7 +260,7 @@ def _warning(allele) -> list[tuple[int, str]] | None:
 
 
 @pytest.mark.asyncio
-async def test_the_family_table_marks_an_fmr1_count_of_53_and_not_one_of_40_while_the_locus_is_not_validated() -> None:
+async def test_the_family_table_marks_an_fmr1_count_of_53_and_not_one_of_40() -> None:
     rows = [
         _table_row(PROBAND_UUID, [40, 53], gene="FMR1", locus=FMR1, status="intermediate"),
         _table_row(MOTHER_UUID, [30, 40], gene="FMR1", locus=FMR1, status="normal"),
@@ -277,7 +270,6 @@ async def test_the_family_table_marks_an_fmr1_count_of_53_and_not_one_of_40_whil
     table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(session, context=_context())
 
     [locus] = table.loci
-    assert locus.count_units_validated is False
     assert locus.count_units_note == KNOWN_COUNT_UNIT_DIFFERENCES["FMR1"]
     proband = locus.calls["PROBAND1"]
     assert [_warning(allele) for allele in proband.alleles] == [None, [(55, "premutation")]]
@@ -290,21 +282,6 @@ async def test_the_family_table_marks_an_fmr1_count_of_53_and_not_one_of_40_whil
     assert [_warning(allele) for allele in mother.alleles] == [None, None]
     # The table reads QA's record for the catalogue row that classifies the call.
     assert "LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = catalog.locus_id" in session.statements[0]
-
-
-@pytest.mark.asyncio
-async def test_the_family_table_does_not_mark_a_count_at_a_validated_locus() -> None:
-    rows = [
-        _table_row(PROBAND_UUID, [40, 53], gene="FMR1", locus=FMR1, status="intermediate", count_units_validated=True)
-    ]
-
-    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(RowsSession(rows), context=_context())
-
-    [locus] = table.loci
-    assert locus.count_units_validated is True
-    proband = locus.calls["PROBAND1"]
-    assert [allele.count_unit_warning for allele in proband.alleles] == [None, None]
-    assert [allele.status for allele in proband.alleles] == ["normal", "intermediate"]
 
 
 @pytest.mark.asyncio
@@ -367,7 +344,6 @@ async def test_the_genome_track_marks_an_fmr1_count_of_53_as_the_family_table_do
     [item] = response.items
     assert item.status == "intermediate"
     assert item.allele_repeat_counts == [30, 53]
-    assert item.count_units_validated is False
     assert item.count_units_note == KNOWN_COUNT_UNIT_DIFFERENCES["FMR1"]
     assert [(warning.repeat_count, [(b.repeat_count, b.status) for b in warning.boundaries]) for warning in item.count_unit_warnings] == [
         (53, [(55, "premutation")])
@@ -381,17 +357,8 @@ async def test_the_genome_track_marks_an_fmr1_count_of_53_as_the_family_table_do
 
 
 @pytest.mark.asyncio
-async def test_the_genome_track_does_not_mark_a_count_at_a_validated_locus_or_one_of_40() -> None:
-    validated = RowsSession([_stored([30, 53], status="intermediate", count_units_validated=True)])
+async def test_the_genome_track_does_not_mark_a_count_of_40() -> None:
     far = RowsSession([_stored([30, 40], status="normal")])
-
-    [item] = (
-        await repeat_expansion_pg.get_sample_repeat_expansion_track_response(
-            validated, context=_context(), sample_name="PROBAND1", chromosomes=["X"]
-        )
-    ).items
-    assert item.count_units_validated is True
-    assert item.count_unit_warnings == []
 
     [item] = (
         await repeat_expansion_pg.get_sample_repeat_expansion_track_response(
@@ -417,7 +384,7 @@ async def test_the_genome_track_does_not_mark_a_call_stored_without_thresholds()
     assert item.count_unit_warnings == []
 
 
-# ---- The validation record ---------------------------------------------------------------------
+# ---- QA's count correction ---------------------------------------------------------------------
 
 
 def _admin() -> CurrentUser:
@@ -431,8 +398,8 @@ def _admin() -> CurrentUser:
 
 
 class _RecordSession:
-    """The validation record's queries: the catalogue row, QA's previous record, the upsert;
-    and the clinical audit event's (its chain lock, head and insert)."""
+    """The correction's queries: the catalogue row, QA's previous record, the upsert; and the
+    clinical audit event's (its chain lock, head and insert)."""
 
     def __init__(self, *, locus: dict | None, previous: dict | None) -> None:
         self.locus = locus
@@ -446,14 +413,13 @@ class _RecordSession:
         self.statements.append((sql, params))
         if "FROM repeat_loci" in sql:
             return Result([self.locus] if self.locus else [])
-        if sql.startswith("SELECT validated, count_offset, reason FROM repeat_locus_count_units"):
+        if sql.startswith("SELECT count_offset, reason FROM repeat_locus_count_units"):
             return Result([self.previous] if self.previous else [])
         if sql.startswith("INSERT INTO repeat_locus_count_units"):
             return Result(
                 [
                     {
                         "locus_id": params["locus_id"],
-                        "validated": params["validated"],
                         "count_offset": params["count_offset"],
                         "reason": params["reason"],
                         "updated_by_name": params["user_name"],
@@ -477,7 +443,7 @@ async def test_a_record_without_a_reason_is_refused_and_nothing_is_written(reaso
 
     with pytest.raises(HTTPException) as refused:
         await repeat_count_units.set_repeat_locus_count_units(
-            session, locus_id="FMR1", validated=True, count_offset=0, reason=reason, user=_admin()
+            session, locus_id="FMR1", count_offset=0, reason=reason, user=_admin()
         )
 
     assert refused.value.status_code == 400
@@ -490,88 +456,13 @@ async def test_a_record_for_a_locus_the_catalogue_lacks_is_answered_404_and_noth
 
     with pytest.raises(HTTPException) as refused:
         await repeat_count_units.set_repeat_locus_count_units(
-            session, locus_id="NO_SUCH_LOCUS", validated=True, count_offset=0, reason="checked", user=_admin()
+            session, locus_id="NO_SUCH_LOCUS", count_offset=0, reason="checked", user=_admin()
         )
 
     assert refused.value.status_code == 404
     assert session.writes("repeat_locus_count_units") == []
     assert session.writes("clinical_audit_events") == []
     assert session.commits == 0
-
-
-@pytest.mark.asyncio
-async def test_validating_a_locus_records_it_with_the_reason_and_audits_it_on_its_own_chain() -> None:
-    session = _RecordSession(locus={"locus_id": "FMR1", "gene": "FMR1"}, previous=None)
-
-    record = await repeat_count_units.set_repeat_locus_count_units(
-        session,
-        locus_id="FMR1",
-        validated=True,
-        count_offset=0,
-        reason="  validation report VAL-TRGT-01  ",
-        user=_admin(),
-    )
-
-    [upsert] = session.writes("repeat_locus_count_units")
-    assert upsert["validated"] is True and upsert["count_offset"] == 0
-    assert upsert["reason"] == "validation report VAL-TRGT-01"
-    assert upsert["user_id"] == _admin().id and upsert["user_name"] == "qa-admin"
-    [event] = session.writes("clinical_audit_events")
-    assert event["family_identifier"] == REPEAT_COUNT_UNITS_AUDIT_CHAIN == "system:repeat-loci"
-    assert event["family_id"] is None and event["variant_id"] is None
-    assert event["action"] == "repeat_count_units_validated"
-    assert event["actor"] == "qa-admin"
-    assert event["summary"] == "TRGT's counting units at FMR1 (FMR1): not validated → validated"
-    assert json.loads(event["before"]) == {
-        "locus_id": "FMR1",
-        "gene": "FMR1",
-        "validated": False,
-        "count_offset": 0,
-        "reason": None,
-    }
-    assert json.loads(event["after"]) == {
-        "locus_id": "FMR1",
-        "gene": "FMR1",
-        "validated": True,
-        "count_offset": 0,
-        "reason": "validation report VAL-TRGT-01",
-    }
-    assert json.loads(event["metadata"]) == {"locus_id": "FMR1", "gene": "FMR1"}
-    assert session.commits == 1
-    assert record["validated"] is True and record["reason"] == "validation report VAL-TRGT-01"
-    assert record["count_offset"] == 0
-    assert record["updated_by"] == "qa-admin"
-
-
-@pytest.mark.asyncio
-async def test_withdrawing_a_validation_is_audited_as_such() -> None:
-    session = _RecordSession(
-        locus={"locus_id": "HD_HTT", "gene": "HTT"}, previous={"validated": True, "reason": "checked"}
-    )
-
-    await repeat_count_units.set_repeat_locus_count_units(
-        session, locus_id="HD_HTT", validated=False, count_offset=0, reason="new TRGT catalogue", user=_admin()
-    )
-
-    [event] = session.writes("clinical_audit_events")
-    assert event["action"] == "repeat_count_units_not_validated"
-    assert event["summary"] == "TRGT's counting units at HD_HTT (HTT): validated → not validated"
-    assert json.loads(event["before"])["reason"] == "checked"
-
-
-@pytest.mark.asyncio
-async def test_confirming_the_same_state_with_a_new_reason_is_audited_too() -> None:
-    session = _RecordSession(
-        locus={"locus_id": "FMR1", "gene": "FMR1"}, previous={"validated": True, "reason": "checked"}
-    )
-
-    await repeat_count_units.set_repeat_locus_count_units(
-        session, locus_id="FMR1", validated=True, count_offset=0, reason="checked again on TRGT 5", user=_admin()
-    )
-
-    [event] = session.writes("clinical_audit_events")
-    assert event["action"] == "repeat_count_units_validated"
-    assert event["summary"] == "TRGT's counting units at FMR1 (FMR1): validated, no correction, confirmed"
 
 
 @pytest.mark.asyncio
@@ -587,9 +478,10 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
             "pathogenic_min": 201,
             "benign_min": None,
             "benign_max": None,
+            "pathogenic_max": None,
             "premutation_min": 55,
             "source": None,
-            "validated": None,
+            "strchive_id": "FXS_FMR1",
             "reason": None,
             "updated_by": None,
             "updated_at": None,
@@ -605,9 +497,10 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
             "pathogenic_min": 36,
             "benign_min": 6,
             "benign_max": 26,
+            "pathogenic_max": 250,
             "premutation_min": None,
             "source": "STRchive",
-            "validated": True,
+            "strchive_id": "HD_HTT",
             "count_offset": -1,
             "reason": "checked",
             "updated_by": "qa-admin",
@@ -619,19 +512,17 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
         {
             "created_at": datetime(2026, 10, 14, tzinfo=timezone.utc),
             "actor": "qa-admin",
-            "action": "repeat_count_units_validated",
-            "summary": "TRGT's counting units at HD_HTT (HTT): not validated → validated; correction no correction → TRGT's count −1",
+            "action": "repeat_count_correction_recorded",
+            "summary": "Count correction at HD_HTT (HTT): no correction → TRGT's count −1",
             "before": None,
-            "after": json.dumps(
-                {"locus_id": "HD_HTT", "gene": "HTT", "validated": True, "count_offset": -1, "reason": "checked"}
-            ),
+            "after": json.dumps({"locus_id": "HD_HTT", "gene": "HTT", "count_offset": -1, "reason": "checked"}),
         },
-        # An event whose recorded state does not read: listed by its summary, validating nothing.
+        # An event whose recorded state does not read: listed by its summary, correcting nothing.
         {
             "created_at": datetime(2026, 10, 13, tzinfo=timezone.utc),
             "actor": "qa-admin",
-            "action": "repeat_count_units_validated",
-            "summary": "TRGT's counting units at FMR1 (FMR1): not validated → validated",
+            "action": "repeat_count_correction_recorded",
+            "summary": "Count correction at FMR1 (FMR1): no correction, confirmed",
             "before": None,
             "after": "{not json",
         },
@@ -647,32 +538,30 @@ async def test_the_admin_list_names_each_locus_its_record_its_calls_and_the_hist
 
     listed = await repeat_count_units.list_repeat_locus_count_units(_ListSession())
 
+    # The cut-offs are the pinned STRchive release's, which the page names.
+    assert listed["strchive_release"] == "v2.28.0"
     assert listed["margin"] == 3 and listed["offset_limit"] == 20
     fmr1, htt = listed["loci"]
-    # A locus without a record: no correction, not validated.
-    assert (fmr1["validated"], fmr1["count_offset"], fmr1["source"], fmr1["call_count"]) == (False, 0, "built-in", 3)
+    assert "validated" not in fmr1
+    # A locus without a record: no correction.
+    assert (fmr1["count_offset"], fmr1["source"], fmr1["call_count"]) == (0, "built-in", 3)
+    assert (htt["pathogenic_min"], htt["pathogenic_max"], htt["strchive_id"]) == (36, 250, "HD_HTT")
     assert fmr1["known_difference"] == KNOWN_COUNT_UNIT_DIFFERENCES["FMR1"]
     # FMR1 is named as a locus where a constant correction is wrong; HTT is not.
     assert "AGG" in fmr1["offset_note"]
-    assert (htt["validated"], htt["count_offset"], htt["source"], htt["reason"]) == (True, -1, "STRchive", "checked")
+    assert (htt["count_offset"], htt["source"], htt["reason"]) == (-1, "STRchive", "checked")
     assert htt["known_difference"] == KNOWN_COUNT_UNIT_DIFFERENCES["HTT"]
     assert htt["offset_note"] is None
     change, unreadable = listed["changes"]
     # Each change as its event recorded the record after it.
-    assert (change["locus_id"], change["validated"], change["count_offset"], change["reason"], change["changed_by"]) == (
+    assert (change["locus_id"], change["count_offset"], change["reason"], change["changed_by"]) == (
         "HD_HTT",
-        True,
         -1,
         "checked",
         "qa-admin",
     )
-    assert (unreadable["locus_id"], unreadable["validated"], unreadable["count_offset"], unreadable["reason"]) == (
-        None,
-        False,
-        0,
-        None,
-    )
-    assert unreadable["summary"] == "TRGT's counting units at FMR1 (FMR1): not validated → validated"
+    assert (unreadable["locus_id"], unreadable["count_offset"], unreadable["reason"]) == (None, 0, None)
+    assert unreadable["summary"] == "Count correction at FMR1 (FMR1): no correction, confirmed"
 
 
 # ---- The routes ----------------------------------------------------------------------------------
@@ -723,7 +612,7 @@ def test_a_viewer_can_neither_list_nor_set_the_record(monkeypatch) -> None:
     with _client_as("viewer") as client:
         listed = client.get("/api/admin/repeat-loci")
         updated = client.put(
-            "/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "count_offset": 0, "reason": "x"}
+            "/api/admin/repeat-loci/FMR1/count-units", json={"count_offset": 0, "reason": "x"}
         )
     assert (listed.status_code, updated.status_code) == (403, 403)
     assert calls == []
@@ -739,7 +628,6 @@ def test_an_admin_sets_the_record_through_the_route(monkeypatch) -> None:
         return {
             "locus_id": kwargs["locus_id"],
             "gene": "FMR1",
-            "validated": kwargs["validated"],
             "count_offset": kwargs["count_offset"],
             "reason": kwargs["reason"],
             "updated_by": kwargs["user"].username,
@@ -747,30 +635,30 @@ def test_an_admin_sets_the_record_through_the_route(monkeypatch) -> None:
         }
 
     async def _list(session):
-        return {"margin": 3, "offset_limit": 20, "loci": [], "changes": []}
+        return {"strchive_release": "v2.28.0", "margin": 3, "offset_limit": 20, "loci": [], "changes": []}
 
     monkeypatch.setattr(admin_router, "set_repeat_locus_count_units", _set)
     monkeypatch.setattr(admin_router, "list_repeat_locus_count_units", _list)
     with _client_as("admin") as client:
         updated = client.put(
-            "/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "count_offset": 0, "reason": "checked"}
+            "/api/admin/repeat-loci/FMR1/count-units", json={"count_offset": -1, "reason": "checked"}
         )
         listed = client.get("/api/admin/repeat-loci")
-        missing_reason = client.put("/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "count_offset": 0})
-        # The whole record is stated on every save: a client that does not say the correction
-        # cannot leave one as it was, or clear it, without meaning to.
-        missing_offset = client.put("/api/admin/repeat-loci/FMR1/count-units", json={"validated": True, "reason": "checked"})
+        missing_reason = client.put("/api/admin/repeat-loci/FMR1/count-units", json={"count_offset": 0})
+        # The correction is stated on every save: a client that does not say it cannot leave one
+        # as it was, or clear it, without meaning to.
+        missing_offset = client.put("/api/admin/repeat-loci/FMR1/count-units", json={"reason": "checked"})
 
     assert updated.status_code == 200, updated.text
-    assert updated.json()["validated"] is True and updated.json()["count_offset"] == 0
+    assert updated.json()["count_offset"] == -1 and "validated" not in updated.json()
     [call] = calls
-    assert (call["locus_id"], call["validated"], call["count_offset"], call["reason"], call["user"].role) == (
-        "FMR1",
-        True,
-        0,
-        "checked",
-        "admin",
-    )
-    assert listed.status_code == 200 and listed.json() == {"margin": 3, "offset_limit": 20, "loci": [], "changes": []}
+    assert (call["locus_id"], call["count_offset"], call["reason"], call["user"].role) == ("FMR1", -1, "checked", "admin")
+    assert listed.status_code == 200 and listed.json() == {
+        "strchive_release": "v2.28.0",
+        "margin": 3,
+        "offset_limit": 20,
+        "loci": [],
+        "changes": [],
+    }
     assert missing_reason.status_code == 422
     assert missing_offset.status_code == 422

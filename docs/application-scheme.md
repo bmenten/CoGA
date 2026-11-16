@@ -86,9 +86,11 @@ caller. The sort keys and how storage keys are built are in
    only.
 4. Variant endpoints read the family's records from ClickHouse and join the review state
    (classifications, tags, notes) from Postgres. The Global Small Variant Explorer counts
-   carriers at query time, straight from the `entries` tables of every project the user can
-   access, reading in each family's rows the calls of the members the family shows (its
-   active members, read from Postgres), as the family search does.
+   carriers from the variant carrier summary (`SNV_INDEL/carriers`,
+   [database.md](database.md#the-variant-carrier-summary)): per variant, what each family of
+   the projects the user can access adds, counting the calls of the members the family shows
+   (its active members, read from Postgres), as the family search does. Its gene, transcript
+   and cohort-frequency views read the same rows joined to their own annotation.
 5. Uploads and package imports write metadata to Postgres and the variant and interval rows
    to ClickHouse. They record each source file with its SHA-256 checksum.
    - Package sources are read from local folders under `FAMILY_IMPORT_ROOTS`, where they lie: a
@@ -144,8 +146,11 @@ image with the backend's settings and its `/data`, and starts the API with no im
 default) sets how many replicas run. On Google Cloud the imports still run in the API's
 instances: `terraform/` has no worker service. The process also runs the worker of the
 exploratory ancestry PCA ([ancestry-pca.md](ancestry-pca.md)), which queues a projection for each
-family whose stored genotypes changed and reads them at the reference markers; the API runs that
-worker only when it runs import workers itself.
+family whose stored genotypes changed and reads them at the reference markers, and the
+variant-carrier worker, which every 5 s brings the Variant Explorer's carrier summary up to date
+for each family a write or a member or project change has left behind
+([database.md](database.md#the-variant-carrier-summary)); the API runs these workers only when it
+runs import workers itself.
 
 On start it makes the checks the API makes before its workers run, and nothing else:
 
@@ -229,8 +234,6 @@ done:
 
 - the refresh worker in a process of its own;
 - import-worker processes on Google Cloud, where the imports still run in the API's instances;
-- the Variant Explorer's unfiltered page, which aggregates every carrier;
-  that benchmark finds it the first query to fail;
 - the ranked view's limit of 5,000 SVs, which a family with more than 50,000 SVs can reach: a
   gene panel on the SV page keeps every SV it matches, not only those among the
   first 50,000.

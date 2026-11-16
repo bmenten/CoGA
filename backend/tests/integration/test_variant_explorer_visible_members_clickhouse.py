@@ -33,8 +33,7 @@ import pytest
 
 from backend.tests.integration._datastores import (
     admin_account,
-    fresh_assembly,
-    fresh_species,
+    named_assembly,
     run_closing_stores,
 )
 
@@ -104,8 +103,7 @@ def stored() -> dict[str, Any]:
 
     async def _write() -> dict[str, Any]:
         async with get_postgres_sessionmaker()() as session:
-            species = await fresh_species(session, f"explorer-visible {tag}")
-            assembly_id = await fresh_assembly(session, species, _ASSEMBLY)
+            species, assembly_id = await named_assembly(session, _ASSEMBLY, f"explorer-visible {tag}")
             project = (
                 await session.execute(
                     text(
@@ -206,7 +204,17 @@ def explorer_scope(monkeypatch: pytest.MonkeyPatch, stored: dict[str, Any]) -> N
     async def _no_hydration(session: Any, *, context: Any, variants: Any) -> None:
         return None
 
+    async def _brought_up_to_date(session: Any, scope: Any) -> list[str]:
+        # As the variant-carrier worker would have: the summary holds these families as
+        # they are, so none is pending.
+        from backend.app.services.variant_carrier_summary import reconcile_variant_carriers
+
+        status = await reconcile_variant_carriers(scope.assembly_id, scope.assembly_name)
+        assert not status.pending
+        return []
+
     monkeypatch.setattr(explorer, "resolve_scope", _fake_scope)
+    monkeypatch.setattr(explorer, "_pending_families", _brought_up_to_date)
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
 

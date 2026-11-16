@@ -10,17 +10,17 @@ CREATE TABLE IF NOT EXISTS species (
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
 
+-- An assembly is its name: the ClickHouse variant tables and every lookup by name read the
+-- name alone. `version` and `release_date` are what the assembly's last import from UCSC
+-- stated (the GRC patch, such as p14), which a later import updates in place.
 CREATE TABLE IF NOT EXISTS assemblies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     species_id UUID NOT NULL REFERENCES species(id) ON DELETE CASCADE,
-    assembly_name TEXT NOT NULL,
+    assembly_name TEXT NOT NULL UNIQUE,
     version TEXT NOT NULL,
     release_date DATE NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
-    UNIQUE (species_id, assembly_name, version)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
-
-CREATE INDEX IF NOT EXISTS idx_assemblies_name ON assemblies (assembly_name);
 
 CREATE TABLE IF NOT EXISTS chromosomes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

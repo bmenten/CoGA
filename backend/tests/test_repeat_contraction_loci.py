@@ -1,9 +1,9 @@
 """Repeat loci that are pathogenic by contraction rather than expansion.
 
 Almost every catalogued locus is pathogenic by expansion, where "at or above the
-threshold" is the whole rule. Two are not — VWA1 (normal exactly 2, pathogenic 1 or 3)
-and MIR7-2 (normal 4, pathogenic 3) — and a bare ``>=`` test called every healthy call
-at them pathogenic.
+threshold" is the whole rule. MIR7-2 (normal 4, pathogenic 3) is not, nor is a locus
+pathogenic on both sides of its normal count (normal exactly 2, pathogenic 1 or 3), and a
+bare ``>=`` test calls every healthy call at them pathogenic.
 """
 
 import pytest
@@ -17,8 +17,10 @@ from backend.app.services.repeat_expansion_pg import (
 )
 from backend.tests._repeat_fakes import RowsSession, family_context
 
+# Pathogenic on both sides of its normal count (a synthetic locus): normal exactly 2,
+# pathogenic 1 or 3.
+TWO_SIDED = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
 # Straight from STRchive-loci.json.
-VWA1 = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
 MIR7_2 = {"warning_min": None, "pathogenic_min": 3, "benign_min": 4, "benign_max": 4, "pathogenic_max": 3}
 HTT = {"warning_min": 27, "pathogenic_min": 36, "benign_min": 6, "benign_max": 26, "pathogenic_max": 250}
 # Monotonic loci whose benign range shares its upper endpoint with the grey zone.
@@ -39,20 +41,20 @@ def classify(count, locus):
 
 class TestContractionLoci:
     @pytest.mark.parametrize("count", [2])
-    def test_vwa1_normal_count_is_not_flagged(self, count: int) -> None:
+    def test_two_sided_normal_count_is_not_flagged(self, count: int) -> None:
         # pathogenic_min is 1, so a ">= pathogenic_min" rule called this pathogenic.
-        assert classify(count, VWA1) == "normal"
+        assert classify(count, TWO_SIDED) == "normal"
 
     @pytest.mark.parametrize("count", [1, 3])
-    def test_vwa1_deviation_either_side_is_pathogenic(self, count: int) -> None:
-        # 1 is the contraction, 3 the recurrent c.62_71dup.
-        assert classify(count, VWA1) == "pathogenic"
+    def test_two_sided_deviation_either_side_is_pathogenic(self, count: int) -> None:
+        # One repeat fewer or one more.
+        assert classify(count, TWO_SIDED) == "pathogenic"
 
-    def test_vwa1_count_outside_every_stated_range_is_review(self) -> None:
+    def test_two_sided_count_outside_every_stated_range_is_review(self) -> None:
         # Not "normal": at a locus where risk does not rise with count, being further
         # from the threshold proves nothing, and the catalog does not cover this. It is
         # "review" rather than "unknown", so it outranks a normal allele.
-        assert classify(5, VWA1) == "review"
+        assert classify(5, TWO_SIDED) == "review"
 
     def test_mir7_2_normal_is_not_flagged_and_the_deletion_is(self) -> None:
         assert classify(4, MIR7_2) == "normal"
@@ -139,9 +141,9 @@ class TestReviewStatusSurfaces:
     """A count the catalog cannot classify must never hide behind a normal allele."""
 
     def test_a_review_allele_outranks_a_normal_one(self) -> None:
-        # VWA1 2/5: one normal allele, one outside every catalogued range. Summarised as
+        # 2/5 at the two-sided locus: one normal allele, one outside every catalogued range. Summarised as
         # "review", so the aberrant-only view shows the row.
-        assert summarize_repeat_status([classify(2, VWA1), classify(5, VWA1)]) == "review"
+        assert summarize_repeat_status([classify(2, TWO_SIDED), classify(5, TWO_SIDED)]) == "review"
 
     def test_ranking_order(self) -> None:
         order = ["unknown", "normal", "review", "not_assessed", "intermediate", "premutation", "pathogenic"]

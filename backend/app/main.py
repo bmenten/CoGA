@@ -47,6 +47,7 @@ from .services.family_package_import import (
     stop_family_package_import_worker,
 )
 from .services.ancestry_service import ancestry_worker, stop_ancestry_worker
+from .services.variant_carrier_summary import stop_variant_carrier_worker, variant_carrier_worker
 from .services.import_watcher import import_watcher, stop_import_watcher
 from .services.repeat_expansion_pg import seed_builtin_repeat_catalog
 from .services.reference_metadata_service import seed_builtin_reference_tracks
@@ -141,6 +142,11 @@ async def lifespan(app: FastAPI):
     ancestry_task = (
         asyncio.create_task(ancestry_worker(ancestry_stop)) if family_import_worker_tasks else None
     )
+    # So does the variant-carrier worker, which keeps the Variant Explorer's carrier summary.
+    carrier_stop = asyncio.Event()
+    carrier_task = (
+        asyncio.create_task(variant_carrier_worker(carrier_stop)) if family_import_worker_tasks else None
+    )
     # So does the import watcher, when FAMILY_IMPORT_WATCH_ROOTS names a folder: one at a time.
     watcher_stop = asyncio.Event()
     watcher_task = (
@@ -155,6 +161,8 @@ async def lifespan(app: FastAPI):
             await stop_import_watcher(watcher_task, watcher_stop)
         if ancestry_task is not None:
             await stop_ancestry_worker(ancestry_task, ancestry_stop)
+        if carrier_task is not None:
+            await stop_variant_carrier_worker(carrier_task, carrier_stop)
         await stop_gene_reference_worker(worker_task, worker_stop)
         for family_import_worker_task in family_import_worker_tasks:
             await stop_family_package_import_worker(

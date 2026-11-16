@@ -134,6 +134,10 @@ MODULE_FLOORS: dict[str, float] = {
     # second hit and the SV ranking)
     "backend/app/services/sv_copy_change.py": 97.0,
     "backend/app/services/sv_gene_index_service.py": 96.0,  # (99.6, 2026-11-03)
+    # (91.2 measured locally: the Variant Explorer's carrier summary, the per-family
+    # contributions, the writers' hook and the reconciler; its counts against the rows are
+    # compared on real stores in the smoke job)
+    "backend/app/services/variant_carrier_summary.py": 88.0,
     "backend/app/services/variant_ranking_cache.py": 86.0,  # (89.5, 2026-11-03)
     # (100.0 measured locally: the stop of the package-import, import-watcher,
     # gene-reference and ancestry workers, which they share)

@@ -22,6 +22,7 @@ header lines.
 | Structural variants, from a package (NeedlR, and the `mito` dataset's chrM SV files) or a per-sample upload (Sniffles, Spectre) | `family_package_datasets._import_sv_needlr_dataset`, `_import_mito_structural_variants`, `variant_upload_service.upload_structural_variant_file` | the SV caller (`##source=Sniffles2_…`, Spectre, NeedlR) and `##reference`; for NeedlR and an upload also the database releases named in the `##INFO` descriptions (`extract_info_description_provenance`: GENCODE, OMIM, GenCC, gnomAD, GIAB, ClinVar, dbSNP, COSMIC, each tied to a version-shaped token) |
 | Repeat expansions (TRGT), family or per sample | `repeat_expansion_pg.ingest_family_trgt_text`, `ingest_trgt_text` | `##trgtVersion`, `##source=TRGT`, `##reference` |
 | Copy-number calls (HiFiCNV), from a package's `cnv` dataset | `family_package_datasets._import_cnv_dataset` | each sample's VCF header: `##source=HiFiCNV v…`, recorded as the `cnv caller` |
+| The package file's reference genome | `family_package_registration._record_package_reference`, in the import's dataset loop once the first dataset of the package is imported, so an import that is undone takes it away with its data | the package file's `reference`, the FASTA the pipeline aligned to: recorded as the `assembly` module under the modality `package`, by the FASTA's name as a VCF's `##reference` is read (`reference_name`), with `source='manifest'` |
 | The pipeline run record of a long-read or PGT package | `family_package_datasets._import_pipeline_info_dataset` | not a VCF: the Nextflow `software_versions.yaml` (the PGT pipeline's `copgtm_software_mqc_versions.yml`), recorded with `source='manifest'`. It names every tool behind the data, including tools whose outputs carry no version. The run parameters go to `families.metadata["pipeline"]`. |
 
 A version is read only from a line that states one:
@@ -166,7 +167,11 @@ sync does not import a file without a `data-version` header. The HPO admin page 
 ([variant-ranking-cache.md](variant-ranking-cache.md)) read the release the same way.
 
 When the family's pipeline declares a module under the same key (for example `assembly` from a
-VCF `##reference` line), the pipeline's value is listed.
+VCF `##reference` line or the package file's `reference`), the pipeline's value is listed. So
+the Reference assembly is the reference layer's (the build, `GRCh38`, with its release date)
+only for a family whose inputs name no reference; otherwise it is what they name (the FASTA, or
+VEP's `assembly`), per input where they differ (`GRCh38_no_alt.fa (package), hg38_alt_masked.fa
+(snv)`).
 
 ## Where it is shown
 

@@ -434,7 +434,6 @@ const FamilySampleQcPage: React.FC = () => {
   const {
     assemblyName,
     assemblyValidated,
-    assemblyVersion,
     projectId,
     isLoading: referenceLoading,
     isError: referenceFailed,
@@ -527,10 +526,10 @@ const FamilySampleQcPage: React.FC = () => {
           onRetry: retryReference,
         }}
         assemblyLabel={formatResolvedReferenceLabel(
-          { assemblyName, assemblyVersion, isError: referenceFailed },
+          { assemblyName, isError: referenceFailed },
           'Not linked',
         )}
-        kicker={`Sample-integrity QC · ${qc.application_label || qc.application}`}
+        kicker="Sample-integrity QC"
         familyId={familyId}
         family={family}
         projectId={projectId}
