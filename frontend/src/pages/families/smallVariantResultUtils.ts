@@ -656,6 +656,76 @@ export const formatSpliceAi = (
   return `${score} · ${top[2]} ${top[1] > 0 ? '+' : ''}${top[1]}`;
 };
 
+// The rsIDs in a variant's rsID field, each once: VEP's Existing_variation joins them with other
+// identifiers (`rs80357914&CM940165&COSV58787000`).
+const rsidsOf = (value?: string | null): string[] =>
+  Array.from(new Set((value || '').match(/\brs\d+\b/gi) ?? [])).map((id) => id.toLowerCase());
+
+/**
+ * A variant's change as a literature search names it: the protein change, else the cDNA change,
+ * without the accession VEP writes it on (PubMed knows no `ENSP00000350283.3`), and with VEP's
+ * escaped `=` read back (`p.Ser10%3D` is `p.Ser10=`). None where the annotation has neither.
+ */
+export const variantChangeForSearch = (
+  variant: Pick<SmallVariant, 'hgvsp' | 'hgvsc'>,
+): string | null => {
+  const change = hgvsWithoutAccession(variant.hgvsp) || hgvsWithoutAccession(variant.hgvsc);
+  return change ? change.replace(/%3D/gi, '=') : null;
+};
+
+// ClinVar's search field for a position on each assembly it places variants on.
+const CLINVAR_POSITION_FIELDS: Partial<Record<string, string>> = {
+  GRCh38: 'chrpos38',
+  GRCh37: 'chrpos37',
+};
+
+/**
+ * What the card's ClinVar link searches for, where the annotation matched no ClinVar record
+ * (that link opens the record by its VariationID).
+ *
+ * ClinVar knows no Ensembl accession: `ENST00000357654.9:c.68_69del` finds nothing. In order:
+ * - the primary transcript's HGVSc where it is on a RefSeq transcript (`NM_007294.4:c.68_69del`),
+ *   else its c. change on the RefSeq transcript VEP's MANE fields pair with it. MANE pairs
+ *   identical transcripts, so the change reads the same on either. ClinVar opens the variant's
+ *   record where it has one;
+ * - the rsIDs (`rs80357914`), each record of any allele at the site;
+ * - the position on GRCh38 or GRCh37 (`17[chr] AND 43124027:43124029[chrpos38]`), REF's span:
+ *   each record there, of any allele;
+ * - the gene; else the locus.
+ * A transcript in no MANE pair gives no search by its c. change, with the gene or on a RefSeq
+ * accession matched to it: its numbering need not be that of ClinVar's transcript, and the
+ * search could open the record of another variant.
+ */
+export const clinvarSearchTerm = ({
+  variant,
+  assemblyName,
+  assemblyVersion,
+}: {
+  variant: Pick<SmallVariant, 'chr' | 'start' | 'end' | 'rsid' | 'gene' | 'gene_id' | 'hgvsc'> & {
+    mane_refseq_id?: string | null;
+  };
+  assemblyName?: string;
+  assemblyVersion?: string;
+}): string => {
+  const hgvsc = (variant.hgvsc || '').trim();
+  const change = hgvsWithoutAccession(hgvsc);
+  if (change && /^[cn]\./.test(change)) {
+    if (/^N[MR]_\d+\.\d+:/.test(hgvsc)) return hgvsc;
+    if (variant.mane_refseq_id) return `${variant.mane_refseq_id}:${change}`;
+  }
+  const rsids = rsidsOf(variant.rsid);
+  if (rsids.length) return rsids.join(' OR ');
+  const human = humanAssemblyOf(assemblyName, assemblyVersion);
+  const positionField = human ? CLINVAR_POSITION_FIELDS[human] : undefined;
+  if (positionField && Number.isFinite(variant.start)) {
+    const end = Math.max(variant.start, variant.end);
+    const span = end > variant.start ? `${variant.start}:${end}` : `${variant.start}`;
+    return `${normalizeChrom(variant.chr)}[chr] AND ${span}[${positionField}]`;
+  }
+  const gene = variant.gene || variant.gene_id;
+  return gene ? `${gene}[gene]` : formatLocus(variant);
+};
+
 export const buildSmallVariantExternalLinks = ({
   variant,
   speciesName,
@@ -665,15 +735,16 @@ export const buildSmallVariantExternalLinks = ({
   variant: Pick<
     SmallVariant,
     'chr' | 'start' | 'end' | 'ref' | 'alt' | 'rsid' | 'gene' | 'gene_id' | 'hgvsc' | 'hgvsp'
-  > & { clinvar_variation_id?: string | null };
+  > & { clinvar_variation_id?: string | null; mane_refseq_id?: string | null };
   speciesName?: string;
   assemblyName?: string;
   assemblyVersion?: string;
 }) => {
   const locusLabel = formatLocus(variant);
   const geneLabel = variant.gene || variant.gene_id;
-  const proteinLabel = variant.hgvsp || variant.hgvsc || variant.rsid;
-  const querySeed = [geneLabel, proteinLabel].filter(Boolean).join(' ');
+  // PubMed: the gene and the change (variantChangeForSearch), else the gene and the rsID.
+  const changeLabel = variantChangeForSearch(variant) || rsidsOf(variant.rsid)[0] || null;
+  const querySeed = [geneLabel, changeLabel].filter(Boolean).join(' ');
   const variantId =
     variant.ref && variant.alt
       ? `${variant.chr.replace(/^chr/, '')}-${variant.start}-${variant.ref}-${variant.alt}`
@@ -684,7 +755,7 @@ export const buildSmallVariantExternalLinks = ({
         gnomadDataset ? `?dataset=${gnomadDataset}` : ''
       }`
     : null;
-  const clinvarTerm = variant.rsid || variant.hgvsc || querySeed || locusLabel;
+  const clinvarTerm = clinvarSearchTerm({ variant, assemblyName, assemblyVersion });
   const pubmedTerm = querySeed || locusLabel;
   const ucscDb = getUcscDb(speciesName, assemblyName, assemblyVersion);
   const ucscPosition = encodeURIComponent(
@@ -699,7 +770,7 @@ export const buildSmallVariantExternalLinks = ({
     {
       label: 'ClinVar',
       // The record the annotation matched, by its VariationID where VEP --custom gave it;
-      // else a search.
+      // else a search (clinvarSearchTerm).
       href: variant.clinvar_variation_id
         ? `https://www.ncbi.nlm.nih.gov/clinvar/variation/${encodeURIComponent(variant.clinvar_variation_id)}/`
         : `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(clinvarTerm)}`,

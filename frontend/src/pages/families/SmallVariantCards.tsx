@@ -200,6 +200,7 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
     canonical: variant.canonical,
     mane_select: variant.mane_select,
     mane_plus_clinical: variant.mane_plus_clinical,
+    mane_refseq_id: variant.mane_refseq_id,
     primary: true,
   };
   return normalizeTranscriptFlags([primary, ...listed]);
@@ -435,10 +436,14 @@ const TranscriptPopup = ({
               const match = matchTranscriptDetail(transcriptDetails.byKey, transcript.transcript_id);
               const detail = match && match.kind !== 'different_version' ? match.detail : undefined;
               const badges = transcriptBadges(transcript, detail, isFilterTranscript(transcript, variant));
-              // The VCF names one transcript; the annotation knows which RefSeq
-              // accessions correspond to it.
+              // The RefSeq transcript MANE pairs with this one, as the variant's own annotation
+              // names it, leads; then the RefSeq accessions the gene annotation (GENCODE)
+              // matches to it, which need not be identical to it.
+              const maneRefseq = transcript.mane_refseq_id || null;
               const refseq = (detail?.refseq_accessions ?? []).filter(
-                (accession) => transcriptKey(accession) !== transcriptKey(transcript.transcript_id),
+                (accession) =>
+                  transcriptKey(accession) !== transcriptKey(transcript.transcript_id) &&
+                  transcriptKey(accession) !== transcriptKey(maneRefseq),
               );
               const xrefNote =
                 match?.kind === 'unversioned' && (detail?.ccds_id || refseq.length)
@@ -457,8 +462,21 @@ const TranscriptPopup = ({
                           'Transcript'}
                         {transcript.transcript_biotype ? ` · ${transcript.transcript_biotype}` : ''}
                       </span>
+                      {maneRefseq ? (
+                        <span
+                          className="variant-transcript-refseq"
+                          title="The RefSeq transcript MANE pairs with this one: identical to it"
+                        >
+                          <strong>{maneRefseq}</strong> · MANE
+                        </span>
+                      ) : null}
                       {refseq.length ? (
-                        <span className="variant-transcript-refseq">{refseq.join(', ')}</span>
+                        <span
+                          className="variant-transcript-refseq"
+                          title="RefSeq transcripts the gene annotation matches to this one"
+                        >
+                          {refseq.join(', ')}
+                        </span>
                       ) : null}
                       {xrefNote ? <span className="variant-transcript-xref-note">{xrefNote}</span> : null}
                     </div>

@@ -197,7 +197,7 @@ describe('SmallVariantCards', () => {
     ).toBeInTheDocument();
   });
 
-  const renderBrca2WithTranscript = (transcriptId: string) =>
+  const renderBrca2WithTranscript = (transcriptId: string, fields: Partial<SmallVariant> = {}) =>
     renderCards(
       <SmallVariantCards
         variants={[
@@ -216,6 +216,7 @@ describe('SmallVariantCards', () => {
             transcript_biotype: 'protein_coding',
             canonical: true,
             genotypes: [],
+            ...fields,
           }),
         ]}
         members={[]}
@@ -299,6 +300,25 @@ describe('SmallVariantCards', () => {
     expect(await within(dialog).findByText('CCDS')).toBeInTheDocument();
     expect(within(dialog).getByText('NM_000059.4')).toBeInTheDocument();
     expect(within(dialog).queryByText(/CCDS\/RefSeq (from|not shown)/)).not.toBeInTheDocument();
+  });
+
+  it("leads with the RefSeq transcript MANE pairs with the variant's, then the annotation's matches", async () => {
+    mockGeneProfile([
+      {
+        transcript_id: 'ENST00000380152.8',
+        ccds_id: 'CCDS9344.1',
+        refseq_accessions: ['NM_000059.4', 'NM_001406720.1'],
+      },
+    ]);
+    renderBrca2WithTranscript('ENST00000380152.8', { mane_select: true, mane_refseq_id: 'NM_000059.4' });
+    await userEvent.click(screen.getByRole('button', { name: /ENST00000380152\.8/i }));
+    const dialog = await screen.findByRole('dialog', { name: /BRCA2/i });
+
+    const mane = within(dialog).getByTitle('The RefSeq transcript MANE pairs with this one: identical to it');
+    expect(mane).toHaveTextContent('NM_000059.4 · MANE');
+    expect(
+      await within(dialog).findByTitle('RefSeq transcripts the gene annotation matches to this one'),
+    ).toHaveTextContent(/^NM_001406720\.1$/);
   });
 
   it('withholds CCDS and RefSeq when the variant names another transcript version', async () => {

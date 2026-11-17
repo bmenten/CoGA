@@ -27,6 +27,7 @@ import {
   buildSmallVariantExternalLinks,
   formatLocus,
   getReviewTagStyle,
+  variantChangeForSearch,
 } from './smallVariantResultUtils';
 import {
   ACMG_AUTO_MANAGED_TAG_KEYS,
@@ -312,7 +313,7 @@ export default function AcmgClassificationModal({
       .filter((entry): entry is { label: string; href: string } => Boolean(entry));
     const pubmed = buildLiteraturePubmedHref({
       gene: variant.gene || variant.gene_id,
-      proteinChange: variant.hgvsp || variant.hgvsc,
+      proteinChange: variantChangeForSearch(variant),
       hpoLabels: probandHpo.labels,
     });
     if (pubmed) {

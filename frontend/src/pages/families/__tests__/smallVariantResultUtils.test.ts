@@ -5,7 +5,9 @@ import {
   buildLiteraturePubmedHref,
   buildSmallVariantNavigation,
   buildReviewTagTooltip,
+  buildSmallVariantExternalLinks,
   buildSvSecondHitHref,
+  clinvarSearchTerm,
   describeFilterTranscript,
   formatGenomicChange,
   hgvsWithoutAccession,
@@ -21,10 +23,12 @@ import {
   isDeletedReviewTag,
   parseVariantIds,
   reviewClassChips,
+  variantChangeForSearch,
   visibleReviewTagKeys,
 } from '../smallVariantResultUtils';
 import {
   ACMG_CLASSIFICATION_LABELS,
+  type SmallVariant,
   type SmallVariantTagDefinition,
   type SvSecondHit,
 } from '../smallVariantSearch';
@@ -729,5 +733,108 @@ describe('buildLiteraturePubmedHref', () => {
       hpoLabels: ['Seizure', 'Intellectual disability', 'Seizure'],
     });
     expect(searchTerm(href)).toBe('SCN1A AND ("Seizure" OR "Intellectual disability")');
+  });
+});
+
+// The card's ClinVar link where the annotation matched no ClinVar record. ClinVar knows no
+// Ensembl accession, so the search is by the MANE RefSeq transcript, the rsID, the position or
+// the gene — never by an Ensembl transcript's c. change.
+describe('clinvarSearchTerm', () => {
+  const brca1 = smallVariant({
+    _id: 'brca1-var',
+    type: 'INDEL',
+    chr: 'chr17',
+    start: 43124027,
+    end: 43124029,
+    ref: 'ACT',
+    alt: 'A',
+    gene: 'BRCA1',
+    gene_id: 'ENSG00000012048',
+    hgvsc: 'ENST00000357654.9:c.68_69del',
+  });
+
+  it('searches the c. change on the MANE RefSeq transcript, not the Ensembl one', () => {
+    expect(
+      clinvarSearchTerm({
+        variant: { ...brca1, mane_refseq_id: 'NM_007294.4', rsid: 'rs80357914' },
+        assemblyName: 'GRCh38',
+      }),
+    ).toBe('NM_007294.4:c.68_69del');
+  });
+
+  it('searches the HGVSc of a RefSeq transcript as it stands', () => {
+    expect(
+      clinvarSearchTerm({
+        variant: { ...brca1, hgvsc: 'NM_001407571.1:c.-123_-122del', rsid: 'rs80357914' },
+        assemblyName: 'GRCh38',
+      }),
+    ).toBe('NM_001407571.1:c.-123_-122del');
+  });
+
+  it('searches the rsIDs of a transcript in no MANE pair, other identifiers left out', () => {
+    expect(
+      clinvarSearchTerm({ variant: { ...brca1, rsid: 'rs80357914&CM940165&COSV58787000' }, assemblyName: 'GRCh38' }),
+    ).toBe('rs80357914');
+    expect(clinvarSearchTerm({ variant: { ...brca1, rsid: 'rs1;rs2;rs1' }, assemblyName: 'GRCh38' })).toBe(
+      'rs1 OR rs2',
+    );
+  });
+
+  it("searches REF's span on the assembly without an rsID", () => {
+    expect(clinvarSearchTerm({ variant: brca1, assemblyName: 'GRCh38' })).toBe(
+      '17[chr] AND 43124027:43124029[chrpos38]',
+    );
+    expect(
+      clinvarSearchTerm({ variant: { ...brca1, start: 41276044, end: 41276044 }, assemblyName: 'GRCh37' }),
+    ).toBe('17[chr] AND 41276044[chrpos37]');
+    expect(clinvarSearchTerm({ variant: { ...brca1, chr: 'chrM', start: 3243, end: 3243 }, assemblyName: 'GRCh38' })).toBe(
+      'MT[chr] AND 3243[chrpos38]',
+    );
+  });
+
+  it('searches the gene where ClinVar places no variant on the assembly', () => {
+    expect(clinvarSearchTerm({ variant: brca1, assemblyName: 'T2T-CHM13' })).toBe('BRCA1[gene]');
+    expect(clinvarSearchTerm({ variant: { ...brca1, gene: null, gene_id: null } })).toBe(
+      'chr17:43,124,027-43,124,029',
+    );
+  });
+
+  it('builds the link from the record, else from the search', () => {
+    const clinvarHref = (fields: Partial<Parameters<typeof buildSmallVariantExternalLinks>[0]['variant']>) =>
+      buildSmallVariantExternalLinks({ variant: { ...brca1, ...fields }, assemblyName: 'GRCh38' }).find(
+        (link) => link.label === 'ClinVar',
+      )?.href;
+    expect(clinvarHref({ clinvar_variation_id: '17662', mane_refseq_id: 'NM_007294.4' })).toBe(
+      'https://www.ncbi.nlm.nih.gov/clinvar/variation/17662/',
+    );
+    expect(clinvarHref({ mane_refseq_id: 'NM_007294.4' })).toBe(
+      'https://www.ncbi.nlm.nih.gov/clinvar/?term=NM_007294.4%3Ac.68_69del',
+    );
+  });
+});
+
+// The PubMed searches (the card's and the ACMG dialog's) name the change without the accession
+// VEP writes it on: PubMed knows no Ensembl accession.
+describe('the change a literature search names', () => {
+  it('drops the accession and reads back VEP\'s escaped =', () => {
+    expect(
+      variantChangeForSearch({ hgvsp: 'ENSP00000350283.3:p.Glu23ValfsTer17', hgvsc: 'ENST00000357654.9:c.68_69del' }),
+    ).toBe('p.Glu23ValfsTer17');
+    expect(variantChangeForSearch({ hgvsp: 'ENSP00000350283.3:p.Ser10%3D', hgvsc: null })).toBe('p.Ser10=');
+    expect(variantChangeForSearch({ hgvsp: null, hgvsc: 'ENST00000357654.9:c.81-5T>C' })).toBe('c.81-5T>C');
+    expect(variantChangeForSearch({ hgvsp: null, hgvsc: null })).toBeNull();
+  });
+
+  it("searches the card's PubMed link on the gene and the change, else the rsID", () => {
+    const pubmedTerm = (fields: Partial<SmallVariant>) => {
+      const href = buildSmallVariantExternalLinks({
+        variant: smallVariant({ _id: 'v', type: 'SNV', chr: '17', start: 1, end: 1, gene: 'BRCA1', ...fields }),
+      }).find((link) => link.label === 'PubMed')?.href;
+      return href ? new URL(href).searchParams.get('term') : null;
+    };
+    expect(
+      pubmedTerm({ hgvsp: 'ENSP00000350283.3:p.Glu23ValfsTer17', hgvsc: 'ENST00000357654.9:c.68_69del' }),
+    ).toBe('BRCA1 p.Glu23ValfsTer17');
+    expect(pubmedTerm({ rsid: 'rs80357914&COSV58787000' })).toBe('BRCA1 rs80357914');
   });
 });
