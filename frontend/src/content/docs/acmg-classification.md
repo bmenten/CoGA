@@ -52,6 +52,30 @@ twice or gives it another strength.
 | BS1–BS4, BP4 | Strong, Moderate, Supporting |
 | BP1–BP3, BP5–BP7 | Moderate, Supporting |
 
+**Some criteria are never applied together.** They would count one piece of evidence twice, or read it
+both ways. Checking one in the dialog unchecks the other, which then shows ⊘; checking that one
+swaps them back. The server refuses a classification that applies both.
+
+| Pair | Why |
+| --- | --- |
+| PS2 / PM6 | One de novo observation is either confirmed (PS2) or assumed (PM6), never both (ClinGen SVI). |
+| PVS1 / PP3 | In silico predictions add nothing to a predicted null variant (ClinGen SVI). |
+| PVS1 / PM4 | A null variant's change of protein length is counted by PVS1 (Abou Tayoun et al. 2018). |
+| PS1 / PM5 | The pathogenic variants at one residue are counted once. |
+| PS3 / BS3 | The functional evidence is weighed to one conclusion (Brnich et al. 2020). |
+| BA1 / BS1 | One population frequency is counted once. |
+| BA1 / PM2, BS1 / PM2 | A variant is common or rare, not both. |
+| PM4 / BP3 | An in-frame change is outside a repeat region (PM4) or in one (BP3). |
+| PP2 / BP1 | Missense variants are a mechanism of the gene's disease (PP2) or not (BP1). |
+| PP3 / BP4 | One in silico prediction cannot argue both ways. |
+| PP5 / BP6 | A reputable source reports one classification. |
+
+Where the pre-evaluation would check both, it keeps the one listed first, unless the other scores
+more; a saved criterion is kept over a fresh suggestion. PP1 and BS4 can be combined (they may come
+from different relatives), and so can PP4 and a de novo criterion, though the de novo points read the
+same phenotype: weigh that yourself. PM1 and PP3 together should not exceed Strong (ClinGen SVI): CoGA
+does not check that.
+
 On save, CoGA writes the class to the variant as its classification and as the matching review tag.
 It also stores every criterion with its strength and your note, for the audit trail (see the
 [traceability reference](/docs/reference/clinical-traceability)). If you accept no criterion, no class
@@ -91,6 +115,7 @@ filter on it. A variant that leaves the VUS band loses its tier tag.
 | Consider | ● | A relevant but not decisive signal. Left unchecked for you to decide. |
 | Argues against | ✕ | The data points the other way. Left unchecked. |
 | Not applicable | n/a, greyed | Cannot apply to this variant. Still clickable. |
+| Not combined | ⊘, dotted | Unchecked because a criterion it is never applied with is checked. Checking it swaps the two. |
 
 Hover a criterion to see the evidence behind its state. You can change every state and every strength.
 
@@ -101,7 +126,14 @@ criteria.
 
 **When a lookup fails.** If the gene profile or the family's HPO terms cannot be loaded, the dialog
 says so and offers **Retry**. PVS1, BS2 and PP4 then read *not assessed* and are offered as Consider,
-never scored as negative evidence.
+never scored as negative evidence. If the Sample QC cannot be loaded, parentage is not confirmed and a
+de novo variant is offered as PM6; if the gene's phenotype score cannot, the de novo strength is left
+to you.
+
+**The evidence cards.** The in silico values carry the coloured dots of the variant card (seqr's
+six steps; SpliceAI on the cut-offs of the pre-evaluation). The *Family* card says what the Sample QC
+found for the proband and each parent, and the *Phenotype* card gives the gene–phenotype match with
+the tier the de novo points read.
 
 ---
 
@@ -109,7 +141,7 @@ never scored as negative evidence.
 
 The rules read the variant's annotation (consequence, gnomAD, in-silico scores, ClinVar), the gene
 profile (ClinGen dosage, GenCC inheritance modes, the gene's HPO terms and gnomAD missense Z), the
-family genotypes and the proband's HPO terms. The proband is the member with the proband role,
+family genotypes, the Sample QC's parentage checks and the proband's HPO terms. The proband is the member with the proband role,
 otherwise the first affected member.
 
 | Criterion | State | Rule |
@@ -126,7 +158,7 @@ otherwise the first affected member.
 | **PP5** | Consider (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic. Never applied: ClinGen's SVI advises against counting another lab's assertion. The evidence gives ClinVar's review status, its stars and the conditions. BP6 is then marked argues against. |
 | **BP6** | Consider (Supporting) | ClinVar lists this variant as benign or likely benign, as for PP5. PP5 is then marked argues against. |
 | **PP4** | Applied (Supporting or Moderate) | See *Phenotype (PP4)* below. |
-| **PM6** | Applied or Consider (Moderate) | Present in the proband and absent in both parents (assumed de novo). See *De novo (PM6)* below. |
+| **PS2 / PM6** | Applied or Consider, strength from the phenotype | Present in the proband and absent in both parents: PS2 where the Sample QC confirms the parents, PM6 where it does not. See *De novo (PS2, PM6)* below. |
 | **PP1** | Consider (Supporting) | Carried by 2 or more affected family members. |
 | **BS4** | Consider (Strong) | An affected family member is genotyped and does not carry the variant. |
 
@@ -209,8 +241,10 @@ holds a higher value. Without a missense Z from either, PP2 is left unmarked.
 
 ### Phenotype (PP4)
 
-When the variant list is ranked with the **Phenotype priority** preset, each variant carries a Monarch
-phenotype-match score from 0 to 1 (see the [Monarch reference](/docs/reference/monarch-integration)):
+PP4 reads a Monarch phenotype-match score from 0 to 1 (see the
+[Monarch reference](/docs/reference/monarch-integration)): the gene's phenotypes against the affected
+members' HPO terms. A variant from a list ranked with the **Phenotype priority** preset carries it;
+for any other the dialog asks the server for the gene's score in the family, the same number.
 
 - **0.6 or more** → PP4 Moderate.
 - **0.3 or more** → PP4 Supporting.
@@ -219,19 +253,18 @@ Without a usable score (none, or below 0.3), CoGA applies PP4 Supporting when an
 the proband's list and the gene's list. CoGA never pre-applies PP4 above Moderate: raise it to Strong
 yourself for a highly specific, single-gene phenotype.
 
-### De novo (PM6)
+### De novo (PS2, PM6)
 
-PM6 compares the proband with the proband's own parents: the father and mother the pedigree links to
-the proband. The member roles do not decide it, because a grandparent can hold the father or mother role
-too. The rules are those of the de novo inheritance filter.
+The de novo criteria compare the proband with the proband's own parents: the father and mother the
+pedigree links to the proband. The member roles do not decide it, because a grandparent can hold the
+father or mother role too. The rules for the calls are those of the de novo inheritance filter.
 
-- Both parents called reference with 8 reads or more, and the proband heterozygous → PM6 applied
-  (assumed de novo). A call without a reported depth counts as enough. Upgrade to PS2 yourself if
-  parentage is confirmed.
-- Both parents reference, but a parent has fewer than 8 reads → PM6 Consider. At that depth a parent
-  can carry the variant without it being called: check the parents' reads.
-- Both parents reference, but the proband is homozygous → PM6 Consider. A de novo event changes one
-  copy, so something else explains the second: a deletion of the other allele, uniparental disomy or a
+- Both parents called reference with 8 reads or more, and the proband heterozygous → de novo. A call
+  without a reported depth counts as enough.
+- Both parents reference, but a parent has fewer than 8 reads → Consider. At that depth a parent can
+  carry the variant without it being called: check the parents' reads.
+- Both parents reference, but the proband is homozygous → Consider. A de novo event changes one copy,
+  so something else explains the second: a deletion of the other allele, uniparental disomy or a
   genotyping error.
 - A parent carries it → PS2 and PM6 not applicable (inherited).
 - A parent's genotype is missing → PS2 and PM6 not applicable (cannot be assessed).
@@ -241,6 +274,32 @@ too. The rules are those of the de novo inheritance filter.
   chromosome counts: the mother for the X, the father for the Y. The variant must be absent in that
   parent, with 8 reads or more, and not called in the other. The son's own call can be `1`, `1/1` or
   `0/1`.
+
+**Confirmed or assumed.** The [Sample QC](/docs/reference/sample-qc) checks each proband–parent pair
+the pedigree records with KING kinship and IBS0. Where it passes for both parents (for a son's X or Y,
+for the parent who passes it on), and the proband's Mendelian check does not warn or fail, parentage is
+confirmed: **PS2**, and PM6 is greyed. Otherwise the de novo is assumed: **PM6**, and PS2 is greyed,
+with the reason (no check, a warning, the Sample QC not loaded). A failed check (the genotypes are not
+those of parent and child) marks both as argues against: resolve the Sample QC first.
+
+**The strength** follows ClinGen's de novo points (SVI recommendation for PS2 and PM6). The phenotype
+tier comes from the gene–phenotype match score, on PP4's cut-offs:
+
+| Phenotype (match score) | Confirmed (PS2) | Assumed (PM6) |
+| --- | --- | --- |
+| Highly specific for the gene (0.6 or more) | 2 points, Strong | 1 point, Moderate |
+| Consistent, not highly specific (0.3 to 0.6) | 1 point, Moderate | 0.5 points, Supporting |
+| Matches only in general terms, as a genetically heterogeneous phenotype does (above 0, below 0.3) | 0.5 points, Supporting | 0.25 points, Consider |
+| Not shown consistent (0) | 0 points, Consider | 0 points, Consider |
+
+0.5 points is Supporting, 1 Moderate, 2 Strong and 4 Very strong. One proband reaches Strong at most:
+further de novo cases in unrelated patients add their points, so raise the strength yourself when the
+literature has them. The score weighs each matched HPO term by how few diseases share it, so generic
+terms (intellectual disability, seizures) score low. Without a score (the proband has no HPO terms, or
+the gene no Monarch phenotypes) the criterion is offered as Consider and the strength is yours.
+
+The de novo criteria assume a patient with the disease and no family history. A proband not recorded
+as affected, or a parent recorded as affected, makes the criterion Consider.
 
 ---
 
@@ -262,6 +321,8 @@ clickable.
 | A parent's genotype is missing | PS2, PM6 |
 | The pedigree does not link the proband to both parents | PS2, PM6 |
 | Inherited from a parent | PS2, PM6 |
+| De novo, parentage confirmed by the Sample QC | PM6 |
+| De novo, parentage not confirmed | PS2 |
 | Fewer than 2 affected carriers | PP1 |
 | No genotyped affected member without the variant | BS4 |
 
@@ -273,7 +334,6 @@ CoGA never pre-evaluates these: it does not hold the evidence. Apply them by han
 
 - **PS1 / PM5** — the same or a different change at an amino-acid residue known to be pathogenic.
   CoGA stores only the variant's own ClinVar status, not a residue-level index.
-- **PS2** — confirmed de novo (CoGA only offers the assumed de novo, PM6).
 - **PS3 / BS3** — functional studies.
 - **PS4** — prevalence in affected individuals versus controls.
 - **PM1** — mutational hotspot or functional domain.

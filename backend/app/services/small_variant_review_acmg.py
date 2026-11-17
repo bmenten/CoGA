@@ -103,9 +103,10 @@ def _normalize_acmg_payload(
     (or ``None`` to clear). The client-supplied total is ignored.
 
     Each criterion must be known, listed once and applied at a strength it takes
-    (``acmg_points.ALLOWED_STRENGTHS``), as the classification dialog sends them; any other
-    payload is refused with 400. Only a save is checked: a stored classification is read
-    back as it was written.
+    (``acmg_points.ALLOWED_STRENGTHS``), and no two criteria that are never applied together
+    (``acmg_points.EXCLUSIVE_CRITERIA``) may both be accepted, as the classification dialog
+    sends them; any other payload is refused with 400. Only a save is checked: a stored
+    classification is read back as it was written.
     """
 
     if payload is None or not payload.criteria:
@@ -135,6 +136,15 @@ def _normalize_acmg_payload(
                 "evidence": (criterion.evidence or "").strip() or None,
                 "auto_suggested": bool(criterion.auto_suggested),
             }
+        )
+
+    both = acmg_points.exclusive_pairs_applied(
+        criterion["code"] for criterion in normalized_criteria if criterion["accepted"]
+    )
+    if both:
+        first, second = both[0]
+        raise HTTPException(
+            status_code=400, detail=f"ACMG criteria {first} and {second} cannot both be applied"
         )
 
     point_total, class_key, class_label = acmg_points.compute_classification(normalized_criteria)

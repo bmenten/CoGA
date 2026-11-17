@@ -628,6 +628,12 @@ input.cnv-points-input:not([type='checkbox']):not([type='radio']) {
   border-style: dashed;
 }
 
+/* Not combined with a checked criterion (PS2 beside PM6): muted; checking it swaps the two. */
+.acmg-criterion.acmg-criterion--excluded {
+  border-style: dotted;
+  color: var(--color-text-muted);
+}
+
 .acmg-criterion.acmg-criterion--na .acmg-criterion-code {
   color: rgba(10, 11, 12, 0.55);
   text-decoration: line-through;
@@ -666,6 +672,11 @@ input.cnv-points-input:not([type='checkbox']):not([type='radio']) {
   color: rgba(10, 11, 12, 0.6);
   font-size: var(--fs-2xs);
   font-weight: 600;
+}
+
+.acmg-criterion-flag--excluded {
+  color: var(--color-text-muted);
+  font-weight: 700;
 }
 
 .acmg-criterion-strength {
@@ -857,7 +868,8 @@ input.cnv-points-input:not([type='checkbox']):not([type='radio']) {
   color: var(--color-signature-red);
 }
 
-.acmg-key--na {
+.acmg-key--na,
+.acmg-key--excluded {
   color: var(--color-text-muted);
 }
 
@@ -893,4 +905,10 @@ input.cnv-points-input:not([type='checkbox']):not([type='radio']) {
   font-size: var(--fs-2xs);
   font-weight: 600;
   color: #ff9b9b;
+}
+
+.acmg-tooltip-exclusive {
+  margin: 0.25rem 0 0;
+  font-size: var(--fs-2xs);
+  color: rgba(255, 255, 255, 0.7);
 }

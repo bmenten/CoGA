@@ -7,7 +7,8 @@ The server keeps its own copy of both tables: it refuses a strength a criterion 
 (``cnv_acmg_points``). These tests read the TypeScript catalogues and fail when the two
 differ: a strength the dialog offers that the server refused would make a classification
 impossible to save, and one the server took that the dialog does not offer could be stored
-only by a client calling the API.
+only by a client calling the API. The pairs of criteria the dialog never applies together are
+the pairs the server refuses to save together.
 
 The missense Z the dialog's PP2 suggestion reads is frozen by the server with the
 classification: the dialog's sources and their order are the server's.
@@ -164,6 +165,42 @@ def test_a_save_takes_every_strength_the_dialog_offers_and_refuses_any_other() -
             if taken != (strength in offered):
                 wrong.append(f"{code} at {strength}: {'taken' if taken else 'refused'}")
     assert wrong == []
+
+
+def _dialog_exclusive_criteria() -> tuple[tuple[str, str], ...]:
+    """The pairs of EXCLUSIVE_CRITERIA in criteria.ts, in its order."""
+    source = ACMG_CRITERIA_TS.read_text(encoding="utf-8")
+    body = re.search(r"export const EXCLUSIVE_CRITERIA\b[^=]*=\s*\[(.*?)\n\];", source, re.S)
+    assert body, "EXCLUSIVE_CRITERIA not found in criteria.ts"
+    pairs = tuple(re.findall(rf"\[\s*'(\w+)',\s*'(\w+)',\s*(?:{_QUOTED})\s*,?\s*\]", body.group(1)))
+    assert len(pairs) == len(re.findall(r"^\s*\['", body.group(1), re.M)), "a pair in criteria.ts could not be read"
+    return pairs
+
+
+def test_the_server_refuses_the_pairs_of_criteria_the_dialog_never_applies_together() -> None:
+    # The dialog unchecks one criterion of an exclusive pair when the other is checked; the
+    # server holds the same pairs and refuses a save that applies both (PS2 and PM6 together
+    # would score one de novo observation 6 points).
+    assert _dialog_exclusive_criteria() == acmg_points.EXCLUSIVE_CRITERIA
+    criteria = _dialog_acmg_criteria()
+
+    def payload(first: str, second: str, *, second_accepted: bool) -> AcmgClassificationPayload:
+        return AcmgClassificationPayload(
+            criteria=[
+                AcmgCriterionSelection(code=first, strength=criteria[first][1], accepted=True),
+                AcmgCriterionSelection(code=second, strength=criteria[second][1], accepted=second_accepted),
+            ]
+        )
+
+    for first, second in acmg_points.EXCLUSIVE_CRITERIA:
+        for a, b in ((first, second), (second, first)):
+            with pytest.raises(HTTPException) as refused:
+                _normalize_acmg_payload(payload(a, b, second_accepted=True))
+            assert refused.value.status_code == 400
+            assert refused.value.detail == f"ACMG criteria {first} and {second} cannot both be applied"
+            # The other one listed but not applied, as the dialog sends a suggestion it unchecked.
+            blob, _points, _class = _normalize_acmg_payload(payload(a, b, second_accepted=False))
+            assert blob is not None and [c["accepted"] for c in blob["criteria"]] == [True, False]
 
 
 def test_the_missense_z_pp2_reads_comes_from_the_sources_the_server_freezes_in_its_order() -> None:

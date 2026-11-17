@@ -229,7 +229,11 @@ pull request updates this list only when it adds clinical behaviour that no area
 - **Interpretation**
   - The ACMG suggestions: conflicting ClinVar; parents from the pedigree; PP2 offered for
     review, never applied, at a gnomAD missense Z of 3.09 or more (the gene profile's or, when
-    it holds none, the VCF's own).
+    it holds none, the VCF's own); a de novo variant as PS2 where the Sample QC confirms the
+    parents and PM6 where it does not, at the strength of ClinGen's de novo points, the phenotype
+    tier read from the gene–phenotype match score (its cut-offs to calibrate on solved trios).
+  - Criteria never applied together (PS2 and PM6, PVS1 and PP3, …): the dialog keeps one, the
+    server refuses both.
   - Classifications that reopen with their saved criteria; CNV classifications preserved by
     review edits.
   - The prioritised ranking and its cache keys.

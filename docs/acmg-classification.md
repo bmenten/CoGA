@@ -18,17 +18,19 @@ This note covers the implementation.
 
 | Part | Files |
 | --- | --- |
-| Small-variant engine (pure, unit-tested) | `frontend/src/lib/acmg/` — `criteria.ts` (criterion catalogue), `evaluate.ts` (nuclear pre-evaluation), `evaluateMito.ts` (mtDNA rules), `pedigree.ts` (the proband's parents from the pedigree links), `score.ts` (points, class, VUS tier), `index.ts` (initial selections); `frontend/src/lib/clinvar.ts` (the ClinVar reading for PP5 / BP6) |
-| Small-variant dialog | `frontend/src/pages/families/AcmgClassificationModal.tsx`, `AcmgScaleBar.tsx` |
-| Small-variant server scoring | `backend/app/services/acmg_points.py` (codes, strengths, the strengths each criterion takes, class bands, `vus_tier_for_points`), `small_variant_review_acmg.py` (payload normalisation, evidence snapshot) |
+| Small-variant engine (pure, unit-tested) | `frontend/src/lib/acmg/` — `criteria.ts` (criterion catalogue, `EXCLUSIVE_CRITERIA`), `evaluate.ts` (nuclear pre-evaluation, the de novo points), `evaluateMito.ts` (mtDNA rules), `pedigree.ts` (the proband's parents from the pedigree links, their parentage from the Sample QC), `score.ts` (points, class, VUS tier), `index.ts` (initial selections, one criterion of each exclusive pair); `frontend/src/lib/clinvar.ts` (the ClinVar reading for PP5 / BP6) |
+| Small-variant dialog | `frontend/src/pages/families/AcmgClassificationModal.tsx`, `AcmgEvidencePanel.tsx`, `AcmgScaleBar.tsx`; `PredictorMark.tsx` and `inSilicoTones.ts` (the in silico dots it shares with the variant card) |
+| Small-variant server scoring | `backend/app/services/acmg_points.py` (codes, strengths, the strengths each criterion takes, `EXCLUSIVE_CRITERIA`, class bands, `vus_tier_for_points`), `small_variant_review_acmg.py` (payload normalisation, evidence snapshot) |
+| The gene's phenotype score in a family | `GET /families/{family_id}/gene-phenotype-score?symbol=` (`family_gene_phenotype_score` in `clickhouse_family_variants.py`): the score the phenotype-prioritised ranking gives the gene, for a variant no ranking scored |
 | CNV engine | `frontend/src/lib/cnvAcmg/` (criteria for loss and gain, auto-suggestions, scorer) |
 | CNV dialog | `frontend/src/pages/families/CnvAcmgClassificationModal.tsx`, `CnvScaleBar.tsx` |
 | CNV server scoring | `backend/app/services/cnv_acmg_points.py` (criterion catalogues with allowed point ranges, clamping, class bands), `structural_variant_review_pg.py` |
 
 The frontend and backend scorers must agree. Each side has its own tests (listed in
 [testing.md](testing.md)); change both together. The criterion tables exist twice: the codes,
-directions, points and `allowedStrengths` of `lib/acmg/criteria.ts` are mirrored in
-`acmg_points.py` (`CRITERION_DIRECTION`, `STRENGTH_POINTS`, `ALLOWED_STRENGTHS`), and the loss and
+directions, points, `allowedStrengths` and exclusive pairs of `lib/acmg/criteria.ts` are mirrored in
+`acmg_points.py` (`CRITERION_DIRECTION`, `STRENGTH_POINTS`, `ALLOWED_STRENGTHS`,
+`EXCLUSIVE_CRITERIA`), and the loss and
 gain catalogues of `lib/cnvAcmg/criteria.ts` in `cnv_acmg_points.py`.
 `backend/tests/test_acmg_frontend_parity.py` reads the two TypeScript files and fails when a table
 differs.
@@ -42,7 +44,10 @@ differs.
   - an unknown criterion or strength;
   - a criterion listed twice (every entry is scored, so PVS1 sent twice would score +16);
   - a strength the criterion does not take (`ALLOWED_STRENGTHS`, the dialog's `allowedStrengths`:
-    BS1 at very strong would score −8).
+    BS1 at very strong would score −8);
+  - two accepted criteria of one exclusive pair (`EXCLUSIVE_CRITERIA`: PS2 and PM6 together would
+    score one de novo observation 6 points). The dialog unchecks one when the other is checked, and
+    `resolveExclusiveCriteria` keeps one of each pair in the initial selections.
 
   The route takes no `cnv_acmg`, a structural variant's classification: a request that sends it,
   or any other field the save does not take, is refused (`422`) naming the field
@@ -113,6 +118,13 @@ Some pre-evaluation rules repeat a backend rule. Change both sides together:
   - the proband must be heterozygous, except on a son's hemizygous X or Y.
 
   The dialog offers a candidate the filter drops for depth or zygosity as Consider.
+
+  Whether the observation is PS2 or PM6 reads the Sample QC (`GET /families/{id}/qc/sample-integrity`,
+  `sample_integrity_qc.py`): `parentageFromSampleQc` in `pedigree.ts` takes a proband–parent pair
+  whose relatedness check passes as parent-child, with no warning or failing Mendelian check beside
+  it, as confirmed, and a failing pair as refuted. The strength follows ClinGen's de novo points
+  (`DE_NOVO_POINTS`, `deNovoStrength`), the phenotype tier read from the gene–phenotype match on
+  PP4's cut-offs (`deNovoPhenotypeTier`).
 - **mtDNA maternal transmission.** `_maternal_transmission` in `mitochondrial_analysis.py` reads the
   proband's mother and father from the same links. The mtDNA PP1 needs `maternal_shared`.
 - **The missense Z PP2 reads.** `pp2MissenseZ` in `evaluate.ts` reads the served `gene_missense_z`

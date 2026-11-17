@@ -785,6 +785,19 @@ export interface FamilyDeletionOut {
 }
 
 /**
+ * How well one gene's Monarch phenotypes match the family's affected members' present HPO
+ * terms: the score the phenotype-prioritised ranking gives the gene (normalised Resnik
+ * best-match average, 0 to 1), with the patient terms it matched best. ``score`` is None when
+ * the family has no present HPO terms or the gene no Monarch phenotypes.
+ */
+export interface FamilyGenePhenotypeScoreOut {
+  symbol: string;
+  score: number | null;
+  hpo_count: number;
+  matched: PhenotypeTermRefOut[];
+}
+
+/**
  * When a dataset's import ran and how far it got. ``fraction_read`` is the share of
  * its input files' bytes read (of a gzip file, the compressed bytes), measured at
  * ``measured_at``, by an importer that reports it; ``seconds_left`` is the time it should

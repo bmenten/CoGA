@@ -1,23 +1,26 @@
 // Auto-evaluator: maps the data already on a variant (consequence, ClinVar,
-// gnomAD frequency, in-silico scores) plus optional gene/phenotype context to
-// suggested ACMG criteria. Pure and side-effect free.
+// gnomAD frequency, in-silico scores) plus optional gene, phenotype and family context
+// (the trio's calls, the Sample QC's parentage checks) to suggested ACMG criteria. Pure and
+// side-effect free.
 //
-// Every result is a *suggestion* only — the UI requires the analyst to accept it
-// before it contributes points. Criteria needing human judgement that we cannot
-// derive from data (PS1, PS3, PM5, segregation, de novo, …) are never emitted.
+// Every result is a *suggestion* only — the analyst can uncheck or change any of them
+// before saving. Criteria needing human judgement that we cannot derive from data
+// (PS1, PS3, PM5, …) are never emitted.
 
 import type { VariantOut } from '../apiSchema.generated';
 import { NUCLEAR_CHROMOSOMES, normalizeChrom } from '../chromosomes';
 import { clinvarClass } from '../clinvar';
 import { classifyGenotype } from '../genotypes';
-import { ACMG_CRITERIA_BY_CODE } from './criteria';
+import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS } from './criteria';
 import { parentsOf } from './pedigree';
 import type {
   AcmgCriterionCode,
+  AcmgDeNovoPhenotypeTier,
   AcmgDisposition,
   AcmgFamilyContext,
   AcmgFamilyMemberCall,
   AcmgGeneContext,
+  AcmgParentageCheck,
   AcmgPhenotypeContext,
   AcmgStrength,
   AcmgSuggestion,
@@ -415,7 +418,7 @@ export function evaluateAcmg(
   pp4Suggestion(gene, phenotype).forEach((suggestion) => out.push(suggestion));
 
   // ---- Trio / segregation: de novo (PS2/PM6), cosegregation (PP1/BS4) ----
-  evaluateFamily(family, add, notApplicable, hemizygousChromosome(variant));
+  evaluateFamily(family, add, notApplicable, hemizygousChromosome(variant), phenotype);
 
   // ---- Exclude criteria the molecular consequence rules out ----
   const klass = molecularClass(effect);
@@ -535,11 +538,187 @@ type AddFn = (
   disposition?: AcmgDisposition,
 ) => void;
 
+// ---- De novo strength (ClinGen SVI recommendation for PS2 and PM6) ----
+// A de novo observation scores points by whether the parents are confirmed (PS2) or assumed
+// (PM6) and by how specific the proband's phenotype is for the gene; the total sets the
+// strength: 0.5 Supporting, 1 Moderate, 2 Strong, 4 Very strong. One proband reaches Strong at
+// most: further de novo cases in unrelated patients add their points, which the analyst weighs.
+const DE_NOVO_POINTS: Record<AcmgDeNovoPhenotypeTier, { confirmed: number; assumed: number }> = {
+  highly_specific: { confirmed: 2, assumed: 1 },
+  consistent: { confirmed: 1, assumed: 0.5 },
+  heterogeneous: { confirmed: 0.5, assumed: 0.25 },
+  not_consistent: { confirmed: 0, assumed: 0 },
+};
+
+const DE_NOVO_TIER_LABELS: Record<AcmgDeNovoPhenotypeTier, string> = {
+  highly_specific: 'highly specific for the gene',
+  consistent: 'consistent with the gene but not highly specific',
+  heterogeneous: 'consistent with the gene only in general terms, as a genetically heterogeneous phenotype is',
+  not_consistent: 'not shown consistent with the gene',
+};
+
+/** The strength ClinGen's de novo points reach, or null below the 0.5 of Supporting. */
+export function deNovoStrength(points: number): AcmgStrength | null {
+  if (points >= 4) return 'very_strong';
+  if (points >= 2) return 'strong';
+  if (points >= 1) return 'moderate';
+  if (points >= 0.5) return 'supporting';
+  return null;
+}
+
+/**
+ * How specific the proband's phenotype is for the gene, for the de novo points, read from the
+ * gene–phenotype match score (normalised Resnik best-match average, 0 to 1) on PP4's cut-offs:
+ * 0.6 or more highly specific (PP4 Moderate), 0.3 or more consistent but not highly specific
+ * (PP4 Supporting), above 0 a match on general terms only, as a genetically heterogeneous
+ * phenotype (intellectual disability, seizures) gives, and 0 not shown consistent. The score
+ * weighs each matched term by how few diseases share it, so generic terms score low. Null
+ * without a score: not assessed.
+ */
+export function deNovoPhenotypeTier(
+  phenotype?: AcmgPhenotypeContext,
+): { tier: AcmgDeNovoPhenotypeTier; score: number } | null {
+  const score = phenotype?.phenotypeScore;
+  if (typeof score !== 'number' || !Number.isFinite(score)) return null;
+  const tier: AcmgDeNovoPhenotypeTier =
+    score >= PP4_MODERATE_SCORE
+      ? 'highly_specific'
+      : score >= PP4_SUPPORTING_SCORE
+        ? 'consistent'
+        : score > 0
+          ? 'heterogeneous'
+          : 'not_consistent';
+  return { tier, score };
+}
+
+const capitalize = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
+const formatPoints = (points: number) => `${points} point${points === 1 ? '' : 's'}`;
+
+// What the parents' calls show of a de novo variant, from evaluateFamily.
+type DeNovoObservation = {
+  // "Absent in both sequenced parents", "Absent in the mother, who passes a son his X".
+  finding: string;
+  // The parents whose parentage makes it confirmed: both, or for a son's X or Y the parent who
+  // passes it on.
+  parents: Array<{ id: string; name: 'father' | 'mother' }>;
+  // Why the observation needs review (a shallow parent call, a homozygous proband).
+  caveats: string[];
+};
+
+type DeNovoContext = {
+  family: AcmgFamilyContext | undefined;
+  proband: AcmgFamilyMemberCall | undefined;
+  parentIds: { father?: string; mother?: string };
+  phenotype: AcmgPhenotypeContext | undefined;
+};
+
+// "maternity and paternity", "maternity", "paternity".
+const parentageNoun = (parents: DeNovoObservation['parents']) =>
+  parents.map((parent) => (parent.name === 'mother' ? 'maternity' : 'paternity')).sort().join(' and ');
+
+// Why the Sample QC does not confirm the parents.
+function parentageNotConfirmed(
+  checks: Array<{ name: string; check?: AcmgParentageCheck }>,
+  family: AcmgFamilyContext | undefined,
+): string {
+  if (family?.parentageUnavailable) return 'the Sample QC could not be loaded';
+  if (!family?.parentage) return 'the Sample QC is not loaded';
+  const open = checks.find((parent) => parent.check?.status !== 'confirmed');
+  if (!open) return 'the Sample QC does not confirm it';
+  return open.check
+    ? `the Sample QC's check of the proband and the ${open.name} is not a pass (${open.check.message})`
+    : `the Sample QC has no parent-child check of the proband and the ${open.name}`;
+}
+
+// What the phenotype part of the de novo points cannot be read from.
+function phenotypeNotAssessed(phenotype: AcmgPhenotypeContext | undefined): string {
+  if (phenotype?.probandHpoUnavailable) return "the family's HPO terms could not be loaded";
+  if (!phenotype?.probandHpoIds?.length) return 'the proband has no HPO terms';
+  return 'there is no gene–phenotype match score for the gene';
+}
+
+/**
+ * PS2 or PM6 for a de novo observation, at the strength ClinGen's de novo points give it.
+ *
+ * PS2 where the Sample QC confirms the parents whose calls make it de novo, PM6 otherwise; the
+ * other one is marked not applicable. A parent the Sample QC finds is not the proband's parent
+ * argues against both. Applied where the phenotype is scored and reaches Supporting and nothing
+ * casts doubt on the observation; offered for review otherwise: a shallow parent call, a
+ * homozygous proband, a proband not recorded as affected, a parent recorded as affected (the
+ * criteria assume no family history), a phenotype not scored, or too few points.
+ */
+function suggestDeNovo(
+  observation: DeNovoObservation,
+  { family, proband, parentIds, phenotype }: DeNovoContext,
+  add: AddFn,
+  notApplicable: (code: AcmgCriterionCode, evidence: string) => void,
+): void {
+  const { finding, parents } = observation;
+  const checks = parents.map((parent) => ({ ...parent, check: family?.parentage?.[parent.id] }));
+  const refuted = checks.find((parent) => parent.check?.status === 'refuted');
+  if (refuted) {
+    const evidence = `${finding}, but the Sample QC finds the proband and the ${refuted.name} are not parent and child (${refuted.check?.message}) — resolve the Sample QC before assessing de novo.`;
+    add('PS2', 'strong', evidence, 'contraindicated');
+    add('PM6', 'moderate', evidence, 'contraindicated');
+    return;
+  }
+  const confirmed = checks.every((parent) => parent.check?.status === 'confirmed');
+  const code: AcmgCriterionCode = confirmed ? 'PS2' : 'PM6';
+  const why = confirmed ? '' : parentageNotConfirmed(checks, family);
+  notApplicable(
+    confirmed ? 'PM6' : 'PS2',
+    confirmed
+      ? `${capitalize(parentageNoun(parents))} confirmed by the Sample QC: PS2, not PM6.`
+      : `Parentage not confirmed (${why}): PM6, not PS2.`,
+  );
+
+  const members = family?.members ?? [];
+  const affectedParents = (['father', 'mother'] as const).filter((name) =>
+    members.some((member) => member.sampleId === parentIds[name] && member.affected),
+  );
+  const caveats = [
+    ...observation.caveats,
+    proband && !proband.affected ? 'the proband is not recorded as affected' : null,
+    ...affectedParents.map(
+      (name) => `the ${name} is recorded as affected, and the de novo criteria assume no family history`,
+    ),
+  ].filter((caveat): caveat is string => Boolean(caveat));
+
+  const opening = `${finding} (de novo), ${
+    confirmed ? `${parentageNoun(parents)} confirmed by the Sample QC` : `parentage not confirmed: ${why}`
+  }${caveats.length ? `, but ${caveats.join(', and ')}` : ''}.`;
+  const review = ' — review before applying.';
+
+  const scored = deNovoPhenotypeTier(phenotype);
+  if (!scored) {
+    add(
+      code,
+      confirmed ? 'moderate' : 'supporting',
+      `${opening} The phenotype's specificity for the gene is not assessed (${phenotypeNotAssessed(phenotype)}): set the strength by ClinGen's de novo points${review}`,
+      'consider',
+    );
+    return;
+  }
+  const points = DE_NOVO_POINTS[scored.tier][confirmed ? 'confirmed' : 'assumed'];
+  const strength = deNovoStrength(points);
+  const scoring = `Phenotype ${DE_NOVO_TIER_LABELS[scored.tier]} (gene–phenotype match ${scored.score.toFixed(2)}): ${formatPoints(points)} by ClinGen's de novo points`;
+  if (!strength) {
+    const condition = points > 0 ? 'with further de novo cases in unrelated patients' : 'where the phenotype fits the gene';
+    add(code, 'supporting', `${opening} ${scoring}, below the 0.5 of Supporting: apply only ${condition}${review}`, 'consider');
+  } else if (caveats.length) {
+    add(code, strength, `${opening} ${scoring}, ${STRENGTH_LABELS[strength]}${review}`, 'consider');
+  } else {
+    add(code, strength, `${opening} ${scoring}, ${STRENGTH_LABELS[strength]}.`, 'applies');
+  }
+}
+
 function evaluateFamily(
   family: AcmgFamilyContext | undefined,
   add: AddFn,
   notApplicable: (code: AcmgCriterionCode, evidence: string) => void,
   hemizygousOn: 'X' | 'Y' | null,
+  phenotype: AcmgPhenotypeContext | undefined,
 ): void {
   const members = family?.members ?? [];
   const byRole = (role: string) =>
@@ -559,10 +738,11 @@ function evaluateFamily(
   const ma = mother ? altAlleleCount(mother.gt) : null;
 
   // ---- De novo (PS2 / PM6) ----
-  // PM6 applies when the parents' calls are reference with enough reads to trust them
-  // (DE_NOVO_MIN_PARENT_DP) and, on an autosome, in a PAR and in a daughter, the proband's call
-  // is heterozygous, as in the backend's de novo mode (_record_matches_de_novo). Otherwise it
-  // is offered for review, with the reason. A son's hemizygous call is an ALT of either ploidy.
+  // A de novo observation needs the parents' calls to be reference with enough reads to trust
+  // them (DE_NOVO_MIN_PARENT_DP) and, on an autosome, in a PAR and in a daughter, the proband's
+  // call to be heterozygous, as in the backend's de novo mode (_record_matches_de_novo);
+  // otherwise it is offered for review, with the reason. A son's hemizygous call is an ALT of
+  // either ploidy. suggestDeNovo then decides PS2 or PM6 and the strength.
   if (probandCarries && hemizygousOn && isMale(proband?.sex)) {
     // A son is hemizygous here: his X comes from his mother and his Y from his father,
     // so that parent decides. The other parent need not be genotyped, but must not carry
@@ -593,42 +773,44 @@ function evaluateFamily(
       const artifact = `Also called in the ${otherName}, who does not pass a son his ${hemizygousOn}: likely an artifact, not called de novo.`;
       notApplicable('PS2', artifact);
       notApplicable('PM6', artifact);
-    } else if (isShallow(transmitting)) {
-      add(
-        'PM6',
-        'moderate',
-        `Absent in the ${transmittingName}, ${passes}, but ${shallowCallsNote([{ name: transmittingName, call: transmitting }])} — review before applying.`,
-        'consider',
-      );
     } else {
-      add(
-        'PM6',
-        'moderate',
-        `Absent in the ${transmittingName}, ${passes} (de novo) — parentage not molecularly confirmed (use PS2 if confirmed).`,
-        'applies',
+      suggestDeNovo(
+        {
+          finding: `Absent in the ${transmittingName}, ${passes}`,
+          parents: [{ id: transmittingId, name: transmittingName }],
+          caveats: isShallow(transmitting) ? [shallowCallsNote([{ name: transmittingName, call: transmitting }])] : [],
+        },
+        { family, proband, parentIds, phenotype },
+        add,
+        notApplicable,
       );
     }
   } else if (probandCarries && !(parentIds.father && parentIds.mother)) {
     const unlinked = 'The pedigree does not name both parents of the proband — de novo cannot be assessed.';
     notApplicable('PS2', unlinked);
     notApplicable('PM6', unlinked);
-  } else if (probandCarries && fa != null && ma != null) {
-    const shallow = [
-      { name: 'father', call: father },
-      { name: 'mother', call: mother },
-    ].filter((parent) => isShallow(parent.call));
-    const reasons = [
-      classifyGenotype(proband?.gt) === 'hom_alt' ? HOMOZYGOUS_PROBAND_NOTE : null,
-      shallow.length ? shallowCallsNote(shallow) : null,
-    ].filter(Boolean);
-    if (fa === 0 && ma === 0 && reasons.length) {
-      add('PM6', 'moderate', `Absent in both sequenced parents, but ${reasons.join(', and ')} — review before applying.`, 'consider');
-    } else if (fa === 0 && ma === 0) {
-      add(
-        'PM6',
-        'moderate',
-        'Absent in both sequenced parents (de novo) — parentage not molecularly confirmed (use PS2 if confirmed).',
-        'applies',
+  } else if (probandCarries && fa != null && ma != null && parentIds.father && parentIds.mother) {
+    if (fa === 0 && ma === 0) {
+      const shallow = [
+        { name: 'father', call: father },
+        { name: 'mother', call: mother },
+      ].filter((parent) => isShallow(parent.call));
+      const caveats = [
+        classifyGenotype(proband?.gt) === 'hom_alt' ? HOMOZYGOUS_PROBAND_NOTE : null,
+        shallow.length ? shallowCallsNote(shallow) : null,
+      ].filter((caveat): caveat is string => Boolean(caveat));
+      suggestDeNovo(
+        {
+          finding: 'Absent in both sequenced parents',
+          parents: [
+            { id: parentIds.father, name: 'father' },
+            { id: parentIds.mother, name: 'mother' },
+          ],
+          caveats,
+        },
+        { family, proband, parentIds, phenotype },
+        add,
+        notApplicable,
       );
     } else {
       // Inherited — de novo criteria are ruled out.

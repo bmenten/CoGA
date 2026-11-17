@@ -65,6 +65,7 @@ from .hpo import (
     PhenotypeTermRefOut,
     PhenotypeMatchResultOut,
     FamilyPhenotypeMatchOut,
+    FamilyGenePhenotypeScoreOut,
     HpoOntologyImportOut,
 )
 from .qc import (
@@ -503,6 +504,7 @@ __all__ = [
     "PhenotypeTermRefOut",
     "PhenotypeMatchResultOut",
     "FamilyPhenotypeMatchOut",
+    "FamilyGenePhenotypeScoreOut",
     "HpoOntologyImportOut",
     "QcMetricCatalogueOut",
     "QcThresholdOut",

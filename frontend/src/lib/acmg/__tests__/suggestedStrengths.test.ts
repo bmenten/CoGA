@@ -35,6 +35,8 @@ const GENES: (AcmgGeneContext | undefined)[] = [
 const PHENOTYPES: (AcmgPhenotypeContext | undefined)[] = [
   undefined,
   { probandHpoIds: [HPO] },
+  { probandHpoIds: [HPO], phenotypeScore: 0 },
+  { probandHpoIds: [HPO], phenotypeScore: 0.1 },
   { probandHpoIds: [HPO], phenotypeScore: 0.4 },
   { probandHpoIds: [HPO], phenotypeScore: 0.7 },
   { probandHpoUnavailable: true },
@@ -49,7 +51,20 @@ const EFFECTS = [
 ];
 const FREQUENCIES = [undefined, 1e-5, 5e-4, 0.02, 0.2];
 
-const trio = (proband: string, father: string, mother: string, fatherDp?: number): AcmgFamilyContext => ({
+// The Sample QC's reading of the proband's parents: confirmed (PS2), refuted, or none (PM6).
+const PARENTAGE: AcmgFamilyContext['parentage'][] = [
+  undefined,
+  { F: { status: 'confirmed', message: 'pass' }, M: { status: 'confirmed', message: 'pass' } },
+  { F: { status: 'refuted', message: 'fail' }, M: { status: 'confirmed', message: 'pass' } },
+];
+
+const trio = (
+  proband: string,
+  father: string,
+  mother: string,
+  fatherDp?: number,
+  parentage?: AcmgFamilyContext['parentage'],
+): AcmgFamilyContext => ({
   members: [
     { sampleId: 'P', role: 'proband', affected: true, gt: proband, sex: 'male' },
     { sampleId: 'F', role: 'father', affected: false, gt: father, dp: fatherDp },
@@ -60,13 +75,16 @@ const trio = (proband: string, father: string, mother: string, fatherDp?: number
     { childId: 'P', parentId: 'F', role: 'father' },
     { childId: 'P', parentId: 'M', role: 'mother' },
   ],
+  parentage,
 });
 const FAMILIES: (AcmgFamilyContext | undefined)[] = [
   undefined,
-  trio('0/1', '0/0', '0/0'),
-  trio('0/1', '0/0', '0/0', 5),
-  trio('1/1', '0/0', '0/0'),
-  trio('1', '0/0', '0/0'),
+  ...PARENTAGE.flatMap((parentage) => [
+    trio('0/1', '0/0', '0/0', undefined, parentage),
+    trio('0/1', '0/0', '0/0', 5, parentage),
+    trio('1/1', '0/0', '0/0', undefined, parentage),
+    trio('1', '0/0', '0/0', undefined, parentage),
+  ]),
   trio('0/1', '0/1', '0/0'),
 ];
 

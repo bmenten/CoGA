@@ -1,9 +1,10 @@
 // Static catalog of the 28 ACMG/AMP 2015 criteria plus the strength→points
 // mapping used by the Bayesian points scorer.
 //
-// The server keeps its own copy of the directions, the points and each criterion's
-// allowedStrengths (backend/app/services/acmg_points.py), and refuses a save that
-// applies a criterion at a strength not listed here.
+// The server keeps its own copy of the directions, the points, each criterion's
+// allowedStrengths and the criteria never applied together (EXCLUSIVE_CRITERIA)
+// (backend/app/services/acmg_points.py), and refuses a save that applies a criterion at a
+// strength not listed here, or two criteria of one exclusive pair.
 // backend/tests/test_acmg_frontend_parity.py reads this file and fails when the two
 // differ: change both together.
 
@@ -290,4 +291,31 @@ export const ACMG_CRITERIA_BY_CODE: Record<AcmgCriterionCode, AcmgCriterionDef> 
 export const PATHOGENIC_CRITERIA = ACMG_CRITERIA.filter(
   (def) => def.direction === 'pathogenic',
 );
+
+// The pairs of criteria that are never applied together to one variant, with the reason: the
+// two would count one piece of evidence twice, or read it both ways. Checking one in the dialog
+// unchecks the other, and the server refuses a save that applies both
+// (backend acmg_points.EXCLUSIVE_CRITERIA mirrors the pairs). Where the pre-evaluation would
+// check both, the one listed first is kept, unless the other was saved or scores more.
+export const EXCLUSIVE_CRITERIA: ReadonlyArray<readonly [AcmgCriterionCode, AcmgCriterionCode, string]> = [
+  ['PS2', 'PM6', 'one de novo observation is either confirmed (PS2) or assumed (PM6), never both (ClinGen SVI)'],
+  ['PVS1', 'PP3', 'in silico predictions add nothing to a predicted null variant (ClinGen SVI)'],
+  ['PVS1', 'PM4', "a null variant's change of protein length is counted by PVS1 (Abou Tayoun et al. 2018)"],
+  ['PS1', 'PM5', 'the pathogenic variants at one residue are counted once'],
+  ['PS3', 'BS3', 'the functional evidence is weighed to one conclusion (Brnich et al. 2020)'],
+  ['BA1', 'BS1', 'one population frequency is counted once'],
+  ['BA1', 'PM2', 'a variant is common or rare, not both'],
+  ['BS1', 'PM2', 'a variant is common or rare, not both'],
+  ['PM4', 'BP3', 'an in-frame change is outside a repeat region (PM4) or in one (BP3)'],
+  ['PP2', 'BP1', "missense variants are a mechanism of the gene's disease (PP2) or not (BP1)"],
+  ['PP3', 'BP4', 'one in silico prediction cannot argue both ways'],
+  ['PP5', 'BP6', 'a reputable source reports one classification'],
+];
+
+/** The criteria never applied together with `code`, each with the reason. */
+export function exclusivePartners(code: AcmgCriterionCode): Array<{ code: AcmgCriterionCode; reason: string }> {
+  return EXCLUSIVE_CRITERIA.flatMap(([first, second, reason]) =>
+    first === code ? [{ code: second, reason }] : second === code ? [{ code: first, reason }] : [],
+  );
+}
 export const BENIGN_CRITERIA = ACMG_CRITERIA.filter((def) => def.direction === 'benign');

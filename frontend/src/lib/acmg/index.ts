@@ -9,14 +9,25 @@ export {
   BENIGN_CRITERIA,
   STRENGTH_LABELS,
   STRENGTH_POINTS,
+  EXCLUSIVE_CRITERIA,
+  exclusivePartners,
 } from './criteria';
 export { computeClassification, selectionPoints, vusTierForPoints } from './score';
-export { evaluateAcmg, type AcmgVariantInput } from './evaluate';
+export { deNovoPhenotypeTier, deNovoStrength, evaluateAcmg, type AcmgVariantInput } from './evaluate';
 export { evaluateMitoAcmg } from './evaluateMito';
-export { parentLinksFromRelationships, parentsOf, type PedigreeRelationshipLike } from './pedigree';
+export {
+  parentageFromSampleQc,
+  parentLinksFromRelationships,
+  parentsOf,
+  type MendelianCheckLike,
+  type PedigreeRelationshipLike,
+  type RelatednessCheckLike,
+  type SampleQcLike,
+} from './pedigree';
 
-import { ACMG_CRITERIA_BY_CODE } from './criteria';
-import type { AcmgSelection, AcmgSuggestion } from './types';
+import { ACMG_CRITERIA_BY_CODE, EXCLUSIVE_CRITERIA } from './criteria';
+import { selectionPoints } from './score';
+import type { AcmgCriterionCode, AcmgSelection, AcmgSuggestion } from './types';
 
 // Build the working selection list shown in the modal.
 //
@@ -26,6 +37,9 @@ import type { AcmgSelection, AcmgSuggestion } from './types';
 //   - 'contraindicated' → surfaced unchecked and flagged (negative)
 // Saved selections (a prior classification) take precedence and keep the
 // analyst's accepted state/strength; the evaluator only refreshes their evidence.
+// Two criteria never applied together (EXCLUSIVE_CRITERIA) are never both checked: a saved one
+// is kept over a fresh suggestion, then the one scoring more, then the one the pair lists first;
+// the other is left unchecked (resolveExclusiveCriteria).
 export function buildInitialSelections(
   suggestions: AcmgSuggestion[],
   saved: AcmgSelection[] = [],
@@ -72,5 +86,28 @@ export function buildInitialSelections(
     });
   }
 
-  return [...byCode.values()];
+  return resolveExclusiveCriteria([...byCode.values()], new Set(saved.map((selection) => selection.code)));
+}
+
+/**
+ * The selections with at most one criterion of each exclusive pair checked. Where both are,
+ * the one kept is a saved one (`savedCodes`) over a fresh suggestion, then the one scoring
+ * more, then the one the pair lists first; the other is unchecked and stays listed.
+ */
+export function resolveExclusiveCriteria(
+  selections: AcmgSelection[],
+  savedCodes: ReadonlySet<AcmgCriterionCode> = new Set(),
+): AcmgSelection[] {
+  const byCode = new Map(selections.map((selection) => [selection.code, { ...selection }]));
+  for (const [first, second] of EXCLUSIVE_CRITERIA) {
+    const a = byCode.get(first);
+    const b = byCode.get(second);
+    if (!a?.accepted || !b?.accepted) continue;
+    const savedA = savedCodes.has(first);
+    const savedB = savedCodes.has(second);
+    const keepFirst =
+      savedA !== savedB ? savedA : Math.abs(selectionPoints(a)) >= Math.abs(selectionPoints(b));
+    (keepFirst ? b : a).accepted = false;
+  }
+  return selections.map((selection) => byCode.get(selection.code) ?? selection);
 }

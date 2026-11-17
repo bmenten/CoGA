@@ -1,5 +1,23 @@
-import type { AcmgFamilyContext, AcmgGeneContext } from '../../lib/acmg';
+import {
+  deNovoPhenotypeTier,
+  parentsOf,
+  type AcmgDeNovoPhenotypeTier,
+  type AcmgFamilyContext,
+  type AcmgGeneContext,
+  type AcmgParentageCheck,
+} from '../../lib/acmg';
+import type { FamilyGenePhenotypeScoreOut } from '../../lib/apiSchema.generated';
 import type { AcmgModalVariant } from './AcmgClassificationModal';
+import {
+  alphaMissenseTone,
+  caddTone,
+  polyphenTone,
+  revelTone,
+  siftTone,
+  spliceAiTone,
+  type PredictorTone,
+} from './inSilicoTones';
+import PredictorMark, { ALPHA_MISSENSE_CLASS_READING, SEQR_THRESHOLDS, SPLICEAI_THRESHOLDS } from './PredictorMark';
 import {
   SEGREGATION_MODE_LABELS,
   formatClinvarStars,
@@ -14,9 +32,15 @@ import {
 // dialog: the consequence, the population frequencies, the in silico predictions, the gene, ClinVar,
 // the family's calls and the proband's phenotype. Each section names the criteria it informs. A
 // value the annotation does not hold reads "—", never a value that would argue for or against a
-// criterion.
+// criterion. Each in silico prediction has the coloured mark the variant card gives it.
 
-type EvidenceRow = { label: string; value: string };
+type EvidenceRow = {
+  label: string;
+  value: string;
+  // How a predictor's value reads, for the mark before it (PredictorMark).
+  tone?: PredictorTone | null;
+  basis?: string;
+};
 
 type EvidenceSection = {
   title: string;
@@ -30,6 +54,8 @@ type AcmgEvidencePanelProps = {
   familyContext: AcmgFamilyContext;
   probandHpoLabels: string[];
   probandHpoUnavailable: boolean;
+  // The family's phenotype score for the gene, where no ranking scored the variant.
+  genePhenotypeScore?: FamilyGenePhenotypeScoreOut;
 };
 
 const NONE = '—';
@@ -41,6 +67,14 @@ const text = (value: string | null | undefined): string => (value && value.trim(
 
 // A row that is always listed: its absence is evidence too (PM2 reads a missing frequency).
 const row = (label: string, value: string): EvidenceRow => ({ label, value });
+
+// A predictor's row, with the mark for how its value reads (none for a value it does not hold).
+const predictorRow = (label: string, value: string, tone: PredictorTone | null, basis: string): EvidenceRow => ({
+  label,
+  value,
+  tone: value === NONE ? null : tone,
+  basis,
+});
 
 // A row listed only where the annotation holds a value.
 const optionalRow = (label: string, value: string | null | undefined): EvidenceRow | null =>
@@ -126,10 +160,15 @@ const inSilicoSection = (variant: AcmgModalVariant): EvidenceSection => {
     title: 'In silico',
     criteria: 'PP3 · BP4 · BP7',
     rows: present([
-      row('REVEL', formatScore(variant.revel)),
-      row('CADD', formatScore(variant.cadd_phred)),
-      row('AlphaMissense', alphaMissense),
-      row('SpliceAI', formatSpliceAi({
+      predictorRow('REVEL', formatScore(variant.revel), revelTone(variant.revel), SEQR_THRESHOLDS),
+      predictorRow('CADD', formatScore(variant.cadd_phred), caddTone(variant.cadd_phred), SEQR_THRESHOLDS),
+      predictorRow(
+        'AlphaMissense',
+        alphaMissense,
+        alphaMissenseTone(variant.alpha_missense_pathogenicity, variant.alpha_missense_class),
+        amScore !== null ? SEQR_THRESHOLDS : ALPHA_MISSENSE_CLASS_READING,
+      ),
+      predictorRow('SpliceAI', formatSpliceAi({
         spliceai_max: variant.spliceai_max ?? null,
         spliceai_ds_ag: variant.spliceai_ds_ag ?? null,
         spliceai_ds_al: variant.spliceai_ds_al ?? null,
@@ -139,9 +178,13 @@ const inSilicoSection = (variant: AcmgModalVariant): EvidenceSection => {
         spliceai_dp_al: variant.spliceai_dp_al ?? null,
         spliceai_dp_dg: variant.spliceai_dp_dg ?? null,
         spliceai_dp_dl: variant.spliceai_dp_dl ?? null,
-      }) ?? NONE),
-      optionalRow('SIFT', variant.sift ? formatPredictionScore(variant.sift) : null),
-      optionalRow('PolyPhen', variant.polyphen ? formatPredictionScore(variant.polyphen) : null),
+      }) ?? NONE, spliceAiTone(variant.spliceai_max), SPLICEAI_THRESHOLDS),
+      variant.sift
+        ? predictorRow('SIFT', formatPredictionScore(variant.sift), siftTone(variant.sift), SEQR_THRESHOLDS)
+        : null,
+      variant.polyphen
+        ? predictorRow('PolyPhen', formatPredictionScore(variant.polyphen), polyphenTone(variant.polyphen), SEQR_THRESHOLDS)
+        : null,
     ]),
   };
 };
@@ -183,29 +226,59 @@ const clinvarSection = (variant: AcmgModalVariant): EvidenceSection => {
   };
 };
 
+// How the phenotype reads for the de novo points (PS2, PM6).
+const DE_NOVO_TIER_SHORT: Record<AcmgDeNovoPhenotypeTier, string> = {
+  highly_specific: 'highly specific for the gene',
+  consistent: 'consistent, not highly specific',
+  heterogeneous: 'general terms only',
+  not_consistent: 'not shown consistent',
+};
+
 const phenotypeSection = (
   variant: AcmgModalVariant,
   labels: string[],
   unavailable: boolean,
+  familyScore: FamilyGenePhenotypeScoreOut | undefined,
 ): EvidenceSection => {
-  const score = finite(variant.priority?.phenotype_score);
-  const matches = (variant.priority?.phenotype_matches ?? [])
+  // The ranking's score where prioritisation scored the variant, else the family's score for the gene.
+  const ranked = finite(variant.priority?.phenotype_score);
+  const score = ranked ?? finite(familyScore?.score);
+  const matches = ((ranked !== null ? variant.priority?.phenotype_matches : familyScore?.matched) ?? [])
     .map((term) => term.label || term.hpo_id)
     .filter(Boolean);
+  const tier = deNovoPhenotypeTier({ phenotypeScore: score });
   return {
     title: 'Phenotype',
-    criteria: 'PP4',
+    criteria: 'PP4 · PS2 · PM6',
     rows: present([
       row(
         'Proband HPO terms',
         unavailable ? 'could not be loaded' : labels.length ? labels.join('; ') : 'none recorded',
       ),
       score !== null
-        ? row('Gene–phenotype match', `${formatScore(score)}${matches.length ? ` (${matches.join('; ')})` : ''}`)
+        ? row(
+            'Gene–phenotype match',
+            `${formatScore(score)}${tier ? ` · ${DE_NOVO_TIER_SHORT[tier.tier]}` : ''}${matches.length ? ` (${matches.join('; ')})` : ''}`,
+          )
         : null,
     ]),
   };
 };
+
+const PARENTAGE_LABELS: Record<AcmgParentageCheck['status'], string> = {
+  confirmed: 'confirmed',
+  refuted: 'not parent and child',
+  unconfirmed: 'not confirmed',
+};
+
+// What the Sample QC says of the proband and one parent, for the Family section.
+function parentageReading(family: AcmgFamilyContext, parentId: string | undefined): string {
+  if (!parentId) return 'not named in the pedigree';
+  if (family.parentageUnavailable) return 'Sample QC could not be loaded';
+  if (!family.parentage) return 'Sample QC not loaded';
+  const check = family.parentage[parentId];
+  return check ? `${PARENTAGE_LABELS[check.status]} — ${check.message}` : 'no parent-child check in the Sample QC';
+}
 
 function EvidenceList({ section }: { section: EvidenceSection }) {
   return (
@@ -218,7 +291,12 @@ function EvidenceList({ section }: { section: EvidenceSection }) {
         {section.rows.map((entry) => (
           <div key={entry.label} className="acmg-evidence-row">
             <dt>{entry.label}</dt>
-            <dd>{entry.value}</dd>
+            <dd>
+              {entry.tone ? (
+                <PredictorMark reading={{ label: entry.label, value: entry.value, tone: entry.tone, basis: entry.basis }} />
+              ) : null}
+              {entry.value}
+            </dd>
           </div>
         ))}
       </dl>
@@ -233,6 +311,11 @@ function FamilyCalls({ variant, family }: { variant: AcmgModalVariant; family: A
     (mode) => SEGREGATION_MODE_LABELS[mode] ?? formatTokenLabel(mode),
   );
   const mito = variant.chr === 'MT' ? variant.mito : null;
+  // The Sample QC's parentage checks of the proband (PS2 or PM6), for a nuclear variant.
+  const proband =
+    family.members.find((member) => (member.role ?? '').toLowerCase() === 'proband') ??
+    family.members.find((member) => member.affected);
+  const parents = proband && !mito ? parentsOf(proband.sampleId, family.parentLinks) : null;
   const rows = mitoCalls?.length
     ? mitoCalls.map((call) => ({
         sample: call.sampleId,
@@ -298,6 +381,18 @@ function FamilyCalls({ variant, family }: { variant: AcmgModalVariant; family: A
             <dd>{modes.join('; ')}</dd>
           </div>
         ) : null}
+        {parents ? (
+          <>
+            <div className="acmg-evidence-row">
+              <dt>Paternity (Sample QC)</dt>
+              <dd>{parentageReading(family, parents.father)}</dd>
+            </div>
+            <div className="acmg-evidence-row">
+              <dt>Maternity (Sample QC)</dt>
+              <dd>{parentageReading(family, parents.mother)}</dd>
+            </div>
+          </>
+        ) : null}
         {mito?.maternalTransmission ? (
           <div className="acmg-evidence-row">
             <dt>Maternal transmission</dt>
@@ -321,6 +416,7 @@ export default function AcmgEvidencePanel({
   familyContext,
   probandHpoLabels,
   probandHpoUnavailable,
+  genePhenotypeScore,
 }: AcmgEvidencePanelProps) {
   const sections = [
     consequenceSection(variant),
@@ -328,7 +424,7 @@ export default function AcmgEvidencePanel({
     inSilicoSection(variant),
     geneSection(variant, geneContext),
     clinvarSection(variant),
-    phenotypeSection(variant, probandHpoLabels, probandHpoUnavailable),
+    phenotypeSection(variant, probandHpoLabels, probandHpoUnavailable, genePhenotypeScore),
   ];
   return (
     <details className="acmg-evidence" open>

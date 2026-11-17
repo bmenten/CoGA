@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { parentLinksFromRelationships, parentsOf } from '../pedigree';
+import { parentageFromSampleQc, parentLinksFromRelationships, parentsOf } from '../pedigree';
 
 describe('parentLinksFromRelationships', () => {
   it('reads a parent-child link with the parent on either side', () => {
@@ -55,5 +55,61 @@ describe('parentsOf', () => {
       father: undefined,
       mother: 'M',
     });
+  });
+});
+
+// The Sample QC's parentage checks of the proband decide PS2 (confirmed) or PM6 (assumed).
+describe('parentageFromSampleQc', () => {
+  const pair = (a: string, b: string, status: string, inferred = 'parent-child', expected = 'parent-child') => ({
+    sample_a: a,
+    sample_b: b,
+    expected_relationship: expected,
+    inferred_relationship: inferred,
+    status,
+    message: `${a}-${b} ${status}`,
+  });
+  const mendel = (status: string) => ({ child: 'P', parents: ['F', 'M'], status, message: `Mendelian ${status}.` });
+
+  it('confirms a parent whose parent-child check passes, with the child on either side', () => {
+    expect(
+      parentageFromSampleQc('P', {
+        relatedness_checks: [pair('F', 'P', 'pass'), pair('P', 'M', 'pass'), pair('F', 'M', 'pass', 'unrelated', 'unrelated')],
+        mendelian_checks: [mendel('pass')],
+      }),
+    ).toEqual({
+      F: { status: 'confirmed', message: 'F-P pass' },
+      M: { status: 'confirmed', message: 'P-M pass' },
+    });
+  });
+
+  it('refutes a failed pair and leaves a warning unconfirmed', () => {
+    expect(
+      parentageFromSampleQc('P', {
+        relatedness_checks: [pair('F', 'P', 'fail', 'unrelated'), pair('M', 'P', 'warn', 'indeterminate')],
+      }),
+    ).toEqual({
+      F: { status: 'refuted', message: 'F-P fail' },
+      M: { status: 'unconfirmed', message: 'M-P warn' },
+    });
+  });
+
+  it('does not confirm a passing pair beside a Mendelian check that warns or fails, but does beside one that could not run', () => {
+    const relatedness_checks = [pair('F', 'P', 'pass'), pair('M', 'P', 'pass')];
+    for (const status of ['warn', 'fail']) {
+      expect(parentageFromSampleQc('P', { relatedness_checks, mendelian_checks: [mendel(status)] }).F).toEqual({
+        status: 'unconfirmed',
+        message: `F-P pass Mendelian ${status}.`,
+      });
+    }
+    expect(parentageFromSampleQc('P', { relatedness_checks, mendelian_checks: [mendel('skip')] }).F?.status).toBe('confirmed');
+  });
+
+  it("reads no parent from another member's pairs, a non-parent pair or no Sample QC", () => {
+    expect(
+      parentageFromSampleQc('P', {
+        relatedness_checks: [pair('GF', 'F', 'pass'), pair('S', 'P', 'pass', 'sibling', 'sibling')],
+      }),
+    ).toEqual({});
+    expect(parentageFromSampleQc('P', undefined)).toEqual({});
   });
 });

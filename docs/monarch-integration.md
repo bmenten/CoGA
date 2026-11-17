@@ -84,8 +84,11 @@ Both are in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); c
   - loss (0.7, at least 0.9 in a gene with pLI ≥ 0.9): a `DEL` of any subtype, or a `CNV` whose
     carriers' copy number shows a loss (or that stores none);
   - gain (0.5): a `DUP` of any subtype, or a CNV gain.
-- **ACMG PP4** — the ACMG dialog reads the variant's phenotype score (see
-  [acmg-classification.md](acmg-classification.md)).
+- **ACMG PP4 and the de novo strength** — the ACMG dialog reads the variant's phenotype score, or,
+  for a variant no ranking scored, the gene's score in the family from
+  `GET /api/families/{family_id}/gene-phenotype-score?symbol=` (`family_gene_phenotype_score`, the
+  same affected members' terms and scorer as the ranking). PP4 and the phenotype tier of ClinGen's
+  de novo points (PS2, PM6) read it (see [acmg-classification.md](acmg-classification.md)).
 
 ## Tests
 

@@ -4,7 +4,7 @@
 // import stores everyone who has a child as 'father' or 'mother' (ped_service), so a lookup
 // by role can find a grandparent and compare the proband with them.
 
-import type { AcmgParentLink } from './types';
+import type { AcmgParentLink, AcmgParentageCheck } from './types';
 
 // The slice of a family relationship (ApiFamilyRelationship) read here, so the engine stays
 // free of the API types.
@@ -57,4 +57,67 @@ export function parentsOf(
     return parents.size === 1 ? [...parents][0] : undefined;
   };
   return { father: named('father'), mother: named('mother') };
+}
+
+// The slices of the Sample QC report read here (ApiSampleIntegrityQc's relatedness and
+// Mendelian checks), so the engine stays free of the API types.
+export interface RelatednessCheckLike {
+  sample_a: string;
+  sample_b: string;
+  expected_relationship: string;
+  inferred_relationship: string;
+  status: string;
+  message: string;
+}
+
+export interface MendelianCheckLike {
+  child: string;
+  parents: string[];
+  status: string;
+  message: string;
+}
+
+export interface SampleQcLike {
+  relatedness_checks?: readonly RelatednessCheckLike[] | null;
+  mendelian_checks?: readonly MendelianCheckLike[] | null;
+}
+
+/**
+ * What the Sample QC says of each parent of a child, by the parent's sample id: confirmed where
+ * the pair's parent-child check passes (KING kinship and IBS0 read as parent and child) and the
+ * child's Mendelian check, where one ran with that parent, passes too; refuted where the pair's
+ * check fails; unconfirmed otherwise (a warning or too few sites, or a Mendelian check that warns
+ * or fails beside a passing pair). A parent the Sample QC checked no parent-child pair for is
+ * absent.
+ */
+export function parentageFromSampleQc(
+  childId: string,
+  qc?: SampleQcLike | null,
+): Record<string, AcmgParentageCheck> {
+  const checks: Record<string, AcmgParentageCheck> = {};
+  for (const pair of qc?.relatedness_checks ?? []) {
+    if (pair.expected_relationship !== 'parent-child') continue;
+    const parentId = pair.sample_a === childId ? pair.sample_b : pair.sample_b === childId ? pair.sample_a : null;
+    if (!parentId) continue;
+    if (pair.status === 'fail') {
+      checks[parentId] = { status: 'refuted', message: pair.message };
+      continue;
+    }
+    if (pair.status !== 'pass' || pair.inferred_relationship !== 'parent-child') {
+      checks[parentId] = { status: 'unconfirmed', message: pair.message };
+      continue;
+    }
+    // A Mendelian check that did not pass beside a passing pair: the QC contradicts itself.
+    const mendelian = (qc?.mendelian_checks ?? []).find(
+      (check) =>
+        check.child === childId &&
+        check.parents.includes(parentId) &&
+        check.status !== 'pass' &&
+        check.status !== 'skip',
+    );
+    checks[parentId] = mendelian
+      ? { status: 'unconfirmed', message: `${pair.message} ${mendelian.message}` }
+      : { status: 'confirmed', message: pair.message };
+  }
+  return checks;
 }

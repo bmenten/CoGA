@@ -18,6 +18,7 @@ from ..schemas import (
     FamilyRegionOfInterestUpdate,
     FamilyStructureUpdate,
     FamilyStructureUpdateOut,
+    FamilyGenePhenotypeScoreOut,
     FamilyPhenotypeMatchOut,
     HpoAnnotationCreate,
     HpoAnnotationOut,
@@ -61,7 +62,10 @@ from ..services.monarch_semsim import (
 )
 from ..services.access_control import CurrentUser
 from ..services.bed_service import precompute_family_lineage_safe
-from ..services.clickhouse_family_variants import precompute_family_ranking_safe
+from ..services.clickhouse_family_variants import (
+    family_gene_phenotype_score,
+    precompute_family_ranking_safe,
+)
 
 router = APIRouter(prefix="/families", tags=["families"])
 
@@ -259,6 +263,24 @@ async def list_family_hpo(
         family_uuid=context.family_uuid,
         sample_id=sample_id,
     )
+
+
+@router.get("/{family_id}/gene-phenotype-score", response_model=FamilyGenePhenotypeScoreOut)
+async def get_family_gene_phenotype_score(
+    family_id: str,
+    symbol: str = Query(..., min_length=1, max_length=64),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FamilyGenePhenotypeScoreOut:
+    """How well the gene ``symbol`` matches the family's phenotype: the score the
+    phenotype-prioritised ranking gives it, read by the ACMG dialog for a variant no ranking
+    scored (PP4 and the de novo criteria)."""
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+    )
+    return await family_gene_phenotype_score(session, context, symbol=symbol)
 
 
 @router.get("/{family_id}/phenotype-match", response_model=FamilyPhenotypeMatchOut)

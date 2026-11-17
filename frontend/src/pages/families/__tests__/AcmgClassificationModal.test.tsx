@@ -57,6 +57,11 @@ function renderModal(
   return onSave;
 }
 
+// The Sample QC with no checks and no phenotype score for the gene: parentage is not
+// confirmed and the de novo strength is not assessed.
+const NO_SAMPLE_QC_CHECKS = { relatedness_checks: [], mendelian_checks: [] };
+const NO_PHENOTYPE_SCORE = { symbol: 'GENEX', score: null, hpo_count: 0, matched: [] };
+
 describe('AcmgClassificationModal', () => {
   beforeEach(() => {
     mockedGet.mockReset();
@@ -64,6 +69,8 @@ describe('AcmgClassificationModal', () => {
       if (url.includes('/hpo')) {
         return Promise.resolve({ data: [] });
       }
+      if (url.includes('/qc/sample-integrity')) return Promise.resolve({ data: NO_SAMPLE_QC_CHECKS });
+      if (url.includes('/gene-phenotype-score')) return Promise.resolve({ data: NO_PHENOTYPE_SCORE });
       return Promise.resolve({
         data: {
           extra: {
@@ -232,6 +239,123 @@ describe('AcmgClassificationModal', () => {
     expect(pm6).not.toBeChecked();
     await userEvent.hover(row);
     expect(screen.getByRole('tooltip')).toHaveTextContent('Inherited from a parent — not de novo.');
+  });
+
+  // A de novo variant is PS2 where the Sample QC confirms both parents, at the strength the
+  // phenotype gives it; PS2 and PM6 are never checked together.
+  it('proposes PS2 from the Sample QC and swaps it with PM6 when PM6 is checked', async () => {
+    const deNovoVariant: SmallVariant = smallVariant({
+      _id: 'chr4-400-C-T',
+      chr: 'chr4',
+      start: 400,
+      end: 400,
+      type: 'SNV',
+      gene: 'GENEW',
+      gene_id: 'ENSG0004',
+      effect: 'missense_variant',
+      hgvsp: 'p.Arg20Cys',
+      revel: 0.95,
+      genotypes: [
+        genotype({ sample: 'P', gt: '0/1', dp: 30 }),
+        genotype({ sample: 'F', gt: '0/0', dp: 30 }),
+        genotype({ sample: 'M', gt: '0/0', dp: 30 }),
+      ],
+    });
+    const pass = (parent: string) => ({
+      sample_a: parent,
+      sample_b: 'P',
+      expected_relationship: 'parent-child',
+      inferred_relationship: 'parent-child',
+      kinship: 0.25,
+      ibs0_rate: 0.0001,
+      informative_sites: 9000,
+      status: 'pass',
+      message: `Confirmed parent-child (${parent}).`,
+    });
+    mockedGet.mockImplementation((url: string, config?: { params?: { symbol?: string } }) => {
+      if (url.includes('/hpo')) return Promise.resolve({ data: [] });
+      if (url.includes('/qc/sample-integrity')) {
+        return Promise.resolve({ data: { relatedness_checks: [pass('F'), pass('M')], mendelian_checks: [] } });
+      }
+      if (url.includes('/gene-phenotype-score')) {
+        expect(config?.params?.symbol).toBe('GENEW');
+        return Promise.resolve({
+          data: { symbol: 'GENEW', score: 0.72, hpo_count: 2, matched: [{ hpo_id: 'HP:0001250', label: 'Seizure' }] },
+        });
+      }
+      return Promise.resolve({ data: { extra: { clingen_dosage_assertions: [], gencc_assertions: [], hpo_terms: [] } } });
+    });
+    const member = (sample_id: string, role: string, sex: string, affected = false) => ({ sample_id, role, sex, affected });
+    const link = (parent: string, role: 'father' | 'mother') => ({
+      id: `${parent}-P`,
+      relationship_type: 'parent_child' as const,
+      sample_id_a: parent,
+      sample_id_b: 'P',
+      role_a: role,
+      role_b: 'child',
+    });
+    const onSave: (payload: SmallVariantReviewSavePayload) => Promise<void> = vi.fn(async () => undefined);
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <AcmgClassificationModal
+          variant={deNovoVariant}
+          familyId="F1"
+          members={[member('P', 'proband', 'female', true), member('F', 'father', 'male'), member('M', 'mother', 'female')]}
+          relationships={[link('F', 'father'), link('M', 'mother')]}
+          onClose={vi.fn()}
+          onSave={onSave}
+        />
+      </QueryClientProvider>,
+    );
+    const user = userEvent.setup();
+
+    const ps2 = await screen.findByRole('checkbox', { name: /PS2/ });
+    await waitFor(() => expect(ps2).toBeChecked());
+    expect(screen.getByLabelText('PS2 strength')).toHaveValue('strong');
+    const pm6 = screen.getByRole('checkbox', { name: /PM6/ });
+    expect(pm6).not.toBeChecked();
+    // The evidence shows the parentage the Sample QC confirmed, the phenotype's tier and the
+    // in silico marks of the variant card.
+    expect(screen.getByText('confirmed — Confirmed parent-child (F).')).toBeInTheDocument();
+    expect(screen.getByText(/0\.72 · highly specific for the gene \(Seizure\)/)).toBeInTheDocument();
+    const revel = within(screen.getByRole('region', { name: 'In silico' })).getByRole('img', { name: 'pathogenic, strong' });
+    expect(revel).toHaveAttribute('title', expect.stringMatching(/^REVEL 0\.95/));
+
+    // Checking PM6 unchecks PS2, which is then marked as not combined with it.
+    await user.click(pm6);
+    expect(pm6).toBeChecked();
+    expect(ps2).not.toBeChecked();
+    const ps2Row = ps2.closest('.acmg-criterion') as HTMLElement;
+    expect(within(ps2Row).getByLabelText('Not combined with PM6')).toBeInTheDocument();
+    await user.hover(ps2Row);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Not combined with PM6: one de novo observation is either confirmed (PS2) or assumed (PM6), never both (ClinGen SVI).',
+    );
+    // And checking PS2 again unchecks PM6.
+    await user.click(ps2);
+    expect(ps2).toBeChecked();
+    expect(pm6).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /save classification/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(onSave).mock.calls[0][0] as SmallVariantReviewSavePayload;
+    const accepted = (payload.acmg?.criteria ?? []).filter((c) => c.accepted).map((c) => c.code);
+    expect(accepted).toContain('PS2');
+    expect(accepted).not.toContain('PM6');
+  });
+
+  it('says the Sample QC could not be loaded and offers a de novo variant as PM6', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.includes('/hpo')) return Promise.resolve({ data: [] });
+      if (url.includes('/qc/sample-integrity')) return Promise.reject(new Error('down'));
+      if (url.includes('/gene-phenotype-score')) return Promise.resolve({ data: NO_PHENOTYPE_SCORE });
+      return Promise.resolve({ data: { extra: { clingen_dosage_assertions: [], gencc_assertions: [], hpo_terms: [] } } });
+    });
+    renderModal();
+
+    expect(await screen.findByText(/Could not load the family's Sample QC/)).toHaveTextContent(
+      /a de novo variant is offered as PM6: use PS2 only where parentage is confirmed/,
+    );
   });
 
   it('recomputes the class when a strength is changed', async () => {
