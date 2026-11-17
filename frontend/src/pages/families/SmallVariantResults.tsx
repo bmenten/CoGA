@@ -18,7 +18,7 @@ import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import SmallVariantTable from './SmallVariantTable';
 import { RankedByNote } from './RankByField';
 import { formatVariantTotal } from './smallVariantResultUtils';
-import { gnomadCountNotes } from './gnomadCountNotes';
+import { GNOMAD_COUNT_NOTE_DETAIL, gnomadCountNote } from './gnomadCountNotes';
 import { apiPath, raw } from '../../lib/apiPath';
 import type { ApiFamilyRelationship } from '../../lib/apiTypes';
 import { FamilyReadOnlyContext } from '../../lib/familyAccess';
@@ -101,7 +101,7 @@ export default function SmallVariantResults({
   const hasGroupedPairs = Boolean(pairGroups.length);
   const hasResults = hasFlatVariants || hasGroupedPairs;
   // A maximum gnomAD count filter cannot exclude a variant without that count.
-  const countNotes = gnomadCountNotes(requestQueryString, data);
+  const countNote = gnomadCountNote(requestQueryString, data);
 
   const handleDownloadCsv = async () => {
     if (!familyId) {
@@ -197,11 +197,13 @@ export default function SmallVariantResults({
 
         <CandidateCapNotice page={data} noun="variants" />
 
-        {countNotes.length ? (
-          <div className="variant-workspace-feedback variant-workspace-feedback--warning" role="note">
-            {countNotes.map((note) => (
-              <p key={note}>{note}</p>
-            ))}
+        {countNote ? (
+          <div
+            className="variant-workspace-feedback variant-workspace-feedback--warning"
+            role="note"
+            title={GNOMAD_COUNT_NOTE_DETAIL}
+          >
+            {countNote}
           </div>
         ) : null}
 
