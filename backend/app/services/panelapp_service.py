@@ -13,6 +13,7 @@ from ..schemas import (
     PanelAppPanelCountsOut,
     PanelAppPanelSummaryOut,
 )
+from .ensembl_gene_ids import ensembl_gene_id
 
 PANELAPP_API_ROOT = "https://panelapp.genomicsengland.co.uk/api/v1"
 PANELAPP_WEB_ROOT = "https://panelapp.genomicsengland.co.uk"
@@ -24,7 +25,10 @@ PANELAPP_CONFIDENCE_NAMES: dict[str, str] = {"3": "green", "2": "amber", "1": "r
 
 @dataclass(frozen=True)
 class PanelAppImportContent:
+    # Each gene by its Ensembl gene ID where PanelApp gives one, else by its symbol.
     genes: list[str]
+    # PanelApp's symbol for each gene in ``genes`` named by its Ensembl gene ID, by the ID.
+    gene_symbols: dict[str, str]
     regions: list[GeneLocation]
     metadata: dict[str, Any]
 
@@ -158,6 +162,42 @@ def _assembly_key(assembly: str) -> str:
     return "GRch37" if assembly.upper() in {"GRCH37", "HG19"} else "GRch38"
 
 
+def _release_rank(value: str) -> tuple[int, str]:
+    return (int(value), value) if str(value).isdigit() else (-1, str(value))
+
+
+def _ensembl_id_from_gene_data(gene_data: dict[str, Any], assembly: str) -> str | None:
+    """The Ensembl gene ID PanelApp gives the gene: that of the requested assembly's newest
+    Ensembl release, else of the other assembly's (a gene keeps its ID across assemblies)."""
+    ensembl_genes = gene_data.get("ensembl_genes")
+    if not isinstance(ensembl_genes, dict):
+        return None
+    requested = _assembly_key(assembly)
+    for assembly_key in (requested, "GRch37" if requested == "GRch38" else "GRch38"):
+        assembly_entry = ensembl_genes.get(assembly_key)
+        if not isinstance(assembly_entry, dict):
+            continue
+        for release_key in sorted((str(key) for key in assembly_entry), key=_release_rank, reverse=True):
+            release_entry = assembly_entry.get(release_key)
+            if isinstance(release_entry, dict):
+                gene_id = ensembl_gene_id(release_entry.get("ensembl_id"))
+                if gene_id:
+                    return gene_id
+    return None
+
+
+def _entity_gene(entity: dict[str, Any], assembly: str) -> tuple[str, str | None] | None:
+    """The gene a PanelApp entity names, as a panel keeps it: its Ensembl gene ID with its
+    symbol where PanelApp gives the ID, else its symbol alone (None for the symbol)."""
+    symbol = _entity_symbol(entity)
+    stated_gene_data = entity.get("gene_data")
+    gene_data = stated_gene_data if isinstance(stated_gene_data, dict) else {}
+    gene_id = _ensembl_id_from_gene_data(gene_data, assembly)
+    if gene_id:
+        return gene_id, symbol
+    return (symbol, None) if symbol else None
+
+
 def _parse_location(location: Any) -> tuple[str, int, int] | None:
     match = re.match(r"^(?:chr)?([^:]+):(\d+)-(\d+)$", str(location or "").strip(), flags=re.IGNORECASE)
     if match is None:
@@ -176,10 +216,7 @@ def _location_from_gene_data(gene_data: dict[str, Any], assembly: str) -> tuple[
     assembly_entry = ensembl_genes.get(_assembly_key(assembly))
     if not isinstance(assembly_entry, dict) or not assembly_entry:
         return None
-    def release_rank(value: str) -> tuple[int, str]:
-        return (int(value), value) if str(value).isdigit() else (-1, str(value))
-
-    for release_key in sorted((str(key) for key in assembly_entry), key=release_rank, reverse=True):
+    for release_key in sorted((str(key) for key in assembly_entry), key=_release_rank, reverse=True):
         release_entry = assembly_entry.get(release_key)
         if not isinstance(release_entry, dict):
             continue
@@ -217,14 +254,14 @@ def _append_region(regions: list[GeneLocation], region: GeneLocation) -> None:
         regions.append(region)
 
 
-def _region_from_gene_entity(entity: dict[str, Any], assembly: str, symbol: str) -> GeneLocation | None:
+def _region_from_gene_entity(entity: dict[str, Any], assembly: str, gene: str) -> GeneLocation | None:
     stated_gene_data = entity.get("gene_data")
     gene_data = stated_gene_data if isinstance(stated_gene_data, dict) else {}
     parsed = _location_from_gene_data(gene_data, assembly)
     if parsed is None:
         return None
     chrom, start, end = parsed
-    return GeneLocation(gene=symbol, chr=chrom, start=start, end=end)
+    return GeneLocation(gene=gene, chr=chrom, start=start, end=end)
 
 
 def _region_from_coordinate_entity(entity: dict[str, Any], assembly: str, label: str) -> GeneLocation | None:
@@ -245,18 +282,29 @@ def extract_panelapp_import_content(
 ) -> PanelAppImportContent:
     selected_levels = {str(level) for level in confidence_levels}
     genes: list[str] = []
+    gene_symbols: dict[str, str] = {}
     regions: list[GeneLocation] = []
     source_counts = {"genes": 0, "regions": 0, "strs": 0}
+
+    def add_gene(entity: dict[str, Any]) -> str | None:
+        """The entity's gene, added to the panel's genes, as ``_entity_gene`` names it."""
+        gene = _entity_gene(entity, assembly)
+        if gene is None:
+            return None
+        name, symbol = gene
+        _append_unique(genes, name)
+        if symbol and name not in gene_symbols:
+            gene_symbols[name] = symbol
+        return name
 
     for entity in payload.get("genes") or []:
         if not isinstance(entity, dict) or _entity_confidence(entity) not in selected_levels:
             continue
-        symbol = _entity_symbol(entity)
-        if not symbol:
+        name = add_gene(entity)
+        if not name:
             continue
-        _append_unique(genes, symbol)
         source_counts["genes"] += 1
-        region = _region_from_gene_entity(entity, assembly, symbol)
+        region = _region_from_gene_entity(entity, assembly, name)
         if region is not None:
             _append_region(regions, region)
 
@@ -264,10 +312,8 @@ def extract_panelapp_import_content(
         for entity in payload.get("strs") or []:
             if not isinstance(entity, dict) or _entity_confidence(entity) not in selected_levels:
                 continue
-            symbol = _entity_symbol(entity)
-            if symbol:
-                _append_unique(genes, symbol)
-            label = symbol or str(entity.get("entity_name") or "").strip()
+            name = add_gene(entity)
+            label = name or str(entity.get("entity_name") or "").strip()
             if not label:
                 continue
             source_counts["strs"] += 1
@@ -290,6 +336,7 @@ def extract_panelapp_import_content(
     summary = panelapp_summary(payload)
     return PanelAppImportContent(
         genes=genes,
+        gene_symbols=gene_symbols,
         regions=regions,
         metadata={
             "panelapp_id": summary.panelapp_id,

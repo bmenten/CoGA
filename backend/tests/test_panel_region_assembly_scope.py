@@ -20,7 +20,10 @@ import pytest
 
 from backend.app.schemas import GeneLocation, PanelAppImportRequest
 from backend.app.services import panel_metadata_service as pms
-from backend.app.services.clickhouse_family_variants import _fetch_panel_constraints
+from backend.app.services.clickhouse_family_variants import (
+    _fetch_gene_regions_for_terms,
+    _fetch_panel_constraints,
+)
 from backend.app.services.panelapp_service import PanelAppImportContent
 
 GRCH38 = "11111111-1111-1111-1111-111111111111"
@@ -109,9 +112,10 @@ class _PanelSession:
 
 
 def test_a_gene_is_resolved_in_every_assembly_that_has_it() -> None:
-    regions, missing = asyncio.run(pms._resolve_gene_regions(_PanelSession(), ["BRCA1", "TTN", "NOPE"]))
+    resolution = asyncio.run(pms._resolve_gene_regions(_PanelSession(), ["BRCA1", "TTN", "NOPE"]))
+    regions = resolution.regions
 
-    assert missing == ["NOPE"]
+    assert resolution.missing == ["NOPE"]
     assert [(r.gene, r.assembly, r.chr, r.start) for r in regions] == [
         ("BRCA1", "GRCh38", "17", 43_044_295),
         ("BRCA1", "T2T-CHM13v2.0", "17", 44_000_000),
@@ -124,11 +128,13 @@ def test_a_gene_is_resolved_in_every_assembly_that_has_it() -> None:
 
 def test_regions_are_stored_with_their_assembly() -> None:
     session = _PanelSession()
-    regions, _ = asyncio.run(pms._resolve_gene_regions(session, ["BRCA1"]))
+    regions = asyncio.run(pms._resolve_gene_regions(session, ["BRCA1"])).regions
     unscoped = GeneLocation(gene="LOOSE", chr="1", start=1, end=2)
 
     asyncio.run(
-        pms._replace_panel_members(session, panel_id=PANEL, genes=["BRCA1"], regions=[*regions, unscoped])
+        pms._replace_panel_members(
+            session, panel_id=PANEL, members=[pms._PanelMember("BRCA1")], regions=[*regions, unscoped]
+        )
     )
 
     assert {(row["gene"], row["assembly_id"]) for row in session.inserted_regions} == {
@@ -140,6 +146,7 @@ def test_regions_are_stored_with_their_assembly() -> None:
 def _import(monkeypatch, session, *, assembly="GRCh38"):
     content = PanelAppImportContent(
         genes=["BRCA1", "TTN"],
+        gene_symbols={},
         regions=[
             # PanelApp's own coordinates for a gene, and a region entity with no gene record.
             GeneLocation(gene="BRCA1", chr="17", start=43_000_000, end=43_200_000),
@@ -211,7 +218,7 @@ class _PanelConstraintSession:
         sql = str(statement)
         self.statements.append(sql)
         if "FROM gene_panel_genes" in sql:
-            return _MappingResult([{"gene_symbol": "GENE1"}])
+            return _MappingResult([{"gene": "GENE1", "symbol": None}])
         if "FROM gene_panel_regions" in sql:
             return _MappingResult([{"gene": "GENE1", "chr": "1", "start": 10, "end": 20}])
         if "FROM genes" in sql:
@@ -238,3 +245,61 @@ async def test_panel_constraints_include_family_assembly_gene_regions() -> None:
     # Stored regions are read for the family's own assembly only.
     stored = next(s for s in session.statements if "FROM gene_panel_regions" in s)
     assert "assembly_id = CAST(:assembly_id AS uuid)" in stored
+
+
+class _EnsemblPanelSession:
+    """A panel that names BRCA1 by its Ensembl gene ID and TTN by its symbol; records what the
+    gene-reference lookup is asked."""
+
+    def __init__(self) -> None:
+        self.lookups: list[tuple[str, dict[str, object]]] = []
+
+    async def execute(self, statement, params: dict[str, object]):
+        sql = str(statement)
+        if "FROM gene_panel_genes" in sql:
+            return _MappingResult(
+                [{"gene": "ENSG00000012048", "symbol": "BRCA1"}, {"gene": "TTN", "symbol": None}]
+            )
+        if "FROM gene_panel_regions" in sql:
+            return _MappingResult([{"gene": "ENSG00000012048", "chr": "17", "start": 10, "end": 20}])
+        if "FROM genes" in sql:
+            self.lookups.append((sql, dict(params)))
+            return _MappingResult([])
+        return _MappingResult([])
+
+
+@pytest.mark.asyncio
+async def test_an_ensembl_gene_id_is_matched_by_id_and_symbol_and_its_loci_read_by_id() -> None:
+    session = _EnsemblPanelSession()
+
+    constraints = await _fetch_panel_constraints(
+        session,
+        "d67e635c-7d98-4495-8b3c-153f5007561b",
+        assembly_id="5ddde908-e97d-4f60-95cb-3a6f9f8173d3",
+    )
+
+    # The variants' annotations are matched on the ID and on its symbol (an SV's annotation
+    # names genes by symbol only).
+    assert constraints.genes == ("ENSG00000012048", "TTN", "BRCA1")
+    [(sql, params)] = session.lookups
+    # The loci: by the ID, and by the symbol only among genes the reference gives no Ensembl
+    # ID; the symbol is no term of its own, which would read another gene of that symbol.
+    assert params["terms"] == ["ENSG00000012048", "TTN"]
+    assert params["ensembl_gene_ids"] == ["ENSG00000012048"]
+    assert params["stand_in_symbols"] == ["BRCA1"]
+    assert "(extra ->> 'ensembl_gene_id') = ANY(CAST(:ensembl_gene_ids AS text[]))" in sql
+    assert (
+        "(upper(hgnc_symbol) = ANY(CAST(:stand_in_symbols AS text[])) "
+        "AND (extra ->> 'ensembl_gene_id') IS NULL)"
+    ) in sql
+
+
+@pytest.mark.asyncio
+async def test_a_panel_of_symbols_alone_reads_no_ensembl_gene_id() -> None:
+    session = _EnsemblPanelSession()
+
+    await _fetch_gene_regions_for_terms(session, terms=["BRCA1", "TTN"], assembly_id=None)
+
+    [(sql, params)] = session.lookups
+    assert "ensembl_gene_id" not in sql
+    assert set(params) == {"terms"}

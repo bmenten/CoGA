@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -24,6 +26,7 @@ from ..schemas import (
     PanelAppImportResponse,
 )
 from .access_control import CurrentUser, has_superuser_rights
+from .ensembl_gene_ids import ensembl_gene_id, panel_gene_name
 from .panelapp_service import (
     extract_panelapp_import_content,
     fetch_panelapp_panel,
@@ -47,9 +50,22 @@ def _resolved_gene_count(regions: list[GeneLocation]) -> int:
     return len({region.gene.upper() for region in regions})
 
 
+class _PanelMember(NamedTuple):
+    """One of a panel's genes (a ``gene_panel_genes`` row): the gene as the panel names it, an
+    HGNC symbol or an Ensembl gene ID, and for an ID the HGNC symbol that gene has."""
+
+    gene: str
+    symbol: str | None = None
+
+
+def _member_symbols(members: Sequence[_PanelMember]) -> dict[str, str]:
+    """The symbol of each member that has one (an Ensembl gene ID), by the member's gene."""
+    return {member.gene: member.symbol for member in members if member.symbol}
+
+
 def _panel_out_from_rows(
     panel_row: dict[str, Any],
-    genes: list[str],
+    members: Sequence[_PanelMember],
     region_rows: list[dict[str, Any]],
 ) -> GenePanelOut:
     source_metadata = panel_row.get("source_metadata") or {}
@@ -62,8 +78,9 @@ def _panel_out_from_rows(
         _id=panel_row["id"],
         name=panel_row["name"],
         version=int(panel_row.get("version") or 1),
-        genes=genes,
-        gene_count=len(genes),
+        genes=[member.gene for member in members],
+        gene_symbols=_member_symbols(members),
+        gene_count=len(members),
         regions=[
             GeneLocation(
                 gene=row["gene"],
@@ -150,26 +167,26 @@ async def _fetch_panel_rows(
     return [dict(row) for row in result.mappings().all()]
 
 
-async def _fetch_panel_genes(
+async def _fetch_panel_members(
     session: AsyncSession,
     panel_ids: list[str],
-) -> dict[str, list[str]]:
+) -> dict[str, list[_PanelMember]]:
     if not panel_ids:
         return {}
     result = await session.execute(
         text(
             """
-            SELECT panel_id::text AS panel_id, gene_symbol
+            SELECT panel_id::text AS panel_id, gene, symbol
             FROM gene_panel_genes
             WHERE panel_id IN :panel_ids
-            ORDER BY gene_symbol
+            ORDER BY gene
             """
         ).bindparams(uuid_list_bindparam("panel_ids")),
         {"panel_ids": uuid_values(panel_ids)},
     )
-    grouped: dict[str, list[str]] = {panel_id: [] for panel_id in panel_ids}
+    grouped: dict[str, list[_PanelMember]] = {panel_id: [] for panel_id in panel_ids}
     for row in result.mappings().all():
-        grouped.setdefault(row["panel_id"], []).append(row["gene_symbol"])
+        grouped.setdefault(row["panel_id"], []).append(_PanelMember(row["gene"], row["symbol"]))
     return grouped
 
 
@@ -201,10 +218,10 @@ async def _fetch_panel_regions(
 async def list_panels_data(session: AsyncSession) -> list[GenePanelOut]:
     panel_rows = await _fetch_panel_rows(session)
     panel_ids = [row["id"] for row in panel_rows]
-    genes = await _fetch_panel_genes(session, panel_ids)
+    members = await _fetch_panel_members(session, panel_ids)
     regions = await _fetch_panel_regions(session, panel_ids)
     return [
-        _panel_out_from_rows(row, genes.get(row["id"], []), regions.get(row["id"], []))
+        _panel_out_from_rows(row, members.get(row["id"], []), regions.get(row["id"], []))
         for row in panel_rows
     ]
 
@@ -217,30 +234,81 @@ async def get_panel_or_404(
     panel_rows = await _fetch_panel_rows(session, [panel_id])
     if not panel_rows:
         raise HTTPException(status_code=404, detail="Panel not found")
-    genes = await _fetch_panel_genes(session, [panel_id])
+    members = await _fetch_panel_members(session, [panel_id])
     regions = await _fetch_panel_regions(session, [panel_id])
-    return _panel_out_from_rows(panel_rows[0], genes.get(panel_id, []), regions.get(panel_id, []))
+    return _panel_out_from_rows(panel_rows[0], members.get(panel_id, []), regions.get(panel_id, []))
 
 
-async def _resolve_gene_regions(
-    session: AsyncSession,
-    symbols: list[str],
-) -> tuple[list[GeneLocation], list[str]]:
-    """Each gene's locus in every loaded assembly that has it, tagged with that assembly.
+@dataclass(frozen=True, slots=True)
+class _GeneResolution:
+    """What the gene reference makes of a panel's gene names.
 
-    A panel is a gene list; its coordinates depend on the assembly, so each region is kept
-    with its assembly and a family's panel filter reads only its own assembly's: a GRCh38
-    family is never filtered on T2T coordinates, nor a T2T family on GRCh38 ones. A gene is
-    "missing" only when no loaded assembly has it.
+    ``names``: each name once, as the panel keeps it (``panel_gene_name``), in the order given.
+    ``regions``: each name's locus in every loaded assembly that has it, labelled with the name.
+    ``missing``: the names no loaded assembly has. ``symbols``: the HGNC symbol of each Ensembl
+    gene ID among the names that has one. ``folded_into``: after ``folded``, the Ensembl gene ID
+    each symbol it left out names.
     """
-    deduped_symbols = list(dict.fromkeys(symbol.strip() for symbol in symbols if symbol and symbol.strip()))
-    if not deduped_symbols:
-        return [], []
+
+    names: list[str]
+    regions: list[GeneLocation]
+    missing: list[str]
+    symbols: dict[str, str]
+    folded_into: dict[str, str] = field(default_factory=dict)
+
+    def members(self) -> list[_PanelMember]:
+        return [_PanelMember(name, self.symbols.get(name)) for name in self.names]
+
+    def folded(self) -> _GeneResolution:
+        """The genes as a panel keeps them: a symbol that names the same gene as one of the
+        Ensembl gene IDs (the ID's symbol, in any capitals) is that gene, kept once, by its ID,
+        with the ID's regions alone. The symbol's own regions are left out: in a reference that
+        gives other symbols (GRCh37's), the symbol may be another gene's. A symbol that two of
+        the IDs share stays as it is, as it names neither of them alone."""
+        ids_by_symbol: dict[str, list[str]] = {}
+        for gene_id, symbol in self.symbols.items():
+            ids_by_symbol.setdefault(symbol.upper(), []).append(gene_id)
+        into: dict[str, str] = {
+            name: ids_by_symbol[name.upper()][0]
+            for name in self.names
+            if not ensembl_gene_id(name) and len(ids_by_symbol.get(name.upper(), [])) == 1
+        }
+        if not into:
+            return self
+        return _GeneResolution(
+            names=[name for name in self.names if name not in into],
+            regions=[region for region in self.regions if region.gene not in into],
+            missing=[name for name in self.missing if name not in into],
+            symbols=self.symbols,
+            folded_into=into,
+        )
+
+
+def _by_assembly_rank(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """GRCh38, T2T-CHM13, GRCh37 under any of their names, then the rest by name."""
+    return sorted(
+        rows,
+        key=lambda row: (assembly_display_rank(row["assembly_name"]), str(row["assembly_name"])),
+    )
+
+
+async def _gene_loci_by_symbol(
+    session: AsyncSession,
+    symbols: Sequence[str],
+    *,
+    without_ensembl_gene_id: bool = False,
+) -> dict[str, list[dict[str, Any]]]:
+    """Each symbol's longest locus in every loaded assembly that has it, by the symbol in
+    capitals. ``without_ensembl_gene_id`` reads only the genes the reference gives no Ensembl
+    gene ID: those of a RefSeq-derived reference (T2T's), where an ID cannot be looked up."""
+    if not symbols:
+        return {}
+    only_without_id = "AND (g.extra ->> 'ensembl_gene_id') IS NULL" if without_ensembl_gene_id else ""
     # One text[] parameter, not one per gene (an expanding IN): asyncpg takes at most 32,767
     # per statement, and a panel names any number of genes.
     result = await session.execute(
         text(
-            """
+            f"""
             SELECT DISTINCT ON (upper(g.hgnc_symbol), g.assembly_id)
                 upper(g.hgnc_symbol) AS symbol_key,
                 g.assembly_id::text AS assembly_id,
@@ -251,6 +319,7 @@ async def _resolve_gene_regions(
             FROM genes g
             JOIN assemblies a ON a.id = g.assembly_id
             WHERE upper(g.hgnc_symbol) = ANY(CAST(:symbols AS text[]))
+              {only_without_id}
             ORDER BY
                 upper(g.hgnc_symbol),
                 g.assembly_id,
@@ -259,26 +328,110 @@ async def _resolve_gene_regions(
                 g."end"
             """
         ),
-        {"symbols": [symbol.upper() for symbol in deduped_symbols]},
+        {"symbols": list(dict.fromkeys(symbol.upper() for symbol in symbols))},
     )
     by_symbol: dict[str, list[dict[str, Any]]] = {}
     for row in result.mappings().all():
         by_symbol.setdefault(str(row["symbol_key"]), []).append(dict(row))
+    return by_symbol
+
+
+async def _gene_loci_by_ensembl_id(
+    session: AsyncSession,
+    gene_ids: Sequence[str],
+) -> dict[str, list[dict[str, Any]]]:
+    """Each Ensembl gene ID's longest locus, with that gene's symbol, in every loaded assembly
+    whose gene reference gives it, by the ID."""
+    if not gene_ids:
+        return {}
+    result = await session.execute(
+        text(
+            """
+            SELECT DISTINCT ON (g.extra ->> 'ensembl_gene_id', g.assembly_id)
+                g.extra ->> 'ensembl_gene_id' AS ensembl_gene_id,
+                g.hgnc_symbol,
+                g.assembly_id::text AS assembly_id,
+                a.assembly_name,
+                g.chr,
+                g.start,
+                g."end" AS "end"
+            FROM genes g
+            JOIN assemblies a ON a.id = g.assembly_id
+            WHERE (g.extra ->> 'ensembl_gene_id') = ANY(CAST(:gene_ids AS text[]))
+            ORDER BY
+                g.extra ->> 'ensembl_gene_id',
+                g.assembly_id,
+                (g."end" - g.start) DESC,
+                g.start,
+                g."end"
+            """
+        ),
+        {"gene_ids": list(dict.fromkeys(gene_ids))},
+    )
+    by_id: dict[str, list[dict[str, Any]]] = {}
+    for row in result.mappings().all():
+        by_id.setdefault(str(row["ensembl_gene_id"]), []).append(dict(row))
+    return by_id
+
+
+def _reference_symbol(gene_id: str, rows: list[dict[str, Any]]) -> str | None:
+    """The symbol the gene reference gives an Ensembl gene ID: that of its first assembly in
+    display order. GENCODE names a gene that has no symbol by its ID, which is no symbol."""
+    for row in _by_assembly_rank(rows):
+        symbol = str(row.get("hgnc_symbol") or "").strip()
+        if symbol and ensembl_gene_id(symbol) != gene_id:
+            return symbol
+    return None
+
+
+async def _resolve_gene_regions(
+    session: AsyncSession,
+    names: Sequence[str],
+    *,
+    stated_symbols: Mapping[str, str] | None = None,
+) -> _GeneResolution:
+    """Each gene's locus in every loaded assembly that has it, tagged with that assembly.
+
+    A panel is a gene list; its coordinates depend on the assembly, so each region is kept
+    with its assembly and a family's panel filter reads only its own assembly's: a GRCh38
+    family is never filtered on T2T coordinates, nor a T2T family on GRCh38 ones. A gene is
+    "missing" only when no loaded assembly has it.
+
+    A gene named by its symbol is looked up by its symbol. One named by its Ensembl gene ID is
+    looked up by the ID, in every reference that gives its genes Ensembl IDs (GENCODE's), and
+    gets the symbol that reference gives it: that of its first assembly in display order, or,
+    for an ID none of them knows, the one ``stated_symbols`` gives (the source panel's). In a
+    reference that gives its genes no Ensembl ID (a RefSeq-derived one, T2T's), that symbol is
+    looked up instead, among those genes only: a gene that has an Ensembl ID is never taken
+    for an ID by its symbol.
+    """
+    names_kept = list(dict.fromkeys(panel_gene_name(name) for name in names if name and str(name).strip()))
+    if not names_kept:
+        return _GeneResolution(names=[], regions=[], missing=[], symbols={})
+    gene_ids = [name for name in names_kept if ensembl_gene_id(name)]
+    by_symbol = await _gene_loci_by_symbol(session, [name for name in names_kept if not ensembl_gene_id(name)])
+    by_id = await _gene_loci_by_ensembl_id(session, gene_ids)
+
+    symbols: dict[str, str] = {}
+    for gene_id in gene_ids:
+        symbol = _reference_symbol(gene_id, by_id.get(gene_id, [])) or (stated_symbols or {}).get(gene_id)
+        if symbol:
+            symbols[gene_id] = symbol
+    stand_ins = await _gene_loci_by_symbol(session, list(symbols.values()), without_ensembl_gene_id=True)
+    for gene_id, symbol in symbols.items():
+        by_id.setdefault(gene_id, []).extend(stand_ins.get(symbol.upper(), []))
+
     missing_genes: list[str] = []
     regions: list[GeneLocation] = []
-    for symbol in deduped_symbols:
-        matches = by_symbol.get(symbol.upper())
+    for name in names_kept:
+        matches = by_id.get(name) if ensembl_gene_id(name) else by_symbol.get(name.upper())
         if not matches:
-            missing_genes.append(symbol)
+            missing_genes.append(name)
             continue
-        # GRCh38, T2T-CHM13, GRCh37 under any of their names, then the rest by name.
-        for match in sorted(
-            matches,
-            key=lambda row: (assembly_display_rank(row["assembly_name"]), str(row["assembly_name"])),
-        ):
+        for match in _by_assembly_rank(matches):
             regions.append(
                 GeneLocation(
-                    gene=symbol,
+                    gene=name,
                     chr=match["chr"],
                     start=int(match["start"]),
                     end=int(match["end"]),
@@ -286,19 +439,21 @@ async def _resolve_gene_regions(
                     assembly=match["assembly_name"],
                 )
             )
-    return regions, missing_genes
+    return _GeneResolution(names=names_kept, regions=regions, missing=missing_genes, symbols=symbols)
 
 
-async def check_gene_symbols(session: AsyncSession, symbols: list[str]) -> GeneSymbolCheckOut:
+async def check_gene_symbols(session: AsyncSession, names: list[str]) -> GeneSymbolCheckOut:
     """Which names a panel would get coordinates for, and which it would not, before an
-    admin saves them: a name no loaded assembly knows (a typo, an old symbol) is kept in the
-    panel's gene list but has no region, so a filter on the panel finds nothing in it."""
-    names = list(dict.fromkeys(symbol.strip() for symbol in symbols if symbol and symbol.strip()))
-    _regions, missing_genes = await _resolve_gene_regions(session, names)
-    missing = set(missing_genes)
+    admin saves them: a name no loaded assembly knows (a typo, an old symbol, a retired
+    Ensembl gene ID) is kept in the panel's gene list but has no region, so a filter on the
+    panel finds nothing in it. An Ensembl gene ID comes with the symbol of the gene it names,
+    for the admin to see which gene that is."""
+    resolution = await _resolve_gene_regions(session, names)
+    missing = set(resolution.missing)
     return GeneSymbolCheckOut(
-        found=[name for name in names if name not in missing],
-        missing=missing_genes,
+        found=[name for name in resolution.names if name not in missing],
+        missing=resolution.missing,
+        symbols={gene_id: symbol for gene_id, symbol in resolution.symbols.items() if gene_id not in missing},
     )
 
 
@@ -351,7 +506,7 @@ async def _replace_panel_members(
     session: AsyncSession,
     *,
     panel_id: str,
-    genes: list[str],
+    members: Sequence[_PanelMember],
     regions: list[GeneLocation],
 ) -> None:
     await session.execute(
@@ -362,15 +517,18 @@ async def _replace_panel_members(
         text("DELETE FROM gene_panel_regions WHERE panel_id = CAST(:panel_id AS uuid)"),
         {"panel_id": panel_id},
     )
-    if genes:
+    if members:
         await session.execute(
             text(
                 """
-                INSERT INTO gene_panel_genes (panel_id, gene_symbol)
-                VALUES (CAST(:panel_id AS uuid), :gene_symbol)
+                INSERT INTO gene_panel_genes (panel_id, gene, symbol)
+                VALUES (CAST(:panel_id AS uuid), :gene, :symbol)
                 """
             ),
-            [{"panel_id": panel_id, "gene_symbol": symbol} for symbol in genes],
+            [
+                {"panel_id": panel_id, "gene": member.gene, "symbol": member.symbol}
+                for member in members
+            ],
         )
     # Coordinates without an assembly cannot be scoped to one, so they are not stored;
     # the resolvers only produce such regions for an assembly that is not loaded.
@@ -401,16 +559,17 @@ async def _panel_members_unchanged(
     session: AsyncSession,
     panel_id: str,
     *,
-    genes: list[str],
+    members: Sequence[_PanelMember],
     regions: list[GeneLocation],
 ) -> bool:
-    """Whether the panel holds these genes and these regions already, and nothing else.
+    """Whether the panel holds these genes, with these symbols, and these regions already,
+    and nothing else.
 
     The regions compared are the ones ``_replace_panel_members`` stores: those scoped to an
     assembly. The order of either list does not matter.
     """
-    current_genes = (await _fetch_panel_genes(session, [panel_id])).get(panel_id, [])
-    if set(current_genes) != set(genes):
+    current_members = (await _fetch_panel_members(session, [panel_id])).get(panel_id, [])
+    if set(current_members) != set(members):
         return False
     current_regions = (await _fetch_panel_regions(session, [panel_id])).get(panel_id, [])
     stored = {
@@ -434,7 +593,7 @@ async def _snapshot_panel_version(
     description: str | None,
     source: str | None,
     external_version: str | None,
-    genes: list[str],
+    members: Sequence[_PanelMember],
     regions: list[GeneLocation],
     source_metadata: dict[str, Any] | None,
     user: CurrentUser,
@@ -450,10 +609,12 @@ async def _snapshot_panel_version(
             """
             INSERT INTO gene_panel_versions
                 (panel_id, version, name, description, source, external_version,
-                 gene_count, genes, regions, source_metadata, created_by, created_by_email)
+                 gene_count, genes, gene_symbols, regions, source_metadata, created_by,
+                 created_by_email)
             VALUES
                 (CAST(:panel_id AS uuid), :version, :name, :description, :source,
-                 :external_version, :gene_count, CAST(:genes AS jsonb), CAST(:regions AS jsonb),
+                 :external_version, :gene_count, CAST(:genes AS jsonb),
+                 CAST(:gene_symbols AS jsonb), CAST(:regions AS jsonb),
                  CAST(:source_metadata AS jsonb), CAST(:created_by AS uuid), :created_by_email)
             """
         ),
@@ -464,8 +625,9 @@ async def _snapshot_panel_version(
             "description": description,
             "source": source,
             "external_version": external_version,
-            "gene_count": len(genes),
-            "genes": json.dumps(genes),
+            "gene_count": len(members),
+            "genes": json.dumps([member.gene for member in members]),
+            "gene_symbols": json.dumps(_member_symbols(members), sort_keys=True),
             "regions": json.dumps(
                 [
                     {
@@ -493,11 +655,10 @@ async def create_panel_data(
     _ensure_admin(user)
     await _ensure_panel_name_available(session, panel.name)
 
-    normalized_symbols = [
-        symbol.strip() for symbol in panel.genes if symbol and symbol.strip()
-    ]
-    deduped_symbols = list(dict.fromkeys(normalized_symbols))
-    regions, missing_genes = await _resolve_gene_regions(session, deduped_symbols)
+    resolution = (await _resolve_gene_regions(session, panel.genes)).folded()
+    members = resolution.members()
+    regions = resolution.regions
+    missing_genes = resolution.missing
 
     description = panel.description.strip() if panel.description and panel.description.strip() else None
 
@@ -531,7 +692,7 @@ async def create_panel_data(
     panel_row["source_metadata"] = {}
     panel_id = panel_row["id"]
 
-    await _replace_panel_members(session, panel_id=panel_id, genes=deduped_symbols, regions=regions)
+    await _replace_panel_members(session, panel_id=panel_id, members=members, regions=regions)
     await _snapshot_panel_version(
         session,
         panel_id=panel_id,
@@ -540,7 +701,7 @@ async def create_panel_data(
         description=description,
         source="local",
         external_version=None,
-        genes=deduped_symbols,
+        members=members,
         regions=regions,
         source_metadata={},
         user=user,
@@ -549,10 +710,10 @@ async def create_panel_data(
     await session.commit()
     panel_out = _panel_out_from_rows(
         panel_row,
-        deduped_symbols,
+        members,
         [region.model_dump() for region in regions],
     )
-    message = f"Panel created with {_resolved_gene_count(regions)} of {len(deduped_symbols)} genes"
+    message = f"Panel created with {_resolved_gene_count(regions)} of {len(members)} genes"
     if missing_genes:
         message += f"; missing genes: {', '.join(missing_genes)}"
     return GenePanelCreateResponse(
@@ -610,18 +771,20 @@ async def update_panel_data(
             ),
         )
 
-    normalized = list(
-        dict.fromkeys(symbol.strip() for symbol in payload.genes if symbol and symbol.strip())
-    )
-    regions, missing_genes = await _resolve_gene_regions(session, normalized)
+    resolution = (await _resolve_gene_regions(session, payload.genes)).folded()
+    members = resolution.members()
+    regions = resolution.regions
+    missing_genes = resolution.missing
     description = (
         payload.description.strip()
         if payload.description and payload.description.strip()
         else existing["description"]
     )
 
-    current_genes = set((await _fetch_panel_genes(session, [panel_id])).get(panel_id, []))
-    if current_genes == set(normalized) and description == existing["description"]:
+    # The same genes with the same symbols: an Ensembl gene ID whose symbol the gene reference
+    # now gives otherwise is another version, as the panel's filter reads the symbol too.
+    current_members = set((await _fetch_panel_members(session, [panel_id])).get(panel_id, []))
+    if current_members == set(members) and description == existing["description"]:
         panel_out = await get_panel_or_404(session, panel_id)
         return GenePanelCreateResponse(
             panel=panel_out,
@@ -640,7 +803,7 @@ async def update_panel_data(
         ),
         {"version": version, "description": description, "panel_id": panel_id},
     )
-    await _replace_panel_members(session, panel_id=panel_id, genes=normalized, regions=regions)
+    await _replace_panel_members(session, panel_id=panel_id, members=members, regions=regions)
     await _snapshot_panel_version(
         session,
         panel_id=panel_id,
@@ -649,7 +812,7 @@ async def update_panel_data(
         description=description,
         source="local",
         external_version=None,
-        genes=normalized,
+        members=members,
         regions=regions,
         source_metadata={},
         user=user,
@@ -658,7 +821,7 @@ async def update_panel_data(
     panel_out = await get_panel_or_404(session, panel_id)
     message = (
         f"Panel updated to version {version}: {_resolved_gene_count(regions)} of "
-        f"{len(normalized)} genes"
+        f"{len(members)} genes"
     )
     if missing_genes:
         message += f"; unresolved: {', '.join(missing_genes)}"
@@ -695,32 +858,42 @@ async def import_panelapp_panel_data(
         include_strs=request.include_strs,
         assembly=request.assembly,
     )
-    genes = content.genes
+    # Every gene is resolved in every loaded assembly. A gene PanelApp gives an Ensembl gene ID
+    # is kept by its ID, with the gene reference's symbol for it, or PanelApp's where no loaded
+    # assembly knows the ID; a symbol of the same gene (an STR's, where PanelApp gives it no
+    # ID) is that gene.
+    reference = (
+        await _resolve_gene_regions(session, content.genes, stated_symbols=content.gene_symbols)
+    ).folded()
     # PanelApp's own coordinates are for the requested assembly. They are stored for that
-    # assembly when it is loaded; otherwise they apply to no family and are not kept.
+    # assembly when it is loaded; otherwise they apply to no family and are not kept. They win
+    # for the genes and the assembly they cover.
     requested_assembly_id = await _assembly_id_by_name(session, request.assembly)
-    panelapp_regions = (
-        [
-            region.model_copy(
-                update={"assembly_id": requested_assembly_id, "assembly": request.assembly}
+    panelapp_regions: list[GeneLocation] = []
+    if requested_assembly_id:
+        seen: set[tuple[str, str, int, int]] = set()
+        for region in content.regions:
+            kept = region.model_copy(
+                update={
+                    "gene": reference.folded_into.get(region.gene, region.gene),
+                    "assembly_id": requested_assembly_id,
+                    "assembly": request.assembly,
+                }
             )
-            for region in content.regions
-        ]
-        if requested_assembly_id
-        else []
-    )
-    # Every gene is also resolved in every loaded assembly; PanelApp's coordinates win for
-    # the genes and the assembly they cover.
+            key = (kept.gene.upper(), kept.chr, kept.start, kept.end)
+            if key not in seen:
+                seen.add(key)
+                panelapp_regions.append(kept)
     covered = {(region.gene.upper(), region.assembly_id) for region in panelapp_regions}
-    reference_regions, unresolved = await _resolve_gene_regions(session, genes)
     regions = panelapp_regions + [
         region
-        for region in reference_regions
+        for region in reference.regions
         if (region.gene.upper(), region.assembly_id) not in covered
     ]
-    panelapp_genes = {region.gene.upper() for region in panelapp_regions}
-    missing_genes = [symbol for symbol in unresolved if symbol.upper() not in panelapp_genes]
-    if not genes and not regions:
+    members = reference.members()
+    located = {region.gene for region in regions}
+    missing_genes = [member.gene for member in members if member.gene not in located]
+    if not members and not regions:
         raise HTTPException(status_code=400, detail="No PanelApp entities matched the selected import options")
 
     external_id = str(request.panelapp_id)
@@ -770,7 +943,7 @@ async def import_panelapp_panel_data(
         # Other genes or regions are a new version; the same ones keep the version, as an
         # edit that changes nothing does.
         changed = not await _panel_members_unchanged(
-            session, existing["id"], genes=genes, regions=regions
+            session, existing["id"], members=members, regions=regions
         )
         version = int(existing["version"]) + 1 if changed else int(existing["version"])
         updated = await session.execute(
@@ -878,7 +1051,7 @@ async def import_panelapp_panel_data(
         panel_id = panel_row["id"]
 
     if changed:
-        await _replace_panel_members(session, panel_id=panel_id, genes=genes, regions=regions)
+        await _replace_panel_members(session, panel_id=panel_id, members=members, regions=regions)
         await _snapshot_panel_version(
             session,
             panel_id=panel_id,
@@ -887,7 +1060,7 @@ async def import_panelapp_panel_data(
             description=description,
             source="panelapp",
             external_version=external_version,
-            genes=genes,
+            members=members,
             regions=regions,
             source_metadata=source_metadata,
             user=user,
@@ -897,9 +1070,9 @@ async def import_panelapp_panel_data(
         panel_row = panel_rows[0]
     await session.commit()
 
-    panel_out = _panel_out_from_rows(panel_row, genes, [region.model_dump() for region in regions])
+    panel_out = _panel_out_from_rows(panel_row, members, [region.model_dump() for region in regions])
     contents = (
-        f"{len(genes)} genes and {len(regions)} regions"
+        f"{len(members)} genes and {len(regions)} regions"
         f" ({panelapp_selection_label(request.confidence_levels)})"
     )
     if existing is None:
@@ -919,7 +1092,7 @@ async def import_panelapp_panel_data(
         panel=panel_out,
         message=message,
         missing_genes=missing_genes,
-        imported_gene_count=len(genes),
+        imported_gene_count=len(members),
         imported_region_count=len(regions),
     )
 
@@ -998,7 +1171,8 @@ async def get_panel_version(
             text(
                 """
                 SELECT version, name, description, source, external_version, gene_count,
-                       genes, regions, source_metadata, created_by_email, created_at
+                       genes, gene_symbols, regions, source_metadata, created_by_email,
+                       created_at
                 FROM gene_panel_versions
                 WHERE panel_id = CAST(:panel_id AS uuid) AND version = :version
                 """
@@ -1018,7 +1192,10 @@ async def get_panel_version(
         gene_count=data["gene_count"],
         created_by_email=data.get("created_by_email"),
         created_at=data["created_at"],
-        genes=[str(symbol) for symbol in _jsonb_list(data.get("genes"))],
+        genes=[str(gene) for gene in _jsonb_list(data.get("genes"))],
+        gene_symbols={
+            str(gene): str(symbol) for gene, symbol in _jsonb_dict(data.get("gene_symbols")).items()
+        },
         regions=[GeneLocation(**region) for region in _jsonb_list(data.get("regions"))],
         source_metadata=_jsonb_dict(data.get("source_metadata")),
     )
@@ -1091,8 +1268,11 @@ async def regenerate_mendeliome(
             status_code=409,
             detail="Monarch gene–disease data is not loaded; cannot build the Mendeliome.",
         )
-    deduped = list(dict.fromkeys(genes))
-    regions, missing_genes = await _resolve_gene_regions(session, deduped)
+    resolution = (await _resolve_gene_regions(session, genes)).folded()
+    members = resolution.members()
+    deduped = resolution.names
+    regions = resolution.regions
+    missing_genes = resolution.missing
     now = datetime.now(timezone.utc)
     description = (
         "All genes with a Mendelian disease association in the Monarch knowledge graph "
@@ -1138,7 +1318,7 @@ async def regenerate_mendeliome(
         panel_id = created.mappings().one()["id"]
         version = 1
         changed = True
-        await _replace_panel_members(session, panel_id=panel_id, genes=deduped, regions=regions)
+        await _replace_panel_members(session, panel_id=panel_id, members=members, regions=regions)
         await _snapshot_panel_version(
             session,
             panel_id=panel_id,
@@ -1147,7 +1327,7 @@ async def regenerate_mendeliome(
             description=description,
             source=MENDELIOME_SOURCE,
             external_version=release,
-            genes=deduped,
+            members=members,
             regions=regions,
             source_metadata=source_metadata,
             user=user,
@@ -1156,8 +1336,8 @@ async def regenerate_mendeliome(
     else:
         panel_id = existing["id"]
         current_version = int(existing["version"])
-        current_genes = set((await _fetch_panel_genes(session, [panel_id])).get(panel_id, []))
-        if not force and current_genes == set(deduped):
+        current_members = set((await _fetch_panel_members(session, [panel_id])).get(panel_id, []))
+        if not force and current_members == set(members):
             await session.execute(
                 text(
                     """
@@ -1204,7 +1384,7 @@ async def regenerate_mendeliome(
                     "panel_id": panel_id,
                 },
             )
-            await _replace_panel_members(session, panel_id=panel_id, genes=deduped, regions=regions)
+            await _replace_panel_members(session, panel_id=panel_id, members=members, regions=regions)
             await _snapshot_panel_version(
                 session,
                 panel_id=panel_id,
@@ -1213,7 +1393,7 @@ async def regenerate_mendeliome(
                 description=description,
                 source=MENDELIOME_SOURCE,
                 external_version=release,
-                genes=deduped,
+                members=members,
                 regions=regions,
                 source_metadata=source_metadata,
                 user=user,

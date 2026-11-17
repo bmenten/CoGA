@@ -243,3 +243,35 @@ async def test_a_panelapp_search_asks_for_at_most_50_panels_by_the_trimmed_name(
     asked.clear()
     await panelapp_service.search_panelapp_panels("  ", page_size=0)
     assert dict(asked[0].url.params) == {"page_size": "1"}
+
+
+def test_a_panelapp_gene_is_named_by_the_ensembl_gene_id_panelapp_gives_it() -> None:
+    payload = _panelapp_payload()
+    # AAAS with an ID for each assembly, the requested one's newest release first; the STR's
+    # gene with an ID for GRCh37 only, which names the gene in GRCh38 as well.
+    payload["genes"][0]["gene_data"]["ensembl_genes"] = {
+        "GRch37": {"82": {"location": "12:53701240-53718648", "ensembl_id": "ENSG00000094914"}},
+        "GRch38": {
+            "90": {"location": "12:53307456-53324864", "ensembl_id": "ENSG00000094914"},
+            "80": {"location": "12:1-2", "ensembl_id": "ENSG00000000000"},
+        },
+    }
+    payload["strs"][0]["gene_data"]["ensembl_genes"] = {
+        "GRch37": {"82": {"location": "12:7045889-7063665", "ensembl_id": "ENSG00000111676.5"}}
+    }
+
+    content = extract_panelapp_import_content(
+        payload,
+        confidence_levels=["3"],
+        include_regions=True,
+        include_strs=True,
+        assembly="GRCh38",
+    )
+
+    assert content.genes == ["ENSG00000094914", "ENSG00000111676"]
+    assert content.gene_symbols == {"ENSG00000094914": "AAAS", "ENSG00000111676": "ATN1"}
+    assert [region.gene for region in content.regions] == [
+        "ENSG00000094914",
+        "ENSG00000111676",
+        "ISCA-37478-Gain",
+    ]

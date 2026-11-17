@@ -468,7 +468,11 @@ class DgvTrackOut(BaseModel):
 class GenePanelOut(ApiDocumentModel):
     name: str
     version: int = 1
+    # Each gene as the panel names it: an HGNC symbol or an Ensembl gene ID.
     genes: List[str] = Field(default_factory=list)
+    # The HGNC symbol of each Ensembl gene ID in ``genes`` that has one, by the ID: the gene
+    # reference's symbol for it, or the source panel's for an ID no loaded assembly knows.
+    gene_symbols: Dict[str, str] = Field(default_factory=dict)
     gene_count: int = 0
     regions: List[GeneLocation] = Field(default_factory=list)
     created_by: ApiId
@@ -489,6 +493,7 @@ class GenePanelOut(ApiDocumentModel):
 
 class GenePanelCreate(BaseModel):
     name: str = Field(min_length=1)
+    # HGNC symbols or Ensembl gene IDs (``ensembl_gene_ids``), in any mix.
     genes: List[str] = Field(default_factory=list)
     description: Optional[str] = None
 
@@ -496,6 +501,7 @@ class GenePanelCreate(BaseModel):
 class GenePanelUpdate(BaseModel):
     """Edit a manually-curated panel's genes (the full desired set) → a new version."""
 
+    # HGNC symbols or Ensembl gene IDs, as ``GenePanelCreate.genes``.
     genes: List[str] = Field(default_factory=list)
     description: Optional[str] = None
     # The version the edit was made on. When given, the edit is refused (409) if the panel
@@ -509,12 +515,15 @@ class GeneSymbolCheckRequest(BaseModel):
 
 
 class GeneSymbolCheckOut(BaseModel):
-    """The names a loaded assembly knows as a gene symbol, and those none does: a panel gets
-    no coordinates for those, so a filter on it finds no variant in them. Each name once,
-    trimmed, in the order given."""
+    """The names a loaded assembly knows as a gene, by its symbol or its Ensembl gene ID, and
+    those none does: a panel gets no coordinates for those, so a filter on it finds no variant
+    in them. Each name once, as the panel would keep it (an Ensembl gene ID in capitals and
+    without its version, any other name trimmed), in the order given."""
 
     found: List[str] = Field(default_factory=list)
     missing: List[str] = Field(default_factory=list)
+    # The HGNC symbol the gene reference gives each Ensembl gene ID in ``found``, by the ID.
+    symbols: Dict[str, str] = Field(default_factory=dict)
 
 
 class GenePanelCreateResponse(BaseModel):
@@ -536,6 +545,8 @@ class GenePanelVersionSummary(BaseModel):
 class GenePanelVersionDetail(GenePanelVersionSummary):
     description: Optional[str] = None
     genes: List[str] = Field(default_factory=list)
+    # As ``GenePanelOut.gene_symbols``, for this version.
+    gene_symbols: Dict[str, str] = Field(default_factory=dict)
     regions: List[GeneLocation] = Field(default_factory=list)
     source_metadata: Dict[str, Any] = Field(default_factory=dict)
 

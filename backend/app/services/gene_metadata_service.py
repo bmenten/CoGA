@@ -30,6 +30,7 @@ from ..schemas import (
 )
 from ..schemas.genes import InheritanceMode
 from .data_scope import is_primary_chromosome
+from .ensembl_gene_ids import ensembl_gene_id
 from .gene_info_jobs_pg import _assembly_priority, _get_human_context
 from .metadata_service import get_accessible_family_mapping
 from .access_control import CurrentUser, RecordNotVisible, user_can_access_metadata_projects
@@ -39,6 +40,7 @@ from .monarch_ingest import (
     summarize_disease_phenotypes,
 )
 from .sex_chromosomes import grc_build, is_t2t_chm13
+from .stored_values import json_object
 
 
 def _gene_symbol_candidates(symbol: str) -> list[str]:
@@ -852,21 +854,35 @@ async def build_gene_profile(
         )
         cached_info = fallback_result.mappings().first()
 
+    # A panel holds the gene by its symbol, or by its Ensembl gene ID (which carries the
+    # symbol the gene reference gave it).
+    gene_ensembl_ids = sorted(
+        {
+            gene_id
+            for doc in gene_docs
+            if (gene_id := ensembl_gene_id(json_object(doc.get("extra")).get("ensembl_gene_id")))
+        }
+    )
     panel_result = await session.execute(
         text(
             """
             SELECT
                 p.id::text AS panel_id,
                 p.name,
-                COUNT(gpg.gene_symbol) AS gene_count
+                COUNT(gpg.gene) AS gene_count
             FROM gene_panels p
             JOIN gene_panel_genes gpg ON gpg.panel_id = p.id
-            WHERE upper(gpg.gene_symbol) = :symbol
+            WHERE upper(gpg.gene) = :symbol
+               OR upper(gpg.symbol) = :symbol
+               OR gpg.gene = ANY(CAST(:ensembl_gene_ids AS text[]))
             GROUP BY p.id, p.name
             ORDER BY lower(p.name)
             """
         ),
-        {"symbol": str(primary["hgnc_symbol"]).upper()},
+        {
+            "symbol": str(primary["hgnc_symbol"]).upper(),
+            "ensembl_gene_ids": gene_ensembl_ids,
+        },
     )
     panels = [
         GenePanelMembershipOut(

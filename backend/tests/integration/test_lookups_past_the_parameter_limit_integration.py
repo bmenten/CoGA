@@ -148,9 +148,11 @@ def test_each_lookup_finds_its_item_among_40000() -> None:
                 genes = _among_others(gene, lambda index: f"DATA6-ABSENT-{index}")
 
                 # A panel's genes, and a NIPT target's gene terms.
-                regions, missing = await panel_metadata_service._resolve_gene_regions(session, genes)
-                assert [(region.gene, region.assembly_id) for region in regions] == [(gene, seeded["assembly"])]
-                assert len(missing) == _ITEMS - 1 and gene not in missing
+                resolution = await panel_metadata_service._resolve_gene_regions(session, genes)
+                assert [(region.gene, region.assembly_id) for region in resolution.regions] == [
+                    (gene, seeded["assembly"])
+                ]
+                assert len(resolution.missing) == _ITEMS - 1 and gene not in resolution.missing
                 targets = await nipt_service._fetch_labeled_gene_regions(
                     session, terms=genes, assembly_id=seeded["assembly"]
                 )

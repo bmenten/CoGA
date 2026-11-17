@@ -1501,6 +1501,7 @@ export interface GenePanelOut {
   name: string;
   version: number;
   genes: string[];
+  gene_symbols: Record<string, string>;
   gene_count: number;
   regions: GeneLocation[];
   created_by: string;
@@ -1533,6 +1534,7 @@ export interface GenePanelVersionDetail {
   created_at: string;
   description: string | null;
   genes: string[];
+  gene_symbols: Record<string, string>;
   regions: GeneLocation[];
   source_metadata: Record<string, unknown>;
 }
@@ -1611,13 +1613,15 @@ export interface GeneSearchResultOut {
 }
 
 /**
- * The names a loaded assembly knows as a gene symbol, and those none does: a panel gets
- * no coordinates for those, so a filter on it finds no variant in them. Each name once,
- * trimmed, in the order given.
+ * The names a loaded assembly knows as a gene, by its symbol or its Ensembl gene ID, and
+ * those none does: a panel gets no coordinates for those, so a filter on it finds no variant
+ * in them. Each name once, as the panel would keep it (an Ensembl gene ID in capitals and
+ * without its version, any other name trimmed), in the order given.
  */
 export interface GeneSymbolCheckOut {
   found: string[];
   missing: string[];
+  symbols: Record<string, string>;
 }
 
 export interface GeneSymbolCheckRequest {

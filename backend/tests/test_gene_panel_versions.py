@@ -99,12 +99,16 @@ T2T = "22222222-2222-2222-2222-222222222222"
 _ARCHIVED_AT = datetime(2026, 10, 8, 12, 0, tzinfo=timezone.utc)
 _ASSEMBLY_NAMES = {GRCH38: "GRCh38", T2T: "T2T-CHM13v2.0"}
 
-# The gene reference `_resolve_gene_regions` reads: BRCA1 in two assemblies.
+# The gene reference `_resolve_gene_regions` reads: BRCA1 in two assemblies. GRCh38's is
+# GENCODE's, which gives each gene its Ensembl gene ID; T2T's is RefSeq-derived, which gives none.
+_BRCA1_ID = "ENSG00000012048"
+_TTN_ID = "ENSG00000155657"
+_CFTR_ID = "ENSG00000001626"
 _REFERENCE_GENES = [
-    ("BRCA1", GRCH38, "17", 43_044_295, 43_125_483),
-    ("BRCA1", T2T, "17", 44_000_000, 44_100_000),
-    ("TTN", GRCH38, "2", 178_525_989, 178_830_802),
-    ("CFTR", GRCH38, "7", 117_480_025, 117_668_665),
+    ("BRCA1", GRCH38, "17", 43_044_295, 43_125_483, _BRCA1_ID),
+    ("BRCA1", T2T, "17", 44_000_000, 44_100_000, None),
+    ("TTN", GRCH38, "2", 178_525_989, 178_830_802, _TTN_ID),
+    ("CFTR", GRCH38, "7", 117_480_025, 117_668_665, _CFTR_ID),
 ]
 
 # A parameter of an UPDATE of gene_panels, and the column it sets.
@@ -161,6 +165,8 @@ class _PanelDb:
         self.reference_genes = list(_REFERENCE_GENES)
         self.panels: dict[str, dict[str, Any]] = {}
         self.genes: dict[str, list[str]] = {}
+        # gene_panel_genes.symbol: the symbol of each gene named by its Ensembl gene ID.
+        self.symbols: dict[str, dict[str, str]] = {}
         self.regions: dict[str, list[dict[str, Any]]] = {}
         self.versions: list[dict[str, Any]] = []
         self.statements: list[str] = []
@@ -243,13 +249,16 @@ class _PanelDb:
             return _Rows([self._panel_row(params["panel_id"])] if "RETURNING" in sql else [])
         if sql.startswith("DELETE FROM gene_panel_genes"):
             self.genes[params["panel_id"]] = []
+            self.symbols[params["panel_id"]] = {}
             return _Rows()
         if sql.startswith("DELETE FROM gene_panel_regions"):
             self.regions[params["panel_id"]] = []
             return _Rows()
         if sql.startswith("INSERT INTO gene_panel_genes"):
             for row in params:
-                self.genes.setdefault(row["panel_id"], []).append(row["gene_symbol"])
+                self.genes.setdefault(row["panel_id"], []).append(row["gene"])
+                if row["symbol"] is not None:
+                    self.symbols.setdefault(row["panel_id"], {})[row["gene"]] = row["symbol"]
             return _Rows()
         if sql.startswith("INSERT INTO gene_panel_regions"):
             for row in params:
@@ -275,20 +284,40 @@ class _PanelDb:
             # The panel's part of the prioritised-ranking cache key (variant_ranking_cache).
             panel = self.panels.get(params["id"])
             return _Rows([{key: panel[key] for key in ("version", "external_version")}] if panel else [])
-        if "FROM genes g" in sql:
-            wanted = set(params["symbols"])
+        if "FROM genes g" in sql and "gene_ids" in params:
+            # The genes of these Ensembl gene IDs, in the references that give IDs.
+            wanted = set(params["gene_ids"])
             return _Rows(
                 [
                     {
-                        "symbol_key": symbol,
+                        "ensembl_gene_id": gene_id,
+                        "hgnc_symbol": symbol,
                         "assembly_id": assembly_id,
                         "assembly_name": _ASSEMBLY_NAMES[assembly_id],
                         "chr": chr_,
                         "start": start,
                         "end": end,
                     }
-                    for symbol, assembly_id, chr_, start, end in self.reference_genes
-                    if symbol in wanted
+                    for symbol, assembly_id, chr_, start, end, gene_id in self.reference_genes
+                    if gene_id in wanted
+                ]
+            )
+        if "FROM genes g" in sql:
+            wanted = set(params["symbols"])
+            # A symbol standing in for an Ensembl gene ID reads only the genes without one.
+            without_id = "(g.extra ->> 'ensembl_gene_id') IS NULL" in sql
+            return _Rows(
+                [
+                    {
+                        "symbol_key": symbol.upper(),
+                        "assembly_id": assembly_id,
+                        "assembly_name": _ASSEMBLY_NAMES[assembly_id],
+                        "chr": chr_,
+                        "start": start,
+                        "end": end,
+                    }
+                    for symbol, assembly_id, chr_, start, end, gene_id in self.reference_genes
+                    if symbol.upper() in wanted and not (without_id and gene_id)
                 ]
             )
         if sql.startswith("SELECT id::text FROM assemblies"):
@@ -329,9 +358,9 @@ class _PanelDb:
             wanted_ids = {str(value) for value in params["panel_ids"]}
             return _Rows(
                 [
-                    {"panel_id": panel_id, "gene_symbol": symbol}
+                    {"panel_id": panel_id, "gene": gene, "symbol": self.symbols.get(panel_id, {}).get(gene)}
                     for panel_id in wanted_ids
-                    for symbol in sorted(self.genes.get(panel_id, []))
+                    for gene in sorted(self.genes.get(panel_id, []))
                 ]
             )
         if "FROM gene_panel_regions r" in sql:
@@ -639,10 +668,16 @@ class _PanelApp:
     the release and the confidence levels the import asked for)."""
 
     def __init__(
-        self, monkeypatch: pytest.MonkeyPatch, *, genes: list[str], regions: list[GeneLocation] | None = None
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        genes: list[str],
+        regions: list[GeneLocation] | None = None,
+        gene_symbols: dict[str, str] | None = None,
     ) -> None:
         self.release = "3.1"
         self.genes = list(genes)
+        self.gene_symbols = dict(gene_symbols or {})
         self.regions = list(regions or [])
 
         async def _fetch(panelapp_id: int, version: str | None = None) -> dict[str, Any]:
@@ -651,6 +686,7 @@ class _PanelApp:
         def _extract(payload: dict[str, Any], **options: Any) -> PanelAppImportContent:
             return PanelAppImportContent(
                 genes=list(self.genes),
+                gene_symbols=dict(self.gene_symbols),
                 regions=list(self.regions),
                 metadata={
                     "version": payload["version"],
@@ -843,7 +879,7 @@ def _move_panelapps_coordinates_of_a_gene(panelapp: _PanelApp, db: _PanelDb) -> 
 def _find_a_gene_in_another_loaded_assembly(panelapp: _PanelApp, db: _PanelDb) -> None:
     # At the coordinates it has in GRCh38, as an mtDNA gene has them in GRCh38 and T2T:
     # only the assembly tells the new region apart.
-    db.reference_genes.append(("TTN", T2T, "2", 178_525_989, 178_830_802))
+    db.reference_genes.append(("TTN", T2T, "2", 178_525_989, 178_830_802, None))
 
 
 @pytest.mark.parametrize(
@@ -976,3 +1012,146 @@ def test_the_ranking_cache_key_moves_when_a_panelapp_reimport_changes_the_genes(
     panelapp.release = "3.2"
     _import_panelapp(db, admin)
     assert _exact_key() != cached, "a ranking built on the earlier genes must not be an exact hit"
+
+
+# ---------------------------------------------------------------------------
+# A gene named by its Ensembl gene ID: kept by the ID, looked up by the ID, and shown with the
+# symbol the gene reference gives it.
+# ---------------------------------------------------------------------------
+
+
+def test_a_panel_keeps_a_gene_named_by_its_ensembl_gene_id_with_its_symbol() -> None:
+    admin = _admin()
+    db = _PanelDb(admin)
+
+    # In any capitals and with its version; an ID no loaded assembly knows is kept too.
+    out = _create(db, admin, ["ensg00000012048.24", "TTN", "ENSG99999999999"])
+
+    assert out.panel.genes == [_BRCA1_ID, "TTN", "ENSG99999999999"]
+    assert out.panel.gene_symbols == {_BRCA1_ID: "BRCA1"}
+    assert out.missing_genes == ["ENSG99999999999"]
+    assert out.message == "Panel created with 2 of 3 genes; missing genes: ENSG99999999999"
+    assert db.symbols[out.panel.id] == {_BRCA1_ID: "BRCA1"}
+    [archived] = db.versions
+    assert json.loads(archived["genes"]) == [_BRCA1_ID, "TTN", "ENSG99999999999"]
+    assert json.loads(archived["gene_symbols"]) == {_BRCA1_ID: "BRCA1"}
+    # GRCh38's reference gives the ID; T2T's gives none, so the ID's symbol stands in there.
+    # Both regions are the ID's.
+    assert json.loads(archived["regions"]) == [
+        {"gene": _BRCA1_ID, "chr": "17", "start": 43_044_295, "end": 43_125_483, "assembly": "GRCh38"},
+        {"gene": _BRCA1_ID, "chr": "17", "start": 44_000_000, "end": 44_100_000, "assembly": "T2T-CHM13v2.0"},
+        {"gene": "TTN", "chr": "2", "start": 178_525_989, "end": 178_830_802, "assembly": "GRCh38"},
+    ]
+    detail = asyncio.run(pms.get_panel_version(db, out.panel.id, 1))
+    assert (detail.genes, detail.gene_symbols) == ([_BRCA1_ID, "TTN", "ENSG99999999999"], {_BRCA1_ID: "BRCA1"})
+
+
+def test_a_symbol_stands_in_for_an_ensembl_gene_id_only_among_genes_without_one() -> None:
+    admin = _admin()
+    db = _PanelDb(admin)
+    # A gene GRCh38 gives another ID than the panel's, under the symbol the source gave the
+    # panel's ID: not the panel's gene. T2T's TTN, without an ID, is.
+    db.reference_genes.append(("TTN", T2T, "2", 180_000_000, 180_300_000, None))
+
+    resolution = asyncio.run(
+        pms._resolve_gene_regions(db, ["ENSG00000000001"], stated_symbols={"ENSG00000000001": "TTN"})
+    )
+
+    assert resolution.symbols == {"ENSG00000000001": "TTN"}
+    assert [(region.gene, region.assembly, region.start) for region in resolution.regions] == [
+        ("ENSG00000000001", "T2T-CHM13v2.0", 180_000_000),
+    ]
+    assert resolution.missing == []
+
+
+def test_a_symbol_and_the_ensembl_gene_id_of_its_gene_are_one_gene_kept_by_the_id() -> None:
+    admin = _admin()
+    db = _PanelDb(admin)
+
+    created = _create(db, admin, ["BRCA1", "TTN", _BRCA1_ID])
+
+    # Kept where the ID was given; the symbol's place is left.
+    assert created.panel.genes == ["TTN", _BRCA1_ID]
+    assert created.panel.gene_count == 2
+    assert {region.gene for region in created.panel.regions} == {_BRCA1_ID, "TTN"}
+
+    # The symbol of a gene the panel holds by its ID, added again, changes nothing.
+    out = _edit(db, admin, created.panel.id, [_BRCA1_ID, "TTN", "brca1"])
+    assert out.message == "No changes — panel already at version 1."
+
+
+def test_a_symbol_kept_as_an_ensembl_gene_id_brings_none_of_its_own_loci() -> None:
+    # The symbol may be another gene's in a reference: only the ID's loci are the gene's.
+    admin = _admin()
+    db = _PanelDb(admin)
+    db.reference_genes.append(("BRCA1", GRCH38, "4", 1_000_000, 9_000_000, "ENSG00000000002"))
+
+    out = _create(db, admin, ["BRCA1", _BRCA1_ID])
+
+    assert out.panel.genes == [_BRCA1_ID]
+    assert [(r.gene, r.assembly, r.chr, r.start) for r in out.panel.regions] == [
+        (_BRCA1_ID, "GRCh38", "17", 43_044_295),
+        (_BRCA1_ID, "T2T-CHM13v2.0", "17", 44_000_000),
+    ]
+
+
+def test_an_ensembl_gene_id_whose_symbol_the_reference_changed_is_saved_as_a_new_version() -> None:
+    # The panel's filter reads the ID's symbol too, so the same ID under another symbol is
+    # another panel.
+    admin = _admin()
+    db = _PanelDb(admin)
+    created = _create(db, admin, [_CFTR_ID])
+    db.reference_genes = [
+        ("ABCC7", assembly_id, chr_, start, end, gene_id) if gene_id == _CFTR_ID else row
+        for row in db.reference_genes
+        for (_symbol, assembly_id, chr_, start, end, gene_id) in [row]
+    ]
+
+    out = _edit(db, admin, created.panel.id, [_CFTR_ID])
+
+    assert out.panel.version == 2
+    assert out.panel.gene_symbols == {_CFTR_ID: "ABCC7"}
+    assert json.loads(db.versions[1]["gene_symbols"]) == {_CFTR_ID: "ABCC7"}
+
+
+def test_the_gene_check_gives_each_ensembl_gene_id_as_kept_and_its_symbol() -> None:
+    admin = _admin()
+    db = _PanelDb(admin)
+
+    out = asyncio.run(pms.check_gene_symbols(db, ["ensg00000155657.30", "ENSG99999999999", "ENSA", "BRCA1"]))
+
+    # ENSA is a gene symbol, not an Ensembl ID.
+    assert out.found == [_TTN_ID, "BRCA1"]
+    assert out.missing == ["ENSG99999999999", "ENSA"]
+    assert out.symbols == {_TTN_ID: "TTN"}
+
+
+def test_a_panelapp_gene_is_kept_by_its_ensembl_gene_id_with_the_reference_symbol(monkeypatch) -> None:
+    admin = _admin()
+    db = _PanelDb(admin)
+    # PanelApp names BRCA1 by its ID, with its own coordinates, an ID no loaded assembly knows
+    # with the symbol PanelApp gives it, and a repeat in BRCA1 by the symbol alone.
+    _PanelApp(
+        monkeypatch,
+        genes=[_BRCA1_ID, "TTN", "ENSG99999999999", "BRCA1"],
+        gene_symbols={_BRCA1_ID: "BRCA1-AS-PANELAPP", "ENSG99999999999": "OLDNAME"},
+        regions=[
+            _BRCA1_IN_PANELAPP.model_copy(update={"gene": _BRCA1_ID}),
+            GeneLocation(gene="BRCA1", chr="17", start=43_100_000, end=43_100_090),
+        ],
+    )
+
+    out = _import_panelapp(db, admin)
+
+    # The reference's symbol wins; PanelApp's is kept for the ID no reference knows.
+    assert out.panel.gene_symbols == {_BRCA1_ID: "BRCA1", "ENSG99999999999": "OLDNAME"}
+    # The repeat's symbol is BRCA1's: one gene, kept by its ID, with the repeat's coordinates.
+    assert out.panel.genes == [_BRCA1_ID, "TTN", "ENSG99999999999"]
+    assert out.missing_genes == ["ENSG99999999999"]
+    [archived] = db.versions
+    assert json.loads(archived["regions"]) == [
+        {"gene": _BRCA1_ID, "chr": "17", "start": 43_000_000, "end": 43_200_000, "assembly": "GRCh38"},
+        {"gene": _BRCA1_ID, "chr": "17", "start": 43_100_000, "end": 43_100_090, "assembly": "GRCh38"},
+        {"gene": _BRCA1_ID, "chr": "17", "start": 44_000_000, "end": 44_100_000, "assembly": "T2T-CHM13v2.0"},
+        {"gene": "TTN", "chr": "2", "start": 178_525_989, "end": 178_830_802, "assembly": "GRCh38"},
+    ]

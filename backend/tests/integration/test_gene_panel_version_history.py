@@ -106,6 +106,7 @@ def test_each_version_is_archived_listed_read_back_and_never_rewritten() -> None
     )
     from backend.app.schemas import GenePanelCreate, GenePanelUpdate
     from backend.app.services.panel_metadata_service import (
+        _PanelMember,
         _snapshot_panel_version,
         create_panel_data,
         get_panel_version,
@@ -193,7 +194,7 @@ def test_each_version_is_archived_listed_read_back_and_never_rewritten() -> None
                         description=None,
                         source="local",
                         external_version=None,
-                        genes=[third_gene],
+                        members=[_PanelMember(third_gene)],
                         regions=[],
                         source_metadata={},
                         user=admin,
@@ -242,7 +243,9 @@ def test_a_panelapp_import_is_version_1_and_an_import_with_other_genes_the_next(
     monkeypatch.setattr(
         pms,
         "extract_panelapp_import_content",
-        lambda payload, **kwargs: PanelAppImportContent(genes=list(imported_genes), regions=[], metadata={}),
+        lambda payload, **kwargs: PanelAppImportContent(
+            genes=list(imported_genes), gene_symbols={}, regions=[], metadata={}
+        ),
     )
 
     async def _run() -> None:
@@ -309,8 +312,8 @@ def test_a_panelapp_import_is_version_1_and_an_import_with_other_genes_the_next(
                 stored = (
                     await s.execute(
                         text(
-                            "SELECT gene_symbol FROM gene_panel_genes "
-                            "WHERE panel_id = CAST(:p AS uuid) ORDER BY gene_symbol"
+                            "SELECT gene FROM gene_panel_genes "
+                            "WHERE panel_id = CAST(:p AS uuid) ORDER BY gene"
                         ),
                         {"p": first.panel.id},
                     )

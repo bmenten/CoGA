@@ -220,7 +220,8 @@ erDiagram
     }
     gene_panel_genes {
         uuid panel_id PK, FK
-        text gene_symbol PK
+        text gene PK "an HGNC symbol or an Ensembl gene ID"
+        text symbol "an Ensembl gene ID's symbol"
     }
     gene_panel_regions {
         uuid panel_id PK, FK
@@ -291,7 +292,7 @@ erDiagram
 
 | Table | Holds |
 | --- | --- |
-| `genes` | gene loci per assembly, one row per transcript (GENCODE for GRCh38) |
+| `genes` | gene loci per assembly, one row per transcript (GENCODE for GRCh38). A GENCODE row keeps its gene's Ensembl gene ID in `extra` (`ensembl_gene_id`, without its version; indexed by `idx_genes_ensembl_gene_id`), a RefSeq-derived one (T2T's) none |
 | `gene_info` | the cached gene reference per human gene: identifiers, disease links, dosage, constraint, the gene's entry on the ACMG secondary-findings list (`extra.acmg_secondary_finding`), and a status and release per source |
 | `gene_info_refresh_jobs` | queued and running gene-reference syncs. `requested_by_id` is the account that asked for the job: a worker runs the job only while that account is an active administrator; otherwise it ends the job `failed`, with the reason, before writing any gene record. `requested_by` is the e-mail address it was asked under, shown with the job, or `startup-bootstrap` for the sync a start queues (no account's; it runs). Deleting the account keeps the job, linked to no account; it can then no longer run. `worker_id` and `heartbeat_at` mark the worker running a job: it writes the heartbeat while it loads the sources and with its progress. Another worker takes up a running job whose heartbeat is five minutes old; the first then stops, and ends a job failed only while it is still its own |
 | `blacklist` | problem regions per assembly |
@@ -300,9 +301,9 @@ erDiagram
 | `dgv_variants` | Database of Genomic Variants entries per assembly, with a gain/loss/mixed class |
 | `dgv_load_jobs` | loads of the pinned DGV release for an assembly (`DGV_PINNED_RELEASES`), asked for on the Reference page or queued by a start or an assembly import: release, source URL, status (`queued`, `running`, `completed` or `failed`), the download's progress (`bytes_read` of `bytes_total`), rows inserted and the error. As for `clinical_cnv_kb_jobs`: at most one job queued or running (`idx_dgv_load_jobs_one_active`), `worker_id` and `heartbeat_at` mark its worker and a job silent for ten minutes is closed as failed, and an administrator's load (`requested_by_id`) runs and commits only while that account is an active administrator. A load a start queues is `startup-bootstrap`'s, no account's. A load commits nothing unless the whole file is the pinned one ([data-import.md](data-import.md#dgv)) |
 | `segmental_duplications` | segmental duplications and low-copy repeats per assembly |
-| `gene_panels`, `gene_panel_genes` | panels and their gene lists. An external panel's `source` and `external_id` (the PanelApp panel's id; `mendeliome` for the Mendeliome) say where it comes from, and `external_selection` which part of it the panel holds: for a PanelApp panel, the confidence levels it was imported with, lowest first (`3` green only, `2,3` green and amber, `1,2,3` green, amber and red). Each choice of levels of one PanelApp panel is a panel of its own, with its own name, versions and genes: `idx_gene_panels_source_external_selection` holds one panel per source, external id and selection (NULL equal to NULL, so there is one Mendeliome) |
+| `gene_panels`, `gene_panel_genes` | panels and their gene lists. An external panel's `source` and `external_id` (the PanelApp panel's id; `mendeliome` for the Mendeliome) say where it comes from, and `external_selection` which part of it the panel holds: for a PanelApp panel, the confidence levels it was imported with, lowest first (`3` green only, `2,3` green and amber, `1,2,3` green, amber and red). Each choice of levels of one PanelApp panel is a panel of its own, with its own name, versions and genes: `idx_gene_panels_source_external_selection` holds one panel per source, external id and selection (NULL equal to NULL, so there is one Mendeliome). A panel names each gene (`gene`) by its HGNC symbol or by its Ensembl gene ID (`ENSG` and eleven digits, without a version): a gene added by hand as typed, a PanelApp gene by the ID PanelApp gives it, a Mendeliome gene by its symbol. For an ID, `symbol` holds the HGNC symbol the gene reference gives that gene (that of its first loaded assembly, GRCh38 before T2T before GRCh37), or the source panel's for an ID no loaded assembly knows; a CHECK keeps `symbol` NULL for any other gene. A symbol that names the gene of one of the panel's IDs is that gene, kept once, by its ID |
 | `gene_panel_regions` | a panel's coordinates, one row per gene (or PanelApp region) per assembly (below) |
-| `gene_panel_versions` | a snapshot of every version of a panel: genes, regions, source, external version and author. Version 1 is archived when a panel is created by hand, built (the Mendeliome) or first imported from PanelApp. The next version is archived at each hand edit of a local panel (its genes or description), each Mendeliome rebuild that changes its genes (or is forced) and each PanelApp import that changes the panel's genes or regions. The app never rewrites a snapshot, and `UNIQUE (panel_id, version)` refuses a second one under the same number. But no trigger makes the table append-only, and deleting a panel deletes its versions (`ON DELETE CASCADE`). The panel page lists the versions; no screen shows one version's genes. `GET /api/panels/{id}/versions/{version}` returns them, to look up the panel version a report names |
+| `gene_panel_versions` | a snapshot of every version of a panel: genes, each Ensembl gene ID's symbol (`gene_symbols`), regions, source, external version and author. Version 1 is archived when a panel is created by hand, built (the Mendeliome) or first imported from PanelApp. The next version is archived at each hand edit of a local panel (its genes or description), each Mendeliome rebuild that changes its genes (or is forced) and each PanelApp import that changes the panel's genes or regions. The app never rewrites a snapshot, and `UNIQUE (panel_id, version)` refuses a second one under the same number. But no trigger makes the table append-only, and deleting a panel deletes its versions (`ON DELETE CASCADE`). The panel page lists the versions; no screen shows one version's genes. `GET /api/panels/{id}/versions/{version}` returns them, to look up the panel version a report names |
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
 | `monarch_gene_disease`, `monarch_disease_phenotype` | Monarch gene-to-disease links (predicate, sources, causal or not) and disease-to-HPO annotations, including negated ones |
 | `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs): the built-in loci and the shipped STRchive release's, rewritten at every start, which removes STRchive loci the release does not list ([data-import.md](data-import.md#the-strchive-release)). `metadata.strchive_id` names the STRchive locus whose page the repeat pages link to: a STRchive row's own ID, a built-in row's gene's one STRchive locus (none where the gene has several) |
@@ -315,10 +316,13 @@ that overlap the region by at least 30 % reciprocally, per side) and
 `clinvar_pathogenic_accessions` (their VariationIDs). NULL means the knowledgebase recorded
 no ClinVar support (built without ClinVar, or loaded from a BED-style file), not zero.
 
-`gene_panel_regions` is keyed on `(panel_id, assembly_id, gene, chr, start, end)`. A family's
-panel filter reads only the rows of its own assembly, plus the loci of the panel's genes
-resolved in that assembly at query time. With no resolved assembly it narrows by gene symbol
-alone. PanelApp's own coordinates are stored for the assembly they were requested for. Each
+`gene_panel_regions` is keyed on `(panel_id, assembly_id, gene, chr, start, end)`, `gene` being
+the panel's name for the gene. A family's panel filter reads only the rows of its own assembly,
+plus the loci of the panel's genes resolved in that assembly at query time. With no resolved
+assembly it narrows by gene alone. A gene named by its Ensembl gene ID is resolved by that ID in
+a reference that gives IDs, never by its symbol there (another gene of the symbol is not the
+panel's); in a reference that gives none (T2T's), its symbol stands in. Its variants are kept by
+the ID and by its symbol in their annotations, and by its loci. PanelApp's own coordinates are stored for the assembly they were requested for. Each
 backend process caches a panel's resolution per panel and assembly while the panel's version,
 its gene and region rows and the assembly's gene-reference imports are unchanged
 ([variant-ranking-cache.md](variant-ranking-cache.md#resolving-a-panel)).

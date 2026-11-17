@@ -130,7 +130,7 @@ class _Tables:
         if "FROM gene_panel_genes" in sql:
             self.reads.append(GENES)
             panel = self.panels.get(params["panel_id"])
-            return _Rows([{"gene_symbol": gene} for gene in sorted(panel["genes"])] if panel else [])
+            return _Rows([{"gene": gene, "symbol": None} for gene in sorted(panel["genes"])] if panel else [])
         if "FROM gene_panel_regions" in sql:
             self.reads.append(REGIONS)
             panel = self.panels.get(params["panel_id"])

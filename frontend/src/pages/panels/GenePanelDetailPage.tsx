@@ -25,21 +25,47 @@ const REGION_COLUMNS: Array<['gene' | 'assembly' | 'chr' | 'start' | 'end', stri
   ['end', 'End'],
 ];
 
-/** A gene name as the panel compares it: a symbol is the same gene in any letter case. */
-const geneKey = (gene: string): string => gene.trim().toUpperCase();
+/** A human Ensembl gene ID as a panel keeps it: ENSG and eleven digits, in capitals and
+ * without its version; null for any other name (ENSA is a gene symbol). */
+const ensemblGeneId = (name: string): string | null => {
+  const match = /^(ENSG\d{11})(?:\.\d+)?$/i.exec(name.trim());
+  return match ? match[1].toUpperCase() : null;
+};
 
-/** Gene names typed in a box, separated by commas, semicolons or white space: each once, in
- * the order typed. */
+/** A gene name as the panel keeps it: an Ensembl gene ID as `ensemblGeneId` gives it, any
+ * other name trimmed. */
+const panelGeneName = (name: string): string => ensemblGeneId(name) ?? name.trim();
+
+/** A gene name as the panel compares it: a symbol is the same gene in any letter case, an
+ * Ensembl gene ID with or without its version. */
+const geneKey = (gene: string): string => panelGeneName(gene).toUpperCase();
+
+/** Gene names typed in a box, separated by commas, semicolons or white space: each once, as
+ * the panel keeps it, in the order typed. */
 const parseGeneNames = (value: string): string[] => {
   const seen = new Set<string>();
   const names: string[] = [];
   for (const part of value.split(/[\s,;]+/)) {
-    const name = part.trim();
+    const name = panelGeneName(part);
     if (!name || seen.has(geneKey(name))) continue;
     seen.add(geneKey(name));
     names.push(name);
   }
   return names;
+};
+
+/** The symbols among `genes` that name the gene of one of its Ensembl gene IDs (in
+ * `symbols`), by key: the panel keeps that gene once, by its ID, as the server does. A symbol
+ * two of the IDs share names neither alone, and stays. */
+const symbolsFoldedIntoIds = (genes: string[], symbols: Record<string, string>): Set<string> => {
+  const idsBySymbol = new Map<string, number>();
+  for (const gene of genes) {
+    const symbol = ensemblGeneId(gene) ? symbols[gene] : undefined;
+    if (symbol) idsBySymbol.set(symbol.toUpperCase(), (idsBySymbol.get(symbol.toUpperCase()) ?? 0) + 1);
+  }
+  return new Set(
+    genes.filter((gene) => !ensemblGeneId(gene) && idsBySymbol.get(geneKey(gene)) === 1).map(geneKey),
+  );
 };
 
 /** The edits waiting for the admin's confirmation: nothing is saved before it. */
@@ -115,13 +141,20 @@ const GenePanelDetailPage: React.FC = () => {
 
   const currentGenes = useMemo(() => panel?.genes ?? [], [panel]);
   const currentKeys = useMemo(() => new Set(currentGenes.map(geneKey)), [currentGenes]);
+  const panelSymbols = useMemo(() => panel?.gene_symbols ?? {}, [panel]);
   // What the staged changes do to the panel as loaded: a removal of a gene it no longer
-  // holds, or an addition of one it holds already, changes nothing.
+  // holds, or an addition of one it holds already, changes nothing. A symbol the panel holds
+  // by its Ensembl gene ID is a gene it holds.
   const removals = staged.remove.filter((gene) => currentKeys.has(geneKey(gene)));
-  const additions = staged.add.filter((gene) => !currentKeys.has(geneKey(gene)));
   const removalKeys = new Set(removals.map(geneKey));
-  const nextGenes = [...currentGenes.filter((gene) => !removalKeys.has(geneKey(gene))), ...additions];
-  const hasChanges = removals.length > 0 || additions.length > 0;
+  const keptSymbolKeys = new Set(
+    currentGenes
+      .filter((gene) => !removalKeys.has(geneKey(gene)) && panelSymbols[gene])
+      .map((gene) => panelSymbols[gene].toUpperCase()),
+  );
+  const holdsGene = (gene: string): boolean =>
+    currentKeys.has(geneKey(gene)) || (!ensemblGeneId(gene) && keptSymbolKeys.has(geneKey(gene)));
+  const additions = staged.add.filter((gene) => !holdsGene(gene));
 
   // The names to add are checked before they are saved: a name no loaded assembly knows
   // would be stored without coordinates.
@@ -138,6 +171,19 @@ const GenePanelDetailPage: React.FC = () => {
   });
   const missingAdditionKeys = new Set((additionCheck?.missing ?? []).map(geneKey));
   const notFoundAdditions = additions.filter((gene) => missingAdditionKeys.has(geneKey(gene)));
+  // The symbol of each Ensembl gene ID, the panel's and the additions' as checked.
+  const geneSymbols: Record<string, string> = { ...(additionCheck?.symbols ?? {}), ...panelSymbols };
+  /** A gene as the page shows it: an Ensembl gene ID after its symbol, where it has one. */
+  const geneLabel = (gene: string): string => {
+    const symbol = geneSymbols[gene];
+    return symbol ? `${symbol} (${gene})` : gene;
+  };
+  // A symbol the panel holds that an added Ensembl gene ID names is that gene: the panel keeps
+  // it once, by its ID.
+  const keptGenes = currentGenes.filter((gene) => !removalKeys.has(geneKey(gene)));
+  const foldedKeys = symbolsFoldedIntoIds([...keptGenes, ...additions], geneSymbols);
+  const nextGenes = [...keptGenes, ...additions].filter((gene) => !foldedKeys.has(geneKey(gene)));
+  const hasChanges = removals.length > 0 || additions.length > 0;
 
   const refreshPanel = () =>
     Promise.all([
@@ -176,7 +222,10 @@ const GenePanelDetailPage: React.FC = () => {
     const add = [...staged.add];
     for (const name of names) {
       const key = geneKey(name);
-      if (currentKeys.has(key)) {
+      if (!currentKeys.has(key) && holdsGene(name)) {
+        // A symbol of a gene the panel holds by its Ensembl gene ID.
+        already.push(name);
+      } else if (currentKeys.has(key)) {
         // A gene the panel holds: adding it back takes back its removal.
         if (remove.some((gene) => geneKey(gene) === key)) {
           remove = remove.filter((gene) => geneKey(gene) !== key);
@@ -271,10 +320,12 @@ const GenePanelDetailPage: React.FC = () => {
 
   const regions = useMemo(() => {
     if (!panel) return [];
+    const symbols = panel.gene_symbols ?? {};
+    const label = (gene: string) => (symbols[gene] ? `${symbols[gene]} (${gene})` : gene);
     return [...panel.regions]
       .filter((r) =>
         (!filters.gene ||
-          r.gene.toLowerCase().includes(filters.gene.toLowerCase())) &&
+          label(r.gene).toLowerCase().includes(filters.gene.toLowerCase())) &&
         (!filters.assembly ||
           (r.assembly ?? '').toLowerCase().includes(filters.assembly.toLowerCase())) &&
         (!filters.chr ||
@@ -283,8 +334,9 @@ const GenePanelDetailPage: React.FC = () => {
         (!filters.end || String(r.end).includes(filters.end)),
       )
       .sort((a, b) => {
-        const aVal = a[sortKey] ?? '';
-        const bVal = b[sortKey] ?? '';
+        // A gene sorts as it is shown: by its symbol, where it has one.
+        const aVal = sortKey === 'gene' ? label(a.gene) : (a[sortKey] ?? '');
+        const bVal = sortKey === 'gene' ? label(b.gene) : (b[sortKey] ?? '');
         if (aVal < bVal) return sortAsc ? -1 : 1;
         if (aVal > bVal) return sortAsc ? 1 : -1;
         return 0;
@@ -340,8 +392,8 @@ const GenePanelDetailPage: React.FC = () => {
     <button
       type="button"
       className="panel-gene-remove"
-      aria-label={`Remove ${gene} from the next version`}
-      title={`Remove ${gene} from the next version`}
+      aria-label={`Remove ${geneLabel(gene)} from the next version`}
+      title={`Remove ${geneLabel(gene)} from the next version`}
       onClick={() => stageRemoval(gene)}
       disabled={saving}
     >
@@ -404,12 +456,13 @@ const GenePanelDetailPage: React.FC = () => {
               </strong>{' '}
               No loaded assembly knows {unresolvedCount === 1 ? 'it' : 'them'} as a gene, so{' '}
               {unresolvedCount === 1 ? 'it has' : 'they have'} no coordinates, and a filter on this panel finds no
-              variant in {unresolvedCount === 1 ? 'it' : 'them'}. Check the spelling, or use the current HGNC symbol.
+              variant in {unresolvedCount === 1 ? 'it' : 'them'}. Check the spelling, or use the current HGNC
+              symbol or the gene&apos;s Ensembl gene ID.
             </p>
             <ul className="panel-gene-chip-list" aria-label="Gene names not imported">
               {unresolvedGenes.map((gene) => (
                 <li key={gene} className="table-chip table-chip--warning">
-                  {gene}
+                  {geneLabel(gene)}
                   {canEdit ? (
                     removalKeys.has(geneKey(gene)) ? (
                       <span className="panel-gene-chip-note">removed in v{nextVersion}</span>
@@ -485,11 +538,11 @@ const GenePanelDetailPage: React.FC = () => {
               <ul className="panel-gene-chip-list" aria-label={`Genes to remove in version ${nextVersion}`}>
                 {removals.map((gene) => (
                   <li key={gene} className="table-chip table-chip--critical">
-                    {gene}
+                    {geneLabel(gene)}
                     <button
                       type="button"
                       className="button-link"
-                      aria-label={`Keep ${gene}`}
+                      aria-label={`Keep ${geneLabel(gene)}`}
                       onClick={() => keepGene(gene)}
                       disabled={saving}
                     >
@@ -506,17 +559,23 @@ const GenePanelDetailPage: React.FC = () => {
               <ul className="panel-gene-chip-list" aria-label={`Genes to add in version ${nextVersion}`}>
                 {additions.map((gene) => {
                   const notFound = missingAdditionKeys.has(geneKey(gene));
+                  const symbol = geneSymbols[gene];
+                  const replaces =
+                    symbol && foldedKeys.has(symbol.toUpperCase())
+                      ? keptGenes.find((kept) => geneKey(kept) === symbol.toUpperCase())
+                      : undefined;
                   return (
                     <li
                       key={gene}
                       className={`table-chip ${notFound ? 'table-chip--warning' : 'table-chip--success'}`}
                     >
-                      {gene}
+                      {geneLabel(gene)}
                       {notFound ? <span className="panel-gene-chip-note">not found</span> : null}
+                      {replaces ? <span className="panel-gene-chip-note">replaces {replaces}</span> : null}
                       <button
                         type="button"
                         className="button-link"
-                        aria-label={`Do not add ${gene}`}
+                        aria-label={`Do not add ${geneLabel(gene)}`}
                         onClick={() => dropAddition(gene)}
                         disabled={saving}
                       >
@@ -577,8 +636,9 @@ const GenePanelDetailPage: React.FC = () => {
           <div className="space-y-2">
             <h3 className="section-title">Edit genes</h3>
             <p className="section-copy">
-              Remove a gene with the bin on its row, add genes by name, or edit the whole list. The
-              changes are listed first, and saved as version {nextVersion} only when you confirm them.
+              Remove a gene with the bin on its row, add genes by HGNC symbol or Ensembl gene ID, or
+              edit the whole list. The changes are listed first, and saved as version {nextVersion} only
+              when you confirm them. A gene named by its Ensembl gene ID is shown after its symbol.
             </p>
             <form className="analysis-toolbar" onSubmit={stageAdditions}>
               <input
@@ -587,7 +647,7 @@ const GenePanelDetailPage: React.FC = () => {
                 value={addInput}
                 onChange={(e) => setAddInput(e.target.value)}
                 aria-label="Genes to add"
-                placeholder="Genes to add, e.g. BRCA1, TP53"
+                placeholder="Genes to add, e.g. BRCA1, TP53, ENSG00000141510"
                 disabled={saving}
               />
               <button type="submit" className="button-secondary" disabled={saving || !addInput.trim()}>
@@ -662,7 +722,7 @@ const GenePanelDetailPage: React.FC = () => {
                     key={`${r.assembly_id ?? ''}:${r.gene}:${r.chr}:${r.start}-${r.end}`}
                     className={removed ? 'panel-gene-row--removed' : undefined}
                   >
-                    <td>{r.gene}</td>
+                    <td>{geneLabel(r.gene)}</td>
                     <td>{r.assembly || '—'}</td>
                     <td>{r.chr}</td>
                     <td>{r.start}</td>
@@ -673,7 +733,7 @@ const GenePanelDetailPage: React.FC = () => {
                           <button
                             type="button"
                             className="button-link"
-                            aria-label={`Keep ${r.gene}`}
+                            aria-label={`Keep ${geneLabel(r.gene)}`}
                             onClick={() => keepGene(r.gene)}
                             disabled={saving}
                           >

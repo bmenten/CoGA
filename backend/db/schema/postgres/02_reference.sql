@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS genes (
 
 CREATE INDEX IF NOT EXISTS idx_genes_assembly_region ON genes USING btree (assembly_id, chr, start, "end");
 CREATE INDEX IF NOT EXISTS idx_genes_assembly_symbol_prefix ON genes USING btree (assembly_id, upper(hgnc_symbol) text_pattern_ops);
+-- A gene panel names a gene by its Ensembl gene ID, which a GENCODE row keeps in `extra`
+-- (gencode_import.py); a RefSeq-derived reference has none.
+CREATE INDEX IF NOT EXISTS idx_genes_ensembl_gene_id ON genes USING btree (((extra ->> 'ensembl_gene_id'::text)));
 CREATE INDEX IF NOT EXISTS idx_genes_lower_gene_id ON genes USING btree (lower(gene_id));
 CREATE INDEX IF NOT EXISTS idx_genes_lower_symbol ON genes USING btree (lower(hgnc_symbol));
 CREATE INDEX IF NOT EXISTS idx_genes_lower_transcript_id ON genes USING btree (lower(COALESCE((extra ->> 'transcript_id'::text), ''::text)));
@@ -296,10 +299,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_gene_panels_source_external_selection ON g
 -- ---------------------------------------------------------------------------
 -- gene_panel_genes
 -- ---------------------------------------------------------------------------
+-- A panel's genes, each as the panel names it: an HGNC symbol, or an Ensembl gene ID
+-- (ENSG plus eleven digits, without a version). For an Ensembl gene ID, `symbol` holds the HGNC
+-- symbol the gene reference (or the source panel, for an ID no loaded assembly knows) gives
+-- that gene; it is NULL for a gene named by its symbol, and for an ID nothing names.
 CREATE TABLE IF NOT EXISTS gene_panel_genes (
     panel_id uuid NOT NULL,
-    gene_symbol text NOT NULL,
-    CONSTRAINT gene_panel_genes_pkey PRIMARY KEY (panel_id, gene_symbol),
+    gene text NOT NULL,
+    symbol text,
+    CONSTRAINT gene_panel_genes_pkey PRIMARY KEY (panel_id, gene),
+    CONSTRAINT gene_panel_genes_symbol_names_an_ensembl_gene CHECK (symbol IS NULL OR gene ~ '^ENSG[0-9]{11}$'),
     CONSTRAINT gene_panel_genes_panel_id_fkey FOREIGN KEY (panel_id) REFERENCES gene_panels(id) ON DELETE CASCADE
 );
 
@@ -334,6 +343,9 @@ CREATE TABLE IF NOT EXISTS gene_panel_versions (
     external_version text,
     gene_count integer NOT NULL,
     genes jsonb DEFAULT '[]'::jsonb NOT NULL,
+    -- The HGNC symbol of each Ensembl gene ID in `genes` that has one, by the ID
+    -- (gene_panel_genes.symbol).
+    gene_symbols jsonb DEFAULT '{}'::jsonb NOT NULL,
     regions jsonb DEFAULT '[]'::jsonb NOT NULL,
     source_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_by uuid,
