@@ -11,6 +11,7 @@ import {
   smallVariantMarkKind,
   smallVariantMarkPath,
 } from '../smallVariantMarks';
+import { SMALL_VARIANT_DOT_RADIUS, TRACK_DOT_RADIUS } from '../trackSampling';
 
 describe('smallVariantMarkKind', () => {
   it('lets a decisive ClinVar class win over the impact', () => {
@@ -52,6 +53,23 @@ describe('the marks', () => {
       moderate: { color: '#eab308' }, // yellow
       other: { color: '#9ca3af' }, // grey
     });
+  });
+
+  it('draw the dots three times as wide as the other tracks\' points', () => {
+    expect(SMALL_VARIANT_DOT_RADIUS).toBeCloseTo(TRACK_DOT_RADIUS * 3);
+  });
+
+  it('keep the P/LP diamond larger than a dot and within a parental-origin row', () => {
+    // The furthest point of a mark's path from its centre.
+    const reach = (kind: Parameters<typeof smallVariantMarkPath>[0]) =>
+      Math.max(
+        ...(smallVariantMarkPath(kind, SMALL_VARIANT_DOT_RADIUS).match(/-?\d+(\.\d+)?/g) ?? []).map((n) =>
+          Math.abs(Number(n)),
+        ),
+      );
+    expect(reach('pathogenic')).toBeGreaterThan(reach('other'));
+    // A row is a third of the chromosome view's 45 px origin track.
+    expect(reach('pathogenic')).toBeLessThanOrEqual(45 / 3 / 2);
   });
 
   it('draw P/LP larger, and the more salient classes over the others', () => {

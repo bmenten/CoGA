@@ -6,7 +6,7 @@ import { clinvarClass } from './clinvar';
  * How the small-variant track marks a variant:
  *
  * - ClinVar (likely) pathogenic is a larger red diamond, whatever the impact;
- * - every other variant is a small dot, whose colour gives its class: green for ClinVar
+ * - every other variant is a dot, whose colour gives its class: green for ClinVar
  *   (likely) benign, then by impact orange for HIGH, yellow for MODERATE and grey for LOW,
  *   MODIFIER or none;
  * - a review tag draws a ring around the mark in the tag's colour and leaves the mark
@@ -26,9 +26,10 @@ interface MarkStyle {
 
 const dot = (label: string, color: string): MarkStyle => ({ label, symbol: d3.symbolCircle, scale: 1, color });
 
-// Literal hex, so the track renders without the theme stylesheet (and stays testable).
+// Literal hex, so the track renders without the theme stylesheet (and stays testable). The
+// diamond is half as large again as a dot: larger, and still within a parental-origin row.
 export const SMALL_VARIANT_MARKS: Record<SmallVariantMarkKind, MarkStyle> = {
-  pathogenic: { label: 'ClinVar P/LP', symbol: d3.symbolDiamond2, scale: 4, color: '#dc2626' },
+  pathogenic: { label: 'ClinVar P/LP', symbol: d3.symbolDiamond2, scale: 1.5, color: '#dc2626' },
   benign: dot('ClinVar B/LB', '#16a34a'),
   high: dot('HIGH impact', '#ea580c'),
   moderate: dot('MODERATE', '#eab308'),

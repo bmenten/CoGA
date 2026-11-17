@@ -17,6 +17,8 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 import SmallVariantTrack from '../visualizations/SmallVariantTrack';
+import { smallVariantMarkPath } from '../../lib/smallVariantMarks';
+import { SMALL_VARIANT_DOT_RADIUS } from '../../lib/trackSampling';
 
 beforeEach(() => {
   apiGetMock.mockReset();
@@ -361,6 +363,11 @@ test('colors variants by functional impact when no ClinVar override applies', as
   expect(moderate).toMatchObject({ kind: 'moderate', fill: '#eab308' }); // yellow dot
   expect(low).toMatchObject({ kind: 'other', fill: '#9ca3af' }); // grey dot
   expect(modifier).toMatchObject({ kind: 'other', fill: '#9ca3af' }); // grey dot (lowest)
+  // Drawn at the small-variant dot radius, three times the other tracks' points.
+  expect(container.querySelector('path.small-variant-mark[data-variant-mark="other"]')).toHaveAttribute(
+    'd',
+    smallVariantMarkPath('other', SMALL_VARIANT_DOT_RADIUS),
+  );
   // The salient marks are drawn last, so dense low-impact dots cannot cover them.
   const drawOrder = Array.from(container.querySelectorAll('path.small-variant-mark')).map((mark) =>
     mark.getAttribute('data-variant-mark'),

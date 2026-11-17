@@ -15,7 +15,7 @@ describe('SmallVariantLegend', () => {
     SMALL_VARIANT_MARK_ORDER.forEach((kind) => {
       expect(legend).toHaveTextContent(SMALL_VARIANT_MARKS[kind].label);
       const swatch = container.querySelector(`[data-legend-mark="${kind}"] path`);
-      expect(swatch?.getAttribute('d')).toBe(smallVariantMarkPath(kind, 2.4));
+      expect(swatch?.getAttribute('d')).toBe(smallVariantMarkPath(kind, 3.6));
       expect(swatch?.getAttribute('fill')).toBe(SMALL_VARIANT_MARKS[kind].color);
     });
     expect(legend).toHaveTextContent('Ring: review tag');
