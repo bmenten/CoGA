@@ -344,6 +344,44 @@ describe('AcmgClassificationModal', () => {
     expect(accepted).not.toContain('PM6');
   });
 
+  // PM1 and PP3 together count at most Strong: setting one lowers or unchecks the other.
+  it('keeps PM1 and PP3 within Strong together', async () => {
+    const missense: SmallVariant = smallVariant({
+      _id: 'chr5-500-G-C',
+      chr: 'chr5',
+      start: 500,
+      end: 500,
+      type: 'SNV',
+      gene: 'GENEX',
+      gene_id: 'ENSG0005',
+      effect: 'missense_variant',
+      hgvsp: 'p.Gly50Ala',
+      revel: 0.95,
+      genotypes: [],
+    });
+    renderModal(undefined, missense);
+    const user = userEvent.setup();
+
+    const pp3 = await screen.findByRole('checkbox', { name: /PP3/ });
+    await waitFor(() => expect(pp3).toBeChecked());
+    expect(screen.getByLabelText('PP3 strength')).toHaveValue('strong');
+
+    // PM1 at its default Moderate: PP3 lowered from Strong to Moderate (2 + 2 = 4).
+    await user.click(screen.getByRole('checkbox', { name: /PM1/ }));
+    expect(screen.getByLabelText('PP3 strength')).toHaveValue('moderate');
+    expect(pp3).toBeChecked();
+
+    // PM1 raised to Strong: no room for PP3, which is unchecked and marked.
+    await user.selectOptions(screen.getByLabelText('PM1 strength'), 'strong');
+    expect(pp3).not.toBeChecked();
+    const row = pp3.closest('.acmg-criterion') as HTMLElement;
+    expect(within(row).getByLabelText('Not combined with PM1')).toBeInTheDocument();
+    await user.hover(row);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Capped with PM1: PM1 and PP3 together count at most Strong, 4 points (ClinGen SVI, Pejaver et al. 2022).',
+    );
+  });
+
   it('says the Sample QC could not be loaded and offers a de novo variant as PM6', async () => {
     mockedGet.mockImplementation((url: string) => {
       if (url.includes('/hpo')) return Promise.resolve({ data: [] });

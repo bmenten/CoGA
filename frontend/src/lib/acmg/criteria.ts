@@ -2,9 +2,10 @@
 // mapping used by the Bayesian points scorer.
 //
 // The server keeps its own copy of the directions, the points, each criterion's
-// allowedStrengths and the criteria never applied together (EXCLUSIVE_CRITERIA)
-// (backend/app/services/acmg_points.py), and refuses a save that applies a criterion at a
-// strength not listed here, or two criteria of one exclusive pair.
+// allowedStrengths, the criteria never applied together (EXCLUSIVE_CRITERIA) and the groups whose
+// points are capped (CAPPED_CRITERIA) (backend/app/services/acmg_points.py), and refuses a save
+// that applies a criterion at a strength not listed here, two criteria of one exclusive pair, or a
+// capped group over its points.
 // backend/tests/test_acmg_frontend_parity.py reads this file and fails when the two
 // differ: change both together.
 
@@ -311,6 +312,28 @@ export const EXCLUSIVE_CRITERIA: ReadonlyArray<readonly [AcmgCriterionCode, Acmg
   ['PP3', 'BP4', 'one in silico prediction cannot argue both ways'],
   ['PP5', 'BP6', 'a reputable source reports one classification'],
 ];
+
+// The groups of criteria whose points together are capped, with the reason: PM1 and PP3 count at
+// most Strong together, as a hotspot or critical domain and the in silico predictors read
+// overlapping evidence. Where the checked criteria of a group would score more, the dialog lowers
+// the others to the strongest strength that fits, or unchecks them where none does, and the
+// server refuses a save over the cap (backend acmg_points.CAPPED_CRITERIA mirrors the groups).
+export const CAPPED_CRITERIA: ReadonlyArray<{
+  codes: readonly AcmgCriterionCode[];
+  maxPoints: number;
+  reason: string;
+}> = [
+  {
+    codes: ['PM1', 'PP3'],
+    maxPoints: 4,
+    reason: 'PM1 and PP3 together count at most Strong, 4 points (ClinGen SVI, Pejaver et al. 2022)',
+  },
+];
+
+/** The capped groups `code` is in. */
+export function capsOf(code: AcmgCriterionCode): typeof CAPPED_CRITERIA[number][] {
+  return CAPPED_CRITERIA.filter((cap) => cap.codes.includes(code));
+}
 
 /** The criteria never applied together with `code`, each with the reason. */
 export function exclusivePartners(code: AcmgCriterionCode): Array<{ code: AcmgCriterionCode; reason: string }> {

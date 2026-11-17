@@ -126,6 +126,12 @@ EXCLUSIVE_CRITERIA: tuple[tuple[str, str], ...] = (
     ("PP5", "BP6"),
 )
 
+# The groups of criteria whose points together are capped, mirrored from ``CAPPED_CRITERIA`` in
+# frontend/src/lib/acmg/criteria.ts, which gives the reason (the parity test holds them equal):
+# PM1 and PP3 count at most Strong (4 points) together (ClinGen SVI, Pejaver et al. 2022). The
+# dialog lowers the others of a group to fit; a save over a cap is refused.
+CAPPED_CRITERIA: tuple[tuple[tuple[str, ...], int], ...] = ((("PM1", "PP3"), 4),)
+
 # Display labels matching the frontend ACMG_CLASS_LABELS / ACMG_CLASSIFICATION_TAGS.
 CLASS_LABELS: dict[str, str] = {
     "acmg_class_5": "Pathogenic - class 5",
@@ -143,6 +149,19 @@ def is_valid_code(code: str) -> bool:
 def is_allowed_strength(code: str, strength: str) -> bool:
     """Whether ``code`` may be applied at ``strength``: one the dialog offers for it."""
     return strength in ALLOWED_STRENGTHS.get(code, frozenset())
+
+
+def capped_groups_over(accepted: Iterable[tuple[str, str]]) -> list[tuple[tuple[str, ...], int]]:
+    """The groups of ``CAPPED_CRITERIA`` of which two or more criteria are accepted, given as
+    ``(code, strength)``, and together score more than the group's cap, in the table's order. The
+    cap bounds the combination: one criterion of a group alone keeps its own strength."""
+    points = {code: selection_points(code, strength) for code, strength in accepted}
+    return [
+        (codes, cap)
+        for codes, cap in CAPPED_CRITERIA
+        if sum(code in points for code in codes) >= 2
+        and sum(abs(points.get(code, 0)) for code in codes) > cap
+    ]
 
 
 def exclusive_pairs_applied(codes: Iterable[str]) -> list[tuple[str, str]]:

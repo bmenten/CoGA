@@ -73,8 +73,14 @@ swaps them back. The server refuses a classification that applies both.
 Where the pre-evaluation would check both, it keeps the one listed first, unless the other scores
 more; a saved criterion is kept over a fresh suggestion. PP1 and BS4 can be combined (they may come
 from different relatives), and so can PP4 and a de novo criterion, though the de novo points read the
-same phenotype: weigh that yourself. PM1 and PP3 together should not exceed Strong (ClinGen SVI): CoGA
-does not check that.
+same phenotype: weigh that yourself.
+
+**PM1 and PP3 together count at most Strong** (4 points; ClinGen SVI, Pejaver et al. 2022): a hotspot
+or critical domain and the in silico predictors read overlapping evidence. Checking or strengthening
+one lowers the other to the strongest strength that fits, or unchecks it (⊘) where none does: PM1
+Moderate takes PP3 Strong down to Moderate, PM1 Strong leaves no room for PP3. Either alone keeps any
+strength it allows. The pre-evaluation keeps a saved criterion over a fresh suggestion, and the server
+refuses a save over the cap.
 
 On save, CoGA writes the class to the variant as its classification and as the matching review tag.
 It also stores every criterion with its strength and your note, for the audit trail (see the
@@ -115,7 +121,7 @@ filter on it. A variant that leaves the VUS band loses its tier tag.
 | Consider | ● | A relevant but not decisive signal. Left unchecked for you to decide. |
 | Argues against | ✕ | The data points the other way. Left unchecked. |
 | Not applicable | n/a, greyed | Cannot apply to this variant. Still clickable. |
-| Not combined | ⊘, dotted | Unchecked because a criterion it is never applied with is checked. Checking it swaps the two. |
+| Not combined | ⊘, dotted | Unchecked because a criterion it is never applied with is checked, or one that leaves it no room within a cap (PM1 Strong for PP3). Checking it swaps the two. |
 
 Hover a criterion to see the evidence behind its state. You can change every state and every strength.
 

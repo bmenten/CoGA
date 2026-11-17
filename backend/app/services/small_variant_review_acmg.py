@@ -104,8 +104,9 @@ def _normalize_acmg_payload(
 
     Each criterion must be known, listed once and applied at a strength it takes
     (``acmg_points.ALLOWED_STRENGTHS``), and no two criteria that are never applied together
-    (``acmg_points.EXCLUSIVE_CRITERIA``) may both be accepted, as the classification dialog
-    sends them; any other payload is refused with 400. Only a save is checked: a stored
+    (``acmg_points.EXCLUSIVE_CRITERIA``) may both be accepted, nor a capped group score more than
+    its cap (``acmg_points.CAPPED_CRITERIA``: PM1 and PP3 together at most 4), as the
+    classification dialog sends them; any other payload is refused with 400. Only a save is checked: a stored
     classification is read back as it was written.
     """
 
@@ -145,6 +146,15 @@ def _normalize_acmg_payload(
         first, second = both[0]
         raise HTTPException(
             status_code=400, detail=f"ACMG criteria {first} and {second} cannot both be applied"
+        )
+    over = acmg_points.capped_groups_over(
+        (criterion["code"], criterion["strength"]) for criterion in normalized_criteria if criterion["accepted"]
+    )
+    if over:
+        codes, cap = over[0]
+        raise HTTPException(
+            status_code=400,
+            detail=f"ACMG criteria {' and '.join(codes)} together count at most {cap} points",
         )
 
     point_total, class_key, class_label = acmg_points.compute_classification(normalized_criteria)

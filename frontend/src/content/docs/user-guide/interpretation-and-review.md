@@ -34,7 +34,8 @@ the family genotypes, and scores them on the ClinGen points scale.
   against) or **n/a** (cannot apply). Hover it for the evidence; click to change it, and pick its
   strength. Only checked criteria count.
 - Some criteria are never applied together, such as PS2 and PM6, or PVS1 and PP3. Checking one
-  unchecks the other, which then shows **⊘**; hover it for the reason.
+  unchecks the other, which then shows **⊘**; hover it for the reason. PM1 and PP3 together count at
+  most Strong: setting one lowers the other to fit.
 - A de novo variant is **PS2** where the Sample QC confirms the proband's parents, and **PM6** where it
   does not. Its strength follows ClinGen's de novo points: how specific the proband's phenotype is for
   the gene, from the gene–phenotype match score.

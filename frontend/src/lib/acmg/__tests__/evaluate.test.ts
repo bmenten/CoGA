@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { deNovoPhenotypeTier, deNovoStrength, evaluateAcmg, type AcmgVariantInput } from '../evaluate';
-import { buildInitialSelections, resolveExclusiveCriteria } from '../index';
+import { buildInitialSelections, criteriaBlocking, fitCappedCriteria, resolveExclusiveCriteria } from '../index';
 import type {
   AcmgCriterionCode,
   AcmgFamilyContext,
@@ -958,6 +958,32 @@ describe('buildInitialSelections', () => {
     );
     expect(accepted(kept)).toEqual(['PM6']);
     expect(kept.find((selection) => selection.code === 'PS2')).toMatchObject({ accepted: false, autoSuggested: true });
+  });
+
+  // PM1 and PP3 together count at most Strong (4 points); either alone keeps its strength.
+  it('keeps PM1 and PP3 within Strong together, lowering or unchecking the one not kept', () => {
+    const pp3 = (selections: ReturnType<typeof buildInitialSelections>) => selections.find((selection) => selection.code === 'PP3');
+    // A saved PM1 Moderate beside a fresh PP3 Strong: PP3 lowered to Moderate (2 + 2 = 4).
+    const lowered = buildInitialSelections(
+      [{ code: 'PP3', strength: 'strong', evidence: 'REVEL 0.95', disposition: 'applies' }],
+      [{ code: 'PM1', strength: 'moderate', accepted: true, autoSuggested: false }],
+    );
+    expect(pp3(lowered)).toMatchObject({ accepted: true, strength: 'moderate' });
+
+    // PM1 set to Strong leaves PP3 no room: unchecked, and blocked while PM1 stays Strong.
+    const pm1Strong = { code: 'PM1' as const, strength: 'strong' as const, accepted: true, autoSuggested: false };
+    const fitted = fitCappedCriteria(
+      [pm1Strong, { code: 'PP3', strength: 'supporting', accepted: true, autoSuggested: true }],
+      'PM1',
+    );
+    expect(pp3(fitted)).toMatchObject({ accepted: false });
+    expect(criteriaBlocking('PP3', { PM1: pm1Strong })).toEqual(['PM1']);
+    expect(criteriaBlocking('PP3', { PM1: { ...pm1Strong, strength: 'moderate' } })).toEqual([]);
+    // Alone, PM1 keeps any strength it allows.
+    expect(fitCappedCriteria([{ ...pm1Strong, strength: 'very_strong' }], 'PM1')[0]).toMatchObject({
+      accepted: true,
+      strength: 'very_strong',
+    });
   });
 
   it('preserves a saved selection over a fresh suggestion', () => {

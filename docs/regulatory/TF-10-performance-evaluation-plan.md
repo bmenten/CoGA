@@ -233,7 +233,7 @@ pull request updates this list only when it adds clinical behaviour that no area
     parents and PM6 where it does not, at the strength of ClinGen's de novo points, the phenotype
     tier read from the gene–phenotype match score (its cut-offs to calibrate on solved trios).
   - Criteria never applied together (PS2 and PM6, PVS1 and PP3, …): the dialog keeps one, the
-    server refuses both.
+    server refuses both; PM1 and PP3 together at most Strong.
   - Classifications that reopen with their saved criteria; CNV classifications preserved by
     review edits.
   - The prioritised ranking and its cache keys.

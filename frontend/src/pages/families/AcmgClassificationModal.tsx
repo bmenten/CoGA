@@ -12,7 +12,10 @@ import {
   computeClassification,
   evaluateAcmg,
   evaluateMitoAcmg,
+  capsOf,
+  criteriaBlocking,
   exclusivePartners,
+  fitCappedCriteria,
   parentageFromSampleQc,
   parentLinksFromRelationships,
   type AcmgCriterionCode,
@@ -425,7 +428,9 @@ export default function AcmgClassificationModal({
   const hideTip = () => setTip(null);
 
   // Checking a criterion unchecks the ones never applied together with it
-  // (EXCLUSIVE_CRITERIA): PS2 unchecks PM6, PM6 unchecks PS2.
+  // (EXCLUSIVE_CRITERIA): PS2 unchecks PM6, PM6 unchecks PS2. Checking or strengthening one of a
+  // capped group (CAPPED_CRITERIA) lowers the others to fit, or unchecks them: PM1 and PP3
+  // together count at most Strong.
   const upsert = (code: AcmgCriterionCode, patch: Partial<AcmgSelection>) => {
     markEdited();
     setSelections((current) => {
@@ -445,7 +450,10 @@ export default function AcmgClassificationModal({
           if (held?.accepted) next[partner.code] = { ...held, accepted: false };
         }
       }
-      return next;
+      if (!next[code].accepted) return next;
+      return Object.fromEntries(
+        fitCappedCriteria(Object.values(next), code).map((selection) => [selection.code, selection]),
+      );
     });
   };
 
@@ -605,7 +613,7 @@ export default function AcmgClassificationModal({
             <span className="acmg-key acmg-key--against"> ✕</span> = data argues against,
             <span className="acmg-key acmg-key--na"> n/a</span> = unlikely for this variant type,
             <span className="acmg-key acmg-key--excluded"> ⊘</span> = not combined with a checked criterion
-            (checking it unchecks the other).
+            (checking it unchecks the other; PM1 and PP3 together count at most Strong).
             All of them can be overridden; hover a criterion for its evidence.
           </p>
 
@@ -719,6 +727,11 @@ export default function AcmgClassificationModal({
               Not combined with {partner.code}: {partner.reason}.
             </p>
           ))}
+          {capsOf(tip.def.code).map((cap) => (
+            <p key={cap.codes.join('+')} className="acmg-tooltip-exclusive">
+              Capped with {cap.codes.filter((code) => code !== tip.def.code).join(', ')}: {cap.reason}.
+            </p>
+          ))}
         </div>
       ) : null}
     </div>
@@ -798,9 +811,7 @@ function FamilyGroup({ group, selections, onToggle, onShowTip, onHideTip }: Fami
             key={def.code}
             def={def}
             selection={selections[def.code]}
-            excludedBy={exclusivePartners(def.code)
-              .filter((partner) => selections[partner.code]?.accepted)
-              .map((partner) => partner.code)}
+            excludedBy={criteriaBlocking(def.code, selections)}
             onToggle={onToggle}
             onShowTip={onShowTip}
             onHideTip={onHideTip}
@@ -814,7 +825,8 @@ function FamilyGroup({ group, selections, onToggle, onShowTip, onHideTip }: Fami
 type CriterionRowProps = {
   def: AcmgCriterionDef;
   selection?: AcmgSelection;
-  // The checked criteria never applied together with this one.
+  // The checked criteria never applied together with this one, or that leave it no strength
+  // within a cap.
   excludedBy: AcmgCriterionCode[];
   onToggle: (code: AcmgCriterionCode, patch: Partial<AcmgSelection>) => void;
   onShowTip: (def: AcmgCriterionDef, selection: AcmgSelection | undefined, el: HTMLElement) => void;

@@ -8,7 +8,8 @@ The server keeps its own copy of both tables: it refuses a strength a criterion 
 differ: a strength the dialog offers that the server refused would make a classification
 impossible to save, and one the server took that the dialog does not offer could be stored
 only by a client calling the API. The pairs of criteria the dialog never applies together are
-the pairs the server refuses to save together.
+the pairs the server refuses to save together, and a group whose points are capped is the
+group the server holds within its cap.
 
 The missense Z the dialog's PP2 suggestion reads is frozen by the server with the
 classification: the dialog's sources and their order are the server's.
@@ -201,6 +202,49 @@ def test_the_server_refuses_the_pairs_of_criteria_the_dialog_never_applies_toget
             # The other one listed but not applied, as the dialog sends a suggestion it unchecked.
             blob, _points, _class = _normalize_acmg_payload(payload(a, b, second_accepted=False))
             assert blob is not None and [c["accepted"] for c in blob["criteria"]] == [True, False]
+
+
+def _dialog_capped_criteria() -> tuple[tuple[tuple[str, ...], int], ...]:
+    """The groups of CAPPED_CRITERIA in criteria.ts with their caps, in its order."""
+    source = ACMG_CRITERIA_TS.read_text(encoding="utf-8")
+    body = re.search(r"export const CAPPED_CRITERIA\b.*?=\s*\[(.*?)\n\];", source, re.S)
+    assert body, "CAPPED_CRITERIA not found in criteria.ts"
+    groups = re.findall(r"codes:\s*\[([^\]]*)\],\s*maxPoints:\s*(\d+)", body.group(1))
+    assert len(groups) == body.group(1).count("codes:"), "a group in criteria.ts could not be read"
+    return tuple((tuple(re.findall(r"'(\w+)'", codes)), int(cap)) for codes, cap in groups)
+
+
+def test_the_server_refuses_a_capped_group_over_the_points_the_dialog_keeps_it_within() -> None:
+    # PM1 and PP3 count at most Strong (4 points) together: the dialog lowers one to fit, the
+    # server refuses a save over the cap, at every strength each allows.
+    assert _dialog_capped_criteria() == acmg_points.CAPPED_CRITERIA == ((("PM1", "PP3"), 4),)
+    criteria = _dialog_acmg_criteria()
+    wrong: list[str] = []
+    for codes, cap in acmg_points.CAPPED_CRITERIA:
+        first, second = codes
+        for a in sorted(criteria[first][2]):
+            for b in sorted(criteria[second][2]):
+                payload = AcmgClassificationPayload(
+                    criteria=[
+                        AcmgCriterionSelection(code=first, strength=a, accepted=True),
+                        AcmgCriterionSelection(code=second, strength=b, accepted=True),
+                    ]
+                )
+                over = acmg_points.STRENGTH_POINTS[a] + acmg_points.STRENGTH_POINTS[b] > cap
+                try:
+                    _normalize_acmg_payload(payload)
+                except HTTPException as refused:
+                    assert refused.status_code == 400
+                    assert refused.detail == f"ACMG criteria {first} and {second} together count at most {cap} points"
+                    taken = False
+                else:
+                    taken = True
+                if taken == over:
+                    wrong.append(f"{first} {a} + {second} {b}: {'taken' if taken else 'refused'}")
+                # Over the cap, but one of them not applied: taken.
+                payload.criteria[1].accepted = False
+                assert _normalize_acmg_payload(payload)[0] is not None
+    assert wrong == []
 
 
 def test_the_missense_z_pp2_reads_comes_from_the_sources_the_server_freezes_in_its_order() -> None:
