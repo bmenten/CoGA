@@ -2,9 +2,12 @@ import { clamp } from './number';
 
 export const SMALL_VARIANT_TRACK_RESULT_LIMIT = 10000;
 
-// Shared dot radius for the per-point tracks (coverage, APCAD, small variants) so
-// they all render at the same size.
+// Shared dot radius for the per-point tracks (coverage, APCAD) so they render at the same size.
 export const TRACK_DOT_RADIUS = 1.8;
+
+// The small-variant track draws its dots 6 px across: their colour is what tells the classes
+// apart, and a dot of TRACK_DOT_RADIUS is too small to read it from.
+export const SMALL_VARIANT_DOT_RADIUS = 3;
 
 // The widest window the small-variant track draws every variant in. A whole genome holds about
 // 1.5 variants per kb per sample, so a wider window would read thousands of variants per member

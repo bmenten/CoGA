@@ -13,8 +13,8 @@ import { hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import {
   SMALL_VARIANT_ALL_MARKS_MAX_SPAN,
+  SMALL_VARIANT_DOT_RADIUS,
   SMALL_VARIANT_TRACK_RESULT_LIMIT,
-  TRACK_DOT_RADIUS,
   formatSpanLimit,
   smallVariantTrackScope,
 } from '../../lib/trackSampling';
@@ -344,7 +344,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     const rowHeight = height / rowCount;
     // Shared with the coverage / APCAD tracks so all per-point dots match, but
     // never larger than half a row.
-    const radius = Math.min(TRACK_DOT_RADIUS, rowHeight / 2 - 1);
+    const radius = Math.min(SMALL_VARIANT_DOT_RADIUS, rowHeight / 2 - 1);
     const cyForOrigin = (origin: ParentalOrigin): number => {
       if (!originMode) return height / 2;
       const row = origin === 'paternal' ? 0 : origin === 'maternal' ? 2 : 1;
