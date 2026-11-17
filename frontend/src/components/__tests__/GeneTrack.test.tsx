@@ -44,7 +44,7 @@ const answer = ({
   isError = false,
 }: {
   genes: TestGene[] | undefined;
-  panels?: { name: string; genes: string[] }[];
+  panels?: { name: string; genes: string[]; gene_symbols?: Record<string, string> }[];
   isError?: boolean;
 }) => {
   useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
@@ -283,6 +283,17 @@ test('names the gene and its panels on hover, with the symbol escaped', async ()
   expect(tooltip?.querySelector('img')).toBeNull();
   fireEvent.mouseOut(geneGroups(container)[0].group);
   expect(tooltip?.style.display).toBe('none');
+});
+
+test('names a panel that holds the gene by its Ensembl gene ID', async () => {
+  answer({
+    genes: [gene({ hgnc_symbol: 'BRCA2', start: 100, end: 400 })],
+    panels: [{ name: 'Cancer by ID', genes: ['ENSG00000139618'], gene_symbols: { ENSG00000139618: 'BRCA2' } }],
+  });
+  const { container } = renderTrack();
+  await waitFor(() => expect(geneGroups(container)).toHaveLength(1));
+  fireEvent.mouseMove(geneGroups(container)[0].group, { clientX: 50, clientY: 20 });
+  expect(document.body.querySelector<HTMLElement>('.viz-tooltip')?.textContent).toContain('Panels: Cancer by ID');
 });
 
 test('says so when the region has no genes', () => {

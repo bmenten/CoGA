@@ -10,9 +10,14 @@ page is an administrator's alone.
   rebuild the clinical-CNV knowledgebase, load the pinned DGV release, or upload a reference file.
   Adding GRCh37 or GRCh38 starts the clinical-CNV build and the DGV load for it.
 - **Gene panels** — the panel catalogue: create panels, import them from PanelApp, and see their genes.
+  A panel names each gene by its HGNC symbol or by its Ensembl gene ID (`ENSG` and eleven digits; a
+  version such as `.24` is dropped). The ID is the gene's stable name: a symbol can be renamed, or read
+  as another gene's. A gene added by its ID is shown after its symbol, for example
+  *BRCA1 (ENSG00000012048)*, and the panel keeps its variants by the ID, by its symbol and by its
+  position. Adding the ID of a gene the panel holds by its symbol replaces that symbol.
   A PanelApp search shows each panel's genes, regions and STRs by confidence level (green, amber, red).
   A panel can be imported green only, green + amber, or green + amber + red: each is a panel of its
-  own, to filter on apart.
+  own, to filter on apart. An imported gene is kept by the Ensembl gene ID PanelApp gives it.
   Deleting a panel asks first, naming the panel and its version: its genes, its regions and every
   archived version go with it.
 - **HPO terminology** — the HPO release in use and the SHA-256 of the file it came from, and whether

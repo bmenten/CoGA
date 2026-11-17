@@ -160,7 +160,7 @@ def test_a_kept_panel_resolution_follows_every_change_of_what_it_is_read_from(mo
             # A gene written into the panel's rows without a new version, then taken out.
             async with sm() as s:
                 await s.execute(
-                    text("INSERT INTO gene_panel_genes (panel_id, gene_symbol) VALUES (CAST(:p AS uuid), :g)"),
+                    text("INSERT INTO gene_panel_genes (panel_id, gene) VALUES (CAST(:p AS uuid), :g)"),
                     {"p": panel, "g": gene_d},
                 )
                 await s.commit()
@@ -169,7 +169,7 @@ def test_a_kept_panel_resolution_follows_every_change_of_what_it_is_read_from(mo
             assert gene_d in with_d.genes
             async with sm() as s:
                 await s.execute(
-                    text("DELETE FROM gene_panel_genes WHERE panel_id = CAST(:p AS uuid) AND gene_symbol = :g"),
+                    text("DELETE FROM gene_panel_genes WHERE panel_id = CAST(:p AS uuid) AND gene = :g"),
                     {"p": panel, "g": gene_d},
                 )
                 await s.commit()

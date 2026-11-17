@@ -33,6 +33,7 @@ from ..schemas import (
 )
 from .cytoband_labels import fetch_cytoband_labels
 from .data_scope import normalize_chromosome
+from .ensembl_gene_ids import ensembl_gene_id
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import (
     SmallVariantQueryFilters,
@@ -210,20 +211,42 @@ async def _fetch_gene_regions_for_terms(
     *,
     terms: Sequence[str],
     assembly_id: str | None,
+    stand_in_symbols: Sequence[str] = (),
 ) -> list[Region]:
+    """The loci of the genes the terms name: by symbol, by transcript accession, or, for a term
+    that is an Ensembl gene ID (``ensembl_gene_id``), by that ID.
+
+    ``stand_in_symbols`` are the symbols of a panel's Ensembl gene IDs. They are looked up only
+    among the genes the reference gives no Ensembl ID, those of a RefSeq-derived reference
+    (T2T's), where they stand in for the IDs: in a reference that gives its genes IDs, a gene of
+    the same symbol under another ID is not the panel's gene.
+    """
     terms = [str(term).strip() for term in terms if str(term).strip()]
-    if not terms:
+    stand_ins = [str(symbol).strip().upper() for symbol in stand_in_symbols if str(symbol).strip()]
+    if not terms and not stand_ins:
         return []
     # The terms go as one text[] parameter, however many there are. An expanding
     # IN binds one parameter per term, which asyncpg caps at 32,767, and Postgres plans
     # each such lookup anew: for the Mendeliome's 5,300 genes in a GENCODE-size reference,
     # a sequential scan of the assembly's transcripts, 0.2 s and more. One array lets it
-    # keep a plan that reads the upper(hgnc_symbol) and upper(gene_id) indexes (0.05 s).
-    clauses = [
-        "(upper(hgnc_symbol) = ANY(CAST(:terms AS text[])) "
-        "OR upper(gene_id) = ANY(CAST(:terms AS text[])))"
+    # keep a plan that reads the upper(hgnc_symbol) and upper(gene_id) indexes (0.05 s), and
+    # the Ensembl gene ID index only when a term is one.
+    matches = [
+        "upper(hgnc_symbol) = ANY(CAST(:terms AS text[]))",
+        "upper(gene_id) = ANY(CAST(:terms AS text[]))",
     ]
     params: dict[str, Any] = {"terms": [term.upper() for term in terms]}
+    gene_ids = list(dict.fromkeys(gene_id for gene_id in map(ensembl_gene_id, terms) if gene_id))
+    if gene_ids:
+        matches.append("(extra ->> 'ensembl_gene_id') = ANY(CAST(:ensembl_gene_ids AS text[]))")
+        params["ensembl_gene_ids"] = gene_ids
+    if stand_ins:
+        matches.append(
+            "(upper(hgnc_symbol) = ANY(CAST(:stand_in_symbols AS text[])) "
+            "AND (extra ->> 'ensembl_gene_id') IS NULL)"
+        )
+        params["stand_in_symbols"] = list(dict.fromkeys(stand_ins))
+    clauses = [f"({' OR '.join(matches)})"]
     if assembly_id:
         clauses.append("assembly_id = CAST(:assembly_id AS uuid)")
         params["assembly_id"] = assembly_id
@@ -277,7 +300,8 @@ _PANEL_RESOLUTION_TOKEN_SQL = """
         gp.version,
         (
             SELECT encode(sha256(convert_to(
-                array_agg(g.gene_symbol ORDER BY g.gene_symbol)::text, 'UTF8')), 'hex')
+                array_agg(ARRAY[g.gene, coalesce(g.symbol, '')] ORDER BY g.gene)::text,
+                'UTF8')), 'hex')
             FROM gene_panel_genes g
             WHERE g.panel_id = gp.id
         ) AS genes_sha256,
@@ -401,10 +425,10 @@ async def _read_panel_constraints(
     gene_result = await session.execute(
         text(
             """
-            SELECT gene_symbol
+            SELECT gene, symbol
             FROM gene_panel_genes
             WHERE panel_id = CAST(:panel_id AS uuid)
-            ORDER BY gene_symbol
+            ORDER BY gene
             """
         ),
         {"panel_id": panel_id},
@@ -433,12 +457,22 @@ async def _read_panel_constraints(
         Region(chr=row["chr"], start=int(row["start"]), end=int(row["end"]))
         for row in region_rows
     ]
-    # Each gene once, in the order first read: the panel's genes, then its regions' genes.
-    # A dict keeps that order and finds a gene in constant time; a list scan
-    # (_append_unique) makes the Mendeliome's 5,300 genes cost about 0.2 s.
+    # A gene the panel names by its Ensembl gene ID is matched by the ID and by its symbol in
+    # the variants' annotations (an SV's annotation names its genes by symbol only), and its
+    # loci are read by the ID; the symbol finds loci only in a reference that gives its genes
+    # no Ensembl ID (_fetch_gene_regions_for_terms).
+    id_symbols = [str(row["symbol"]) for row in gene_rows if row.get("symbol")]
+    # Each gene once, in the order first read: the panel's genes, its Ensembl gene IDs'
+    # symbols, then its regions' genes. A dict keeps that order and finds a gene in constant
+    # time; a list scan (_append_unique) makes the Mendeliome's 5,300 genes cost about 0.2 s.
+    named = _unique_texts(
+        [row.get("gene") for row in gene_rows],
+        [row.get("gene") for row in region_rows],
+    )
     genes = list(
         _unique_texts(
-            [row.get("gene_symbol") for row in gene_rows],
+            [row.get("gene") for row in gene_rows],
+            id_symbols,
             [row.get("gene") for row in region_rows],
         )
     )
@@ -446,8 +480,9 @@ async def _read_panel_constraints(
         regions.extend(
             await _fetch_gene_regions_for_terms(
                 session,
-                terms=genes,
+                terms=list(named),
                 assembly_id=assembly_id,
+                stand_in_symbols=id_symbols,
             )
         )
     if genes or regions:

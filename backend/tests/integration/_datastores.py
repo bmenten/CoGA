@@ -286,17 +286,36 @@ async def named_assembly(session: Any, name: str, species_label: str) -> tuple[s
     return species, await fresh_assembly(session, species, name)
 
 
-async def gene_locus(session: Any, assembly_id: str, symbol: str, chrom: str, start: int, end: int) -> None:
+async def gene_locus(
+    session: Any,
+    assembly_id: str,
+    symbol: str,
+    chrom: str,
+    start: int,
+    end: int,
+    *,
+    ensembl_gene_id: str | None = None,
+) -> None:
     """A protein-coding gene of the assembly at chrom:start-end (a gene id of its own), not
-    committed."""
+    committed. With ``ensembl_gene_id``, the gene carries that Ensembl gene ID, as a GENCODE
+    row does (``gencode_import``); without, none, as a RefSeq-derived row."""
 
     await session.execute(
         text(
             'INSERT INTO genes (assembly_id, gene_id, hgnc_symbol, chr, start, "end", '
-            "strand, biotype, description, source) VALUES "
-            "(CAST(:a AS uuid), :gid, :sym, :chr, :start, :end, 1, 'protein_coding', 't', 't')"
+            "strand, biotype, description, source, extra) VALUES "
+            "(CAST(:a AS uuid), :gid, :sym, :chr, :start, :end, 1, 'protein_coding', 't', 't', "
+            "CAST(:extra AS jsonb))"
         ),
-        {"a": assembly_id, "gid": f"ENSG-{symbol}-{uuid4()}", "sym": symbol, "chr": chrom, "start": start, "end": end},
+        {
+            "a": assembly_id,
+            "gid": f"ENSG-{symbol}-{uuid4()}",
+            "sym": symbol,
+            "chr": chrom,
+            "start": start,
+            "end": end,
+            "extra": json.dumps({"ensembl_gene_id": ensembl_gene_id} if ensembl_gene_id else {}),
+        },
     )
 
 

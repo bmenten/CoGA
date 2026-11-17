@@ -13,6 +13,7 @@ const panelData = {
   name: 'PanelA',
   version: 2,
   genes: ['BRCA1', 'BRCA2'],
+  gene_symbols: {},
   gene_count: 2,
   regions: [
     { gene: 'BRCA1', chr: 'chr1', start: 1, end: 2 },
@@ -209,6 +210,71 @@ describe('GenePanelDetailPage', () => {
       await waitFor(() =>
         expect(api.put).toHaveBeenCalledWith('/panels/1', { genes: ['BRCA1', 'BRCA2', 'TP53'], expected_version: 2 }),
       );
+    });
+
+    it('adds a gene by its Ensembl gene ID, shown after its symbol, in place of the symbol the panel holds', async () => {
+      vi.mocked(api.post).mockResolvedValue({
+        data: {
+          found: ['ENSG00000012048', 'ENSG00000141510'],
+          missing: [],
+          symbols: { ENSG00000012048: 'BRCA1', ENSG00000141510: 'TP53' },
+        },
+      });
+      renderPage();
+
+      await userEvent.type(await screen.findByLabelText('Genes to add'), 'ensg00000012048.24 ENSG00000141510');
+      await userEvent.click(screen.getByRole('button', { name: 'Add to changes' }));
+
+      // Kept as the panel keeps an ID: in capitals, without its version.
+      expect(api.post).toHaveBeenCalledWith('/panels/genes/check', { genes: ['ENSG00000012048', 'ENSG00000141510'] });
+      const added = screen.getByRole('list', { name: 'Genes to add in version 3' });
+      expect(await within(added).findByText('BRCA1 (ENSG00000012048)')).toBeInTheDocument();
+      expect(within(added).getByText('TP53 (ENSG00000141510)')).toBeInTheDocument();
+      // The panel's BRCA1 is the gene of the first ID: the panel keeps it once, by its ID.
+      expect(within(added).getByText('replaces BRCA1')).toBeInTheDocument();
+      expect(within(changes()).getByText(/Confirming saves version 3 with 3 genes/)).toBeInTheDocument();
+
+      await userEvent.click(within(changes()).getByRole('button', { name: 'Confirm and save version 3' }));
+      await waitFor(() =>
+        expect(api.put).toHaveBeenCalledWith('/panels/1', {
+          genes: ['BRCA2', 'ENSG00000012048', 'ENSG00000141510'],
+          expected_version: 2,
+        }),
+      );
+    });
+
+    it('shows a gene the panel names by its Ensembl gene ID after its symbol, and holds that symbol', async () => {
+      vi.mocked(api.get).mockImplementation((url: string) =>
+        url.endsWith('/versions')
+          ? Promise.resolve({ data: versionsPayload })
+          : Promise.resolve({
+              data: {
+                ...panelData,
+                genes: ['BRCA2', 'ENSG00000012048'],
+                gene_symbols: { ENSG00000012048: 'BRCA1' },
+                regions: [
+                  { gene: 'ENSG00000012048', chr: 'chr17', start: 5, end: 6 },
+                  { gene: 'BRCA2', chr: 'chr13', start: 3, end: 4 },
+                ],
+              },
+            }),
+      );
+      renderPage();
+
+      const regionsTable = (await screen.findByPlaceholderText('Filter gene')).closest('table') as HTMLElement;
+      // Sorted as shown: by the symbol.
+      await waitFor(() =>
+        expect(within(within(regionsTable).getAllByRole('row')[2]).getByText('BRCA1 (ENSG00000012048)')).toBeInTheDocument(),
+      );
+      await userEvent.type(screen.getByPlaceholderText('Filter gene'), 'brca1');
+      expect(within(regionsTable).queryByText('BRCA2')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Remove BRCA1 (ENSG00000012048) from the next version' })).toBeInTheDocument();
+
+      // Its symbol names a gene the panel holds.
+      await userEvent.type(screen.getByLabelText('Genes to add'), 'brca1');
+      await userEvent.click(screen.getByRole('button', { name: 'Add to changes' }));
+      expect(screen.getByText('Already in the panel: brca1.')).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: /Changes for version/ })).not.toBeInTheDocument();
     });
 
     it('turns an edited whole list into the changes it makes, to confirm like the others', async () => {

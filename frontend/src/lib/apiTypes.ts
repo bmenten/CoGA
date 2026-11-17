@@ -919,7 +919,10 @@ export interface GenePanel {
   _id: string;
   name: string;
   version?: number;
+  // Each gene as the panel names it: an HGNC symbol or an Ensembl gene ID.
   genes: string[];
+  // The HGNC symbol of each Ensembl gene ID in `genes` that has one, by the ID.
+  gene_symbols: Record<string, string>;
   gene_count?: number;
   regions: GeneLocation[];
   created_by: string;

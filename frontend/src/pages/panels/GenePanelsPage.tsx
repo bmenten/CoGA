@@ -364,7 +364,7 @@ const GenePanelsPage: React.FC = () => {
                 />
               </label>
               <label className="field-label">
-                <span>Genes (comma or space separated)</span>
+                <span>Genes (HGNC symbols or Ensembl gene IDs, comma or space separated)</span>
                 <textarea
                   value={genes}
                   onChange={(e) => setGenes(e.target.value)}

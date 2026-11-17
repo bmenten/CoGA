@@ -112,11 +112,14 @@ const GeneTrack: React.FC<Props> = ({
     },
   });
 
+  // The track names genes by symbol: a gene a panel names by its Ensembl gene ID is listed
+  // under the ID's symbol.
   const panelMap = useMemo(() => {
     const map: Record<string, string[]> = {};
     panels?.forEach((p) => {
       p.genes.forEach((g) => {
-        map[g] = map[g] ? [...map[g], p.name] : [p.name];
+        const name = p.gene_symbols?.[g] ?? g;
+        map[name] = map[name] ? [...map[name], p.name] : [p.name];
       });
     });
     return map;

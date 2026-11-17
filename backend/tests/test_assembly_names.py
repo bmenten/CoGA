@@ -359,10 +359,10 @@ def test_the_gene_reference_lists_grch38_t2t_grch37_then_the_rest(in_table: list
 def test_a_panel_lists_regions_grch38_t2t_grch37_then_the_rest(in_table: list[str], listed: list[str]) -> None:
     session = _GeneRegionsSession(in_table)
 
-    regions, missing = asyncio.run(pms._resolve_gene_regions(session, ["BRCA1"]))  # type: ignore[arg-type]
+    resolution = asyncio.run(pms._resolve_gene_regions(session, ["BRCA1"]))  # type: ignore[arg-type]
 
-    assert missing == []
-    assert [region.assembly for region in regions] == listed
+    assert resolution.missing == []
+    assert [region.assembly for region in resolution.regions] == listed
 
 
 # ---- STRchive's coordinates of a repeat call ---------------------------------------------------

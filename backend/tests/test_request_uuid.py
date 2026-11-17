@@ -338,7 +338,7 @@ def _panel_row(panel_id: str) -> dict[str, Any]:
 def test_a_panel_read_by_its_id_in_braces_keeps_its_genes() -> None:
     session = _RecordingSession(
         _Rows([_panel_row(CANONICAL)]),
-        _Rows([{"panel_id": CANONICAL, "gene_symbol": "MYH7"}]),
+        _Rows([{"panel_id": CANONICAL, "gene": "MYH7", "symbol": None}]),
         _Rows([]),
     )
     panel = asyncio.run(panel_metadata_service.get_panel_or_404(session, "{" + CANONICAL.upper() + "}"))  # type: ignore[arg-type]
@@ -387,7 +387,7 @@ def test_the_variant_explorer_filters_by_a_panel_named_in_braces(monkeypatch: py
     # The explorer reads the panel as the family page does: the token of a kept
     # resolution (none here, so nothing is kept), its genes, then its regions for the
     # explorer's assembly and its genes' loci there, under the canonical id.
-    found = _RecordingSession(_Rows([]), _Rows([{"gene_symbol": "MYH7"}]), _Rows([]), _Rows([]))
+    found = _RecordingSession(_Rows([]), _Rows([{"gene": "MYH7", "symbol": None}]), _Rows([]), _Rows([]))
     search("{" + CANONICAL + "}", found)
     # Read as written, the id in braces found no panel, and the filter was dropped: every
     # variant was listed, not the panel's.

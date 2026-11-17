@@ -229,7 +229,7 @@ describe('GenePanelsPage', () => {
     await waitFor(() => expect(screen.getByText('PanelA')).toBeInTheDocument());
     await userEvent.type(screen.getByLabelText(/Panel name/i), 'New');
     await userEvent.type(
-      screen.getByLabelText(/Genes \(comma or space separated\)/i),
+      screen.getByLabelText(/Genes \(HGNC symbols or Ensembl gene IDs, comma or space separated\)/i),
       'BAD1 BAD2'
     );
     await userEvent.click(screen.getByRole('button', { name: /create/i }));
