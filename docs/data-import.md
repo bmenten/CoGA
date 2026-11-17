@@ -2037,6 +2037,7 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 | SIFT, PolyPhen | `SIFT`, `PolyPhen` | filters, card |
 | Gene constraint | `pLI`, `MISSENSE_Z` | card, PP2 (where the gene profile has none) |
 | Transcript | `SYMBOL`, `Gene`, `Feature`, `BIOTYPE`, `Consequence`, `IMPACT`, `HGVSc`, `HGVSp`, `EXON`, `INTRON`, `CANONICAL`, `MANE_SELECT`, `MANE_PLUS_CLINICAL` | everywhere |
+| MANE RefSeq transcript | `MANE_SELECT`, else `MANE_PLUS_CLINICAL`: the RefSeq transcript MANE pairs with the entry's (`NM_007294.4`), a versioned `NM_`/`NR_` accession only | the card's ClinVar search (`NM_…:c.…`), the transcript list |
 | Genomic HGVS | `HGVSg` (`--hgvsg`; `--hgvsg_use_accession` writes it on the RefSeq accession) | the card's HGVS.g, the CSV's *HGVSg* and the signed record's variant description |
 | Allele of an entry | `ALLELE_NUM` (`--allele_number`), else `Allele` | a multi-allelic record's ALT |
 | UTRAnnotator | `5UTR_annotation`, `5UTR_consequence`, `Existing_InFrame_oORFs`, `Existing_OutOfFrame_oORFs`, `Existing_uORFs` | card |

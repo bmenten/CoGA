@@ -210,6 +210,50 @@ def test_small_variant_out_primary_in_flat_fields_others_in_transcripts() -> Non
     assert variant.transcripts[0].primary is False
 
 
+def test_small_variant_out_serves_the_mane_refseq_transcript() -> None:
+    # The RefSeq transcript VEP's MANE fields pair with a transcript, on the variant for its
+    # primary transcript and on each other transcript: the ClinVar link searches by it.
+    def _annotation(transcript_id: str, **values: object) -> dict[str, object]:
+        return {
+            "gene": "GENE1",
+            "transcript_id": transcript_id,
+            "impact": "MODERATE",
+            "effect": "missense_variant",
+            "hgvsc": f"{transcript_id}:c.100C>T",
+            **values,
+        }
+
+    record = SmallVariantRecord(
+        variant_key=None,
+        variant_id="v-mane-refseq",
+        chr="1",
+        start=1000,
+        end=1000,
+        ref="C",
+        alt="T",
+        source="clair3",
+        rsid=None,
+        filters=[],
+        gene_symbols=["GENE1"],
+        annotations=[
+            _annotation("ENST00000000001.5", mane_select=True, mane_refseq_id="NM_000001.2"),
+            _annotation("ENST00000000002.1", mane_plus_clinical=True, mane_refseq_id="NM_000002.1"),
+            _annotation("ENST00000000003.1"),
+        ],
+        calls=[_small_call("PROBAND", "0/1")],
+    )
+
+    variant = _small_variant_out(record, assembly_name="GRCh38", filter_annotation_hashes=None)
+
+    assert (variant.transcript_id, variant.mane_refseq_id) == ("ENST00000000001.5", "NM_000001.2")
+    assert {t.transcript_id: t.mane_refseq_id for t in variant.transcripts} == {
+        "ENST00000000002.1": "NM_000002.1",
+        "ENST00000000003.1": None,
+    }
+    # Served as a field of its own, not as an unnamed annotation value.
+    assert "mane_refseq_id" not in variant.annotation_extra
+
+
 def test_small_variant_out_says_where_a_male_is_hemizygous() -> None:
     # The ACMG dialog reads it to apply the sex-aware de novo rule: the PAR
     # bounds stay in one place, the backend.

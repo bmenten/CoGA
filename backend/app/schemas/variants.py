@@ -54,6 +54,10 @@ class SmallVariantTranscriptOut(BaseModel):
     canonical: bool = False
     mane_select: bool = False
     mane_plus_clinical: bool = False
+    # The RefSeq transcript VEP's MANE fields pair with this one (MANE Select's, else MANE
+    # Plus Clinical's): identical to it, so its c. HGVS reads the same on either. None where
+    # the transcript is in no MANE pair.
+    mane_refseq_id: Optional[str] = None
     primary: bool = False
 
 
@@ -211,6 +215,10 @@ class VariantOut(ApiDocumentModel):
     canonical: bool = False
     mane_select: bool = False
     mane_plus_clinical: bool = False
+    # Small variants: the RefSeq transcript VEP's MANE fields pair with the primary
+    # transcript (MANE Select's, else MANE Plus Clinical's), identical to it; the card's
+    # ClinVar link searches by it. None where the primary transcript is in no MANE pair.
+    mane_refseq_id: Optional[str] = None
     exon: Optional[str] = None
     intron: Optional[str] = None
     lof: Optional[str] = None

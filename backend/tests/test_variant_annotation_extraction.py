@@ -75,6 +75,47 @@ def test_extract_small_variant_annotations_from_csq() -> None:
     ]
 
 
+def test_mane_refseq_id_is_the_refseq_transcript_vep_pairs_with_the_entry() -> None:
+    # VEP's MANE_SELECT and MANE_PLUS_CLINICAL name the RefSeq transcript MANE pairs with the
+    # entry's Ensembl one, which the ClinVar link searches by: MANE Select's, else MANE Plus
+    # Clinical's, and only a versioned RefSeq transcript accession. Like the MANE flags, an
+    # entry without one clears what the record's INFO set.
+    state = AnnotationHeaderState()
+    update_annotation_header_state(
+        state,
+        '##INFO=<ID=CSQ,Number=.,Type=String,Description="Format: Allele|Consequence|SYMBOL|Feature'
+        '|MANE_SELECT|MANE_PLUS_CLINICAL">',
+    )
+
+    annotations = extract_small_variant_annotations(
+        {
+            "MANE_SELECT": "NM_000009.9",
+            "CSQ": ",".join(
+                [
+                    "A|missense_variant|GENE1|ENST1|NM_000001.2|",
+                    "A|missense_variant|GENE1|ENST2||NM_000002.3",
+                    "A|missense_variant|GENE1|ENST3|NM_000003.1|NM_000004.1",
+                    "A|missense_variant|GENE1|ENST4|YES|",
+                    "A|missense_variant|GENE1|ENST5|NM_000005|",
+                    "A|intron_variant|GENE1|ENST6||",
+                ]
+            ),
+        },
+        state,
+    )
+
+    assert [(a["transcript_id"], a.get("mane_refseq_id")) for a in annotations] == [
+        ("ENST1", "NM_000001.2"),
+        ("ENST2", "NM_000002.3"),
+        ("ENST3", "NM_000003.1"),
+        ("ENST4", None),
+        ("ENST5", None),
+        ("ENST6", None),
+    ]
+    # The flags read as before: a value of any kind is MANE.
+    assert [bool(a.get("mane_select")) for a in annotations] == [True, False, True, True, True, False]
+
+
 def test_extract_small_variant_annotations_from_info_fallback() -> None:
     state = AnnotationHeaderState()
 

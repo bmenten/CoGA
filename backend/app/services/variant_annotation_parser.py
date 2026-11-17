@@ -215,6 +215,25 @@ _SCORE_ALIASES = {
 # an entry without one clears from what the record's INFO set (_normalize_annotation_entry).
 _FLAG_KEYS = frozenset({"canonical", "mane_select", "mane_plus_clinical"})
 
+# VEP's MANE_SELECT and MANE_PLUS_CLINICAL name the RefSeq transcript MANE pairs with the
+# entry's Ensembl transcript (``NM_007294.4``). MANE pairs only transcripts that are identical
+# in sequence and exon structure, so a c. HGVS reads the same on either: the RefSeq one is
+# what ClinVar is searched by. MANE Select's is kept, else MANE Plus Clinical's, and only a
+# versioned RefSeq transcript accession; like the MANE flags, an entry without one clears
+# what the record's INFO set.
+MANE_REFSEQ_KEY = "mane_refseq_id"
+_MANE_REFSEQ_FIELDS = ("MANE_SELECT", "MANE_PLUS_CLINICAL")
+_MANE_REFSEQ_ID = re.compile(r"N[MR]_\d+\.\d+")
+
+
+def _mane_refseq_id(values: Dict[str, Any]) -> Optional[str]:
+    for name in _MANE_REFSEQ_FIELDS:
+        value = _clean_value(values.get(name))
+        if isinstance(value, str) and _MANE_REFSEQ_ID.fullmatch(value):
+            return value
+    return None
+
+
 _Aliases = Sequence[str]
 _CountAliases = tuple[_Aliases, _Aliases, _Aliases]
 
@@ -726,6 +745,9 @@ def _base_info_annotation(info: Dict[str, str]) -> Dict[str, Any]:
                 annotation[key] = parsed
         elif value is not None:
             annotation[key] = value
+    mane_refseq_id = _mane_refseq_id(info)
+    if mane_refseq_id is not None:
+        annotation[MANE_REFSEQ_KEY] = mane_refseq_id
 
     _apply_numeric_and_population_aliases(info, annotation, extra_seed={}, population_seed={})
     _tidy_clinvar(annotation)
@@ -783,6 +805,11 @@ def _normalize_annotation_entry(
                 annotation.pop(key, None)
         elif value is not None:
             annotation[key] = value
+    mane_refseq_id = _mane_refseq_id(raw_entry)
+    if mane_refseq_id is not None:
+        annotation[MANE_REFSEQ_KEY] = mane_refseq_id
+    else:
+        annotation.pop(MANE_REFSEQ_KEY, None)
 
     _apply_numeric_and_population_aliases(
         raw_entry,

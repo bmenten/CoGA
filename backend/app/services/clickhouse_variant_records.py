@@ -42,6 +42,9 @@ _KNOWN_ANNOTATION_KEYS = {
     "canonical",
     "mane_select",
     "mane_plus_clinical",
+    # VEP's MANE RefSeq transcript (variant_annotation_parser.MANE_REFSEQ_KEY), served
+    # as a field of its own.
+    "mane_refseq_id",
     "exon",
     "intron",
     "lof",

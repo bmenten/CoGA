@@ -2772,6 +2772,7 @@ export interface NiptVariantOut {
   canonical: boolean;
   mane_select: boolean;
   mane_plus_clinical: boolean;
+  mane_refseq_id: string | null;
   exon: string | null;
   intron: string | null;
   lof: string | null;
@@ -4292,6 +4293,7 @@ export interface SmallVariantTranscriptOut {
   canonical: boolean;
   mane_select: boolean;
   mane_plus_clinical: boolean;
+  mane_refseq_id: string | null;
   primary: boolean;
 }
 
@@ -4655,6 +4657,7 @@ export interface VariantOut {
   canonical: boolean;
   mane_select: boolean;
   mane_plus_clinical: boolean;
+  mane_refseq_id: string | null;
   exon: string | null;
   intron: string | null;
   lof: string | null;

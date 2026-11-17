@@ -51,6 +51,7 @@ const ABSENT_VARIANT_FIELDS: Omit<
   canonical: false,
   mane_select: false,
   mane_plus_clinical: false,
+  mane_refseq_id: null,
   exon: null,
   intron: null,
   lof: null,
@@ -144,6 +145,7 @@ export const transcript = (fields: Partial<SmallVariantTranscript>): SmallVarian
   canonical: false,
   mane_select: false,
   mane_plus_clinical: false,
+  mane_refseq_id: null,
   primary: false,
   ...fields,
 });

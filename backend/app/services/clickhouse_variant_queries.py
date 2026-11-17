@@ -23,7 +23,7 @@ from .clickhouse_variant_ids import (
     _structural_table_name,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
-from .variant_annotation_parser import _spliceai_delta
+from .variant_annotation_parser import MANE_REFSEQ_KEY, _spliceai_delta
 from .family_metadata_context import FamilyMetadataContext
 from .family_package_common import resolve_vcf_sample_id
 from .compound_het_phase import (
@@ -450,6 +450,7 @@ def _small_transcript_annotations(
                 canonical=_annotation_bool(annotation, "canonical"),
                 mane_select=_annotation_bool(annotation, "mane_select"),
                 mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical"),
+                mane_refseq_id=_annotation_text(annotation, MANE_REFSEQ_KEY),
                 primary=False,
             )
         )
@@ -1650,6 +1651,7 @@ def _small_variant_out(
         canonical=_annotation_bool(annotation, "canonical"),
         mane_select=_annotation_bool(annotation, "mane_select"),
         mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical"),
+        mane_refseq_id=_annotation_text(annotation, MANE_REFSEQ_KEY),
         exon=_annotation_text(annotation, "exon"),
         intron=_annotation_text(annotation, "intron"),
         lof=_annotation_text(annotation, "lof"),
