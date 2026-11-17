@@ -1,10 +1,11 @@
-// How the small-variant track marks a variant: the salient classes by a shape of their own, not
-// by the colour of one dot shape alone.
+// How the small-variant track marks a variant: ClinVar P/LP by a larger diamond, every other
+// class by the colour of a small dot.
 
 import { describe, expect, it } from 'vitest';
 
 import {
   SMALL_VARIANT_MARKS,
+  SMALL_VARIANT_MARK_ORDER,
   markDrawRank,
   smallVariantMarkExtent,
   smallVariantMarkKind,
@@ -36,27 +37,30 @@ describe('smallVariantMarkKind', () => {
 });
 
 describe('the marks', () => {
-  it('give the salient classes their own shape, not only a colour', () => {
-    const paths = new Set(
-      (['pathogenic', 'high', 'benign', 'other'] as const).map((kind) => smallVariantMarkPath(kind, 1.8)),
-    );
-    expect(paths.size).toBe(4);
-    // MODERATE and LOW share the dot; they differ by colour, and the tooltip names the impact.
-    expect(smallVariantMarkPath('moderate', 1.8)).toBe(smallVariantMarkPath('other', 1.8));
-    expect(SMALL_VARIANT_MARKS.moderate.color).not.toBe(SMALL_VARIANT_MARKS.other.color);
+  it('draw ClinVar P/LP as a diamond and every other class as a dot of its own colour', () => {
+    const dot = smallVariantMarkPath('other', 1.8);
+    expect(smallVariantMarkPath('pathogenic', 1.8)).not.toBe(dot);
+    (['benign', 'high', 'moderate'] as const).forEach((kind) => {
+      expect(smallVariantMarkPath(kind, 1.8)).toBe(dot);
+    });
+    const colours = SMALL_VARIANT_MARK_ORDER.map((kind) => SMALL_VARIANT_MARKS[kind].color);
+    expect(new Set(colours).size).toBe(colours.length);
+    expect(SMALL_VARIANT_MARKS).toMatchObject({
+      pathogenic: { color: '#dc2626' }, // red
+      benign: { color: '#16a34a' }, // green
+      high: { color: '#ea580c' }, // orange
+      moderate: { color: '#eab308' }, // yellow
+      other: { color: '#9ca3af' }, // grey
+    });
   });
 
-  it('are larger for the more salient classes, and drawn over the others', () => {
+  it('draw P/LP larger, and the more salient classes over the others', () => {
     const extent = (kind: Parameters<typeof smallVariantMarkExtent>[0]) => smallVariantMarkExtent(kind, 1.8);
     expect(extent('pathogenic')).toBeGreaterThan(extent('high'));
-    expect(extent('high')).toBeGreaterThan(extent('other'));
+    expect(extent('high')).toBe(extent('other'));
     expect(markDrawRank('pathogenic')).toBeGreaterThan(markDrawRank('high'));
     expect(markDrawRank('high')).toBeGreaterThan(markDrawRank('moderate'));
-    expect(markDrawRank('moderate')).toBeGreaterThan(markDrawRank('other'));
-  });
-
-  it('draws a benign variant hollow, so it recedes', () => {
-    expect(SMALL_VARIANT_MARKS.benign.hollow).toBe(true);
-    expect(SMALL_VARIANT_MARKS.pathogenic.hollow).toBeUndefined();
+    expect(markDrawRank('moderate')).toBeGreaterThan(markDrawRank('benign'));
+    expect(markDrawRank('benign')).toBeGreaterThan(markDrawRank('other'));
   });
 });

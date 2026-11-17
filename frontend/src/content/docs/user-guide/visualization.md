@@ -19,15 +19,15 @@ In the chromosome view each small variant is drawn by its class, with a legend o
 
 | Mark | Meaning |
 | --- | --- |
-| Red diamond | ClinVar pathogenic or likely pathogenic |
-| Orange triangle | HIGH impact |
-| Green dot | MODERATE impact |
-| Grey dot | LOW impact or other |
-| Hollow blue square | ClinVar benign or likely benign |
+| Red diamond | ClinVar pathogenic or likely pathogenic, whatever the impact |
+| Green dot | ClinVar benign or likely benign |
+| Orange dot | HIGH impact |
+| Yellow dot | MODERATE impact |
+| Grey dot | LOW or MODIFIER impact, or none |
 
-A variant with a conflicting or uncertain ClinVar record is drawn by its impact. A review tag draws a
-ring in the tag's colour around the mark; the mark itself does not change. Hover a mark for its impact,
-ClinVar status and parental origin.
+A variant with a conflicting or uncertain ClinVar record is drawn by its impact. The dots differ by
+colour only: hover a mark for its impact, ClinVar status and parental origin. A review tag draws a ring
+in the tag's colour around the mark; the mark itself does not change.
 
 In a window of 250 kb or less the track draws every variant of the sample. In a wider window it draws
 only the variants that are ClinVar pathogenic or likely pathogenic, or of HIGH or MODERATE impact on a

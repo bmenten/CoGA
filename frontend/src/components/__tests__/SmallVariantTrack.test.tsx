@@ -31,7 +31,6 @@ const drawnMarks = (container: HTMLElement) =>
       return {
         kind: mark.getAttribute('data-variant-mark'),
         fill: mark.getAttribute('fill'),
-        stroke: mark.getAttribute('stroke'),
         x: Number(x),
         y: Number(y),
       };
@@ -327,10 +326,9 @@ test('colors ClinVar benign/pathogenic; other ClinVar falls through to impact', 
 
   await waitFor(() => expect(drawnMarks(container)).toHaveLength(3));
   const [likelyPathogenic, likelyBenign, conflicting] = drawnMarks(container);
-  // Shape carries the ClinVar class as well as colour: a diamond for P/LP, a
-  // hollow square for B/LB.
+  // A red diamond for P/LP, a green dot for B/LB.
   expect(likelyPathogenic).toMatchObject({ kind: 'pathogenic', fill: '#dc2626' });
-  expect(likelyBenign).toMatchObject({ kind: 'benign', fill: 'white', stroke: '#60a5fa' });
+  expect(likelyBenign).toMatchObject({ kind: 'benign', fill: '#16a34a' });
   // "Conflicting" is not benign/pathogenic → marked by impact (none → a grey dot).
   expect(conflicting).toMatchObject({ kind: 'other', fill: '#9ca3af' });
 });
@@ -359,8 +357,8 @@ test('colors variants by functional impact when no ClinVar override applies', as
 
   await waitFor(() => expect(drawnMarks(container)).toHaveLength(4));
   const [high, moderate, low, modifier] = drawnMarks(container);
-  expect(high).toMatchObject({ kind: 'high', fill: '#fb923c' }); // orange triangle
-  expect(moderate).toMatchObject({ kind: 'moderate', fill: '#4ade80' }); // green dot
+  expect(high).toMatchObject({ kind: 'high', fill: '#ea580c' }); // orange dot
+  expect(moderate).toMatchObject({ kind: 'moderate', fill: '#eab308' }); // yellow dot
   expect(low).toMatchObject({ kind: 'other', fill: '#9ca3af' }); // grey dot
   expect(modifier).toMatchObject({ kind: 'other', fill: '#9ca3af' }); // grey dot (lowest)
   // The salient marks are drawn last, so dense low-impact dots cannot cover them.

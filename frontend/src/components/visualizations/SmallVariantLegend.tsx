@@ -5,7 +5,7 @@ import {
   smallVariantMarkPath,
 } from '../../lib/smallVariantMarks';
 
-// Larger than the track's dots, so the shapes can be told apart; the proportions are the track's.
+// Larger than the track's dots, so the colours can be told apart; the proportions are the track's.
 const LEGEND_RADIUS = 2.4;
 
 const Swatch: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -14,7 +14,7 @@ const Swatch: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </svg>
 );
 
-/** The key to the small-variant marks: shape and size carry the class, not colour alone. */
+/** The key to the small-variant marks: the P/LP diamond, the coloured dots and the tag ring. */
 const SmallVariantLegend: React.FC = () => (
   <span className="small-variant-legend" role="group" aria-label="Small-variant marks">
     {SMALL_VARIANT_MARK_ORDER.map((kind) => {
@@ -22,12 +22,7 @@ const SmallVariantLegend: React.FC = () => (
       return (
         <span key={kind} className="small-variant-legend-item" data-legend-mark={kind}>
           <Swatch>
-            <path
-              d={smallVariantMarkPath(kind, LEGEND_RADIUS)}
-              fill={style.hollow ? 'white' : style.color}
-              stroke={style.hollow ? style.color : 'none'}
-              strokeWidth={style.hollow ? 1 : 0}
-            />
+            <path d={smallVariantMarkPath(kind, LEGEND_RADIUS)} fill={style.color} />
           </Swatch>
           {style.label}
         </span>
