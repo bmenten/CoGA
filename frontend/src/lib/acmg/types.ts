@@ -90,6 +90,11 @@ export interface AcmgSelection {
   notApplicable?: boolean;
 }
 
+// The phenotype part of ClinGen's de novo scoring (SVI recommendation for PS2 and PM6): how
+// specific the proband's phenotype is for the gene, read from the gene–phenotype match score
+// (see evaluate.ts, deNovoPhenotypeTier).
+export type AcmgDeNovoPhenotypeTier = 'highly_specific' | 'consistent' | 'heterogeneous' | 'not_consistent';
+
 export type AcmgClassKey =
   | 'acmg_class_1'
   | 'acmg_class_2'
@@ -160,11 +165,28 @@ export interface AcmgParentLink {
   role: 'father' | 'mother';
 }
 
+// What the Sample QC says of one proband–parent pair (see pedigree.ts, parentageFromSampleQc):
+//  - 'confirmed'   the genotypes are those of parent and child (KING kinship and IBS0 pass,
+//                  and the proband's Mendelian check, where one ran with this parent, passes)
+//  - 'refuted'     the genotypes are not those of parent and child (the check fails)
+//  - 'unconfirmed' the check could not tell (a warning, too few sites, a Mendelian warning)
+export interface AcmgParentageCheck {
+  status: 'confirmed' | 'refuted' | 'unconfirmed';
+  // The Sample QC's own words for the pair, with its kinship, IBS0 and sites.
+  message: string;
+}
+
 export interface AcmgFamilyContext {
   members: AcmgFamilyMemberCall[];
   // Who is whose parent. PS2/PM6 compare the proband with the parents linked here, as the
   // backend's de novo mode does; without links, de novo is not assessed.
   parentLinks?: AcmgParentLink[];
+  // The Sample QC's parentage checks of the proband, by the parent's sample id: a de novo
+  // variant is PS2 where they confirm the parents, PM6 where they do not. Absent while the
+  // Sample QC is not loaded.
+  parentage?: Record<string, AcmgParentageCheck>;
+  // The Sample QC could not be loaded: parentage is unknown, not unconfirmed by a check.
+  parentageUnavailable?: boolean;
 }
 
 // mtDNA locus category from the MT_LOCI map (drives mt-specific criteria).

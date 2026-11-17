@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import { evaluateAcmg, type AcmgVariantInput } from '../evaluate';
-import { buildInitialSelections } from '../index';
-import type { AcmgCriterionCode, AcmgFamilyMemberCall, AcmgParentLink, AcmgSuggestion } from '../types';
+import { deNovoPhenotypeTier, deNovoStrength, evaluateAcmg, type AcmgVariantInput } from '../evaluate';
+import { buildInitialSelections, criteriaBlocking, fitCappedCriteria, resolveExclusiveCriteria } from '../index';
+import type {
+  AcmgCriterionCode,
+  AcmgFamilyContext,
+  AcmgFamilyMemberCall,
+  AcmgParentageCheck,
+  AcmgParentLink,
+  AcmgPhenotypeContext,
+  AcmgSuggestion,
+} from '../types';
 
 function codes(suggestions: AcmgSuggestion[]): AcmgCriterionCode[] {
   return suggestions.map((s) => s.code);
@@ -343,11 +351,16 @@ const trioLinks: AcmgParentLink[] = [
   { childId: 'P', parentId: 'M', role: 'mother' },
 ];
 
+// A phenotype highly specific for the gene (gene–phenotype match 0.72): an assumed de novo
+// variant scores 1 point, PM6 Moderate, and is applied. Without a score the de novo strength is
+// not assessed and PM6 is offered for review.
+const SPECIFIC: AcmgPhenotypeContext = { probandHpoIds: ['HP:0001250'], phenotypeScore: 0.72 };
+
 describe('evaluateAcmg — trio / segregation', () => {
   const probandHet = { sampleId: 'P', role: 'proband', affected: true, gt: '0/1' };
 
   it('flags de novo (PM6) when absent in both sequenced parents', () => {
-    const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, {
+    const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, SPECIFIC, {
       members: [
         probandHet,
         { sampleId: 'F', role: 'father', affected: false, gt: '0/0' },
@@ -406,7 +419,7 @@ describe('evaluateAcmg — trio / segregation', () => {
   });
 
   it('takes the affected member for the proband when no member has that role', () => {
-    const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, {
+    const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, SPECIFIC, {
       members: [
         { sampleId: 'F', role: 'father', affected: false, gt: '0/0' },
         { sampleId: 'P', role: 'child', affected: true, gt: '0/1' },
@@ -458,7 +471,7 @@ describe('evaluateAcmg — de novo against the parents the pedigree names', () =
     { childId: 'F', parentId: 'GM', role: 'mother' },
   ];
   const deNovo = (members: AcmgFamilyMemberCall[], parentLinks?: AcmgParentLink[]) => {
-    const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, { members, parentLinks });
+    const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, SPECIFIC, { members, parentLinks });
     return { pm6: find(suggestions, 'PM6'), ps2: find(suggestions, 'PS2') };
   };
 
@@ -526,17 +539,18 @@ describe('evaluateAcmg — de novo against the parents the pedigree names', () =
     );
 
     expect(pm6?.disposition).toBe('consider');
+    expect(pm6?.strength).toBe('moderate');
     expect(pm6?.evidence).toBe(
-      "Absent in both sequenced parents, but the father's reference call has read depth 5, below the 8 the de novo filter requires, so an inherited allele may have been missed — review before applying.",
+      "Absent in both sequenced parents (de novo), parentage not confirmed: the Sample QC is not loaded, but the father's reference call has read depth 5, below the 8 the de novo filter requires, so an inherited allele may have been missed. Phenotype highly specific for the gene (gene–phenotype match 0.72): 1 point by ClinGen's de novo points, Moderate — review before applying.",
     );
-    expect(ps2).toBeUndefined();
+    expect(ps2).toMatchObject({ disposition: 'not_applicable', evidence: 'Parentage not confirmed (the Sample QC is not loaded): PM6, not PS2.' });
   });
 
   it('names every parent whose reference call is too shallow', () => {
     const { pm6 } = deNovo([call('P', 'proband', '0/1'), call('F', 'father', '0/0', 5), call('M', 'mother', '0/0', 6)], trioLinks);
 
     expect(pm6?.disposition).toBe('consider');
-    expect(pm6?.evidence).toMatch(/but the father's and the mother's reference calls have read depth 5 and 6, below the 8/);
+    expect(pm6?.evidence).toMatch(/, but the father's and the mother's reference calls have read depth 5 and 6, below the 8/);
   });
 
   // As in the backend's de novo mode, which wants a heterozygous proband on an autosome, in a
@@ -546,9 +560,9 @@ describe('evaluateAcmg — de novo against the parents the pedigree names', () =
 
     expect(pm6?.disposition).toBe('consider');
     expect(pm6?.evidence).toBe(
-      'Absent in both sequenced parents, but the proband is homozygous, which a de novo event alone does not explain (a deletion of the other allele, uniparental disomy or a genotyping error) — review before applying.',
+      "Absent in both sequenced parents (de novo), parentage not confirmed: the Sample QC is not loaded, but the proband is homozygous, which a de novo event alone does not explain (a deletion of the other allele, uniparental disomy or a genotyping error). Phenotype highly specific for the gene (gene–phenotype match 0.72): 1 point by ClinGen's de novo points, Moderate — review before applying.",
     );
-    expect(ps2).toBeUndefined();
+    expect(ps2).toMatchObject({ disposition: 'not_applicable', evidence: 'Parentage not confirmed (the Sample QC is not loaded): PM6, not PS2.' });
   });
 
   it('names both reasons for a homozygous proband with a shallow parent', () => {
@@ -556,7 +570,7 @@ describe('evaluateAcmg — de novo against the parents the pedigree names', () =
 
     expect(pm6?.disposition).toBe('consider');
     expect(pm6?.evidence).toMatch(
-      /but the proband is homozygous, .*genotyping error\), and the father's reference call has read depth 5, below the 8 .* — review before applying\.$/,
+      /, but the proband is homozygous, .*genotyping error\), and the father's reference call has read depth 5, below the 8 .*Moderate — review before applying\.$/,
     );
   });
 
@@ -591,7 +605,7 @@ describe('evaluateAcmg — de novo in a son where he is hemizygous', () => {
   const onX: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrX', hemizygous_in_males: true };
   const onY: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrY', hemizygous_in_males: true };
   const pm6 = (variant: AcmgVariantInput, members: AcmgFamilyMemberCall[], parentLinks: AcmgParentLink[] = trioLinks) =>
-    find(evaluateAcmg(variant, undefined, undefined, { members, parentLinks }), 'PM6');
+    find(evaluateAcmg(variant, undefined, SPECIFIC, { members, parentLinks }), 'PM6');
 
   it("follows the son's mother on his X, not a grandmother who shares the role", () => {
     // The maternal grandmother (MGM) is listed first, so a lookup by role finds her.
@@ -619,7 +633,7 @@ describe('evaluateAcmg — de novo in a son where he is hemizygous', () => {
 
     expect(suggestion?.disposition).toBe('consider');
     expect(suggestion?.evidence).toBe(
-      "Absent in the mother, who passes a son his X, but the mother's reference call has read depth 5, below the 8 the de novo filter requires, so an inherited allele may have been missed — review before applying.",
+      "Absent in the mother, who passes a son his X (de novo), parentage not confirmed: the Sample QC is not loaded, but the mother's reference call has read depth 5, below the 8 the de novo filter requires, so an inherited allele may have been missed. Phenotype highly specific for the gene (gene–phenotype match 0.72): 1 point by ClinGen's de novo points, Moderate — review before applying.",
     );
     // The other parent does not pass a son his X: only an ALT call there counts against de novo.
     expect(pm6(onX, [son('1'), mother('0/0', 30), father('0', 3)])?.disposition).toBe('applies');
@@ -629,7 +643,7 @@ describe('evaluateAcmg — de novo in a son where he is hemizygous', () => {
     const suggestion = pm6(onY, [son('1'), father('0'), mother(undefined)]);
     expect(suggestion?.disposition).toBe('applies');
     expect(suggestion?.evidence).toBe(
-      'Absent in the father, who passes a son his Y (de novo) — parentage not molecularly confirmed (use PS2 if confirmed).',
+      "Absent in the father, who passes a son his Y (de novo), parentage not confirmed: the Sample QC is not loaded. Phenotype highly specific for the gene (gene–phenotype match 0.72): 1 point by ClinGen's de novo points, Moderate.",
     );
   });
 
@@ -671,6 +685,168 @@ describe('evaluateAcmg — de novo in a son where he is hemizygous', () => {
     const daughter: AcmgFamilyMemberCall = { sampleId: 'P', role: 'proband', affected: true, gt: '0/1', sex: 'female' };
     expect(pm6(onX, [daughter, mother('0/0'), father('./.')])?.disposition).toBe('not_applicable');
     expect(pm6(onX, [daughter, mother('0/0'), father('0')])?.disposition).toBe('applies');
+  });
+});
+
+// PS2 where the Sample QC confirms the parents, PM6 where it does not, at the strength ClinGen's
+// de novo points (SVI recommendation) give the observation: confirmed or assumed, by how
+// specific the phenotype is for the gene.
+describe('evaluateAcmg — de novo strength from the Sample QC and the phenotype', () => {
+  const confirmed: AcmgParentageCheck = { status: 'confirmed', message: 'Confirmed parent-child (kinship 0.250, IBS0 0.01%, 9000 sites).' };
+  const trio = (
+    parentage?: Record<string, AcmgParentageCheck>,
+    extra: Partial<AcmgFamilyContext> = {},
+    affected: { proband?: boolean; father?: boolean } = {},
+  ): AcmgFamilyContext => ({
+    members: [
+      { sampleId: 'P', role: 'proband', affected: affected.proband ?? true, gt: '0/1' },
+      { sampleId: 'F', role: 'father', affected: affected.father ?? false, gt: '0/0' },
+      { sampleId: 'M', role: 'mother', affected: false, gt: '0/0' },
+    ],
+    parentLinks: trioLinks,
+    parentage,
+    ...extra,
+  });
+  const scored = (phenotypeScore: number): AcmgPhenotypeContext => ({ probandHpoIds: ['HP:0001250'], phenotypeScore });
+  const deNovo = (family: AcmgFamilyContext, phenotype?: AcmgPhenotypeContext, variant: AcmgVariantInput = { effect: 'missense_variant' }) => {
+    const suggestions = evaluateAcmg(variant, undefined, phenotype, family);
+    return { ps2: find(suggestions, 'PS2'), pm6: find(suggestions, 'PM6') };
+  };
+  const bothConfirmed = { F: confirmed, M: confirmed };
+
+  it('applies PS2 where the Sample QC confirms both parents, at the strength the phenotype gives', () => {
+    const { ps2, pm6 } = deNovo(trio(bothConfirmed), scored(0.72));
+
+    expect(ps2).toEqual({
+      code: 'PS2',
+      strength: 'strong',
+      disposition: 'applies',
+      evidence:
+        "Absent in both sequenced parents (de novo), maternity and paternity confirmed by the Sample QC. Phenotype highly specific for the gene (gene–phenotype match 0.72): 2 points by ClinGen's de novo points, Strong.",
+    });
+    expect(pm6).toMatchObject({
+      disposition: 'not_applicable',
+      evidence: 'Maternity and paternity confirmed by the Sample QC: PS2, not PM6.',
+    });
+  });
+
+  it.each([
+    [0.72, 'strong', 'moderate'],
+    [0.6, 'strong', 'moderate'],
+    [0.45, 'moderate', 'supporting'],
+    [0.3, 'moderate', 'supporting'],
+    [0.12, 'supporting', null],
+  ] as const)('scores a phenotype match of %s: PS2 %s, PM6 %s', (score, ps2Strength, pm6Strength) => {
+    expect(deNovo(trio(bothConfirmed), scored(score)).ps2).toMatchObject({ strength: ps2Strength, disposition: 'applies' });
+    const pm6 = deNovo(trio(), scored(score)).pm6;
+    if (pm6Strength) {
+      expect(pm6).toMatchObject({ strength: pm6Strength, disposition: 'applies' });
+    } else {
+      // 0.25 points: below Supporting, offered for review with further cases.
+      expect(pm6).toMatchObject({ strength: 'supporting', disposition: 'consider' });
+      expect(pm6?.evidence).toMatch(
+        /0\.25 points by ClinGen's de novo points, below the 0\.5 of Supporting: apply only with further de novo cases in unrelated patients — review before applying\.$/,
+      );
+    }
+  });
+
+  it('offers a de novo variant for review where the phenotype is not shown consistent with the gene', () => {
+    const { ps2 } = deNovo(trio(bothConfirmed), scored(0));
+    expect(ps2).toMatchObject({ strength: 'supporting', disposition: 'consider' });
+    expect(ps2?.evidence).toMatch(/not shown consistent with the gene .*0 points .* apply only where the phenotype fits the gene/);
+  });
+
+  it('leaves the strength to the analyst where the phenotype is not scored, and says why', () => {
+    const cases: Array<[AcmgPhenotypeContext | undefined, string]> = [
+      [undefined, 'the proband has no HPO terms'],
+      [{ probandHpoUnavailable: true }, "the family's HPO terms could not be loaded"],
+      [{ probandHpoIds: ['HP:0001250'] }, 'there is no gene–phenotype match score for the gene'],
+    ];
+    for (const [phenotype, why] of cases) {
+      const { ps2 } = deNovo(trio(bothConfirmed), phenotype);
+      expect(ps2).toMatchObject({ strength: 'moderate', disposition: 'consider' });
+      expect(ps2?.evidence).toContain(`The phenotype's specificity for the gene is not assessed (${why}): set the strength by ClinGen's de novo points`);
+      expect(deNovo(trio(), phenotype).pm6).toMatchObject({ strength: 'supporting', disposition: 'consider' });
+    }
+  });
+
+  it('assumes de novo (PM6) where the Sample QC does not confirm a parent, and says why', () => {
+    const warned: AcmgParentageCheck = { status: 'unconfirmed', message: 'Too few shared sites to assess relatedness.' };
+    const cases: Array<[AcmgFamilyContext, string]> = [
+      [trio(), 'the Sample QC is not loaded'],
+      [trio(undefined, { parentageUnavailable: true }), 'the Sample QC could not be loaded'],
+      [trio({ F: confirmed }), 'the Sample QC has no parent-child check of the proband and the mother'],
+      [trio({ F: confirmed, M: warned }), "the Sample QC's check of the proband and the mother is not a pass (Too few shared sites to assess relatedness.)"],
+    ];
+    for (const [family, why] of cases) {
+      const { ps2, pm6 } = deNovo(family, scored(0.72));
+      expect(pm6).toMatchObject({ strength: 'moderate', disposition: 'applies' });
+      expect(pm6?.evidence).toContain(`(de novo), parentage not confirmed: ${why}.`);
+      expect(ps2).toEqual({
+        code: 'PS2',
+        strength: 'strong',
+        disposition: 'not_applicable',
+        evidence: `Parentage not confirmed (${why}): PM6, not PS2.`,
+      });
+    }
+  });
+
+  it('argues against both where the Sample QC finds a parent is not the parent', () => {
+    const refuted: AcmgParentageCheck = { status: 'refuted', message: 'Recorded parent-child but genotypes look unrelated.' };
+    const { ps2, pm6 } = deNovo(trio({ F: refuted, M: confirmed }), scored(0.72));
+    const evidence =
+      'Absent in both sequenced parents, but the Sample QC finds the proband and the father are not parent and child (Recorded parent-child but genotypes look unrelated.) — resolve the Sample QC before assessing de novo.';
+    expect(ps2).toMatchObject({ disposition: 'contraindicated', evidence });
+    expect(pm6).toMatchObject({ disposition: 'contraindicated', evidence });
+  });
+
+  it("needs only the mother's parentage for a son's X variant", () => {
+    const son: AcmgFamilyContext = {
+      members: [
+        { sampleId: 'P', role: 'proband', affected: true, gt: '1', sex: 'male' },
+        { sampleId: 'M', role: 'mother', affected: false, gt: '0/0', sex: 'female' },
+        { sampleId: 'F', role: 'father', affected: false, gt: '0', sex: 'male' },
+      ],
+      parentLinks: trioLinks,
+      parentage: { M: confirmed },
+    };
+    const { ps2 } = deNovo(son, scored(0.72), { effect: 'missense_variant', chr: 'chrX', hemizygous_in_males: true });
+    expect(ps2).toMatchObject({ strength: 'strong', disposition: 'applies' });
+    expect(ps2?.evidence).toMatch(/^Absent in the mother, who passes a son his X \(de novo\), maternity confirmed by the Sample QC\./);
+  });
+
+  it('offers a de novo variant for review in a proband not recorded as affected or with an affected parent', () => {
+    const unaffected = deNovo(trio(bothConfirmed, {}, { proband: false }), scored(0.72)).ps2;
+    expect(unaffected).toMatchObject({ strength: 'strong', disposition: 'consider' });
+    expect(unaffected?.evidence).toContain(', but the proband is not recorded as affected.');
+
+    const familyHistory = deNovo(trio(bothConfirmed, {}, { father: true }), scored(0.72)).ps2;
+    expect(familyHistory).toMatchObject({ disposition: 'consider' });
+    expect(familyHistory?.evidence).toContain(
+      ', but the father is recorded as affected, and the de novo criteria assume no family history.',
+    );
+  });
+
+  it("reads ClinGen's points as strengths and the match score as the phenotype's tier", () => {
+    expect([4, 2, 1.5, 1, 0.5, 0.25, 0].map(deNovoStrength)).toEqual([
+      'very_strong',
+      'strong',
+      'moderate',
+      'moderate',
+      'supporting',
+      null,
+      null,
+    ]);
+    expect([0.6, 0.59, 0.3, 0.29, 0.01, 0].map((score) => deNovoPhenotypeTier({ phenotypeScore: score })?.tier)).toEqual([
+      'highly_specific',
+      'consistent',
+      'consistent',
+      'heterogeneous',
+      'heterogeneous',
+      'not_consistent',
+    ]);
+    expect(deNovoPhenotypeTier({ phenotypeScore: null })).toBeNull();
+    expect(deNovoPhenotypeTier(undefined)).toBeNull();
   });
 });
 
@@ -749,6 +925,64 @@ describe('buildInitialSelections', () => {
       accepted: false,
       autoSuggested: false,
       contraindicated: true,
+    });
+  });
+
+  // Two criteria never applied together are never both checked.
+  it('keeps one criterion of an exclusive pair checked: the first listed, the stronger, or a saved one', () => {
+    const accepted = (selections: ReturnType<typeof buildInitialSelections>) =>
+      selections.filter((selection) => selection.accepted).map((selection) => selection.code);
+
+    // Both suggested: PVS1 is listed first and scores more than PP3.
+    expect(
+      accepted(
+        buildInitialSelections([
+          { code: 'PVS1', strength: 'very_strong', evidence: 'x', disposition: 'applies' },
+          { code: 'PP3', strength: 'supporting', evidence: 'x', disposition: 'applies' },
+        ]),
+      ),
+    ).toEqual(['PVS1']);
+    // The stronger one, though listed second.
+    expect(
+      accepted(
+        resolveExclusiveCriteria([
+          { code: 'PP3', strength: 'supporting', accepted: true, autoSuggested: true },
+          { code: 'BP4', strength: 'strong', accepted: true, autoSuggested: true },
+        ]),
+      ),
+    ).toEqual(['BP4']);
+    // A saved criterion over a fresh suggestion, whatever it scores.
+    const kept = buildInitialSelections(
+      [{ code: 'PS2', strength: 'strong', evidence: 'fresh', disposition: 'applies' }],
+      [{ code: 'PM6', strength: 'supporting', accepted: true, autoSuggested: false }],
+    );
+    expect(accepted(kept)).toEqual(['PM6']);
+    expect(kept.find((selection) => selection.code === 'PS2')).toMatchObject({ accepted: false, autoSuggested: true });
+  });
+
+  // PM1 and PP3 together count at most Strong (4 points); either alone keeps its strength.
+  it('keeps PM1 and PP3 within Strong together, lowering or unchecking the one not kept', () => {
+    const pp3 = (selections: ReturnType<typeof buildInitialSelections>) => selections.find((selection) => selection.code === 'PP3');
+    // A saved PM1 Moderate beside a fresh PP3 Strong: PP3 lowered to Moderate (2 + 2 = 4).
+    const lowered = buildInitialSelections(
+      [{ code: 'PP3', strength: 'strong', evidence: 'REVEL 0.95', disposition: 'applies' }],
+      [{ code: 'PM1', strength: 'moderate', accepted: true, autoSuggested: false }],
+    );
+    expect(pp3(lowered)).toMatchObject({ accepted: true, strength: 'moderate' });
+
+    // PM1 set to Strong leaves PP3 no room: unchecked, and blocked while PM1 stays Strong.
+    const pm1Strong = { code: 'PM1' as const, strength: 'strong' as const, accepted: true, autoSuggested: false };
+    const fitted = fitCappedCriteria(
+      [pm1Strong, { code: 'PP3', strength: 'supporting', accepted: true, autoSuggested: true }],
+      'PM1',
+    );
+    expect(pp3(fitted)).toMatchObject({ accepted: false });
+    expect(criteriaBlocking('PP3', { PM1: pm1Strong })).toEqual(['PM1']);
+    expect(criteriaBlocking('PP3', { PM1: { ...pm1Strong, strength: 'moderate' } })).toEqual([]);
+    // Alone, PM1 keeps any strength it allows.
+    expect(fitCappedCriteria([{ ...pm1Strong, strength: 'very_strong' }], 'PM1')[0]).toMatchObject({
+      accepted: true,
+      strength: 'very_strong',
     });
   });
 

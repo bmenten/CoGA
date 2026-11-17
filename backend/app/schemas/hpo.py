@@ -168,6 +168,18 @@ class FamilyPhenotypeMatchOut(BaseModel):
     source: str = "Monarch Initiative semsim"
 
 
+class FamilyGenePhenotypeScoreOut(BaseModel):
+    """How well one gene's Monarch phenotypes match the family's affected members' present HPO
+    terms: the score the phenotype-prioritised ranking gives the gene (normalised Resnik
+    best-match average, 0 to 1), with the patient terms it matched best. ``score`` is None when
+    the family has no present HPO terms or the gene no Monarch phenotypes."""
+
+    symbol: str
+    score: Optional[float] = None
+    hpo_count: int = 0
+    matched: List[PhenotypeTermRefOut] = Field(default_factory=list)
+
+
 class HpoOntologyImportOut(BaseModel):
     terms: int
     synonyms: int

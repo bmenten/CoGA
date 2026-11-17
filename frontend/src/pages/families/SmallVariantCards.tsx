@@ -53,12 +53,16 @@ import {
   alphaMissenseTone,
   caddTone,
   polyphenTone,
-  PREDICTOR_TONE_LABELS,
   revelTone,
   siftTone,
   spliceAiTone,
-  type PredictorTone,
 } from './inSilicoTones';
+import PredictorMark, {
+  ALPHA_MISSENSE_CLASS_READING,
+  SEQR_THRESHOLDS,
+  SPLICEAI_THRESHOLDS,
+  type PredictorReading,
+} from './PredictorMark';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 const GENOTYPE_COLUMNS: GenotypeColumn[] = [
@@ -204,31 +208,6 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
     primary: true,
   };
   return normalizeTranscriptFlags([primary, ...listed]);
-};
-
-interface SilicoRow {
-  label: string;
-  value: string;
-  // How the value reads, for the mark before it; null for a gene constraint, which has none.
-  tone: PredictorTone | null;
-  // What the thresholds behind the mark are.
-  basis?: string;
-}
-
-const SEQR_THRESHOLDS = "seqr's thresholds, from ClinGen's PP3/BP4 calibration";
-
-/** The coloured mark before a predictor's value, as seqr shows it. */
-const PredictorMark = ({ row }: { row: SilicoRow }) => {
-  if (!row.tone) return null;
-  const reading = `${row.label} ${row.value}: ${PREDICTOR_TONE_LABELS[row.tone]}`;
-  return (
-    <span
-      className={`variant-card-predictor-mark variant-card-predictor-mark--${row.tone}`}
-      role="img"
-      aria-label={PREDICTOR_TONE_LABELS[row.tone]}
-      title={row.basis ? `${reading} (${row.basis})` : reading}
-    />
-  );
 };
 
 const transcriptRegionLabel = (transcript: SmallVariantTranscript) =>
@@ -755,7 +734,7 @@ export default function SmallVariantCards({
         ].filter((row) => row.label === 'gnomAD' || row.value !== '—');
         // Each predictor with a mark for how its value reads; pLI and Missense Z are the gene's
         // constraint, not a prediction for the variant, and have none.
-        const silicoCandidates: Array<SilicoRow | null> = [
+        const silicoCandidates: Array<PredictorReading | null> = [
           typeof variant.cadd_phred === 'number'
             ? { label: 'CADD', value: formatScore(variant.cadd_phred), tone: caddTone(variant.cadd_phred), basis: SEQR_THRESHOLDS }
             : null,
@@ -770,7 +749,7 @@ export default function SmallVariantCards({
                 basis:
                   typeof variant.alpha_missense_pathogenicity === 'number'
                     ? SEQR_THRESHOLDS
-                    : 'its class, as the ACMG evaluation reads it',
+                    : ALPHA_MISSENSE_CLASS_READING,
               }
             : null,
           typeof variant.spliceai_max === 'number'
@@ -778,7 +757,7 @@ export default function SmallVariantCards({
                 label: 'SpliceAI',
                 value: formatSpliceAi(variant) ?? '—',
                 tone: spliceAiTone(variant.spliceai_max),
-                basis: 'the SpliceAI cut-offs of the ACMG evaluation',
+                basis: SPLICEAI_THRESHOLDS,
               }
             : null,
           variant.sift
@@ -799,7 +778,7 @@ export default function SmallVariantCards({
             ? { label: 'Missense Z', value: formatScore(variant.gene_missense_z), tone: null }
             : null,
         ];
-        const silicoRows = silicoCandidates.filter((item): item is SilicoRow => Boolean(item));
+        const silicoRows = silicoCandidates.filter((item): item is PredictorReading => Boolean(item));
         const ic = variant.internal_cohort;
 
         return (
@@ -1138,7 +1117,7 @@ export default function SmallVariantCards({
                           <div key={item.label}>
                             <dt>{item.label}</dt>
                             <dd>
-                              <PredictorMark row={item} />
+                              <PredictorMark reading={item} />
                               {item.value}
                             </dd>
                           </div>

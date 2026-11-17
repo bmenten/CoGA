@@ -33,11 +33,19 @@ the family genotypes, and scores them on the ClinGen points scale.
 - Each criterion shows as **checked** (the data supports it), **●** (consider), **✕** (the data argues
   against) or **n/a** (cannot apply). Hover it for the evidence; click to change it, and pick its
   strength. Only checked criteria count.
+- Some criteria are never applied together, such as PS2 and PM6, or PVS1 and PP3. Checking one
+  unchecks the other, which then shows **⊘**; hover it for the reason. PM1 and PP3 together count at
+  most Strong: setting one lowers the other to fit.
+- A de novo variant is **PS2** where the Sample QC confirms the proband's parents, and **PM6** where it
+  does not. Its strength follows ClinGen's de novo points: how specific the proband's phenotype is for
+  the gene, from the gene–phenotype match score.
 - The bar at the top shows the points, the class and, for a VUS, the tier (*hot*, *warm* or *cold*).
 - Under it, the **Evidence** cards show the data the criteria are weighed on: the consequence and
   transcript, the population frequencies (gnomAD AF and FAF95, homozygotes, the in-house cohort), the
-  in silico scores (REVEL, CADD, AlphaMissense, SpliceAI), the gene's inheritance and constraint,
-  ClinVar, the proband's HPO terms and each member's genotype. Each card names the criteria it informs.
+  in silico scores (REVEL, CADD, AlphaMissense, SpliceAI, with the variant card's coloured dots), the
+  gene's inheritance and constraint, ClinVar, the proband's HPO terms and the gene–phenotype match,
+  each member's genotype and what the Sample QC says of the proband's parents. Each card names the
+  criteria it informs.
   A value the annotation does not hold shows as —. Fold the cards away to see only the criteria.
 - The header links to gnomAD, ClinVar, DECIPHER and a PubMed search on the gene and the patient's HPO
   terms. ClinVar, here and on the variant card, opens the record the annotation matched. Without one it

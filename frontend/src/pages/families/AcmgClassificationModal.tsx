@@ -12,6 +12,11 @@ import {
   computeClassification,
   evaluateAcmg,
   evaluateMitoAcmg,
+  capsOf,
+  criteriaBlocking,
+  exclusivePartners,
+  fitCappedCriteria,
+  parentageFromSampleQc,
   parentLinksFromRelationships,
   type AcmgCriterionCode,
   type AcmgCriterionDef,
@@ -45,8 +50,12 @@ import {
 } from './smallVariantSearch';
 import type { AcmgFamilyContext } from '../../lib/acmg';
 import { apiPath } from '../../lib/apiPath';
-import type { ApiFamilyRelationship } from '../../lib/apiTypes';
-import type { GeneProfileOut, HpoAnnotationOut } from '../../lib/apiSchema.generated';
+import type { ApiFamilyRelationship, ApiSampleIntegrityQc } from '../../lib/apiTypes';
+import type {
+  FamilyGenePhenotypeScoreOut,
+  GeneProfileOut,
+  HpoAnnotationOut,
+} from '../../lib/apiSchema.generated';
 import QueryFailure from '../../components/QueryFailure';
 import ReadOnlyNote from '../../components/ReadOnlyNote';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
@@ -265,6 +274,42 @@ export default function AcmgClassificationModal({
     },
   });
 
+  // The Sample QC's parentage checks: a de novo variant is PS2 where they confirm the
+  // proband's parents, PM6 where they do not. The Sample QC page's query, so either page's
+  // load serves the other.
+  const {
+    data: sampleQc,
+    isError: sampleQcFailed,
+    error: sampleQcError,
+    refetch: refetchSampleQc,
+  } = useQuery<ApiSampleIntegrityQc>({
+    queryKey: ['family', familyId, 'sample-integrity-qc'],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const response = await api.get(apiPath`/families/${familyId}/qc/sample-integrity`);
+      return response.data as ApiSampleIntegrityQc;
+    },
+  });
+
+  // The gene's phenotype score in this family, for a variant no phenotype-prioritised ranking
+  // scored: PP4 and the phenotype part of the de novo points read it.
+  const rankedPhenotypeScore = variant.priority?.phenotype_score ?? null;
+  const {
+    data: genePhenotypeScore,
+    isError: genePhenotypeScoreFailed,
+    error: genePhenotypeScoreError,
+    refetch: refetchGenePhenotypeScore,
+  } = useQuery<FamilyGenePhenotypeScoreOut>({
+    queryKey: ['acmg-gene-phenotype-score', familyId, geneSymbol],
+    enabled: Boolean(familyId && geneSymbol) && rankedPhenotypeScore === null,
+    queryFn: async () => {
+      const response = await api.get(apiPath`/families/${familyId}/gene-phenotype-score`, {
+        params: { symbol: geneSymbol },
+      });
+      return response.data as FamilyGenePhenotypeScoreOut;
+    },
+  });
+
   const probandSampleId = useMemo(() => {
     const proband =
       members.find((m) => (m.role ?? '').toLowerCase() === 'proband') ??
@@ -286,6 +331,10 @@ export default function AcmgClassificationModal({
   // Trio / segregation context: each member's genotype call for this variant, and who is
   // whose parent (the member roles cannot say: a grandparent is a 'father' or 'mother' too).
   const parentLinks = useMemo(() => parentLinksFromRelationships(relationships), [relationships]);
+  const parentage = useMemo(
+    () => (sampleQc && probandSampleId ? parentageFromSampleQc(probandSampleId, sampleQc) : undefined),
+    [sampleQc, probandSampleId],
+  );
   const familyContext = useMemo<AcmgFamilyContext>(
     () => ({
       members: members.map((member) => {
@@ -300,8 +349,10 @@ export default function AcmgClassificationModal({
         };
       }),
       parentLinks,
+      parentage,
+      parentageUnavailable: sampleQcFailed,
     }),
-    [members, variant, parentLinks],
+    [members, variant, parentLinks, parentage, sampleQcFailed],
   );
 
   // External resource links (reuse the variant-card builder) + a smart PubMed search.
@@ -336,13 +387,15 @@ export default function AcmgClassificationModal({
     } else if (analystEdited.current) {
       return;
     }
-    // PP4: pass the Monarch phenotype-specificity score when prioritization
-    // populated it on the variant (otherwise PP4 falls back to HPO overlap).
+    // PP4 and the de novo points read the gene's phenotype score: the ranking's where
+    // prioritisation scored the variant, else the family's score for the gene (otherwise PP4
+    // falls back to HPO overlap and the de novo strength is left to the analyst).
     const phenotypeContext = {
       probandHpoIds: probandHpo.ids,
       probandHpoUnavailable: probandHpo.unavailable,
-      phenotypeScore: variant.priority?.phenotype_score ?? null,
-      phenotypeMatches: variant.priority?.phenotype_matches,
+      phenotypeScore: rankedPhenotypeScore ?? genePhenotypeScore?.score ?? null,
+      phenotypeMatches:
+        rankedPhenotypeScore !== null ? variant.priority?.phenotype_matches : genePhenotypeScore?.matched,
     };
     // Mitochondrial variants use the mt-specific evaluator (McCormick 2020).
     const suggestions =
@@ -354,7 +407,7 @@ export default function AcmgClassificationModal({
     setNote(variant.review?.note ?? '');
     const autoKeys = ACMG_AUTO_MANAGED_TAG_KEYS as readonly string[];
     setReviewTags((variant.review?.tags ?? []).filter((tag) => !autoKeys.includes(tag)));
-  }, [variant, geneContext, familyContext, probandHpo]);
+  }, [variant, geneContext, familyContext, probandHpo, rankedPhenotypeScore, genePhenotypeScore]);
 
   const selectionList = useMemo(() => Object.values(selections), [selections]);
   const classification = useMemo(() => computeClassification(selectionList), [selectionList]);
@@ -374,6 +427,10 @@ export default function AcmgClassificationModal({
   };
   const hideTip = () => setTip(null);
 
+  // Checking a criterion unchecks the ones never applied together with it
+  // (EXCLUSIVE_CRITERIA): PS2 unchecks PM6, PM6 unchecks PS2. Checking or strengthening one of a
+  // capped group (CAPPED_CRITERIA) lowers the others to fit, or unchecks them: PM1 and PP3
+  // together count at most Strong.
   const upsert = (code: AcmgCriterionCode, patch: Partial<AcmgSelection>) => {
     markEdited();
     setSelections((current) => {
@@ -386,7 +443,17 @@ export default function AcmgClassificationModal({
           strength: def.defaultStrength,
           autoSuggested: false,
         } satisfies AcmgSelection);
-      return { ...current, [code]: { ...existing, ...patch } };
+      const next = { ...current, [code]: { ...existing, ...patch } };
+      if (patch.accepted) {
+        for (const partner of exclusivePartners(code)) {
+          const held = next[partner.code];
+          if (held?.accepted) next[partner.code] = { ...held, accepted: false };
+        }
+      }
+      if (!next[code].accepted) return next;
+      return Object.fromEntries(
+        fitCappedCriteria(Object.values(next), code).map((selection) => [selection.code, selection]),
+      );
     });
   };
 
@@ -506,6 +573,22 @@ export default function AcmgClassificationModal({
               consequence="PP4 is not assessed from them: review the phenotype match by hand."
             />
           ) : null}
+          {sampleQcFailed ? (
+            <QueryFailure
+              what="the family's Sample QC"
+              error={sampleQcError}
+              onRetry={() => void refetchSampleQc()}
+              consequence="Parentage is not confirmed from it, so a de novo variant is offered as PM6: use PS2 only where parentage is confirmed."
+            />
+          ) : null}
+          {genePhenotypeScoreFailed ? (
+            <QueryFailure
+              what={`the phenotype score of ${geneSymbol}`}
+              error={genePhenotypeScoreError}
+              onRetry={() => void refetchGenePhenotypeScore()}
+              consequence="The phenotype part of PP4 and of the de novo strength is not assessed from it: review it by hand."
+            />
+          ) : null}
           {errorMessage ? (
             <div className="variant-workspace-feedback variant-workspace-feedback--error">
               {errorMessage}
@@ -528,7 +611,9 @@ export default function AcmgClassificationModal({
             <span className="acmg-key acmg-key--applied"> checked</span> = data supports it,
             <span className="acmg-key acmg-key--consider"> ●</span> = consider,
             <span className="acmg-key acmg-key--against"> ✕</span> = data argues against,
-            <span className="acmg-key acmg-key--na"> n/a</span> = unlikely for this variant type.
+            <span className="acmg-key acmg-key--na"> n/a</span> = unlikely for this variant type,
+            <span className="acmg-key acmg-key--excluded"> ⊘</span> = not combined with a checked criterion
+            (checking it unchecks the other; PM1 and PP3 together count at most Strong).
             All of them can be overridden; hover a criterion for its evidence.
           </p>
 
@@ -538,6 +623,7 @@ export default function AcmgClassificationModal({
             familyContext={familyContext}
             probandHpoLabels={probandHpo.labels}
             probandHpoUnavailable={probandHpo.unavailable}
+            genePhenotypeScore={rankedPhenotypeScore === null ? genePhenotypeScore : undefined}
           />
 
           <div className="acmg-family-grid">
@@ -636,6 +722,16 @@ export default function AcmgClassificationModal({
           {tip.selection?.contraindicated ? (
             <p className="acmg-tooltip-against">Data argues against applying this criterion.</p>
           ) : null}
+          {exclusivePartners(tip.def.code).map((partner) => (
+            <p key={partner.code} className="acmg-tooltip-exclusive">
+              Not combined with {partner.code}: {partner.reason}.
+            </p>
+          ))}
+          {capsOf(tip.def.code).map((cap) => (
+            <p key={cap.codes.join('+')} className="acmg-tooltip-exclusive">
+              Capped with {cap.codes.filter((code) => code !== tip.def.code).join(', ')}: {cap.reason}.
+            </p>
+          ))}
         </div>
       ) : null}
     </div>
@@ -715,6 +811,7 @@ function FamilyGroup({ group, selections, onToggle, onShowTip, onHideTip }: Fami
             key={def.code}
             def={def}
             selection={selections[def.code]}
+            excludedBy={criteriaBlocking(def.code, selections)}
             onToggle={onToggle}
             onShowTip={onShowTip}
             onHideTip={onHideTip}
@@ -728,18 +825,24 @@ function FamilyGroup({ group, selections, onToggle, onShowTip, onHideTip }: Fami
 type CriterionRowProps = {
   def: AcmgCriterionDef;
   selection?: AcmgSelection;
+  // The checked criteria never applied together with this one, or that leave it no strength
+  // within a cap.
+  excludedBy: AcmgCriterionCode[];
   onToggle: (code: AcmgCriterionCode, patch: Partial<AcmgSelection>) => void;
   onShowTip: (def: AcmgCriterionDef, selection: AcmgSelection | undefined, el: HTMLElement) => void;
   onHideTip: () => void;
 };
 
-function CriterionRow({ def, selection, onToggle, onShowTip, onHideTip }: CriterionRowProps) {
+function CriterionRow({ def, selection, excludedBy, onToggle, onShowTip, onHideTip }: CriterionRowProps) {
   const accepted = selection?.accepted ?? false;
   const strength = selection?.strength ?? def.defaultStrength;
   const suggested = (selection?.autoSuggested ?? false) && !accepted;
   const contraindicated = selection?.contraindicated ?? false;
   // Ruled out by the variant class — greyed as a hint, but still overridable.
   const notApplicable = (selection?.notApplicable ?? false) && !accepted;
+  // Unchecked while a criterion it is never combined with is checked: checking it swaps them.
+  // A criterion the data rules out or argues against keeps that mark.
+  const excluded = !accepted && !notApplicable && !contraindicated && excludedBy.length > 0;
 
   return (
     <div
@@ -750,6 +853,7 @@ function CriterionRow({ def, selection, onToggle, onShowTip, onHideTip }: Criter
         suggested ? 'acmg-criterion--suggested' : '',
         contraindicated && !accepted ? 'acmg-criterion--against' : '',
         notApplicable ? 'acmg-criterion--na' : '',
+        excluded ? 'acmg-criterion--excluded' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -767,7 +871,14 @@ function CriterionRow({ def, selection, onToggle, onShowTip, onHideTip }: Criter
         />
       </label>
       <span className="acmg-criterion-code">{def.code}</span>
-      {accepted ? null : suggested ? (
+      {accepted ? null : excluded ? (
+        <span
+          className="acmg-criterion-flag acmg-criterion-flag--excluded"
+          aria-label={`Not combined with ${excludedBy.join(', ')}`}
+        >
+          ⊘
+        </span>
+      ) : suggested && !contraindicated && !notApplicable ? (
         <span className="acmg-criterion-flag acmg-criterion-flag--consider" aria-label="Consider">
           ●
         </span>

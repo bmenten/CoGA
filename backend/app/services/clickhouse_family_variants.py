@@ -21,6 +21,7 @@ from ..core.coga_logging import describe_error
 from ..core.csv_export import TRUNCATED_BY_CANDIDATE_LIMIT, TRUNCATED_BY_ROW_LIMIT
 from ..core.sql import require_uuid
 from ..schemas import (
+    FamilyGenePhenotypeScoreOut,
     PhenotypeTermRefOut,
     SmallVariantGroupOut,
     SmallVariantSampleSummaryOut,
@@ -2241,6 +2242,38 @@ async def _affected_present_hpo(
         if row["label"]:
             labels[row["hpo_id"]] = row["label"]
     return terms, labels
+
+
+async def family_gene_phenotype_score(
+    session: AsyncSession, context: FamilyMetadataContext, *, symbol: str
+) -> FamilyGenePhenotypeScoreOut:
+    """The phenotype score the ranking gives ``symbol`` in this family (``_rank_small_variants``):
+    the gene's Monarch phenotypes against the affected members' present HPO terms, with the
+    patient terms it matched best.
+
+    The ACMG dialog reads it for PP4 and for the phenotype part of the de novo criteria (PS2,
+    PM6) of a variant no ranking scored. The score is None when the family has no present HPO
+    terms or the gene no Monarch phenotypes: not assessed, never a score of 0.
+    """
+    gene = symbol.strip()
+    patient_terms, term_labels = await _affected_present_hpo(session, context)
+    unscored = FamilyGenePhenotypeScoreOut(symbol=gene, hpo_count=len(patient_terms))
+    if not patient_terms or not gene:
+        return unscored
+    scored = (
+        await score_genes_for_hpo(session, gene_symbols=[gene], patient_hpo_ids=patient_terms)
+    ).get(gene.upper())
+    if scored is None:
+        return unscored
+    return FamilyGenePhenotypeScoreOut(
+        symbol=gene,
+        score=round(scored.score, 4),
+        hpo_count=len(patient_terms),
+        matched=[
+            PhenotypeTermRefOut(hpo_id=match["hpo_id"], label=term_labels.get(match["hpo_id"]))
+            for match in scored.matched
+        ],
+    )
 
 
 async def _serve_ranking_from_cache(
