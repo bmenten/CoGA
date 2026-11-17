@@ -387,13 +387,7 @@ const SmallVariantTrack: React.FC<Props> = ({
       .attr('data-variant-mark', (entry) => entry.kind)
       .attr('transform', (entry) => `translate(${entry.v.x},${cyForOrigin(entry.v.origin)})`)
       .attr('d', (entry) => smallVariantMarkPath(entry.kind, radius))
-      .attr('fill', (entry) =>
-        SMALL_VARIANT_MARKS[entry.kind].hollow ? 'white' : SMALL_VARIANT_MARKS[entry.kind].color,
-      )
-      .attr('stroke', (entry) =>
-        SMALL_VARIANT_MARKS[entry.kind].hollow ? SMALL_VARIANT_MARKS[entry.kind].color : 'none',
-      )
-      .attr('stroke-width', (entry) => (SMALL_VARIANT_MARKS[entry.kind].hollow ? 1 : 0));
+      .attr('fill', (entry) => SMALL_VARIANT_MARKS[entry.kind].color);
 
     // A single delegated hit layer + quadtree replaces the per-variant transparent
     // hitbox rects (up to ~N extra DOM nodes at the 10k cap). On hover we look up

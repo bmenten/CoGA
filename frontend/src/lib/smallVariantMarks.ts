@@ -3,21 +3,18 @@ import * as d3 from 'd3';
 import { clinvarClass } from './clinvar';
 
 /**
- * How the small-variant track marks a variant, so that no class is told apart by colour
- * alone and a review tag never hides the ClinVar class of a tagged variant:
+ * How the small-variant track marks a variant:
  *
- * - shape and size carry the clinically salient classes: a larger diamond for ClinVar
- *   (likely) pathogenic, a triangle for HIGH impact, a hollow square for ClinVar
- *   (likely) benign, and a dot for the rest;
- * - the fill colour repeats the class, and for the dots it gives the impact: green
- *   for MODERATE, grey for LOW, MODIFIER or none;
+ * - ClinVar (likely) pathogenic is a larger red diamond, whatever the impact;
+ * - every other variant is a small dot, whose colour gives its class: green for ClinVar
+ *   (likely) benign, then by impact orange for HIGH, yellow for MODERATE and grey for LOW,
+ *   MODIFIER or none;
  * - a review tag draws a ring around the mark in the tag's colour and leaves the mark
  *   itself alone.
  *
- * MODERATE and LOW dots still differ by colour only. They are the least salient
- * classes, and the tooltip names the impact.
+ * The dots differ by colour only; the tooltip names the impact and the ClinVar class.
  */
-export type SmallVariantMarkKind = 'pathogenic' | 'high' | 'moderate' | 'benign' | 'other';
+export type SmallVariantMarkKind = 'pathogenic' | 'benign' | 'high' | 'moderate' | 'other';
 
 interface MarkStyle {
   label: string;
@@ -25,37 +22,26 @@ interface MarkStyle {
   /** Area relative to a dot of the track's radius. */
   scale: number;
   color: string;
-  /** Drawn as an outline in `color`, not filled. */
-  hollow?: boolean;
 }
+
+const dot = (label: string, color: string): MarkStyle => ({ label, symbol: d3.symbolCircle, scale: 1, color });
 
 // Literal hex, so the track renders without the theme stylesheet (and stays testable).
 export const SMALL_VARIANT_MARKS: Record<SmallVariantMarkKind, MarkStyle> = {
   pathogenic: { label: 'ClinVar P/LP', symbol: d3.symbolDiamond2, scale: 4, color: '#dc2626' },
-  high: { label: 'HIGH impact', symbol: d3.symbolTriangle, scale: 3, color: '#fb923c' },
-  moderate: { label: 'MODERATE', symbol: d3.symbolCircle, scale: 1, color: '#4ade80' },
-  other: { label: 'LOW / other', symbol: d3.symbolCircle, scale: 1, color: '#9ca3af' },
-  benign: {
-    label: 'ClinVar B/LB',
-    symbol: d3.symbolSquare,
-    scale: 1.6,
-    color: '#60a5fa',
-    hollow: true,
-  },
+  benign: dot('ClinVar B/LB', '#16a34a'),
+  high: dot('HIGH impact', '#ea580c'),
+  moderate: dot('MODERATE', '#eab308'),
+  other: dot('LOW / MODIFIER', '#9ca3af'),
 };
 
-/** Legend order, and the order marks are drawn in: the salient ones end up on top. */
-export const SMALL_VARIANT_MARK_ORDER: SmallVariantMarkKind[] = [
-  'pathogenic',
-  'high',
-  'moderate',
-  'other',
-  'benign',
-];
+/** Legend order. */
+export const SMALL_VARIANT_MARK_ORDER: SmallVariantMarkKind[] = ['pathogenic', 'benign', 'high', 'moderate', 'other'];
+/** Draw order: the salient marks end up on top. */
 const DRAW_RANK: Record<SmallVariantMarkKind, number> = {
   other: 0,
-  moderate: 1,
-  benign: 2,
+  benign: 1,
+  moderate: 2,
   high: 3,
   pathogenic: 4,
 };

@@ -59,10 +59,12 @@ The UI-level risk controls above are requirements, traced in the TF-09 RTM. Desi
 - Derived calls always display their QC basis.
 - **A clinical state is not conveyed by colour alone** (WCAG 1.4.1): a shape, line style,
   glyph or text carries it too. It is applied to the pedigree QC ring, the
-  risk-haplotype line, the small-variant marks and the Review, Exclude and Report
-  toggles, whose pressed state carries a check mark and is announced as pressed to screen
+  risk-haplotype line, the ClinVar pathogenic small-variant diamond and the Review, Exclude and
+  Report toggles, whose pressed state carries a check mark and is announced as pressed to screen
   readers. Two colour codes are the exceptions, each named in a tooltip: the pedigree's carrier-type
-  half-fill, and the MODERATE versus LOW small-variant dots.
+  half-fill, and the small-variant dots, whose colour alone tells ClinVar benign, HIGH, MODERATE
+  and LOW impact apart; the small-variant track's text name counts its ClinVar pathogenic and
+  HIGH variants.
 - Every chart, track, ideogram and the pedigree is an image with a **text name that states
   what it shows now** (WCAG 1.1.1): the counts and the salient items, or that it is loading or
   failed to load; a failure never reads as "none".
