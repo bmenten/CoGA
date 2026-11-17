@@ -450,6 +450,8 @@ describe('SmallVariantCards', () => {
     const detail = (await screen.findByText(/Gene–disease associations/)).closest(
       '.variant-card-section',
     ) as HTMLElement;
+    // Across the card's width: disease names are long.
+    expect(detail).toHaveClass('variant-card-section--wide');
     expect(
       await within(detail).findByRole('link', { name: 'BRCA2-related cancer predisposition' }),
     ).toHaveAttribute('href', 'https://monarchinitiative.org/MONDO:0700269');
@@ -1027,8 +1029,8 @@ describe('SmallVariantCards', () => {
     expect(screen.getByText('Alleles')).toBeInTheDocument();
   });
 
-  it('folds the disclosure into combined context and annotation sections', async () => {
-    renderCards(
+  it('puts the gene ID over the transcript, and leaves the disclosure to diseases and other annotations', async () => {
+    const { container } = renderCards(
         <SmallVariantCards
           variants={[
             smallVariant({
@@ -1039,6 +1041,7 @@ describe('SmallVariantCards', () => {
               type: 'SNV',
               gene: 'BRCA2',
               gene_id: 'ENSG00000139618',
+              transcript_id: 'ENST00000380152.8',
               ref: 'G',
               alt: 'A',
               transcript_biotype: 'protein_coding',
@@ -1060,19 +1063,22 @@ describe('SmallVariantCards', () => {
         />,
     );
 
+    // The variant column opens with the gene's ID, then the transcript under it.
+    const variantColumn = screen.getByRole('region', { name: 'Variant' });
+    const geneId = within(variantColumn).getByText('ENSG00000139618');
+    expect(variantColumn.firstElementChild).toBe(geneId);
+    expect(geneId.nextElementSibling).toHaveClass('variant-card-transcript-row');
+    expect(within(geneId.nextElementSibling as HTMLElement).getByText('ENST00000380152.8')).toBeInTheDocument();
+
     await userEvent.click(screen.getByText('More annotations & detail'));
 
-    // These rows are in two combined sections, not four.
-    for (const gone of ['Variant summary', 'Transcript context', 'All scores & constraint', 'Additional annotations']) {
-      expect(screen.queryByText(gone)).not.toBeInTheDocument();
-    }
-    const context = screen
-      .getByText('Variant & transcript context')
-      .closest('.variant-card-section') as HTMLElement;
-    // Gene first, narrowing to the transcript, then the call's own provenance.
+    // The disclosure holds the gene's diseases and the other annotations, nothing the card
+    // already shows.
     expect(
-      [...context.querySelectorAll('dt')].map((node) => node.textContent),
-    ).toEqual(['Gene ID', 'Biotype', 'Feature', 'Exon / intron', 'Type / source', 'Phase set']);
+      [...container.querySelectorAll('.variant-card-more-grid .variant-card-section-title')].map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(['Gene–disease associations', 'Other scores & annotations']);
 
     const annotations = screen
       .getByText('Other scores & annotations')
@@ -1241,7 +1247,11 @@ describe('SmallVariantCards', () => {
             spliceai_ds_dg: 0.82,
             spliceai_dp_dg: 14,
             gnomad_af: 0.0001,
-            population_frequencies: { gnomad_af: 0.0001, gnomad_faf95_af: 0.00005 },
+            population_frequencies: {
+              gnomad_af: 0.0001,
+              gnomad_faf95_af: 0.00005,
+              gnomad_genomes_faf95_af: 0.00004,
+            },
             annotation_extra: { gnomad_an: 152000, gnomad_genomes_filter: 'AC0' },
             genotypes: [],
           }),
@@ -1262,10 +1272,22 @@ describe('SmallVariantCards', () => {
     expect(clinvar).toHaveAttribute('title', 'criteria provided, multiple submitters, no conflicts — Condition A');
     expect(screen.getByText('0.82 · donor gain +14')).toBeInTheDocument();
     expect(screen.getByText('gnomAD FAF95')).toBeInTheDocument();
+    // A site gnomAD's own QC fails is named under the frequencies, collapsed or not.
+    const frequencies = screen.getByText('Frequencies').closest('.variant-card-col') as HTMLElement;
+    const filterRow = within(frequencies).getByText('genomes filter').closest('div') as HTMLElement;
+    expect(within(filterRow).getByText("AC0 (fails gnomAD's own QC)")).toBeInTheDocument();
     await userEvent.click(screen.getByText('More annotations & detail'));
-    expect(screen.getByText('NMD escaping variant')).toBeInTheDocument();
-    expect(screen.getByText('152000')).toBeInTheDocument();
-    expect(screen.getByText("gnomAD genomes filter (fails gnomAD's own QC)")).toBeInTheDocument();
+    const annotations = screen
+      .getByText('Other scores & annotations')
+      .closest('.variant-card-section') as HTMLElement;
+    expect(within(annotations).getByText('NMD escaping variant')).toBeInTheDocument();
+    const anRow = within(annotations).getByText('gnomAD allele number').closest('div') as HTMLElement;
+    expect(within(anRow).getByText('152000')).toBeInTheDocument();
+    // A frequency the column leaves out is listed here, the column's own ones are not.
+    const fafRow = within(annotations).getByText('gnomAD genomes FAF95').closest('div') as HTMLElement;
+    expect(within(fafRow).getByText('4.0e-5')).toBeInTheDocument();
+    expect(within(annotations).queryByText(/gnomad faf95 af/i)).not.toBeInTheDocument();
+    expect(within(annotations).queryByText(/genomes filter/i)).not.toBeInTheDocument();
   });
 
   it.each([
