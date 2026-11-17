@@ -2284,9 +2284,11 @@ A family small-variant upload is one family VCF from one callset:
     `nhomalt` and `hemi` without a prefix.
   - A variant without a population value has none, and a maximum frequency or count filter keeps
     it, as absent from gnomAD. With a count filter applied, the variant list says how many of the
-    variants it shows have no such count (`gnomadCountNotes.ts`): a VCF annotated with gnomAD's
-    frequencies alone (VEP's `--af_gnomad…`) carries no counts, so a count filter excludes
-    nothing.
+    variants it shows the filter kept unchecked (`gnomadCountNotes.ts`): those without the count
+    that have a gnomAD frequency, or whose callset was not annotated with gnomAD. A VCF annotated
+    with gnomAD's frequencies alone (VEP's `--af_gnomad…`) carries no counts, so a count filter
+    excludes nothing. A hemizygote count exists only on chrX and chrY outside the pseudo-autosomal
+    regions (`hemizygous_in_males`), so the note counts a missing one only there.
   - A package's `snv` dataset, its VEP table and the per-sample callsets are read the same way.
   - The ClinVar classification is the ClinVar file's that the pipeline annotated (`ClinVar_CLNSIG`
     from VEP `--custom`, or `CLNSIG`), and VEP's cache `CLIN_SIG` only when the header declares no

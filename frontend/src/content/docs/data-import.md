@@ -139,9 +139,11 @@ A field that lists several different numbers (one per transcript, record or alle
 and its text is shown under *More annotations*. A record with two ALT alleles is stored as one variant,
 and each transcript of it names the ALT its annotation is of; split such records upstream
 (`bcftools norm -m -any`) to filter and classify each allele on its own. A gnomAD count is gnomAD's total: its combined count, or else its exome and genome counts
-(`gnomADe_…`, `gnomADg_…`) added. A variant whose annotation gives no gnomAD count has none. A maximum
-gnomAD count filter keeps it, as absent from gnomAD; the variant list then says how many of the
-variants it shows were kept that way.
+(`gnomADe_…`, `gnomADg_…`) added. A hemizygote count exists only on chrX and chrY outside the
+pseudo-autosomal regions. A variant whose annotation gives no gnomAD count has none. A maximum
+gnomAD count filter keeps it, as absent from gnomAD. The variant list says how many of the
+variants it shows the filter kept unchecked: those without the count that have a gnomAD frequency,
+or whose callset was not annotated with gnomAD.
 
 Several of these also feed the [Sample-integrity QC](/docs/reference/sample-qc) and the versions
 recorded for the [report](/docs/reference/clinical-traceability).
