@@ -489,6 +489,8 @@ export interface SignedSmallVariantDescription {
   alt: string | null;
   gene: string | null;
   transcript: string | null;
+  /** VEP's genomic HGVS (its HGVSg), null where the annotation had none. */
+  hgvsg: string | null;
   hgvsc: string | null;
   hgvsp: string | null;
   consequence: string | null;
@@ -1531,6 +1533,7 @@ const parseVariantDescriptions = (value: Json): SignedVariantDescriptions => ({
     alt: text(entry.alt),
     gene: text(entry.gene),
     transcript: text(entry.transcript),
+    hgvsg: text(entry.hgvsg),
     hgvsc: text(entry.hgvsc),
     hgvsp: text(entry.hgvsp),
     consequence: text(entry.consequence),
@@ -2294,12 +2297,13 @@ export const describeSmallVariantDescription = (description: SignedSmallVariantD
   return `${name}${consequence}`;
 };
 
-/** Where it is, on which transcript, in which callset. */
+/** Where it is, with VEP's HGVS.g where the annotation had it, on which transcript, in which callset. */
 export const describeSmallVariantLocus = (description: SignedSmallVariantDescription): string =>
   [
     description.chrom && description.start !== null
       ? `${description.chrom}:${description.start.toLocaleString()} ${description.ref ?? '?'} → ${description.alt ?? '?'}`
       : null,
+    description.hgvsg,
     description.transcript
       ? `transcript ${description.transcript}${description.maneSelect ? ' (MANE Select)' : ''}`
       : null,

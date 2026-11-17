@@ -2037,7 +2037,7 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 | SIFT, PolyPhen | `SIFT`, `PolyPhen` | filters, card |
 | Gene constraint | `pLI`, `MISSENSE_Z` | card, PP2 (where the gene profile has none) |
 | Transcript | `SYMBOL`, `Gene`, `Feature`, `BIOTYPE`, `Consequence`, `IMPACT`, `HGVSc`, `HGVSp`, `EXON`, `INTRON`, `CANONICAL`, `MANE_SELECT`, `MANE_PLUS_CLINICAL` | everywhere |
-| Genomic HGVS | `HGVSg` (`--hgvsg`; `--hgvsg_use_accession` writes it on the RefSeq accession) | the card's HGVS.g |
+| Genomic HGVS | `HGVSg` (`--hgvsg`; `--hgvsg_use_accession` writes it on the RefSeq accession) | the card's HGVS.g, the CSV's *HGVSg* and the signed record's variant description |
 | Allele of an entry | `ALLELE_NUM` (`--allele_number`), else `Allele` | a multi-allelic record's ALT |
 | UTRAnnotator | `5UTR_annotation`, `5UTR_consequence`, `Existing_InFrame_oORFs`, `Existing_OutOfFrame_oORFs`, `Existing_uORFs` | card |
 
@@ -2045,7 +2045,8 @@ What the workflow should hold to:
 
 - **HGVSg.** Run VEP with `--hgvsg` and `--hgvsg_use_accession`, so the card's HGVS.g is VEP's
   HGVS on the RefSeq accession (`NC_000013.11:g.…`). Without it the card writes the change from
-  the VCF record, not HGVS-normalised, and says so on the label.
+  the VCF record, not HGVS-normalised, and says so on the label; the CSV's *HGVSg* column and the
+  signed record's HGVS g. stay empty.
 - **dbNSFP scores per transcript.** Pass `transcript_match=1`, or the `Ensembl_transcriptid`
   column: a field listing several different values is read as none.
 - **Multi-allelic records.** Split them before VEP (`bcftools norm -m -any`) to filter and

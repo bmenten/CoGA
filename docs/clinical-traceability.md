@@ -383,7 +383,8 @@ in the EPD refers to the signed version by its report code (*The report code* be
   - `variant_descriptions` (REQ-TRACE-007): each reported variant as the analyst reviewed it,
     read from the family's variant lists as the report page reads them (`review_tag=report`),
     one entry per callset or caller that calls it. A small variant: locus, reference and
-    alternative allele, gene, transcript (and whether MANE Select), HGVS c. and p., consequence
+    alternative allele, gene, transcript (and whether MANE Select), HGVS g. (VEP's HGVSg, null
+    where the annotation has none), c. and p., consequence
     and impact, and each sample's genotype with depth, genotype quality, allele depths and allele
     fraction. An SV or CNV: type, copy change (loss or gain), locus, length, breakend mate, genes,
     cytoband and caller, and each sample's genotype, copy number, supporting reads, quality and

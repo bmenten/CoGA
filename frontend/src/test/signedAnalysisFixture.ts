@@ -20,6 +20,7 @@ export const SIGNED_ANALYSIS = {
         gene: 'GENE_PATH',
         gene_id: 'ENSG01',
         transcript: 'ENST01',
+        hgvsg: 'NC_000017.11:g.43000000A>G',
         hgvsc: 'c.10A>G',
         hgvsp: 'p.(Lys4Arg)',
         consequence: 'missense_variant',

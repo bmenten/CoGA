@@ -67,6 +67,14 @@ def test_family_export_cell_scalars_review_and_genotypes() -> None:
     assert _family_export_cell(row, "genotypes") == "proband=0/1; mother=0/0"
 
 
+def test_family_export_writes_vep_s_hgvsg_and_nothing_in_its_place() -> None:
+    # VEP's genomic HGVS as the annotation holds it, accession included; where VEP wrote
+    # none the cell stays empty, never a change written from the record's Ref and Alt.
+    row = _variant().model_copy(update={"hgvsg": "NC_000001.11:g.100A>T"})
+    assert _family_export_cell(row, "hgvsg") == "NC_000001.11:g.100A>T"
+    assert _family_export_cell(_variant(), "hgvsg") == ""
+
+
 def test_family_export_cell_handles_missing_review() -> None:
     row = VariantOut(id="1-1-A-T", chr="1", start=1, end=1, length=1, type="SNV")
     assert _family_export_cell(row, "classification") == ""
@@ -153,7 +161,7 @@ def test_family_export_names_the_transcript_the_filters_held_on() -> None:
     # ...and the filter-matched transcript follows, after every other column.
     assert labels[: labels.index("Genotypes") + 1] == [
         "Chromosome", "Start", "End", "Type", "Ref", "Alt", "rsID", "Gene", "Gene ID",
-        "Transcript", "Impact", "Effect", "HGVSc", "HGVSp", "ClinVar", "gnomAD AF",
+        "Transcript", "Impact", "Effect", "HGVSg", "HGVSc", "HGVSp", "ClinVar", "gnomAD AF",
         "gnomAD hom", "CADD", "REVEL", "SpliceAI", "SIFT", "PolyPhen", "Classification",
         "Classification text", "Tags", "Genotypes",
     ]

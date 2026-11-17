@@ -1183,6 +1183,10 @@ describe('what the analysis looked at', () => {
     const [small] = record.variantDescriptions.value.small;
     expect(describeSmallVariantDescription(small)).toBe('GENE_PATH c.10A>G p.(Lys4Arg), missense variant (MODERATE)');
     expect(describeSmallVariantLocus(small)).toBe(
+      '17:43,000,000 A → G · NC_000017.11:g.43000000A>G · transcript ENST01 (MANE Select) · callset clair3',
+    );
+    // Without VEP's HGVSg the locus is the record's own position, alleles and transcript.
+    expect(describeSmallVariantLocus({ ...small, hgvsg: null })).toBe(
       '17:43,000,000 A → G · transcript ENST01 (MANE Select) · callset clair3',
     );
     expect(small.genotypes.map(describeGenotype)).toEqual([

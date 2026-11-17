@@ -92,6 +92,7 @@ def _small(variant_id: str, *, source: str = "clair3", **fields: Any) -> Variant
             "gene": "GENE_PATH",
             "gene_id": "ENSG01",
             "transcript_id": "ENST01",
+            "hgvsg": "NC_000001.11:g.2000C>T",
             "hgvsc": "c.10C>T",
             "hgvsp": "p.(Arg4Trp)",
             "effect": "missense_variant",
@@ -170,10 +171,11 @@ def test_a_reported_variant_is_described_as_the_variant_list_serves_it(monkeypat
     first = out["small"][0]
     assert {
         key: first[key]
-        for key in ("gene", "transcript", "hgvsc", "hgvsp", "consequence", "impact", "mane_select")
+        for key in ("gene", "transcript", "hgvsg", "hgvsc", "hgvsp", "consequence", "impact", "mane_select")
     } == {
         "gene": "GENE_PATH",
         "transcript": "ENST01",
+        "hgvsg": "NC_000001.11:g.2000C>T",
         "hgvsc": "c.10C>T",
         "hgvsp": "p.(Arg4Trp)",
         "consequence": "missense_variant",
