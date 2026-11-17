@@ -540,8 +540,7 @@ a.variant-card-gene:hover {
    the longest label present (ALPHAMISSENSE overflows a fixed 5.25rem and runs under its
    own value) and every row still lines up. */
 .variant-card-mini-dl,
-.variant-card-detail-list,
-.variant-card-stat-list {
+.variant-card-detail-list {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 0.0625rem 0.625rem;
@@ -550,23 +549,20 @@ a.variant-card-gene:hover {
 }
 
 .variant-card-mini-dl > div,
-.variant-card-detail-row,
-.variant-card-stat-row {
+.variant-card-detail-row {
   display: contents;
 }
 
 /* The card and its disclosure are one document: same key, same value, same rhythm. */
 .variant-card-mini-dl dt,
-.variant-card-detail-row dt,
-.variant-card-stat-row dt {
+.variant-card-detail-row dt {
   font-size: var(--fs-xs);
   font-weight: 400;
   color: var(--color-text-muted);
 }
 
 .variant-card-mini-dl dd,
-.variant-card-detail-row dd,
-.variant-card-stat-row dd {
+.variant-card-detail-row dd {
   margin: 0;
   font-size: var(--fs-xs);
   line-height: 1.4;
@@ -801,6 +797,17 @@ a.variant-card-gene:hover {
   color: var(--color-link);
 }
 
+/* The gene's ID, over the transcript accession: monospace like it, in the text colour, as
+   it opens nothing. */
+.variant-card-gene-id {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
 /* The transcript accession and the flags that describe it, on one line. */
 .variant-card-transcript-row {
   display: flex;
@@ -896,8 +903,8 @@ a.variant-card-gene:hover {
   display: grid;
   gap: 0.375rem;
   /* Grid cells stretch to the tallest section in the row, and auto rows stretch with
-     them — which floated a short list (population frequencies especially) into the
-     vertical middle of its cell. Pack the rows to the top instead. */
+     them, which would float a short list into the vertical middle of its cell. Pack the
+     rows to the top instead. */
   align-content: start;
 }
 
@@ -1137,13 +1144,14 @@ a.variant-card-gene:hover {
   gap: 0.25rem;
 }
 
-/* RefSeq accessions the annotation maps onto a transcript the VCF named by its Ensembl
-   id. Monospace like the transcript id above it, muted so the id stays primary. */
 /* Gene-disease associations in a card's expanded detail. Two short lists rather than a
-   table: they are for orientation, with the Gene Explorer holding the full set. */
+   table: they are for orientation, with the Gene Explorer holding the full set. Monarch's
+   and OMIM's side by side across the card, each name on a line where it fits. */
 .variant-card-disease-groups {
   display: grid;
-  gap: 0.375rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+  gap: 0.375rem 1.25rem;
+  align-items: start;
 }
 
 .variant-card-disease-heading {
@@ -1174,6 +1182,8 @@ a.variant-card-gene:hover {
   color: var(--color-text-muted);
 }
 
+/* RefSeq accessions the annotation maps onto a transcript the VCF named by its Ensembl
+   id. Monospace like the transcript id above it, muted so the id stays primary. */
 .variant-transcript-refseq {
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
@@ -1219,8 +1229,7 @@ a.variant-card-gene:hover {
   /* Narrow enough that a key column costs more than it buys: stack key over value.
      The rows are display:contents, so this is set on the list that owns the grid. */
   .variant-card-mini-dl,
-  .variant-card-detail-list,
-  .variant-card-stat-list {
+  .variant-card-detail-list {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.125rem;
   }

@@ -117,9 +117,11 @@ secondary-findings list has a chip such as *ACMG SF v3.3*; hover it for the list
 inheritance and variants to report. *The ACMG SF list could not be read* means no chip does not tell
 you the gene is off the list; the gene page says which.
 
-The variant column gives HGVS.g, HGVS.c and HGVS.p. HGVS.c and HGVS.p are on the transcript named above
-them, without its accession. HGVS.g is VEP's (its HGVSg) where the annotation has it. Otherwise it is
-written from the VCF record and is not HGVS-normalised; hover the label to see which. Under **In silico**, a dot before each prediction shows how it reads, in
+The variant column opens with the gene's ID and the transcript the card describes, then gives HGVS.g,
+HGVS.c and HGVS.p. HGVS.c and HGVS.p are on the transcript named above them, without its accession. HGVS.g is VEP's (its HGVSg) where the annotation has it. Otherwise it is
+written from the VCF record and is not HGVS-normalised; hover the label to see which. Under
+**Frequencies**, a *filter* row under a gnomAD frequency means the site fails gnomAD's own QC (AC0, RF …):
+gnomAD itself does not trust that frequency. Under **In silico**, a dot before each prediction shows how it reads, in
 seqr's colours: green and olive benign, grey indeterminate, yellow, red and dark red pathogenic
 (supporting, moderate, strong). The thresholds are seqr's, from ClinGen's calibration of the predictors;
 SpliceAI uses the cut-offs of CoGA's ACMG evaluation. pLI and Missense Z describe the gene and have no

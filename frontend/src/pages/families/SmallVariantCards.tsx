@@ -504,8 +504,7 @@ const TranscriptPopup = ({
 const CARD_CONSUMED_EXTRA_KEYS = new Set([
   'alpha_missense_class',
   'alpha_missense_pathogenicity',
-  // Named in the frequency details: gnomAD's allele number and its own site filters.
-  'gnomad_an',
+  // gnomAD's own site filters: a failed one is in the Frequencies column (GNOMAD_FILTER_ROWS).
   'gnomad_filter',
   'gnomad_exomes_filter',
   'gnomad_genomes_filter',
@@ -519,6 +518,48 @@ const CARD_CONSUMED_EXTRA_KEYS = new Set([
 const EXTRA_KEY_LABELS: Record<string, string> = {
   gene_missense_z: 'Missense Z (gnomAD, from the VCF)',
   clinvar_vep_cache: 'ClinVar in the VEP cache (older release, not read as ClinVar)',
+  gnomad_ac: 'gnomAD allele count',
+  gnomad_an: 'gnomAD allele number',
+};
+
+// The population frequencies the card's Frequencies column shows; any other one the annotation
+// holds is listed under "Other scores & annotations".
+const FREQUENCY_COLUMN_KEYS = new Set([
+  'gnomad_af',
+  'gnomad_popmax_af',
+  'max_af',
+  'gnomad_faf95_af',
+  'gnomad_exomes_af',
+  'gnomad_genomes_af',
+  'topmed_af',
+]);
+
+const POPULATION_FREQUENCY_LABELS: Record<string, string> = {
+  gnomad_exomes_popmax_af: 'gnomAD exomes popmax',
+  gnomad_genomes_popmax_af: 'gnomAD genomes popmax',
+  gnomad_exomes_faf95_af: 'gnomAD exomes FAF95',
+  gnomad_genomes_faf95_af: 'gnomAD genomes FAF95',
+  gnomad_mt_af_hom: 'gnomAD mtDNA, homoplasmic',
+  gnomad_mt_af_het: 'gnomAD mtDNA, heteroplasmic',
+};
+
+// gnomAD's own site filter, where a --custom gnomAD file was annotated with it, under the
+// frequency it qualifies: a site that fails it (AC0, RF …) has a frequency gnomAD itself does
+// not trust. A passing site shows nothing.
+const GNOMAD_FILTER_ROWS = {
+  gnomad: { key: 'gnomad_filter', label: 'gnomAD filter' },
+  exomes: { key: 'gnomad_exomes_filter', label: 'exomes filter' },
+  genomes: { key: 'gnomad_genomes_filter', label: 'genomes filter' },
+} as const;
+
+const failedGnomadFilterRow = (
+  variant: SmallVariant,
+  { key, label }: (typeof GNOMAD_FILTER_ROWS)[keyof typeof GNOMAD_FILTER_ROWS],
+) => {
+  const value = variant.annotation_extra?.[key];
+  return typeof value === 'string' && value && value !== 'PASS'
+    ? [{ label, value: `${value} (fails gnomAD's own QC)`, href: undefined }]
+    : [];
 };
 
 // A field that listed several different numbers (one per transcript, record or allele) is
@@ -560,45 +601,15 @@ const buildVariantDetailData = (variant: SmallVariant) => {
     variant.nmd ? { label: 'NMD', value: formatTokenLabel(variant.nmd) } : null,
     variant.clinvar_review_status ? { label: 'ClinVar review status', value: variant.clinvar_review_status } : null,
     variant.clinvar_conditions?.length ? { label: 'ClinVar conditions', value: variant.clinvar_conditions.join('; ') } : null,
-  ].filter((item): item is { label: string; value: string } => Boolean(item));
-  // gnomAD's own site filter, where a --custom gnomAD file was annotated with it: a site that
-  // fails it (AC0, RF …) has a frequency gnomAD itself does not trust.
-  const extra = variant.annotation_extra || {};
-  const gnomadFilters = (['gnomad_filter', 'gnomad_exomes_filter', 'gnomad_genomes_filter'] as const)
-    .map((key) => [key, extra[key]] as const)
-    .filter(([, value]) => typeof value === 'string' && value && value !== 'PASS');
-  const frequencyItems = [
-    typeof variant.gnomad_hom_count === 'number'
-      ? { label: 'gnomAD hom', value: String(variant.gnomad_hom_count) }
-      : null,
-    typeof extra.gnomad_an === 'number' ? { label: 'gnomAD allele number', value: String(extra.gnomad_an) } : null,
-    ...gnomadFilters.map(([key, value]) => ({
-      label: `${key.replace(/_/g, ' ').replace('gnomad', 'gnomAD')} (fails gnomAD's own QC)`,
-      value: String(value),
-    })),
+    // The frequencies the Frequencies column leaves out, such as gnomAD's per-dataset popmax.
     ...populationFrequencies
-      .filter(([label]) => label !== 'gnomad_af')
-      .map(([label, value]) => ({
-        label: label.replace(/_/g, ' '),
+      .filter(([key]) => !FREQUENCY_COLUMN_KEYS.has(key))
+      .map(([key, value]) => ({
+        label: POPULATION_FREQUENCY_LABELS[key] ?? key.replace(/_/g, ' '),
         value: formatFrequency(value),
       })),
   ].filter((item): item is { label: string; value: string } => Boolean(item));
-  // One section: consequence, HGVS, locus, dbSNP, alleles and the transcript itself are
-  // all on the card already.
-  // Gene first, then narrowing to the transcript and the position within it, and only
-  // then the call's own provenance.
-  const contextItems = [
-    { label: 'Gene ID', value: variant.gene_id || '—' },
-    { label: 'Biotype', value: variant.transcript_biotype || '—' },
-    { label: 'Feature', value: variant.feature_type || '—' },
-    { label: 'Exon / intron', value: variant.exon || variant.intron || '—' },
-    {
-      label: 'Type / source',
-      value: `${variant.type}${variant.source ? ` · ${variant.source}` : ''}`,
-    },
-    { label: 'Phase set', value: String(variant.ps ?? '—') },
-  ];
-  return { scoreItems, frequencyItems, contextItems, additionalAnnotations };
+  return { scoreItems, additionalAnnotations };
 };
 
 export default function SmallVariantCards({
@@ -665,12 +676,7 @@ export default function SmallVariantCards({
         const detailData = detailsOpen
           ? buildVariantDetailData(variant)
           : null;
-        const {
-          scoreItems = [],
-          frequencyItems = [],
-          contextItems = [],
-          additionalAnnotations = [],
-        } = detailData ?? {};
+        const { scoreItems = [], additionalAnnotations = [] } = detailData ?? {};
         // ClinVar's classification with its review stars; the status and conditions on hover.
         const clinvarStars = formatClinvarStars(variant.clinvar_stars);
         const clinvarSummary = `${formatTokenLabel(variant.clinvar)}${clinvarStars ? ` ${clinvarStars}` : ''}`;
@@ -713,6 +719,7 @@ export default function SmallVariantCards({
         const decipherLink = externalLinks.find((link) => link.label === 'DECIPHER');
         const freqRows = [
           { label: 'gnomAD', value: formatFrequency(variant.gnomad_af), href: gnomadLink?.href },
+          ...failedGnomadFilterRow(variant, GNOMAD_FILTER_ROWS.gnomad),
           { label: 'gnomAD popmax', value: formatFrequency(popFreq.gnomad_popmax_af), href: undefined },
           // VEP's MAX_AF: the highest frequency over the 1000 Genomes and gnomAD populations
           // VEP reads, not gnomAD's popmax.
@@ -720,7 +727,9 @@ export default function SmallVariantCards({
           // gnomAD's filtering allele frequency, which BA1 and BS1 read where it is annotated.
           { label: 'gnomAD FAF95', value: formatFrequency(popFreq.gnomad_faf95_af), href: undefined },
           { label: 'exomes', value: formatFrequency(popFreq.gnomad_exomes_af), href: undefined },
+          ...failedGnomadFilterRow(variant, GNOMAD_FILTER_ROWS.exomes),
           { label: 'genomes', value: formatFrequency(popFreq.gnomad_genomes_af), href: undefined },
+          ...failedGnomadFilterRow(variant, GNOMAD_FILTER_ROWS.genomes),
           { label: 'TOPMed', value: formatFrequency(popFreq.topmed_af), href: undefined },
           ...(typeof variant.gnomad_hom_count === 'number'
             ? [{ label: 'gnomAD hom', value: String(variant.gnomad_hom_count), href: undefined }]
@@ -890,6 +899,13 @@ export default function SmallVariantCards({
 
                 <div className="variant-card-cols">
                   <section className="variant-card-col" aria-label="Variant">
+                    {/* The gene's ID over its transcript; a card without a gene symbol is
+                        already headed by it. */}
+                    {variant.gene && variant.gene_id ? (
+                      <p className="variant-card-gene-id" title="Gene ID">
+                        {variant.gene_id}
+                      </p>
+                    ) : null}
                     {transcripts.length || variant.mane_select || variant.canonical || variant.alt_allele ? (
                       // MANE and Canonical describe this transcript, so they ride with the
                       // accession rather than sitting up with the consequence.
@@ -1200,35 +1216,12 @@ export default function SmallVariantCards({
                   <summary>More annotations &amp; detail</summary>
                   {detailsOpen && (
                   <div className="variant-card-more-grid">
-                    <div className="variant-card-section">
-                      <p className="variant-card-section-title">Variant &amp; transcript context</p>
-                      <dl className="variant-card-detail-list">
-                        {contextItems.map((item) => (
-                          <div key={item.label} className="variant-card-detail-row">
-                            <dt>{item.label}</dt>
-                            <dd>{item.value}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </div>
-                    <div className="variant-card-section">
+                    {/* The full width of the card, Monarch's and OMIM's lists side by side:
+                        disease names are long, and a narrow column wraps them to a few
+                        words a line. */}
+                    <div className="variant-card-section variant-card-section--wide">
                       <p className="variant-card-section-title">Gene&ndash;disease associations</p>
                       <VariantGeneDiseases {...geneDiseaseState} />
-                    </div>
-                    <div className="variant-card-section">
-                      <p className="variant-card-section-title">All population frequencies</p>
-                      {frequencyItems.length ? (
-                        <dl className="variant-card-stat-list">
-                          {frequencyItems.map((item) => (
-                            <div key={item.label} className="variant-card-stat-row">
-                              <dt>{item.label}</dt>
-                              <dd>{item.value}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                      ) : (
-                        <p className="variant-card-empty-note">No population frequencies imported.</p>
-                      )}
                     </div>
                     {variant.review?.compound_het ? (
                       <div className="variant-card-section">
