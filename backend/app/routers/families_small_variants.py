@@ -298,6 +298,9 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("transcript_id", "Transcript"),
     ("impact", "Impact"),
     ("effect", "Effect"),
+    # VEP's genomic HGVS (its HGVSg); empty where the annotation has none, never a change
+    # written from the VCF record, which is in the columns before it.
+    ("hgvsg", "HGVSg"),
     ("hgvsc", "HGVSc"),
     ("hgvsp", "HGVSp"),
     ("clinvar", "ClinVar"),

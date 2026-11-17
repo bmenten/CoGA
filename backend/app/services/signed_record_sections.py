@@ -255,6 +255,8 @@ def _small_description(variant: VariantOut) -> dict[str, Any]:
         "gene": variant.gene,
         "gene_id": variant.gene_id,
         "transcript": variant.transcript_id,
+        # VEP's genomic HGVS (its HGVSg), None where the annotation has none.
+        "hgvsg": variant.hgvsg,
         "hgvsc": variant.hgvsc,
         "hgvsp": variant.hgvsp,
         "consequence": variant.effect,

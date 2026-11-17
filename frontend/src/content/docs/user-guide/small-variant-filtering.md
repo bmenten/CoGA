@@ -188,7 +188,8 @@ variant of a compound-het pair without the other.
 **Download CSV** exports the list, with *Priority*, *Variant score* and *Rank* columns when the
 ranking is on, in the order it was ranked by. Its
 *Classification* column holds the class each review shows on the page, *Classification text* the
-classification as typed, and *Tags* the review's tags.
+classification as typed, and *Tags* the review's tags. *HGVSg* is VEP's HGVS.g; it is empty where
+the annotation has none, since the CSV gives the position and alleles in their own columns.
 
 ### Also hit by a structural variant
 

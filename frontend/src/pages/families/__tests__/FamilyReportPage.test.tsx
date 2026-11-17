@@ -1679,7 +1679,7 @@ describe('FamilyReportPage', () => {
       const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
       const description = within(variant).getByRole('heading', { name: 'Variant description as reviewed' }).parentElement!;
       expect(description).toHaveTextContent('GENE_PATH c.10A>G p.(Lys4Arg), missense variant (MODERATE)');
-      expect(description).toHaveTextContent('17:43,000,000 A → G · transcript ENST01 (MANE Select) · callset clair3');
+      expect(description).toHaveTextContent('17:43,000,000 A → G · NC_000017.11:g.43000000A>G · transcript ENST01 (MANE Select) · callset clair3');
       expect(description).toHaveTextContent('MOTHER 0/0 (depth 28, GQ 60)');
       expect(description).toHaveTextContent('PROBAND 0/1 (depth 30, AD 15,15, VAF 0.5)');
       const sv = screen.getByRole('heading', { name: 'Structural variant 2-1000-50000-DEL---' }).closest('article')!;

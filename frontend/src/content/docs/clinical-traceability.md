@@ -186,7 +186,8 @@ SHA-256 content hash), the version the clinical report in the EPD refers to. It 
   concordance included), not only those outside a cut-off;
 - whether the family's data imported completely, and if not, which datasets failed;
 - what the analysis looked at:
-  - each reported variant's **description** as you reviewed it: gene, transcript, HGVS c. and p.,
+  - each reported variant's **description** as you reviewed it: gene, transcript, HGVS g. (VEP's,
+    where the annotation has it), c. and p.,
     consequence and each sample's genotype; for a structural variant its type, copy change, position,
     genes and each sample's genotype and copy number;
   - the **gene panels** the family's searches applied (each version, with PanelApp's version of a
