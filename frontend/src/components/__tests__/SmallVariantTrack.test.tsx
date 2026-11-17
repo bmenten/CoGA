@@ -363,7 +363,7 @@ test('colors variants by functional impact when no ClinVar override applies', as
   expect(moderate).toMatchObject({ kind: 'moderate', fill: '#eab308' }); // yellow dot
   expect(low).toMatchObject({ kind: 'other', fill: '#9ca3af' }); // grey dot
   expect(modifier).toMatchObject({ kind: 'other', fill: '#9ca3af' }); // grey dot (lowest)
-  // Drawn at the small-variant dot radius, three times the other tracks' points.
+  // Drawn at the small-variant dot radius, 6 px across.
   expect(container.querySelector('path.small-variant-mark[data-variant-mark="other"]')).toHaveAttribute(
     'd',
     smallVariantMarkPath('other', SMALL_VARIANT_DOT_RADIUS),

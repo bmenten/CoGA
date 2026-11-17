@@ -55,8 +55,9 @@ describe('the marks', () => {
     });
   });
 
-  it('draw the dots three times as wide as the other tracks\' points', () => {
-    expect(SMALL_VARIANT_DOT_RADIUS).toBeCloseTo(TRACK_DOT_RADIUS * 3);
+  it('draw the dots 6 px across, larger than the other tracks\' points', () => {
+    expect(SMALL_VARIANT_DOT_RADIUS * 2).toBe(6);
+    expect(SMALL_VARIANT_DOT_RADIUS).toBeGreaterThan(TRACK_DOT_RADIUS);
   });
 
   it('keep the P/LP diamond larger than a dot and within a parental-origin row', () => {

@@ -4,9 +4,10 @@ import {
   SMALL_VARIANT_MARK_ORDER,
   smallVariantMarkPath,
 } from '../../lib/smallVariantMarks';
+import { SMALL_VARIANT_DOT_RADIUS } from '../../lib/trackSampling';
 
-// Smaller than the track's dots, to sit with the legend's text; the proportions are the track's.
-const LEGEND_RADIUS = 3.6;
+// The track's own size.
+const LEGEND_RADIUS = SMALL_VARIANT_DOT_RADIUS;
 
 const Swatch: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true" focusable="false">
