@@ -9,8 +9,8 @@ and leaves the direct calls. And the flag keeps one scope per failed callset: a
 later failure of the SNV dataset for another callset keeps the earlier one, so importing the
 later callset again leaves the flag while the earlier callset is still missing.
 
-Over one new one-sample family this runs real import jobs (``POST /api/family-imports``,
-the worker's ``run_family_import_job``) into Postgres and ClickHouse, the SNV dataset's
+Over one new one-sample family this runs real import jobs (queued as a delivery's approval queues it,
+then run by the worker's ``run_family_import_job``) into Postgres and ClickHouse, the SNV dataset's
 ``source_format`` left at auto throughout, and signs out after the later ones through
 ``POST /api/families/<id>/report/sign-out`` (the drift and QC gates acknowledged):
 

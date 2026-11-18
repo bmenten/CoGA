@@ -1,5 +1,6 @@
 - **ACMG class** — the five-tier variant classification: benign, likely benign, VUS, likely pathogenic,
   pathogenic.
+- **ACMG SF** — the ACMG list of genes in which a secondary finding is reported (CoGA ships v3.3).
 - **Affected versus carrier** — affected status describes the person, carrier status the genotype. They
   are recorded separately: an unaffected person can be a carrier.
 - **Analyst / reader** — a member's level in a project. An analyst reads and changes the project's
@@ -22,6 +23,8 @@
 - **Compound heterozygous** — two different variants in one gene, one on each copy (in trans).
 - **De novo** — present in a child and absent in both parents. On a son's X or Y outside the
   pseudo-autosomal regions, only the mother (X) or the father (Y) passes that chromosome on.
+- **Delivery** — a family folder a pipeline delivered for import, with its package file
+  (`coga-package.json`), waiting on the **Package import** page for approval.
 - **Embryo call** — CoGA's derived PGT result for an embryo at the ROI: affected / at risk, carrier,
   unaffected or uninformative.
 - **EPD** — the hospital's electronic patient record. The clinical report is drafted and medically
@@ -31,6 +34,8 @@
 - **Haplotype, homolog** — a homolog is one of a person's two copies of a chromosome; a haplotype is the
   set of alleles on one homolog.
 - **Heteroplasmy** — the fraction of mitochondrial genomes that carry a variant.
+- **HI / TS** — ClinGen's dosage scores of a gene: the evidence that losing one copy
+  (haploinsufficiency) or gaining one (triplosensitivity) causes disease.
 - **HPO** — the Human Phenotype Ontology: a hierarchy of clinical phenotype terms, from general to
   specific.
 - **IBD** — identity by descent: a stretch of DNA that two relatives inherited from the same ancestor.
@@ -51,7 +56,7 @@
 - **MNV** — multi-nucleotide variant: neighbouring bases changed together.
 - **Monarch Initiative** — a knowledge graph that links genes, diseases and HPO phenotypes.
 - **NeedLR** — the structural-variant annotation tool of the long-read pipeline; its annotations fill
-  the *Needlr Annotations* filters.
+  the *Needlr annotations* filters.
 - **P / LP / B / LB** — pathogenic, likely pathogenic, benign, likely benign.
 - **Paraphase** — a caller for genes in paralogous or duplicated regions.
 - **PGT** — preimplantation genetic testing: testing embryos before transfer.
@@ -68,9 +73,10 @@
   *viewer* (reads), *analyst* (also analyses), *supervisor* (also signs out), *superuser* (also every
   project, the configuration the analyses read and package import) and *admin* (the whole
   administration).
-- **Sign-out** — the analytical sign-off in CoGA, by a supervisor, a superuser or an administrator: it closes the analysis and freezes it into a
-  signed version that can never change. The medical sign-off is given on the clinical report, in the
-  EPD.
+- **Sign-out** — the analytical sign-off in CoGA, by a supervisor, a superuser or an administrator: it
+  closes the analysis and freezes it into a signed version that can never change. The medical
+  sign-off is given on the clinical report, in the EPD.
+- **STRchive** — the catalogue of disease-causing repeat loci whose thresholds the repeat page reads.
 - **Trans / cis** — two variants on opposite homologs (trans) or on the same homolog (cis).
 - **TRGT** — tandem-repeat genotyping, used for repeat-expansion calls.
 - **VAF** — variant allele fraction: the share of reads that carry the alternate allele.

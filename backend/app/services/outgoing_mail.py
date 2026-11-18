@@ -3,7 +3,8 @@
 Three mails go out: to every active administrator about an account that waits for approval
 (``account_notifications.py``), to the user whose account an administrator activates
 (``account_activation_mail.py``), and to the user a family is assigned to
-(``family_assignment_mail.py``). Without ``SMTP_HOST`` no mail goes out. ``SMTP_FROM`` is the
+(``family_assignment_mail.py``). An administrator can also send a test mail from *Users*
+(``POST /api/auth/account-request-mail/test``). Without ``SMTP_HOST`` no mail goes out. ``SMTP_FROM`` is the
 sender, ``ADMIN_EMAIL`` when it is not set. With ``SMTP_STARTTLS`` the connection is encrypted
 before anything is sent, and with ``SMTP_USERNAME`` CoGA signs in to the server, which needs
 STARTTLS outside development (``core/config.py``). At Ghent University the server is the

@@ -401,7 +401,7 @@ The variant list also shows sites that fail the quality filter, flagged with the
 category counts can be higher than the Summary's.
 
 The variant list classifies the first 5,000 variants of its search, in genomic order. When more
-match, the page says so: the list stops part-way through the genome, and its count is a lower bound.
+match, the page says so: the list stops part-way through the genome and its count is a lower bound.
 Narrow the search with a gene panel, a gene or a region.
 
 ---
@@ -433,12 +433,12 @@ printout starts with *Draft* or *Not the signed report*, as the live family repo
 ## Sign-out
 
 **Sign out NIPT analysis** on the NIPT report signs the analysis out. This is the analytical sign-off,
-by a supervisor, a superuser or an administrator: it closes and freezes the analysis into the family's signed record. The medical sign-off of
-the patient report happens in the EPD, which refers to the record by its report code. It is the family
-sign-out, with its checks and report code: one record per family, whether signed out here or from the
-family report. The NIPT page itself offers no sign-out. Once signed, the button reads **Amend
-sign-out**. The NIPT report then names the latest signed version, its report code, and whether the
-family's data still matches it.
+by a supervisor, a superuser or an administrator: it closes and freezes the analysis into the family's
+signed record. The medical sign-off of the patient report happens in the EPD, which refers to the
+record by its report code. It is the family sign-out, with its checks and report code: one record per
+family, whether signed out here or from the family report. The NIPT page itself offers no sign-out.
+Once signed, the button reads **Amend sign-out**, and the NIPT report names the latest signed version,
+its report code, and whether the family's data still matches it.
 
 For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out. The
 signed version shows them:
@@ -501,10 +501,15 @@ Neither ever lists:
 The protections are checked when an allele is listed, on the annotation of the families on the
 assembly; an allele no family carried then is listed unchecked. So each family's analysis checks its
 listed alleles again with its own annotation: one it marks common or ClinVar-pathogenic stays in,
-flagged `artifact_list_protected`. A site with no population or ClinVar annotation is not protected,
-and a real recurrent variant that ClinVar does not call pathogenic can still be listed. A pregnancy
-without the father's sample, or whose father's call is too weak, cannot explain the fetus's paternal
-allele, so with many such pregnancies a polymorphism can still be seeded. Review the list before use.
+flagged `artifact_list_protected`.
+
+**Review the list before use.** It can still hold real variants:
+
+- a site with no population or ClinVar annotation is not protected;
+- a real recurrent variant that ClinVar does not call pathogenic can be listed;
+- a pregnancy without the father's sample, or whose father's call is too weak, cannot explain the
+  fetus's paternal allele, so with many such pregnancies a polymorphism can still be seeded.
+
 Every change to the list is a clinical audit event.
 
 ---

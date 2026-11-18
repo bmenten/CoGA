@@ -25,7 +25,7 @@
 | Categories of data | **Special category:** genetic data (variants, genotypes, haplotypes), health/clinical status, phenotype (HPO), reproductive/pregnancy data; identifiers/pedigree metadata; user account data (staff). |
 | Processing operations | Ingestion of validated genomic files, storage (Postgres + ClickHouse + file/object store), filtering/analysis/visualization, classification, reporting, audit logging. |
 | Hosting / processors | Production target: **Google Cloud**, deployed with Terraform (owner decision of 2026-09-29). The configuration is in `terraform/` and not yet applied, so no patient data is processed yet. Google Cloud will store and process the data as a **processor** for the institution: Cloud SQL, a ClickHouse VM and CMEK-encrypted storage buckets in the configured region (default `europe-west1`), behind an HTTPS load balancer that go-live restricts to institutional networks ([TF-13 §3](TF-13-cybersecurity.md)). Local development uses Docker Compose on synthetic data only. The data-processing agreement with Google is being signed (owner, 2026-09-29). **🔲 OWNER/DPO:** file the signed DPIA and the executed agreement with this file; record the region, any sub-processors and transfers; settle whether Google is a *processor* (this file, TF-02) or a *sub-processor*. |
-| Scale & duration | All CMGG cases across the five applications; retention per clinical/legal record requirements. |
+| Scale & duration | All CMGG cases across the six applications; retention per clinical/legal record requirements. |
 
 ## 2. Lawful basis & special-category condition
 - **Lawful basis (Art. 6):** ‹typically Art. 6(1)(e) public-interest task / (c) legal obligation for healthcare — confirm with DPO›.

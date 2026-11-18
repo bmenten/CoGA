@@ -45,8 +45,9 @@
 
 **CI enforcement:** the gates run on every PR and on push to `main`.
 [TF-18 §6](TF-18-change-configuration-management.md) sets out which are required status checks
-and the limits of that enforcement: an administrator can bypass them, and no approving review is
-required (pull requests need no approval; QA does the four-eyes review per release). The gates
+and the limits of that enforcement: the ruleset lists no bypass actors, but an administrator can
+edit or disable it, and no approving review is required (pull requests need no approval; QA
+does the four-eyes review per release). The gates
 support the claim *"CI gates are blocking"*, **not** *"every merge was independently
 reviewed"*. A change counts as independently reviewed only when QA's signed review of its
 release includes it. What each job runs: [docs/testing.md](../testing.md).

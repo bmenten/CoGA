@@ -183,7 +183,7 @@ erDiagram
         uuid id PK
         uuid assembly_id FK
         text accession
-        text variant_class "gain, loss or mixed"
+        text variant_class "gain, loss, mixed or other"
     }
     dgv_load_jobs {
         uuid id PK
@@ -298,7 +298,7 @@ erDiagram
 | `blacklist` | problem regions per assembly |
 | `clinical_cnvs` | known CNV syndromes per assembly, with their ClinVar support (below) |
 | `clinical_cnv_kb_jobs` | admin-triggered rebuilds of the clinical CNV knowledgebase, per assembly: status (`queued`, `running`, `completed` or `failed`), rows inserted, the error (for a failed build, the last reason it gave) and the tail of the build log. At most one job is queued or running (`idx_clinical_cnv_kb_jobs_one_active`, a unique index on a constant). `worker_id` and `heartbeat_at` mark the worker running a job; a job whose heartbeat is ten minutes old is closed as failed. `requested_by_id` is the account that asked for the rebuild. The rebuild runs, and loads what it built, only while that account is an active administrator, checked at the start and before the load; otherwise it ends `failed`, with the reason, and loads nothing. `requested_by` is the e-mail address it was asked under, shown with the job. Deleting the account keeps the job, linked to no account; it can then no longer run. |
-| `dgv_variants` | Database of Genomic Variants entries per assembly, with a gain/loss/mixed class |
+| `dgv_variants` | Database of Genomic Variants entries per assembly, with a gain, loss, mixed or other class |
 | `dgv_load_jobs` | loads of the pinned DGV release for an assembly (`DGV_PINNED_RELEASES`), asked for on the Reference page or queued by a start or an assembly import: release, source URL, status (`queued`, `running`, `completed` or `failed`), the download's progress (`bytes_read` of `bytes_total`), rows inserted and the error. As for `clinical_cnv_kb_jobs`: at most one job queued or running (`idx_dgv_load_jobs_one_active`), `worker_id` and `heartbeat_at` mark its worker and a job silent for ten minutes is closed as failed, and an administrator's load (`requested_by_id`) runs and commits only while that account is an active administrator. A load a start queues is `startup-bootstrap`'s, no account's. A load commits nothing unless the whole file is the pinned one ([data-import.md](data-import.md#dgv)) |
 | `segmental_duplications` | segmental duplications and low-copy repeats per assembly |
 | `gene_panels`, `gene_panel_genes` | panels and their gene lists. An external panel's `source` and `external_id` (the PanelApp panel's id; `mendeliome` for the Mendeliome) say where it comes from, and `external_selection` which part of it the panel holds: for a PanelApp panel, the confidence levels it was imported with, lowest first (`3` green only, `2,3` green and amber, `1,2,3` green, amber and red). Each choice of levels of one PanelApp panel is a panel of its own, with its own name, versions and genes: `idx_gene_panels_source_external_selection` holds one panel per source, external id and selection (NULL equal to NULL, so there is one Mendeliome). A panel names each gene (`gene`) by its HGNC symbol or by its Ensembl gene ID (`ENSG` and eleven digits, without a version): a gene added by hand as typed, a PanelApp gene by the ID PanelApp gives it, a Mendeliome gene by its symbol. For an ID, `symbol` holds the HGNC symbol the gene reference gives that gene (that of its first loaded assembly, GRCh38 before T2T before GRCh37), or the source panel's for an ID no loaded assembly knows; a CHECK keeps `symbol` NULL for any other gene. A symbol that names the gene of one of the panel's IDs is that gene, kept once, by its ID |
@@ -852,7 +852,7 @@ erDiagram
     }
     report_signouts {
         uuid id PK
-        uuid family_id FK
+        uuid family_id FK "unique with version"
         text family_identifier "unique with version"
         integer version
         uuid signed_out_by_id FK
@@ -1140,8 +1140,8 @@ with three differences:
   `SNV_INDEL/entries`).
 - `PK` marks the columns of a table's sort key (`ORDER BY`), not a unique key. In a
   `ReplacingMergeTree` or `CollapsingMergeTree` table a merge keeps one row per sort key
-  ([Row identity](#row-identity)). The plain `MergeTree` tables (`family_data_version`,
-  `INTERVAL/entries`) keep every row.
+  ([Row identity](#row-identity)); in the `SummingMergeTree` `carriers` it sums them. The plain
+  `MergeTree` tables (`family_data_version`, `INTERVAL/entries`) keep every row.
 
 The small variants. The four `variants` tables hold one variant's annotation and serve every
 family; `entries` holds each family's calls:
@@ -1220,6 +1220,48 @@ erDiagram
         DateTime64 bumped_at PK
         UInt64 token
     }
+```
+
+The Variant Explorer's carrier summary ([The variant carrier summary](#the-variant-carrier-summary)).
+It is derived: each family's contribution is computed from its `entries` rows and its members
+and projects in Postgres, and `carrier_generations` records what it was computed from:
+
+```mermaid
+erDiagram
+    SNV_entries }o..o{ SNV_carriers : "a family's contribution, per variant and class"
+    SNV_carriers }o..|| SNV_carrier_generations : "family_guid, generation (the marker row)"
+    SNV_data_version }o..o{ SNV_carrier_generations : "data_version: the family's version it was computed from"
+    pg_families ||..o{ SNV_carrier_generations : "family_guid = id"
+    pg_families |o..o{ SNV_carriers : "family_guid = id, empty in an aggregate row"
+
+    SNV_carriers["SNV_INDEL/carriers"] {
+        UInt64 xpos PK "0 in a marker row"
+        UInt64 key PK
+        String family_guid PK "empty in an aggregate row"
+        String sample_id PK "set in a carrier row"
+        Array projects PK "the family's projects"
+        UInt64 annotationSetHash PK "the row's class, with the next three"
+        String rsid PK
+        Array gene_symbols PK
+        Bool imputed PK
+        UInt64 generation PK "set in a marker row"
+        Int32 families "summed, as are samples, het and hom"
+        Int32 applied "1 for the generation the table holds"
+    }
+    SNV_carrier_generations["SNV_INDEL/carrier_generations"] {
+        String family_guid PK "empty: a request to empty the summary"
+        UInt64 generation PK
+        Array projects
+        Array shown_samples
+        Array shared_samples "shown by another family too"
+        String source_project "whose copy was read"
+        String data_version
+    }
+    pg_families["families (Postgres)"] {
+        uuid id PK
+    }
+    SNV_entries["SNV_INDEL/entries"]
+    SNV_data_version["SNV_INDEL/family_data_version"]
 ```
 
 The structural variants and the interval tracks. An SV's key hashes its family and its source,
@@ -1796,7 +1838,7 @@ erDiagram
 | `ancestry_runs` | Project-scoped jobs pinning the reference checksum: a user's (`trigger = 'user'`, with `requested_by`) or the worker's own once the family's genotypes changed (`trigger = 'automatic'`, no requester; a check makes a user's run name its requester). `storage_version` is the family's small-variant data version the run was queued for, then the one it read: the worker's sweep queues no second run for a version. Queued, running, completed, failed or interrupted |
 | `ancestry_results` | One append-only snapshot per completed run: each individual's four PCs or why there are none, the callset it was read from and how (genome, exome, a call at every marker), every callset's scan, the `storage_version` read, the calculation version and the rules, with a digest of the rows read |
 | `ancestry_sample_choices` | Append-only choices of how one individual is read, the latest per individual holding: CoGA's own reading (`auto`), one callset (`callset`, which also includes an embryo) with the regions it covers, or left out (`exclude`). `regions` holds the regions' source (a gene panel's id and version, or a BED file's name and SHA-256), their interval count and the reference markers inside them (`loci`); never the BED file |
-| `ancestry_files` | Append-only VCF files a family package declared for ancestry without importing them (a gVCF): the family, project, import job, package and relative path, and label. Of the declarations of one path the latest counts |
+| `ancestry_files` | Append-only VCF files an import's manifest declared for ancestry without importing them (a gVCF, `metadata.ancestry.vcfs`): the family, project, import job, package and relative path, and label. Of the declarations of one path the latest counts. The manifest CoGA makes from `coga-package.json` writes no such field (DATA-14) |
 | `ancestry_file_scans` | Append-only scans of a declared file: `scanned` (its SHA-256 and size as read, its sample columns and its calls at the reference markers, `rows`) or `failed` (a fixed reason), and the reference whose markers were kept. A calculation reads the latest scan, never the file |
 
 `ancestry_reference_panels`, `ancestry_results`, `ancestry_sample_choices`, `ancestry_files` and `ancestry_file_scans` have mutation-blocking triggers,

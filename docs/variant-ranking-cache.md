@@ -260,9 +260,9 @@ rows).
 
 Both shapes offered the same members in every case measured: the Mendeliome, a two-gene panel and
 no panel; the whole chromosome and windows of 10 Mb, 1 Mb and 100 kb; with and without sample
-filters. With two genes or no panel either shape takes 0.003 to 0.03 s. The old analyzer took 0.046
-to 0.070 s over the subquery shape, and as long as the default analyzer over one SELECT; the query
-keeps the default analyzer. `integration/test_track_availability_presence_integration.py` holds
+filters. With two genes or no panel either shape takes 0.003 to 0.03 s. With the analyzer off
+(`enable_analyzer=0`), ClickHouse took 0.046 to 0.070 s over the subquery shape, and as long as the
+default analyzer over one SELECT; the query keeps the default analyzer. `integration/test_track_availability_presence_integration.py` holds
 the analyzer's time over the aggregate within twice its time over a member's track count.
 
 ### Structural variants
@@ -368,8 +368,9 @@ whenever conditions 4 and 5 hold. When no row qualifies, the ranking is computed
 variants already fetched.
 
 Why the second condition: restricting a ranking can only drop variants, never add any. A ranking
-computed before its panel gained a gene holds none of that gene's variants. A new version that leaves the genes and regions unchanged, such as a description edit,
-still serves the panel from its earlier ranking.
+computed before its panel gained a gene holds none of that gene's variants. A new version that
+leaves the genes and regions unchanged, such as a description edit, keeps serving the panel from
+its earlier ranking.
 
 Why the fourth: narrowing cannot bring back a variant the row lacks. Every panel is matched by its
 genes and its regions (see [A panel of any size](#a-panel-of-any-size)), and the row's panel holds the requested genes (condition 3) with their loci

@@ -1,13 +1,13 @@
 # Runbook — flip the application to the restricted DB role (`coga_app`)
 
 Schema `05_grants.sql` creates a **restricted runtime role `coga_app`** and revokes
-`UPDATE`/`DELETE`/`TRUNCATE` on the fourteen append-only tables: `audit_log_events`,
+`UPDATE`/`DELETE`/`TRUNCATE` on the thirteen append-only tables: `audit_log_events`,
 `clinical_audit_events`, `report_signouts`, `integrity_anchors`, `qc_threshold_changes`,
-`family_structure_versions`, `ui_events`, `wgs_sources`,
-`ancestry_reference_panels`, `ancestry_results`, `ancestry_sample_choices`, `ancestry_files`,
-`ancestry_file_scans` and `import_delivery_revisions` (the corrections of a delivered package). It ships in **fallback mode**: the role
-exists (`NOLOGIN`), but the application still connects as the table **owner**, so nothing
-changes at runtime yet.
+`family_structure_versions`, `ui_events`, `ancestry_reference_panels`, `ancestry_results`,
+`ancestry_sample_choices`, `ancestry_files`, `ancestry_file_scans` and
+`import_delivery_revisions` (the corrections of a delivered package). It ships in **fallback
+mode**: the role exists (`NOLOGIN`), but the application connects as the table **owner**, so
+nothing changes at runtime.
 
 This runbook performs the **coordinated DSN flip** that makes the application connect as
 `coga_app`. Only that closes the hash chains' owner-bypass gap. As a non-owner, the runtime
@@ -15,12 +15,14 @@ role cannot `ALTER TABLE … DISABLE TRIGGER`, cannot `SET session_replication_r
 (superuser-only), and cannot `UPDATE`/`DELETE` the append-only tables. So it can neither
 edit or remove an audit row or signed report, nor re-chain an interior edit.
 
-The switch is a configuration change; the application needs no code change:
+The switch is a configuration change, with no code change:
 
 - `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` makes the app **skip** the owner-only
-  schema DDL and admin seed on startup. It can then boot as `coga_app` without crash-looping on
-  DDL it may not run. At its default (`true`) the app migrates itself as the owner: the current
-  single-DSN deployment, unchanged.
+  schema DDL and admin seed on startup, so it can boot as `coga_app` without crash-looping on
+  DDL it may not run. At its default (`true`) the app migrates itself as the owner, over a
+  single DSN.
+- An import-worker process (`python -m app.import_worker`, the Compose `import-worker`
+  service) never migrates: it reads the same settings as the API and connects as the same role.
 - The owner-privileged migration is a standalone entrypoint, `python -m backend.app.db_migrate`
   (`python -m app.db_migrate` inside the backend image). It migrates the schema (an empty
   database made from the baselines, then the Alembic revisions the ledger `alembic_version`

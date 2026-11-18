@@ -108,7 +108,7 @@ on it.
 - **Environment separation (H11.1-OP5):** development never happens directly on a production system; it uses a dedicated dev environment, or the test environment where there is none.
 - **Registration & identifier:** CoGA is to be registered in the CMGGMC **ICT module** with a software number **`Sxxxx`** (**🔲** not yet assigned); semantic versioning `x.y.z` (see [TF-18 §2](TF-18-change-configuration-management.md)); only **major** versions are recorded in the CMGGMC ICT "Software" section.
 - Languages/runtimes: Python (backend), Node.js / TypeScript (frontend); the versions are in [TF-08](TF-08-soup-register.md).
-- Source control: Git/GitHub; feature branches; pull requests, which need no approval: the four-eyes review is QA's, per release ([`CONTRIBUTING.md`](../../CONTRIBUTING.md)). Branch protection, its required checks, its limits and QA's review: [TF-18 §6](TF-18-change-configuration-management.md).
+- Source control: Git/GitHub; feature branches; pull requests without approval, QA reviewing per release (§3; [`CONTRIBUTING.md`](../../CONTRIBUTING.md)). Branch protection, its required checks, its limits and QA's review: [TF-18 §6](TF-18-change-configuration-management.md).
 - Build/packaging: Docker / Docker Compose; pinned `backend/requirements.txt`, `frontend/package-lock.json`.
 - CI: GitHub Actions (`.github/workflows/ci.yml`, `security.yml`, `build.yml`); the verification gates are described in [TF-09 §1](TF-09-verification-validation.md).
 - Tool validation: development tools (linters, test runners, CI) are not part of the device; the gates they enforce evidence their adequacy. Compilers/build tools are configuration-controlled by pinned versions.

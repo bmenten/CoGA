@@ -1,15 +1,13 @@
 # Deploying CoGA to Google Cloud (Terraform) — Full Guide
 
-A **step-by-step, plain-language** guide to setting up CoGA on Google Cloud with Terraform.
-You need to know a terminal, not GCP or Terraform: every term is explained at first use.
-
-> Design notes, the map of the `.tf` files and the known residuals are in
-> [terraform/README.md](../terraform/README.md). This document is the end-to-end
-> walkthrough and operations manual.
+How to set up CoGA on Google Cloud with Terraform, step by step, and run it day to day. You
+need to know a terminal, not GCP or Terraform: every term is explained at first use. The design
+notes, the map of the `.tf` files and the known residuals are in
+[terraform/README.md](../terraform/README.md).
 
 CoGA handles patient data (PHI) and is regulated as an in-house IVD under IVDR. **Treat every
 step as production-grade**: secrets, encryption, network isolation, audit logging and backups
-are not optional. There is no production deployment yet.
+are not optional. No production deployment exists.
 
 ---
 
@@ -81,8 +79,7 @@ Terraform creates one self-contained CoGA environment in a GCP project:
 **The supporting infrastructure** (created for you): a private network (VPC), a load balancer
 with a managed TLS certificate, a Web Application Firewall (Cloud Armor), secret storage
 (Secret Manager), least-privilege access to the buckets and secrets, and automated backups.
-The encryption key, the service accounts and the project APIs come from outside this
-configuration (4.3).
+The encryption key, the service accounts and the project APIs come from outside (4.3).
 
 Everything lives in **`europe-west1` (Belgium)** by default, for EU data residency.
 
@@ -96,15 +93,15 @@ Everything lives in **`europe-west1` (Belgium)** by default, for EU data residen
 - **Terraform state** — Terraform's record of what it created, kept in a **GCS bucket** so the
   whole team shares one source of truth. It holds no password or private key (Terraform passes
   those through **write-only** arguments, which it never stores), but it maps the whole
-  deployment, so the bucket must be private and encrypted.
+  deployment: keep the bucket private and encrypted.
 - **`apply` / `plan`** — `plan` shows what *would* change; `apply` makes it happen.
 - **Project** — a GCP container for resources and billing. CoGA may use one project, or
   several (a runtime project, a shared image-registry project, a KMS project).
-- **Cloud Run** — runs a container without servers for you to manage, and scales up and down
-  automatically. It runs the stateless backend and frontend.
+- **Cloud Run** — runs a container without servers for you to manage, scaling up and down
+  automatically: the stateless backend and frontend.
 - **Cloud SQL** — managed PostgreSQL: Google runs, patches and backs up the database.
 - **ClickHouse** — a columnar analytics database, for the huge variant tables. GCP has no
-  managed version, so it runs in a container on a small VM.
+  managed version, so it runs in a container on a VM.
 - **VPC** — a private network. The databases have **no public IP**; they are reachable only
   inside this network.
 - **Serverless VPC connector** — the bridge that lets Cloud Run reach into the private VPC,
@@ -119,7 +116,7 @@ Everything lives in **`europe-west1` (Belgium)** by default, for EU data residen
 - **Secret Manager** — secure storage for passwords and keys, injected into the app at
   runtime (never baked into images).
 - **Cloud KMS / CMEK** — Customer-Managed Encryption Keys: encryption at rest with *your* key
-  instead of Google's default key, for stronger control.
+  instead of Google's default one.
 - **Artifact Registry** — stores the built container images.
 - **Workload Identity Federation (WIF)** — lets GitHub Actions authenticate to GCP
   **without** a long-lived key file (keyless CI).
@@ -173,9 +170,9 @@ You (or an admin) need:
 
 ### 4.3 Landing-zone pieces (created once, possibly by an admin)
 
-These live *outside* the per-environment Terraform because they are shared or sensitive. At
-CMGG the landing zone and the central infra repo provide them; Section 5 shows how to create
-them in a standalone project:
+These live *outside* the per-environment Terraform, because they are shared or sensitive. At
+CMGG the landing zone and the central infra repo provide them; Section 5 creates them in a
+standalone project:
 
 - A **GCS bucket for Terraform state** (private, versioned, CMEK).
 - A **Cloud KMS key** for CMEK (same region as everything else).
@@ -365,6 +362,11 @@ sign-in (`azure_ad_*`) in 12.11. Every variable, with its default, is in
 For **production**, consider `db_availability_type = "REGIONAL"` and a larger
 `db_tier` / `clickhouse_machine_type`.
 
+**No mail.** Terraform sets no `SMTP_*` setting, so a Google Cloud deployment sends no mail:
+not the mail to the administrators about an account that waits for approval, nor the mail to a
+user whose account is activated or to whom a family is assigned. They need a mail server
+(`SMTP_HOST`, [deployment-vm.md](deployment-vm.md)).
+
 ---
 
 ## 7. First deployment (manual)
@@ -394,8 +396,8 @@ echo "$BACKEND_IMAGE" "$FRONTEND_IMAGE"   # each ends in @sha256: and 64 hex dig
 ```
 
 Give every build a new tag, as above, and deploy it by its digest (`…@sha256:…`), as CI
-does. The digest names exactly the image you built, even if the tag is later pushed over,
-and a new build always changes the image string, which is what Terraform deploys on.
+does. The digest names exactly the image you built, even if the tag is pushed over later, and
+a new build always changes the image string, on which Terraform deploys.
 
 `./scripts/build-version.sh` prints `VERSION` with the pre-release identifier `dev` added
 (`0.1.0` → `0.1.0-dev`, `0.1.0-rc.1` → `0.1.0-rc.1.dev`). Only a release build, which
@@ -423,9 +425,9 @@ terraform apply tfplan
 ```
 
 Terraform creates the network, databases, secrets wiring, Cloud Run, the load balancer and
-Cloud Armor. The first apply takes a while; Cloud SQL takes the longest. Before the backend
-starts, the apply takes an on-demand backup of the database with your `gcloud` login (12.1),
-as it does before every schema migration.
+Cloud Armor; Cloud SQL takes the longest. Before the backend starts, the apply takes an
+on-demand backup of the database with your `gcloud` login (12.1), as before every schema
+migration.
 
 > **Tip:** the apply reads the Postgres password to set the DB user, so complete Section 5.5
 > first.
@@ -451,7 +453,7 @@ gcloud compute ssl-certificates describe coga-cert --global \
   --format='value(managed.status, managed.domainStatus)'
 ```
 
-It moves `PROVISIONING → ACTIVE`. Until it is `ACTIVE`, browsers show a TLS warning; that is
+It moves `PROVISIONING → ACTIVE`. Until it is `ACTIVE`, browsers show a TLS warning, as
 expected.
 
 ---
@@ -467,10 +469,10 @@ curl -s -o /dev/null -D - https://coga.cmgg.be/api/health | grep -i strict-trans
 ```
 
 The last two each print `strict-transport-security: max-age=63072000; includeSubDomains`
-once. The app page and the API both tell the browser to use only HTTPS for this host, for
-two years (`ENABLE_HSTS=true` on both Cloud Run services). The load balancer's HTTPS URL map
-sets the same header on every answer it relays, replacing the services' own, so Cloud Run's
-own error pages carry it too (`terraform/loadbalancer.tf`).
+once: the app page and the API tell the browser to use only HTTPS for this host, for two years
+(`ENABLE_HSTS=true` on both Cloud Run services). The load balancer's HTTPS URL map sets the
+same header on every answer it relays, replacing the services' own, so Cloud Run's own error
+pages carry it too (`terraform/loadbalancer.tf`).
 
 Then open `https://coga.cmgg.be` in a browser and log in with:
 
@@ -478,9 +480,9 @@ Then open `https://coga.cmgg.be` in a browser and log in with:
   `ADMIN_EMAIL`, and CoGA signs in by email, not by the username `coga-admin`)
 - **Password:** the `coga-admin-password` value you set in 5.5
 
-If the page loads and you can log in, the deployment is live. **Rotate the admin password**
-(12.2) and **set up Microsoft sign-in** (12.11): users then sign in with their hospital or
-university Microsoft account, and `coga-admin` becomes the emergency administrator.
+If you can log in, the deployment is live. **Rotate the admin password** (12.2) and **set up
+Microsoft sign-in** (12.11): users then sign in with their hospital or university Microsoft
+account, and `coga-admin` becomes the emergency administrator.
 
 The footer of every page names the same version and commit as `/api/version`, and its
 **Report a problem** link opens the CMGGMC route.
@@ -494,8 +496,8 @@ the client-settable left-most one. After the first deploy, check that the audit 
 
 ## 10. CI/CD (the normal path)
 
-Day to day, GitHub Actions runs Terraform, not you. The workflow is
-[.github/workflows/build.yml](../.github/workflows/build.yml):
+Day to day, GitHub Actions runs Terraform, not you
+([.github/workflows/build.yml](../.github/workflows/build.yml)):
 
 - **On a pull request:** only `terraform fmt -check` + `terraform validate` (no credentials,
   no changes), so it is safe to review. This check and the deploy both run the Terraform
@@ -539,10 +541,10 @@ And these **variables**:
 | `COGA_PROBLEM_REPORT_URL` | repository | Where **Report a problem** in the app goes: the CMGGMC probleemmelding route, as an `https://` or `mailto:` address without commas. CI builds it into the frontend image; without it the app shows no problem-report link. |
 | `COGA_TFVARS` | `gcp-deploy` environment | Every other Terraform variable, as HCL (for example `app_domain = "..."`, `db_tier = "..."`). CI writes it to `ci.auto.tfvars` before planning, so the next deploy does not revert a value set once; the five values CI passes with `-var` still win. No secrets here: they live in Secret Manager. |
 
-Once configured, merging to `main` deploys automatically, after approval. The deploy job runs
+Once configured, merging to `main` deploys automatically, after approval: the deploy job runs
 in the `gcp-deploy` environment and **refuses to run until that environment has at least one
-required reviewer** (Settings → Environments → `gcp-deploy` → Required reviewers), so an
-infrastructure apply never runs without a person approving it.
+required reviewer** (Settings → Environments → `gcp-deploy` → Required reviewers), so no
+infrastructure apply runs without a person approving it.
 
 ---
 
@@ -600,7 +602,9 @@ gcloud storage cp dbNSFP5.4_gene.gz "gs://${REFDATA}/"
 ```
 
 The first start imports HPO's newest release, downloaded from HPO; the bucket's `hpo/hp.obo`
-is its backup when HPO cannot be reached. If the backup is missing there too, the startup
+is its backup when HPO cannot be reached. It also builds the clinical CNV knowledgebase and
+loads the pinned DGV release, in the background
+([data-import.md](data-import.md#what-startup-loads)). If the backup is missing there too, the startup
 downloads the vendored release to a temporary directory, and imports it only if its SHA-256 is
 the vendored file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#how-a-start-loads-hpo)).
 
@@ -621,8 +625,9 @@ gcloud storage cp data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recur
   "gs://${REFDATA}/clinical_cnv_syndromes_hg38_bundle/"
 ```
 
-The repeat catalogue's `STRchive-loci.json` must also be the repository's file of the version
-being deployed, byte for byte. If the bucket holds another file, or none, the backend does
+The repeat catalogue's `STRchive-loci.json` (STRchive v2.28.0, `STRCHIVE_PINNED_RELEASE` in
+`backend/app/core/config.py`) must also be the repository's file of the version being deployed,
+byte for byte. If the bucket holds another file, or none, the backend does
 not start, and its log names the file, both SHA-256 digests and the fix
 ([data-import.md](data-import.md#the-strchive-release)); a new revision that cannot start never
 receives traffic. Copying the file again is always safe:
@@ -646,8 +651,8 @@ new revision serves.
 - **Manual:** build new images under a new tag (Section 7), then apply them by digest:
   `terraform apply -var="backend_image=...@sha256:<digest>" -var="frontend_image=...@sha256:<digest>"`.
 
-Cloud Run rolls out a new revision with zero downtime; if it fails its health check, traffic
-stays on the old revision.
+Cloud Run rolls out a new revision with zero downtime; one that fails its health check gets
+no traffic.
 
 **A Postgres schema change** reaches the database with the new version. In owner mode its
 first start migrates the schema; with the restricted role (12.8) the migration job does so
@@ -657,17 +662,16 @@ before the rollout ([database.md](database.md#schema-migrations)).
   is done. It is the restore point of the upgrade, described as
   `Before the schema migration of coga-backend@sha256:<digest>`, the image the deploy runs
   ([terraform/migrate.tf](../terraform/migrate.tf)).
-- It takes one for every new backend image, because the machine that applies cannot reach
-  the database to read its revision. An apply that changes no image takes none.
+- It takes one for every new backend image, since the machine that applies cannot reach the
+  database to read its revision; an apply that changes no image takes none.
 - When the backup fails, the apply stops before the migration, and the running revision
   keeps serving (15).
 - The migration is one transaction: when it fails, nothing of it is kept, the new revision
   does not start, and traffic stays on the old one.
-- With the restricted role the API, which does not migrate, also checks at its start that
-  the database is at exactly its own revision, and refuses to start otherwise.
+- With the restricted role the API, which does not migrate, refuses to start unless the
+  database is at exactly its own revision.
 - Revisions do not run backwards, and a version older than the database's revision refuses
-  to start. Going back across a revision therefore means restoring the backup taken before
-  it (12.3).
+  to start: going back across a revision means restoring the backup taken before it (12.3).
 
 ### 12.2 Rotate a secret
 
@@ -679,14 +683,14 @@ printf '%s' 'NEW-VALUE' | gcloud secrets versions add coga-secret-key --data-fil
 gcloud run services update coga-backend --region "$REGION" --update-labels rotated=$(date +%s)
 ```
 
-The backend reads its secrets when an instance starts, so running instances keep the old
-value until the roll.
+Running instances keep the old value until the roll: the backend reads its secrets when an
+instance starts.
 
 For the **Postgres password**, Terraform sets the database user's password from the secret.
-Add the new version and run `terraform apply`: it changes the user's password, not the
-backend (it sees the new version by its number, the only part of the secret its state
-keeps). Then roll the backend as above. Between the two, running instances cannot open new
-database connections, so do it at a quiet time. For `coga_app`'s password, see
+Add the new version and run `terraform apply`, which changes the user's password, not the
+backend (it sees the new version by its number, the only part of the secret its state keeps).
+Then roll the backend as above. In between, running instances cannot open new database
+connections, so do it at a quiet time. For `coga_app`'s password, see
 [db-runtime-role-runbook.md](db-runtime-role-runbook.md), "Google Cloud".
 
 For **`coga-admin-password`**, the password of `coga-admin` (the emergency administrator,
@@ -708,8 +712,8 @@ gcloud sql backups list --instance coga-postgres
 gcloud sql backups restore <BACKUP_ID> --restore-instance=coga-postgres-restored --backup-instance=coga-postgres
 ```
 
-**The backup before each schema migration** (12.1) is an on-demand backup. Unlike the
-automated ones it stays until someone deletes it. Delete those you no longer need as a
+**The backup before each schema migration** (12.1) is an on-demand backup: unlike the
+automated ones, it stays until someone deletes it. Delete those you no longer need as a
 restore point, but keep at least the one taken before the running version's migration:
 
 ```bash
@@ -750,10 +754,10 @@ gcloud compute disks create coga-clickhouse-data-restored \
   --source-snapshot=<SNAPSHOT_NAME> --zone="$REGION-b" --type=pd-ssd
 ```
 
-**Upgrading ClickHouse** (a new `clickhouse_image`). The server upgrades its data directory
-in place the first time the new version starts, and the previous version is not guaranteed
-to read it afterwards, so switching the image back is not a rollback. Snapshot the data disk
-first (above); to roll back, restore that snapshot.
+**Upgrading ClickHouse** (a new `clickhouse_image`). The new version upgrades the data
+directory in place at its first start, and the previous version may not read it afterwards, so
+switching the image back is not a rollback. Snapshot the data disk first (above); to roll
+back, restore that snapshot.
 
 > **Run a restore drill** before go-live: restore into a throwaway instance/VM and confirm
 > the data is intact. A backup you have never restored is not a backup.
@@ -771,7 +775,7 @@ and the server certificate are always issued together, in one apply. That happen
 - 30 days before the 10-year certificates expire: the CA renews and re-issues the server
   certificate, for the same server key.
 
-The same apply rolls out a backend revision that trusts only the new CA. The VM keeps serving
+The same apply rolls out a backend revision that trusts only the new CA, while the VM serves
 the old certificate until it restarts or its daily `systemd` timer re-fetches the key and
 certificate from Secret Manager; until then the app cannot reach ClickHouse. So plan such an
 apply for a quiet time, and restart the VM right after it (its shutdown script stops
@@ -786,9 +790,9 @@ Then check that the app's health check is green and that a variant search answer
 has **no SSH ingress** (TF-13 S-8), so a restart, not a shell, makes it reload.
 
 Terraform stores the new key and certificate in Secret Manager before it destroys their old
-versions, so a VM that boots during the apply still finds a key and a certificate to load.
-A VM that boots between the new key and the new certificate may
-load one new and one old; the restart after the apply loads the new pair.
+versions, so a VM that boots during the apply still finds a key and a certificate. One that
+boots between the new key and the new certificate may load one new and one old; the restart
+after the apply loads the new pair.
 
 If an apply fails with `x509: provided PrivateKey doesn't match parent's PublicKey`, a change
 would have re-issued the server certificate without the CA (for example a new validity
@@ -805,13 +809,12 @@ change, apply, and restart the VM.
   ingress (12.4), so add a temporary break-glass IAP SSH rule (source `35.235.240.0/20`,
   tcp/22, target tag `clickhouse`) and remove it afterwards (`terraform/network.tf`). Plan
   capacity ahead.
-- **ClickHouse memory per query:** the VM runs ClickHouse with the memory guards Docker
-  Compose uses, from the same file, `clickhouse/users.d/memory-guards.xml`. Each
-  query is capped at 4 GB, and spills GROUP BY and ORDER BY state to disk past 2 GB. A
-  larger machine therefore runs more such queries at once, not larger ones. The backend's
-  `CLICKHOUSE_MAX_MEMORY_USAGE`, when set, overrides the cap for the app's queries. The
-  startup script writes the file at each boot, so a change to it reaches the VM at its next
-  restart (12.4), after the apply.
+- **ClickHouse memory per query:** the VM runs ClickHouse with Docker Compose's memory guards,
+  from the same file, `clickhouse/users.d/memory-guards.xml`: each query is capped at 4 GB, and
+  spills GROUP BY and ORDER BY state to disk past 2 GB. A larger machine therefore runs more
+  such queries at once, not larger ones. The backend's `CLICKHOUSE_MAX_MEMORY_USAGE`, when set,
+  overrides the cap for the app's queries. The startup script writes the file at each boot, so
+  a change to it reaches the VM at its next restart (12.4), after the apply.
 
 ### 12.6 Logs & monitoring
 
@@ -853,8 +856,8 @@ policies, each with what to do when it fires.
 
 ### 12.7 Cloud Armor: from log-only to enforce
 
-The WAF ships in **preview (log-only)**, so false positives cannot block the genomics API on
-day one. Once the WAF logs (12.6) show no legitimate requests flagged:
+The WAF ships in **preview (log-only)**, so false positives cannot block the API on day one.
+Once the WAF logs (12.6) show no legitimate request flagged:
 
 ```bash
 terraform apply -var="cloud_armor_waf_enforce=true"   # plus your other -vars
@@ -866,8 +869,8 @@ Tune `cloud_armor_rate_limit_per_minute` to your real peak interactive load.
 
 Every deployment starts in owner mode: the API connects as the table owner and applies the
 schema on startup. At go-live, switch it to the restricted role `coga_app`, which cannot run
-DDL or change the append-only audit tables (TF-09b REQ-TRACE-008). This is a
-change-controlled deployment; the full procedure, verification and rollback are in
+DDL or change the append-only audit tables (TF-09b REQ-TRACE-008), as a change-controlled
+deployment. The full procedure, verification and rollback are in
 [db-runtime-role-runbook.md](db-runtime-role-runbook.md), "Google Cloud". In short:
 
 1. Have the central infra repo create the `coga-db-migrate` service account, with
@@ -877,18 +880,18 @@ change-controlled deployment; the full procedure, verification and rollback are 
    deploy.
 
 Terraform then takes an on-demand backup of the database (12.1) and runs the
-`coga-db-migrate` Cloud Run job as the owner. The job migrates the schema (12.1), seeds the
+`coga-db-migrate` Cloud Run job as the owner, which migrates the schema (12.1), seeds the
 admin user and enables `coga_app`'s login. Only then does the backend roll out, connecting as
-`coga_app`. The backup and the job run again with every new backend image. The API, which no
-longer migrates, refuses to start unless the database is at its own schema revision. The
-API's service account loses access to the owner's password.
+`coga_app`, and the API's service account loses access to the owner's password. The backup and
+the job run again with every new backend image. The API, which does not migrate, refuses to
+start unless the database is at its own schema revision.
 
 ### 12.9 Restrict the app to institutional networks
 
 Set `allowed_ingress_cidrs` to the UGent / UZ Gent public ranges and the VPN egress ranges IT
-confirms. Cloud Armor then denies every other source at the edge, before rate limiting, the
-WAF or application authentication. Test it first from inside and outside those networks; an
-empty list (the default) leaves the app reachable from anywhere.
+confirms: Cloud Armor then denies every other source at the edge, before rate limiting, the WAF
+or application authentication. Test it from inside and outside those networks first. An empty
+list (the default) leaves the app reachable from anywhere.
 
 ### 12.10 ClickHouse egress lockdown
 
@@ -912,13 +915,13 @@ by recreating the VM on a current image; the data disk is separate and is kept.
 ### 12.11 Microsoft sign-in (Azure AD / Microsoft Entra ID)
 
 At go-live users sign in with their hospital or university Microsoft account.
-Microsoft Entra ID (formerly Azure AD) checks the password and MFA; IT handles password
-resets and leavers. The browser signs the user in with the authorization code flow with PKCE
-(MSAL), and sends the access token Microsoft issues for CoGA's API scope with every request.
-The backend checks it (signature, issuer, tenant, audience, scope, lifetime). A user's first
+Microsoft Entra ID (Azure AD) checks the password and MFA; IT handles password resets and
+leavers. The browser signs the user in with the authorization code flow with PKCE
+(MSAL), and sends the access token Microsoft issues for CoGA's API scope with every request;
+the backend checks it (signature, issuer, tenant, audience, scope, lifetime). A user's first
 sign-in makes their CoGA account: a viewer in no project, who sees no patient data until an
-administrator adds them to a project. Administrators set the role on the *Users* page.
-Without these settings every account signs in with its password, as in development.
+administrator adds them to a project; administrators set the role on the *Users* page. Without
+these settings every account signs in with its password, as in development.
 
 **What IT creates** (in the organisation's Entra ID, once per environment):
 

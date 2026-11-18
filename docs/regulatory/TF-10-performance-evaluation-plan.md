@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | **Scientific validity** | The scientific community has established the association of the variants/results CoGA surfaces with the clinical conditions (ACMG/AMP 2015, ClinGen, gnomAD, ClinVar, GenCC, established inheritance genetics). CoGA applies these associations; it does not invent them. | Literature and database references; **not** re-established empirically. |
 | **Analytical performance** | Does CoGA correctly *process and present* its inputs and correctly *derive* its outputs? Concordance of CoGA's variant lists, classifications and derived calls with the validated comparator; reproducibility/repeatability. | This plan §3–§4; TF-09 software V&V. |
-| **Clinical performance** | Does the conclusion of the analysis the analyst signs out in CoGA (the closed, frozen analysis the clinical report in the EPD refers to, [TF-02 §3](TF-02-device-description.md)) agree with the validated assay's clinical conclusion on real cases? | This plan §3 concordance studies (the validation cases). |
+| **Clinical performance** | Does the conclusion of the analysis a supervisor signs out in CoGA (the closed, frozen analysis the clinical report in the EPD refers to, [TF-02 §3](TF-02-device-description.md)) agree with the validated assay's clinical conclusion on real cases? | This plan §3 concordance studies (the validation cases). |
 
 The upstream wet-lab and bioinformatics workflows are separately validated and accredited, so
 this evaluation isolates **CoGA's contribution**: given the same validated inputs, does CoGA
@@ -54,6 +54,7 @@ the intended workflow, and CoGA's outcome is compared with the comparator.
 | Expanded carrier screening (BeGECS, long-read) | **BeGECS couples** | **50 couples** | **Current gold standard: WES analysis + FraX + SMA + DMD deletion (MLPA) + CYP21A2 analysis** |
 | PGT (shallow WGS) | **PGT embryos** | **100 embryos** | **Current GENType / HOPLA method**, and/or confirmatory testing |
 | Rare-disorder diagnostics (long-read) | **WGS trios** | **30 trios** | Validated diagnostic NGS result / established clinical conclusion |
+| Rare-disorder diagnostics (short-read WGS) | **🔲 (define)** | **🔲 N (define)** | 🔲 (define) |
 | Monogenic NIPT | **Monogenic NIPT samples** | **30 samples** | Validated comparator (‹invasive confirmatory genotype / established NIPT result / known fetal genotype›) |
 | Mitochondrial disease (ONT adaptive sampling) | **mtDNA + nuclear mito-gene cases** | **🔲 N (define)** | Validated comparator (‹established mtDNA assay + nuclear mito-gene NGS result; orthogonal heteroplasmy quantitation›) |
 
@@ -125,6 +126,12 @@ agreement estimates.
 - **Proposed acceptance (confirm):** 100% detection of known causal mtDNA/nuclear variant(s); heteroplasmy within ‹±X%› of comparator; swaps caught on the mismatch controls; no missed causal variant.
 - **Edge cases:** low heteroplasmy near the limit of detection, homoplasmy, mtDNA coverage gaps, nuclear–mtDNA dual findings, single- vs multi-tissue heteroplasmy.
 - **🔲 INPUT NEEDED:** validation N, comparator method(s), heteroplasmy-agreement tolerance, and which tissues are validated.
+
+### 3.6 Rare-disorder diagnostics — short-read WGS (N to define)
+- **Unit of analysis:** as §3.3, for SNV/indel: the **diagnostic conclusion** and the set of reported variants.
+- **Inputs:** the family's VEP-annotated joint GATK callset (HaplotypeCaller, GenotypeGVCFs), each sample's alignment, HPO, pedigree (TF-01 §3.6).
+- **Metrics:** concordance of the reported causal/candidate SNV/indel(s) with the established diagnosis; ACMG-class concordance; de novo / inheritance-mode concordance; the callset read as GATK writes it (no FILTER of its own, physical phasing not taken for imputation).
+- **🔲 INPUT NEEDED:** validation set and N, comparator, acceptance criteria, and whether proband-only cases are included.
 
 ## 4. Reproducibility, robustness & cross-cutting checks
 - **Reproducibility/repeatability:** the same validated input gives an identical signed report (content-hash equality); a second analyst re-analyses a subset (inter-operator).
@@ -267,8 +274,9 @@ pull request updates this list only when it adds clinical behaviour that no area
     - the long-read couple without a PED: its members and their sex from the pipeline's
       folders and TRGT's karyotype, and its one SNV VCF per partner read as one callset, a
       partner without a record at the other's variant read as reference;
-    - the PGT pipeline layout, with the embryo roles and the index its PED lacks, and each
-      embryo's segregation table, drawn as the parental-origin view of an aneuploid chromosome;
+    - the PGT pipeline layout, its pedigree the PED at the top of the folder (embryos, the
+      index, a relative linked by `related_to=`), and each embryo's segregation table, drawn as
+      the parental-origin view of an aneuploid chromosome;
     - the monogenic NIPT pair: one VCF per sample with the father's noise left out, and the
       per-target coverage tables;
     - a package read where it lies, on a share or a bucket mounted as a folder; snapshot/restore.

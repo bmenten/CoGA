@@ -39,6 +39,9 @@ the family genotypes, and scores them on the ClinGen points scale.
 - A de novo variant is **PS2** where the Sample QC confirms the proband's parents, and **PM6** where it
   does not. Its strength follows ClinGen's de novo points: how specific the proband's phenotype is for
   the gene, from the gene–phenotype match score.
+- A variant without a gnomAD frequency is **PM2** (absent from gnomAD) only on chromosomes 1–22, X
+  and Y of a callset annotated with gnomAD's genomes or its joint set. Elsewhere PM2 is offered as
+  ● (consider): check gnomAD before you apply it.
 - The bar at the top shows the points, the class and, for a VUS, the tier (*hot*, *warm* or *cold*).
 - Under it, the **Evidence** cards show the data the criteria are weighed on: the consequence and
   transcript, the population frequencies (gnomAD AF and FAF95, homozygotes, the in-house cohort), the

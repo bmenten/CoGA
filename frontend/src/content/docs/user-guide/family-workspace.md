@@ -6,6 +6,8 @@ The family page, every analysis page (small and structural variants, repeat expa
 mtDNA, monogenic NIPT, the variant summary), the Sample QC and the report share one header. From any
 of them you can work on the case and move between analyses.
 
+- The trail above it (*Dashboard / Families / project / family*) names the family's project: click
+  it to open the dashboard with that project's families shown.
 - One line gives the members, the assembly and the projects, then the page's own figures.
 - **Status**, **Assigned to** and **Reviewed by** track the case's workflow. An analyst of the family's
   project (role analyst or higher), a superuser or an administrator can change them; a viewer and a

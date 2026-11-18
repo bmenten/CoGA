@@ -65,8 +65,9 @@ Leave blank for a pre-release; every box is required for a clinical release
 
 ## 5. Reference-data baseline
 
-The versions in force for this build: assembly, HPO release, gene panels, ClinVar/gnomAD/dbNSFP
-and any other annotation source. A clinical result is reproducible only against the reference
+The versions in force for this build: assembly, GENCODE, HPO, Monarch, the STRchive release
+(`STRCHIVE_PINNED_RELEASE`), the DGV release (`DGV_PINNED_RELEASES`), the clinical CNV
+knowledgebase, gene panels, ClinVar/gnomAD/dbNSFP and any other annotation source. A clinical result is reproducible only against the reference
 data that produced it.
 
 | Source | Version / release | Recorded where |

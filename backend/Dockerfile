@@ -33,7 +33,8 @@ RUN set -eux; \
 COPY backend/db ./db
 COPY backend/app ./app
 # Ship only the scripts the running backend uses: the clinical CNV knowledgebase build,
-# which the admin "rebuild knowledgebase" action invokes (CLINICAL_CNV_KB_SCRIPT_PATH),
+# which the admin "rebuild knowledgebase" action and the build queued at start or by an
+# assembly import invoke (CLINICAL_CNV_KB_SCRIPT_PATH),
 # and the DGV import an operator runs in the container (docs/data-import.md). The rest
 # of scripts/ (the test seeders, one of which creates a sign-in with a default password,
 # the demo loaders, the CI checks) runs from the repository root and stays out of the

@@ -9,7 +9,7 @@ beside CoGA's automatic status, which a review never changes.
 A review that carries a judgement the report rests on (a classification, or the Report tag)
 freezes the calls it rests on (``evidence_snapshot``): for a repeat locus its entry as the
 signed record freezes it (``signed_record_sections.repeat_expansion_calls``: each member's
-call, alleles, near-boundary warnings, the locus's thresholds and QA's counting-units record),
+call, alleles, near-boundary warnings, the locus's thresholds and QA's count correction),
 for a Paraphase region its entry in ``signed_record_sections.paraphase_results`` without the
 time each result was loaded. A save that changes the classification or adds the Report tag
 freezes them again; a save of tags or the note alone keeps them, so it cannot clear a change
@@ -82,7 +82,7 @@ PARAPHASE_CLASSIFICATION_LABELS: dict[str, str] = {
 
 # The statuses that make a call abnormal for the sign-out's gate of calls without a review
 # (B8, B12): a grey-zone (intermediate) repeat call does not, unless one of its counts lies near
-# a boundary at a locus whose TRGT counting units QA has not validated.
+# a boundary (``count_unit_warning``, at every locus: repeat_count_units).
 ABNORMAL_REPEAT_STATUSES = frozenset({"pathogenic", "premutation", "review", "not_assessed"})
 ABNORMAL_PARAPHASE_STATUSES = frozenset({"pathogenic", "carrier", "review"})
 

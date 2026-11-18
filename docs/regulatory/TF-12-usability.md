@@ -42,7 +42,7 @@ The summative evaluation must cover each of them.
 | --- | --- | --- | --- |
 | U1 | Analyst overlooks a low fetal-fraction / wide-CI warning and trusts a NIPT category call | H6 | FF gauge, CI and low-confidence flag shown prominently; a fetal fraction that could not be loaded is reported as such on the NIPT page and report, never shown as "no estimate" or a count of 0 |
 | U2 | Analyst trusts a PGT embryo call despite recombination near the ROI, sparse informative markers, or missing embryo data at the ROI | H5 | Raw-marker overlay, informative-marker count, recombination warning, explicit "uninformative"; an embryo without its own haplotype across the ROI reads "uninformative", with a missing-data warning; the risk haplotype is distinguished by line style, not colour alone, and drawn only on the ROI's chromosome; haplotypes that could not be loaded read "segregation not derived" |
-| U3 | Analyst signs out while evidence has drifted, without realizing it | H8 | Drift badge; sign-out is blocked until the drift is acknowledged with a reason; a drift check that could not be made is reported as such, not shown as "no drift" |
+| U3 | Supervisor signs out while evidence has drifted, without realizing it | H8 | Drift badge; sign-out is blocked until the drift is acknowledged with a reason; a drift check that could not be made is reported as such, not shown as "no drift" |
 | U4 | Analyst misreads the filter funnel and believes nothing was dropped when variants were filtered out | H1 | Explicit drop counts at each funnel stage; a track with more than it can draw says "too many to display" instead of drawing part of the view; an empty view says "no region in view"; an unreadable location filter is refused, never partly applied; the NIPT search applies the filters it shows |
 | U5 | Analyst signs out the wrong variant / wrong candidate set | H10 | Clear "report"-tagged set; a signed version is shown and printed from its record; the live report is labelled as not the signed version and says whether it matches the latest; audit trail; a report whose family or reported variants could not be loaded is not shown; a part that could not be loaded marks the printout incomplete |
 | U6 | Analyst misreads a Mendel-error/QC flag indicating sample swap | H4 | Mendel-error rate per child with guidance; on the pedigree each sample's QC verdict is a ring whose line and badge (✓ ! ✕) distinguish pass, warn and fail, keeping the affected and carrier fills; sign-out blocked on a failed or unverifiable Sample QC until a reason is recorded (REQ-TRACE-012) |
@@ -59,12 +59,12 @@ The UI-level risk controls above are requirements, traced in the TF-09 RTM. Desi
 - Derived calls always display their QC basis.
 - **A clinical state is not conveyed by colour alone** (WCAG 1.4.1): a shape, line style,
   glyph or text carries it too. It is applied to the pedigree QC ring, the
-  risk-haplotype line, the ClinVar pathogenic small-variant diamond and the Review, Exclude and
+  risk-haplotype line, the ClinVar P/LP small-variant diamond and the Review, Exclude and
   Report toggles, whose pressed state carries a check mark and is announced as pressed to screen
   readers. Two colour codes are the exceptions, each named in a tooltip: the pedigree's carrier-type
-  half-fill, and the small-variant dots, whose colour alone tells ClinVar benign, HIGH, MODERATE
-  and LOW impact apart; the small-variant track's text name counts its ClinVar pathogenic and
-  HIGH variants.
+  half-fill, and the small-variant dots, whose colour alone tells ClinVar benign or likely benign,
+  HIGH, MODERATE and LOW impact apart; the small-variant track's text name counts its ClinVar
+  P/LP and HIGH variants.
 - Every chart, track, ideogram and the pedigree is an image with a **text name that states
   what it shows now** (WCAG 1.1.1): the counts and the salient items, or that it is loading or
   failed to load; a failure never reads as "none".

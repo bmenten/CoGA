@@ -91,8 +91,14 @@ against the **affected** members' HPO terms (all members' terms if nobody is mar
 inside CoGA, without calling Monarch, with the same information-content weighting. The result is the
 gene's phenotype score (0 to 1), which is combined with the variant's own score into the ranking.
 
-The same score sets the strength of the ACMG criterion **PP4** (0.6 or more Moderate, 0.3 or more
-Supporting). When you apply PP4, cite the matched phenotypes shown in the score breakdown. See the
+A gene without Monarch phenotype data scores 0 on phenotype, so its variants sink in that order. To
+find such novel-gene candidates, set **Rank by**, in the **Phenotype** filters, to *Variant score
+(novel-gene candidates)*: the whole ranking is then ordered by the variant score alone. The scores
+stay the same.
+
+The gene's phenotype score also sets the strength of the ACMG criterion **PP4** (0.6 or more Moderate,
+0.3 or more Supporting) and of the de novo criteria PS2 and PM6. When you apply PP4, cite the matched
+phenotypes shown in the score breakdown. See the
 [ACMG classification reference](/docs/reference/acmg-classification).
 
 ---
@@ -105,9 +111,9 @@ Supporting). When you apply PP4, cite the matched phenotypes shown in the score 
 | Candidate-gene panel (family page) | a live call to Monarch's similarity service | at the time you press the button |
 
 A new installation loads Monarch's newest release at its first start. After that an administrator
-loads a newer release from **Admin → Monarch data**, about monthly; loading it there also rebuilds
-the Mendeliome panel. The release is recorded, so the report's provenance footer shows
-which Monarch release backed an interpretation.
+loads a newer release from **Admin → Monarch data**, about monthly; this also rebuilds the Mendeliome
+panel. The release is recorded, so the report's provenance footer shows which Monarch release backed
+an interpretation.
 
 Until the release is loaded, the gene profile shows no Monarch associations and the ranking has no
 phenotype signal. The candidate-gene panel does not need the load; when Monarch cannot be reached it

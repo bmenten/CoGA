@@ -27,13 +27,15 @@ flowchart LR
     IMPORT --> PG
     IMPORT --> CH
 
-    IMPORT --> FS["Files or object storage<br/>FASTA, BAM/CRAM, package sources"]
+    IMPORT --> FS["Mounted folders<br/>packages, BAM/CRAM, reference files"]
     REF --> FS
+    AUTH -. "account mail" .-> MAIL["Mail server<br/>SMTP_HOST"]
+    META -. "assignment mail" .-> MAIL
 
     JOBS["Startup + background workers<br/>schema, seeds, reference bootstrap,<br/>gene refresh, audit + UI-event writers,<br/>ClickHouse integrity check"] --> PG
     JOBS --> CH
 
-    IMPORT -. "queued jobs" .-> WORKERS["Package-import workers<br/>in import-worker processes,<br/>or in the API's own"]
+    IMPORT -. "queued jobs" .-> WORKERS["Import-worker processes, or the API's own:<br/>package imports, import watcher,<br/>carrier summary, ancestry PCA"]
     WORKERS --> PG
     WORKERS --> CH
     WORKERS --> FS
@@ -97,12 +99,21 @@ caller. The sort keys and how storage keys are built are in
      share or a bucket is mounted as a folder (on Google Cloud, a read-only Cloud Storage volume).
      The backend serves the genome browser's alignments (BAM/CRAM), signal tracks and the QC
      report from the package folder the import read.
+   - The import watcher looks into the watched import folders (`FAMILY_IMPORT_WATCH_ROOTS`,
+     `<watched folder>/<project>/<package>`) every `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS` for
+     packages a pipeline delivered with their package file `coga-package.json`. It lists each as
+     a delivery and imports nothing until a person approves it
+     ([data-import.md](data-import.md#watched-import-folders)).
    - Writes of one family's variants (uploads, package imports, and the admin, PED and
      structure-change deletes) run one at a time. Each holds the family's write lock in
      Postgres from its first read of the rows it replaces until it commits, whichever worker
      or process runs it ([database.md](database.md#one-write-at-a-time-per-family)).
 6. Sign-out freezes the report's content, with the software and reference versions, into an
    append-only, hash-chained record ([clinical-traceability.md](clinical-traceability.md)).
+7. Mail goes out only through the mail server `SMTP_HOST` names (`services/outgoing_mail.py`):
+   to the administrators about an account that waits for approval, to a user whose account an
+   administrator activates, and to the user a family is assigned to. Without `SMTP_HOST` no mail
+   goes out.
 
 ## Startup and background work
 
@@ -118,20 +129,31 @@ On start the backend (`backend/app/main.py`):
    and the API run as the restricted database role
    ([db-runtime-role-runbook.md](db-runtime-role-runbook.md));
 2. starts the writers for the audit log and the UI events;
-3. seeds the built-in repeat catalogue; makes sure GRCh38 exists, with its cytobands (from
-   UCSC, or the shipped backup when UCSC cannot serve them) and gene loci (from GENCODE, or the UCSC gene track when GENCODE cannot be fetched);
-   also imports T2T-CHM13 when `REFERENCE_BOOTSTRAP_T2T` is set; loads the HPO ontology if none
-   is loaded (HPO's newest release, downloaded; the vendored release as the backup), and Monarch's newest release if no Monarch data is loaded (`REFERENCE_BOOTSTRAP_MONARCH`); loads GRCh38's segmental duplications from the shipped file (into a GRCh38
-   assembly only; not the clinical CNVs, which the knowledgebase rebuild loads); and queues the
-   first gene-reference sync when no gene information is cached (with or without the local
-   dbNSFP gene file), or when the file is there and no cached gene was synced with it;
+3. loads the reference data:
+   - seeds the built-in repeat catalogue, and refuses to start unless the STRchive file is the
+     shipped release byte for byte ([data-import.md](data-import.md#the-strchive-release));
+   - makes sure GRCh38 exists, with its cytobands (from UCSC, or the shipped backup when UCSC
+     cannot serve them) and gene loci (from GENCODE, or the UCSC gene track when GENCODE cannot
+     be fetched), and imports T2T-CHM13 when `REFERENCE_BOOTSTRAP_T2T` is set;
+   - for a GRCh37 or GRCh38 assembly that has none yet, queues the clinical CNV knowledgebase
+     build and the load of the pinned DGV release, in the background
+     (`REFERENCE_BOOTSTRAP_CLINICAL_CNVS`, `REFERENCE_BOOTSTRAP_DGV`);
+   - loads the HPO ontology if none is loaded (HPO's newest release, downloaded; the vendored
+     release as the backup), and Monarch's newest release if no Monarch data is loaded
+     (`REFERENCE_BOOTSTRAP_MONARCH`);
+   - loads GRCh38's segmental duplications from the shipped file, into a GRCh38 assembly only;
+   - queues the first gene-reference sync when no gene information is cached (with or without
+     the local dbNSFP gene file), or when the file is there and no cached gene was synced with
+     it;
 4. waits for ClickHouse and creates the database; drops the backup tables of
    `overwrite` imports that no running import owns (left by one whose process stopped;
    [database.md](database.md#clickhouse-tables)); and starts the scheduled ClickHouse
    integrity check;
 5. starts the gene-reference refresh worker and the family-package import workers
    (`FAMILY_IMPORT_WORKER_COUNT`; with 0 it starts none and leaves the jobs to
-   [import-worker processes](#import-worker-processes), as Docker Compose does).
+   [import-worker processes](#import-worker-processes), as Docker Compose does). With import
+   workers it also starts the ancestry PCA worker, the variant-carrier worker and, when
+   `FAMILY_IMPORT_WATCH_ROOTS` names a folder, the import watcher.
 
 All of this runs inside the one uvicorn process that serves the API.
 
@@ -143,14 +165,19 @@ listens on no port. Docker Compose runs it as the `import-worker` service, from 
 image with the backend's settings and its `/data`, and starts the API with no import worker
 (`FAMILY_IMPORT_WORKER_COUNT=0` on the `backend` service). Each replica is one process running
 `FAMILY_IMPORT_WORKER_COUNT` jobs at a time (1 by default); `IMPORT_WORKER_REPLICAS` (1 by
-default) sets how many replicas run. On Google Cloud the imports still run in the API's
-instances: `terraform/` has no worker service. The process also runs the worker of the
-exploratory ancestry PCA ([ancestry-pca.md](ancestry-pca.md)), which queues a projection for each
-family whose stored genotypes changed and reads them at the reference markers, and the
-variant-carrier worker, which every 5 s brings the Variant Explorer's carrier summary up to date
-for each family a write or a member or project change has left behind
-([database.md](database.md#the-variant-carrier-summary)); the API runs these workers only when it
-runs import workers itself.
+default) sets how many replicas run. On Google Cloud the imports run in the API's instances:
+`terraform/` has no worker service. The process also runs:
+
+- the worker of the exploratory ancestry PCA ([ancestry-pca.md](ancestry-pca.md)), which queues
+  a projection for each family whose stored genotypes changed and reads them at the reference
+  markers;
+- the variant-carrier worker, which every 5 s brings the Variant Explorer's carrier summary up
+  to date for each family a write or a member or project change has left behind
+  ([database.md](database.md#the-variant-carrier-summary));
+- the import watcher, when `FAMILY_IMPORT_WATCH_ROOTS` names a folder. One watcher looks at a
+  time, whichever process runs it: it holds a Postgres advisory lock on a connection of its own.
+
+The API runs these workers only when it runs import workers itself.
 
 On start it makes the checks the API makes before its workers run, and nothing else:
 
@@ -164,7 +191,8 @@ On SIGTERM (`docker compose stop`) or SIGINT it stops its workers as the API's s
 closes its database clients and exits 0. An import it was running stops where it is; the next
 worker to look takes the job over once its heartbeat is stale
 ([data-import.md](data-import.md#the-import-job)). A start that fails, or a worker that ends by
-itself, exits 1, and Compose starts the process again.
+itself, exits 1, and Compose starts the process again. With `FAMILY_IMPORT_WORKER_COUNT=0` it
+refuses to start (exit 2).
 
 Workers in all processes share state only through Postgres, so it holds across processes and
 hosts as it does within one process:
@@ -233,7 +261,7 @@ and queries scale towards 1,000 whole genomes, where they fail and the hardware 
 done:
 
 - the refresh worker in a process of its own;
-- import-worker processes on Google Cloud, where the imports still run in the API's instances;
+- import-worker processes on Google Cloud, where the imports run in the API's instances;
 - the ranked view's limit of 5,000 SVs, which a family with more than 50,000 SVs can reach: a
   gene panel on the SV page keeps every SV it matches, not only those among the
   first 50,000.
@@ -278,7 +306,7 @@ What is left is CPU. The imports of one process share its one GIL (Python's glob
 lock), so together they use one core, whatever `FAMILY_IMPORT_WORKER_COUNT` says; in the API's
 process they share it with the requests too. So the import workers run in
 [import-worker processes](#import-worker-processes) of their own, one core each, and the API
-runs none (Docker Compose; not yet on Google Cloud). A process pool inside one import would
+runs none (Docker Compose; not on Google Cloud). A process pool inside one import would
 speed up that import alone, and would end the reader's one-batch bound (above).
 
 ### Interval-track import
@@ -317,8 +345,9 @@ dataset summaries and job log. Each run made one part per insert, either way.
 
 Backend, under `backend/app/`:
 
-- `core/` — shared runtime code: settings, the Postgres and ClickHouse clients, Azure
-  sign-in, logging, object storage, and timeouts and retries for outbound requests.
+- `core/` — shared runtime code: settings, the Postgres and ClickHouse clients, Microsoft
+  (Azure) and CAS sign-in, logging, the family folders, and timeouts and retries for outbound
+  requests.
 - `routers/` — the API, registered in `routers/__init__.py`.
 - `services/access_control.py`, `services/family_metadata_context.py` — the project-scoped
   access check every family and sample request passes, with each member's level (an analyst
@@ -326,9 +355,10 @@ Backend, under `backend/app/`:
 - `services/metadata_service.py` — families, samples and projects.
 - `services/clickhouse_family_variants.py`, `services/clickhouse_variant_queries.py` —
   family-scoped variant queries and filters; `services/variant_explorer_service.py` — the
-  cross-project explorer; `services/variant_ranking_cache.py` — the phenotype-prioritised
-  ranking cache.
+  cross-project explorer, and `services/variant_carrier_summary.py` its carrier summary;
+  `services/variant_ranking_cache.py` — the phenotype-prioritised ranking cache.
 - `services/family_package_*.py` — the folder-based family-package import;
+  `services/import_watcher.py` — the watched import folders;
   `import_worker.py` — its workers in a process of their own;
   `services/variant_upload_service.py` and `services/bed_service.py` — single-file uploads;
   `services/family_variant_write_lock.py` — one write at a time to each family's variants.
@@ -345,6 +375,7 @@ Backend, under `backend/app/`:
   the Gene Explorer, HPO and Monarch.
 - `services/repeat_expansion_pg.py`, `services/paraphase_pg.py`,
   `services/mitochondrial_analysis.py` — repeat expansions, Paraphase and mtDNA.
+- `services/outgoing_mail.py` — the mail CoGA sends.
 
 Frontend, under `frontend/src/`: `pages/` for the screens, `components/visualizations/` for
 the tracks and plots, `lib/api.ts` and `lib/apiPath.ts` for API calls, and `content/docs/` for

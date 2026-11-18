@@ -9,8 +9,8 @@ Mitochondrial DNA | mtDNA variants and large chrM deletions and duplications, ea
 
 The **Structural variants** page opens on the Mendeliome panel, with a population frequency below 1% and
 the affected members as carriers. Its filters sit under **Advanced filters**, closed when the page
-opens and laid out as on the small-variant page: **Phenotype**, **Inheritance and Support**,
-**Locations**, **Class and Breakpoints**, **Needlr Annotations** and **Review**; the presets are
+opens and laid out as on the small-variant page: **Phenotype**, **Inheritance and support**,
+**Locations**, **Class and breakpoints**, **Needlr annotations** and **Review**; the presets are
 *Mendeliome*, *Dominant*, *Recessive-like* and *Any affected*. **Phenotype prioritization** ranks SVs by
 the same phenotype score as small variants, and **Rank by** *Variant score* orders them by the variant
 score alone, as on the small-variant page. **Clear all filters** removes the default.
@@ -37,7 +37,7 @@ another class is not shown beside it; the VUS tiers and *Secondary finding* are 
 **Download CSV** exports the list: its *Classification* column holds the class shown, *Classification
 text* the classification as typed, and *Tags* the review's tags.
 
-**Min length** and **Exact length**, under **Class and Breakpoints**, measure an SV by the **Length**
+**Min length** and **Exact length**, under **Class and breakpoints**, measure an SV by the **Length**
 the list shows, without a deletion's minus sign. That length is:
 
 - the caller's SVLEN;
@@ -54,8 +54,8 @@ A filtered search reads at most 50,000 SVs of the callset before it applies the 
 search reaches either limit, a warning says *"Results may be incomplete"* (*"Ranking may be incomplete"*
 when the list is ranked), the count shows a `+`, and an SV beyond the limit is not shown. Narrow the
 search with a region, a gene panel or a gene. A gene panel of any size (the Mendeliome included) and a
-gene are applied before the 50,000 are read, so the limit counts only the SVs they keep. The family report's list of
-reported SVs is not cut by this limit: it reads the reported SVs themselves, not the first 50,000.
+gene are applied before the 50,000 are read, so the limit counts only the SVs they keep. The family
+report's list of reported SVs is not cut by this limit: it reads the reported SVs themselves.
 
 **ACMG (CNV)** on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose
 *Copy-number loss* or *Copy-number gain*, check the pre-selected criteria and add the rest.
@@ -79,9 +79,9 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   catalogue gives a locus a benign range but no threshold (STRchive's POLG: 10 repeats), a count
   inside the range reads *Normal* and any other count *Not assessed*; the cutoff reads
   *normal 10 · no threshold*. The count is the copies TRGT reports of the catalogued motif, in
-  every rotation the call lists (GAA and AAG at FXN), across the whole locus, flanking copies included, so it can run higher than the count the range
-  describes. In the TRGT catalogue in use (TRID `CPEO_POLG`), POLG's common allele of 10 repeats
-  counts 14 and stays *Not assessed*.
+  every rotation the call lists (GAA and AAG at FXN), across the whole locus, flanking copies
+  included, so it can run higher than the count the range describes. In the TRGT catalogue in use
+  (TRID `CPEO_POLG`), POLG's common allele of 10 repeats counts 14 and stays *Not assessed*.
 - A gene with several repeat tracts, each a locus of its own in STRchive (ARX, HOXA13), has
   thresholds per tract. A call whose TRID is the gene's name is read against the tract its region
   overlaps. If the region overlaps none of the tracts, or more than one, the call reads *Not
@@ -106,23 +106,23 @@ not be the clinical repeat number the locus's ranges count:
 - at POLG it counts four flanking GCT copies, so the common 10-repeat allele reads 14.
 
 So at every locus a count within 3 repeats of a boundary the locus's classification uses is marked
-*Near a boundary* beside its call. Hover over
-or focus the mark for the count, the nearest count on each side that reads another status, and what is
-known of TRGT's count at the gene. The status itself is not changed: read the call with the mark in
-mind. **Aberrant only** keeps such a locus whatever its status, the page header counts the calls near a
-boundary, and a genome track says it in the locus's tooltip.
+*Near a boundary* beside its call. Hover over or focus the mark for the count, the nearest count on
+each side that reads another status, and what is known of TRGT's count at the gene. The status
+itself is not changed: read the call with the mark in mind. **Aberrant only** keeps such a locus
+whatever its status, the page header counts the calls near a boundary, and a genome track says it in
+the locus's tooltip.
 
-**Count correction.** QA can record a correction for a locus, in repeats, on the admin page **Repeat
-catalogue**. CoGA adds it to TRGT's count before the count is classified. The call then shows the corrected count with TRGT's own in brackets, *17 / 36 (TRGT 18 /
-37)*, and the card's **Count correction** line says the correction and its reason. The status, the mark,
-the genome tracks and the signed record all use the corrected count. No locus has a correction until QA
-enters one.
+**Count correction.** QA can have a correction recorded for a locus, in repeats, with a reason: an
+administrator enters it on the admin page **Repeat catalogue**. No locus has one until QA enters it.
 
-An administrator records each locus's correction, with a reason, on the admin page **Repeat
-catalogue**; a correction does not lift the mark. Signing out freezes, beside each call, the corrected
-count, TRGT's own count and the mark, and for each locus QA's record: the correction, the reason, by
-whom and when. A correction changed after sign-out makes the report say the repeat expansions changed
-since.
+- CoGA adds it to TRGT's count before the count is classified. The call shows the corrected count with
+  TRGT's own in brackets, *17 / 36 (TRGT 18 / 37)*, and the card's **Count correction** line gives the
+  correction and its reason.
+- The status, the mark, the genome tracks and the signed record all use the corrected count. A
+  correction does not lift the mark.
+- Signing out freezes, beside each call, the corrected count, TRGT's own count and the mark, and for
+  each locus QA's record: the correction, the reason, by whom and when. A correction changed after
+  sign-out makes the report say the repeat expansions changed since.
 
 ### Paraphase
 
@@ -130,9 +130,9 @@ Some genes lie in regions with nearly identical copies, such as *SMN1/SMN2* or *
 variant calling fails. The **Paraphase** page shows, per locus, what Paraphase found there for each
 member: the copy number, and a status read from a catalogue of medical regions.
 
-- Where the catalogue has a rule for the locus, the copy number reads as *normal*, *carrier* or
-  *pathogenic*, or as *review* when it fits none of them.
-- At a locus without a rule, a copy-number change or a fusion reads as *review*. A change is a copy
+- Where the catalogue has a rule for the locus, the copy number reads as *Normal*, *Carrier* or
+  *Pathogenic*, or as *Review* when it fits none of them.
+- At a locus without a rule, a copy-number change or a fusion reads as *Review*. A change is a copy
   number outside the normal range the catalogue records for the locus (6 for *NEB*, 4 for a gene with
   its pseudogene).
 - On chrX a man has one copy and a woman two, by the sex Paraphase infers, else the pedigree's. Without
@@ -145,9 +145,10 @@ without any change in copy number. Untick it to see every region.
 
 ### Reviewing a repeat locus or a Paraphase region
 
-Each repeat locus and Paraphase region has its own review, kept per family and reference assembly. Its card has the controls of every variant card: **Review**, **Exclude** and **Report**
-toggle their tag, and **Tags & notes** opens the review. There you give your classification on the
-type's own scale, beside CoGA's status, which it never changes:
+Each repeat locus and Paraphase region has its own review, kept per family and reference assembly.
+Its card has the controls of every variant card: **Review**, **Exclude** and **Report** toggle their
+tag, and **Tags & notes** opens the review. There you give your classification on the type's own
+scale, beside CoGA's status, which it never changes:
 
 - a repeat locus: *Pathogenic expansion*, *Reduced penetrance*, *Premutation*, *Intermediate (grey
   zone)*, *Normal* or *Uncertain significance*;

@@ -389,6 +389,10 @@ Both parents and the child heterozygous is consistent, only uninformative, and n
 embryo call's QC verdict reads these numbers and each parent side's flank markers over the window the
 review opens on, against the thresholds of [Phasing QC at the ROI](#phasing-qc-at-the-roi).
 
+In the chromosome view, a child's haplotype track names them after its name, for the window in view:
+*N informative sites*, or *⚠ N Mendelian errors in M informative sites* when the rate is above 2%.
+In a window wider than 5 Mb it reads *Phased markers: zoom in to 5 Mb or less*.
+
 ---
 
 ## What the family needs

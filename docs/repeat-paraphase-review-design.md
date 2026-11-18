@@ -18,7 +18,7 @@ De calls zelf:
 | --- | --- | --- |
 | Opslag | `repeat_expansions`: één rij per sample per locus; een herimport vervangt de rijen (nieuwe `id`) | `sample_paraphase_results`: één rij per sample per gen (`UNIQUE (sample_id, gene_symbol)`) |
 | Status | automatisch, live herberekend tegen de catalogus `repeat_loci` (normal, intermediate, premutation, pathogenic, review, not_assessed, unknown) | automatisch uit de catalogus van medische regio's (pathogenic, carrier, normal, review, no_call) |
-| Ondertekend record | sectie `repeat_expansions`: **elke** call met status, drempels, catalogus, near-boundary-waarschuwing en het QA-register van de telwijze | sectie `paraphase`: **elk** resultaat met status en de catalogusregel |
+| Ondertekend record | sectie `repeat_expansions`: **elke** call met status, drempels, catalogus, near-boundary-waarschuwing en de telcorrectie van QA (`repeat_locus_count_units`) | sectie `paraphase`: **elk** resultaat met status en de catalogusregel |
 | Eisen | REQ-DIAG-004 (C, geen risico) | REQ-DIAG-005 (C, geen risico) |
 
 ## 2. Beslissingen van de eigenaar (2026-10-28)
@@ -35,7 +35,7 @@ De calls zelf:
 | B8 | Afwijkende call zonder review | **Bevestigen met reden** bij de sign-out; de reden wordt in het record en de audittrail bevroren. |
 | B9 | Rechten | **Zoals bij small variants**: een analist of beheerder in het project; een lezer ziet de review maar kan niets wijzigen. |
 | B11 | Technisch dossier | **Eigen eisen en risico's en een gebied in TF-10 §8**, plus `clinical-traceability.md`. Geen CHANGELOG-regel en geen TF-18-rij (pre-RC). |
-| B12 | Grijze zone en near-boundary in de poort | Een *intermediate*-call telt **niet** als afwijkend voor de poort van §6.2; een telling **near a boundary** bij een niet-gevalideerd locus telt **wel**, ook als de status *normal* of *intermediate* is. |
+| B12 | Grijze zone en near-boundary in de poort | Een *intermediate*-call telt **niet** als afwijkend voor de poort van §6.2; een telling **near a boundary** telt **wel**, bij elk locus, ook als de status *normal* of *intermediate* is (de telwijze wordt niet per locus gevalideerd: de eigenaar, 2026-11-16). |
 | B13 | Reviews die de driftpoort controleert | Alleen reviews met **een classificatie of de Report-tag**. |
 | B14 | ACMG-klassetags bij repeats en Paraphase | De volledige catalogus blijft (B6), maar de dialoog van repeats en Paraphase biedt de groep *classification* (ACMG-klassetags en VUS-tiers) **niet** aan. Een review die zo'n tag toch bevat, toont hem gemarkeerd. |
 | B15 | Ander locus-ID na een herimport | Een review **verhuist niet mee**. Een andere ID is een andere bevinding; de oude review blijft in de audittrail en de nieuwe afwijkende call telt als niet gereviewd. |
@@ -144,7 +144,7 @@ zoals de recordsecties.
 - de locusidentiteit (gen, chr, start, end, motief);
 - de drempels die de classificatie toen gebruikte (benign-bereik, intermediate, premutation, pathogenic);
 - de catalogusidentiteit (`repeat_catalogue_identity`: aantal rijen en digest);
-- het QA-register van de telwijze (gevalideerd of niet);
+- de telcorrectie van QA voor het locus (`repeat_locus_count_units`);
 - de locusstatus van CoGA;
 - per sample: de genotype, de status van de call, en per allel de telling, de status en de
   near-boundary-waarschuwing.
@@ -159,7 +159,7 @@ Een hash van de snapshot gaat mee in de audit-event van de opslag.
 
 **Drift** is een verschil tussen de bevroren snapshot en dezelfde opbouw op het huidige moment. Oorzaken:
 een herimport met andere tellingen of kopieaantallen, een andere drempel in de catalogus, of een
-gewijzigde validatie van de telwijze. De drift telt mee in de **driftpoort** van de sign-out
+gewijzigde telcorrectie. De drift telt mee in de **driftpoort** van de sign-out
 (één poort, één bevestiging, zoals small-variant- en SV/CNV-drift samen gaan). Ze wordt per bevinding
 opgesomd met wat veranderde ("PROBAND allel 2: 38 → 41; status intermediate → pathogenic"). Op de kaart
 staat een chip "Changed since review" met hetzelfde detail in de tooltip. De driftdialoog van de
@@ -198,7 +198,7 @@ een notitie heeft. Welke calls als afwijkend gelden (B12):
 
 | Type | Afwijkend | Niet afwijkend |
 | --- | --- | --- |
-| Repeat | `pathogenic`, `premutation`, `review`, `not_assessed`, en elke call met een near-boundary-telling bij een niet-gevalideerd locus | `normal` en `intermediate` zonder near-boundary-telling, `unknown` |
+| Repeat | `pathogenic`, `premutation`, `review`, `not_assessed`, en elke call met een near-boundary-telling | `normal` en `intermediate` zonder near-boundary-telling, `unknown` |
 | Paraphase | `pathogenic`, `carrier`, `review` | `normal`, `no_call`, `none` |
 
 Een familie zonder zulke calls ziet de poort niet. Kan de repeat- of Paraphase-sectie van het record niet

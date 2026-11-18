@@ -182,7 +182,7 @@ both.
   serves the result at `GET /families/{family_id}/pgt-analysis`. The family page shows those calls
   (`frontend/src/lib/useEmbryoSegregation.ts`; `embryoSegregation.ts` reads and words them), and a
   sign-out freezes the same object (`pgt_analysis` in `signed_record_sections.py`).
-  The haplotype tracks still draw the risk lane and each member's risk state in the browser, in
+  The haplotype tracks draw the risk lane and each member's risk state in the browser, in
   `frontend/src/lib/haplotypeRisk.ts` (`inferDiseaseHaplotypes`, `assessSampleHaplotypeRisk`,
   `getHaplotypeLaneSignature`), by the same rules. Both sides prove them on the parity cases of
   `frontend/src/lib/__tests__/fixtures/pgtEmbryoCallCases.json` (`test_pgt_embryo_calls.py`,
@@ -241,21 +241,23 @@ both.
   for besides the genotypes: the index couple, which of the file's samples are the couple's children,
   and each sample's recorded sex (`haplotype_block_builder.haplotype_block_basis`, kept as
   `pedigree_basis` in the haplotype track's `sample_interval_track_sources.metadata`). The PGT
-  analysis compares it with the family's pedigree (`pgt_analysis.blocks_outdated`). Blocks built for
-  another couple, other children or other sexes, or whose record cannot be read,
-  are outdated. The analysis then still reads them for the inputs' digest, but calls every embryo
-  *Uninformative* and says why (`inputs.blocks_outdated`), as the family page and the signed record
-  do, until the phased genotypes are imported again (the owner's choice of 2026-10-27). The
-  haplotypes endpoints answer the same flag (`HaplotypeResponse.blocks_outdated`, from
-  `bed_service.haplotype_source_rows`). The genome overview's and chromosome view's tracks
-  (`GenomeHaplotypeTrack`, `HaplotypePhasedTrack`) then infer no disease haplotype, draw no risk
-  haplotype, read each member's risk state as uninformative and say why. The affected statuses are
-  not part of the record: the calls read them when they are made, and at import they only orient the
-  parents' labels. A member added who is not in the phased file changes nothing either.
+  analysis compares it with the family's pedigree (`pgt_analysis.blocks_outdated`).
+  - Blocks built for another couple, other children or other sexes, or whose record cannot be
+    read, are outdated.
+  - The analysis then reads them for the inputs' digest only: it calls every embryo
+    *Uninformative* and says why (`inputs.blocks_outdated`), as the family page and the signed
+    record do, until the phased genotypes are imported again (the owner's choice of 2026-10-27).
+  - The haplotypes endpoints answer the same flag (`HaplotypeResponse.blocks_outdated`, from
+    `bed_service.haplotype_source_rows`). The genome overview's and chromosome view's tracks
+    (`GenomeHaplotypeTrack`, `HaplotypePhasedTrack`) then infer no disease haplotype, draw no risk
+    haplotype, read each member's risk state as uninformative and say why.
+  - The affected statuses are not part of the record: the calls read them when they are made, and
+    at import they only orient the parents' labels. A member added who is not in the phased file
+    changes nothing either.
 - **The genome overview's lineage precompute** is fingerprinted with a digest of the stored
   haplotype blocks too (`clickhouse_interval_tracks.interval_track_rows_digest`, in
-  `bed_service._lineage_hash`). A single-file re-upload rewrites the blocks, so the precompute made
-  before it is no longer served.
+  `bed_service._lineage_hash`). A single-file re-upload rewrites the blocks, so a precompute made
+  before it is not served.
 
 ## Known issues
 

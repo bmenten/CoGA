@@ -15,21 +15,28 @@ The page first works out what kind of case it is and runs only the checks that f
 - **Carrier couple** — sex per partner, and that the two are unrelated.
 - **Single sample** — sex only.
 
+The checks read the family's genotypes (*Read from* in the header names the call set and the number
+of sites). A genotype with a quality (GQ) below 20 counts as a no-call.
+
 ### Reading the page
 
-- **Overall verdict** — the worst of the checks. A check that could not run counts as a warning, never
-  as a pass. A note names each sample whose sex could not be checked.
-- **Pedigree** — each person's symbol carries a ring and a badge: green ✓ pass, amber ! warning, red ✕
-  fail. A check that could not run counts as a warning here too. Hover a symbol for the reason.
-- **Per-sample table** — recorded sex against genetic sex, and the Mendelian-error rate. The genetic sex
-  carries green ✓ when it matches the record, red ✗ when it does not, amber ! when it could not be
-  confirmed and grey ? when it was not checked. Hover a cell for the reason. A sample without X
-  genotypes (for example in a PGT family) is sexed from its reads by the pipeline's ngs-bits; the
-  reason says so. An embryo's recorded sex comes from that same call, so its ✓ confirms nothing
-  independent. Nor does the ✓ of an index added with the sex ngs-bits read.
-- **Relatedness matrix** — each pair's inferred relationship, kinship and IBS0. A pair that contradicts
-  the pedigree, including parents who look related, is outlined: red for a fail, amber for a warning.
-- **NIPT cards** — paternity, fetal sex and the category check, for a cfDNA family.
+- **The verdict** at the top — the worst of the checks. A check that could not run counts as a
+  warning, never as a pass. A note names each sample whose sex could not be checked.
+- **Pedigree & sample integrity** — each person's symbol carries a ring and a badge: green ✓ pass,
+  amber ! warning, red ✕ fail. A check that could not run counts as a warning here too. Hover a symbol
+  for the reason.
+- **Family members & per-sample checks** — recorded sex against genetic sex, and the Mendelian-error
+  rate. The genetic sex carries green ✓ when it matches the record, red ✗ when it does not, amber !
+  when it could not be confirmed and grey ? when it was not checked. Hover a cell for the reason. A
+  sample without X genotypes (for example in a PGT family) is sexed from its reads by the pipeline's
+  ngs-bits; the reason says so. An embryo has sex `0` (unknown) in the family's PED, so its genetic
+  sex reads amber ! (*Sex not recorded*), with the sex the data indicate.
+- **Relatedness vs pedigree** (**Parentage (embryos ↔ parents)** in a PGT family) — each pair's
+  inferred relationship, kinship and IBS0. A pair that contradicts the pedigree, including parents who
+  look related, is outlined: red for a fail, amber for a warning. A first-degree pair reads as
+  parent–child when its IBS0 is below an eighth of the IBS0 of the family's unrelated parents, or
+  below a fixed 0.8% without them; otherwise as siblings. The pair's message gives the cut.
+- **Paternity**, **Fetal sex** and **cfDNA category QC** — for a cfDNA family.
 - **Sequencing & embryo QC** — under its own heading in the per-sample table: each sample's sequencing
   QC as its pipeline reported it, one column per measure. These are mean depth and alignment and, for a
   PGT embryo, its allele drop-out (ADO) and drop-in (ADI) and its Mendelian concordance with its parents

@@ -41,8 +41,8 @@ show a more severe class, from another family's review.
   that family's imported data, but is not counted there or listed among its carriers; the genotype
   filter neither offers nor reads a sample that no family shows.
 - A location reads the chromosome with or without *chr*, and the mitochondrion as chrM, M or MT.
-- **Genotype per sample** keeps the variants that sample carries as het, hom or either (a haploid call,
-  on chrM or a male's X, counts as hom). The row still counts every carrier in your projects, not only
+- **Sample - genotype filter** keeps the variants a sample carries as *Het*, *Hom* or *Het + Hom* (a
+  haploid call, on chrM or a male's X, counts as hom). The row still counts every carrier in your projects, not only
   that sample's family.
 - A gene panel works as on the family page too: it keeps the variants of its genes and the variants in
   its regions (PanelApp's regions for the assembly, and each gene's position in the gene reference), so a
@@ -84,7 +84,6 @@ chromosome or type; each row shows the CNV, cytoband, location, size and **ClinV
 - **Cytoband** is the band the knowledgebase states. Where it states none, CoGA reads the bands the
   region spans from the assembly's cytobands, the ones the ideogram draws. An assembly without
   cytobands, such as T2T, shows none.
-
 - **ClinVar P/LP**, for example *12 loss · 3 gain*, counts the pathogenic or likely pathogenic ClinVar
   copy-number variants that overlap the region by at least 30% both ways, as counted when the
   knowledgebase was built.

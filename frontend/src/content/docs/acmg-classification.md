@@ -40,9 +40,8 @@ current total.
 **BA1 overrides the points.** An accepted BA1 (allele frequency 5% or more) makes the variant Benign,
 whatever the other criteria say.
 
-**Each criterion counts once, at a strength it allows.** The dialog offers each criterion only these
-strengths. The server checks the same on save: it refuses a classification that lists a criterion
-twice or gives it another strength.
+**Each criterion counts once, at a strength it allows.** The dialog offers only these strengths, and
+the server refuses a classification that lists a criterion twice or at another strength.
 
 | Criteria | Strengths |
 | --- | --- |
@@ -52,9 +51,9 @@ twice or gives it another strength.
 | BS1–BS4, BP4 | Strong, Moderate, Supporting |
 | BP1–BP3, BP5–BP7 | Moderate, Supporting |
 
-**Some criteria are never applied together.** They would count one piece of evidence twice, or read it
-both ways. Checking one in the dialog unchecks the other, which then shows ⊘; checking that one
-swaps them back. The server refuses a classification that applies both.
+**Some criteria are never applied together**: they would count one piece of evidence twice, or read it
+both ways. Checking one unchecks the other, which then shows ⊘; checking that one swaps them back. The
+server refuses a classification that applies both.
 
 | Pair | Why |
 | --- | --- |
@@ -82,8 +81,8 @@ Moderate takes PP3 Strong down to Moderate, PM1 Strong leaves no room for PP3. E
 strength it allows. The pre-evaluation keeps a saved criterion over a fresh suggestion, and the server
 refuses a save over the cap.
 
-On save, CoGA writes the class to the variant as its classification and as the matching review tag.
-It also stores every criterion with its strength and your note, for the audit trail (see the
+On save, CoGA writes the class to the variant as its classification and as the matching review tag,
+and stores every criterion with its strength and your note for the audit trail (see the
 [traceability reference](/docs/reference/clinical-traceability)). If you accept no criterion, no class
 is saved. Saving also freezes the evidence the criteria read, as the dialog shows it:
 
@@ -113,7 +112,7 @@ filter on it. A variant that leaves the VUS band loses its tier tag.
 
 ---
 
-## The four states of a criterion
+## The states of a criterion
 
 | State | On screen | Meaning |
 | --- | --- | --- |
@@ -125,10 +124,9 @@ filter on it. A variant that leaves the VUS band loses its tier tag.
 
 Hover a criterion to see the evidence behind its state. You can change every state and every strength.
 
-**A classified variant opens as you saved it.** Opening **ACMG classify** again, from any list, shows
-each saved criterion with its state, strength and evidence. The pre-evaluation only fills in evidence
-you left empty and sets the criteria you never saved. Saving again without changes keeps your
-criteria.
+**A classified variant opens as you saved it.** **ACMG classify**, from any list, shows each saved
+criterion with its state, strength and evidence. The pre-evaluation only fills in evidence you left
+empty and sets the criteria you never saved. Saving again without changes keeps your criteria.
 
 **When a lookup fails.** If the gene profile or the family's HPO terms cannot be loaded, the dialog
 says so and offers **Retry**. PVS1, BS2 and PP4 then read *not assessed* and are offered as Consider,
@@ -147,8 +145,8 @@ the tier the de novo points read.
 
 The rules read the variant's annotation (consequence, gnomAD, in-silico scores, ClinVar), the gene
 profile (ClinGen dosage, GenCC inheritance modes, the gene's HPO terms and gnomAD missense Z), the
-family genotypes, the Sample QC's parentage checks and the proband's HPO terms. The proband is the member with the proband role,
-otherwise the first affected member.
+family genotypes, the Sample QC's parentage checks and the proband's HPO terms. The proband is the
+member with the proband role, otherwise the first affected member.
 
 | Criterion | State | Rule |
 | --- | --- | --- |
@@ -195,11 +193,15 @@ Only the criterion that fits the frequency stays active; the other two are greye
 
 A variant with no gnomAD frequency is absent from gnomAD only where its callset was annotated with
 gnomAD. Each variant's annotation names the gnomAD datasets its VCF header declares an allele
-frequency of: exomes, genomes, the joint set, or a combined frequency whose set the header does not
-name, from VEP's cache or from a gnomAD file alike. It is absent from gnomAD, and PM2 is applied,
-where those include gnomAD's genomes or its joint set, on chromosomes 1–22, X and Y, and the
-annotation holds no gnomAD FAF95 or popmax of the variant. Anywhere else PM2 is offered as Consider,
-and BA1 and BS1 stay open. The evidence says why:
+frequency of (from VEP's cache or a gnomAD file alike): exomes, genomes, the joint set, or a combined
+frequency whose set the header does not name. The variant is absent from gnomAD, and PM2 is applied,
+when:
+
+- those datasets include gnomAD's genomes or its joint set;
+- it lies on chromosome 1–22, X or Y;
+- the annotation holds no gnomAD FAF95 or popmax of it.
+
+Anywhere else PM2 is offered as Consider, and BA1 and BS1 stay open. The evidence says why:
 
 - gnomAD was not annotated for the callset;
 - the callset was annotated with gnomAD exomes alone, which cover only the exome capture regions,

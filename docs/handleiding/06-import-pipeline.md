@@ -34,7 +34,7 @@ Een pakket komt alleen als levering in een import: aangeleverd in een bewaakte i
 **Het manifest dat CoGA bewaart.** Elke import leest het manifest dat CoGA bewaart: het manifest dat het pakket van een goedgekeurde levering maakt (`coga_package_manifest.package_manifest`), met de leden onder `family.add_members`, nooit een bestand in de pakketmap.
 
 - De job bewaart het in `family_import_jobs.manifest_text`, met zijn SHA-256 in `manifest_sha256`. Een worker die de job oppakt, ook opnieuw nadat zijn worker stopte, leest de bewaarde tekst.
-- De paden zijn relatief tot de pakketmap en dezelfde bewakers gelden: een pad uit de map wordt geweigerd. Een manifestbestand in de map is gewoon een bestand: geen import leest het.
+- De paden zijn relatief tot de pakketmap en dezelfde bewakers gelden: een pad uit de map wordt geweigerd. Een manifestbestand in de map, ook een symbolische link, is gewoon een bestand: geen import opent het.
 - Het validatierapport noemt het gelezen manifest: `manifest_source` (`coga`) en `manifest_sha256`. Het pakketrecord van de familie (`families.metadata.package_import`) bewaart beide, met `manifest_path` leeg. De bestanden van de familie (`raw_import_files`) houden er een beheerde kopie van, als dataset `manifest`, om te downloaden en te verifiëren.
 
 **Ingeladen mappen worden gemarkeerd.** Een pakketmap blijft na de import op de share staan: CoGA verplaatst ze nooit, en toont de alignments en het QC-rapport eruit. De lijst van mappen die met de hand toegevoegd kunnen worden, geeft daarom bij elke map de families waarvan het pakketrecord die map noemt als de map waaruit ze ingeladen werden (`families.metadata.package_import.folder_path`, met of zonder afsluitende `/`). Ze geeft er ook bij wanneer hun laatste import ze registreerde, en of die import niet voltooid is of nog loopt (de familie draagt de vlag *import incomplete*, of de markering van een lopende import). Het formulier markeert zo'n map als *imported*: voeg ze alleen opnieuw toe om data toe te voegen of te vervangen, met update of overwrite. De lijst leest de records van de families, niet de mappen; een map waarvan de familie verwijderd is, is niet meer gemarkeerd. Een map waarvan de laatste import ongedaan gemaakt werd omdat het pakket tijdens het lezen wijzigde, wordt aangeduid (`changed_during_import`). **Waar in de code:** `backend/app/services/imported_package_folders.py`.
@@ -92,8 +92,6 @@ De ontdekkingsstap zoekt bestanden op de familie- en sample-ID's, en alleen in d
 - onder een link wordt niet verder gekeken, en een link die naar geen map leidt, wordt niet gemeld.
 
 De eigenaar koos voor een waarschuwing, niet voor een weigering (`package_folder_link_issues` in `family_package_source.py`). De bewakers hierboven blijven gelden: een bestand dat het manifest noemt of dat de ontdekkingsstap zoekt via een link uit het pakket, wordt nog altijd niet gelezen.
-
-**CoGA leest geen manifest in de pakketmap.** De import leest het manifest dat CoGA bewaart (hierboven); een manifestbestand in de map, ook een symbolische link, opent ze niet.
 
 Elk pad in het manifest is relatief tot de pakketmap (of een absoluut pad erin). Een `400` krijgen:
 
@@ -350,17 +348,20 @@ Een losse SV-upload weigert ook een VCF zonder precies één `#CHROM`-regel vó�
 
 **Een SV-record zonder END of SVTYPE** wordt gelezen zoals VCF 4.4 het vastlegt (`structural_variant_ingest.py`).
 
-- **Zonder END**, of met END `.`: het record eindigt op POS + SVLEN (zonder teken) voor een allel `<DEL>`, `<DUP>`, `<INV>` of `<CNV>`, subtypes inbegrepen, en op POS + de lengte van REF − 1 voor elk ander allel (een `<INS>`, een breakend, een sequentieallel). Een van die vier zonder SVLEN blijft op zijn POS: het record zegt niet hoe ver het reikt. Een geschreven END blijft zoals geschreven. Zo krijgt een deletie met alleen een SVLEN de genen die ze overlapt: de upload neemt de genen die het POS–END-bereik overlapt.
+- **Zonder END**, of met END `.`: het record eindigt op POS + SVLEN (zonder teken) voor een allel `<DEL>`, `<DUP>`, `<INV>` of `<CNV>`, subtypes inbegrepen, en op POS + de lengte van REF − 1 voor elk ander allel (een `<INS>`, een breakend, een sequentieallel). Zo krijgt een deletie met alleen een SVLEN de genen die ze overlapt: de upload neemt de genen die het POS–END-bereik overlapt.
+- **Zonder END en zonder SVLEN** zegt een van die vier niet hoe ver hij reikt. Het record wordt weggelaten en geteld (`skipped_without_extent`), in het antwoord van de upload en in de samenvatting van de dataset (beslissing van de eigenaar, 2026-10-27). Een bestand waarin elk record zo is, wordt geweigerd: een upload met `400`; een HiFiCNV- of chrM-SV-bestand laat zijn dataset falen, met de vorige calls zoals ze waren (een NeedlR-bestand zonder call faalt sowieso).
+- **Een geschreven END** blijft zoals geschreven, behalve bij een translocatie waarvan INFO/CHR2 een ander chromosoom noemt: die END is de positie van de partner, en het record eindigt op zijn eigen breukpunt.
 - **Zonder SVTYPE** (dat VCF 4.4 overbodig noemt naast ALT): het record krijgt het type dat zijn ALT aangeeft. Dat is de naam van een symbolisch allel (`<DUP:TANDEM>` wordt `DUP:TANDEM`); BND voor breakendnotatie (`N]5:3000000]`, of een enkele breakend zoals `G.`); INS of DEL voor een sequentie langer of korter dan REF; anders `SV`.
 
-Die typeregel geldt ook voor de NeedlR-, HiFiCNV- en chrM-bestanden van een pakket; hun END-regel is hun eigen.
+Die regels gelden ook voor de NeedlR-, HiFiCNV- en chrM-bestanden van een pakket (`record_end`, `extent_not_stated`).
 
 **Een SV-record zonder SVLEN**, of met SVLEN `.`, dat als sequentieallel geschreven is (REF en ALT zijn basen van verschillende lengte), krijgt de lengte die zijn allelen geven: len(ALT) − len(REF), negatief voor een deletie (`record_sv_len` in `structural_variant_ingest.py`). VCF 4.4 schrijft SVLEN alleen voor een symbolisch allel. Met END − POS zou een zo geschreven insertie (END gelijk aan POS) als 0 bp tellen, en zou een minimumlengte haar laten vallen. Elke SV-lezer volgt die regel: de Sniffles-, Spectre- en TSV-upload en de NeedlR-, HiFiCNV- en chrM-bestanden van een pakket. Een geschreven SVLEN blijft zoals geschreven; END en de id van de SV veranderen niet.
 
-**De partner van een breakend** (zijn mate) staat tussen de haken van zijn ALT: `N]5:3000000]` heeft zijn partner op 5:3000000.
+**De partner van een breakend** (zijn mate) staat tussen de haken van zijn ALT: `N]5:3000000]` heeft zijn partner op 5:3000000. Elke SV-lezer (de losse uploads en de NeedlR-, HiFiCNV- en chrM-bestanden van een pakket) leest hem met één regel (`breakend_mate` in `structural_variant_ingest.py`, via `parse_bnd_alt`):
 
-- Een losse SV-upload leest hem daar voor een record van type BND (`parse_bnd_alt`).
-- De NeedlR-import van een pakket doet hetzelfde voor een record van type BND, in welke hoofdletters ook, of met een ALT in breakendnotatie, welk SVTYPE het ook heeft (`_needlr_breakend_mate` in `family_package_variants.py`).
+- uit een ALT in breakendnotatie, welk SVTYPE het record ook heeft;
+- voor een translocatie (BND of TRA, in welke hoofdletters ook) zonder breakendnotatie, zoals de `<TRA>` van Sniffles 1: uit INFO/CHR2, als dat een ander chromosoom noemt, en END;
+- een enkele breakend (`G.`) noemt geen partner.
 
 De SV-lijst toont de partner in haar kolommen *Remote chr* en *Remote start*, haar CSV-export in kolommen met dezelfde namen naast de locus (leeg voor een SV zonder partner). De zin in het rapport noemt hem als het verre breukpunt, de Circos-plot trekt de boog naar zijn chromosoom, en de filters *Remote chr* en *Remote start ≥* vinden de breakend erop. De id van een NeedlR-breakend bevat zijn partner, zoals die van een geüploade breakend (zie hieronder).
 
@@ -368,7 +369,7 @@ De SV-lijst toont de partner in haar kolommen *Remote chr* en *Remote start*, ha
 
 - Eén event (zelfde chromosoom, start, einde, type, partner, REF, ALT en SVLEN) in de bestanden van twee samples, of herhaald in de familie-VCF, is één SV met alle calls. Een sample houdt een genotype boven een no-call (`./.`, wat een regel zonder `Maternal_GT` of `Paternal_GT` een ouder geeft), en daarna zijn eigen call (de querycall van zijn regel) boven het genotype dat de regel van een ander sample hem als ouder geeft, welk bestand ook eerst komt.
 - Twee calls op één positie, type en partner met andere allelen, of een symbolisch allel (`<INS>`) van een andere lengte, zijn twee SV's: de eerste houdt de id, de andere krijgt zijn lengte als achtervoegsel (`1-20000-20007-INS----7`).
-- Hetzelfde event, geüpload uit Sniffles of Spectre, heeft dezelfde id, en dus één review; elke caller houdt een eigen rij. Uitzondering: een NeedlR-record zonder END eindigt op POS + SVLEN, of op POS + 1 zonder SVLEN, waar een upload een insertie, een breakend of een record zonder SVLEN laat eindigen op POS + de lengte van REF − 1 (VCF 4.4). Zo'n call krijgt dan één id van NeedlR en een andere van de upload.
+- Hetzelfde event, geüpload uit Sniffles of Spectre, heeft dezelfde id, en dus één review; elke caller houdt een eigen rij. Ook een record zonder END eindigt bij NeedlR waar de upload het laat eindigen (hierboven), dus één call heeft één id.
 
 Elke datasetsoort heeft een eigen importfunctie in een register. Een soort zonder importfunctie is een fout: een test bewaakt dat, en de import faalt er luid op.
 

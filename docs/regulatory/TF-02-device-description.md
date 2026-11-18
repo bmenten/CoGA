@@ -26,21 +26,25 @@
 ## 2. Intended purpose
 
 See [TF-01 Intended Purpose Statement](TF-01-intended-purpose.md). CoGA is decision-support
-software for genomic variant interpretation across five clinical applications (monogenic
-NIPT, expanded carrier screening, PGT, rare-disorder diagnostics, and combined mtDNA +
-nuclear mitochondrial-disease testing from ONT long-read adaptive sampling).
+software for genomic variant interpretation across six clinical applications (monogenic
+NIPT, expanded carrier screening, PGT, rare-disorder diagnostics from long-read and from
+short-read whole-genome sequencing, and combined mtDNA + nuclear mitochondrial-disease testing
+from ONT long-read adaptive sampling).
 
 ## 3. Device boundary
 
 CoGA's regulated boundary **begins at validated digital inputs and ends at the closed, frozen
 analysis in CoGA**: *annotated VCF → closed, frozen analysis in CoGA; the clinical report is
 drafted and medically signed in the EPD and refers 1:1 to that analysis* (owner decision,
-2026-10-14). The sign-out, by a supervisor (TF-06 H15), is the analytical sign-off: it closes the analysis and
-freezes it into a signed version (§6, §8). The medical sign-off is not given in CoGA: the
-clinical report is drafted and medically signed in the hospital's electronic patient record
-(EPD), and each report refers to exactly one signed version (1:1). Everything upstream is out
-of scope for this device and is covered by separate validation/accreditation; the EPD,
-downstream, is outside the device too.
+2026-10-14).
+
+- **Analytical sign-off, in CoGA:** the sign-out, by a supervisor (TF-06 H15), closes the
+  analysis and freezes it into a signed version (§6, §8).
+- **Medical sign-off, in the EPD:** the clinical report is drafted and medically signed in the
+  hospital's electronic patient record (EPD); each report refers to exactly one signed version
+  (1:1).
+- Everything upstream is out of scope for this device and is covered by separate
+  validation/accreditation; the EPD, downstream, is outside the device too.
 
 ```
   ┌─────────────────────── OUT OF SCOPE (separately validated & accredited) ────────────────────────┐
@@ -89,7 +93,7 @@ The reference is written into the report by the person who drafts it.
 | Aligned reads (CRAM/BAM) | Location only — read data is streamed to the browser for visual confirmation and never re-analysed by the device | All |
 | Pipeline run record | Tool versions and run parameters of the upstream analysis pipeline, captured per family for report traceability | All |
 | Pedigree / family metadata | Roles, parentage, sex, affected/carrier status, ROI, inheritance model, assay tags | All |
-| Reference data | Assembly, gene/transcript reference, ClinVar/gnomAD/GenCC/PanelApp/HPO/Monarch, clinical-CNV catalogue, ACMG SF list | All |
+| Reference data | Assembly, gene/transcript reference, ClinVar/gnomAD/GenCC/PanelApp/HPO/Monarch, clinical-CNV catalogue, STRchive repeat catalogue, ACMG SF list | All |
 
 ## 5. Functional modules
 
@@ -98,13 +102,14 @@ The reference is written into the report by the person who drafts it.
 | Ingestion | Parse multi-sample VCF and tracks into Postgres/ClickHouse | [data-import.md](../data-import.md) |
 | Family-scoped variant query | Filter SNV/SV by gene/panel/frequency/consequence/ROI; trio inheritance via genotype matching | [application-scheme.md](../application-scheme.md) |
 | Global Small Variant Explorer | Cross-project variant-centric aggregation with carrier counts, from a carrier summary kept as the families' variants are written; the same variants by gene, by transcript and by cohort frequency against gnomAD | [database.md](../database.md#the-variant-carrier-summary) |
+| Variant summary | Per family and member, what each kind of variant data holds; for small variants the genotypes, types, Ti/Tv, consequences and call quality, and for each child with both parents the Mendelian inconsistencies per autosome and callset. No filter, classification or sign-out reads it (REG-15) | In-app user guide (*Structural variants, repeats, Paraphase and mtDNA*) |
 | Semi-automatic ACMG/AMP classifier | Pre-position ACMG criteria, server-recompute points/class on save; overridable | In-app reference ([source](../../frontend/src/content/docs/acmg-classification.md)); [acmg-classification.md](../acmg-classification.md) |
 | Monogenic-NIPT analysis | Fetal-fraction estimation, cfDNA quality filter, 8-category VAF zygosity classification with fetal-inheritance probabilities, de novo triage, inheritance views with the per-gene recessive fetal risk, quality checks (paternity, fetal sex, maternal-plasma sample, target coverage), coverage/QC funnels | [monogenic-nipt.md](../monogenic-nipt.md) |
 | PGT haplotype segregation | Pedigree-IBD founder colouring, disease-haplotype inference, derived embryo classification + QC | [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md) |
 | Structural / CNV / aneuploidy review | SV second-hit; each sample's segment, copy-number and APCAD tracks, on which the analyst judges an embryo's aneuploidy and large SVs (CoGA makes no automatic aneuploidy call, REQ-PGT-008) | [snv-sv-compound-het.md](../snv-sv-compound-het.md) |
 | Repeat / Paraphase / mtDNA | Specialized per-data-type views | README |
 | Visualization | Whole-genome, per-chromosome, Circos, embedded IGV | README |
-| Review & reporting | Per-variant ACMG/tags/notes, phenotype & carrier axes; the family report, which the analyst signs out as a version-pinned, frozen analysis (§3) | [report-template.md](../report-template.md), [clinical-traceability.md](../clinical-traceability.md) |
+| Review & reporting | Per-variant ACMG/tags/notes, phenotype & carrier axes; the family report, which a supervisor signs out as a version-pinned, frozen analysis (§3) | [report-template.md](../report-template.md), [clinical-traceability.md](../clinical-traceability.md) |
 
 ## 6. Outputs
 
@@ -158,7 +163,7 @@ which the clinical report in the EPD quotes by its report code (§3; the owner's
   ([application-scheme.md](../application-scheme.md#import-worker-processes)).
 - **Postgres:** authoritative for metadata, users/projects, review state, ACMG blobs, audit logs, repeat/Paraphase results, gene/HPO/panel cache, version manifest, sign-out snapshots.
 - **ClickHouse:** authoritative for variant payloads and interval tracks per assembly, plus cross-project genotype aggregates.
-- **Filesystem (local folders, a share or a bucket mounted as one):** reference FASTA, and the import packages, read where they lie; the backend serves their BAM/CRAM for visualization (access-checked).
+- **Filesystem (local folders, a share or a bucket mounted as one):** reference FASTA, and the import packages, read where they lie; the backend serves their BAM/CRAM, signal tracks and QC reports for visualization (access-checked).
 
 The [TF-08 SOUP Register](TF-08-soup-register.md) holds the complete component list, with
 versions and the risk classification of third-party components.

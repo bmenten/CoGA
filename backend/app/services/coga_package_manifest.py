@@ -184,7 +184,7 @@ def proposed_package(package: CogaPackage, draft: dict[str, Any], members: list[
     document = package_document(package)
     proposed = proposed_sections(package)
     if document.get("analysis_type") is None and isinstance(draft.get("analysis_type"), str):
-        # Discover names the analysis where the folder shows it (a NIPT pair, a PGT run).
+        # Discover names the analysis where the folder shows it (a monogenic NIPT pair).
         document["analysis_type"] = draft["analysis_type"]
     family = document.setdefault("family", {})
     if family.get("roi") is None and draft.get("roi") is not None and isinstance(draft.get("roi"), str):

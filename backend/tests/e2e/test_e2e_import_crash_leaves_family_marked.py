@@ -8,7 +8,7 @@ job again from the start would refuse a new family the first attempt had created
 mode), replace the job's log, and leave the family partly imported with no flag, which the
 sign-out gates would let be signed as complete (TF-06 H16).
 
-Over two new families this runs real import jobs (``POST /api/family-imports``, the
+Over two new families this runs real import jobs (queued as a delivery's approval queues it, the
 worker's claim and ``run_family_import_job``) and stops each import as a dying process
 stops: its task is cancelled, so no ``except Exception`` and no fail-clean code runs, while
 what it had committed stays. One import is stopped inside its SNV dataset, after the

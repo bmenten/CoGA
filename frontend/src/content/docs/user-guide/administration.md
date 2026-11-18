@@ -1,14 +1,16 @@
-Administrator tools sit behind admin access. **Admin**, in the top-bar menu, or **Open admin dashboard**
-on the dashboard opens the [admin dashboard](/admin), grouped in six areas. A superuser sees five of its pages: **Gene panels**,
+**Admin**, in the top-bar menu, or **Open admin dashboard** on the dashboard opens the
+[admin dashboard](/admin), grouped in six areas. A superuser sees five of its pages: **Gene panels**,
 **Sequencing QC thresholds**, **Package import**, **Variant tags** and **Preset filters**. Every other
 page is an administrator's alone.
 
-### Reference Data
+### Reference data
 
 - **Species & assemblies** — the genome builds and their reference data (cytobands, genes, clinical
   CNVs, segmental duplications, DGV), with each dataset's status. Refresh the human gene information,
   rebuild the clinical-CNV knowledgebase, load the pinned DGV release, or upload a reference file.
-  Adding GRCh37 or GRCh38 starts the clinical-CNV build and the DGV load for it.
+  Adding GRCh37 or GRCh38 starts the clinical-CNV build and the DGV load for it. CoGA holds one
+  assembly per name: importing one it holds updates it in place (tick *Replace existing cytobands and
+  genes* while it holds them), and **Add assembly** refuses a name that exists.
 - **Gene panels** — the panel catalogue: create panels, import them from PanelApp, and see their genes.
   A panel names each gene by its HGNC symbol or by its Ensembl gene ID (`ENSG` and eleven digits; a
   version such as `.24` is dropped). The ID is the gene's stable name: a symbol can be renamed, or read
@@ -44,7 +46,7 @@ page is an administrator's alone.
   Each change needs a reason and is kept in the clinical audit trail, with the record before and
   after. The loci the stored calls name are listed first.
 
-### User & Access Management
+### User & access management
 
 - **Users** — accounts, how each signs in (Microsoft or a password), roles and activation, and each
   user's projects with their level there (*analyst* or *reader*).
@@ -103,7 +105,7 @@ page is an administrator's alone.
     it gave them; its review tags are deleted as a removed tag is: each stays on the reviews that
     hold it, marked deleted, and can no longer be added.
 
-### Data Management
+### Data management
 
 - **Family & sample data** — the inventory of families and samples. Open a family's members and data,
   change its projects, download and verify the original import files, or delete a data layer, a sample
@@ -132,10 +134,11 @@ page is an administrator's alone.
 - **Sequencing QC thresholds** — the warning and error cut-offs per assay behind the **Seq. QC** chip.
   None ship by default. A metric without a cut-off reads as *not assessed*, and a sample with no
   cut-off for any of its metrics shows *Not run* on the chip.
-- **Package import** — import a family package (see [Case setup and data import](#case-setup)). A
-  superuser imports too; only an administrator overwrites an existing family.
+- **Package import** — check, correct and approve the deliveries, and follow their imports (see
+  [Case setup and data import](#case-setup)). A superuser imports too; only an administrator
+  overwrites an existing family.
 
-### Variant Configuration
+### Variant configuration
 
 - **Variant tags** — create, rename, recolour or remove custom review tags, for one project or for
   everyone. A renamed tag stays on every review and saved filter that uses it. A removed tag stays on
@@ -144,13 +147,13 @@ page is an administrator's alone.
 - **Preset filters** — the catalogue of the small-variant presets the team uses. Presets are saved on the
   small-variant page.
 
-### Database & Operations
+### Database & operations
 
 - **ClickHouse tables & operations** — technical database maintenance, for the bioinformatics team.
   Each assembly shows the last result of the scheduled integrity check and when it ran;
   **Integrity check** runs one now.
 
-### Monitoring & Audit
+### Monitoring & audit
 
 - **Audit logs** — every request to the server (who, what, when, the outcome) and every button and link a
   user clicked. Identifiers are masked, so the log shows how CoGA is used without exposing patient data.

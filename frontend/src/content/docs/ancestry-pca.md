@@ -52,7 +52,8 @@ Under **Choose how each individual is read** you can, for one individual:
 
 ## VCF files read for ancestry only
 
-A family's package can declare VCF files that only the ancestry PCA reads, such as a **gVCF**:
+An import's manifest can declare VCF files that only the ancestry PCA reads, such as a **gVCF**
+(a package file, `coga-package.json`, has no field for them, so a delivered package declares none):
 its reference blocks say where an individual was sequenced and called reference. CoGA reads such
 a file once in the background, keeps its calls at the markers and its checksum, and offers it as
 one more callset (*VCF file: …*), after the direct calls. **VCF files declared for ancestry**
