@@ -26,6 +26,7 @@ from .clickhouse_variant_ids import (
     _structural_table_name,
 )
 from .clickhouse_variant_rows import (
+    ENTRY_TRANSCRIPTS_TYPE,
     _normalized_project_ids,
     _small_variant_entry_rows,
     _structural_variant_entry_rows,
@@ -266,6 +267,7 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `is_gnomad_gt_5_percent` Bool DEFAULT false,
             `is_annotated_in_any_gene` Bool DEFAULT false,
             `gene_symbols` Array(String),
+            `transcripts` {ENTRY_TRANSCRIPTS_TYPE} CODEC(ZSTD(1)),
             `filters` Array(LowCardinality(String)),
             `qual` Nullable(Float32),
             `calls.sampleId` Array(String),
@@ -617,37 +619,7 @@ async def insert_small_variant_records(
     if entry_rows:
         await _execute_insert_chunks(
             f"""
-            INSERT INTO {_small_table_name(assembly_name, 'entries')} (
-                key,
-                variantId,
-                annotation_version,
-                annotationSetHash,
-                project_guid,
-                family_guid,
-                xpos,
-                chrom,
-                pos,
-                ref,
-                alt,
-                source,
-                rsid,
-                is_gnomad_gt_5_percent,
-                is_annotated_in_any_gene,
-                gene_symbols,
-                filters,
-                qual,
-                `calls.sampleId`,
-                `calls.gt`,
-                `calls.gq`,
-                `calls.dp`,
-                `calls.ab`,
-                `calls.af`,
-                `calls.ad`,
-                `calls.ps`,
-                `calls.filters`,
-                `calls.metrics`,
-                sign
-            ) VALUES
+            INSERT INTO {_small_table_name(assembly_name, 'entries')} ({_SMALL_VARIANT_ENTRY_COLUMN_LIST}) VALUES
             """,
             entry_rows,
             chunk_size=_SMALL_VARIANT_ENTRY_INSERT_ROWS,
@@ -757,8 +729,10 @@ async def insert_small_variant_records(
         await bump_family_small_variant_data_version(assembly_name, family_uuid)
 
 
-# Every column of ``SNV_INDEL/entries``. A rewrite reads and writes back exactly these, so
-# a row it does not change is copied as stored. A column added to the table belongs here.
+# Every column of ``SNV_INDEL/entries``, in the order of the rows the writer builds
+# (``_small_variant_entry_rows``). The writer writes these, and a rewrite reads and writes back
+# exactly these, so a row it does not change is copied as stored. A column added to the table
+# belongs here.
 SMALL_VARIANT_ENTRY_COLUMNS: tuple[str, ...] = (
     "key",
     "variantId",
@@ -776,6 +750,7 @@ SMALL_VARIANT_ENTRY_COLUMNS: tuple[str, ...] = (
     "is_gnomad_gt_5_percent",
     "is_annotated_in_any_gene",
     "gene_symbols",
+    "transcripts",
     "filters",
     "qual",
     "calls.sampleId",
@@ -790,6 +765,7 @@ SMALL_VARIANT_ENTRY_COLUMNS: tuple[str, ...] = (
     "calls.metrics",
     "sign",
 )
+_SMALL_VARIANT_ENTRY_COLUMN_LIST = ", ".join(f"`{column}`" for column in SMALL_VARIANT_ENTRY_COLUMNS)
 # The per-call arrays of an entry row, with the value a missing element is written back as.
 _SMALL_VARIANT_CALL_DEFAULTS: dict[str, Any] = {
     "calls.sampleId": "",
@@ -827,7 +803,6 @@ async def fetch_family_small_variant_entries(
     from the row with more calls.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
-    columns = ", ".join(f"`{column}`" for column in SMALL_VARIANT_ENTRY_COLUMNS)
     params: dict[str, Any] = {"family_guid": family_uuid}
     source_clause = ""
     if source is not None:
@@ -835,7 +810,7 @@ async def fetch_family_small_variant_entries(
         params["source"] = source
     rows = await _execute(
         f"""
-        SELECT {columns}
+        SELECT {_SMALL_VARIANT_ENTRY_COLUMN_LIST}
         FROM {_small_table_name(assembly_name, 'entries')}
         WHERE family_guid = %(family_guid)s AND sign = 1{source_clause}
         ORDER BY project_guid, source, key, length(`calls.sampleId`) DESC
@@ -929,9 +904,8 @@ async def rewrite_family_small_variant_entries(
     """
     await delete_family_small_variants(assembly_name, family_uuid, source=source)
     if entries:
-        columns = ", ".join(f"`{column}`" for column in SMALL_VARIANT_ENTRY_COLUMNS)
         await _execute_insert_chunks(
-            f"INSERT INTO {_small_table_name(assembly_name, 'entries')} ({columns}) VALUES",
+            f"INSERT INTO {_small_table_name(assembly_name, 'entries')} ({_SMALL_VARIANT_ENTRY_COLUMN_LIST}) VALUES",
             [tuple(entry[column] for column in SMALL_VARIANT_ENTRY_COLUMNS) for entry in entries],
             chunk_size=_SMALL_VARIANT_ENTRY_INSERT_ROWS,
         )

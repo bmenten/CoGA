@@ -10,8 +10,10 @@ ClickHouse (unit, a fake of ClickHouse at the storage's ``_execute``).
   non-reference calls; scoped to a callset source.
 - Writing: an insert writes compact annotations, the gene index and the site QUAL, in chunks
   when large, and VEP's MANE Select and MANE Plus Clinical flags per transcript and per variant
-  on every assembly; the family and sample summaries are rebuilt; a delete is scoped
-  to its source, or clears every table without one, and is synchronous.
+  on every assembly; each ``entries`` row holds its annotation rows' filtered values once each
+  (``transcripts``, the annotations table's names and types); the family and sample summaries
+  are rebuilt; a delete is scoped to its source, or clears every table without one, and is
+  synchronous.
 - Every small-variant mutation stamps a new family data version after it, so the
   prioritised-ranking cache never serves a ranking over changed variants; every SV insert and
   delete, a per-sample SV replace and a snapshot restore stamp a new SV data version (the SV to
@@ -29,6 +31,7 @@ import pytest
 
 from backend.app.services import clickhouse_variant_storage as cvs
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_rows import ENTRY_TRANSCRIPT_FIELDS
 from backend.app.services.genotypes import genotype_vocabulary
 from backend.app.services.variant_annotation_parser import (
     AnnotationHeaderState,
@@ -511,7 +514,7 @@ async def test_insert_small_variant_records_stores_site_qual(clickhouse: _ClickH
     entry_query, entry_data = next(
         (sent.query, sent.data) for sent in clickhouse.sent if "INSERT INTO coga.`GRCh38/SNV_INDEL/entries`" in sent.query
     )
-    assert "qual," in entry_query
+    assert "`qual`" in entry_query
     assert entry_data is not None
     # qual is the variant-level column inserted immediately after `filters`.
     columns = cvs.SMALL_VARIANT_ENTRY_COLUMNS
@@ -605,8 +608,80 @@ def _vep_annotations(*entries: str) -> list[dict[str, Any]]:
 def _inserted_rows(clickhouse: _ClickHouse, table: str) -> list[dict[str, object]]:
     """The rows written into ``table`` (``variants/annotations`` …), each as {column: value}."""
     query, data = next((sent.query, sent.data) for sent in clickhouse.sent if f"/{table}` (" in sent.query)
-    columns = [column.strip() for column in query.split("(", 1)[1].split(")", 1)[0].split(",")]
+    columns = [column.strip().strip("`") for column in query.split("(", 1)[1].split(")", 1)[0].split(",")]
     return [dict(zip(columns, row, strict=True)) for row in data or []]
+
+
+def _filtered_values(row: dict[str, object]) -> tuple[object, ...]:
+    """A transcript's values the filters test, as a ``variants/annotations`` row holds them, in
+    the order of ``ENTRY_TRANSCRIPT_FIELDS`` (lists as tuples, to compare)."""
+    return tuple(
+        tuple(value) if isinstance(value, list) else value
+        for value in (row[name] for name, _type in ENTRY_TRANSCRIPT_FIELDS)
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_entries_transcripts_have_the_names_and_types_of_the_annotation_columns(
+    clickhouse_tables: _ClickHouse,
+) -> None:
+    # The family search reads a per-transcript filter on a row's own transcripts with the
+    # text it reads the shared table with (a.impact, a.gnomad_af, …): each field is the
+    # annotations table's column of that name, of the same type, so a condition means the same
+    # on both. They are compressed with ZSTD (36 B a row on a whole-genome trio, 49 B with LZ4).
+    await cvs.ensure_clickhouse_variant_tables("GRCh38")
+
+    statements = clickhouse_tables.statements()
+    annotations = next(s for s in statements if "/SNV_INDEL/variants/annotations` (" in s)
+    entries = next(s for s in statements if "/SNV_INDEL/entries` (" in s)
+    for name, column_type in ENTRY_TRANSCRIPT_FIELDS:
+        assert f"`{name}` {column_type}," in annotations
+    fields = ", ".join(f"{name} {column_type}" for name, column_type in ENTRY_TRANSCRIPT_FIELDS)
+    assert f"`transcripts` Array(Tuple({fields})) CODEC(ZSTD(1))," in entries
+    assert "transcripts" in cvs.SMALL_VARIANT_ENTRY_COLUMNS
+
+
+@pytest.mark.asyncio
+async def test_an_entries_row_holds_its_annotation_rows_filtered_values_each_once(clickhouse: _ClickHouse) -> None:
+    # A row's transcripts are its variant's annotations rows' filtered values: a filter holds on
+    # one of them exactly when it holds on one of those rows. Two transcripts that differ in
+    # their text alone (transcript, HGVS) are one tuple; a variant without an annotation holds
+    # the empty annotation's, as the annotations table holds its row.
+    await cvs.insert_small_variant_records(
+        "GRCh38",
+        "family-1",
+        ["project-1", "project-2"],
+        [
+            _record(
+                "1-100-A-G",
+                annotations=_vep_annotations(
+                    "G|missense_variant|MODERATE|GENE1|ENSG1|Transcript|ENST11|YES|NM_1.1|",
+                    "G|intron_variant|MODIFIER|GENE1|ENSG1|Transcript|ENST12|||",
+                    "G|intron_variant|MODIFIER|GENE1|ENSG1|Transcript|ENST13|||",
+                ),
+            ),
+            _record("1-200-C-T"),
+        ],
+    )
+
+    annotation_rows = _inserted_rows(clickhouse, "variants/annotations")
+    entries = _inserted_rows(clickhouse, "SNV_INDEL/entries")
+    assert len(entries) == 4  # one per variant and project
+    for entry in entries:
+        own = [row for row in annotation_rows if row["variantId"] == entry["variantId"]]
+        assert own and all(row["annotationSetHash"] == entry["annotationSetHash"] for row in own)
+        # Each transcript a mapping of its fields, the form the client reads them back in, so
+        # that a rewrite writes stored and new rows alike.
+        transcripts = entry["transcripts"]
+        assert isinstance(transcripts, list)
+        assert all(list(transcript) == [name for name, _type in ENTRY_TRANSCRIPT_FIELDS] for transcript in transcripts)
+        assert [_filtered_values(transcript) for transcript in transcripts] == list(
+            dict.fromkeys(_filtered_values(row) for row in own)
+        )
+    by_variant = {entry["variantId"]: entry["transcripts"] for entry in entries}
+    assert len(by_variant["1-100-A-G"]) == 2  # type: ignore[arg-type]
+    assert len(by_variant["1-200-C-T"]) == 1  # type: ignore[arg-type]
+    assert by_variant["1-100-A-G"][0]["impact"] == "moderate"  # type: ignore[index]
 
 
 @pytest.mark.asyncio

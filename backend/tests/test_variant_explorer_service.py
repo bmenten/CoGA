@@ -23,6 +23,7 @@ from clickhouse_connect.driver.binding import bind_query
 from fastapi import HTTPException
 
 from backend.app.services.clickhouse_variant_queries import (
+    _small_annotation_scope_clauses,
     _small_detail_filter_clauses,
     _small_native_sample_filter_clauses,
     _small_panel_filter_condition,
@@ -588,6 +589,32 @@ def _without_family_keys(clause: str) -> str:
     return clause
 
 
+def _on_the_shared_table(clause: str, scope: list[str]) -> str:
+    """A family search clause with each condition it reads on the row's own transcripts
+    (``arrayExists(a -> (…), e.transcripts)``, ``_small_own_transcripts_condition``) written as
+    the subquery over the shared transcript table that keeps the same rows, the one the
+    explorer reads (``_small_annotation_row_membership_condition``): its rows hold no
+    transcripts. ``scope`` is the subquery's locus (``_small_annotation_scope_clauses``)."""
+    head = "arrayExists(a -> ("
+    while (start := clause.find(head)) != -1:
+        negated = clause[max(start - 4, 0) : start] == "NOT "
+        index = start + len(head)
+        depth = 1
+        while depth:
+            depth += {"(": 1, ")": -1}.get(clause[index], 0)
+            index += 1
+        condition = clause[start + len(head) : index - 1]
+        tail = ", e.transcripts)"
+        assert clause[index:].startswith(tail)
+        where = " AND ".join([*scope, f"({condition})"])
+        subquery = (
+            f"(e.key, e.annotationSetHash) {'NOT IN' if negated else 'IN'} (SELECT a.key, a.annotationSetHash "
+            f"FROM coga.`GRCh38/SNV_INDEL/variants/annotations` AS a WHERE {where})"
+        )
+        clause = clause[: start - (4 if negated else 0)] + subquery + clause[index + len(tail) :]
+    return clause
+
+
 # The family search's clauses that are a family's alone.
 _FAMILY_ONLY_CLAUSES = {"e.family_guid = %(family_guid)s", "e.sign = 1", "e.project_guid IN %(project_ids)s", "0"}
 
@@ -621,17 +648,21 @@ def test_the_explorer_reads_each_shared_filter_with_the_family_search_clause(
     # One definition (the roadmap's *Variant Explorer filters*): every clause the explorer
     # puts on a row for a filter it shares with the family search is the clause the family
     # search puts on its rows, with the same parameters, less the bound of the family's own
-    # variants; and the family search puts no other clause for these filters.
+    # variants, and with a condition the family search reads on its rows' own transcripts
+    # read on the shared table, which keeps the same rows; and the family search puts no
+    # other clause for these filters.
     clauses, params = _explorer_where(**explorer_filters)
     # The explorer's own: a variant row of the summary, its projects, and no imputed callset
     # (the summary's own column for the family search's callset clause).
     assert clauses[:3] == ["e.key != 0", "hasAny(e.projects, %(scope_projects)s)", "NOT e.imputed"]
+    family_search_filters = SmallVariantQueryFilters(page=1, page_size=100, **family_filters)
     family_clauses, family_params, _ = _small_query_filter_parts(
-        _FAMILY, SmallVariantQueryFilters(page=1, page_size=100, **family_filters), exclude_imputed=True
+        _FAMILY, family_search_filters, exclude_imputed=True
     )
     assert "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in family_clauses
+    scope = _small_annotation_scope_clauses(family_search_filters, params=dict(family_params), alias="a")
     shared = [
-        _without_family_keys(clause)
+        _on_the_shared_table(_without_family_keys(clause), scope)
         for clause in family_clauses
         if clause not in _FAMILY_ONLY_CLAUSES and clause != "lowerUTF8(e.source) NOT IN %(imputed_sources)s"
     ]

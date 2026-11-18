@@ -59,6 +59,15 @@ def _entry(calls: list[tuple[Any, ...]], **overrides: Any) -> dict[str, Any]:
         "is_gnomad_gt_5_percent": False,
         "is_annotated_in_any_gene": True,
         "gene_symbols": ["GENE_X"],
+        "transcripts": [
+            {
+                "impact": "moderate", "effects": ["missense_variant"], "clinvar_terms": [], "canonical": True,
+                "mane_select": True, "mane_plus_clinical": False, "lof": "", "gnomad_af": 0.0001,
+                "gnomad_exomes_af": None, "gnomad_genomes_af": 0.0001, "gnomad_popmax_af": None, "topmed_af": None,
+                "gnomad_ac": 12, "gnomad_hom_count": 0, "gnomad_hemi_count": None, "cadd_phred": 24.5,
+                "revel": 0.61, "spliceai_max": 0.02, "sift": "deleterious(0.01)", "polyphen": "probably_damaging(0.99)",
+            }
+        ],
         "filters": ["PASS"],
         "qual": 50.0,
         "sign": 1,
