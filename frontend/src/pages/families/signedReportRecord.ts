@@ -9,8 +9,7 @@
 // marked, never dropped.
 
 import {
-  importIncompleteFromMetadata,
-  importUnfinishedFromMetadata,
+  importMarksFromMetadata,
   type FamilyImportIncomplete,
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
@@ -1028,10 +1027,16 @@ export interface SignedReport {
   sampleQc: SignedSampleQc | null;
   qcAcknowledgement: SignedAcknowledgement;
   sequencingQc: SignedSequencingQc | null;
-  /** `absent`: not in the record; null: the import was complete. */
-  importIncomplete: FamilyImportIncomplete | null | 'absent';
-  /** The imports that had begun writing the family and not finished; `absent`: not in the record. */
-  importUnfinished: FamilyImportUnfinished[] | 'absent';
+  /**
+   * `absent`: not in the record; null: the import was complete; `unreadable`: the record's
+   * import marks are not in the shape CoGA writes (`importMarksFromMetadata`).
+   */
+  importIncomplete: FamilyImportIncomplete | null | 'absent' | 'unreadable';
+  /**
+   * The imports that had begun writing the family and not finished; `absent`: not in the
+   * record; `unreadable`: as for `importIncomplete`.
+   */
+  importUnfinished: FamilyImportUnfinished[] | 'absent' | 'unreadable';
   importAcknowledgement: SignedAcknowledgement;
   /**
    * The package folder the family came from, changed or gone after its import; null: as
@@ -2142,6 +2147,7 @@ export const parsePackageSourceChange = (value: unknown): SignedPackageSourceCha
 export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
   if (!isObject(snapshot)) return null;
   const software = isObject(snapshot.software) ? snapshot.software : null;
+  const importMarks = importMarksFromMetadata(snapshot);
   return {
     statement: text(snapshot.record_statement),
     familyId: text(snapshot.family_id),
@@ -2156,8 +2162,16 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     sampleQc: parseSampleQc(snapshot.sample_qc),
     qcAcknowledgement: acknowledgement(snapshot, 'acknowledged_qc', 'qc_acknowledgement_reason'),
     sequencingQc: parseSequencingQc(snapshot.sequencing_qc),
-    importIncomplete: has(snapshot, 'import_incomplete') ? importIncompleteFromMetadata(snapshot) : 'absent',
-    importUnfinished: has(snapshot, 'import_unfinished') ? importUnfinishedFromMetadata(snapshot) : 'absent',
+    importIncomplete: !has(snapshot, 'import_incomplete')
+      ? 'absent'
+      : importMarks === 'unreadable'
+        ? 'unreadable'
+        : importMarks.incomplete,
+    importUnfinished: !has(snapshot, 'import_unfinished')
+      ? 'absent'
+      : importMarks === 'unreadable'
+        ? 'unreadable'
+        : importMarks.unfinished,
     importAcknowledgement: acknowledgement(
       snapshot,
       'acknowledged_import_incomplete',

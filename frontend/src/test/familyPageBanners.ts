@@ -3,7 +3,8 @@ import { expect } from 'vitest';
 
 /**
  * A family's metadata after a package import that partly failed (`import_incomplete`), with
- * another import that began writing the family and has not finished (`import_unfinished`).
+ * another import that began writing the family and has not finished (`import_unfinished`),
+ * each as the server writes it (family_package_registration._flag_payload, ImportMark).
  * Every family page warns *Import incomplete* for either.
  */
 export const INCOMPLETE_IMPORT_METADATA = {
@@ -12,6 +13,8 @@ export const INCOMPLETE_IMPORT_METADATA = {
     failed_datasets: ['sv'],
     imported_datasets: ['snv'],
     job_id: 'job-failed',
+    failed_jobs: { sv: 'job-failed' },
+    failed_scopes: { sv: [{ scope: { source: null, samples: null }, job_id: 'job-failed' }] },
   },
   import_unfinished: {
     'job-stopped': {
@@ -19,6 +22,7 @@ export const INCOMPLETE_IMPORT_METADATA = {
       at: '2026-09-13T08:00:00+00:00',
       datasets: ['coverage'],
       finished_datasets: [],
+      scopes: { coverage: { source: null, samples: ['PROBAND'] } },
     },
   },
 };

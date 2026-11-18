@@ -251,13 +251,13 @@ const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
   const pending = pendingDatasets(entry);
   const writer = unfinishedWriter(entry.key);
   if (writer !== 'import') {
-    return `${WRITER_LABELS[writer]}${entry.at ? ` (begun ${formatReportTime(entry.at)})` : ''} had not finished${
+    return `${WRITER_LABELS[writer]} (begun ${formatReportTime(entry.at)}) had not finished${
       pending.length ? `: ${joinWithAnd(pending)} may have been partly written or missing` : ''
     }.`;
   }
   if (entry.wholeFamily) {
     // A failed overwrite whose restore did not finish, as the record froze it.
-    return `An import${entry.at ? ` (begun ${formatReportTime(entry.at)})` : ''}${
+    return `An import (begun ${formatReportTime(entry.at)})${
       entry.jobId ? `, import job ${entry.jobId},` : ''
     } had failed, and putting the family’s data back had not finished${
       pending.length
@@ -267,7 +267,7 @@ const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
         : ''
     }.`;
   }
-  return `An import${entry.at ? ` (begun ${formatReportTime(entry.at)})` : ''}${
+  return `An import (begun ${formatReportTime(entry.at)})${
     entry.jobId ? `, import job ${entry.jobId},` : ''
   } had begun writing the family’s data and had not finished${
     pending.length
@@ -1123,8 +1123,9 @@ const SignedPackageSource: React.FC<{ record: SignedReport }> = ({ record }) => 
 /** The checks frozen at sign-out: Sample QC, sequencing QC and the import's completeness. */
 const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
   const { sampleQc, sequencingQc, importIncomplete, importUnfinished } = record;
-  const failedImport = importIncomplete === 'absent' ? null : importIncomplete;
-  const unfinished = importUnfinished === 'absent' ? [] : importUnfinished;
+  const importUnreadable = importIncomplete === 'unreadable' || importUnfinished === 'unreadable';
+  const failedImport = importIncomplete === 'absent' || importIncomplete === 'unreadable' ? null : importIncomplete;
+  const unfinished = importUnfinished === 'absent' || importUnfinished === 'unreadable' ? [] : importUnfinished;
   return (
     <section className="surface-card report-signed-checks">
       <h2 className="report-audit-heading">Checks at sign-out</h2>
@@ -1219,6 +1220,12 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
         <h3 className="report-subheading">Data import</h3>
         {importIncomplete === 'absent' && importUnfinished === 'absent' ? (
           <p className="report-paragraph">Not in the signed record.</p>
+        ) : importUnreadable ? (
+          <p className="report-paragraph">
+            The record’s import marks are not in the shape CoGA writes, so what the family’s data
+            lacked cannot be shown.{' '}
+            {acknowledgementLine(record.importAcknowledgement) ?? 'No acknowledgement is recorded.'}
+          </p>
         ) : !failedImport && !unfinished.length ? (
           <p className="report-paragraph">The family’s data had imported completely.</p>
         ) : (
@@ -1232,7 +1239,7 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
                 {failedImport.importedDatasets.length
                   ? `; ${joinWithAnd(failedImport.importedDatasets)} did import`
                   : ''}
-                {failedImport.at ? ` (import of ${formatReportTime(failedImport.at)})` : ''}.
+                {' '}(import of {formatReportTime(failedImport.at)}).
                 {failuresByJob(failedImport)
                   ? ` Import jobs: ${failuresByJob(failedImport)!
                       .map(([job, names]) => `${joinWithAnd(names)} in ${job}`)
