@@ -395,6 +395,10 @@ Upload or import again, with **overwrite**, what the warning names: each part go
 again. Deleting a sample also removes that sample's items from the warning, and what a failed or
 stopped import's warning names of that sample alone: nothing of a sample that is gone can be missing.
 
+CoGA writes each of these marks in one shape. If a family's marks are not in that shape, *Import
+incomplete* says so and names nothing: the family's data may be missing or partly written, and signing
+out fails until the marks are put right. Report it as a defect.
+
 ### Who may sign out
 
 A supervisor of the family's project, a superuser or an administrator. For an analyst, a viewer or a

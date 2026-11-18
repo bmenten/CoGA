@@ -1,7 +1,7 @@
 // "Import incomplete" warning: a family whose package import partly failed keeps the
 // datasets that did import, flagged `import_incomplete` in its metadata; an import that
 // has begun writing the family and not finished (running, or stopped part-way) has its
-// entry in `import_unfinished`.
+// entry in `import_unfinished`. Each mark is read only in the shape CoGA writes it.
 
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -9,13 +9,15 @@ import { describe, expect, it } from 'vitest';
 import ImportIncompleteBanner, {
   failuresByJob,
   importIncompleteFromMetadata,
+  importMarksFromMetadata,
+  ImportMarkShapeError,
   importUnfinishedFromMetadata,
   pendingDatasets,
   unfinishedWriter,
 } from '../ImportIncompleteBanner';
 
-// As family_package_registration._flag_family_import_incomplete records it: each failed
-// dataset with the job that holds its error, and each failure's scope.
+// As family_package_registration._flag_payload writes it: each failed dataset with the job
+// that holds its error, and each failure's scope.
 const FLAG_JOB = '3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b';
 const FLAG = {
   at: '2026-09-12T10:14:00.123456+00:00',
@@ -28,7 +30,7 @@ const FLAG = {
     sv: [{ scope: { source: null, samples: null }, job_id: FLAG_JOB }],
   },
 };
-// As family_package_registration.ImportMark records it: stopped inside haplotypes.
+// As family_package_registration.ImportMark writes it: stopped inside haplotypes.
 const STOPPED_JOB = '7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 const UNFINISHED = {
   [STOPPED_JOB]: {
@@ -36,8 +38,49 @@ const UNFINISHED = {
     at: '2026-10-02T09:12:00.5+00:00',
     datasets: ['apcad', 'haplotypes', 'qdnaseq'],
     finished_datasets: ['apcad', 'qdnaseq'],
+    scopes: {
+      apcad: { source: null, samples: ['EMB1'] },
+      haplotypes: { source: null, samples: null },
+      qdnaseq: { source: null, samples: ['EMB1'] },
+    },
   },
 };
+/** `record` without `key`. */
+const without = (record: Record<string, unknown>, key: string): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(record).filter(([name]) => name !== key));
+// Marks in shapes CoGA does not write, each read as such: never as no mark, nor as a mark
+// naming what it does not say.
+const OTHER_FLAGS: [string, unknown][] = [
+  ['true', true],
+  ['false', false],
+  ['text', 'yes'],
+  ['a list', ['snv']],
+  ['an empty map', {}],
+  ['a flag without its time', without(FLAG, 'at')],
+  ['a flag with a time that is no text', { ...FLAG, at: null }],
+  ['a job that is no text', { ...FLAG, job_id: 7 }],
+  ['a flag without its job', without(FLAG, 'job_id')],
+  ['a flag without failed_jobs', without(FLAG, 'failed_jobs')],
+  ['datasets that are no list', { ...FLAG, failed_datasets: 'snv' }],
+  ['an empty dataset name', { ...FLAG, imported_datasets: [''] }],
+  ['failed_jobs missing a failed dataset', { ...FLAG, failed_jobs: { snv: FLAG_JOB } }],
+  ['failed_jobs naming a dataset that did not fail', { ...FLAG, failed_jobs: { ...FLAG.failed_jobs, coverage: FLAG_JOB } }],
+  ['a failed dataset’s job that is no text', { ...FLAG, failed_jobs: { snv: FLAG_JOB, sv: 7 } }],
+];
+const OTHER_UNFINISHED: [string, unknown][] = [
+  ['text', 'garbage'],
+  ['false', false],
+  ['a list', ['x']],
+  ['an entry that is no map', { k: 'not an entry' }],
+  ['an entry without its time', { k: without(UNFINISHED[STOPPED_JOB], 'at') }],
+  ['an entry with a time that is no text', { k: { ...UNFINISHED[STOPPED_JOB], at: null } }],
+  ['an entry without its job', { k: without(UNFINISHED[STOPPED_JOB], 'job_id') }],
+  ['an entry without its finished datasets', { k: without(UNFINISHED[STOPPED_JOB], 'finished_datasets') }],
+  ['a job that is no text', { k: { ...UNFINISHED[STOPPED_JOB], job_id: 7 } }],
+  ['datasets that are no list', { k: { ...UNFINISHED[STOPPED_JOB], datasets: 'snv' } }],
+  ['finished datasets that are no list', { k: { ...UNFINISHED[STOPPED_JOB], finished_datasets: null } }],
+  ['whole_family that is neither its items nor true', { k: { ...UNFINISHED[STOPPED_JOB], whole_family: 'yes' } }],
+];
 // As family_package_registration records them after an overwrite that failed and whose
 // restore did not finish: the flag names the import's datasets as failed, and its entry
 // stays, naming every dataset of the family (the SV calls came with another import).
@@ -157,7 +200,15 @@ describe('ImportIncompleteBanner', () => {
 
   it('names no job when every failure was outside one', () => {
     // Single-file uploads of snv and sv failed: they run in no import job.
-    const uploads = { ...FLAG, job_id: null, failed_jobs: { snv: null, sv: null } };
+    const uploads = {
+      ...FLAG,
+      job_id: null,
+      failed_jobs: { snv: null, sv: null },
+      failed_scopes: {
+        snv: [{ scope: { source: 'clair3', samples: null }, job_id: null }],
+        sv: [{ scope: { source: null, samples: null }, job_id: null }],
+      },
+    };
     render(<ImportIncompleteBanner metadata={{ import_incomplete: uploads }} />);
 
     const banner = screen.getByRole('alert');
@@ -165,12 +216,23 @@ describe('ImportIncompleteBanner', () => {
     expect(banner).not.toHaveTextContent(/import job/);
   });
 
-  it('still warns when the flag records nothing to name', () => {
-    render(<ImportIncompleteBanner metadata={{ import_incomplete: true }} />);
+  const UNREADABLE_BANNER =
+    'Import incomplete. This family’s import marks are not in the shape CoGA writes, so this page cannot say what failed or did not finish. Its data may be missing or partly written, so the results and the report may be incomplete. Signing out fails until the marks are put right: report this as a defect.';
 
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      /A family-package import did not complete, and which datasets it left out was not recorded\./,
-    );
+  it.each([
+    ...OTHER_FLAGS.map(([what, flag]): [string, unknown] => [`a flag: ${what}`, { import_incomplete: flag }]),
+    ...OTHER_UNFINISHED.map(([what, map]): [string, unknown] => [
+      `import_unfinished: ${what}`,
+      { import_unfinished: map },
+    ]),
+    // One mark in another shape beside one as written: nothing is named from either.
+    ['a flag as written beside an entry in another shape', { import_incomplete: FLAG, import_unfinished: { k: 7 } }],
+  ])('says the marks are not in the shape CoGA writes, naming nothing, for %s', (_what, metadata) => {
+    render(<ImportIncompleteBanner metadata={metadata} />);
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(UNREADABLE_BANNER);
+    expect(banner).not.toHaveTextContent(/failed for|import job|acknowledged with a reason/);
   });
 
   it('names an import that has not finished, and what it had not finished', () => {
@@ -264,16 +326,6 @@ describe('ImportIncompleteBanner', () => {
     expect(banner).toHaveTextContent(/Import this family again in full, with overwrite/);
   });
 
-  it('still warns when an unfinished import records nothing to name', () => {
-    render(<ImportIncompleteBanner metadata={{ import_unfinished: 'garbage' }} />);
-
-    const banner = screen.getByRole('alert');
-    expect(banner).toHaveTextContent(
-      /A family-package import began writing this family.s data and has not finished/,
-    );
-    expect(banner).not.toHaveTextContent(/import job/);
-  });
-
   it('shows nothing for a complete import', () => {
     const { container, rerender } = render(
       <ImportIncompleteBanner metadata={{ analysis_type: 'monogenic_nipt' }} />,
@@ -293,7 +345,13 @@ describe('ImportIncompleteBanner', () => {
 
 describe('importUnfinishedFromMetadata', () => {
   it('reads the entries the imports write, oldest first', () => {
-    const later = { job_id: 'job-2', at: '2026-10-02T11:00:00+00:00', datasets: ['snv'], finished_datasets: [] };
+    const later = {
+      job_id: 'job-2',
+      at: '2026-10-02T11:00:00+00:00',
+      datasets: ['snv'],
+      finished_datasets: [],
+      scopes: { snv: { source: 'clair3', samples: null } },
+    };
     expect(importUnfinishedFromMetadata({ import_unfinished: { 'job-2': later, ...UNFINISHED } })).toEqual([
       {
         key: STOPPED_JOB,
@@ -307,22 +365,45 @@ describe('importUnfinishedFromMetadata', () => {
     ]);
   });
 
-  it('takes a value of another shape as unfinished, with nothing to name', () => {
-    // As sign-out does: a set value is never read as "nothing unfinished".
-    const unknown = { jobId: null, at: null, datasets: [], finishedDatasets: [], wholeFamily: false };
-    expect(importUnfinishedFromMetadata({ import_unfinished: 'garbage' })).toEqual([{ key: 'unreadable', ...unknown }]);
-    expect(importUnfinishedFromMetadata({ import_unfinished: ['x'] })).toEqual([{ key: 'unreadable', ...unknown }]);
-    expect(importUnfinishedFromMetadata({ import_unfinished: { k: 'not an entry' } })).toEqual([{ key: 'k', ...unknown }]);
-    expect(
-      importUnfinishedFromMetadata({ import_unfinished: { k: { job_id: 7, datasets: 'snv' } } }),
-    ).toEqual([{ key: 'k', ...unknown }]);
+  it.each(OTHER_UNFINISHED)('throws for a map or an entry in another shape: %s', (_what, map) => {
+    // Never read as "nothing unfinished", nor as an entry naming what it does not say.
+    expect(() => importUnfinishedFromMetadata({ import_unfinished: map })).toThrow(ImportMarkShapeError);
+    expect(() => importUnfinishedFromMetadata({ import_unfinished: map })).toThrow(
+      /^The family’s import_unfinished (map|entry) is not in the shape CoGA writes\.$/,
+    );
   });
 
   it('reads none when none is recorded', () => {
     expect(importUnfinishedFromMetadata({})).toEqual([]);
     expect(importUnfinishedFromMetadata(null)).toEqual([]);
     expect(importUnfinishedFromMetadata({ import_unfinished: null })).toEqual([]);
-    expect(importUnfinishedFromMetadata({ import_unfinished: false })).toEqual([]);
+    expect(importUnfinishedFromMetadata({ import_unfinished: {} })).toEqual([]);
+  });
+
+  it('reads an upload’s and a deletion’s mark, and an entry as the sign-out freezes it', () => {
+    expect(importUnfinishedFromMetadata({ import_unfinished: { ...UPLOAD_MARK, ...DELETION_MARK } })).toEqual([
+      {
+        key: UPLOAD_KEY,
+        jobId: null,
+        at: UPLOAD_MARK[UPLOAD_KEY].at,
+        datasets: ['sv_sniffles'],
+        finishedDatasets: [],
+        wholeFamily: false,
+      },
+      {
+        key: DELETION_KEY,
+        jobId: null,
+        at: DELETION_MARK[DELETION_KEY].at,
+        datasets: ['cnv', 'sv_needlr'],
+        finishedDatasets: [],
+        wholeFamily: false,
+      },
+    ]);
+    // Frozen into a refusal or a signed record: no scopes, no items.
+    const frozen = without(UNFINISHED[STOPPED_JOB], 'scopes');
+    expect(importUnfinishedFromMetadata({ import_unfinished: { [STOPPED_JOB]: frozen } })).toEqual(
+      importUnfinishedFromMetadata({ import_unfinished: UNFINISHED }),
+    );
   });
 
   it('names as pending what the import had not finished', () => {
@@ -366,7 +447,6 @@ describe('unfinishedWriter', () => {
     expect(unfinishedWriter(DELETION_KEY)).toBe('deletion');
     expect(unfinishedWriter(STOPPED_JOB)).toBe('import');
     expect(unfinishedWriter('run-5f2c')).toBe('import');
-    expect(unfinishedWriter('unreadable')).toBe('import');
   });
 });
 
@@ -381,26 +461,19 @@ describe('importIncompleteFromMetadata', () => {
       failedJobs: { snv: FLAG.job_id, sv: FLAG.job_id },
       withoutJob: [],
     });
-    expect(
-      importIncompleteFromMetadata({ import_incomplete: { ...FLAG, job_id: 7 } })?.jobId,
-    ).toBeNull();
+    // As the sign-out freezes it: without failed_scopes, read the same.
+    const frozen = without(FLAG, 'failed_scopes');
+    expect(importIncompleteFromMetadata({ import_incomplete: frozen })).toEqual(
+      importIncompleteFromMetadata({ import_incomplete: FLAG }),
+    );
   });
 
-  it('takes a flag of another shape as incomplete, with nothing to name', () => {
-    // As sign-out does: a set flag is never read as a complete import.
-    const unknown = {
-      at: null,
-      failedDatasets: [],
-      importedDatasets: [],
-      jobId: null,
-      failedJobs: {},
-      withoutJob: [],
-    };
-    expect(importIncompleteFromMetadata({ import_incomplete: 'yes' })).toEqual(unknown);
-    expect(importIncompleteFromMetadata({ import_incomplete: {} })).toEqual(unknown);
-    expect(
-      importIncompleteFromMetadata({ import_incomplete: { failed_datasets: 'snv' } }),
-    ).toEqual(unknown);
+  it.each(OTHER_FLAGS)('throws for a flag in another shape: %s', (_what, flag) => {
+    // Never read as a complete import, nor as a flag naming what it does not say.
+    expect(() => importIncompleteFromMetadata({ import_incomplete: flag })).toThrow(ImportMarkShapeError);
+    expect(() => importIncompleteFromMetadata({ import_incomplete: flag })).toThrow(
+      /^The family’s import_incomplete flag is not in the shape CoGA writes\.$/,
+    );
   });
 
   it('reads a dataset the flag lists with no job as failed outside one', () => {
@@ -414,7 +487,15 @@ describe('importIncompleteFromMetadata', () => {
     // No dataset with a job (each failed in a single-file upload): none is named as failed
     // outside one, as no job is named beside them.
     const none = importIncompleteFromMetadata({
-      import_incomplete: { ...FLAG, job_id: null, failed_jobs: { snv: null, sv: null } },
+      import_incomplete: {
+        ...FLAG,
+        job_id: null,
+        failed_jobs: { snv: null, sv: null },
+        failed_scopes: {
+          snv: [{ scope: { source: 'clair3', samples: null }, job_id: null }],
+          sv: [{ scope: { source: null, samples: null }, job_id: null }],
+        },
+      },
     });
     expect(none?.withoutJob).toEqual([]);
     expect(failuresByJob(none!)).toBeNull();
@@ -424,6 +505,23 @@ describe('importIncompleteFromMetadata', () => {
     expect(importIncompleteFromMetadata({})).toBeNull();
     expect(importIncompleteFromMetadata(null)).toBeNull();
     expect(importIncompleteFromMetadata('not metadata')).toBeNull();
-    expect(importIncompleteFromMetadata({ import_incomplete: false })).toBeNull();
+    // As the sign-out freezes no flag.
+    expect(importIncompleteFromMetadata({ import_incomplete: null })).toBeNull();
+  });
+});
+
+describe('importMarksFromMetadata', () => {
+  it('reads both marks as written', () => {
+    expect(importMarksFromMetadata({ import_incomplete: FLAG, import_unfinished: UNFINISHED })).toEqual({
+      incomplete: importIncompleteFromMetadata({ import_incomplete: FLAG }),
+      unfinished: importUnfinishedFromMetadata({ import_unfinished: UNFINISHED }),
+    });
+    expect(importMarksFromMetadata({})).toEqual({ incomplete: null, unfinished: [] });
+  });
+
+  it('reads a family with either mark in another shape as unreadable', () => {
+    expect(importMarksFromMetadata({ import_incomplete: true })).toBe('unreadable');
+    expect(importMarksFromMetadata({ import_incomplete: false, import_unfinished: UNFINISHED })).toBe('unreadable');
+    expect(importMarksFromMetadata({ import_incomplete: FLAG, import_unfinished: 'garbage' })).toBe('unreadable');
   });
 });

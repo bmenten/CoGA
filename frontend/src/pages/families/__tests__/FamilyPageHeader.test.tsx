@@ -103,13 +103,22 @@ describe('FamilyPageHeader', () => {
       family: {
         ...family,
         metadata: {
-          import_incomplete: { at: null, failed_datasets: ['snv'], imported_datasets: ['sv'] },
+          import_incomplete: {
+            at: '2026-09-12T10:14:00+00:00',
+            failed_datasets: ['snv'],
+            imported_datasets: ['sv'],
+            job_id: 'job-1',
+            failed_jobs: { snv: 'job-1' },
+            failed_scopes: { snv: [{ scope: { source: 'auto', samples: null }, job_id: 'job-1' }] },
+          },
         },
       },
     });
     const card = screen.getByRole('heading', { name: 'Family F1' }).closest('.page-top-card');
     const banner = within(card as HTMLElement).getByRole('alert');
-    expect(banner).toHaveTextContent(/Import incomplete\. A family-package import failed for snv; sv did import\./);
+    expect(banner).toHaveTextContent(
+      /Import incomplete\. A family-package import \(2026-09-12 10:14 UTC\) failed for snv; sv did import\./,
+    );
   });
 
   it('warns on every family page while an import of the family has not finished', () => {
@@ -119,14 +128,22 @@ describe('FamilyPageHeader', () => {
         ...family,
         metadata: {
           import_unfinished: {
-            'job-1': { job_id: 'job-1', at: null, datasets: ['snv'], finished_datasets: [] },
+            'job-1': {
+              job_id: 'job-1',
+              at: '2026-09-13T08:00:00+00:00',
+              datasets: ['snv'],
+              finished_datasets: [],
+              scopes: { snv: { source: 'auto', samples: null } },
+            },
           },
         },
       },
     });
     const card = screen.getByRole('heading', { name: 'Family F1' }).closest('.page-top-card');
     const banner = within(card as HTMLElement).getByRole('alert');
-    expect(banner).toHaveTextContent(/Import incomplete\. A family-package import, import job job-1, began writing/);
+    expect(banner).toHaveTextContent(
+      /Import incomplete\. A family-package import \(2026-09-13 08:00 UTC\), import job job-1, began writing/,
+    );
     expect(banner).toHaveTextContent(/snv may be partly written or missing/);
   });
 

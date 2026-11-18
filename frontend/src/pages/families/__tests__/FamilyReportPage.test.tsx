@@ -3662,11 +3662,21 @@ describe('FamilyReportPage', () => {
   // a Sample-QC concern does.
   describe('when the family’s import is incomplete', () => {
     const IMPORT_JOB_ID = '3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b';
+    // As the sign-out freezes it, in its refusal and in the signed record.
     const IMPORT_FLAG = {
       at: '2026-09-12T10:14:00+00:00',
       failed_datasets: ['snv', 'sv'],
       imported_datasets: ['coverage'],
       job_id: IMPORT_JOB_ID,
+      failed_jobs: { snv: IMPORT_JOB_ID, sv: IMPORT_JOB_ID },
+    };
+    // As the import writes it in the family's metadata: each failure with its scope too.
+    const STORED_IMPORT_FLAG = {
+      ...IMPORT_FLAG,
+      failed_scopes: {
+        snv: [{ scope: { source: 'auto', samples: null }, job_id: IMPORT_JOB_ID }],
+        sv: [{ scope: { source: null, samples: null }, job_id: IMPORT_JOB_ID }],
+      },
     };
     const IMPORT_FINGERPRINT = 'e'.repeat(64);
     const IMPORT_409 = {
@@ -3697,7 +3707,7 @@ describe('FamilyReportPage', () => {
                 members: [],
                 projects: [],
                 can_sign_out: true,
-                metadata: { import_incomplete: IMPORT_FLAG },
+                metadata: { import_incomplete: STORED_IMPORT_FLAG },
               },
             })
           : base(url, config),
@@ -3810,7 +3820,12 @@ describe('FamilyReportPage', () => {
               ...IMPORT_409.response.data.detail,
               message:
                 "This family's data is incomplete: the package import (2026-09-12T11:02:00+00:00) failed for coverage, snv, sv. Re-run the import to complete it, or acknowledge with a reason to sign out anyway.",
-              import_incomplete: { ...IMPORT_FLAG, failed_datasets: ['coverage', 'snv', 'sv'], imported_datasets: [] },
+              import_incomplete: {
+                ...IMPORT_FLAG,
+                failed_datasets: ['coverage', 'snv', 'sv'],
+                imported_datasets: [],
+                failed_jobs: { coverage: IMPORT_JOB_ID, snv: IMPORT_JOB_ID, sv: IMPORT_JOB_ID },
+              },
               concerns_fingerprint: changedFingerprint,
               concerns_changed: true,
             },
@@ -3928,7 +3943,7 @@ describe('FamilyReportPage', () => {
               import_unfinished: {
                 ...UNFINISHED,
                 // Stopped after its last dataset had finished.
-                'job-2': { job_id: 'job-2', at: null, datasets: ['snv'], finished_datasets: ['snv'] },
+                'job-2': { job_id: 'job-2', at: '2026-10-02T11:00:00+00:00', datasets: ['snv'], finished_datasets: ['snv'] },
               },
             },
           },
@@ -4203,6 +4218,54 @@ describe('FamilyReportPage', () => {
         'A deletion of this family’s data (begun 2026-10-14 09:00 UTC) had not finished: cnv and sv_needlr may have been partly written or missing.',
       );
       expect(checks).not.toHaveTextContent(/An import \(begun 2026-10-14/);
+    });
+
+    it('says so, and opens no dialog, when the refusal’s import marks are not in the shape CoGA writes', async () => {
+      mockUnsignedFamily();
+      apiMock.post.mockImplementation(() =>
+        Promise.reject({
+          response: {
+            status: 409,
+            data: {
+              detail: {
+                gate: 'import_incomplete',
+                message: 'incomplete',
+                import_incomplete: { ...IMPORT_FLAG, failed_jobs: { snv: IMPORT_JOB_ID } },
+              },
+            },
+          },
+        }),
+      );
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(
+        'Not signed out. The family’s import is incomplete, and the import marks in the refusal are not in the shape CoGA writes, so they cannot be listed for an acknowledgement. Report this as a defect.',
+      );
+      expect(
+        screen.queryByRole('dialog', { name: /Incomplete import acknowledgement required/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('says so on the signed record when its import marks are not in the shape CoGA writes', async () => {
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_unfinished: { [STOPPED_JOB_ID]: { ...UNFINISHED[STOPPED_JOB_ID], at: null } },
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        `The record’s import marks are not in the shape CoGA writes, so what the family’s data lacked cannot be shown. Signed out over it, with the reason: ${REASON}`,
+      );
+      expect(checks).not.toHaveTextContent('imported completely');
     });
 
     it('names a change in unfinished imports since sign-out', async () => {

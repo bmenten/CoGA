@@ -8,11 +8,9 @@ import { READ_ONLY_HINT, SIGN_OUT_ROLE_HINT } from '../../lib/familyAccess';
 import ModalDialog from '../../components/ModalDialog';
 import {
   failuresByJob,
-  importIncompleteFromMetadata,
-  importUnfinishedFromMetadata,
+  importMarksFromMetadata,
   pendingDatasets,
   unfinishedWriter,
-  type FamilyImportIncomplete,
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import { apiErrorMessage } from './reportSignoutQueries';
@@ -102,15 +100,12 @@ const ConcernsChanged: React.FC<{ changed: boolean }> = ({ changed }) =>
     </p>
   ) : null;
 
-/** A flag naming nothing: what an import refusal whose detail holds no flag reads as. */
-const NO_FLAG: FamilyImportIncomplete = {
-  at: null,
-  failedDatasets: [],
-  importedDatasets: [],
-  jobId: null,
-  failedJobs: {},
-  withoutJob: [],
-};
+/**
+ * An import refusal whose import marks are not in the shape CoGA writes: nothing to list for
+ * an acknowledgement, so no dialog. The page puts *Not signed out.* before it.
+ */
+const IMPORT_MARKS_UNREADABLE =
+  'The family’s import is incomplete, and the import marks in the refusal are not in the shape CoGA writes, so they cannot be listed for an acknowledgement. Report this as a defect.';
 
 /** What decides whether a page offers the sign-out (`signOutRefusal`). */
 export interface SignOutOffer {
@@ -368,29 +363,26 @@ export const useReportSignOut = (
       // An import that partly failed: structured like the QC gate, naming what the import
       // left out, and acknowledged the same way.
       if (gate === 'import_incomplete') {
-        const incomplete = detail as {
-          message?: string;
-          import_incomplete?: {
-            failed_datasets?: string[];
-            imported_datasets?: string[];
-            job_id?: string | null;
-            failed_jobs?: Record<string, string | null>;
-          } | null;
-        };
-        const read = importIncompleteFromMetadata(detail);
+        // The flag and the unfinished imports the refusal froze (detail.import_incomplete and
+        // detail.import_unfinished), in the shape the family pages read them.
+        const marks = importMarksFromMetadata(detail);
+        if (marks === 'unreadable') {
+          setSignOutError(IMPORT_MARKS_UNREADABLE);
+          return;
+        }
+        const flag = marks.incomplete;
         const shown = shownConcerns(detail);
         if (shown.changed) setImportReason('');
         setImportGate({
-          message: incomplete.message || 'The family’s import is incomplete.',
-          failed: incomplete.import_incomplete?.failed_datasets ?? [],
-          imported: incomplete.import_incomplete?.imported_datasets ?? [],
-          jobId: incomplete.import_incomplete?.job_id ?? null,
+          message: (detail as { message?: string }).message || 'The family’s import is incomplete.',
+          failed: flag?.failedDatasets ?? [],
+          imported: flag?.importedDatasets ?? [],
+          jobId: flag?.jobId ?? null,
           // The jobs that hold the failed datasets' errors, when more than one does, or when
           // a failure no job records is beside them (failed_jobs lists it with none).
-          failedByJob: failuresByJob(read ?? NO_FLAG),
-          withoutJob: read?.withoutJob ?? [],
-          // The imports that began writing the family and did not finish (detail.import_unfinished).
-          unfinished: importUnfinishedFromMetadata(detail),
+          failedByJob: flag ? failuresByJob(flag) : null,
+          withoutJob: flag?.withoutJob ?? [],
+          unfinished: marks.unfinished,
           ...shown,
           vars,
         });

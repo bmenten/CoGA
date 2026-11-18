@@ -3,11 +3,11 @@ import { joinWithAnd } from '../lib/format';
 
 /** What a partly failed family-package import left out, as the family's metadata records it. */
 export interface FamilyImportIncomplete {
-  /** When the import ran (ISO timestamp), or null when not recorded. */
-  at: string | null;
+  /** When the import ran (ISO timestamp). */
+  at: string;
   failedDatasets: string[];
   importedDatasets: string[];
-  /** The import job whose record holds each dataset's error, or null when not recorded. */
+  /** The import job whose record holds each dataset's error, or null for a failure outside one. */
   jobId: string | null;
   /**
    * The job whose record holds each failed dataset's error: a later failure keeps an
@@ -37,48 +37,85 @@ export const failuresByJob = (flag: FamilyImportIncomplete): [string, string[]][
   return [...byJob.entries()].sort((a, b) => a[1][0].localeCompare(b[1][0]));
 };
 
-const stringList = (value: unknown): string[] | null =>
-  Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : null;
+/**
+ * A family's import mark (its `import_incomplete` flag, or its `import_unfinished` map or an
+ * entry of it) in a shape CoGA does not write. The readers below throw it rather than read
+ * the mark as no mark, or as naming what it does not say; {@link importMarksFromMetadata}
+ * turns it into what a page shows instead. The message names the mark, never a value.
+ */
+export class ImportMarkShapeError extends Error {
+  constructor(mark: string) {
+    super(`The family’s ${mark} is not in the shape CoGA writes.`);
+    this.name = 'ImportMarkShapeError';
+  }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** A list of names (datasets), as every mark writes them. */
+const isNameList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((name) => typeof name === 'string' && name !== '');
+
+/** A job as a mark records it: its id, or null for a write outside a job. */
+const isJob = (value: unknown): value is string | null => value === null || typeof value === 'string';
+
+const sameNames = (a: string[], b: string[]): boolean => {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((name) => right.has(name));
+};
 
 /**
- * The family's `import_incomplete` flag, or null when its import completed.
+ * The family's `import_incomplete` flag, or null when it has none (the key absent, or null as
+ * a sign-out freezes no flag).
  *
  * A family-package import that partly fails keeps the datasets that did import and stamps
- * `metadata.import_incomplete` (family_package_registration._flag_family_import_incomplete);
- * it goes once an import has imported each failed dataset again. As on the server, a flag that is set but
- * not in the shape the import writes still counts as incomplete, with nothing to name.
+ * `metadata.import_incomplete` (family_package_registration._flag_payload); it goes once an
+ * import has imported each failed dataset again. The sign-out's refusal and the signed record
+ * freeze the same keys, less `failed_scopes`, and are read here too. This reads the keys the
+ * pages show: when (`at`), the failed and the imported datasets, the flag's job, and the job of
+ * each failed dataset (`failed_jobs`, one per failed dataset), each in the shape it is written.
+ * It does not read `failed_scopes`. Throws {@link ImportMarkShapeError} for a flag in any other
+ * shape.
  */
 export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportIncomplete | null => {
   if (!metadata || typeof metadata !== 'object') return null;
   const flag = (metadata as Record<string, unknown>).import_incomplete;
-  if (flag === undefined || flag === null || flag === false) return null;
-  const record =
-    typeof flag === 'object' && !Array.isArray(flag) ? (flag as Record<string, unknown>) : {};
-  const jobId = typeof record.job_id === 'string' && record.job_id ? record.job_id : null;
-  const failedDatasets = stringList(record.failed_datasets) ?? [];
-  const jobs =
-    record.failed_jobs && typeof record.failed_jobs === 'object' && !Array.isArray(record.failed_jobs)
-      ? (record.failed_jobs as Record<string, unknown>)
-      : {};
-  const failedJobs: Record<string, string> = {};
-  const listedWithoutJob: string[] = [];
-  failedDatasets.forEach((name) => {
-    const job = jobs[name];
-    if (typeof job === 'string' && job) failedJobs[name] = job;
-    // Listed with no job: it failed outside one, so the flag's job, another failure's,
-    // does not hold its error (as report_signout_service._import_incomplete_state reads it).
-    else listedWithoutJob.push(name);
-  });
-  return {
-    at: typeof record.at === 'string' && record.at ? record.at : null,
-    failedDatasets,
-    importedDatasets: stringList(record.imported_datasets) ?? [],
-    jobId,
-    failedJobs,
-    // Named only beside a failure a job records: with no job beside them, no job is named
-    // that could be taken for theirs.
-    withoutJob: Object.keys(failedJobs).length ? listedWithoutJob : [],
-  };
+  if (flag === undefined || flag === null) return null;
+  if (isRecord(flag)) {
+    const { at, failed_datasets: failed, imported_datasets: imported, job_id: jobId, failed_jobs: jobs } = flag;
+    if (
+      typeof at === 'string' &&
+      isNameList(failed) &&
+      isNameList(imported) &&
+      isJob(jobId) &&
+      isRecord(jobs) &&
+      sameNames(Object.keys(jobs), failed) &&
+      Object.values(jobs).every(isJob)
+    ) {
+      const failedJobs: Record<string, string> = {};
+      const listedWithoutJob: string[] = [];
+      failed.forEach((name) => {
+        const job = jobs[name] as string | null;
+        // Listed with no job: it failed outside one, so the flag's job, another failure's,
+        // does not hold its error.
+        if (job === null) listedWithoutJob.push(name);
+        else failedJobs[name] = job;
+      });
+      return {
+        at,
+        failedDatasets: failed,
+        importedDatasets: imported,
+        jobId,
+        failedJobs,
+        // Named only beside a failure a job records: with no job beside them, no job is named
+        // that could be taken for theirs.
+        withoutJob: Object.keys(failedJobs).length ? listedWithoutJob : [],
+      };
+    }
+  }
+  throw new ImportMarkShapeError('import_incomplete flag');
 };
 
 /**
@@ -92,10 +129,10 @@ export interface FamilyImportUnfinished {
    * `upload-…` or `deletion-…` for a mark.
    */
   key: string;
-  /** The import job, or null when it ran outside one (or none is recorded). */
+  /** The import job, or null when it ran outside one (a single-file upload's or a deletion's mark). */
   jobId: string | null;
-  /** When it began writing the family (ISO timestamp), or null when not recorded. */
-  at: string | null;
+  /** When it began writing the family (ISO timestamp). */
+  at: string;
   /** What it set out to import. */
   datasets: string[];
   /** Those it finished; the others may be partly written or missing. */
@@ -141,37 +178,76 @@ export const WRITER_LABELS: Record<Exclude<UnfinishedWriter, 'import'>, string> 
  * and left what it had not finished partly written. Only an import that imports that again
  * with overwrite removes it. A single-file upload, and a deletion of the family's data, mark
  * the family the same way before their first ClickHouse write (FamilyWriteMark); each item of
- * a mark goes once an upload or an import with overwrite has brought it again. As on the
- * server, a value that is set but not in the shape an import writes still counts, with
- * nothing to name.
+ * a mark goes once an upload or an import with overwrite has brought it again.
+ *
+ * None when the map is absent or null. The sign-out's refusal and the signed record freeze each
+ * entry's job, `at`, datasets and finished datasets, and `whole_family: true` for a restore's,
+ * and are read here too. This reads those keys, each in the shape it is written, and
+ * `whole_family` as the restore's list (or `true`, frozen); it does not read the entries'
+ * scopes or items. Throws {@link ImportMarkShapeError} for a map or an entry in any other shape.
  */
 export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnfinished[] => {
   if (!metadata || typeof metadata !== 'object') return [];
   const map = (metadata as Record<string, unknown>).import_unfinished;
-  if (map === undefined || map === null || map === false) return [];
-  const entries: [string, unknown][] =
-    typeof map === 'object' && !Array.isArray(map)
-      ? Object.entries(map as Record<string, unknown>)
-      : [['unreadable', map]];
-  return entries
-    .map(([key, value]) => {
-      const record =
-        value && typeof value === 'object' && !Array.isArray(value)
-          ? (value as Record<string, unknown>)
-          : {};
-      return {
-        key,
-        jobId: typeof record.job_id === 'string' && record.job_id ? record.job_id : null,
-        at: typeof record.at === 'string' && record.at ? record.at : null,
-        datasets: stringList(record.datasets) ?? [],
-        finishedDatasets: stringList(record.finished_datasets) ?? [],
-        wholeFamily: unfinishedWriter(key) === 'import' && 'whole_family' in record,
-      };
+  if (map === undefined || map === null) return [];
+  if (!isRecord(map)) throw new ImportMarkShapeError('import_unfinished map');
+  return Object.entries(map)
+    .map(([key, entry]): FamilyImportUnfinished => {
+      if (isRecord(entry)) {
+        const { job_id: jobId, at, datasets, finished_datasets: finished, whole_family: whole } = entry;
+        if (
+          isJob(jobId) &&
+          typeof at === 'string' &&
+          isNameList(datasets) &&
+          isNameList(finished) &&
+          (whole === undefined || whole === true || Array.isArray(whole))
+        ) {
+          return {
+            key,
+            jobId,
+            at,
+            datasets,
+            finishedDatasets: finished,
+            // An upload's or a deletion's mark lists its items the same way, but is no restore.
+            wholeFamily: unfinishedWriter(key) === 'import' && whole !== undefined,
+          };
+        }
+      }
+      throw new ImportMarkShapeError('import_unfinished entry');
     })
-    .sort((a, b) => (a.at ?? '').localeCompare(b.at ?? '') || a.key.localeCompare(b.key));
+    .sort((a, b) => a.at.localeCompare(b.at) || a.key.localeCompare(b.key));
+};
+
+/** A family's two import marks, read. */
+export interface FamilyImportMarks {
+  /** Its `import_incomplete` flag, or null when it has none. */
+  incomplete: FamilyImportIncomplete | null;
+  /** Its `import_unfinished` entries, oldest first. */
+  unfinished: FamilyImportUnfinished[];
+}
+
+/**
+ * The family's import marks, or `unreadable` when one is not in the shape CoGA writes
+ * ({@link ImportMarkShapeError}). Every page that shows them says so then, and names nothing:
+ * the server's sign-out fails on such a mark, so its import gate stays closed.
+ */
+export const importMarksFromMetadata = (metadata: unknown): FamilyImportMarks | 'unreadable' => {
+  try {
+    return {
+      incomplete: importIncompleteFromMetadata(metadata),
+      unfinished: importUnfinishedFromMetadata(metadata),
+    };
+  } catch (error) {
+    if (error instanceof ImportMarkShapeError) return 'unreadable';
+    throw error;
+  }
 };
 
 const bannerTime = (iso: string): string => `${iso.replace('T', ' ').slice(0, 16)} UTC`;
+
+/** The banner's text for import marks not in the shape CoGA writes. */
+const UNREADABLE_MARKS =
+  'This family’s import marks are not in the shape CoGA writes, so this page cannot say what failed or did not finish. Its data may be missing or partly written, so the results and the report may be incomplete. Signing out fails until the marks are put right: report this as a defect.';
 
 /** One unfinished import, as the banner says it. */
 const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }) => {
@@ -180,11 +256,9 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }
   if (writer !== 'import') {
     // A single-file upload, and a deletion of the family's data, mark the
     // family before their first ClickHouse write. No import job.
-    const when = entry.at ? ` (${bannerTime(entry.at)})` : '';
     return (
       <>
-        {WRITER_LABELS[writer]}
-        {when}
+        {WRITER_LABELS[writer]} ({bannerTime(entry.at)})
         {writer === 'upload'
           ? ' began rewriting this family’s data and has not finished: it is still running, or it stopped or failed part-way.'
           : ' began and has not finished: it is still running, or it stopped or failed part-way.'}
@@ -194,7 +268,7 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }
   }
   const who = (
     <>
-      A family-package import{entry.at ? ` (${bannerTime(entry.at)})` : ''}
+      A family-package import ({bannerTime(entry.at)})
       {entry.jobId ? (
         <>
           , import job <code>{entry.jobId}</code>,
@@ -238,12 +312,23 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }
  * naming what it may have left partly written or missing.
  * Printed with the report, like the assembly-scope label. Sign-out refuses such a family
  * unless the signer acknowledges it with a reason, whatever this banner does.
+ *
+ * A mark not in the shape CoGA writes ({@link importMarksFromMetadata}) shows the same banner,
+ * naming nothing: the family's data may be missing or partly written, and its sign-out fails
+ * until the mark is put right.
  */
 const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) => {
-  const flag = importIncompleteFromMetadata(metadata);
-  const unfinished = importUnfinishedFromMetadata(metadata);
+  const marks = importMarksFromMetadata(metadata);
+  if (marks === 'unreadable') {
+    return (
+      <div className="import-incomplete-banner" role="alert">
+        <strong>Import incomplete.</strong> {UNREADABLE_MARKS}
+      </div>
+    );
+  }
+  const { incomplete: flag, unfinished } = marks;
   if (!flag && !unfinished.length) return null;
-  const when = flag?.at ? ` (${bannerTime(flag.at)})` : '';
+  const when = flag ? ` (${bannerTime(flag.at)})` : '';
   const what = !flag
     ? null
     : flag.failedDatasets.length

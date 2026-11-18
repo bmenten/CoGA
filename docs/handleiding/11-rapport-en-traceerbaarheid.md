@@ -175,7 +175,9 @@ Een import waarvan het proces halverwege stopte (een herstart, een crash, geen g
 
 Ook die items tellen als de vlag. De melding bij `409` noemt dan „a single-file upload” of „a deletion of this family's data” die „did not finish”, en wat half geschreven kan zijn of ontbreken. Het ondertekende record noemt de upload of de verwijdering, uit de sleutel die het mee bevriest.
 
-Staat er een vlag of een item dat de ondertekenaar niet erkende, dan volgt `409` (`gate = "import_incomplete"`) met de mislukte datasets, de importjob en elk item (`import_unfinished`). Eén erkenning geldt voor beide; de rapportpagina vraagt de reden in een aparte dialoog. Vlag en items worden mee bevroren. Elke gezette vlag en elk item telt, ook in een onverwachte vorm. Zolang er een staat, toont elke familiepagina *Import incomplete*.
+Staat er een vlag of een item dat de ondertekenaar niet erkende, dan volgt `409` (`gate = "import_incomplete"`) met de mislukte datasets, de importjob en elk item (`import_unfinished`). Eén erkenning geldt voor beide; de rapportpagina vraagt de reden in een aparte dialoog. Vlag en items worden mee bevroren. Zolang er een staat, toont elke familiepagina *Import incomplete*.
+
+Vlag en items hebben elk één vorm, en CoGA leest ze alleen in die vorm (hoofdstuk 6). Een vlag of item in een andere vorm leest het nooit als geen vlag, en ook niet als iets wat het niet zegt. De ondertekening faalt erop, zodat de poort dicht blijft. Elke familiepagina toont dan *Import incomplete* en noemt niets: de merktekens hebben niet de vorm die CoGA schrijft, de data van de familie kunnen ontbreken of half geschreven zijn, en ondertekenen faalt tot ze rechtgezet zijn. De frontend leest alleen de sleutels die hij toont (`importMarksFromMetadata` in `ImportIncompleteBanner.tsx`). Komen een weigering of een ondertekend record met merktekens in een andere vorm, dan zeggen de dialoog en de ondertekende versie dat ook, in plaats van iets te noemen.
 
 Zo verdwijnen ze weer:
 
