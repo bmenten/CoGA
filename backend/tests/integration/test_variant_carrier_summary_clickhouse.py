@@ -538,3 +538,128 @@ def test_the_views_sum_what_the_variant_view_counts(cohort: dict[str, Any]) -> N
     assert transcript.missense + transcript.synonymous == transcript.variants
     assert sum(cell.variants for cell in frequency.cells) == len(every["rows"])
     assert {cell.gnomad_af_class for cell in frequency.cells if cell.variants} == {"absent"}
+
+
+# A variant on a contig of no chromosome rank (``_xpos`` ranks it 99 with every such contig).
+_CONTIG = "chrUn_KI270302v1-1001-G-A"
+
+
+async def _ordered(session: Any, scope: Any, filters: Any, sort: str, order: str) -> dict[str, Any]:
+    """The explorer's search, every page in its order, and its export, under ``sort``."""
+    from backend.app.services import variant_explorer_service as explorer
+
+    async def resolve(_session: Any, _user: Any, _assembly_id: Any) -> Any:
+        return scope
+
+    original = explorer.resolve_scope
+    explorer.resolve_scope = resolve  # type: ignore[assignment]
+    try:
+        rows: list[tuple[str, tuple[int, int, int, int]]] = []
+        totals: set[int] = set()
+        cursor = None
+        while True:
+            page = await explorer.search_global_small_variants(
+                session, user=None, filters=filters, cursor=cursor, page_size=2, sort=sort, order=order
+            )
+            totals.add(page.total)
+            rows += [
+                (row.variant_id, (row.total_families, row.total_samples, row.het_samples, row.hom_samples))
+                for row in page.variants
+            ]
+            if page.next_cursor is None:
+                break
+            cursor = page.next_cursor
+        export = await explorer.export_global_small_variants(session, user=None, filters=filters, sort=sort, order=order)
+    finally:
+        explorer.resolve_scope = original  # type: ignore[assignment]
+    return {
+        "rows": rows,
+        "totals": totals,
+        "export": [
+            (row.variant_id, (row.total_families, row.total_samples, row.het_samples, row.hom_samples))
+            for row in export.rows
+        ],
+    }
+
+
+_BROAD = [
+    pytest.param({"impacts": ["MODERATE"]}, id="annotation"),
+    pytest.param({"include_imputed": True, "impacts": ["MODERATE", "LOW"]}, id="imputed-included"),
+    pytest.param({"gene": "SYNGENE1"}, id="gene"),
+    pytest.param({"exclude_clinvar": ["benign"], "impacts": ["MODERATE"]}, id="excluded-clinvar"),
+    pytest.param({"sample_genotype_filters": [("PROBAND-B", "het_hom")]}, id="sample-genotype"),
+]
+_SORTS = [("total_samples", "desc"), ("position", "asc"), ("position", "desc"), ("het_samples", "asc")]
+
+
+@pytest.mark.parametrize("filters", _BROAD)
+def test_a_broad_filter_read_window_by_window_lists_what_one_query_lists(
+    cohort: dict[str, Any], filters: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A filter whose set passes its limit in one query is read one genomic window at a time.
+    # Each variant lies in one window, so the windows list the same variants, with the same
+    # counts, in the same order, and count the same total; and they count what the families'
+    # rows count. Forced here by a limit of one row a set: across the whole genome in windows of
+    # 50 Mb, and within the cohort's locus in windows of 100 bases, a variant to a window. A
+    # variant on an unplaced contig (rank 99) is in a window too, under its contig's name.
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.services import variant_explorer_service as explorer
+    from backend.app.services.clickhouse_variant_storage import insert_small_variant_records
+    from backend.app.services.family_variant_write_lock import SMALL_VARIANTS, lock_family_variant_writes
+    from backend.app.services.variant_explorer_service import GlobalVariantFilters
+
+    names = cohort["names"]
+    resolved = dict(filters)
+    if "sample_genotype_filters" in resolved:
+        resolved["sample_genotype_filters"] = [(names[sample], mode) for sample, mode in resolved["sample_genotype_filters"]]
+    broad = GlobalVariantFilters(**resolved)
+    located = GlobalVariantFilters(**{**resolved, "chromosome": "13", "start": 62_300_000, "end": 62_301_000})
+    windows_read: list[int] = []
+    original_windows = explorer.explorer_windows
+
+    async def counted_windows(scope: Any, filters: Any) -> Any:
+        windows = await original_windows(scope, filters)
+        windows_read.append(len(windows))
+        return windows
+
+    async def _run() -> list[tuple[Any, ...]]:
+        async with get_postgres_sessionmaker()() as session:
+            async with session.begin():
+                await lock_family_variant_writes(session, cohort["families"]["B"], [SMALL_VARIANTS])
+                await insert_small_variant_records(
+                    _ASSEMBLY,
+                    cohort["families"]["B"],
+                    [cohort["projects"]["P1"], cohort["projects"]["P2"]],
+                    [_record(_CONTIG, {names["PROBAND-B"]: "0/1"})],
+                )
+        await _up_to_date(cohort)
+        outcomes = []
+        async with get_postgres_sessionmaker()() as session:
+            scope = _scope(cohort, "P1", "P2")
+            for search_filters, window_bases in ((broad, explorer.WINDOW_BASES), (located, 100)):
+                expected = await _reference(session, scope, search_filters)
+                for sort, order in _SORTS:
+                    one = await _ordered(session, scope, search_filters, sort, order)
+                    monkeypatch.setattr(explorer, "_ONE_QUERY_SET_ROWS", 1)
+                    monkeypatch.setattr(explorer, "WINDOW_BASES", window_bases)
+                    monkeypatch.setattr(explorer, "explorer_windows", counted_windows)
+                    windowed = await _ordered(session, scope, search_filters, sort, order)
+                    monkeypatch.undo()
+                    outcomes.append((search_filters.chromosome, sort, order, expected, one, windowed))
+        return outcomes
+
+    outcomes = run_closing_stores(_run)
+    # Window by window, every search of the run, and over several windows.
+    assert windows_read and max(windows_read) > 1
+    for chromosome, sort, order, expected, one, windowed in outcomes:
+        label = (chromosome, sort, order)
+        assert one["rows"], label
+        if "sample_genotype_filters" not in filters:
+            # The reference reads the filters the family search shares, not the sample filter.
+            assert dict(one["rows"]) == expected, label
+        assert windowed["rows"] == one["rows"], label
+        assert windowed["export"] == one["export"] == one["rows"], label
+        assert windowed["totals"] == one["totals"] == {len(one["rows"])}, label
+    if "impacts" in filters:
+        # The contig's variant is kept, in one query and window by window.
+        assert any(_CONTIG in dict(one["rows"]) for _c, _s, _o, _e, one, _w in outcomes)

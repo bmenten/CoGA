@@ -64,13 +64,24 @@ def test_the_region_join_keeps_exactly_what_the_family_page_keeps() -> None:
     )
     from backend.app.services.clickhouse_variant_ids import _small_table_name
     from backend.app.services.clickhouse_variant_queries import _small_region_filter_condition
-    from backend.app.services.variant_explorer_service import _region_key_condition
+    from backend.app.services.variant_explorer_service import (
+        ExplorerScope,
+        GlobalVariantFilters,
+        _family_search_filters,
+        _region_key_condition,
+    )
 
     regions = window_edge_regions()
     family_params: dict[str, Any] = {}
     family = _small_region_filter_condition(regions, prefix="panel_region", params=family_params)
     explorer_params: dict[str, Any] = {}
-    explorer = _region_key_condition("GRCh38", regions, prefix="panel_region", params=explorer_params)
+    explorer = _region_key_condition(
+        ExplorerScope(assembly_id="a1", assembly_name="GRCh38", project_ids=[]),
+        _family_search_filters(GlobalVariantFilters()),
+        regions,
+        prefix="panel_region",
+        params=explorer_params,
+    )
     assert family is not None and explorer is not None
     assert explorer_params == family_params
 

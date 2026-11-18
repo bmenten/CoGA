@@ -20,12 +20,16 @@ from backend.app.services.variant_explorer_service import ExplorerScope, GlobalV
 _SCOPE = ExplorerScope(assembly_id="a1", assembly_name="GRCh38", project_ids=["p1"])
 
 
-class _ClickHouse:
-    """Answers the windows query with ``extent`` (rank, first, last position) and each
-    window's query with ``by_window[(chromosome, start)]``; records each query and its
-    parameters."""
+# The summary's extent as the windows query answers it: (rank, names, first, last position).
+_Extent = list[tuple[int, list[str], int, int]]
 
-    def __init__(self, extent: list[tuple[int, int, int]], by_window: dict[tuple[str, int], list[Any]]) -> None:
+
+class _ClickHouse:
+    """Answers the windows query with ``extent`` and each window's query with
+    ``by_window[(its first chromosome name, its start)]`` (None for an open start); records
+    each query and its parameters."""
+
+    def __init__(self, extent: _Extent, by_window: dict[tuple[str, int | None], list[Any]]) -> None:
         self.extent = extent
         self.by_window = by_window
         self.queries: list[tuple[str, dict[str, Any]]] = []
@@ -35,12 +39,12 @@ class _ClickHouse:
         if "intDiv(xpos, 1000000000) AS rank" in query:
             return self.extent
         chromosome = params["window_chromosomes"][0]
-        return self.by_window.get((chromosome, params["window_start"]), [])
+        return self.by_window.get((chromosome, params.get("window_start")), [])
 
 
 @pytest.fixture
 def stores(monkeypatch: pytest.MonkeyPatch) -> Any:
-    def install(extent: list[tuple[int, int, int]], by_window: dict[tuple[str, int], list[Any]]) -> _ClickHouse:
+    def install(extent: _Extent, by_window: dict[tuple[str, int | None], list[Any]]) -> _ClickHouse:
         fake = _ClickHouse(extent, by_window)
 
         async def scope(*_args: Any) -> Any:
@@ -59,6 +63,7 @@ def stores(monkeypatch: pytest.MonkeyPatch) -> Any:
             return ["f9"]
 
         monkeypatch.setattr(views, "execute_clickhouse", fake.execute)
+        monkeypatch.setattr(explorer, "execute_clickhouse", fake.execute)
         monkeypatch.setattr(views, "resolve_scope", scope)
         monkeypatch.setattr(views, "_panel_constraints", nothing)
         monkeypatch.setattr(views, "_review_filter_variant_ids", no_review_filter)
@@ -70,25 +75,47 @@ def stores(monkeypatch: pytest.MonkeyPatch) -> Any:
 
 
 def test_the_windows_cover_the_summarys_variants_within_the_filters_locus(stores: Any) -> None:
-    fake = stores([(1, 10, 120_000_000), (23, 5, 6), (99, 1, 1)], {})
-    windows = asyncio.run(views._windows(_SCOPE, GlobalVariantFilters()))
-    assert [(window.chromosome, window.start, window.end) for window in windows] == [
-        ("1", 10, 49_999_999),
-        ("1", 50_000_000, 99_999_999),
-        ("1", 100_000_000, 120_000_000),
-        ("X", 5, 6),
+    fake = stores(
+        [
+            (1, ["chr1", "1"], 10, 120_000_000),
+            (23, ["chrX"], 5, 6),
+            # Every other contig shares rank 99; its variants are counted too.
+            (99, ["chrUn_KI270302v1", "chr1_KI270706v1_random"], 1, 1),
+        ],
+        {},
+    )
+    windows = asyncio.run(explorer.explorer_windows(_SCOPE, GlobalVariantFilters()))
+    # Every 50 Mb, the first and last window of a chromosome open, each read under every name
+    # the summary holds for its chromosome.
+    assert [(window.chromosome, window.chromosomes, window.start, window.end) for window in windows] == [
+        ("1", ("1", "chr1"), None, 49_999_999),
+        ("1", ("1", "chr1"), 50_000_000, 99_999_999),
+        ("1", ("1", "chr1"), 100_000_000, None),
+        ("X", ("chrX",), None, None),
+        ("chr1_KI270706v1_random", ("chr1_KI270706v1_random", "chrUn_KI270302v1"), None, None),
     ]
-    located = asyncio.run(views._windows(_SCOPE, GlobalVariantFilters(chromosome="chr1", start=60_000_000, end=70_000_000)))
-    assert [(window.chromosome, window.start, window.end) for window in located] == [("1", 60_000_000, 70_000_000)]
-    assert fake.queries[0][0].startswith("SELECT intDiv(xpos, 1000000000) AS rank")
+    assert [(window.first_xpos, window.last_xpos) for window in windows[:3]] == [
+        (1_000_000_000, 1_049_999_999),
+        (1_050_000_000, 1_099_999_999),
+        (1_100_000_000, 1_999_999_999),
+    ]
+    # Under the chromosome filter, the names it reads, within its bounds.
+    located = asyncio.run(
+        explorer.explorer_windows(_SCOPE, GlobalVariantFilters(chromosome="chr1", start=60_000_000, end=70_000_000))
+    )
+    assert [(window.chromosome, window.chromosomes, window.start, window.end) for window in located] == [
+        ("chr1", ("1", "chr1"), 60_000_000, 70_000_000)
+    ]
+    assert asyncio.run(explorer.explorer_windows(_SCOPE, GlobalVariantFilters(chromosome="2"))) == []
+    assert fake.queries[0][0].startswith("SELECT intDiv(xpos, 1000000000) AS rank, groupUniqArray(chrom)")
 
 
 def test_a_gene_row_sums_its_variants_over_the_windows(stores: Any) -> None:
     # gene, variants, high, moderate, low, modifier, carriers, het, hom
     fake = stores(
-        [(1, 1, 60_000_000)],
+        [(1, ["1"], 1, 60_000_000)],
         {
-            ("1", 1): [("SYNGENE1", 2, 1, 1, 0, 0, 5, 3, 2), ("SYNGENE2", 1, 0, 0, 1, 0, 1, 1, 0)],
+            ("1", None): [("SYNGENE1", 2, 1, 1, 0, 0, 5, 3, 2), ("SYNGENE2", 1, 0, 0, 1, 0, 1, 1, 0)],
             ("1", 50_000_000): [("SYNGENE1", 1, 0, 0, 0, 1, 2, 2, 0)],
         },
     )
@@ -104,10 +131,14 @@ def test_a_gene_row_sums_its_variants_over_the_windows(stores: Any) -> None:
     assert "hasAny(e.projects, %(scope_projects)s)" in query
     assert "e.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s" in query
     assert "ON part.key = e.key AND part.annotationSetHash = e.annotationSetHash" in query
-    assert "a.chrom IN %(window_chromosomes)s AND a.pos >= %(window_start)s AND a.pos <= %(window_end)s" in query
+    assert "a.chrom IN %(window_chromosomes)s AND a.pos <= %(window_end)s AND a.gene_symbol" in query
     assert "GROUP BY e.key, part.gene HAVING total_samples > 0" in query
     assert "(e.key, e.annotationSetHash) IN (SELECT a.key" in query
     bind_query(query, params)
+    # The summary's rows and the annotation filter's are read under the window's names.
+    assert params["chromosomes"] == params["window_chromosomes"] == ("1",)
+    later, _later_params = fake.queries[2]
+    assert "a.chrom IN %(window_chromosomes)s AND a.pos >= %(window_start)s AND a.gene_symbol" in later
 
 
 @pytest.mark.parametrize(
@@ -116,8 +147,8 @@ def test_a_gene_row_sums_its_variants_over_the_windows(stores: Any) -> None:
 )
 def test_the_genes_are_sorted_and_paged_as_asked(stores: Any, sort: str, order: str, first: str) -> None:
     stores(
-        [(1, 1, 10)],
-        {("1", 1): [("SYNGENE1", 3, 0, 0, 0, 3, 3, 3, 0), ("SYNGENE2", 1, 0, 0, 0, 1, 9, 9, 0)]},
+        [(1, ["1"], 1, 10)],
+        {("1", None): [("SYNGENE1", 3, 0, 0, 0, 3, 3, 3, 0), ("SYNGENE2", 1, 0, 0, 0, 1, 9, 9, 0)]},
     )
     page = asyncio.run(
         views.explorer_gene_view(None, user=None, filters=GlobalVariantFilters(), sort=sort, order=order, page_size=1)  # type: ignore[arg-type]
@@ -129,8 +160,8 @@ def test_the_genes_are_sorted_and_paged_as_asked(stores: Any, sort: str, order: 
 def test_a_transcript_row_holds_its_gene_flags_and_consequence_classes(stores: Any) -> None:
     # transcript, gene, mane, canonical, variants, lof, missense, splice, synonymous, other, carriers
     fake = stores(
-        [(17, 1, 10)],
-        {("17", 1): [("ENST00000600001", "SYNGENE1", True, False, 2, 1, 1, 0, 0, 0, 4)]},
+        [(17, ["17"], 1, 10)],
+        {("17", None): [("ENST00000600001", "SYNGENE1", True, False, 2, 1, 1, 0, 0, 0, 4)]},
     )
     page = asyncio.run(
         views.explorer_transcript_view(None, user=None, filters=GlobalVariantFilters(), transcripts="mane")  # type: ignore[arg-type]
@@ -152,7 +183,7 @@ def test_a_transcript_row_holds_its_gene_flags_and_consequence_classes(stores: A
 
 
 def test_an_unknown_transcript_selection_lists_every_transcript(stores: Any) -> None:
-    fake = stores([(1, 1, 10)], {})
+    fake = stores([(1, ["1"], 1, 10)], {})
     page = asyncio.run(views.explorer_transcript_view(None, user=None, filters=GlobalVariantFilters(), transcripts="x"))  # type: ignore[arg-type]
     assert page.transcripts == "all"
     assert "mane_select OR" not in fake.queries[1][0].split("GROUP BY key, annotationSetHash, transcript")[0].split("FROM")[-1]
@@ -160,7 +191,7 @@ def test_an_unknown_transcript_selection_lists_every_transcript(stores: Any) -> 
 
 def test_the_frequency_view_lists_every_cell_zeros_included(stores: Any) -> None:
     # carrier class, gnomAD class, variants: summed over the windows.
-    fake = stores([(1, 1, 60_000_000)], {("1", 1): [(1, 0, 3)], ("1", 50_000_000): [(1, 0, 2), (4, 4, 1)]})
+    fake = stores([(1, ["1"], 1, 60_000_000)], {("1", None): [(1, 0, 3)], ("1", 50_000_000): [(1, 0, 2), (4, 4, 1)]})
     frequency = asyncio.run(views.explorer_frequency_view(None, user=None, filters=GlobalVariantFilters()))  # type: ignore[arg-type]
     assert frequency.carrier_classes == ["1", "2-5", "6-20", "21-100", ">100"]
     assert frequency.gnomad_af_classes == ["absent", "below_0.1", "0.1_1", "1_5", "above_5"]
@@ -197,7 +228,7 @@ def test_a_cell_is_read_back_by_the_variant_views_two_filters() -> None:
 
 
 def test_a_view_without_a_scope_or_members_asks_clickhouse_nothing(stores: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    fake = stores([(1, 1, 10)], {})
+    fake = stores([(1, ["1"], 1, 10)], {})
 
     async def no_members(*_args: Any) -> list[Any]:
         return []
