@@ -794,7 +794,6 @@ def _import_steps(monkeypatch, tmp_path: Path, *, created: bool, copy_fails: boo
         "_import_family_datasets": datasets,
         "_end_import_failed_before_datasets": failed_before_datasets,
         "_existing_package_entity_warnings": nothing,
-        "register_declared_files": nothing,
     }.items():
         monkeypatch.setattr(package_import, name, value)
     return steps

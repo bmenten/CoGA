@@ -88,36 +88,6 @@ running is picked up by the sweep, which also queues a run when a choice is newe
 run. Each result records the choice it read with each individual (`choice`), and a calculation
 publishes nothing if a choice was made while it read.
 
-## VCF files a package declares for ancestry
-
-The manifest an import reads may name, beside its datasets, VCF files only the ancestry PCA reads
-(`ancestry_files`): typically a gVCF, whose reference blocks say where an individual was sequenced
-and called reference, so no absence has to be assumed:
-
-```json
-{"metadata":{"ancestry":{"vcfs":[{"path":"ancestry/PROBAND.g.vcf.gz","label":"gVCF"}]}}}
-```
-
-The manifest is the one CoGA makes from the package file (`coga_package_manifest.package_manifest`),
-and the format `coga-package/1` has no field that writes `metadata.ancestry`
-([coga-package.md](coga-package.md)): a delivered package declares no such file.
-
-- **Declared** after the import completed, outside the hold (`register_declared_files`): one row
-  per file inside the package (at most 8), reading none. It never fails or delays the import; what
-  goes wrong leaves a line in the import's log.
-- **Scanned** once by the ancestry worker when no run waits (`scan_next_file`): the file is read in
-  full in its package folder, its SHA-256 taken as it is read, and
-  only its calls at the reference markers kept (`ancestry_file_scans`, with the reference's
-  checksum: a new reference scans it again). A record at a marker keeps its alleles, a gVCF's
-  `<NON_REF>` dropped; a reference block (`END=`) is an explicit call of the marker's own alleles
-  with the block's genotypes, passing unless the block names a failed filter (a gVCF writes
-  `FILTER=.` on its blocks and `PASS` on its variants). A file that cannot be read is recorded as
-  failed with a fixed reason. The sweep then queues a run.
-- **Read** like a stored callset, `file:<id>`, from its scan, by every calculation: the file is not
-  read again, and the rows it gave are part of the digest checked before publishing. Of the files
-  declared under one path, the latest declaration counts. It comes after direct calls and before
-  NIPT calls and imputed genotypes, and a choice can name it.
-
 ## The projection
 
 The PCs are the **least-squares fit** of the reference loadings to the usable markers'

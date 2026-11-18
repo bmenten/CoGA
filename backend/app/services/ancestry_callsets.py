@@ -47,10 +47,10 @@ from .clickhouse_variant_storage import _execute as storage_execute, _small_tabl
 from .nipt import is_cfdna_sample_metadata
 
 CALLSET_LABELS = {"clair3": "Direct calls", "nipt": "NIPT per-sample calls", "glimpse2": "Imputed genotypes"}
-# The stored callsets read, and which projects an individual when more than one can: a VCF
-# file a package declared for ancestry (``file:<id>``, ancestry_files) comes after direct calls.
+# The stored callsets read, in the order that picks the one an individual is projected from
+# when more than one can.
 CALLSET_PREFERENCE = ("clair3", "nipt", "glimpse2")
-_PREFERENCE_RANK = {"clair3": 0, "file": 1, "nipt": 2, "glimpse2": 3}
+_PREFERENCE_RANK = {callset: rank for rank, callset in enumerate(CALLSET_PREFERENCE)}
 # Imputation has no FILTER of its own: its calls are read whatever the column holds.
 IMPUTED_CALLSETS = frozenset({"glimpse2"})
 # A callset counts as covering a set of markers when it carries at least this share of the
@@ -188,8 +188,7 @@ def _classify(reference: AncestryReference, carrier: Any, explicit: Any,
 
 
 def read_callsets(rows: list[MarkerRow], reference: AncestryReference, samples: list[str],
-                  regions: dict[tuple[str, str], Any] | None = None,
-                  labels: dict[str, str] | None = None) -> dict[str, dict[str, CallsetGenotypes]]:
+                  regions: dict[tuple[str, str], Any] | None = None) -> dict[str, dict[str, CallsetGenotypes]]:
     """Each individual's reading from each callset that holds it, by sample and callset.
 
     ``regions`` gives, by (sample, callset), the markers inside the regions a user gave for it.
@@ -259,7 +258,7 @@ def read_callsets(rows: list[MarkerRow], reference: AncestryReference, samples: 
             reason = (f"Too few of the markers the callset covers have a usable genotype: "
                       f"{call_rate:.0%}, at least {MIN_CALL_RATE:.0%}.")
         scan = AncestryCallsetScanOut(
-            callset=callset, label=(labels or {}).get(callset) or CALLSET_LABELS.get(callset, callset), kind=kind,
+            callset=callset, label=CALLSET_LABELS.get(callset, callset), kind=kind,
             carriers=int(carrier[(callset, sample)].sum()),
             expected_carriers=round(float(reference.expected_carrier.sum()), 1),
             coverage_ratio=round(float(ratios["coverage_ratio"] or 0.0), 3),
@@ -275,7 +274,7 @@ def read_callsets(rows: list[MarkerRow], reference: AncestryReference, samples: 
 
 
 def _preference(callset: str) -> int:
-    return _PREFERENCE_RANK.get(callset.split(":", 1)[0], len(_PREFERENCE_RANK))
+    return _PREFERENCE_RANK.get(callset, len(_PREFERENCE_RANK))
 
 
 def _choice_out(sample: str, choice: dict[str, Any]) -> AncestrySampleChoiceOut:
@@ -293,8 +292,7 @@ def regions_mask(reference: AncestryReference, loci: list[str]) -> Any:
 
 
 def project_family(rows: list[MarkerRow], reference: AncestryReference, sample_rows: list[dict[str, Any]],
-                   choices: dict[str, dict[str, Any]] | None = None,
-                   labels: dict[str, str] | None = None) -> list[AncestrySampleOut]:
+                   choices: dict[str, dict[str, Any]] | None = None) -> list[AncestrySampleOut]:
     """Each individual of the family projected from its best callset, or the one a user chose,
     or why it is not. ``choices``: each individual's latest choice (``ancestry_choices``)."""
     choices = choices or {}
@@ -306,7 +304,7 @@ def project_family(rows: list[MarkerRow], reference: AncestryReference, sample_r
                if choice.get("mode") == "callset" and isinstance(choice.get("regions"), dict)}
     # Every individual but a cfDNA mixture is read, the ones left out too: its callsets are shown,
     # so a user can choose one.
-    readings = read_callsets(rows, reference, [s for s in samples if s not in cfdna], regions, labels)
+    readings = read_callsets(rows, reference, [s for s in samples if s not in cfdna], regions)
     results = []
     for sample in samples:
         choice = choices.get(sample) or {}

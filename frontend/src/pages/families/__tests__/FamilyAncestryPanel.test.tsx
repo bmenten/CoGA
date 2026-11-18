@@ -327,69 +327,6 @@ describe('family ancestry PCA', () => {
       )
     );
   });
-  it('lists the declared VCF files and lets a user read one', async () => {
-    const fileCallset = 'file:0f8fad5b-d9cb-469f-a165-70867728950e';
-    const withFile = {
-      ...data,
-      can_choose: true,
-      choices: [],
-      files: [
-        {
-          id: '0f8fad5b-d9cb-469f-a165-70867728950e',
-          label: 'Father gVCF',
-          relative_path: 'ancestry/FATHER1.g.vcf.gz',
-          declared_at: '2026-01-01T12:00:00Z',
-          status: 'scanned',
-          sha256: 'ab'.repeat(32),
-          scanned_at: '2026-01-01T12:05:00Z',
-          columns: ['FATHER1'],
-        },
-        {
-          id: '1f8fad5b-d9cb-469f-a165-70867728950e',
-          label: 'Old gVCF',
-          relative_path: 'old.g.vcf.gz',
-          declared_at: '2026-01-01T12:00:00Z',
-          status: 'failed',
-          error: 'The VCF file could not be read.',
-          columns: [],
-        },
-      ],
-      analysis: {
-        ...data.analysis,
-        samples: data.analysis.samples.map((sample) =>
-          sample.sample_id === 'FATHER1'
-            ? {
-                ...sample,
-                candidates: [
-                  ...sample.candidates,
-                  scan(fileCallset, 'VCF file: Father gVCF', 'complete'),
-                ],
-              }
-            : sample
-        ),
-      },
-    };
-    api.get.mockImplementation((url: string) =>
-      Promise.resolve({ data: url === '/panels' ? [] : withFile })
-    );
-    api.put.mockResolvedValue({ data: {} });
-    renderPanel();
-    await screen.findByRole('img');
-    expect(screen.getByText('Father gVCF')).toBeInTheDocument();
-    expect(screen.getByText(/ancestry\/FATHER1\.g\.vcf\.gz/).closest('li')).toHaveTextContent(`SHA-256 ${'ab'.repeat(32)}`);
-    expect(screen.getByText(/not read: The VCF file could not be read\./)).toBeInTheDocument();
-    const table = screen.getByRole('table', { name: 'Choices per individual' });
-    const father = within(within(table).getByRole('row', { name: /FATHER1/ }));
-    fireEvent.change(father.getByLabelText('How FATHER1 is read'), { target: { value: `callset:${fileCallset}` } });
-    fireEvent.click(father.getByRole('button', { name: 'Save' }));
-    await waitFor(() =>
-      expect(api.put).toHaveBeenCalledWith(
-        '/families/F1/ancestry/choices/FATHER1',
-        { mode: 'callset', callset: fileCallset, panel_id: null, keep_regions: false },
-        { params: { project_id: 'project1' } }
-      )
-    );
-  });
   it('offers no choice to a reader', async () => {
     renderPanel();
     await screen.findByRole('img');

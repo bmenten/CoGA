@@ -1783,12 +1783,8 @@ erDiagram
     ancestry_reference_panels ||--o{ ancestry_runs : "reference_sha256 (no action)"
     ancestry_reference_panels ||--o{ ancestry_results : "reference_sha256 (no action)"
     ancestry_runs ||--o| ancestry_results : "run_id (no action)"
-    ancestry_files ||--o{ ancestry_file_scans : "file_id (no action)"
-    ancestry_reference_panels |o..o{ ancestry_file_scans : "reference_sha256"
     families |o..o{ ancestry_runs : "family_uuid"
     families |o..o{ ancestry_sample_choices : "family_uuid"
-    families |o..o{ ancestry_files : "family_uuid"
-    family_import_jobs |o..o{ ancestry_files : "import_job_id"
 
     ancestry_reference_panels {
         text sha256 PK "of the model NPZ"
@@ -1816,20 +1812,6 @@ erDiagram
         text mode "auto, callset or exclude"
         uuid chosen_by "users.id"
     }
-    ancestry_files {
-        uuid id PK
-        uuid family_uuid "families.id"
-        uuid project_id "projects.id"
-        uuid import_job_id "family_import_jobs.id"
-        text relative_path
-    }
-    ancestry_file_scans {
-        uuid id PK
-        uuid file_id FK
-        text status "scanned or failed"
-        text sha256
-        text reference_sha256 "ancestry_reference_panels.sha256"
-    }
 ```
 
 | Table | Holds |
@@ -1838,10 +1820,8 @@ erDiagram
 | `ancestry_runs` | Project-scoped jobs pinning the reference checksum: a user's (`trigger = 'user'`, with `requested_by`) or the worker's own once the family's genotypes changed (`trigger = 'automatic'`, no requester; a check makes a user's run name its requester). `storage_version` is the family's small-variant data version the run was queued for, then the one it read: the worker's sweep queues no second run for a version. Queued, running, completed, failed or interrupted |
 | `ancestry_results` | One append-only snapshot per completed run: each individual's four PCs or why there are none, the callset it was read from and how (genome, exome, a call at every marker), every callset's scan, the `storage_version` read, the calculation version and the rules, with a digest of the rows read |
 | `ancestry_sample_choices` | Append-only choices of how one individual is read, the latest per individual holding: CoGA's own reading (`auto`), one callset (`callset`, which also includes an embryo) with the regions it covers, or left out (`exclude`). `regions` holds the regions' source (a gene panel's id and version, or a BED file's name and SHA-256), their interval count and the reference markers inside them (`loci`); never the BED file |
-| `ancestry_files` | Append-only VCF files an import's manifest declared for ancestry without importing them (a gVCF, `metadata.ancestry.vcfs`): the family, project, import job, package and relative path, and label. Of the declarations of one path the latest counts. The manifest CoGA makes from `coga-package.json` writes no such field (DATA-14) |
-| `ancestry_file_scans` | Append-only scans of a declared file: `scanned` (its SHA-256 and size as read, its sample columns and its calls at the reference markers, `rows`) or `failed` (a fixed reason), and the reference whose markers were kept. A calculation reads the latest scan, never the file |
 
-`ancestry_reference_panels`, `ancestry_results`, `ancestry_sample_choices`, `ancestry_files` and `ancestry_file_scans` have mutation-blocking triggers,
+`ancestry_reference_panels`, `ancestry_results` and `ancestry_sample_choices` have mutation-blocking triggers,
 and `coga_app` may not UPDATE, DELETE or TRUNCATE them (`05_grants.sql`). A running job holds its
 own row lock until it ends; a job whose process stopped loses it, and the next worker ends it as
 interrupted. Publication is checked again under the family's variant-write locks, so a family,

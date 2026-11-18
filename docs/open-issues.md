@@ -44,7 +44,6 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | SEC-40 | P3 | Keep an error's text out of the last stored job errors, HTTP answers and log lines | developer | |
 | UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
 | DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
-| DATA-14 | P3 | Give `coga-package.json` a field for the VCF files read only for ancestry, or remove that path: no delivered package can declare one | owner, developer | |
 | CLIN-79 | P2 | Warn when an embryo's sex chromosomes look abnormal (X0, XXY, another anomaly): choose the source of X dosage and its cut-offs | owner, lab director | validation |
 | CLIN-14 | P3 | Settle the repeat catalogue's open points | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
@@ -68,7 +67,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **Owner:** REG-1 (wording, REQ-TRACE-007), OPS-2, OPS-3 (separate validation environment?),
   OPS-12 (builder, Terraform lock), OPS-22, SEC-6 (with the DPO), REG-14, CLIN-10,
-  CLIN-39, CLIN-50, CLIN-68, CLIN-79, DATA-14, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), REG-17, OPS-15
+  CLIN-39, CLIN-50, CLIN-68, CLIN-79, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), REG-17, OPS-15
   (role mailbox), OPS-24 (pre-migration backup retention).
 - **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, REG-16, REG-17, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
   CLIN-70, OPS-7, SEC-19; with RA, REG-11.
@@ -290,12 +289,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - Discover on a package whose SNV family VCF is damaged answers 500: `family_package_discovery.py::_vcf_meta_lines` catches `OSError`, `EOFError` and `UnicodeError`, not `zlib.error`.
 - The validation still accepts without a word a SNV, NeedlR, TRGT or mito VCF (family or per sample) it cannot read (`family_package_validation.py::_warn_file_without_a_record`), and the per-sample SNV check does not check a BGZF file's end, so one cut in its records passes. `read_whole_vcf_sample_columns` reads them as the import does.
 - An APCAD per-sample `.csv.gz` or `.bed.gz` table is not read at validation (`_check_table_names_sample` reads only `.csv`, and passes a read error).
-
-### DATA-14 · VCF files declared for ancestry
-
-- The ancestry PCA reads VCF files an import's manifest declares under `metadata.ancestry.vcfs`, such as a gVCF (`ancestry_files.declared_files`, `ancestry_files`, `ancestry_file_scans`).
-- Every import reads the manifest CoGA makes from the package file (`coga_package_manifest.package_manifest`), which writes only `metadata.pgt`; `coga-package/1` has no field for ancestry files and Discover proposes none. So no delivered package can declare one; only a test's manifest does.
-- The owner decides whether `coga-package/1` gains the field or the path goes.
 
 ### CLIN-73 · Multi-allelic records
 
