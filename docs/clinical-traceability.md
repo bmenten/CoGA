@@ -769,13 +769,15 @@ family page shows *Import incomplete* while one is set.
 - **The flag** `metadata.import_incomplete`: set by a package import that left the family partly
   loaded ([data-import.md](data-import.md)), or by a small-variant upload that failed after deleting
   the callset it replaced (no import job;
-  [What an upload records](data-import.md#what-an-upload-records)). Any set flag counts, whatever
-  its shape. It clears only once an import has imported each failed dataset again, or an upload has
-  brought it again, in any mode, for the same samples and small-variant source; an import counts a
-  dataset it imports with warnings, or registers when its package carries nothing CoGA imports for
-  it. A later failure keeps an earlier one's failed datasets, and every callset or set of samples a
-  dataset failed for, each with its job (`failed_scopes`). The gate names each dataset with the job
-  of its latest failure (`failed_jobs`), or none for a single-file upload's failure.
+  [What an upload records](data-import.md#what-an-upload-records)). A flag, or an
+  `import_unfinished` entry, in a shape no writer writes is never read: the sign-out fails on it
+  (`ImportMarkShapeError`, a 500), so the gate stays closed. The flag clears only once an import
+  has imported each failed dataset again, or an upload has brought it again, in any mode, for the
+  same samples and small-variant source; an import counts a dataset it imports with warnings, or
+  registers when its package carries nothing CoGA imports for it. A later failure keeps an earlier
+  one's failed datasets, and every callset or set of samples a dataset failed for, each with its
+  job (`failed_scopes`). The gate names each dataset with the job of its latest failure
+  (`failed_jobs`), or none for a single-file upload's failure.
 - **A stopped import.** An import whose process stopped part-way sets no flag: the entry it wrote
   in `metadata.import_unfinished` before its first write of the family gates instead
   (`import_unfinished`, naming the job and the datasets it had not finished, which may be partly

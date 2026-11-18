@@ -17,6 +17,7 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets 
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -37,6 +38,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
+    from backend.app.services.family_package_registration import merged_import_failure
     from backend.tests.e2e import _harness
 
     await ensure_postgres_schema()
@@ -51,9 +53,9 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     one_sample_package(base / waiting_id, waiting_id, variants=2, datasets=("snv",))
     out: dict[str, Any] = {"imported": imported_id, "waiting": waiting_id}
 
-    async def update_record(sql: str) -> None:
+    async def update_record(sql: str, **params: Any) -> None:
         async with sessionmaker() as session:
-            await session.execute(text(sql), {"f": imported_id})
+            await session.execute(text(sql), {"f": imported_id, **params})
             await session.commit()
 
     transport = ASGITransport(app=app, raise_app_exceptions=False)
@@ -69,9 +71,20 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
                     {"f": imported_id},
                 )
             ).scalar_one()
+        # The flag as an import that failed for snv writes it.
+        flag = merged_import_failure(
+            None,
+            at="2026-10-01T09:00:00+00:00",
+            job_id=None,
+            failed=["snv"],
+            imported=[],
+            scopes={"snv": {"source": "clair3", "samples": None}},
+            imported_scopes={},
+        )
         await update_record(
-            "UPDATE families SET metadata = metadata || jsonb_build_object('import_incomplete', "
-            "jsonb_build_object('failed_datasets', jsonb_build_array('snv'))) WHERE family_id = :f"
+            "UPDATE families SET metadata = jsonb_set(metadata, '{import_incomplete}', CAST(:flag AS jsonb)) "
+            "WHERE family_id = :f",
+            flag=json.dumps(flag),
         )
         out["incomplete"] = capture(await client.get("/api/family-imports/packages"))
         await update_record(

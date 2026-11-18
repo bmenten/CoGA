@@ -58,7 +58,7 @@ def _registered_at(value: Any) -> datetime | None:
 def _import_incomplete(flag: Any, unfinished: Any) -> bool:
     """Whether the family's last import did not complete or is still running, as the family page
     and the ancestry PCA tell it: it is flagged import-incomplete, or carries an import's mark."""
-    return flag not in (None, False) or bool(unfinished)
+    return flag is not None or unfinished is not None
 
 
 async def imported_package_folders(

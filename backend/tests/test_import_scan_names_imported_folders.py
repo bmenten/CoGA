@@ -90,10 +90,31 @@ async def test_a_folder_is_matched_with_or_without_its_closing_slash() -> None:
     ("flag", "unfinished", "incomplete"),
     [
         (None, None, False),
-        (False, {}, False),
-        ({"failed_datasets": ["snv"]}, None, True),
-        (True, None, True),
-        (None, {"00000000-0000-4000-8000-000000000001": {"datasets": ["snv"]}}, True),
+        (
+            {
+                "at": "2026-10-01T09:00:00+00:00",
+                "failed_datasets": ["snv"],
+                "imported_datasets": [],
+                "job_id": "job-1",
+                "failed_jobs": {"snv": "job-1"},
+                "failed_scopes": {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": "job-1"}]},
+            },
+            None,
+            True,
+        ),
+        (
+            None,
+            {
+                "00000000-0000-4000-8000-000000000001": {
+                    "job_id": "00000000-0000-4000-8000-000000000001",
+                    "at": "2026-10-01T09:00:00+00:00",
+                    "datasets": ["snv"],
+                    "finished_datasets": [],
+                    "scopes": {"snv": {"source": "clair3", "samples": None}},
+                }
+            },
+            True,
+        ),
     ],
 )
 async def test_a_family_whose_last_import_did_not_complete_or_runs_is_told(flag: Any, unfinished: Any, incomplete: bool) -> None:

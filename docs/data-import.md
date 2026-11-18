@@ -717,8 +717,11 @@ completes without that leaves the flag, and says so in its log.
   sign-out show. For a dataset it names with no job (it failed outside one: a single-file upload,
   or an import run outside a job), they say no import job records its error, and never name the
   flag's own job, another failure's, for it.
-- A flag CoGA cannot read (`true`, say) stays as it is when a later import or upload fails or
-  completes: nothing shows what would complete it.
+- The flag, the `import_unfinished` entries and the dataset scopes each have one shape, and CoGA
+  reads them only in it. A value in another shape (`true`, text, a list) is never read as
+  something it does not say: reading it raises (`ImportMarkShapeError`). A sign-out that meets one
+  fails, so its gate stays closed. An import, upload or deletion that meets one leaves it as
+  stored; an upload or a deletion fails on it.
 
 **An import that stops part-way.** Nothing runs in an ended process, so none of the above
 happens. Therefore an import marks the family before it writes anything of it: an entry in

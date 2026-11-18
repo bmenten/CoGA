@@ -58,7 +58,6 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
 | ENG-24 | P3 | Make the end-to-end modules independent of their order: the review-audit module leaves a variant tagged for the report | developer | |
-| ENG-26 | P3 | Remove the reading of import marks in a shape no import writes: the `import_incomplete` flag, `import_unfinished` entries and dataset scopes (owner: remove) | developer | |
 | ENG-25 | P3 | Settle the copies that differ: two ROI region parsers, two Mendelian-consistency rules, two `_coerce_int`; drop the unused tag `family_id` column | developer | |
 
 ## Waiting for a decision
@@ -309,11 +308,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - The end-to-end suite run on a database the integration suite has just used fails in `clickhouse_integrity`, the Explorer's counts and panel match, the family panel-region join, the ranking cache and ancestry; each passes on fresh containers, as CI runs it. Integration tests leave rows behind that these modules read.
 - Run on their own, `test_e2e_review_audit.py` then `test_e2e_signout_acknowledges_what_was_shown.py` fail the latter's `test_the_module_leaves_nothing_tagged_for_the_report`: the review-audit module leaves a variant of the shared family tagged for the report, and the sign-out module checks that the family's report list ends empty. The full suite, with other modules run in between, passes. Each module should leave the family as it found it, or check only its own tags.
-
-### ENG-26 · Import marks in a shape no import writes
-
-- Every writer of a family's import marks writes one shape (`family_package_registration._flag_payload`, the `import_unfinished` entries, `dataset_scopes`). Their readers still accept other shapes: a flag of `true` or a list kept as "incomplete, nothing named" (`_flag_failures`, `merged_import_failure`, `failures_left_after`), the sign-out's "fails safe" reading (`report_signout_service._import_incomplete_state`, `_import_unfinished_state`), `False` read as no flag (`imported_package_folders`, `ancestry_service`), and entries and scopes "not in the shape an import writes".
-- The owner decided (2026-11-18) that this reading goes (AGENTS.md: a value the current writer always writes is required when read). A value in another shape then raises instead of reading as incomplete, which still blocks the sign-out. Handleiding chapter 6 ("Andere vormen") and the tests that pin those shapes change with it.
 
 ### ENG-25 · Copies that differ
 
