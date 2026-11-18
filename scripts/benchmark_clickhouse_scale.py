@@ -43,6 +43,8 @@ What it does, step by step:
      ``discard_family_clickhouse_snapshot``), with the parts its mutations rewrote
      (``system.part_log``);
    - the 6-hourly integrity check (``check_clickhouse_variant_integrity``);
+   - the variant summary's small-variant statistics (``get_family_small_variant_statistics``)
+     for a trio, its Mendelian table included, and a singleton;
    - each table's rows, parts and bytes on disk.
 
 The cohort model (``CohortModel``) gives each genome about 4.8 M small variants: common
@@ -101,7 +103,7 @@ NAMESPACE = uuid.UUID("6f1c9a52-31f4-4b5e-9d0a-2f7c3e8b1a40")
 SERVER_DATABASES = {"system", "default", "INFORMATION_SCHEMA", "information_schema"}
 MARKER_TABLE = "coga_scale_benchmark_marker"
 # The measurements a step can run (``--operations``).
-OPERATIONS = ("family", "explorer", "overwrite", "integrity")
+OPERATIONS = ("family", "explorer", "overwrite", "integrity", "statistics")
 
 # GRCh38 chr1–22 and X, the chromosomes the synthetic variants lie on.
 CHROMOSOMES = [str(n) for n in range(1, 23)] + ["X"]
@@ -1011,16 +1013,33 @@ class Recorder:
                 operation.queries = by_label.get(operation.label, [])
 
 
-def family_context(family: Family) -> Any:
+def family_context(family: Family, *, pedigree: bool = False) -> Any:
+    """The family as the family page reads it; with ``pedigree`` its members' roles and a
+    trio's parents too (the variant statistics' Mendelian table reads them)."""
     from app.services.family_metadata_context import FamilyMetadataContext
 
+    parents = [sample for sample in family.samples if sample.role in ("father", "mother")] if pedigree else []
     return FamilyMetadataContext(
         family_uuid=family.family_uuid,
         family_id=family.family_id,
         project_ids=[family.project_uuid],
         sample_rows=[
-            {"sample_id": sample.sample_id, "id": sample.sample_uuid, "affected": sample.role == "proband"}
+            {
+                "sample_id": sample.sample_id,
+                "id": sample.sample_uuid,
+                "affected": sample.role == "proband",
+                **({"role": sample.role} if pedigree else {}),
+            }
             for sample in family.samples
+        ],
+        relationship_rows=[
+            {
+                "relationship_type": "parent_child",
+                "sample_id_a": parent.sample_id,
+                "sample_id_b": family.samples[0].sample_id,
+                "role_a": parent.role,
+            }
+            for parent in parents
         ],
         sample_uuid_to_name={sample.sample_uuid: sample.sample_id for sample in family.samples},
         sample_name_to_uuid={sample.sample_id: sample.sample_uuid for sample in family.samples},
@@ -1271,6 +1290,29 @@ async def measure_step(
                 "status": report["status"],
                 "gene_index_consistent": report["gene_index_consistency"]["consistent"],
             }
+    if "statistics" in operations:
+        await measure_statistics(recorder, step, (trio, singleton), repeat)
+
+
+async def measure_statistics(recorder: Recorder, step: int, families: tuple[Family, ...], repeat: int) -> None:
+    """The variant summary's small-variant statistics, as its page asks for them: the counts,
+    the histograms and, for a trio, the Mendelian table, read at once."""
+    from app.services.family_variant_statistics import get_family_small_variant_statistics
+
+    for family in families:
+        context = family_context(family, pedigree=True)
+        for run in range(1, repeat + 1):
+
+            async def summarise(context: Any = context) -> Any:
+                statistics_out = await get_family_small_variant_statistics(context)
+                return statistics_out.total_variants, [
+                    (sample.sample_id, sample.non_ref_count, [(row.consequence, row.count) for row in sample.consequences])
+                    for sample in statistics_out.samples
+                ]
+
+            result = await recorder.measure(step, "statistics", summarise, family=family.kind, run=run)
+            if result is not None:
+                recorder.operations[-1].detail = {"total_variants": result[0], "samples": result[1]}
 
 
 async def measure_overwrite(recorder: Recorder, admin: Admin, step: int, overwritten: Family) -> None:

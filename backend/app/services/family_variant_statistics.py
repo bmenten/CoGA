@@ -106,10 +106,9 @@ CONSEQUENCE_ORDER: tuple[str, ...] = (
     "sequence_variant",
 )
 # The ranks the consequence query gives what is not a term of CONSEQUENCE_ORDER (whose
-# terms rank 1 to its length): a term outside it, and no term. A variant written without
-# annotations has an index row without terms; a row without an index row (the 0 a LEFT JOIN
-# leaves) is read the same, ranked last, so a variant whose other callset's row names a
-# term reads as that term.
+# terms rank 1 to its length): a term outside it, and no term. A row of a variant written
+# without annotations holds the one transcript of the empty annotation, without terms: it
+# ranks last, so a variant whose other callset's row names a term reads as that term.
 _OTHER_TERM_RANK = len(CONSEQUENCE_ORDER) + 1
 _NO_TERM_RANK = len(CONSEQUENCE_ORDER) + 2
 OTHER_CONSEQUENCE = "other"
@@ -285,21 +284,25 @@ class _VariantCounts:
 _FAMILY = ""
 
 
-async def _variant_counts(
-    context: FamilyMetadataContext, entries: str, annotation_index: str
-) -> _VariantCounts:
+async def _variant_counts(context: FamilyMetadataContext, entries: str) -> _VariantCounts:
     """One read of the family's rows, grouped by variant first: each variant once, whatever
     callsets hold it, with each member's calls OR-ed over its rows (``_ALT_BIT`` …) and its most
-    severe consequence over every transcript of each row's own annotation (its key and its
-    annotation set under any version, as the family search matches them: ``_OWN_ANNOTATION``;
-    a row without one ranks last, so the variant reads as another callset's annotation). The groups
-    are the family's variants, whatever its size, each holding a byte per member: a count per
-    member (``uniqExact`` per member and figure) held a set of keys per member and figure."""
+    severe consequence over its rows. A row's consequences are its own transcripts' ``effects``
+    (``clickhouse_variant_rows.ENTRY_TRANSCRIPT_FIELDS``): the terms of each annotation of its
+    annotation set, as that annotation's ``annotations`` row stores them, whose union is the
+    set's ``annotation_index.effects``. A row without terms ranks last, so the variant reads as
+    another callset's annotation. The groups are the family's variants, whatever its size, each
+    holding a byte per member: a count per member (``uniqExact`` per member and figure) held a
+    set of keys per member and figure.
+
+    The statement reads the family's rows alone, and of their transcripts only the ``effects``
+    subcolumn: no annotation table, which every family on the assembly shares."""
     members = _members(context)
     params: dict[str, Any] = {
         "visible_sample_ids": tuple(_visible_clickhouse_sample_ids(context)),
         "passing_filter_values": _PASSING_FILTER_VALUES,
         "consequence_terms": list(CONSEQUENCE_ORDER),
+        "consequence_ranks": list(range(1, len(CONSEQUENCE_ORDER) + 1)),
         "other_term_rank": _OTHER_TERM_RANK,
         "no_term_rank": _NO_TERM_RANK,
     }
@@ -309,9 +312,6 @@ async def _variant_counts(
     is_het = clickhouse_genotype_condition("g", {HET}, param="gt_het", params=params)
     is_hom = clickhouse_genotype_condition("g", {HOM_ALT}, param="gt_hom", params=params)
     where = _family_where(context, params, alias="e")
-    # The annotation rows read are the family's keys only: the index is shared by every
-    # family on the assembly (``_small_family_key_condition``).
-    key_where = _family_where(context, params, alias="fk")
     positions = ", ".join(
         f"arrayFirstIndex(stored -> stored IN %(member_ids_{index})s, e.calls.sampleId)"
         for index in range(len(members))
@@ -326,10 +326,14 @@ async def _variant_counts(
         f"toUInt8(if({carries_alt}, {_ALT_BIT} + if({is_het}, {_HET_BIT}, 0) + if({is_hom}, {_HOM_BIT}, 0) "
         f"+ if({passing}, {_PASS_BIT}, 0), 0))"
     )
+    # The row's terms, over all its transcripts, each ranked through ``transform``, a hash
+    # lookup: on a trio's 6.3 M rows it took 0.2 s, where a scan of the term list (``indexOf``)
+    # took 1-2 s (docs/clickhouse-scale-benchmark.md, "Variant statistics").
+    effects = "arrayFlatten(e.transcripts.effects)"
     severity = (
-        "if(empty(ai.effects), %(no_term_rank)s, arrayMin(arrayMap(term -> "
-        "if(has(%(consequence_terms)s, term), indexOf(%(consequence_terms)s, term), %(other_term_rank)s), "
-        "ai.effects)))"
+        f"toUInt64(if(empty({effects}), %(no_term_rank)s, arrayMin(arrayMap(term -> "
+        "transform(term, %(consequence_terms)s, %(consequence_ranks)s, %(other_term_rank)s), "
+        f"{effects}))))"
     )
     with_family = "arrayPushBack(member_codes, arrayReduce('groupBitOr', member_codes))"
     rows = await _execute_clickhouse(
@@ -348,14 +352,14 @@ async def _variant_counts(
                 key,
                 any(chrom) AS chrom,
                 any(type_code) AS type_code,
-                min(if(rank = 0, %(no_term_rank)s, rank)) AS best_rank,
+                min(rank) AS best_rank,
                 groupBitOrForEach(codes) AS member_codes
             FROM (
                 SELECT
                     e.key AS key,
                     e.chrom AS chrom,
                     {_type_code_sql('e.')} AS type_code,
-                    annotation.rank AS rank,
+                    {severity} AS rank,
                     [{positions}] AS positions,
                     arrayMap(position -> arrayElement(e.calls.gt, position), positions) AS gts,
                     arrayMap(position -> arrayElement(e.calls.filters, position), positions) AS owns,
@@ -365,17 +369,6 @@ async def _variant_counts(
                     ) AS own_filtered,
                     arrayMap((g, own) -> {code}, gts, owns) AS codes
                 FROM {entries} AS e
-                LEFT JOIN (
-                    SELECT ai.key AS key, ai.annotationSetHash AS annotationSetHash,
-                           toUInt64(min({severity})) AS rank
-                    FROM {annotation_index} AS ai
-                    WHERE identity(ai.key) IN (
-                        SELECT fk.key FROM {entries} AS fk WHERE {' AND '.join(key_where)}
-                    )
-                    GROUP BY ai.key, ai.annotationSetHash
-                ) AS annotation
-                  ON annotation.key = e.key
-                 AND annotation.annotationSetHash = e.annotationSetHash
                 WHERE {' AND '.join(where)}
             )
             GROUP BY key
@@ -594,7 +587,6 @@ async def get_family_small_variant_statistics(
     if not context.assembly_name:
         return FamilySmallVariantStatisticsOut()
     entries = _small_table_name(context.assembly_name, "entries")
-    annotation_index = _small_table_name(context.assembly_name, "variants/annotation_index")
     all_sources = await _source_names(context, entries)
     imputed = {source.lower() for source in IMPUTED_SMALL_VARIANT_SOURCES}
     sources = [source for source in all_sources if source.lower() not in imputed]
@@ -603,7 +595,7 @@ async def get_family_small_variant_statistics(
         return FamilySmallVariantStatisticsOut(imputed_sources=imputed_sources)
     # The reads are independent, so they run at once (the client keeps no session).
     counts, histograms, *trio_tables = await asyncio.gather(
-        _variant_counts(context, entries, annotation_index),
+        _variant_counts(context, entries),
         _call_histograms(context, entries),
         *(
             _mendelian_trio(context, entries, child=child, father=father, mother=mother)
