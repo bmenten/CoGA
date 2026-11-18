@@ -2846,8 +2846,8 @@ def _small_family_key_condition(
     """On the family page, "the annotation row ``alias`` is of a variant the family carries":
     its key is the key of one of the rows the search reads. None for a search that is not a
     family's (the Variant Explorer's reads every family's variants at once), and for a
-    ``narrow`` subquery, one that reads few rows by itself: a gene's or a panel's genes' rows
-    of the gene index, which its sort key finds (``_small_annotation_gene_membership_condition``).
+    ``narrow`` subquery, one that reads few rows by itself: the rows of the genes a user typed,
+    which the gene index's sort key finds (``_small_annotation_gene_membership_condition``).
 
     The annotation tables are shared by every family on the assembly. The family search tests
     its per-transcript filters on its rows' own transcripts (``_small_own_transcripts_condition``),
@@ -2860,8 +2860,11 @@ def _small_family_key_condition(
     (``clickhouse/users.d/memory-guards.xml``). With it the set holds at most the family's own
     variants, and no more as other families are added. The clause costs a set of the family's
     keys, about 240 MiB for a whole-genome trio, and one more read of its rows: for a gene,
-    whose own rows the gene index reads in a few granules, ten times what the subquery costs
-    without it (26 MiB), so a narrow subquery goes without it.
+    whose own rows the gene index reads in a few granules, six times what the search holds
+    without it (38 MiB), so a narrow subquery goes without it. A 5,300-gene panel's genes are
+    not narrow: without the clause the set of the cohort's variants in them grew with the
+    cohort, the panel search holding 513, 536 and 745 MiB at 50, 100 and 250 genomes, against
+    481, 430 and 428 MiB with it (docs/clickhouse-scale-benchmark.md).
 
     The key is tested through ``identity``, which ClickHouse does not match to an index:
     ``key`` is in the primary key of the annotation tables and has a bloom filter, so a plain
@@ -2921,7 +2924,14 @@ def _small_annotation_gene_membership_condition(
     *,
     prefix: str,
     params: dict[str, Any],
+    narrow: bool = False,
 ) -> str | None:
+    """The entry row (alias ``e``) is, through the gene index of its own annotation, of one of
+    ``gene_values`` (a symbol or an Ensembl gene ID). The gene index is read by its sort key,
+    the genes' rows alone. With ``narrow`` (the genes a user typed: the gene filter, the
+    excluded genes) the subquery goes without the family's keys, which would cost more than
+    the genes' rows; a panel's genes, thousands of them, are narrowed to the family's keys
+    (``_small_family_key_condition``)."""
     normalized_gene_values = tuple(
         _casefold(value)
         for value in gene_values
@@ -2936,7 +2946,7 @@ def _small_annotation_gene_membership_condition(
     gene_index_table = _small_annotation_gene_index_table_name(context.assembly_name)
     scope_clauses = _small_annotation_scope_clauses(filters, params=params, alias="gi")
     index_where = [*scope_clauses, f"gi.gene_term IN %({terms_param})s"]
-    family_keys = _small_family_key_condition(context, filters, params=params, alias="gi", narrow=True)
+    family_keys = _small_family_key_condition(context, filters, params=params, alias="gi", narrow=narrow)
     if family_keys:
         index_where.append(family_keys)
     return (
@@ -3504,7 +3514,7 @@ def _small_gene_condition(
         for condition in (
             _small_gene_filter_condition(gene_terms, prefix=entry_prefix, params=params),
             _small_annotation_gene_membership_condition(
-                context, filters, gene_terms, prefix=annotation_prefix, params=params
+                context, filters, gene_terms, prefix=annotation_prefix, params=params, narrow=True
             ),
         )
         if condition

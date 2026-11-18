@@ -13,16 +13,18 @@ rows.
   text is the one the shared table is read with, and every column it reads is one the
   transcripts hold, under the same name.
 * With a transcript or HGVS text, which the row's transcripts do not hold, the per-transcript
-  filters read the shared table, as does the rsID filter (the annotation index). Each such
+  filters read the shared table, as do the rsID filter (the annotation index) and a panel's
+  genes (the gene index). Each such
   subquery keeps the variants the family carries (``_small_family_key_condition``): the keys
   of the family's rows, in its projects and within the search's locus, each as the search's
   own WHERE has it, so the set holds every row the search reads and the answer is the same,
   for ``IN`` and ``NOT IN`` alike. The key is tested through ``identity`` so that ClickHouse
   keeps no second copy of the set for the annotation tables' index. One search writes the
   clause once in text, so ClickHouse builds the family's key set once for all of them.
-* The gene subqueries (a gene, a panel's genes, excluded genes) read the gene index by its
-  sort key, a few granules per gene: they go without that bound, which would cost more than
-  they do.
+* The genes a user typed (the gene filter, the excluded genes) are read from the gene index by
+  its sort key, a few granules per gene: they go without that bound, which would cost more than
+  they do. A panel's genes, thousands of them, keep it: without it their set grows with the
+  cohort.
 * The Variant Explorer, which reads every family at once, reads the shared tables and keeps
   no family's bound.
 * A subquery matches a row to the annotation rows of its key and annotation set, under any
@@ -185,12 +187,11 @@ def test_the_per_transcript_filters_read_the_row_s_own_transcripts() -> None:
     salient = _small_salient_condition(filters, params=expected_params)
     assert _own_transcripts(where) == [detail, f"NOT {excluded}", salient]
     assert {name: params[name] for name in expected_params} == expected_params
-    # No subquery reads the shared transcript table, and none the family's keys: the gene
-    # index is read for the panel's genes and the excluded genes alone.
+    # No subquery reads the shared transcript table: the gene index is read for the panel's
+    # genes, for the family's keys, and the excluded genes alone.
     assert _ANNOTATION_TABLES["a"] not in where
     assert _subqueries(where) == ["gi", "gi"]
-    assert not _bounds(where)
-    assert "annotation_family_guid" not in params
+    assert [alias for alias, _table, _rows, _end in _bounds(where)] == ["gi"]
 
 
 def test_the_row_s_transcripts_hold_every_column_a_per_transcript_filter_reads() -> None:
@@ -223,27 +224,37 @@ def test_a_transcript_or_hgvs_text_reads_the_shared_table_for_the_family_s_keys(
     detail = _small_annotation_filter_condition(filters, params=expected_params)
     assert detail is not None
     assert f"(e.key, e.annotationSetHash) IN (SELECT a.key, a.annotationSetHash FROM {_ANNOTATION_TABLES['a']} AS a WHERE ({detail}) AND identity(a.key) IN (" in where
-    assert [alias for alias, _table, _rows, _end in _bounds(where)] == ["a"]
+    assert sorted(alias for alias, _table, _rows, _end in _bounds(where)) == ["a", "gi"]
     assert _own_transcripts(where) == ["NOT hasAny(a.clinvar_terms, %(detail_exclude_clinvar_terms)s)"]
     assert params["annotation_family_guid"] == "keys-family"
 
 
-def test_the_gene_subqueries_read_the_gene_index_alone() -> None:
-    # A gene, a panel's genes and the excluded genes are read from the gene index by its
-    # sort key: the family's keys would cost more than the subquery itself.
-    where, params = _search(_filters(gene="BRCA1"))
-    assert _subqueries(where) == ["gi", "gi", "gi"]
+def test_the_typed_genes_read_the_gene_index_alone_and_a_panel_s_genes_for_the_family_s_keys() -> None:
+    # A gene and the excluded genes are read from the gene index by its sort key: the
+    # family's keys would cost more than the subquery itself. A panel's genes, thousands of
+    # them, gather the cohort's variants in them unless narrowed to the family's keys.
+    clauses, params, _detail = _small_query_filter_parts(
+        _CONTEXT, _filters(gene="BRCA1"), exclude_gene_terms=("TP53",)
+    )
+    where = " AND ".join(clauses)
+    assert _subqueries(where) == ["gi", "gi"]
     assert not _bounds(where)
     assert "fk." not in where and "annotation_family_guid" not in params
+    panel_params: dict[str, Any] = {}
+    panel = _small_panel_filter_condition(_CONTEXT, _filters(), _PANEL, params=panel_params)
+    assert panel is not None
+    assert [alias for alias, _table, _rows, _end in _bounds(panel)] == ["gi"]
+    assert panel_params["annotation_family_guid"] == "keys-family"
 
 
 def test_the_shared_table_subqueries_read_only_the_family_s_keys() -> None:
     where, params = _search(_filters(**_EVERY_ANNOTATION_FILTER, hgvsc="c.76"))
     # The gene and the panel's genes (gene index), the excluded genes (gene index), the rsID
-    # (annotation index), the transcript filters with an HGVS text (annotations).
+    # (annotation index), the transcript filters with an HGVS text (annotations); all but the
+    # typed genes for the family's keys.
     assert sorted(_subqueries(where)) == ["a", "ai", "gi", "gi", "gi"]
     bounds = _bounds(where)
-    assert sorted(alias for alias, _table, _rows, _end in bounds) == ["a", "ai"]
+    assert sorted(alias for alias, _table, _rows, _end in bounds) == ["a", "ai", "gi"]
     assert {table for _alias, table, _rows, _end in bounds} == {_ENTRIES}
     assert {rows for _alias, _table, rows, _end in bounds} == {
         "fk.family_guid = %(annotation_family_guid)s AND fk.sign = 1"
@@ -296,7 +307,7 @@ def test_the_family_s_keys_hold_every_row_the_search_reads_within_its_locus(locu
         ]
     )
     bounds = _bounds(where)
-    assert len(bounds) == 2
+    assert len(bounds) == 3
     # One text for every bounded subquery of the search: one set to build.
     assert {rows for _alias, _table, rows, _end in bounds} == {expected}
 

@@ -5,11 +5,11 @@ ClickHouse.
 The family search tests the per-transcript filters (impact, consequence, ClinVar, frequencies
 with the ClinVar rescue, scores, SIFT and PolyPhen, Canonical, MANE and LoF only), the
 excluded ClinVar terms and the salient variants on the transcripts each ``entries`` row holds
-(``_small_own_transcripts_condition``), and reads the gene index without the family's keys.
-Before, it read each of them in a subquery over the shared tables, narrowed to the family's
-keys (``_small_family_key_condition``). The code keeps that subquery for the transcript and
-HGVS text, so the test asks it for every filter (``reads_text``, and the family's keys for
-the gene index too) and compares the two answers.
+(``_small_own_transcripts_condition``), and reads the genes a user typed from the gene index
+without the family's keys. Before, it read each of them in a subquery over the shared tables,
+narrowed to the family's keys (``_small_family_key_condition``). The code keeps that subquery
+for the transcript and HGVS text, so the test asks it for every filter (``reads_text``, and
+the family's keys for every gene too) and compares the two answers.
 
 About 600 synthetic variants are written once through the import's write path
 (``insert_small_variant_records``), from VEP CSQ entries the import parses, drawn at random
