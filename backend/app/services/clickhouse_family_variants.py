@@ -133,14 +133,17 @@ from .clickhouse_variant_queries import (
     _string_list,
     _structural_annotation_extra,
     _structural_record_matches,
+    _structural_row_details,
     _structural_segregation_modes,
     _structural_variant_out,
+    _structural_variant_region_clauses,
+    _structural_variant_scope_clauses,
     _structural_variant_where_clauses,
     _variant_gene_keys,
     _visible_clickhouse_sample_ids,
     _xpos,
 )
-from .clickhouse_variant_ids import _small_table_name, _structural_table_name
+from .clickhouse_variant_ids import _small_table_name, _structural_table_name, small_variant_loci
 from .clickhouse_variant_storage import (
     ensure_clickhouse_variant_tables,
     get_family_small_variant_data_version,
@@ -810,33 +813,25 @@ async def fetch_recurrent_artifact_candidates(
         rules,
         params,
     )
-    # Each candidate's ClinVar terms, pooled across its annotations, read by the one
-    # Python ClinVar rule rather than a second copy of it in SQL.
-    annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
     rows = await _execute_clickhouse(
         f"""
-        SELECT recurrent.variantId, recurrent.unexplained, clinvar.terms
-        FROM (
-            SELECT variantId, countIf({_UNEXPLAINED_LOW_VAF}) AS unexplained
-            FROM ({sample_calls})
-            GROUP BY variantId
-            HAVING unexplained >= %(min_samples)s
-        ) AS recurrent
-        LEFT JOIN (
-            SELECT variantId, groupUniqArrayArray(clinvar_terms) AS terms
-            FROM {annotation_index}
-            WHERE notEmpty(clinvar_terms)
-            GROUP BY variantId
-        ) AS clinvar ON clinvar.variantId = recurrent.variantId
-        ORDER BY recurrent.unexplained DESC, recurrent.variantId
+        SELECT variantId, countIf({_UNEXPLAINED_LOW_VAF}) AS unexplained
+        FROM ({sample_calls})
+        GROUP BY variantId
+        HAVING unexplained >= %(min_samples)s
+        ORDER BY unexplained DESC, variantId
         LIMIT %(limit)s
         """,
         params,
     )
+    # Each candidate's ClinVar terms, pooled across its annotations, read by the one
+    # Python ClinVar rule rather than a second copy of it in SQL.
+    pooled = await _pooled_variant_annotations(assembly_name, [str(variant_id) for variant_id, _count in rows])
+    clinvar_terms = {variant_id: pooled_annotations.clinvar_terms for variant_id, pooled_annotations in pooled.items()}
     return [
         (str(variant_id), int(unexplained or 0))
-        for variant_id, unexplained, terms in rows
-        if not clinvar_may_assert_pathogenic([str(term) for term in terms or []])
+        for variant_id, unexplained in rows
+        if not clinvar_may_assert_pathogenic(clinvar_terms.get(str(variant_id), []))
     ]
 
 
@@ -877,10 +872,48 @@ async def fetch_artifact_protection_flags(
     family on the assembly carries has no annotation here and is not listed."""
     if not assembly_name or not variant_ids:
         return {}
-    annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
     flags: dict[str, str] = {}
+    pooled = await _pooled_variant_annotations(assembly_name, variant_ids, chunk_size=chunk_size)
+    for variant_id, pooled_annotations in pooled.items():
+        if clinvar_may_assert_pathogenic(pooled_annotations.clinvar_terms):
+            flags[variant_id] = "clinvar"
+        elif pooled_annotations.population_af > common_af:
+            flags[variant_id] = "common"
+    return flags
+
+
+@dataclass(frozen=True, slots=True)
+class _PooledAnnotations:
+    """What every annotation of a variant on the assembly says together: its highest
+    population frequency (gnomAD, its exomes, genomes and popmax, TopMed; 0 without one)
+    and its ClinVar terms."""
+
+    population_af: float
+    clinvar_terms: list[str]
+
+
+async def _pooled_variant_annotations(
+    assembly_name: str,
+    variant_ids: Sequence[str],
+    *,
+    chunk_size: int = 5_000,
+) -> dict[str, _PooledAnnotations]:
+    """Each of ``variant_ids``' annotations on the assembly, pooled (``_PooledAnnotations``),
+    from ``variants/annotation_index``: every annotation version and annotation set, of
+    whichever family's import. A variant no family on the assembly carries has none and is
+    left out.
+
+    The index is read by its sort key, at the chromosomes and positions where these ids can
+    be stored (``small_variant_loci``), and the rows of these ids are kept there: the rows
+    a read of the whole index by id keeps, without reading every variant of the cohort."""
+    pooled: dict[str, _PooledAnnotations] = {}
     unique_ids = list(dict.fromkeys(str(value) for value in variant_ids if value))
+    annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
     for offset in range(0, len(unique_ids), chunk_size):
+        chunk = unique_ids[offset : offset + chunk_size]
+        loci = sorted({locus for variant_id in chunk for locus in small_variant_loci(variant_id)})
+        if not loci:
+            continue
         rows = await _execute_clickhouse(
             f"""
             SELECT
@@ -892,17 +925,18 @@ async def fetch_artifact_protection_flags(
                 )) AS population_af,
                 groupUniqArrayArray(clinvar_terms) AS terms
             FROM {annotation_index}
-            WHERE variantId IN %(variant_ids)s
+            WHERE (chrom, pos) IN %(loci)s
+              AND variantId IN %(variant_ids)s
             GROUP BY variantId
             """,
-            {"variant_ids": tuple(unique_ids[offset : offset + chunk_size])},
+            {"loci": tuple(loci), "variant_ids": tuple(chunk)},
         )
         for variant_id, population_af, terms in rows:
-            if clinvar_may_assert_pathogenic([str(term) for term in terms or []]):
-                flags[str(variant_id)] = "clinvar"
-            elif population_af is not None and float(population_af) > common_af:
-                flags[str(variant_id)] = "common"
-    return flags
+            pooled[str(variant_id)] = _PooledAnnotations(
+                population_af=float(population_af or 0),
+                clinvar_terms=[str(term) for term in terms or []],
+            )
+    return pooled
 
 
 async def _scan_family_sv_gene_map(
@@ -2040,27 +2074,35 @@ async def _fetch_structural_variant_rows(
     if not context.assembly_name:
         return []
     entries_table = _structural_table_name(context.assembly_name, "entries")
-    details_table = _structural_table_name(context.assembly_name, "variants/details")
-    where_clauses, params = _structural_variant_where_clauses(
+    scope_clauses, params = _structural_variant_scope_clauses(
         context,
         filters,
-        include_regions=include_regions,
         include_variant_ids=include_variant_ids,
         exclude_variant_ids=exclude_variant_ids,
-        panel=panel,
     )
     if call_sample_names:
         # Only the SVs with a call for these samples, the rule the record filter applies
         # afterwards anyway; in SQL, a row limit counts those samples' SVs instead of the
         # whole family's.
         call_sample_ids = _clickhouse_sample_ids(call_sample_names)
-        where_clauses.append("hasAny(e.calls.sampleId, %(call_sample_ids)s)")
+        scope_clauses.append("hasAny(e.calls.sampleId, %(call_sample_ids)s)")
         params["call_sample_ids"] = call_sample_ids
+    where_clauses = [
+        *scope_clauses,
+        *_structural_variant_region_clauses(context, filters, include_regions, panel, params=params),
+    ]
     # The genome track never uses the (multi-KB-per-variant) annotation JSON, and we set
     # annotations=[] for it below; not selecting the column means ClickHouse never reads
     # it off disk — the bulk of the remaining per-member fetch time for tens of
-    # thousands of SVs. The details join stays so detail-column WHERE filters still work.
+    # thousands of SVs.
     annotations_col = "'' AS annotations_json" if track_mode else "any(d.annotationsJson) AS annotations_json"
+    detail_columns = ["remoteChrom", "remoteStart", "svLen", "filters"]
+    if not track_mode:
+        detail_columns.append("annotationsJson")
+    # The details of the rows of the page's scope: without its regions and panel, which keep
+    # fewer rows, they hold every key the page joins, and the panel's region join, which
+    # ClickHouse would build again for a second copy of it, runs once.
+    details = _structural_row_details(context.assembly_name, scope_clauses, detail_columns)
     query = f"""
         SELECT
             any(e.key) AS key,
@@ -2083,7 +2125,7 @@ async def _fetch_structural_variant_rows(
             any(e.calls.filter) AS sample_filters,
             any(e.calls.cn) AS sample_copy_numbers
         FROM {entries_table} AS e
-        LEFT JOIN {details_table} AS d ON d.key = e.key
+        LEFT JOIN {details} AS d ON d.key = e.key
         WHERE {' AND '.join(where_clauses)}
         GROUP BY e.key, e.variantId
         ORDER BY chrom, start, key

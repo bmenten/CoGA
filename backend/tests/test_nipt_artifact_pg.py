@@ -98,9 +98,12 @@ async def test_artifact_candidates_count_unexplained_low_vaf_calls_of_the_given_
     captured: dict = {}
 
     async def fake_execute(query, params):
+        if "variants/annotation_index" in query:
+            # (variant, its highest population frequency, its ClinVar terms across its annotations)
+            return [("2-200-C-T", 0.001, ["uncertain significance"])]
         captured.update(query=query, params=params)
-        # (variant, unexplained low-VAF samples, the variant's ClinVar terms across its annotations)
-        return [("1-100-A-G", 12, []), ("2-200-C-T", 3, ["uncertain significance"])]
+        # (variant, unexplained low-VAF samples)
+        return [("1-100-A-G", 12), ("2-200-C-T", 3)]
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
 
@@ -135,20 +138,37 @@ async def test_artifact_candidates_never_hold_a_clinvar_pathogenic_variant(
 ) -> None:
     # A familial founder variant (CFTR F508del is ~1% in gnomAD, so not "common") recurs in
     # a disease-focused panel; seeded, it would be excluded from every analysis of the assay.
+    recurrent = [
+        ("1-100-A-G", 9),
+        ("1-200-A-G", 8),
+        ("1-300-A-G", 8),
+        ("1-400-A-G", 7),
+        ("1-500-A-G", 6),
+        ("1-600-A-G", 5),
+    ]
+    clinvar = {
+        "1-200-A-G": ["pathogenic"],
+        "1-300-A-G": ["likely pathogenic", "uncertain significance"],
+        "1-400-A-G": ["conflicting classifications of pathogenicity"],
+        "1-500-A-G": ["uncertain significance"],
+        "1-600-A-G": ["benign", "likely benign"],
+    }
+    annotation_reads: list = []
+
     async def fake_execute(query, params):
-        assert "clinvar_terms" in query
-        return [
-            ("1-100-A-G", 9, []),
-            ("1-200-A-G", 8, ["pathogenic"]),
-            ("1-300-A-G", 8, ["likely pathogenic", "uncertain significance"]),
-            ("1-400-A-G", 7, ["conflicting classifications of pathogenicity"]),
-            ("1-500-A-G", 6, ["uncertain significance"]),
-            ("1-600-A-G", 5, ["benign", "likely benign"]),
-        ]
+        if "variants/annotation_index" not in query:
+            return recurrent
+        annotation_reads.append(params)
+        # Every annotation of each candidate on the assembly, read at its own locus.
+        assert "clinvar_terms" in query and "(chrom, pos) IN %(loci)s" in query
+        return [(variant_id, 0.001, terms) for variant_id, terms in clinvar.items()]
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
 
     assert await _candidates() == [("1-100-A-G", 9), ("1-500-A-G", 6), ("1-600-A-G", 5)]
+    [params] = annotation_reads
+    assert params["variant_ids"] == tuple(variant_id for variant_id, _count in recurrent)
+    assert params["loci"] == tuple(("1", position) for position in (100, 200, 300, 400, 500, 600))
 
 
 @pytest.mark.asyncio
@@ -457,6 +477,9 @@ async def test_protection_flags_read_the_pooled_annotation(monkeypatch: pytest.M
     async def fake_execute(query, params):
         assert "variants/annotation_index" in query
         assert params["variant_ids"] == ("1-1-A-G", "1-2-A-G", "1-3-A-G")
+        # Read by the index's sort key, at each variant's own locus.
+        assert "(chrom, pos) IN %(loci)s" in query
+        assert params["loci"] == (("1", 1), ("1", 2), ("1", 3))
         return [
             ("1-1-A-G", 0.12, []),
             ("1-2-A-G", 0.001, ["Pathogenic"]),
@@ -468,3 +491,36 @@ async def test_protection_flags_read_the_pooled_annotation(monkeypatch: pytest.M
         "GRCh38", ["1-1-A-G", "1-2-A-G", "1-3-A-G"]
     )
     assert flags == {"1-1-A-G": "common", "1-2-A-G": "clinvar"}
+
+
+@pytest.mark.parametrize(
+    ("chrom", "pos", "ref", "alt"),
+    [
+        ("1", 100, "A", "G"),
+        ("chrX", 5_000_000, "CAG", "C"),
+        ("MT", 73, "A", "*"),
+        # A contig name and an ALT allele can hold a "-" themselves.
+        ("HLA-A*01:01:01:01", 120, "G", "T"),
+        ("chrUn_KI270302v1", 9, "N", "]HLA-B*07:02:01:4]N"),
+    ],
+)
+def test_the_protections_read_every_locus_a_stored_variant_can_sit_at(
+    chrom: str, pos: int, ref: str, alt: str
+) -> None:
+    # The protections read the shared annotation index at the loci of the ids asked about:
+    # the locus the id was built from is always among them, or a stored annotation would go
+    # unread and a protected variant could be listed.
+    from backend.app.services.clickhouse_variant_ids import build_small_variant_id, small_variant_loci
+    from backend.app.services.data_scope import normalize_chromosome
+
+    variant_id = build_small_variant_id(chrom, pos, ref, alt)
+
+    assert (normalize_chromosome(chrom), pos) in small_variant_loci(variant_id)
+
+
+def test_an_id_without_a_position_names_no_locus() -> None:
+    from backend.app.services.clickhouse_variant_ids import small_variant_loci
+
+    assert small_variant_loci("1-100-A") == set()
+    assert small_variant_loci("rs123") == set()
+    assert small_variant_loci("1-A-C-G") == set()

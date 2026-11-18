@@ -266,7 +266,9 @@ a polymorphism can still reach the threshold: review the auto entries.
 
 The import applies the same two protections through `fetch_artifact_protection_flags`
 (`clickhouse_family_variants.py`: a population frequency above 5%, or those ClinVar terms). Both read
-the annotation of the families on the assembly, so an allele no family carried is listed unchecked.
+every annotation of the allele on the assembly, whichever family's import wrote it, from
+`annotation_index` at the allele's chromosome and position (the index's sort key). So an allele no
+family carried is listed unchecked.
 Each family's analysis therefore checks its listed alleles again with its own annotation
 (`nipt_service.artifact_protection`, `family_artifact_ids`; the variant list judges each listed
 record in `_classify_candidates`) and keeps a protected one, flagged `artifact_list_protected`.
