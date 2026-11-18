@@ -13,12 +13,23 @@ statistics count, and checks each figure on the real server:
 * what is left out: chrM, an imputed callset (named in the response), another family's
   rows, a member the family does not show.
 
+A second test holds the most severe consequence, which the statistics read from each row's
+own transcripts, to the cohort's ``annotation_index``: on about 300 random variants on
+chromosome 22, where no other test writes, in two callsets (the second with the same
+annotations under another version, with others, or with none), with another family's other
+annotations at the same sites, each row's transcripts name the terms of its annotation set's
+index row, and each member's consequence counts are those the index gives, a variant ranked by
+the most severe term of any of its rows. No statement of the statistics reads an annotation
+table.
+
 Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI
 ``smoke`` job sets it.
 """
 
 from __future__ import annotations
 
+import random
+from collections import Counter
 from itertools import product
 from typing import Any
 from uuid import uuid4
@@ -240,3 +251,156 @@ def test_small_variant_statistics_against_clickhouse() -> None:
     assert no_father.trios == []
     assert [sample.sample_id for sample in no_father.samples] == ["PROBAND", "MOTHER"]
     assert no_father.total_variants < stats.total_variants
+
+
+# What the random variants' transcripts name: one term, two on one transcript, a term the
+# import lower-cases, one outside VEP's order, and none.
+_RANDOM_CONSEQUENCES = (
+    "missense_variant",
+    "missense_variant&splice_region_variant",
+    "stop_gained",
+    "frameshift_variant",
+    "splice_donor_variant",
+    "synonymous_variant",
+    "intron_variant",
+    "3_prime_UTR_variant",
+    "upstream_gene_variant",
+    "made_up_variant",
+    "",
+)
+_RANDOM_GENOTYPES = ("0/1", "1/1", "0|1", "0/0", "./.")
+_RANDOM_ALLELES = (("C", "T"), ("G", "A"), ("A", "G"), ("T", "C"), ("C", "CA"), ("GTT", "G"))
+_RANDOM_FIRST_POS = 30_000_001
+_RANDOM_VARIANTS = 300
+
+
+def _random_annotations(rng: random.Random, alt: str) -> list[dict[str, Any]]:
+    """None now and then, else one to five transcripts of random consequences."""
+    if rng.random() < 0.1:
+        return []
+    return _csq(alt, *(rng.choice(_RANDOM_CONSEQUENCES) for _ in range(rng.randint(1, 5))))
+
+
+def _random_record(
+    rng: random.Random, variant_id: str, annotations: list[dict[str, Any]], *, source: str
+) -> SmallVariantRecord:
+    chrom, pos, ref, alt = variant_id.split("-")
+    calls = [_call(sample, rng.choice(_RANDOM_GENOTYPES)) for sample in _TRIO]
+    return _record(chrom, int(pos), calls, ref=ref, alt=alt, source=source, annotations=annotations)
+
+
+def test_consequences_from_the_rows_own_transcripts_match_the_annotation_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.app.core.clickhouse import execute_clickhouse
+    from backend.app.services import family_variant_statistics as statistics
+    from backend.app.services.clickhouse_variant_ids import _small_table_name
+    from backend.app.services.clickhouse_variant_storage import (
+        ensure_clickhouse_variant_tables,
+        insert_small_variant_records,
+    )
+    from backend.app.services.genotypes import genotype_has_alt
+
+    rng = random.Random(20261118)
+    variant_ids = [
+        "chr22-{}-{}-{}".format(_RANDOM_FIRST_POS + 10 * index, *_RANDOM_ALLELES[index % len(_RANDOM_ALLELES)])
+        for index in range(_RANDOM_VARIANTS)
+    ]
+    annotated = {variant_id: _random_annotations(rng, variant_id.rsplit("-", 1)[1]) for variant_id in variant_ids}
+    first = [_random_record(rng, variant_id, csq, source="deepvariant") for variant_id, csq in annotated.items()]
+    # A second callset holds most of the variants: with the same annotations, written under
+    # another annotation version; annotated anew; or without an annotation.
+    same: list[SmallVariantRecord] = []
+    second: list[SmallVariantRecord] = []
+    for variant_id, csq in annotated.items():
+        kind = rng.choice(("absent", "same", "anew", "none"))
+        alt = variant_id.rsplit("-", 1)[1]
+        if kind == "same":
+            same.append(_random_record(rng, variant_id, csq, source="clair3"))
+        elif kind == "anew":
+            second.append(_random_record(rng, variant_id, _random_annotations(rng, alt), source="clair3"))
+        elif kind == "none":
+            second.append(_random_record(rng, variant_id, [], source="clair3"))
+    # Another family at half the sites, annotated anew: the index holds other annotation sets
+    # for the family's variants.
+    elsewhere = [
+        _random_record(rng, variant_id, _random_annotations(rng, variant_id.rsplit("-", 1)[1]), source="deepvariant")
+        for variant_id in variant_ids[::2]
+    ]
+
+    statements: list[str] = []
+    execute = statistics._execute_clickhouse
+
+    async def _recorded(query: str, params: dict[str, Any]) -> list[tuple[Any, ...]]:
+        statements.append(query)
+        return await execute(query, params)
+
+    monkeypatch.setattr(statistics, "_execute_clickhouse", _recorded)
+
+    async def _run() -> Any:
+        await ensure_clickhouse_variant_tables(_ASSEMBLY)
+        family, project = str(uuid4()), str(uuid4())
+        await insert_small_variant_records(_ASSEMBLY, family, [project], first, annotation_version="vep_tsv")
+        await insert_small_variant_records(_ASSEMBLY, family, [project], same, annotation_version="vcf_info")
+        await insert_small_variant_records(_ASSEMBLY, family, [project], second, annotation_version="vep_tsv")
+        await insert_small_variant_records(_ASSEMBLY, str(uuid4()), [project], elsewhere, annotation_version="vep_tsv")
+        entries = _small_table_name(_ASSEMBLY, "entries")
+        index = _small_table_name(_ASSEMBLY, "variants/annotation_index")
+        # Each of the family's rows with its own transcripts' terms and its annotation set's
+        # index row, under any version: what the statistics read before they read the rows'
+        # own transcripts.
+        rows = await execute_clickhouse(
+            f"""
+            SELECT e.variantId, e.source, arrayFlatten(e.transcripts.effects), ai.effects, ai.matched
+            FROM {entries} AS e
+            LEFT JOIN (
+                SELECT key, annotationSetHash, groupUniqArrayArray(effects) AS effects, 1 AS matched
+                FROM {index}
+                WHERE key IN (SELECT key FROM {entries} WHERE family_guid = %(family)s AND sign = 1)
+                GROUP BY key, annotationSetHash
+            ) AS ai ON ai.key = e.key AND ai.annotationSetHash = e.annotationSetHash
+            WHERE e.family_guid = %(family)s AND e.sign = 1
+            """,
+            {"family": family},
+        )
+        stats = await statistics.get_family_small_variant_statistics(_context(family, [project], samples=_TRIO))
+        return rows, stats
+
+    rows, stats = run_closing_stores(_run, init_schema=True)
+
+    order = {term: rank for rank, term in enumerate(statistics.CONSEQUENCE_ORDER, start=1)}
+
+    def rank(terms: list[str]) -> int:
+        if not terms:
+            return statistics._NO_TERM_RANK
+        return min(order.get(term, statistics._OTHER_TERM_RANK) for term in terms)
+
+    best: dict[str, int] = {}
+    first_rank: dict[str, int] = {}
+    for variant_id, source, own, indexed, matched in rows:
+        # Every row's annotation set has its index row, whose terms its transcripts name.
+        assert matched == 1, variant_id
+        assert sorted(set(own)) == sorted(indexed), (variant_id, source)
+        best[variant_id] = min(best.get(variant_id, rank(indexed)), rank(indexed))
+        if source == "deepvariant":
+            first_rank[variant_id] = rank(indexed)
+    assert len(rows) == len(first) + len(same) + len(second)
+
+    carriers: dict[str, set[str]] = {sample: set() for sample in _TRIO}
+    for record in (*first, *same, *second):
+        for call in record.calls:
+            if genotype_has_alt(call.gt):
+                carriers[call.sample].add(record.variant_id)
+    for sample in stats.samples:
+        expected = Counter(statistics.consequence_for_rank(best[variant_id]) for variant_id in carriers[sample.sample_id])
+        assert {row.consequence: row.count for row in sample.consequences} == dict(expected), sample.sample_id
+        assert sample.non_ref_count == len(carriers[sample.sample_id])
+
+    # The data hold the cases: a variant ranked by its second callset's annotation, a term
+    # outside VEP's order, a variant without one.
+    assert any(best[variant_id] < first_rank[variant_id] for variant_id in best)
+    ranks = set(best.values())
+    assert statistics._OTHER_TERM_RANK in ranks and statistics._NO_TERM_RANK in ranks
+    assert len(ranks) > 5
+    # No statement of the statistics reads an annotation table.
+    assert statements and not any("annotation" in statement for statement in statements)
