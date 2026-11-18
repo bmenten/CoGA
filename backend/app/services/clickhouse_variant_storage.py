@@ -65,6 +65,12 @@ _STRUCTURAL_VARIANT_ENTRY_SORT_KEY: tuple[str, ...] = (
     "source",
 )
 _STRUCTURAL_VARIANT_KEY_LOOKUP_SORT_KEY: tuple[str, ...] = ("family_guid", "variantId", "source")
+# The sort key of ``SV/variants/details``, one row per SV key. The key hashes the family and
+# the source (``structural_variant_key``), so a merge keeps the rows it would keep by the key
+# alone. The family goes first because a key is a hash: sorted by the key alone, one family's
+# SVs would lie across the whole table, and a family's page would read about a granule per SV.
+# Every reader filters ``family_guid``, so the index narrows it to the family's own rows.
+_STRUCTURAL_VARIANT_DETAILS_SORT_KEY: tuple[str, ...] = ("family_guid", "key")
 
 
 async def _execute(query: str, params: dict[str, Any] | None = None, data: Sequence[tuple[Any, ...]] | None = None) -> Any:
@@ -359,8 +365,8 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `updatedAt` DateTime DEFAULT now()
         )
         ENGINE = ReplacingMergeTree(updatedAt)
-        PRIMARY KEY key
-        ORDER BY key
+        PRIMARY KEY ({', '.join(_STRUCTURAL_VARIANT_DETAILS_SORT_KEY)})
+        ORDER BY ({', '.join(_STRUCTURAL_VARIANT_DETAILS_SORT_KEY)})
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SV/key_lookup`
@@ -553,6 +559,7 @@ async def delete_family_structural_variants(
     call: the key hashes the family and the source (``structural_variant_key``), and every
     row carries ``family_guid`` and ``source``. So the scope that deletes a source's entries
     deletes exactly the details and lookup rows those entries had, and no other caller's.
+    Both tables are sorted by the family first, so their index finds the family's rows.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
     params: dict[str, Any] = {"family_guid": family_uuid}
@@ -1090,10 +1097,11 @@ async def fetch_family_structural_variant_rows(
     The scope is the one :func:`delete_family_structural_variants` deletes: the family, and
     exactly ``source`` when it is given. No project, sample or display filter applies and
     nothing is normalised, so a row written back from here is the row that was stored.
-    The details come from their latest version (``FINAL``), read for these rows' keys only
-    (the details' sort key, so the index narrows the read). Two live rows of one SV in one
-    project, which a merge would collapse to one, come back as one row with the calls of
-    both, taking a sample's call from the row with more calls.
+    The details come from their latest version (``FINAL``), read for the family and these
+    rows' keys only: the details' sort key, so the index narrows the read to the family's
+    own rows. A key's details row is its family's, as the key hashes the family. Two live
+    rows of one SV in one project, which a merge would collapse to one, come back as one
+    row with the calls of both, taking a sample's call from the row with more calls.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
     entries_table = _structural_table_name(assembly_name, "entries")
@@ -1118,7 +1126,7 @@ async def fetch_family_structural_variant_rows(
         LEFT JOIN (
             SELECT key, remoteChrom, remoteStart, remoteEnd, svLen, filters, annotationsJson
             FROM {details_table} FINAL
-            WHERE key IN (
+            WHERE family_guid = %(family_guid)s AND key IN (
                 SELECT key
                 FROM {entries_table}
                 WHERE family_guid = %(family_guid)s AND sign = 1{source_clause}
