@@ -141,8 +141,11 @@
   (`CONTRIBUTING.md`, "Branches and commits"). The PR description states the change's level
   (patch, minor or major) and why ("Change classification").
 - A new or deleted test file needs its row in `docs/testing.md`
-  (`./scripts/check-test-catalogue.sh`). After editing a handleiding chapter, run
-  `python docs/handleiding/build_site.py` and commit the rebuilt HTML.
+  (`./scripts/check-test-catalogue.sh`). The handleiding exists in Dutch (`docs/handleiding/`)
+  and English (`docs/handleiding/en/`): edit a chapter in both, then run
+  `python docs/handleiding/build_site.py` and commit the rebuilt HTML. The build refuses when an
+  English chapter's structure (headings, tables, paragraphs, list items, inline code, links
+  between chapters) differs from its Dutch original.
 - Until the first release candidate a PR adds no `CHANGELOG.md` entry, no TF-10 §8 line and
   no TF-18 §8 row (TF-18 §3a): the changelog holds one summary of the pre-release work, and
   TF-10 §8 lists the clinical behaviour to validate by area — update it only when a PR adds

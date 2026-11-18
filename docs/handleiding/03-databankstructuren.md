@@ -41,7 +41,7 @@ Het ClickHouse-schemabestand `backend/db/schema/clickhouse/001_coga_variant_stor
 | `SV/variants/details`, `SV/key_lookup`, `SV/entries`, `…/family_data_version` | Hetzelfde voor structurele varianten, met een eigen versie die verandert bij elke wijziging van de SV's van een familie (de SV-index voor de tweede hit gebruikt die, hoofdstuk 8) |
 | `INTERVAL/entries` | Interval-tracks: dekking, CNV-segmenten, APCAD, PCF-segmenten, haplotypeblokken, de genoombrede haplotypelijn (`haplotype_lineage`) en de dekking per capture-target van een NIPT-panel (`target_coverage`), met per rij de bron en de bestandsnaam |
 
-Een `overwrite`-import van een bestaande familie maakt daarnaast tijdelijke back-uptabellen `<assembly>/SNAPSHOT/<import>/<tabel>`. Ze bevatten een kopie van de rijen van die familie in `SNV_INDEL/entries`, `SV/entries`, `SV/variants/details`, `SV/key_lookup` en `INTERVAL/entries`, om haar bij een fout terug te zetten. De import verwijdert ze als hij eindigt. Bij een gestopte import doet de worker die zijn job beëindigt dat, en anders de volgende start (hoofdstuk 6).
+Een `overwrite`-import van een bestaande familie maakt daarnaast tijdelijke back-uptabellen `<assembly>/SNAPSHOT/<import>/<table>`. Ze bevatten een kopie van de rijen van die familie in `SNV_INDEL/entries`, `SV/entries`, `SV/variants/details`, `SV/key_lookup` en `INTERVAL/entries`, om haar bij een fout terug te zetten. De import verwijdert ze als hij eindigt. Bij een gestopte import doet de worker die zijn job beëindigt dat, en anders de volgende start (hoofdstuk 6).
 
 Voor een reviewer zijn vijf dingen belangrijk:
 
