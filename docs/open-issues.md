@@ -212,8 +212,8 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - Benchmark import and queries on the real stack; every timing so far is synthetic data on a laptop (`clickhouse-scale-benchmark.md`).
 - Terraform: a Cloud Run import-worker service, as Compose has; a ClickHouse disk and VM above the 200 GB and `e2-standard-4` defaults.
-- The benchmark's "What would scale better": the cohort-wide annotation scans (the Variant Explorer's broad filters, read window by window; the family search's rsID and HGVS filters; the family's variant statistics), a finer `entries` partition.
-- The variant summary's small-variant statistics are counted on each visit: about 6 s, and up to 2 GiB for one query, for a synthetic trio of five million variants on a laptop. Time them on a real whole-genome family.
+- The benchmark's "What would scale better": the cohort-wide annotation scans (the Variant Explorer's broad filters, read window by window; the family search's rsID and HGVS filters), a finer `entries` partition.
+- The variant summary's small-variant statistics are counted on each visit, from the family's rows alone: about 2.4 s, and up to 385 MiB for one query, for a synthetic whole-genome trio (6.3 M rows) on a laptop (`clickhouse-scale-benchmark.md`, "Variant statistics"). Time them on a real whole-genome family.
 
 ## P3
 

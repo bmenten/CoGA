@@ -5,7 +5,8 @@ storage behaves as a synthetic cohort grows, where it fails, and what hardware 1
 The benchmark is
 [`scripts/benchmark_clickhouse_scale.py`](../scripts/benchmark_clickhouse_scale.py); every figure
 below comes from its results, measured on 2 and 3 November 2026, the Variant Explorer's on
-12 and 18 November 2026, the family search's on 18 November 2026. The family search tests its
+12 and 18 November 2026, the family search's and the variant statistics' on 18 November 2026.
+The family search tests its
 per-transcript annotation filters on each `entries` row's own transcripts (`transcripts`), and
 narrows the subqueries that still read the shared annotation tables to the variants the family
 carries (`_small_family_key_condition`); this page calls that *the family-key bound*.
@@ -21,6 +22,10 @@ carries (`_small_family_key_condition`); this page calls that *the family-key bo
   rare search of a trio read 12.6 M rows at 50, 100 and 250 genomes alike, where reading the
   cohort's annotation table it read 198, 248 and 359 M, about 750 M at 1,000. It held 0.2–0.5 GiB
   and took 1–3 s here at every size.
+- **So do the variant summary's small-variant statistics.** They rank each variant's
+  consequences on the rows' own transcripts: a trio's statistics read its 6.3 M rows, held
+  385 MiB and took 2.4 s at 50 genomes, where through the cohort's `annotation_index` they read
+  27.1 M rows (21.7 M at 10 genomes), held 1.12 GiB and took 4.6 s.
 - **The family-key bound stays where a subquery reads the shared tables:** a panel's genes, the
   rsID, a transcript or HGVS text. Without it, a 5,300-gene panel's set grew with the cohort
   (745 MiB at 250 genomes, 437 MiB with it), and the rare-only search, when it read the shared
@@ -97,6 +102,7 @@ passes:
 | D | as B, on a quieter machine, with the family-key bound only | 250 genomes |
 | E | the annotation tables at full size and a carrier summary of their size written from the variant pools, no family's rows (`--entries probes --skip-details --summary synthetic`) | 1,000 genomes |
 | F | as B, each `entries` row with its own transcripts; on 18 November 2026, at a host load of about 5, the dev stack's containers idle beside it | 50, 100 and 250 genomes |
+| G | as F, for the variant statistics alone (`--operations statistics`); on 18 November 2026, at a host load of about 6 | 10 and 50 genomes |
 
 Pass B grows exactly what the family search's annotation filters read; passes A and C grow what the
 Variant Explorer, the overwrite and the integrity check read. The family-key bound changes the
@@ -112,6 +118,10 @@ family search only. The query code measured:
   the rows' own transcripts, and again with the code at `5c6a8645`, which tests them on the
   shared `variants/annotations` table with the family-key bound. Its family searches come from
   a run of them alone (`--operations family`), with the other measurements from a full run.
+- pass G: each step with the code that ranks each row's consequences on the rows' own
+  transcripts, and again with the code at `f1805de9`, which ranks them through the cohort's
+  `annotation_index`, for the family's keys; the 50-genome step a second time, five runs each,
+  once the ranking was a `transform`.
 
 A 500-genome step of pass B was dropped: with every broad query passing the time limit on the
 overloaded machine, it would have measured the machine, not the code. Pass C was cut to one step
@@ -318,6 +328,32 @@ to 8 minutes, and longer under load (0.2 GB a second at the 250-genome step: abo
 key counts held at most 0.65 GiB at 19–28 M distinct variants, so 1 to 2 GiB at 61 M. It never
 failed here, but it reads the whole data disk four times a day.
 
+### Variant statistics
+
+Pass G, the trio (6.3 M `entries` rows) and the singleton (4.8 M): the variant summary's
+small-variant statistics, the per-variant counts, the call histograms and the trio's Mendelian
+table, as one visit of the page reads them. Rows read are the per-variant counts query's, at 10
+genomes (9.1 M distinct variants) and 50 (14.5 M); memory is the largest of the queries (that
+one) and time the median of five runs, at 50 genomes:
+
+| Family | Through `annotation_index`: rows read at 10 / 50 genomes; memory, time | On the rows' own transcripts: rows read at 10 / 50 genomes; memory, time |
+| --- | --- | --- |
+| Trio | 21.7 M / 27.1 M; 1.12 GiB, 4.6 s | 6.3 M / 6.3 M; 385 MiB, 2.4 s |
+| Singleton | 18.7 M / 24.1 M; 961 MiB, 2.0 s | 4.8 M / 4.8 M; 272 MiB, 0.8 s |
+
+Every run gave the same counts, consequences included, both ways.
+
+- On the rows' own transcripts the statistics read the family's rows and nothing else: 6.3 M
+  rows for the trio, whatever the cohort's size. Through the index they read the family's rows
+  twice (the rows, and their keys for the set that narrowed the index) and the cohort's whole
+  `annotation_index`, growing with each new distinct variant.
+- The memory is the per-variant grouping's own, about 60 B a variant. Through the index the
+  statement also held the set of the family's keys and the joined index rows.
+- Of the transcripts the statement reads the `effects` subcolumn alone: about 400 MiB
+  uncompressed for the trio, beside 1.0 GiB of its rows' other columns.
+- Each term is ranked through `transform`, a hash lookup: 0.2 s for the trio's rows, where a scan
+  of the term list (`indexOf`) took 1–2 s.
+
 ### Writing the rows
 
 The storage writer (`insert_small_variant_records`), on trio records with six transcripts each,
@@ -342,8 +378,6 @@ This benchmark generates each shared row once and does not measure that merge lo
 - **The family search's rsID, transcript and HGVS filters** still read the cohort's annotation
   index or table, narrowed to the family's keys: the row's own transcripts hold no text, and the
   rsID filter also finds the rsID another import of the variant wrote.
-- **The family's variant statistics** read each variant's consequences from the cohort's
-  `annotation_index`, for the family's keys; the rows' own `transcripts` hold them.
 - **The Variant Explorer's broad filters** read the cohort's annotation tables once a page, window
   by window (363 M transcript rows for rare only at 1,000 genomes), and a large panel's gene-index
   rows once a window. Keeping the values the filters test on the summary's rows would make a
@@ -424,6 +458,7 @@ After each step's merges have settled, the script calls the app's own functions,
 | The carrier summary: each family added, one trio taken out and added again | the reconciler's refresh of one family (`variant_carrier_summary._refresh_family`) and the writers' hook (`detach_family_variant_carriers`), the Postgres parts (projects, members, locks) stubbed |
 | Overwrite of one trio | `snapshot_family_clickhouse_state`, `delete_family_small_variants`, `restore_family_clickhouse_state`, `discard_family_clickhouse_snapshot`, and the parts the mutations rewrote (`system.part_log`) |
 | Integrity check | `check_clickhouse_variant_integrity`, as the 6-hourly monitor runs it |
+| The variant summary's small-variant statistics, for a trio (with its Mendelian table) and a singleton | `get_family_small_variant_statistics`, as `GET /families/{id}/small-variant-statistics` runs it: the per-variant counts, the call histograms and the Mendelian table at once |
 | Storage | rows, parts and bytes on disk per table (`system.parts`) |
 
 The searches run three times; the tables give the median time and the largest memory of any of
@@ -446,7 +481,7 @@ ends. Options:
   `--skip-details` leaves `variants/details` empty, to test the cohort-wide annotation tables alone.
 - The script stops before a step that would leave less than `--min-free-gb` free.
 - `--operations` runs some of the measurements alone: `family`, `explorer` (with the carrier
-  summary), `overwrite` and `integrity`.
+  summary), `overwrite`, `integrity` and `statistics`.
 - `--summary synthetic` writes the carrier summary straight from the variant pools (each common
   variant in every project, each rare one in one, with made-up counts) instead of from the
   families' rows: a summary the size of the cohort's, with `--entries probes`.
