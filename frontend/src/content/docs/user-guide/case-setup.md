@@ -25,4 +25,25 @@ Package import | A superuser or an administrator checks, corrects and approves t
 > assembly. If a viewer cannot place coordinates or a gene search is empty, check that the reference
 > data for the family's assembly is loaded.
 
+### Importing a package
+
+The **Package import** page lists under **Deliveries** the family folders the pipelines delivered,
+each with its package file (`coga-package.json`), checked by CoGA. Nothing is imported until you
+approve it.
+
+1. Read the delivery's **State** (*Ready*, *Needs attention*, *Still copying*) and its warnings. **Add
+   a folder by hand** adds a folder no pipeline delivered.
+2. **Correct…** completes or corrects what the package says (the project, the analysis, the members,
+   the datasets), with a reason.
+3. **Dry run** checks it as an import would, without writing anything. **Approve…** imports it, or tick
+   several ready ones and press **Approve selected**. For a family that exists already, choose *Update: add the
+   missing datasets and members* or, as an administrator, *Overwrite: replace its datasets and
+   pedigree*. **Refuse…** sets a delivery aside, with a reason.
+4. Follow the job under **Recent family imports**: the latest 10 jobs, up to 100 on **Show all**.
+
+CoGA keeps watching the folder after the import. A folder that changes, or is gone, is listed as
+*Changed after import*, and every page of the family warns of it (*Package folder changed after
+import* or *Package folder gone*); signing out meanwhile asks for a reason. See
+[Family report and sign-out](#clinical-report) for what ends the warning.
+
 [Data import reference (who may do what, reference data, package steps and checks)](/docs/reference/data-import "further-reading")

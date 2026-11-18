@@ -5,7 +5,7 @@ A running import writes its job's heartbeat every minute, and a worker that find
 minutes old ends the job as interrupted and drops the job's overwrite backups. Here the
 import's process is alive and only its heartbeat cannot be written.
 
-Over two new one-sample families this runs real import jobs (``POST /api/family-imports``,
+Over two new one-sample families this runs real import jobs (queued as a delivery's approval queues it,
 then the worker's ``run_family_import_job``) against Postgres and ClickHouse. While each
 import is held inside a dataset, its heartbeat is made ten minutes old and a worker's claim
 ends the job as interrupted (``claim_next_family_import_job``, then

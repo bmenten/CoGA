@@ -14,7 +14,7 @@ upload with overwrite brings it again. An SNV dataset whose ``source_format`` is
 ``auto`` records the callset its file held, so two such imports do not bring each other's
 callset again.
 
-Over six new one-sample families this runs real import jobs (``POST /api/family-imports``,
+Over six new one-sample families this runs real import jobs (queued as a delivery's approval queues it,
 then the worker's ``run_family_import_job``) and structural-variant uploads
 (``POST /api/structural-variants/upload/<sample>``) against Postgres and ClickHouse, and signs
 out through ``POST /api/families/<id>/report/sign-out`` after each re-import.

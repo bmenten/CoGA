@@ -7,7 +7,7 @@ HPO terms are kept per person. An analyst of the family's project (role analyst 
 superuser or an administrator adds them:
 
 1. Click the person's sample name on the family page.
-2. Under **HPO Phenotypes**, search a term and choose *present*, *absent* or *unknown*.
+2. Under **HPO phenotypes**, search a term and choose *present*, *absent* or *unknown*.
 3. Press **Add phenotype**. **Edit** changes a term's status or note: choose the new ones and press
    **Save change**. **Remove** takes a term off; to use another term, remove it and add that one.
 
@@ -35,15 +35,17 @@ keeps:
 
 So the Mendeliome, too, keeps a variant inside one of its genes whose annotation names another gene.
 
-A gene name that no loaded assembly knows, such as a typo or an old symbol, gets no position. The
-panel's page lists it as *not imported*: a filter on the panel finds no variant in it.
+A panel names each gene by its HGNC symbol or by its Ensembl gene ID (`ENSG` and eleven digits), the
+gene's stable name. A gene name that no loaded assembly knows, such as a typo or an old symbol, gets no
+position. The panel's page lists it as *not imported*: a filter on the panel finds no variant in it.
+Use the current symbol or the Ensembl gene ID instead.
 
-Superusers and administrators change a local panel's genes on its page, in three ways that can be combined: the bin
-on a gene's row, **Add to changes** for new names, and **Edit the whole list**. Each change is listed
-under **Changes for version N**, where a name no assembly knows is flagged. Nothing is saved until you
-press **Confirm and save version N**; the earlier version stays in the version history. If someone
-saved another version in the meantime, CoGA refuses the save, reloads the panel and keeps your changes
-listed, to confirm again.
+Superusers and administrators change a local panel's genes on its page, in three ways that can be
+combined: the bin on a gene's row, **Add to changes** for new names, and **Edit the whole list**.
+Each change is listed under **Changes for version N**, where a name no assembly knows is flagged.
+Nothing is saved until you press **Confirm and save version N**; the earlier version stays in the
+version history. If someone saved another version in the meantime, CoGA refuses the save, reloads the
+panel and keeps your changes listed, to confirm again.
 
 ### Phenotype matching
 

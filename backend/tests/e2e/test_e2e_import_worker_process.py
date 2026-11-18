@@ -10,7 +10,7 @@ variant-write locks (advisory locks). This test runs them across processes.
 
 The API is the app of this process, driven through an in-process ``httpx.ASGITransport``
 client (see test_e2e_api_contract.py) without its lifespan, so it runs no worker, as with
-``FAMILY_IMPORT_WORKER_COUNT=0``: each job below is queued through ``POST /api/family-imports``
+``FAMILY_IMPORT_WORKER_COUNT=0``: each job below is queued as a delivery's approval queues it
 and taken by a worker process started for it, which the job's ``worker_id`` names by its
 process id. Some run the entrypoint exactly as the image does; the others run it through
 ``_import_worker_process.py``, which only makes the poll and the heartbeat faster and can hold

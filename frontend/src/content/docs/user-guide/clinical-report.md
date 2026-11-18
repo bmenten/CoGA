@@ -21,8 +21,9 @@ It refers to exactly one signed version: the one it rests on.
   call with CoGA's status, your classification and note, and the marks *differs from CoGA's status* and
   *Changed since review* where they apply. Without any, the section says so.
 - A **provenance footer**, printed with the report: the CoGA version that produced the page, the
-  in-house IVD statement and the manufacturer, and the versions behind the data (the pipeline tools,
-  the assembly, the gene loci, the Monarch release and the HPO release).
+  in-house IVD statement and the manufacturer, and the versions behind the data: the pipeline tools,
+  the *Reference assembly* (the genome the pipeline aligned to, where it names one), the gene loci,
+  the Monarch release and the HPO release.
 - An **evidence-drift** banner when a classification's evidence changed after it was made: for example
   a new ClinVar significance, REVEL score or gnomAD frequency (*REVEL 0.412 → 0.951*), consequence or
   LoF call (*LoF LC → HC*), missense Z for a missense variant's gene, or a structural variant that now
@@ -102,8 +103,8 @@ stops for seven things:
    no reason: the signed version says the source files were archived.
 7. **Repeat and Paraphase calls without a review** (no tag, note or classification at the locus or
    region): a repeat call reading *Pathogenic*, *Premutation*, *Review* or *Not assessed*, a count *Near
-   a boundary*, or a Paraphase call reading *pathogenic*, *carrier* or *review*. Review it, or acknowledge
-   with a reason. A grey-zone call alone does not stop sign-out.
+   a boundary*, or a Paraphase call reading *Pathogenic*, *Carrier* or *Review*. Review it, or
+   acknowledge with a reason. A grey-zone call alone does not stop sign-out.
 
 Your acknowledgement covers exactly what its dialog lists. If the concerns change before you click
 **Sign out anyway**, nothing is signed out: the dialog shows the current concerns, says they changed,

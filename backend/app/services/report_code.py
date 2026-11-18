@@ -1,6 +1,6 @@
 """The report code of a signed analysis record: the code the EPD report quotes.
 
-CoGA's sign-out is the analyst's analytical sign-off: it closes and freezes the analysis.
+CoGA's sign-out is the analytical sign-off, a supervisor's: it closes and freezes the analysis.
 The medical sign-off of the patient report happens in the hospital's EPD, and the EPD report
 refers to the frozen record, one to one, by its report code (owner decision of 2026-10-14).
 

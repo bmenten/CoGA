@@ -5,17 +5,18 @@ first sign-in creates your CoGA account, with the role *viewer*: you read and ch
 a project's data once an administrator gives you access to it, and you analyse once they give you a
 higher role.
 
-Where CoGA runs without Microsoft sign-in, choose **Sign up** on the sign-in page and fill in
-**Create account**. You can sign in once an administrator has activated the account and given you
-access to your projects.
+Where the sign-in page offers **Sign in with** your organisation's account instead, your first
+sign-in also creates the account, and an administrator approves it. Where CoGA runs without either,
+choose **Sign up** on the sign-in page and fill in **Create account**. You can sign in once an
+administrator has activated the account and given you access to your projects.
 
 **Logout** signs you out of CoGA, on every computer and in every browser where you are signed in:
 each of them asks you to sign in again. On a shared computer, then also choose **Sign out of
-Microsoft** on the sign-in page.
+Microsoft** (or of your organisation) on the sign-in page.
 
-The arrow at the right of the top bar opens a menu of the main sections: the projects, the explorers,
-the gene panels, this guide and, for superusers and administrators, **Admin**. **Settings** in the same bar holds your
-display preferences.
+The arrow at the right of the top bar opens the main menu: **Projects**, **Variant explorer**, **Gene
+explorer**, **CNV explorer**, **Panels**, **Report codes**, **User guide** and, for superusers and
+administrators, **Admin**. **Settings** in the same bar holds your display preferences.
 
 CoGA keeps the pedigree, the assay data and your interpretation together, so you review a case as a
 whole:

@@ -29,10 +29,12 @@ The report carries four things.
 A footer at the end of the report states when it was generated and which versions backed the data:
 
 - the **pipeline** layer: the tools that produced the family's annotated input (for example VEP,
-  ClinVar, gnomAD, dbNSFP, SpliceAI, GenCC, PanelApp);
-- the **reference** layer: what CoGA itself loaded — the genome assembly (with its release date), the
-  gene loci (source and import date), the Monarch release and the HPO release (with its date and the
-  SHA-256 of the ontology file it was imported from).
+  ClinVar, gnomAD, dbNSFP, SpliceAI, GenCC, PanelApp), and the reference genome the pipeline aligned
+  to (*Reference assembly*: the FASTA its VCF headers or package file name);
+- the **reference** layer: what CoGA itself loaded — the genome assembly (with its release date),
+  where the pipeline names no reference genome; the gene loci (source and import date), the Monarch
+  release and the HPO release (with its date and the SHA-256 of the ontology file it was imported
+  from).
 
 The pipeline versions come from the family's import manifest; no screen edits them. Only an admin can
 replace them, through the API. The replacement is written to the audit trail (section 3), and a later
@@ -71,6 +73,9 @@ When you save a classification, CoGA freezes the evidence it rests on:
   several callers call the same event (for example a NeedlR call and an uploaded Sniffles call), each
   call is its own row, with its own genes, pLI and inheritance. The rows share one review. The
   classification freezes the evidence of the row you opened it from.
+- **A repeat-locus or Paraphase-region review** saved with a classification or the **Report** tag:
+  the calls it rests on. If they are no longer the family's calls, sign-out stops on it as on
+  evidence drift.
 
 When you open the report, each frozen classification is compared with the current data. An amber
 banner lists every classification whose evidence changed:
@@ -110,7 +115,8 @@ check. The banner does not list it, but sign-out does: it counts as drift and ne
 The **Clinical audit trail** lists every clinical action on the family, most recent first: who, when,
 and what changed (before → after). It lists:
 
-- classifying, tagging or annotating a small variant, structural variant or CNV;
+- classifying, tagging or annotating a small variant, structural variant or CNV, a repeat locus or a
+  Paraphase region;
 - a change to the criteria behind a class, even when the class stays the same: a criterion accepted or
   rejected, its strength (for a CNV, its points) or its evidence changed, a suggestion that appeared or
   went;
@@ -177,6 +183,9 @@ SHA-256 content hash), the version the clinical report in the EPD refers to. It 
   reports is frozen with that pair review;
 - the reported structural variants and CNVs, with their classification, CNV criteria, tags, note and
   frozen evidence;
+- the reviews of repeat loci and Paraphase regions that carry a classification or the **Report** tag,
+  each with the calls it froze, and every repeat locus or Paraphase region with an abnormal call and
+  no review;
 - for each reported variant, the class its review shows, as the family page shows it (a class word in
   its text, else its most severe ACMG class tag, else its text), with that text. CoGA works it out
   from the saved review at sign-out. The ACMG classification and the CNV scoring are kept beside it,
@@ -219,7 +228,8 @@ SHA-256 content hash), the version the clinical report in the EPD refers to. It 
     interest;
   - the category counts and the filter funnel;
   - each variant tagged *report*, as the NIPT analysis classifies it: its category, the reads behind
-    it, the chance the fetus inherited it and, for a de novo candidate, its priority;
+    it, its recurrence in the assay's other cfDNA samples (the counts), the chance the fetus
+    inherited it and, for a de novo candidate, its priority;
   - the recessive fetal risk of the reported variants' genes;
   - what the analysis ran with (the coverage tables, the artifact list and the model);
 - what each **coverage track** of the family's samples held, per sample and caller: read depth, a log2
@@ -249,9 +259,9 @@ Each signed version has a **report code**, for example `7KQM2X-2-4PHT`:
 
 - six characters that every version of the family's record shares;
 - the version number;
-- four characters tied to the signed content.
+- three characters tied to the signed content, then a check character.
 
-Quote it in the EPD report. A code is unique. Its last character is a check: a mistyped character or
+Quote it in the EPD report. A code is unique. The check character catches typos: a mistyped character or
 two swapped neighbours is refused as a typo, never taken for another record's code. Upper or lower case
 and the hyphens do not matter; an I or L reads as 1, an O as 0.
 
@@ -272,10 +282,11 @@ Sign-out stops at each of these, in this order:
 | --- | --- | --- |
 | **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
 | **Data being written** | A data import of the family is queued or running, or its data are being written (an upload, or a deletion of its variants). | No override: sign out once it has finished. |
-| **Evidence drift** | A reported classification (small variant, structural variant or CNV) drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
+| **Evidence drift** | A reported classification (small variant, structural variant or CNV) drifted (banner above), or has no frozen evidence; or the calls a repeat-locus or Paraphase-region review froze are no longer the family's. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
 | **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data: a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample no relatedness check covers (such as a NIPT parent). For a NIPT family, also a failed NIPT quality check: no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA given as the maternal plasma. | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Import what failed again, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
-| **Package folder changed** | The package folder the family was imported from changed, or is gone, since its import, so the read files, signal tracks and QC report shown from it may not be those imported. The sign-out also checks the folder itself, so a change found only then counts too. The pages carry *Package folder changed after import* (below). | Import the folder's new delivery with overwrite, or refuse it, or acknowledge with a reason (*Package folder changed after import — acknowledgement required*). A gone folder confirmed as archived needs no reason. |
+| **Package folder changed** | The package folder the family was imported from changed, or is gone, since its import, as the watcher or the sign-out's own check of the folder found. The pages carry *Package folder changed after import* (below). | Import the folder's new delivery with overwrite, or refuse it, or acknowledge with a reason (*Package folder changed after import — acknowledgement required*). A gone folder confirmed as archived needs no reason. |
+| **Findings without a review** | A repeat locus or Paraphase region has an abnormal call and no review (no classification, tag or note): a repeat call that reads *Pathogenic*, *Premutation*, *Review* or *Not assessed*, or a count *Near a boundary*; a Paraphase call that reads *Pathogenic*, *Carrier* or *Review*. A grey-zone repeat call alone does not stop. | Review it, or acknowledge with a reason (*Findings without a review — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail.
 So "signed out over a known problem, and why" is part of the permanent record.
@@ -317,15 +328,18 @@ with **Retry**, and none of the family's data (a report: *Report could not be lo
 ### Package folder changed after import
 
 CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder its import
-read, and keeps watching that folder after the import, against the import that read the family's data
-whole (as a new family or with overwrite). When a file in it is added, removed or changed in size or
-time, every family page shows *Package folder changed after import*, naming the files; when the folder
-is gone or cannot be read, *Package folder gone*: the source files are no longer available. The warning
-prints with the report. It ends only when the folder is as it was imported again, or when the folder's
-new delivery is imported with overwrite or refused with a reason under *Deliveries*. An import with
-update keeps it: an update skips the datasets the family holds, so the changed files are not the ones
-imported. Signing out meanwhile asks for a reason, which the signed version keeps with what had
-changed; the sign-out also checks the folder itself, so a change made just before it counts too.
+read. After the import it keeps watching that folder, against the import that read the family's data
+whole (as a new family or with overwrite):
+
+- A file added, removed or changed in size or time: every family page shows *Package folder changed
+  after import*, naming the files.
+- The folder gone or unreadable: *Package folder gone*; the source files are no longer available.
+- The warning prints with the report. Signing out meanwhile asks for a reason, which the signed
+  version keeps with what had changed. The sign-out also checks the folder itself, so a change made
+  just before it counts too.
+- It ends only when the folder is as it was imported again, or when the folder's new delivery is
+  imported with overwrite or refused with a reason under *Deliveries*. An import with update keeps
+  it: an update skips the datasets the family holds, so the changed files are not the ones imported.
 
 When a superuser confirms a gone folder as archived on purpose (*Confirm archived…* under
 *Deliveries*, with a reason), every family page says *Source files archived* instead: the read files,
@@ -425,6 +439,8 @@ It shows what the record holds (section 4):
   partner, the gene, the phase, the pair's tags and classification, and its note);
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV
   criteria;
+- the repeat loci and Paraphase regions tagged **Report** (*Reported repeat expansions and Paraphase
+  findings*), and, with the checks, the *Repeat and Paraphase calls without a review*;
 - as each variant's class, the class its review showed when the version was signed, *Not classified*
   when it showed none, and beside it the ACMG (or CNV) score when that is another class: *VUS - class
   3 (ACMG score: Likely pathogenic - class 4 · 8 pts)*, *Not classified (CNV score: Pathogenic - class
@@ -469,8 +485,9 @@ the latest, intact record:
 *Signed versions* at the top lists every version; an earlier one names the version that replaces it.
 On the latest version the page says whether the family's current data still matches it, or what has
 changed since (a review, a report tag, a re-import, a QC cut-off, QA's count correction of a repeat
-locus). That line is not printed: the version stays what was signed. Sign out again to
-issue a new version.
+locus; for a NIPT family also a change to the artifact list, or another pregnancy of the assay that
+carries a reported variant). That line is not printed: the version stays what was signed. Sign out
+again to issue a new version.
 
 **Download signed version N (JSON)** returns the frozen record itself.
 

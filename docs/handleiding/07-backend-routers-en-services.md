@@ -108,7 +108,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `report_codes.py` | `/report-codes` | Een ondertekend analyserecord opzoeken met de rapportcode die het EPD-rapport citeert (hoofdstuk 11) |
 | `structural_variants.py` | `/structural-variants` | Het SV-bestand van één sample uploaden (alleen beheerders); de SV's van één sample leest de SV-lijst van de familie met de parameter `sample` |
 | `cnvs.py` | `/cnvs` | De klinische-CNV-catalogus en CNV's per regio |
-| `variant_explorer.py` | `/variant-explorer` | Varianten over alle toegankelijke projecten heen (hoofdstuk 14) |
+| `variant_explorer.py` | `/variant-explorer` | Varianten over alle toegankelijke projecten heen, met de weergaven per gen, per transcript en per cohortfrequentie (hoofdstuk 14) |
 | `genes.py` | `/genes` | Gene Explorer en genen per regio (hoofdstuk 13) |
 | `hpo.py` | `/hpo` | HPO-termen zoeken (hoofdstuk 12); de ontologie importeren loopt via `POST /api/admin/hpo/sync` |
 | `panels.py` | `/panels` | Genpanels, versies, PanelApp; schrijven alleen voor een superuser of beheerder |
@@ -120,7 +120,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `species.py` · `assemblies.py` | `/species` · `/assemblies` | Soorten en assemblies, met hun referentiestatus |
 | `cram.py` | `/cram` | CRAM/BAM voor de genoombrowser, met toegangscontrole |
 | `signal_tracks.py` | `/signal-tracks` | De signaalbestanden van de CNV-caller (bigWig, bedGraph) voor IGV |
-| `family_imports.py` | `/family-imports` | Pakketimport, alleen voor een superuser of beheerder; een bestaande familie overschrijven alleen voor een beheerder (hoofdstuk 6) |
+| `family_imports.py` | `/family-imports` | Pakketimport: de leveringen (uit een bewaakte importmap of met de hand toegevoegd), hun correctie, goedkeuring of weigering, en de importjobs. Alleen voor een superuser of beheerder; een bestaande familie overschrijven alleen voor een beheerder (hoofdstuk 6) |
 | `product.py` | `/product` | De releasecatalogus |
 | `admin.py` | `/admin` | Alle beheerfuncties, elk achter `get_current_admin_user`; de varianttags, het overzicht van de presetfilters en de grenzen voor sequencing-QC achter `get_current_superuser` (hoofdstuk 15) |
 | `ui_events.py` | `/ui-events` | UI-telemetrie (hoofdstuk 15) |
@@ -134,14 +134,15 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | --- | --- | --- |
 | ClickHouse-variantlaag | `clickhouse_variant_storage.py`, `clickhouse_variant_queries.py`, `clickhouse_family_variants.py`, `clickhouse_interval_tracks.py` | Tabellen, query-opbouw en het uitvoeren van variantvragen |
 | Familie en toegang | `family_metadata_context.py`, `metadata_service.py`, `access_control.py`, `family_structure_service.py` | Families, leden en structuur, met toegangsscoping. (`data_scope.py` gaat ondanks de naam over chromosoomnamen, niet over toegang.) |
-| Import | `family_package_*.py`, `variant_upload_service.py`, `raw_import_files_pg.py`, `vcf_header_provenance.py` | Pakketimport en herkomst (hoofdstuk 6) |
-| Filters en prioritering | `family_variant_filters.py`, `variant_prioritization.py`, `variant_ranking_cache.py`, `variant_explorer_service.py` | Filters, scoring, ranking en de ranking-cache (hoofdstukken 8 en 12) |
+| Import | `family_package_*.py`, `import_watcher.py`, `coga_package*.py`, `import_delivery_*.py`, `variant_upload_service.py`, `raw_import_files_pg.py`, `vcf_header_provenance.py` | Leveringen, pakketimport en herkomst (hoofdstuk 6) |
+| Filters en prioritering | `family_variant_filters.py`, `variant_prioritization.py`, `variant_ranking_cache.py`, `variant_explorer_service.py`, `variant_carrier_summary.py` | Filters, scoring, ranking, de ranking-cache en de dragerssamenvatting van de Variant Explorer (hoofdstukken 3, 8, 12 en 14) |
 | ACMG en review | `acmg_points.py`, `cnv_acmg_points.py`, `small_variant_review_*.py`, `structural_variant_review_pg.py`, `classification_drift_service.py` | Classificatie, tags, reviewtoestand, drift (hoofdstuk 10) |
 | Gespecialiseerde analyses | `nipt_*.py`, `haplotype_lineage_service.py`, `phased_marker_service.py`, `mitochondrial_analysis.py`, `paraphase_pg.py`, `sample_integrity_*.py`, `family_variant_statistics.py` | NIPT, PGT, mtDNA, Paraphase, sample-QC, de variantsamenvatting (hoofdstuk 8) |
 | Fenotype | `hpo_service.py`, `monarch_*.py` | HPO en Monarch (hoofdstuk 12) |
 | Referentiedata | `gene_info_*.py`, `reference_*_service.py`, `panel_metadata_service.py`, `panelapp_service.py` | Genreferentie, referentietracks, panels (hoofdstuk 13) |
 | Traceerbaarheid | `audit_log_pg.py`, `clinical_audit_service.py`, `report_signout_service.py`, `hash_chain.py`, `integrity_anchor_service.py`, `event_pipeline.py` | Auditlog, klinische audit, ondertekening, hash-ketens, ankers (hoofdstuk 11) |
 | Robuustheid | `upload_safety.py`, `bounded_download.py`, `auth_rate_limit_pg.py` | Begrensde uploads en downloads, rate limiting |
+| Mail | `outgoing_mail.py`, `account_notifications.py`, `account_activation_mail.py`, `family_assignment_mail.py` | De mail aan de beheerders over een wachtend account, aan een geactiveerd account en aan wie een familie toegewezen krijgt (hoofdstukken 2 en 5) |
 
 ## Metrics voor de monitoring
 

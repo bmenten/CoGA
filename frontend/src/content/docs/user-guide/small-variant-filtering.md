@@ -40,6 +40,9 @@ and **Collapse all** open or close every row.
 - **Frequency** has a slider per population. In its header, AF sets every population at once; AC and
   H/H set gnomAD's allele count and its homozygote and hemizygote counts. AF shows the maximum shared
   by the populations that have one, or *mixed* when they differ.
+  - A maximum count keeps a variant without that count, as absent from gnomAD. When such a variant
+    may be in gnomAD after all, a note above the list says how many passed unchecked (*Passed the
+    gnomAD count filter unchecked*); hover it for what it counts.
 - **Call quality** sets the minimum genotype quality, allele balance, depth and alt reads of the
   members' calls, for all members at once or per member.
   - With *Affected only* on, only the affected members' calls are held to them, so a parent's
@@ -117,15 +120,18 @@ secondary-findings list has a chip such as *ACMG SF v3.3*; hover it for the list
 inheritance and variants to report. *The ACMG SF list could not be read* means no chip does not tell
 you the gene is off the list; the gene page says which.
 
-The variant column opens with the gene's ID and the transcript the card describes, then gives HGVS.g,
-HGVS.c and HGVS.p. HGVS.c and HGVS.p are on the transcript named above them, without its accession. HGVS.g is VEP's (its HGVSg) where the annotation has it. Otherwise it is
-written from the VCF record and is not HGVS-normalised; hover the label to see which. Under
-**Frequencies**, a *filter* row under a gnomAD frequency means the site fails gnomAD's own QC (AC0, RF …):
-gnomAD itself does not trust that frequency. Under **In silico**, a dot before each prediction shows how it reads, in
-seqr's colours: green and olive benign, grey indeterminate, yellow, red and dark red pathogenic
-(supporting, moderate, strong). The thresholds are seqr's, from ClinGen's calibration of the predictors;
-SpliceAI uses the cut-offs of CoGA's ACMG evaluation. pLI and Missense Z describe the gene and have no
-dot.
+The card's columns:
+
+- **Variant** opens with the gene's ID and the transcript the card describes, then gives HGVS.g, HGVS.c
+  and HGVS.p. HGVS.c and HGVS.p are on that transcript, without its accession. HGVS.g is VEP's (its
+  HGVSg) where the annotation has it; otherwise it is written from the VCF record and is not
+  HGVS-normalised. Hover the label to see which.
+- **Frequencies**: a *filter* row under a gnomAD frequency means the site fails gnomAD's own QC (AC0,
+  RF …): gnomAD itself does not trust that frequency.
+- **In silico**: a dot before each prediction shows how it reads, in seqr's colours: green and olive
+  benign, grey indeterminate, yellow, red and dark red pathogenic (supporting, moderate, strong). The
+  thresholds are seqr's, from ClinGen's calibration of the predictors; SpliceAI uses the cut-offs of
+  CoGA's ACMG evaluation. pLI and Missense Z describe the gene and have no dot.
 
 *Expanded carrier screening* is for couples only. It keeps:
 

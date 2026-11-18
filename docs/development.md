@@ -26,10 +26,11 @@ refuses to start until `SECRET_KEY`, `INTEGRITY_ANCHOR_SIGNING_KEY`, `POSTGRES_P
 `CLICKHOUSE_PASSWORD` and `ADMIN_PASSWORD` hold real values, with the first two different
 (`.env.example` shows how to generate those two). It also refuses:
 
-- `AUDIT_LOG_MODE=off`;
+- `AUDIT_LOG_MODE=off`, and `AUDIT_LOG_DROP_ALLOWED=true`;
 - the local origins `.env.example` allows (`CORS_ORIGINS`, and the default
   `CORS_ORIGIN_REGEX`);
-- a build without its commit (`GIT_SHA`).
+- a build without its commit (`GIT_SHA`);
+- `SMTP_USERNAME` without `SMTP_STARTTLS=true`.
 
 The same check applies to anything that loads the backend settings on your machine, such as
 the demo loader.
@@ -51,7 +52,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 
 The development stack mounts `backend/`, `frontend/`, `scripts/` and `data/` into the
 containers, so code changes apply without a rebuild, and sets `APP_ENV=development` for the
-backend container.
+backend and the import worker.
 
 On macOS a bind mount is case-insensitive by default. Two family IDs that differ only in case
 (`FAM1`, `fam1`) then share every folder named after an ID, such as a family's data folders
@@ -68,13 +69,19 @@ The package imports run in the `import-worker` service, a process of its own
 ([application-scheme.md](application-scheme.md#import-worker-processes)); the backend runs
 none. The worker runs the same mounted code but does not reload when it changes, so an edit
 cannot stop a running import. To take a change, run `docker compose restart import-worker`.
-An import it was running stops where it is; its job is ended as interrupted once its heartbeat
-is ten minutes old. A backend run outside Docker (below) runs the imports itself, unless
-`FAMILY_IMPORT_WORKER_COUNT=0`; then run `python -m app.import_worker` from `backend/` beside
-it.
+An import it was running stops where it is; once its heartbeat is ten minutes old, its job is
+ended as interrupted, or run again if it had written nothing. A backend run outside Docker
+(below) runs the imports itself, unless `FAMILY_IMPORT_WORKER_COUNT=0`; then run
+`python -m app.import_worker` from `backend/` beside it.
 
-The first start downloads the GRCh38 cytobands (UCSC) and GENCODE gene annotations, so it
-needs internet access. Everything the backend does at startup is listed in
+- **Watched import folders.** The import watcher runs only when `FAMILY_IMPORT_WATCH_ROOTS`
+  names a folder (empty by default), in the process that runs the imports
+  ([data-import.md](data-import.md#watched-import-folders)).
+- **Mail.** Without `SMTP_HOST` (the default) CoGA sends no mail.
+
+The first start downloads the GRCh38 cytobands (UCSC), the GENCODE gene annotations, HPO and
+Monarch, and in the background builds the clinical CNV knowledgebase and loads DGV (about
+360 MB), so it needs internet access. Everything the backend does at startup is listed in
 [application-scheme.md](application-scheme.md#startup-and-background-work).
 
 ## Run the backend or frontend on your machine
@@ -165,7 +172,7 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
 - **Families, samples or users look wrong** — that data is in Postgres; look for schema errors
   near the start of the backend log.
 - **Variants do not list or import** — the cause is usually in an assembly's ClickHouse
-  tables. An admin can check them under Administration → ClickHouse Tables & Operations
+  tables. An admin can check them under Administration → ClickHouse tables & operations
   (`/admin/operations/clickhouse`): table status, the last result of the scheduled integrity
   check, an integrity check to run now, and buttons to create missing tables, rebuild the
   small-variant gene index and optimize the tables. The API offers the same:

@@ -47,8 +47,8 @@ must carry FORMAT/AD.
   priority, any flags and **Other cfDNA samples**: in how many other cfDNA samples of the assay, in
   every project, its allele is called, and how (maternal, the father's allele, or an *unexplained
   low-VAF* call that no parent explains, the mark of a recurrent artefact). This sits next to the usual
-  annotation, tags and ACMG classification. As on the
-  small-variant page, the diseases its gene is linked to are named under the card's heading.
+  annotation, tags and ACMG classification. As on the small-variant page, the diseases its gene is
+  linked to are named under the card's heading.
 - **Hide recurrent low-VAF calls** leaves out the variants that are an unexplained low-VAF call in more
   than the number of other cfDNA samples you give. A variant that ClinVar may call pathogenic, or that
   is common in the population, stays listed, marked *kept by the recurrence filter*. The filter narrows
@@ -96,7 +96,7 @@ the family's signed record, which the EPD report refers to by its report code. I
 sign-out, with the same checks and report code: the family has one signed record whether you sign out
 here or from the family report. The record holds the NIPT results as CoGA computed them: the fetal
 fraction and the quality checks, the coverage, and each variant tagged *report* with its category,
-reads and probabilities.
+reads, probabilities and recurrence in the other cfDNA samples.
 
 - Tag the variants you report first. **Show reported (N)**, in the NIPT page's header, lists them
   before you sign out: the variants tagged *report*, with every other filter cleared.

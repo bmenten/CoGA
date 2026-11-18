@@ -162,9 +162,10 @@ term that a newer release no longer lists keeps its old release. So the loaded r
 one on the most recently written term (`get_loaded_hpo_release` in `hpo_service.py`). It is
 not the highest release string (an older release can be imported again), nor the latest one
 recorded. Each term also keeps the SHA-256 of its source file (`metadata.release_sha256`),
-recorded by the startup import of the pinned file and by the admin sync. The admin
-sync does not import a file without a `data-version` header. The HPO admin page and the cached phenotype ranking
-([variant-ranking-cache.md](variant-ranking-cache.md)) read the release the same way.
+recorded by every import: the startup import (HPO's newest release, or the pinned file as the
+backup) and the admin sync. No import takes a file without a `data-version` header. The HPO admin
+page and the cached phenotype ranking ([variant-ranking-cache.md](variant-ranking-cache.md)) read
+the release the same way.
 
 When the family's pipeline declares a module under the same key (for example `assembly` from a
 VCF `##reference` line or the package file's `reference`), the pipeline's value is listed. So

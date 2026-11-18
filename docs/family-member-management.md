@@ -1,7 +1,8 @@
 # Family member management
 
-What happens when an admin changes a family after its creation: its members, their states
-or their relationships. Every edit below is admin-only.
+What happens when an admin changes a family's members, their states or their relationships
+after the family was created. Every edit below is admin-only, except a member's HPO terms, which
+an analyst of the family's project may also change.
 
 ## Where a member's data lives
 
@@ -38,8 +39,8 @@ The edits on this page record both. So do:
 
 - the family's creation (a PED upload, a family made by hand or a package import: *Pedigree
   recorded with 3 members: …*);
-- a package import into an existing family whose PED or manifest gives a member another
-  affected or carrier status;
+- a package import into an existing family whose package gives a member another affected or
+  carrier status;
 - an admin's deletion of a sample with its data (Admin → Data).
 
 An edit that leaves the pedigree as it was (a clear of the imported data alone) adds a
@@ -53,12 +54,14 @@ by hand replaces it with overwrite, or a package import that created it imported
 failed deletion records nothing. Both records outlive the family row, unlinked from it and
 still verifiable by the family's ID. HPO terms are not part of the pedigree.
 
-Changes to one family's pedigree run one at a time. Each writer holds the family's pedigree
-lock from before it reads the pedigree until it commits. A writer that also holds the family's
-variant-write locks (such as a structure edit that clears the imported data) takes those
-first. A second change waits for the first, so its `expected_structure_version` check sees the
-first one's version. Its event records the pedigree the first one left, never the first one's
-change as its own.
+Changes to one family's pedigree run one at a time:
+
+- Each writer holds the family's pedigree lock from before it reads the pedigree until it
+  commits. A writer that also holds the family's variant-write locks (such as a structure edit
+  that clears the imported data) takes those first.
+- A second change waits for the first, so its `expected_structure_version` check sees the first
+  one's version, and its event records the pedigree the first one left, never the first one's
+  change as its own.
 
 These also refer to a member:
 

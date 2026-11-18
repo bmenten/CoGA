@@ -24,7 +24,7 @@ worker and the frontend; a reverse proxy on the VM terminates TLS. This is the s
 | Disks | a system disk of 50 GB, and a separate SSD data disk (500 GB to 1 TB) for the Docker volumes and the family packages; snapshots of the data disk, if the provider offers them |
 | Host name | a DNS name, such as `coga-test.example.org` |
 | Inbound traffic | 443 (and 80 for an ACME certificate) from the institution's network or VPN only; 22 from the administrators' addresses only. Nothing else: Postgres, ClickHouse and the backend listen on loopback |
-| Outbound traffic | HTTPS to the internet: Docker pulls the images from Docker Hub, the image builds fetch packages from PyPI and npm, and the first start downloads the reference data (GENCODE, UCSC, HGNC, NCBI, ClinGen, GenCC, HPO, Monarch) |
+| Outbound traffic | HTTPS to the internet: Docker pulls the images from Docker Hub, the image builds fetch packages from PyPI and npm, and the first start downloads the reference data (GENCODE, UCSC, HGNC, NCBI, ClinGen, GenCC, HPO, Monarch, DGV) |
 | TLS certificate | from the institution's certificate service when the VM is reachable only from inside, since an ACME HTTP challenge cannot reach it; Let's Encrypt when port 80 is open to the internet |
 | Mail relay (optional) | an SMTP relay CoGA may send through (port 25 without sign-in, or 587 with STARTTLS and an account), for the mail to the administrators about an account that waits for approval, the mail to a user whose account an administrator activates, and the mail to the user a family is assigned to |
 
@@ -95,7 +95,8 @@ such as Ghent University's it is mandatory.
    ```bash
    for u in https://github.com https://download.docker.com https://registry-1.docker.io/v2/ \
        https://pypi.org https://registry.npmjs.org https://ftp.ebi.ac.uk \
-       https://hgdownload.soe.ucsc.edu https://ftp.ncbi.nlm.nih.gov https://storage.googleapis.com; do
+       https://hgdownload.soe.ucsc.edu https://ftp.ncbi.nlm.nih.gov https://storage.googleapis.com \
+       https://data.monarchinitiative.org https://dgv.tcag.ca; do
      printf '%-40s ' "$u"; curl -sS -o /dev/null -m 10 -w '%{http_code}\n' "$u" 2>&1
    done
    ```
@@ -230,6 +231,7 @@ EOF
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` | the mail relay (at Ghent University `smtprelay.ugent.be`, [step 1](#at-ghent-university)), its port (25 by default) and the sender it accepts; leave `SMTP_HOST` unset to send no mail. `SMTP_STARTTLS=true` when the relay offers it; with a relay that needs an account, also `SMTP_USERNAME` and `SMTP_PASSWORD`. The administrators get a mail about each account that waits for approval, and a user one when an administrator activates their account and one about each family assigned to them. *Users* shows who gets the account mail and sends a test; whether a mail went out is in `docker compose logs backend \| grep "the mail about"`, which names no address and no family |
 | `VITE_PROBLEM_REPORT_URL` | where testers report a problem, an `https://` or `mailto:` address |
 | `FAMILY_IMPORT_ROOTS` | `/data/families`, and `/data/families,/data/share` once a network share is mounted ([step 8](#a-network-share)) |
+| `FAMILY_IMPORT_WATCH_ROOTS` | empty (no watcher), or the folders under `FAMILY_IMPORT_ROOTS` the import watcher looks into for delivered packages ([step 8](#a-network-share)) |
 | `IMPORT_WORKER_REPLICAS` | the import-worker processes (1 by default); each imports one family at a time on a core of its own, so more of them import families in parallel ([step 10](#10-tuning-at-scale)) |
 | `METRICS_TOKEN` | optional, 32+ characters, to collect `/metrics` ([monitoring.md](monitoring.md)) |
 
@@ -317,7 +319,8 @@ docker compose logs -f backend
   port 3000 is open on every interface.
 - The first start downloads and loads the reference data, which takes several minutes. The
   backend turns healthy when it is done; the frontend and the import worker start after it.
-  The import worker (`import-worker`) runs the package imports; the backend runs none
+  The import worker (`import-worker`) runs the package imports, the import watcher and the
+  Variant Explorer's carrier summary; the backend runs none
   ([application-scheme.md](application-scheme.md#import-worker-processes)).
 
 ## 6. Reverse proxy and TLS
@@ -426,9 +429,9 @@ Before TLS, run the first two on the VM against `http://127.0.0.1:3000`.
 Then sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` (with Microsoft or CAS sign-in, as the
 first administrator of [step 4](#4-configure)), and as administrator:
 
-- **Administration → ClickHouse Tables & Operations**: the tables exist and the integrity check
+- **Administration → ClickHouse tables & operations**: the tables exist and the integrity check
   passes.
-- **Admin → Species & Assemblies**: the clinical CNVs and the DGV variants of GRCh38 fill in by
+- **Administration → Species & assemblies**: the clinical CNVs and the DGV variants of GRCh38 fill in by
   themselves. The first start builds the clinical CNV knowledgebase and loads DGV in the
   background, which can take up to two hours
   ([data-import.md](data-import.md#loading-or-replacing-reference-data)). A count that stays
@@ -511,9 +514,10 @@ sudo systemctl daemon-reload && sudo mount /srv/coga/data/share
 - To have CoGA watch the share for packages the pipelines deliver with their package file
   (`coga-package.json`, [coga-package.md](coga-package.md)), lay it out with a folder per project, named as the
   project in CoGA (`/data/share/<project>/<family>`), add `FAMILY_IMPORT_WATCH_ROOTS=/data/share` to `.env` and run
-  `docker compose up -d`: the import-worker service checks each new delivery every five minutes
-  (`FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`) and lists it under `GET /api/family-imports/deliveries`.
-  It imports nothing by itself ([data-import.md](data-import.md#watched-import-folders)).
+  `docker compose up -d`. The import-worker service looks into it every five minutes
+  (`FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`), checks each new delivery and lists it under **Deliveries**
+  (`GET /api/family-imports/deliveries`). It imports nothing by itself
+  ([data-import.md](data-import.md#watched-import-folders)).
 
 ## 9. Run it
 

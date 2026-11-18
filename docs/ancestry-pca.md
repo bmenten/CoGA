@@ -90,13 +90,17 @@ publishes nothing if a choice was made while it read.
 
 ## VCF files a package declares for ancestry
 
-A package may name, beside its datasets, VCF files only the ancestry PCA reads (`ancestry_files`),
-typically a gVCF, whose reference blocks say where an individual was sequenced and called
-reference, so no absence has to be assumed:
+The manifest an import reads may name, beside its datasets, VCF files only the ancestry PCA reads
+(`ancestry_files`): typically a gVCF, whose reference blocks say where an individual was sequenced
+and called reference, so no absence has to be assumed:
 
 ```json
 {"metadata":{"ancestry":{"vcfs":[{"path":"ancestry/PROBAND.g.vcf.gz","label":"gVCF"}]}}}
 ```
+
+The manifest is the one CoGA makes from the package file (`coga_package_manifest.package_manifest`),
+and the format `coga-package/1` has no field that writes `metadata.ancestry`
+([coga-package.md](coga-package.md)): a delivered package declares no such file.
 
 - **Declared** after the import completed, outside the hold (`register_declared_files`): one row
   per file inside the package (at most 8), reading none. It never fails or delays the import; what
@@ -132,16 +136,24 @@ family point; the table gives them under the coordinates.
 
 ## When it runs
 
-A run is a user's (**Calculate PCA projection** or a saved choice, `trigger = 'user'`) or the worker's own
-(`trigger = 'automatic'`, no requester). The ancestry worker runs where package imports run: in
-the import-worker processes ([application-scheme.md](application-scheme.md#import-worker-processes)),
-or in the API when it runs import workers itself. Every `SWEEP_INTERVAL_SECONDS` (30 s) it
-sweeps (`queue_changed_families`): it reads every family's small-variant data version from
-ClickHouse's `family_data_version` in one query and queues an automatic run for each family and
-project whose version no run has been queued for or read, or with a choice newer than its latest
-run, once the family is on GRCh38, its last import completed and none is running. One sweep at a time across the worker processes (an
-advisory lock); a failed sweep never stops the queued runs. Nothing in the import, the upload or
-any other writer of variants calls it: every write moves the data version, and the sweep sees it.
+A run is a user's (**Calculate PCA projection** or a saved choice, `trigger = 'user'`) or the
+worker's own (`trigger = 'automatic'`, no requester). The ancestry worker runs where package
+imports run: in the import-worker processes
+([application-scheme.md](application-scheme.md#import-worker-processes)), or in the API when it
+runs import workers itself.
+
+Every `SWEEP_INTERVAL_SECONDS` (30 s) it sweeps (`queue_changed_families`):
+
+- it reads every family's small-variant data version from ClickHouse's `family_data_version` in
+  one query;
+- it queues an automatic run for each family and project whose version no run has been queued
+  for or read, or with a choice newer than its latest run, once the family is on GRCh38, its last
+  import completed and none is running;
+- one sweep runs at a time across the worker processes (an advisory lock); a failed sweep never
+  stops the queued runs.
+
+Nothing in the import, the upload or any other writer of variants calls it: every write moves
+the data version, and the sweep sees it.
 
 A run that failed keeps its version, so the sweep does not queue it again until the genotypes
 change; **Calculate PCA projection** asks again.

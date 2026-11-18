@@ -1,7 +1,6 @@
 """Package-import jobs as the end-to-end tests drive them.
 
-A job is queued over the API as the import page queues it (``POST /api/family-imports``),
-claimed by its id as the worker's claim takes it (``claim_next_family_import_job``: the
+A job is queued as a delivery's approval queues it (``queue_family_import_job``), claimed by its id as the worker's claim takes it (``claim_next_family_import_job``: the
 status, the worker, the start and the heartbeat), and run as the worker runs it
 (``run_family_import_job``), so that a test decides which job runs, when, and with what held
 or failing. The packages are synthetic. Used by the import, sign-out and deletion modules of

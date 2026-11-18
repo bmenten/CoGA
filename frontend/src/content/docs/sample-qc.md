@@ -26,16 +26,16 @@ application, then runs only the checks that fit it:
 
 Any other family shape gets sex, relatedness and Mendelian checks where the data allows.
 
-The genotypes come from the family's own calls; failing those, from the imputed GLIMPSE2 calls; failing
-both, from the first call set the family has.
+The genotypes come from the family's Clair3 calls; failing those, from the imputed GLIMPSE2 calls;
+failing both, from the first call set the family has.
 
 ### Which sites are read
 
 The checks read a fixed sample of that call set's single-base (SNV) sites; an indel's genotype is
-called with more error. A genotype with a quality (GQ) below **20** counts as a no-call: the checks read
-only the calls the caller is at least 99% sure of. Unfiltered, a raw joint call set's low-depth
-homozygous calls can make a parent and child look like opposite homozygotes at close to 1% of the sites. A
-call set without a GQ (imputed GLIMPSE2 calls) is read as called.
+called with more error. A genotype with a quality (GQ) below **20** counts as a no-call, so the checks
+read only calls the caller is at least 99% sure of. Unfiltered, a raw joint call set's low-depth
+homozygous calls can make a parent and child look like opposite homozygotes at close to 1% of the
+sites. A call set without a GQ (imputed GLIMPSE2 calls) is read as called.
 
 - **Relatedness and Mendelian errors:** up to **90,000** sites spread over all 22 autosomes.
 - **Sex:** up to **20,000** sites on chromosome X outside the pseudo-autosomal regions (the regions
@@ -82,12 +82,10 @@ call or no recorded sex a **warn**. The message says the sex was read from the r
 and quotes the ratio and the read counts. A sample with X genotypes is sexed from them, not from the
 call.
 
-An embryo's recorded sex comes from that same call: the pipeline's pedigree file gives each embryo the
-sex ngs-bits read. So for an embryo the match confirms nothing independent. It is a **pass**, and its
-message says so. The parents' recorded sex comes from the pedigree, so theirs is a real comparison. An
-index missing from the pipeline's pedigree file is added at discovery with the sex ngs-bits read, unless
-the manifest gives another sex before the import. Its match then rests on the same call too, although
-its message does not say so.
+An embryo with sex `0` in the family's PED (unknown before the analysis) gets a **warn**: *Sex not
+recorded; the reads indicate …*. An embryo whose recorded sex matches the call is a **pass**, and its
+message says the match confirms nothing independent, reading the recorded sex as taken from that same
+call. The parents' and the index's recorded sex come from the PED, so theirs is a real comparison.
 
 ### Relatedness against the pedigree
 

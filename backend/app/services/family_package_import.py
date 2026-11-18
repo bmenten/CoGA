@@ -142,9 +142,9 @@ LOCKS_LOST_ERROR = (
 )
 # Why a job is not run, as its record says: the import runs as the account that requested
 # it, and that account no longer exists, or has been deactivated, which ends its
-# access at once (docs/security-posture.md), or is no longer an administrator, as only an
-# administrator may queue an import (the import routes). None names the account: the
-# job does.
+# access at once (docs/security-posture.md), or is no longer a superuser or an administrator,
+# as only they may queue an import (the import routes), or, for an overwrite, no longer an
+# administrator. None names the account: the job does.
 REQUESTER_GONE_ERROR = "Requesting user no longer exists"
 REQUESTER_INACTIVE_ERROR = (
     "Not run: the account that requested this import has been deactivated, and an import runs "

@@ -9,7 +9,7 @@ best-effort, an import whose update failed would go on to write the family under
 sign-out could find, and a sign-out meanwhile would freeze the family part-way (TF-06 H16).
 
 Over the golden trio this runs real re-import jobs whose request names no family
-(``POST /api/family-imports`` without ``family_id``, then the worker's
+(queued without ``family_id``, as a delivery's approval queues it, then the worker's
 ``run_family_import_job``), so only the family a job records can name it to a sign-out. When
 an import makes its first write of the family (its registration), the job row is read and
 the report is signed out through ``POST /api/families/FAM_TRIO/report/sign-out`` with every

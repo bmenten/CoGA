@@ -9,8 +9,8 @@ report.
 
 Here a one-sample package lies on the share in a folder named after its run, not its family,
 its CRAM and index named as a pipeline names them (``bams/<sample>.markdup.cram``), with a QC
-report. A real import job (``POST /api/family-imports``, then the worker's
-``run_family_import_job``) records them in Postgres. Over the real API (an in-process
+report. A real import job (queued as a delivery's approval queues it, then run by the
+worker's ``run_family_import_job``) records them in Postgres. Over the real API (an in-process
 ``httpx.ASGITransport`` client, one event loop, see test_e2e_api_contract.py), with the seeded
 admin signed in:
 

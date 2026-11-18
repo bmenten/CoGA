@@ -5,7 +5,7 @@ the curated variant data, the ACMG/AMP criteria, the gene context and the family
 prose that follows common guidelines for reporting (candidate causal) variants.
 
 > **Decision support.** The report is assembled from data already in CoGA. A qualified
-> clinical scientist must review and confirm it before any clinical use. The analyst signs it
+> clinical scientist must review and confirm it before any clinical use. A supervisor signs it
 > out into a frozen, content-hashed record: the closed analysis, which is the analytical sign-off
 > (see [clinical-traceability.md](clinical-traceability.md)). The clinical report is drafted and
 > medically signed in the hospital's electronic patient record (EPD), outside CoGA, and refers
@@ -78,8 +78,9 @@ whether it still matches.
 A signed version is rendered from its frozen record alone:
 
 - its report code;
-- each reported variant's description as reviewed (gene, transcript, HGVS c. and p.,
-  consequence, each sample's genotype), classification, criteria, frozen evidence, tags and note;
+- each reported variant's description as reviewed (gene, transcript, HGVS g. (VEP's, where the
+  annotation has it), c. and p., consequence, each sample's genotype), classification, criteria,
+  frozen evidence, tags and note;
 - in a PGT family, the embryo calls at the region of interest (*PGT embryo results*, which the
   live report does not show), each with its phasing QC and that QC's verdict against the
   thresholds the record states;

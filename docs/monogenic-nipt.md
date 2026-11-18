@@ -17,16 +17,17 @@ validation against invasive exomes stays in the R project.
 A NIPT case is a trio backed by two samples (`backend/app/services/nipt.py`, `resolve_nipt_trio`):
 
 - `family.metadata.analysis_type = "monogenic_nipt"` marks the family and shows the NIPT page. Family
-  Builder sets it; a package manifest's `analysis_type` is promoted to it.
+  Builder sets it; a package's `analysis_type` is promoted to it.
 - The cfDNA sample carries `sample.metadata.assay = "nipt_cfdna"` and the `mother` role. Without the
   tag, the active `mother` member's sample is used.
-- `sample.metadata.assay_panel` (optional, on the cfDNA sample; a manifest's is promoted) names the
-  capture panel and scopes the artifact list. Without it, every NIPT family on the assembly shares
-  the `nipt_cfdna` list.
+- `sample.metadata.assay_panel` (optional, on the cfDNA sample; a package member's is promoted) names
+  the capture panel and scopes the artifact list. Without it, every NIPT family on the assembly
+  shares the `nipt_cfdna` list.
 - The father is the active `father` member. The fetus (`embryo`, else `proband`) is an optional
-  placeholder without data. A NIPT PED usually gives the fetus an unknown sex and status, and the
-  import reads such a child as an `embryo`. It has no haplotype blocks, so the signed record holds no
-  PGT section for it: `pgt_analysis` only where an embryo has blocks of its own.
+  placeholder without data. A NIPT pedigree usually gives the fetus an unknown sex and status; the
+  import reads such a child, with both parents and no role given, as an `embryo`. It has no
+  haplotype blocks, so the signed record holds no PGT section for it: `pgt_analysis` only where an
+  embryo has blocks of its own.
 
 ## Input
 
@@ -129,36 +130,40 @@ it.
   profile. The summary endpoint serves them (`fetal_fraction_status`, `fetal_sex.status`), and the
   signed record freezes them.
 - **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT report or
-  the family report page (the NIPT page has none). Its record holds the section `nipt`
-  (`signed_record_nipt.py`): the summary, the checks, each reported variant as the variant list
-  classifies it (from
-  `nipt_service.get_family_nipt_record`), the recessive fetal risk over them, the inputs, and,
-  without a per-target table, the coverage check's notes over the coverage tracks (`coverage_notes`,
-  from `nipt_service.nipt_coverage_notes`). A failed fetal-fraction, fetal-sex or plasma
-  check gates it under the Sample QC's acknowledgement
-  ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out runs the analysis
-  once: its Sample QC and the section read the same run (`SharedNiptAnalysis`). The Sample QC runs
-  its NIPT checks in a savepoint, so a database error there is noted and gated as a check that could
-  not run, and the rest of the sign-out keeps running.
+  the family report page (the NIPT page has none).
+  - Its record holds the section `nipt` (`signed_record_nipt.py`): the summary, the checks, each
+    reported variant as the variant list classifies it (from `nipt_service.get_family_nipt_record`),
+    the recessive fetal risk over them, the inputs, and, without a per-target table, the coverage
+    check's notes over the coverage tracks (`coverage_notes`, from
+    `nipt_service.nipt_coverage_notes`).
+  - A failed fetal-fraction, fetal-sex or plasma check gates it under the Sample QC's
+    acknowledgement ([clinical-traceability.md](clinical-traceability.md#sign-out)).
+  - The sign-out runs the analysis once: its Sample QC and the section read the same run
+    (`SharedNiptAnalysis`). The Sample QC runs its NIPT checks in a savepoint, so a database error
+    there is noted and gated as a check that could not run, and the rest of the sign-out keeps
+    running.
 - **Variant summary** — `nipt_variant_statistics.py` groups one analysis run for the NIPT-M tab of
-  the family's *Variant summary* (`GET /families/{id}/nipt/statistics`). The run keeps its sites in
-  the order of their classifications (`NiptAnalysisResult.sites`) and the plasma calls' own FILTER
-  (`caller_filters`: PASS, or each other value), which no rule reads. Each category is a mother ×
-  fetus group, and so are the father's het alleles the fetus did not inherit (no category, and not
-  merely undetectable at the FF). Per group: the expected plasma VAF (`expected_plasma_vaf`) beside
-  the observed median, the confidence, the father's trusted genotype, the variant class and a VAF
-  histogram in bins of 0.01. Per autosome: the paternity check's counts
-  (`paternal_transmission_evidence` per chromosome), the mother's het alleles inherited beside a
-  confident hom-ref or hom-alt father (`maternal_allele_probability` ≥ 0.5, not ambiguous), and the
-  fetus's hom-alt sites. An autosome where none of a parent's alleles reached the fetus over at least
-  20 informative sites is marked (`CHROMOSOME_MARK_MIN_SITES`, the owner's choice of 2026-11-09; the
-  minimum is QA's to set): a hint of UPD or a deletion, not a call. It also gives what the artifact
-  list did (`get_family_nipt_summary_with_artifacts`): the alleles the assay's list holds, the
-  family's alleles among them, those removed and those kept in by protection. The funnel's
-  `failed_artifact` counts only the removed plasma calls that passed the quality filter. The page
-  draws the allele fractions per group (each row on its own scale) or stacked, with a hom/hom peak
-  above 1.5 times the tallest other bin cut. Descriptive: the signed record does not hold it. The small-variant statistics name the family's plasma and father
-  (`nipt_samples`), whose GT is not a genotype, and the page leaves their het/hom counts out.
+  the family's *Variant summary* (`GET /families/{id}/nipt/statistics`). Descriptive: the signed
+  record does not hold it.
+  - The run keeps its sites in the order of their classifications (`NiptAnalysisResult.sites`) and
+    the plasma calls' own FILTER (`caller_filters`: PASS, or each other value), which no rule reads.
+  - **Per group.** Each category is a mother × fetus group, and so are the father's het alleles the
+    fetus did not inherit (no category, and not merely undetectable at the FF). Each group shows the
+    expected plasma VAF (`expected_plasma_vaf`) beside the observed median, the confidence, the
+    father's trusted genotype, the variant class and a VAF histogram in bins of 0.01. The page draws
+    the allele fractions per group (each row on its own scale) or stacked, with a hom/hom peak above
+    1.5 times the tallest other bin cut.
+  - **Per autosome.** The paternity check's counts (`paternal_transmission_evidence` per
+    chromosome), the mother's het alleles inherited beside a confident hom-ref or hom-alt father
+    (`maternal_allele_probability` ≥ 0.5, not ambiguous), and the fetus's hom-alt sites. An
+    autosome where none of a parent's alleles reached the fetus over at least 20 informative sites
+    is marked (`CHROMOSOME_MARK_MIN_SITES`, the owner's choice of 2026-11-09; the minimum is QA's to
+    set): a hint of UPD or a deletion, not a call.
+  - **The artifact list** (`get_family_nipt_summary_with_artifacts`): the alleles the assay's list
+    holds, the family's alleles among them, those removed and those kept in by protection. The
+    funnel's `failed_artifact` counts only the removed plasma calls that passed the quality filter.
+  - The small-variant statistics name the family's plasma and father (`nipt_samples`), whose GT is
+    not a genotype, and the page leaves their het/hom counts out.
 - **De novo triage** — `nipt_triage.py`: `is_de_novo_candidate`, `de_novo_window`, `triage_de_novo`
   (the R pipeline's score and priorities). Other cfDNA carriers of the assay are the candidate's
   recurrence `carriers` (see *Recurrence in other cfDNA samples*): a call of at least 5 alt reads and
@@ -244,15 +249,20 @@ event, with the actor and the variants, on a chain of its own
 
 Auto-seed (`auto_seed_nipt_artifacts` → `fetch_recurrent_artifact_candidates`) reads the calls of
 the samples tagged `assay: nipt_cfdna` whose `assay_panel` resolves to the scope
-(`assay_cfdna_carrier_samples`), in every family and project. It counts the mark of a recurrent
-artefact, not the carriers: an allele is listed when it is an unexplained low-VAF call in at least
-`min_unexplained_samples` of them (3 by default, for a start with about 20 families), and that count
-is its `recurrence_count`. Each call is read as the recurrence count on the list reads it
-(`_cfdna_sample_calls`, by `recurrence_rules` with the default thresholds; see
-[Recurrence in other cfDNA samples](#recurrence-in-other-cfdna-samples)), so a call at 0.25 or more
-(maternal) or a lower one the family's father explains (paternal) does not count. A count of every
-carrier would reach any threshold for each 1–5% polymorphism once the database holds about a hundred
-plasmas, and list the paternal sites the fetal fraction is read from. It drops:
+(`assay_cfdna_carrier_samples`), in every family and project.
+
+- It counts the mark of a recurrent artefact, not the carriers: an allele is listed when it is an
+  unexplained low-VAF call in at least `min_unexplained_samples` of them (3 by default, for a start
+  with about 20 families), and that count is its `recurrence_count`.
+- Each call is read as the list's recurrence count reads it (`_cfdna_sample_calls`, by
+  `recurrence_rules` with the default thresholds; see
+  [Recurrence in other cfDNA samples](#recurrence-in-other-cfdna-samples)): a call at 0.25 or more
+  (maternal), or a lower one the family's father explains (paternal), does not count.
+- Why not every carrier: such a count would reach any threshold for each 1–5% polymorphism once the
+  database holds about a hundred plasmas, and list the paternal sites the fetal fraction is read
+  from.
+
+It drops:
 
 - variants with `is_gnomad_gt_5_percent`;
 - variants whose pooled `annotation_index.clinvar_terms` pass `clinvar_may_assert_pathogenic`

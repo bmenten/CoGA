@@ -51,7 +51,7 @@ carries (`_small_family_key_condition`); this page calls that *the family-key bo
   merges share with the rest of its project: 7.4 GB for one trio at 100 genomes in four projects,
   about 50 GB at 1,000.
 - **The integrity check reads every byte of the variant tables:** 0.7–1.4 GB a second on a quiet
-  machine, so 3 to 6 minutes every 6 hours at 1,000 genomes.
+  machine, so 4 to 8 minutes every 6 hours at 1,000 genomes.
 - **The storage writer writes about 2,600 records a second**, the import reading each annotation
   once and inserting synchronously. Writing a
   whole-genome trio takes about 40 minutes; 1,000 genomes take about 10 days of one core's work,

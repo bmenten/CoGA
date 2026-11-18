@@ -6,7 +6,7 @@ a reason (REQ-TRACE-013, TF-06 H16). A later import that completes leaves the fl
 failed dataset is still missing, whatever it imported; and a later failure's flag keeps what
 an earlier one said had failed.
 
-Over one new family this runs real import jobs (``POST /api/family-imports``, the worker's
+Over one new family this runs real import jobs (queued as a delivery's approval queues it, then the worker's
 ``run_family_import_job``) and signs out through ``POST /api/families/<id>/report/sign-out``:
 
 * package 1 (cancel): its SNV callset fails (no readable record), its coverage imports: the

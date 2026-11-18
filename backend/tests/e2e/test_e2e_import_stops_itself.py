@@ -7,7 +7,7 @@ the next writer can start. The import's heartbeat stops it where it is: once its
 reached the database for half the stale window (``FAMILY_IMPORT_SELF_STOP``), and as soon as
 its check of the lock connection fails (every ``FAMILY_IMPORT_LOCK_CHECK_SECONDS``).
 
-Over new one-sample families this runs real import jobs (``POST /api/family-imports``, then
+Over new one-sample families this runs real import jobs (queued as a delivery's approval queues it, then
 the worker's ``run_family_import_job``) against Postgres and ClickHouse, each held inside its
 SNV dataset after the loader's first flush (2 of the variants written), the timings
 shortened:

@@ -1,7 +1,7 @@
 # Open issues
 
 What still has to be done: P1 blocks the release candidate (RC), P2 is due before the RC, P3 after it.
-Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
+Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are in [ROADMAP.md](ROADMAP.md).
 
 | ID | Pri | What has to happen | Who | Blocks |
 |---|---|---|---|---|
@@ -25,9 +25,10 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 | REG-12 | P2 | Confirm or reverse the choices the fix PRs left for the owner or QA | QA, owner | RC |
 | REG-14 | P2 | Decide which browser journeys back a TF-09d claim | owner, QA | RC |
 | REG-16 | P2 | Add to TF-10 §8 the clinical behaviour no area covers; validate the two Major filter changes with it | developer, QA | RC |
+| REG-17 | P2 | Decide whether short-read WGS is in the intended purpose: CoGA imports its family folders, but no TF-01 application covers it and TF-08 lists no GATK | owner, QA, RA | RC |
 | REG-15 | P2 | Decide whether the variant summary's figures belong in the validation scope: no rule reads them, but its Mendelian table can point to UPD | QA | RC |
 | CLIN-9 | P2 | Confirm the carrier-screening preset and the chrM exclusion | QA | RC |
-| CLIN-10 | P2 | Check parent–embryo IBS0 on one real imputed PGT family's Sample QC page | owner | validation |
+| CLIN-10 | P2 | Check the Sample QC's relationship reading on real families: parent–embryo IBS0 on an imputed PGT family, the GQ 20 floor and the parent–child cut on a raw joint callset | owner, lab director | validation |
 | CLIN-18 | P2 | Fill in what APCAD stands for (`user-guide/glossary.md`) | lab director | RC |
 | OPS-15 | P2 | Fix the clinical build's GitHub links (`build.yml` passes no `VITE_GITHUB_*`) | owner | RC |
 | OPS-6 | P2 | Set the problem-report link, SMTP and the reference-data bucket | ops | go-live |
@@ -35,7 +36,7 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 | REG-10 | P2 | Build a GIAB / GeT-RM truth set with a concordance harness (INPUTS C6) | developer, QA | RC |
 | REG-11 | P2 | Supply the post-market, vigilance and security-process inputs | QA, RA, owner | go-live |
 | OPS-9 | P2 | Prove CoGA at genome scale on the real stack | developer, owner | |
-| OPS-27 | P2 | Delete branch `feat/family-pgs`; tag the alpha baseline with a GitHub release; name it in every validation record | owner | validation |
+| OPS-27 | P2 | Tag the alpha baseline with a GitHub release; name it in every validation record | owner | validation |
 | OPS-7 | P3 | Approve the integrity-anchor residual (TF-13 §3) and set how often anchors are made | QA, owner | |
 | OPS-22 | P3 | Keep PRs that pass alone from failing together: a merge queue needs an organisation-owned repository | owner | |
 | SEC-19 | P3 | Accept in TF-13: best-effort ClickHouse shutdown, bucket-wide grants, VM restart after a certificate reissue | QA | |
@@ -43,6 +44,8 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 | SEC-40 | P3 | Keep an error's text out of the last stored job errors, HTTP answers and log lines | developer | |
 | UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
 | DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
+| CLIN-79 | P2 | Decide what a PGT embryo's sex check reads when the PED gives it sex 0: each such embryo's check warns, so the family's Sample QC is at least a warning | owner | validation |
+| DATA-14 | P3 | Give `coga-package.json` a field for the VCF files read only for ancestry, or remove that path: no delivered package can declare one | owner, developer | |
 | CLIN-14 | P3 | Settle the repeat catalogue's open points | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
 | CLIN-39 | P3 | Decide whether one SV in two siblings' per-sample records gets one second-hit verdict | owner | |
@@ -56,6 +59,7 @@ Status 2026-11-10, `origin/main` at `d82d8ac1`. Ideas that are not defects are i
 | OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
 | ENG-24 | P3 | Make the end-to-end modules independent of their order: the review-audit module leaves a variant tagged for the report | developer | |
+| ENG-26 | P3 | Remove, or justify, the reading of an `import_incomplete` flag in a shape no import writes (`true`, a list) | developer, owner | |
 | ENG-25 | P3 | Settle the copies that differ: two ROI region parsers, two Mendelian-consistency rules, two `_coerce_int`; drop the unused tag `family_id` column | developer | |
 
 ## Waiting for a decision
@@ -64,11 +68,11 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **Owner:** REG-1 (wording, REQ-TRACE-007), OPS-2, OPS-3 (separate validation environment?),
   OPS-12 (builder, Terraform lock), OPS-22, SEC-6 (with the DPO), REG-14, CLIN-10,
-  CLIN-39, CLIN-50, CLIN-68, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), OPS-15
+  CLIN-39, CLIN-50, CLIN-68, CLIN-79, DATA-14, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), REG-17, ENG-26, OPS-15
   (role mailbox), OPS-24 (pre-migration backup retention).
-- **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, REG-16, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
-  CLIN-70, OPS-7, SEC-19; with RA, REG-11.
-- **Lab director:** REG-5, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
+- **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, REG-16, REG-17, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
+  CLIN-70, OPS-7, SEC-19; with RA, REG-11 and REG-17.
+- **Lab director:** REG-5, CLIN-10, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
 
 ## P1
 
@@ -77,6 +81,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - QA confirms REQ-QC-005 ✅ and REQ-CARR-003 ✅ (the printed NIPT report names only the local panel version).
 - QA sets the status of REQ-PGT-008 as the owner worded it (tracks shown, no aneuploidy detector); it reads ⚠.
 - The owner rewords REQ-PGT-007, REQ-PGT-009 and TF-05's "simultaneous aneuploidy" as REQ-PGT-008 was.
+- REQ-SEC-002 says every destructive change is admin-only, but a superuser deletes gene panels and variant tags (REQ-SEC-008): the owner rewords it.
 - REQ-TRACE-007: the owner answers its 🔲 (freeze frequencies, predictions, gene context too?); QA confirms the gap text.
 
 ### CLIN-57 · TRGT's count against the clinical repeat number
@@ -91,6 +96,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - Review TF-06 H4–H6, H9, §4 item 1; TF-01 §3.3, §4 condition 7; TF-02 §6; TF-03 §16.1; TF-15 §5.
 - Reconsider the 🔲 at H5, H6, H9, TF-03 §16.1's ◐ and TF-02 §6's 🔲 OWNER (decided 2026-10-14). TF-02 §6 still signs a NIPT family out from the NIPT page: it is the NIPT report.
+- TF-02 §3's boundary diagram calls the sign-out "the analyst's"; sign-out is a supervisor's (REQ-SEC-008), as the rest of the technical file says.
 - Decide whether TF-06 §4's embryo-QC example belongs under item 2, and whether TF-12 U2 and TF-15 §3 items 2 and 7 name the controls these corrections describe.
 
 ### OPS-3 · Terraform never applied
@@ -131,7 +137,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ### REG-8 · QA's per-release review
 
 - QA confirms who performs it, its scope (frontend clinical logic outside the mypy list?) and the departure from SOP H11.1-OP5's per-change approval (TF-18 §6).
-- Align TF-09 §1 ("an administrator can bypass" the checks) with TF-18 §6: no bypass actors, but an administrator can edit or disable the ruleset.
 
 ## P2
 
@@ -142,11 +147,17 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - At exactly 2 % the Sample QC warns and the haplotype track does not.
 - Validate with an X-linked locus, trisomies of the ROI chromosome and mosaics.
 
+### CLIN-79 · A PGT embryo's sex check
+
+- A PGT family's pedigree is the `<family>.ped` at the top of its folder; it marks an embryo by a `role=embryo` column or by sex `0` (unknown) (`family_package_pgt.py`). Without a recorded sex, `sample_integrity_qc.py::_evaluate_read_sex` warns "Sex not recorded; the reads indicate …", so a family whose embryos have sex `0` has a Sample QC verdict of at least a warning.
+- The same function's pass sentence for an embryo ("The embryo's recorded sex was taken from this same ngs-bits call …") and its docstring describe a pedigree that gives an embryo the sex ngs-bits read, which this PED does not.
+- The owner decides whether an embryo without a recorded sex warns, passes with the read sex shown, or takes the read sex as its record; the code and the Sample QC docs then follow.
+
 ### REG-12 · Owner and QA confirmations of the fix rounds
 
 - The choices of the fix rounds up to 2026-10-28 are listed under REG-12 in `git show dbdf9ffc:docs/open-issues.md`; the other fix pull requests name theirs in their description.
 - The round of 2026-11-04:
-    - The five decision dates and roles the technical file names: TF-06 H15 and §7, TF-02 §10 and TF-14, REQ-NIPT-005, TF-01 with TF-06 §4 and H5, REQ-DIAG-002.
+    - The four decision dates and roles the technical file names: TF-06 H15 and §7, TF-02 §10 and TF-14, TF-01 with TF-06 §4 and H5, REQ-DIAG-002.
     - `security-posture.md` says the device owner confirmed the sign-up password policy; the change that set it says the lab director.
     - Class labels in sentence case; a review's classification is free text, stored as sent and compared whatever its case (owner's decision).
     - An unresolved manifest ROI clears the family's (owner's decision).
@@ -164,6 +175,13 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - The import-job service refuses a user below superuser itself, as its routes do.
     - A stored bare class word ("Pathogenic") shows as its label in the Explorer, and a class tag outranks a class label in the text.
     - A deleted project's tags are kept inactive and detached; a family lists the tags its reviews hold (the owner's decision). A held tag of a project the family only left reads "(deleted)" (UI-8).
+- 2026-11-11 to 2026-11-18 (the owner's decisions; each PR names its own):
+    - A package file's checksums are optional: CoGA computes each file's SHA-256, warns, and the import reuses it.
+    - A package folder that changes or goes after its import: only an overwrite ends the notice; a delivery update-imported under a change is approved again to overwrite; a gone folder is archived by a superuser with a reason.
+    - The NIPT artifact auto-seed counts unexplained low-VAF calls, at least three samples.
+    - PM2: VEP's cache counts as gnomAD-annotated; gnomAD exomes alone do not.
+    - The Variant Explorer's gene, transcript and cohort-frequency views (2026-11-12).
+    - The family-assignment mail names the family by its ID only.
 - A point that asks only for a TF-10 §8 phrase lapses where a TF-10 §8 area covers it.
 - Approve the drafts written for it: TF-09a REQ-SEC-001 and TF-13 §2; the APCAD definition and contamination wording.
 - Done when: one QA record marks each choice confirmed or to change.
@@ -171,6 +189,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ### REG-14 · Journeys TF-09d does not list
 
 - `frontend/e2e/` holds `findingReview.spec.ts` and `ancestry.spec.ts` beside TF-09d §3's four. Listing them widens the claim; the ancestry journey checks a phone viewport, which TF-09d puts out of scope.
+- `findingReview.spec.ts` saves a repeat locus's review from its card and reads it back after a reload; it could also back TF-09b's REQ-DIAG-009.
 
 ### REG-16 · Clinical behaviour no TF-10 §8 area covers
 
@@ -180,7 +199,14 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - the Variant Explorer: each family's rows read through the family search's filters, counting only the members the family shows;
     - the annotation reading: ClinVar from the annotated ClinVar file before VEP's cache, a multi-allelic record's annotation tied to its ALT, a field listing several values read as none, VEP's `MAX_AF` kept apart from gnomAD's popmax, and the owner's ACMG rules of 2026-11-06 (no criterion applied on a missing value; BA1/BS1 on gnomAD's FAF95; PP5/BP6 always to consider; PVS1 to consider on a LOFTEE flag or an NMD-escaping variant; the mtDNA frequencies);
     - imports from a watched folder: the package file and its checksums, the manifest made from it, the approval queue, the manifest kept in CoGA, and an import refused or undone when its package changed;
-    - a new instance's references: HPO's newest release, recorded with its SHA-256, and Monarch's newest release, recorded in the annotation manifest.
+    - a new instance's references: HPO's newest release, recorded with its SHA-256, and Monarch's newest release, recorded in the annotation manifest;
+    - a package folder that changes or goes after its import: noticed, shown on the family and warned of at sign-out; only an overwrite import ends the notice, and a superuser confirms a gone folder as archived, with a reason;
+    - the Variant Explorer's counts read from the carrier summary kept as families are written, the families not yet up to date named as pending;
+    - PM2 applied as absent from gnomAD where the callset's annotation declares gnomAD genomes or the joint set (VEP's cache counts; exomes alone do not), on chromosomes 1–22, X and Y;
+    - a gene panel that names a gene by its Ensembl gene ID: kept by the ID, its symbol and its loci;
+    - the Sample QC's genotypes read from GQ 20, and a first-degree pair read as parent–child below an eighth of the IBS0 of the family's co-parents (0.8 % without such a pair);
+    - the short-read WGS package layout: a GATK HaplotypeCaller callset at the folder's top, with VEP's `MAX_AF` and `CLIN_SIG` read under the annotation's own field names;
+    - the NIPT artifact list's auto-seed: a variant unexplained at low VAF in at least three of the assay's cfDNA samples (`min_unexplained_samples`).
 - The review-classification filters keep a variant by the class its review shows (Major; the owner signed off the table of its effect on 2026-11-10). TF-10 §8 has its own line for it; its follow-up validation joins this list.
 - The developer drafts the lines, after checking each against the code; QA confirms them with the list at the RC (REG-3).
 
@@ -191,8 +217,14 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - QA decides whether TF-10 §8 lists the summary, and whether TF-09a needs a requirement or TF-06 a hazard for a count read as a UPD finding.
 - Done when: QA records the decision.
 
+### REG-17 · Short-read WGS and the intended purpose
+
+- A short-read WGS family folder (an annotated GATK HaplotypeCaller VCF at its top) is recognised as a delivery and imported like the long-read ones ([data-import.md](data-import.md)).
+- TF-01 names no short-read WGS application and TF-08 B.1 has no GATK row. The owner decides whether short-read WGS is in the intended purpose; if it is, TF-01, TF-08 and TF-10 name it.
+
 ### OPS-6 · Deployment settings
 
+- Terraform sets no `SMTP_*`, so on Google Cloud no mail goes out (account approval, activation, family assignment): add them to `terraform/cloudrun.tf`.
 - Set `COGA_PROBLEM_REPORT_URL` (no problem-report link without it, TF-15) and `SMTP_HOST` (with `SMTP_FROM`, and `SMTP_STARTTLS`/`SMTP_USERNAME`/`SMTP_PASSWORD` when the relay needs an account), then send the test mail from *Users*.
 - Fill the reference-data bucket: the shipped STRchive file (else the backend does not start), the ACMG SF list then a full gene-reference sync, the vendored `hp.obo` (the backup when HPO's newest release cannot be downloaded); check `hp.obo` and the ClinGen BED with `shasum -a 256`.
 - On a fresh database, look for the HPO and segmental-duplication refusal lines in the backend log.
@@ -227,9 +259,9 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - An import's and a gene source's stored failure name an error by its kind unless CoGA defines its class (`own_error_message`). An error's text is still stored, answered or logged in:
     - stored job errors: `dgv_load_jobs.py` (~678, ~681), `clinical_cnv_kb_jobs.py` (~677), `hpo_service.py` (~1646);
-    - CoGA error classes that wrap another error's text, which `own_error_message` would keep: `monarch_ingest.py` (~114), `monarch_semsim.py` (~113), `hpo_release_download.py` (~151, ~177), `hpo_service.py` (~682), `reference_source_service.py` (~696), `postgres_migrations.py` (~215, ~263);
-    - HTTP answers that quote an exception's text: `routers/admin.py` (~943, ~945, ~1012, ~1018), `routers/families.py` (~298), `routers/auth.py` (~627), and `family_package_discovery.py` (~2303, a YAML error quoting the manifest);
-    - log lines with an exception's text: `dependencies.py` (~130), `routers/auth.py` (~372, ~626), `account_notifications.py` (~135), `account_activation_mail.py` (~94), `family_assignment_mail.py` (~92), `monarch_ingest.py` (~124, ~532), `monarch_semsim.py` (~112), `hpo_service.py` (~759, ~825, ~847), `reference_metadata_service.py` (~640), `reference_source_service.py` (~691).
+    - CoGA error classes that wrap another error's text, which `own_error_message` would keep: `monarch_ingest.py` (~113), `monarch_semsim.py` (~113), `hpo_release_download.py` (~151, ~177), `hpo_service.py` (~682), `reference_source_service.py` (~696), `core/postgres_migrations.py` (~215, ~263);
+    - HTTP answers that quote an exception's text: `routers/admin.py` (~939, ~941, ~1010, ~1016), `routers/families.py` (~329), `routers/auth.py` (~640), and `family_package_validation.py` (~1746, a YAML error quoting the manifest);
+    - log lines with an exception's text: `dependencies.py` (~128), `routers/auth.py` (~371, ~639), `account_notifications.py` (~135), `account_activation_mail.py` (~94), `family_assignment_mail.py` (~92), `monarch_ingest.py` (~123), `monarch_semsim.py` (~112), `hpo_service.py` (~759, ~825, ~847), `reference_metadata_service.py` (~635).
 
 ### UI-8 · Held tags and detached tags
 
@@ -258,6 +290,12 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - The validation still accepts without a word a SNV, NeedlR, TRGT or mito VCF (family or per sample) it cannot read (`family_package_validation.py::_warn_file_without_a_record`), and the per-sample SNV check does not check a BGZF file's end, so one cut in its records passes. `read_whole_vcf_sample_columns` reads them as the import does.
 - An APCAD per-sample `.csv.gz` or `.bed.gz` table is not read at validation (`_check_table_names_sample` reads only `.csv`, and passes a read error).
 
+### DATA-14 · VCF files declared for ancestry
+
+- The ancestry PCA reads VCF files an import's manifest declares under `metadata.ancestry.vcfs`, such as a gVCF (`ancestry_files.declared_files`, `ancestry_files`, `ancestry_file_scans`).
+- Every import reads the manifest CoGA makes from the package file (`coga_package_manifest.package_manifest`), which writes only `metadata.pgt`; `coga-package/1` has no field for ancestry files and Discover proposes none. So no delivered package can declare one; only a test's manifest does.
+- The owner decides whether `coga-package/1` gains the field or the path goes.
+
 ### CLIN-73 · Multi-allelic records
 
 - A multi-allelic record (ALT `G,T`) is stored as one variant. Each annotation entry names its ALT, but the filters read the record's entries together: one allele's value keeps the record. A `Number=A` INFO value differs per allele, so it reads as no value.
@@ -278,9 +316,14 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - The end-to-end suite run on a database the integration suite has just used fails in `clickhouse_integrity`, the Explorer's counts and panel match, the family panel-region join, the ranking cache and ancestry; each passes on fresh containers, as CI runs it. Integration tests leave rows behind that these modules read.
 - Run on their own, `test_e2e_review_audit.py` then `test_e2e_signout_acknowledges_what_was_shown.py` fail the latter's `test_the_module_leaves_nothing_tagged_for_the_report`: the review-audit module leaves a variant of the shared family tagged for the report, and the sign-out module checks that the family's report list ends empty. The full suite, with other modules run in between, passes. Each module should leave the family as it found it, or check only its own tags.
 
+### ENG-26 · An `import_incomplete` flag in another shape
+
+- `family_package_registration.py` keeps a stored `import_incomplete` flag that is not in the shape an import writes (`true`, a list) and reads it as "incomplete, nothing named" (`_flag_failures` and its callers); handleiding chapter 6 describes it.
+- Every writer found writes the shape `_flag_payload` builds. Once that is confirmed, AGENTS.md's no-legacy rule removes the reading, unless the owner keeps it as a guard against a hand edit of the family's metadata.
+
 ### ENG-25 · Copies that differ
 
 - The region of interest is parsed twice: `family_service._parse_region_of_interest` uses `GENOMIC_REGION_PATTERN` and answers 400 on negative coordinates; `family_package_registration._ROI_REGION_PATTERN` is a pattern of its own.
 - One Mendelian-consistency rule is written twice: `sample_integrity_qc._mendelian_consistent` and `phased_marker_service._is_mendelian_consistent`.
 - `clickhouse_variant_records._coerce_int` and `family_package_common._coerce_int` read `b"1.5"` differently (1 against none), and both differ from `vcf_fields.field_int` on a bool: decide one reading before folding them.
-- `small_variant_tag_definitions.family_id` is a column no code writes (`03_assay.sql`): drop it with a revision.
+- `small_variant_tag_definitions.family_id` is a column no code writes: drop it from `03_assay.sql`.

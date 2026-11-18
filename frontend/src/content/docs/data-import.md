@@ -68,22 +68,26 @@ missing. Load it before you load a family.
 - The segmental-duplication file and the HPO ontology must be the files CoGA ships, recognized by their
   SHA-256. Another file is not loaded, and the server log says which file and how to fix it.
 - Projects, families and genes name an assembly by its build (GRCh38). The version the *Reference
-  catalogue* shows (GRCh38 *p14*) is the release of the reference data CoGA loaded, not the reference
+  catalog* shows (GRCh38 *p14*) is the release of the reference data CoGA loaded, not the reference
   a family's data was aligned to: that one is among the family's annotation versions, as its
   *Reference assembly*.
-- In the **Reference catalogue** an administrator can set up another assembly (cytobands and genes are
-  downloaded automatically) and upload files for cytobands, genes, the blacklist, clinical CNVs,
-  segmental duplications and DGV variants. Everyone else sees the catalogue read-only.
+- In the **Reference catalog** (**Admin → Species & assemblies**) an administrator can set up another
+  assembly (cytobands and genes are downloaded automatically) and upload files for cytobands, genes,
+  the blacklist, clinical CNVs, segmental duplications and DGV variants. Everyone else sees the
+  catalog read-only.
+- CoGA holds one assembly per name. Downloading an assembly that is there already updates it in
+  place, with the version and release date UCSC states; while it holds cytobands and genes, that
+  needs *Replace existing cytobands and genes*.
 
 **Clinical CNV knowledgebase.** CoGA can build the clinical CNVs from ClinGen, UCSC and ClinVar. An
-administrator rebuilds it with the ↻ button next to the clinical-CNV count in the Reference catalogue.
+administrator rebuilds it with the ↻ button next to the clinical-CNV count in the Reference catalog.
 
 - The build counts, for each clinical CNV, the pathogenic or likely pathogenic ClinVar copy-number
   variants (losses and gains) that overlap it by at least 30% both ways: the **ClinVar P/LP** column of
   the Clinical CNV explorer. A knowledgebase built without ClinVar shows "—" there, meaning *not
   recorded*, not zero.
 - A rebuild fails when its ClinGen dosage curation or recurrent CNV regions cannot be loaded. The
-  Reference catalogue says why, and the clinical CNVs stay as they were.
+  Reference catalog says why, and the clinical CNVs stay as they were.
 - The recurrent CNV regions come from ClinGen's recurrent CNV file, release V2.1, recognized by its
   SHA-256 for each assembly. Another file fails the rebuild the same way. The other sources are read as
   published on the day of the rebuild.
@@ -93,12 +97,12 @@ administrator rebuilds it with the ↻ button next to the clinical-CNV count in 
 
 **Gene reference refresh.** A new installation refreshes the cached gene information for all human
 genes in the background after its first start, and again once the dbNSFP gene file is added, if
-its first refresh ran without it. From the Reference catalogue an administrator can refresh it at
-any time. The refresh reads a local dbNSFP gene file, the ACMG
-secondary-findings list that ships with CoGA (ACMG SF v3.3), and the HGNC, ClinGen, GenCC and ClinVar
-downloads for every gene. It asks NCBI Gene for a summary of the genes dbNSFP does not cover. It adds
-identifiers, names and aliases, disease context (OMIM, Orphanet, GenCC), ClinGen dosage, HPO and pathway
-terms, expression and constraint metrics, and whether the gene is on the ACMG secondary-findings list.
+its first refresh ran without it. An administrator can refresh it at any time from the Reference
+catalog. The refresh reads a local dbNSFP gene file, the ACMG secondary-findings list that ships
+with CoGA (ACMG SF v3.3), and the HGNC, ClinGen, GenCC and ClinVar downloads for every gene, and asks
+NCBI Gene for a summary of the genes dbNSFP does not cover. It adds identifiers, names and aliases,
+disease context (OMIM, Orphanet, GenCC), ClinGen dosage, HPO and pathway terms, expression and
+constraint metrics, and whether the gene is on the ACMG secondary-findings list.
 
 ---
 
@@ -110,7 +114,7 @@ Each layer is optional and switches on part of CoGA.
 | --- | --- |
 | **Small variants (SNV/indel)** | the small-variant page, its review, and the Sample QC page |
 | **Structural variants** | the structural-variant page, its review and CNV classification |
-| **Repeat expansions (TRGT)** | the repeat-expansion page. A call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`). For a gene with several STRchive loci, one per repeat tract (ARX, HOXA13), the gene's name picks the locus the call's region overlaps. A call reads *Not assessed*, never normal, when its TRID names no catalogued locus, its locus has no thresholds, or its region overlaps none of its gene's loci, or several. Exception: a count inside the benign range STRchive states for a locus without thresholds (POLG: 10) reads normal |
+| **Repeat expansions (TRGT)** | the repeat-expansion page. A call is scored against the thresholds of STRchive release v2.28.0, as published, for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`). For a gene with several STRchive loci, one per repeat tract (ARX, HOXA13), the gene's name picks the locus the call's region overlaps. A call reads *Not assessed*, never normal, when its TRID names no catalogued locus, its locus has no thresholds, or its region overlaps none of its gene's loci, or several. Exception: a count inside the benign range STRchive states for a locus without thresholds (POLG: 10; VWA1: 2) reads normal |
 | **Paraphase** | resolution of paralogous genes and segmental duplications |
 | **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
@@ -125,25 +129,31 @@ the motif across the region its own catalogue gives a locus:
 - at HTT it counts the CAG after the CAA interruption (one above);
 - at POLG it counts four flanking GCT copies (the common 10-repeat allele reads 14).
 
-QA can record a count correction per locus (admin page **Repeat catalogue**): it is added to TRGT's
-count before the count is classified, and TRGT's own count stays shown beside the corrected one. None is
-recorded in advance. At every locus the repeat page and the genome tracks mark a count within 3
-repeats of a boundary as *Near a boundary*, without changing its status. See
-the [user guide](/docs), section *Structural variants, repeats, Paraphase and mtDNA*.
+QA can record a count correction per locus (**Admin → Repeat catalogue**, **Set count correction**):
+it is added to TRGT's count before the count is classified, and TRGT's own count stays shown beside
+the corrected one. None is recorded in advance. Neither the cut-offs nor TRGT's count are validated
+per locus, so at every locus the repeat page and the genome tracks mark a count within 3 repeats of a
+boundary as *Near a boundary*. The mark changes no status, and a correction does not lift it. See the
+[user guide](/docs), section *Structural variants, repeats, Paraphase and mtDNA*.
 
 A small variant's population frequencies and gnomAD counts come only from annotation fields that name
 their source (gnomAD's, TOPMed's, and VEP's `MAX_AF`), never from the callset's own allele count, the
-VCF's `AC`. gnomAD's popmax (grpmax in gnomAD v4) and VEP's `MAX_AF` (the highest frequency over the
-1000 Genomes and gnomAD populations) are kept apart; the popmax filter reads gnomAD's, else `MAX_AF`.
-A field that lists several different numbers (one per transcript, record or allele) is read as no value,
-and its text is shown under *More annotations*. A record with two ALT alleles is stored as one variant,
-and each transcript of it names the ALT its annotation is of; split such records upstream
-(`bcftools norm -m -any`) to filter and classify each allele on its own. A gnomAD count is gnomAD's total: its combined count, or else its exome and genome counts
-(`gnomADe_…`, `gnomADg_…`) added. A hemizygote count exists only on chrX and chrY outside the
-pseudo-autosomal regions. A variant whose annotation gives no gnomAD count has none. A maximum
-gnomAD count filter keeps it, as absent from gnomAD. The variant list says how many of the
-variants it shows the filter kept unchecked: those without the count that have a gnomAD frequency,
-or whose callset was not annotated with gnomAD.
+VCF's `AC`.
+
+- gnomAD's popmax (grpmax in gnomAD v4) and VEP's `MAX_AF` (the highest frequency over the 1000
+  Genomes and gnomAD populations) are kept apart; the popmax filter reads gnomAD's, else `MAX_AF`.
+- A field that lists several different numbers (one per transcript, record or allele) is read as no
+  value, and its text is shown under *More annotations*.
+- A record with two ALT alleles is stored as one variant, and each transcript of it names the ALT its
+  annotation is of. Split such records upstream (`bcftools norm -m -any`) to filter and classify each
+  allele on its own.
+- A gnomAD count is gnomAD's total: its combined count, or else its exome and genome counts
+  (`gnomADe_…`, `gnomADg_…`) added. A hemizygote count exists only on chrX and chrY outside the
+  pseudo-autosomal regions.
+- A variant whose annotation gives no gnomAD count has none, and a maximum gnomAD count filter keeps
+  it, as absent from gnomAD. The variant list says how many of the variants it shows the filter kept
+  unchecked: those without the count that have a gnomAD frequency, or whose callset was not annotated
+  with gnomAD.
 
 Several of these also feed the [Sample-integrity QC](/docs/reference/sample-qc) and the versions
 recorded for the [report](/docs/reference/clinical-traceability).
@@ -284,8 +294,9 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
   `FAM001 INDEX1 0 0 2 -9 related_to=MOTHER1` (**Related to**, a dotted arc in the pedigree).
 
 The warning says how CoGA read each index. An index linked neither way stays grey and does not help find
-the risk haplotype: link it with **Correct…** before you approve the delivery, or afterwards in
-**Admin → Family & sample data**.
+the risk haplotype: link it with **Correct…** before you approve the delivery, or afterwards in the
+family's **Family members** table (**Edit members**, an administrator's; on the family page or in
+**Admin → Family & sample data**).
 
 The parent the pipeline traced is recorded as the affected parent (`metadata.pgt.affected_parents`), and
 its index as the index (`metadata.pgt.indexes`). Set the inheritance model
@@ -425,8 +436,8 @@ with the delivery.
 - A delivery with warnings is approved only once you tick *I checked the warnings*.
 - **Correct…** completes or corrects what the package says, before you approve it: the project,
   the analysis, the region of interest, the PGT inheritance model, affected parent and index, each
-  member's sex, parents, role, clinical status, carrier status and HPO terms, and which datasets
-  are in the import. Give a reason and save: the pipeline's file stays as it was, the correction is
+  member's sex, parents, **Related to**, role, clinical status, carrier status and HPO terms, and
+  which datasets are in the import. Give a reason and save: the pipeline's file stays as it was, the correction is
   kept beside it on the audit trail, and the delivery is checked again at once. The list then says
   *Corrected (revision …)*, and an approval imports the package as corrected; the family's record
   names every correction.
@@ -496,8 +507,8 @@ ends. The decided and superseded deliveries are listed on request.
    correct what the package says (the project, the analysis, the members, the datasets), with a reason.
 3. **Dry run.** **Dry run** checks the delivery as an import would, without writing anything; its job
    shows under *Recent family imports*.
-4. **Approve.** **Approve…** queues the import. When the family exists already, choose the **Existing
-   data policy** (table below); only an administrator overwrites an existing family. An approval of a
+4. **Approve.** **Approve…** queues the import. When the family exists already, choose update or
+   overwrite (table below); only an administrator overwrites an existing family. An approval of a
    delivery whose folder changed since it was checked is refused. A job also imports nothing when the
    folder changed after it was queued, and is undone when it changed while it was read: a new family
    is removed, an existing family put back as it was (*package fingerprint*, shown with the job).
@@ -510,11 +521,13 @@ ends. The decided and superseded deliveries are listed on request.
    database or file error) says only the error's kind: its text can quote the values it was
    reading, and the server log shows where it failed.
 
-| Existing data policy | What happens when the family or a sample already exists |
+| *The family exists already* | What happens |
 | --- | --- |
-| Cancel if family or samples exist | the import stops |
-| Update: add missing datasets only | the data is added to the existing family; datasets that already hold data are skipped (tracks and Paraphase results sample by sample), and a dataset skipped whole shows *skipped*. The package's new members are added |
-| Overwrite imported dataset rows | the data is added to the existing family; the selected datasets are replaced, and the package's members become the family's pedigree. For administrators only; a superuser may run it as a dry run |
+| **Update: add the missing datasets and members** | the data is added to the existing family; datasets that already hold data are skipped (tracks and Paraphase results sample by sample), and a dataset skipped whole shows *skipped*. The package's new members are added |
+| **Overwrite: replace its datasets and pedigree (administrators)** | the data is added to the existing family; the datasets in the import are replaced, and the package's members become the family's pedigree. A superuser may run it as a dry run |
+
+A new family's delivery is approved without this choice: if the family exists by the time the job
+runs, the import stops.
 
 **An existing family.** The package's members are compared with the family as CoGA holds it.
 *Update* adds the members the family lacks (the delivery warns of them) and changes none it holds.
