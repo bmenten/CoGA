@@ -1489,7 +1489,11 @@ whether or not the parts have merged, and merges drop the rows that sum to zero 
 table with a nested column would stay; the summary has none). The explorer reads the table
 without `FINAL`, grouped by `xpos, key` in the table's order (`optimize_aggregation_in_order`),
 so it holds one variant's sums at a time; a carrier row counts while its sample's rows sum above
-zero.
+zero. A filter read by a subquery holds the variants it keeps in a set; a search whose set would
+pass two million variants (`max_rows_in_set`) reads the table one genomic window at a time
+instead (`ExplorerWindow` in
+[variant_explorer_service.py](../backend/app/services/variant_explorer_service.py)), as the
+gene, transcript and cohort-frequency views always do.
 
 `carrier_generations` (`ReplacingMergeTree`, by family and generation) holds, per generation,
 the family's projects, the samples it showed and those of them another family shows, the

@@ -237,15 +237,7 @@ def test_a_variants_counts_net_the_summary_rows_in_their_order(monkeypatch: pyte
     monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
     monkeypatch.setattr(ves, "_fetch_annotation_display", no_annotation)
     asyncio.run(
-        ves._fetch_variant_rows(
-            _RecordingSession(),
-            scope=_SCOPE,
-            where_sql="1",
-            params={},
-            sort_expr="total_samples",
-            direction="DESC",
-            limit=10,
-        )
+        ves._fetch_variant_rows(_RecordingSession(), _search(), sort_expr="total_samples", direction="DESC", limit=10)
     )
     (ranked,) = queries
     # One summary row per variant, project set and class; grouped in the summary's order, so
@@ -253,6 +245,9 @@ def test_a_variants_counts_net_the_summary_rows_in_their_order(monkeypatch: pyte
     assert "`GRCh38/SNV_INDEL/carriers` AS e" in ranked
     assert "GROUP BY e.xpos, e.key" in ranked
     assert "optimize_aggregation_in_order = 1" in ranked
+    # Asked in one query, each set a filter gathers is held to its limit, and ClickHouse
+    # refuses the query past it, never cutting the set.
+    assert "max_rows_in_set = 2000000, set_overflow_mode = 'throw'" in ranked
     # An aggregate row adds its counts; a family's carrier rows are netted per sample.
     assert "sumIf(e.samples, NOT e.family_guid != '')" in ranked
     assert "groupArrayIf((e.family_guid, e.sample_id, e.samples, e.het, e.hom), e.family_guid != '')" in ranked
@@ -349,6 +344,18 @@ _MEMBERS = (
 )
 _ANNOTATIONS = _small_table_name("GRCh38", "variants/annotations")
 _ANNOTATION_INDEX = _small_table_name("GRCh38", "variants/annotation_index")
+
+
+def _search(filters: GlobalVariantFilters | None = None, **inputs: Any) -> Any:
+    """A search of ``filters`` over the scope's families, every member shown, no review
+    filter and no panel unless given."""
+    return ves._Search(
+        scope=inputs.pop("scope", _SCOPE),
+        filters=filters or GlobalVariantFilters(),
+        tag_variant_ids=inputs.pop("tag_variant_ids", None),
+        shown_members=inputs.pop("shown_members", _MEMBERS),
+        panel_constraints=inputs.pop("panel_constraints", None),
+    )
 
 
 def _explorer_where(**filters: Any) -> tuple[list[str], dict[str, Any]]:
@@ -788,9 +795,7 @@ def _shown_row(monkeypatch: pytest.MonkeyPatch, review_rows: list[dict[str, Any]
     rows, _cursors = asyncio.run(
         ves._fetch_variant_rows(
             session or _RecordingSession(rows=review_rows),
-            scope=_SCOPE,
-            where_sql="1",
-            params={},
+            _search(),
             sort_expr="total_samples",
             direction="DESC",
             limit=10,
@@ -1093,7 +1098,9 @@ def _family_panel(panel: PanelFilterConstraints) -> tuple[str | None, dict[str, 
 def _region_join(panel: PanelFilterConstraints) -> str:
     from backend.app.services.variant_explorer_service import _region_key_condition
 
-    condition = _region_key_condition("GRCh38", panel.regions, prefix="panel_region", params={})
+    condition = _region_key_condition(
+        _SCOPE, ves._family_search_filters(GlobalVariantFilters()), panel.regions, prefix="panel_region", params={}
+    )
     assert condition is not None
     return condition
 
@@ -1163,7 +1170,8 @@ def test_the_region_join_reads_the_regions_as_the_family_page_does() -> None:
     )
     explorer_params: dict[str, Any] = {}
     family_params: dict[str, Any] = {}
-    condition = _region_key_condition("GRCh38", panel.regions, prefix="panel_region", params=explorer_params)
+    unfiltered = ves._family_search_filters(GlobalVariantFilters())
+    condition = _region_key_condition(_SCOPE, unfiltered, panel.regions, prefix="panel_region", params=explorer_params)
     _small_region_filter_condition(panel.regions, prefix="panel_region", params=family_params)
     assert explorer_params == family_params == {
         "panel_region_chromosomes": ["1", "MT", "X"],
@@ -1182,7 +1190,7 @@ def test_the_region_join_reads_the_regions_as_the_family_page_does() -> None:
     assert f"FROM {_ANNOTATION_INDEX} AS ai" in condition
     bind_query(f"SELECT 1 FROM t AS e WHERE {condition}", explorer_params)
     # No region: no condition.
-    assert _region_key_condition("GRCh38", (Region(chr="", start=1, end=2),), prefix="p", params={}) is None
+    assert _region_key_condition(_SCOPE, unfiltered, (Region(chr="", start=1, end=2),), prefix="p", params={}) is None
 
 
 def test_a_panel_with_neither_genes_nor_regions_keeps_nothing() -> None:
@@ -1436,3 +1444,229 @@ async def test_a_rows_consequence_and_hgvs_come_from_the_transcript_whose_impact
 
     # Of the two HIGH transcripts the canonical one, with its own consequence and HGVS.
     assert result[1]["shown"] == ["stop_gained", "ENST3:c.9C>T", "ENSP3:p.Gln3*"]
+
+
+# --------------------------------------------------------------------------- #
+# A broad filter, read one genomic window at a time                           #
+# --------------------------------------------------------------------------- #
+
+# The summary's extent as the windows query answers it: chromosome 1 over three windows, X in one.
+_EXTENT = [(1, ["chr1", "1"], 10, 120_000_000), (23, ["chrX"], 5, 6)]
+
+
+class _WindowedClickHouse:
+    """A fake ClickHouse: a query asked in one (``max_rows_in_set``) is refused as a set past
+    its limit would be, the windows query answers ``_EXTENT``, and a window's query
+    ``answer(window's first xpos, query)``. Records every query and its parameters."""
+
+    def __init__(self, answer: Any, *, refusal: str = "SET_SIZE_LIMIT_EXCEEDED") -> None:
+        self.answer = answer
+        self.refusal = refusal
+        self.queries: list[tuple[str, dict[str, Any]]] = []
+
+    async def execute(self, query: str, params: Any = None, **_kwargs: Any) -> Any:
+        from clickhouse_connect.driver.exceptions import DatabaseError
+
+        self.queries.append((" ".join(query.split()), dict(params or {})))
+        if "max_rows_in_set" in query:
+            raise DatabaseError(f"Code: 191. DB::Exception: Limit for IN-set exceeded. ({self.refusal})")
+        if "groupUniqArray(chrom)" in query:
+            return _EXTENT
+        return self.answer(int(params["xpos_start"]), query)
+
+    def window_queries(self, marker: str) -> list[dict[str, Any]]:
+        return [params for query, params in self.queries if marker in query and "xpos_start" in params]
+
+
+_FIRST_XPOS = [1_000_000_000, 1_050_000_000, 1_100_000_000, 23_000_000_000]
+
+
+def test_a_search_whose_set_passes_its_limit_reads_window_by_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Rare only keeps most of the cohort's variants: asked in one query, its set passes the
+    # limit, and the search counts and ranks over the windows instead, without asking in one
+    # query again.
+    def answer(first_xpos: int, query: str) -> list[Any]:
+        if "SELECT count()" in query:
+            return [(_FIRST_XPOS.index(first_xpos) + 1,)]
+        # key, xpos, families, hom, het, total: one variant a window, X's the most carried.
+        return [(first_xpos + 7, first_xpos + 7, 1, 0, 1, 9 if first_xpos == _FIRST_XPOS[-1] else 1)]
+
+    fake = _WindowedClickHouse(answer)
+    monkeypatch.setattr(ves, "execute_clickhouse", fake.execute)
+    search = _search(GlobalVariantFilters(max_gnomad_af=0.01))
+    assert asyncio.run(ves._count_variants(search)) == 1 + 2 + 3 + 4
+    ranked = asyncio.run(ves._ranked_variants(search, sort_expr="total_samples", direction="DESC", limit=2))
+    assert [row[0] for row in ranked] == [23_000_000_007, 1_000_000_007]
+    asked_in_one = [query for query, _params in fake.queries if "max_rows_in_set" in query]
+    assert len(asked_in_one) == 1 and asked_in_one[0].startswith("SELECT count()")
+    assert sum("groupUniqArray(chrom)" in query for query, _params in fake.queries) == 1
+    assert [params["xpos_start"] for params in fake.window_queries("SELECT count()")] == _FIRST_XPOS
+    # Each window's rows and its annotation subquery are read under every name of its chromosome.
+    params = fake.window_queries("SELECT count()")[0]
+    assert params["chromosomes"] == ("1", "chr1")
+    assert (params["xpos_start"], params["xpos_end"], params["end"]) == (1_000_000_000, 1_049_999_999, 49_999_999)
+    assert "start" not in params
+
+
+def test_another_error_is_not_read_window_by_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    fake = _WindowedClickHouse(lambda _xpos, _query: [], refusal="MEMORY_LIMIT_EXCEEDED")
+    monkeypatch.setattr(ves, "execute_clickhouse", fake.execute)
+    with pytest.raises(DatabaseError):
+        asyncio.run(ves._count_variants(_search(GlobalVariantFilters(max_gnomad_af=0.01))))
+    assert len(fake.queries) == 1
+
+
+def test_the_windows_count_stops_past_the_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    def answer(_first_xpos: int, _query: str) -> list[Any]:
+        return [(ves._EXPLORER_COUNT_CAP // 2 + 1,)]
+
+    fake = _WindowedClickHouse(answer)
+    monkeypatch.setattr(ves, "WINDOWS_AT_ONCE", 2)
+    monkeypatch.setattr(ves, "execute_clickhouse", fake.execute)
+    total = asyncio.run(ves._count_variants(_search(GlobalVariantFilters(max_gnomad_af=0.01))))
+    assert ves._bounded_total(total) == (ves._EXPLORER_COUNT_CAP, True)
+    # Two windows at a time: the first two pass the cap, the others are not read.
+    assert len(fake.window_queries("SELECT count()")) == 2
+
+
+@pytest.mark.parametrize(
+    ("direction", "cursor_xpos", "read", "keys"),
+    [
+        # From the start: the first window fills the page, the others are not read.
+        ("ASC", None, _FIRST_XPOS[:1], [1_000_000_001, 1_000_000_002]),
+        # From a cursor in the second window: the first is not read, the third fills the page.
+        ("ASC", 1_050_000_001, _FIRST_XPOS[1:3], [1_050_000_002, 1_100_000_001]),
+        # Descending: X first, then from a cursor in the third window down.
+        ("DESC", None, _FIRST_XPOS[3:], [23_000_000_002, 23_000_000_001]),
+        ("DESC", 1_100_000_002, [_FIRST_XPOS[2], _FIRST_XPOS[1]], [1_100_000_001, 1_050_000_002]),
+    ],
+)
+def test_a_page_by_position_reads_the_windows_in_order_from_the_cursor(
+    monkeypatch: pytest.MonkeyPatch, direction: str, cursor_xpos: int | None, read: list[int], keys: list[int]
+) -> None:
+    def answer(first_xpos: int, query: str) -> list[Any]:
+        rows = [(first_xpos + offset, first_xpos + offset, 1, 0, 1, 1) for offset in (1, 2)]
+        if cursor_xpos is not None:
+            after = (lambda xpos: xpos > cursor_xpos) if direction == "ASC" else (lambda xpos: xpos < cursor_xpos)
+            rows = [row for row in rows if after(row[1])]
+        return rows if direction == "ASC" else rows[::-1]
+
+    fake = _WindowedClickHouse(answer)
+    monkeypatch.setattr(ves, "WINDOWS_AT_ONCE", 1)
+    monkeypatch.setattr(ves, "execute_clickhouse", fake.execute)
+    search = _search(GlobalVariantFilters(max_gnomad_af=0.01))
+    seek = None
+    if cursor_xpos is not None:
+        seek = {"cur_sort": cursor_xpos, "cur_xpos": cursor_xpos, "cur_key": cursor_xpos}
+    ranked = asyncio.run(
+        ves._ranked_variants(
+            search,
+            sort_expr="xpos",
+            direction=direction,
+            limit=2,
+            seek_having=ves._seek_having("xpos", direction) if seek else None,
+            seek_params=seek,
+        )
+    )
+    assert [row[0] for row in ranked] == keys
+    assert [params["xpos_start"] for params in fake.window_queries("ORDER BY xpos")] == read
+
+
+def test_a_page_by_a_count_keeps_the_first_rows_of_every_window_in_the_pages_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Ties are broken by position, then key, as one query orders them.
+    def answer(first_xpos: int, _query: str) -> list[Any]:
+        return [(first_xpos + 2, first_xpos + 2, 3, 1, 2, 5), (first_xpos + 1, first_xpos + 1, 1, 0, 1, 1)]
+
+    fake = _WindowedClickHouse(answer)
+    monkeypatch.setattr(ves, "execute_clickhouse", fake.execute)
+    search = _search(GlobalVariantFilters(max_gnomad_af=0.01))
+    ranked = asyncio.run(ves._ranked_variants(search, sort_expr="total_samples", direction="DESC", limit=5))
+    assert [row[0] for row in ranked] == [
+        1_000_000_002,
+        1_050_000_002,
+        1_100_000_002,
+        23_000_000_002,
+        1_000_000_001,
+    ]
+    ascending = asyncio.run(ves._ranked_variants(search, sort_expr="hom_samples", direction="ASC", limit=2))
+    assert [row[0] for row in ascending] == [1_000_000_001, 1_050_000_001]
+    assert len(fake.window_queries("ORDER BY total_samples DESC")) == 4
+
+
+def test_a_pages_columns_gather_its_variants_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Every filter's subquery reads the page's variants alone: the annotation filters, the
+    # gene index, the panel's regions, the rsID, a sample's genotype, the frequency class.
+    queries: list[tuple[str, dict[str, Any]]] = []
+
+    async def fake_execute(query: str, params: Any = None) -> list[Any]:
+        queries.append((query, dict(params)))
+        return []
+
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
+    panel = _panel(genes=("SYN48A",), regions=(("9", 100, 200),))
+    search = _search(
+        GlobalVariantFilters(
+            max_gnomad_af=0.01,
+            impacts=["HIGH"],
+            gene="SYN48A",
+            rsid="rs1",
+            exclude_clinvar=["benign"],
+            gnomad_af_class="absent",
+            sample_genotype_filters=[("S1", "het")],
+        ),
+        panel_constraints=panel,
+    )
+    rows = [(11, 1_000_000_100, 1, 0, 1, 1), (12, 1_000_000_200, 1, 0, 1, 1)]
+    asyncio.run(ves._variant_columns(search, rows))
+    ((query, params),) = queries
+    assert params["annotation_keys"] == params["page_keys"] == (11, 12)
+    for bound in ("a.key IN %(annotation_keys)s", "ai.key IN %(annotation_keys)s", "gi.key IN %(annotation_keys)s",
+                  "gs.key IN %(annotation_keys)s"):
+        assert bound in query
+    # Nothing gathers the cohort's variants: every subquery that reads an annotation table or
+    # the sample's rows is bound to the page.
+    import re
+
+    read = re.findall(r"FROM \S*`GRCh38/SNV_INDEL/(?:variants/\w+|entries)` AS (\w+)", query)
+    bound = re.findall(r"(\w+)\.key IN %\(annotation_keys\)s", query)
+    assert len(read) >= 6 and sorted(read) == sorted(bound)
+    assert "max_rows_in_set" not in query
+    bind_query(query, params)
+
+
+def test_a_window_reads_its_rows_and_annotations_under_every_name_of_its_chromosome() -> None:
+    window = ves.ExplorerWindow(rank=1, chromosome="1", chromosomes=("1", "chr1"), start=50_000_000, end=None)
+    params: dict[str, Any] = {}
+    filters = GlobalVariantFilters(max_gnomad_af=0.01, rsid="rs1")
+    clauses = _carriers_where(
+        _SCOPE, window.filters(filters), params, tag_variant_ids=None, shown_members=_MEMBERS, window=window
+    )
+    where = " AND ".join(clauses)
+    assert params["chromosomes"] == ("1", "chr1")
+    assert (params["xpos_start"], params["xpos_end"], params["start"]) == (1_050_000_000, 1_999_999_999, 50_000_000)
+    assert "end" not in params
+    assert "e.chrom IN %(chromosomes)s" in where and "e.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s" in where
+    # The annotation subqueries read the window too, through the annotation tables' sort key.
+    assert "a.chrom IN %(chromosomes)s AND a.pos >= %(start)s" in where
+    assert "ai.chrom IN %(chromosomes)s AND ai.pos >= %(start)s" in where
+    bind_query(f"SELECT 1 FROM t AS e WHERE {where}", params)
+
+
+def test_an_exports_columns_are_read_a_few_thousand_variants_at_a_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[tuple[int, ...]] = []
+
+    async def fake_execute(query: str, params: Any = None) -> list[Any]:
+        asked.append(params["page_keys"])
+        return [(key, f"1-{key}-A-G", "1", key, "A", "G", "", []) for key in params["page_keys"]]
+
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
+    monkeypatch.setattr(ves, "_COLUMN_KEYS_AT_ONCE", 2)
+    rows = [(key, 1_000_000_000 + key, 1, 0, 1, 1) for key in (11, 12, 13, 14, 15)]
+    columns = asyncio.run(ves._variant_columns(_search(GlobalVariantFilters(impacts=["HIGH"])), rows))
+    assert asked == [(11, 12), (13, 14), (15,)]
+    assert sorted(columns) == [11, 12, 13, 14, 15]
+    assert asyncio.run(ves._variant_columns(_search(), [])) == {}

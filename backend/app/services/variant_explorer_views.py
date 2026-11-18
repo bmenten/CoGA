@@ -20,15 +20,15 @@ filtered by ``variant_explorer_service._carriers_where``. What the owner chose (
   (``min_total_samples``/``max_total_samples`` and ``gnomad_af_class``).
 
 A view joins the summary's rows to their own annotation (key and annotation set) one genomic
-window at a time (:data:`WINDOW_BASES`): each window's query holds that window's variants
-alone, whatever the cohort's size, and the windows' rows are summed, a variant lying in one
-window.
+window at a time (``variant_explorer_service.ExplorerWindow``), as the variant view reads a
+broad filter: each window's query holds that window's variants alone, whatever the cohort's
+size, and the windows' rows are summed, a variant lying in one window.
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Sequence
 
 from sqlalchemy import text
@@ -46,11 +46,12 @@ from ..schemas import (
 )
 from .access_control import CurrentUser
 from .clickhouse_variant_ids import _small_table_name
-from .data_scope import chromosome_aliases
 from .variant_explorer_service import (
     _VARIANT_COUNTS,
     GNOMAD_AF_CLASS_CONDITIONS,
+    WINDOWS_AT_ONCE,
     ExplorerScope,
+    ExplorerWindow,
     GlobalVariantFilters,
     _carriers_table,
     _carriers_where,
@@ -60,15 +61,9 @@ from .variant_explorer_service import (
     _review_filter_variant_ids,
     _shown_members,
     _total_samples_having,
+    explorer_windows,
     resolve_scope,
 )
-
-# The length of a window, in bases: about a million variants of 1,000 genomes.
-WINDOW_BASES = 50_000_000
-# Windows read at once.
-_WINDOWS_AT_ONCE = 4
-# The chromosome of each ``xpos`` rank (``clickhouse_variant_queries._xpos``).
-_RANK_CHROMOSOME = {**{rank: str(rank) for rank in range(1, 23)}, 23: "X", 24: "Y", 25: "M"}
 
 # The carrier classes of the cohort-frequency view: (label, fewest, most) samples.
 CARRIER_CLASSES: tuple[tuple[str, int, int | None], ...] = (
@@ -107,49 +102,12 @@ GENE_SORTS = {"variants", "carriers", "gene"}
 TRANSCRIPT_SORTS = {"variants", "carriers", "transcript", "gene"}
 
 
-@dataclass(frozen=True, slots=True)
-class _Window:
-    chromosome: str
-    start: int
-    end: int
-
-
-async def _windows(scope: ExplorerScope, filters: GlobalVariantFilters) -> list[_Window]:
-    """The windows of the variants the summary holds, within the filters' locus."""
-    rows = await execute_clickhouse(
-        f"""
-        SELECT intDiv(xpos, 1000000000) AS rank, min(xpos % 1000000000), max(xpos % 1000000000)
-        FROM {_carriers_table(scope)}
-        WHERE key != 0
-        GROUP BY rank
-        ORDER BY rank
-        """,
-        {},
-    )
-    wanted = set(chromosome_aliases(filters.chromosome)) if filters.chromosome else None
-    windows: list[_Window] = []
-    for rank, first, last in rows or []:
-        chromosome = _RANK_CHROMOSOME.get(int(rank))
-        if chromosome is None:
-            continue
-        if wanted is not None and not wanted.intersection(chromosome_aliases(chromosome)):
-            continue
-        low = max(int(first), filters.start or 0)
-        high = min(int(last), filters.end if filters.end is not None else int(last))
-        start = (low // WINDOW_BASES) * WINDOW_BASES
-        while start <= high:
-            end = start + WINDOW_BASES - 1
-            windows.append(_Window(chromosome, max(start, low), min(end, high)))
-            start += WINDOW_BASES
-    return windows
-
-
 @dataclass(slots=True)
 class _ViewInputs:
     scope: ExplorerScope
     pending: int
-    windows: list[_Window]
-    run: Callable[[_Window, str], Awaitable[list[tuple[Any, ...]]]]
+    windows: list[ExplorerWindow]
+    run: Callable[[ExplorerWindow, str], Awaitable[list[tuple[Any, ...]]]]
 
 
 async def _view_inputs(
@@ -157,7 +115,7 @@ async def _view_inputs(
     user: CurrentUser,
     filters: GlobalVariantFilters,
     assembly_id: str | None,
-    joined: Callable[[ExplorerScope, _Window, dict[str, Any]], str],
+    joined: Callable[[ExplorerScope, ExplorerWindow, dict[str, Any]], str],
 ) -> _ViewInputs | None:
     """What a view reads: the scope, the families pending, the windows, and how one window is
     read (``joined`` builds its query over a window's WHERE, bound in its params). No window
@@ -171,14 +129,14 @@ async def _view_inputs(
     tag_variant_ids, _capped = await _review_filter_variant_ids(session, scope, filters)
     shown_members = await _shown_members(session, scope.project_ids)
 
-    async def nothing(_window: _Window, _label: str) -> list[tuple[Any, ...]]:
+    async def nothing(_window: ExplorerWindow, _label: str) -> list[tuple[Any, ...]]:
         return []
 
     if _panel_keeps_nothing(panel_constraints) or tag_variant_ids == [] or not shown_members:
         return _ViewInputs(scope=scope, pending=pending, windows=[], run=nothing)
 
-    async def run(window: _Window, _label: str) -> list[tuple[Any, ...]]:
-        window_filters = replace(filters, chromosome=window.chromosome, start=window.start, end=window.end)
+    async def run(window: ExplorerWindow, _label: str) -> list[tuple[Any, ...]]:
+        window_filters = window.filters(filters)
         params: dict[str, Any] = {}
         where = " AND ".join(
             _carriers_where(
@@ -188,20 +146,21 @@ async def _view_inputs(
                 tag_variant_ids=tag_variant_ids,
                 shown_members=shown_members,
                 panel_constraints=panel_constraints,
+                window=window,
             )
         )
         having = _total_samples_having(window_filters, params)
         query = joined(scope, window, params).format(where=where, having=having)
         return list(await execute_clickhouse(query, params) or [])
 
-    return _ViewInputs(scope=scope, pending=pending, windows=await _windows(scope, filters), run=run)
+    return _ViewInputs(scope=scope, pending=pending, windows=await explorer_windows(scope, filters), run=run)
 
 
 async def _over_windows(inputs: _ViewInputs, label: str) -> list[tuple[Any, ...]]:
     """Every window's rows, read a few windows at a time."""
-    semaphore = asyncio.Semaphore(_WINDOWS_AT_ONCE)
+    semaphore = asyncio.Semaphore(WINDOWS_AT_ONCE)
 
-    async def one(window: _Window) -> list[tuple[Any, ...]]:
+    async def one(window: ExplorerWindow) -> list[tuple[Any, ...]]:
         async with semaphore:
             return await inputs.run(window, label)
 
@@ -209,15 +168,18 @@ async def _over_windows(inputs: _ViewInputs, label: str) -> list[tuple[Any, ...]
     return [row for rows in results for row in rows]
 
 
-def _window_scope(window: _Window, params: dict[str, Any], alias: str) -> str:
-    """The window, on an annotation table's rows (alias ``alias``)."""
-    params["window_chromosomes"] = tuple(chromosome_aliases(window.chromosome))
-    params["window_start"] = window.start
-    params["window_end"] = window.end
-    return (
-        f"{alias}.chrom IN %(window_chromosomes)s AND {alias}.pos >= %(window_start)s "
-        f"AND {alias}.pos <= %(window_end)s"
-    )
+def _window_scope(window: ExplorerWindow, params: dict[str, Any], alias: str) -> str:
+    """The window, on an annotation table's rows (alias ``alias``): under the names its rows
+    are read under, between its bounds."""
+    params["window_chromosomes"] = window.chromosomes
+    clauses = [f"{alias}.chrom IN %(window_chromosomes)s"]
+    if window.start is not None:
+        params["window_start"] = window.start
+        clauses.append(f"{alias}.pos >= %(window_start)s")
+    if window.end is not None:
+        params["window_end"] = window.end
+        clauses.append(f"{alias}.pos <= %(window_end)s")
+    return " AND ".join(clauses)
 
 
 # The per-variant counts over the kept rows joined to an annotation part, and the variant's
@@ -292,7 +254,7 @@ async def explorer_gene_view(
 ) -> ExplorerGenePageOut:
     """One row per gene a kept variant's own annotation names (see the module docstring)."""
 
-    def joined(scope: ExplorerScope, window: _Window, params: dict[str, Any]) -> str:
+    def joined(scope: ExplorerScope, window: ExplorerWindow, params: dict[str, Any]) -> str:
         annotations = _small_table_name(scope.assembly_name, "variants/annotations")
         part = (
             f"SELECT a.key AS key, a.annotationSetHash AS annotationSetHash, a.gene_symbol AS gene, "
@@ -371,7 +333,7 @@ async def explorer_transcript_view(
         "canonical": " AND a.canonical",
     }[selection]
 
-    def joined(scope: ExplorerScope, window: _Window, params: dict[str, Any]) -> str:
+    def joined(scope: ExplorerScope, window: ExplorerWindow, params: dict[str, Any]) -> str:
         annotations = _small_table_name(scope.assembly_name, "variants/annotations")
         part = (
             "SELECT a.key AS key, a.annotationSetHash AS annotationSetHash, a.transcript_id AS transcript, "
@@ -465,7 +427,7 @@ async def explorer_frequency_view(
     """The kept variants by carrier class and gnomAD frequency class (see the module
     docstring): every cell, zeros included."""
 
-    def joined(scope: ExplorerScope, window: _Window, params: dict[str, Any]) -> str:
+    def joined(scope: ExplorerScope, window: ExplorerWindow, params: dict[str, Any]) -> str:
         annotation_index = _small_table_name(scope.assembly_name, "variants/annotation_index")
         af_class = "multiIf(" + ", ".join(
             f"{condition}, {index}" for index, (_label, condition) in enumerate(GNOMAD_AF_CLASSES)

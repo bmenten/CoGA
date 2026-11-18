@@ -2869,7 +2869,15 @@ def _small_family_key_condition(
     reads them (``_small_family_region_condition``). A row the search reads then has its key
     here, so it is in the narrowed set exactly when it was in the whole one, also for a
     ``NOT IN``. A clause left out would make the set larger, never change a row. Every
-    subquery of one search writes the same text here, and ClickHouse builds its set once."""
+    subquery of one search writes the same text here, and ClickHouse builds its set once.
+
+    A search that reads only some variants' rows, whatever their family, names their keys in
+    ``annotation_keys`` (the Variant Explorer reading the columns of one page's variants):
+    the annotation row's key is then one of those, by the same argument."""
+    page_keys = tuple(getattr(context, "annotation_keys", None) or ())
+    if page_keys:
+        params["annotation_keys"] = page_keys
+        return f"{alias}.key IN %(annotation_keys)s"
     if not isinstance(context, FamilyMetadataContext) or not context.assembly_name:
         return None
     params["annotation_family_guid"] = context.family_uuid

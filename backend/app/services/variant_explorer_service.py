@@ -29,6 +29,12 @@ Design notes
   search's own SQL (``clickhouse_variant_queries``), read on each summary row as its
   family page reads the rows of that class, so a row counts the carriers of the family
   pages that keep the variant (``_carriers_where``).
+* **A broad filter, one window at a time.** A filter read by a subquery gathers the variants
+  it keeps, of the whole cohort, into a set its query holds. A search asks first in one query
+  whose sets may each hold two million variants; a broader filter (rare only, a large panel)
+  is refused there and read one genomic window of the summary at a time
+  (:class:`ExplorerWindow`), the windows' counts and pages merged: the same variants, counts
+  and order. A page's columns are read for its variants alone (``annotation_keys``).
 * **The samples their family shows.** A row holds a call of every sample of the VCF it was
   imported from, also of a member taken out of the family since. The summary counts, in
   each family's rows, the calls of the family's active members alone, as the family search
@@ -38,15 +44,17 @@ Design notes
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Awaitable, Callable, Mapping, Sequence, TypeVar
 
+from clickhouse_connect.driver.exceptions import ClickHouseError
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,9 +75,11 @@ from .clickhouse_variant_queries import (
     _SMALL_REGION_WINDOW_MATCH,
     IMPUTED_SMALL_VARIANT_SOURCES,
     _xpos,
+    _chromosome_options,
     _clickhouse_sample_ids,
     _small_annotation_filter_clauses,
     _small_annotation_key_membership_condition,
+    _small_annotation_scope_clauses,
     _small_callset_clauses,
     _small_locus_clauses,
     _small_panel_filter_condition,
@@ -359,6 +369,10 @@ class ExplorerScope:
     assembly_id: str
     assembly_name: str
     project_ids: list[str]
+    # The keys of the variants a query reads, when it reads only some (one page's columns,
+    # :func:`_variant_columns`): every filter's subquery then gathers those variants alone
+    # (``_small_family_key_condition``).
+    annotation_keys: tuple[int, ...] = ()
 
 
 # --------------------------------------------------------------------------- #
@@ -853,6 +867,10 @@ def _sample_genotype_condition(
         *_small_locus_clauses(query_filters, params=params, alias="gs"),
         call_condition,
     ]
+    if scope.annotation_keys:
+        # The page's variants alone, as the annotation subqueries (``_small_family_key_condition``).
+        params["annotation_keys"] = scope.annotation_keys
+        sample_rows.append("gs.key IN %(annotation_keys)s")
     entries_table = _small_table_name(scope.assembly_name, "entries")
     return f"e.key IN (SELECT gs.key FROM {entries_table} AS gs WHERE {' AND '.join(sample_rows)})"
 
@@ -889,7 +907,12 @@ def _panel_keeps_nothing(panel_constraints: PanelFilterConstraints | None) -> bo
 
 
 def _region_key_condition(
-    assembly_name: str, regions: Sequence[Region], *, prefix: str, params: dict[str, Any]
+    scope: ExplorerScope,
+    query_filters: SmallVariantQueryFilters,
+    regions: Sequence[Region],
+    *,
+    prefix: str,
+    params: dict[str, Any],
 ) -> str | None:
     """``key IN`` the variants of the assembly that overlap one of ``regions`` by the family
     page's rule (``_small_region_filter_condition``), each variant at its position in the
@@ -902,15 +925,25 @@ def _region_key_condition(
     every window it touches and each variant under every window its REF touches, and a pair
     that shares a window is kept when the two overlap by that rule. The regions are read as
     the family page reads them (``_small_region_bounds``).
+
+    The annotation index is read within the search's locus, as the annotation subqueries read
+    it (``_small_annotation_scope_clauses``), and, for a query that reads some variants alone,
+    for their keys (``ExplorerScope.annotation_keys``): every variant the search reads lies
+    there, so the set keeps the same rows.
     """
     region_rows = _small_region_window_rows(regions, prefix=prefix, params=params)
     if region_rows is None:
         return None
     columns, windows = _small_variant_windows("ai")
-    annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
+    annotation_index = _small_table_name(scope.assembly_name, "variants/annotation_index")
+    index_where = _small_annotation_scope_clauses(query_filters, params=params, alias="ai")
+    if scope.annotation_keys:
+        params["annotation_keys"] = scope.annotation_keys
+        index_where.append("ai.key IN %(annotation_keys)s")
+    where_sql = f" WHERE {' AND '.join(index_where)}" if index_where else ""
     return (
         f"key IN (SELECT v.key FROM (SELECT ai.key AS key, {columns}"
-        f" FROM {annotation_index} AS ai {windows})"
+        f" FROM {annotation_index} AS ai {windows}{where_sql})"
         f" AS v INNER JOIN ({region_rows}) AS r {_SMALL_REGION_WINDOW_MATCH})"
     )
 
@@ -932,7 +965,7 @@ def _panel_condition(
     def region_condition(
         regions: Sequence[Region], *, prefix: str, params: dict[str, Any]
     ) -> str | None:
-        return _region_key_condition(scope.assembly_name, regions, prefix=prefix, params=params)
+        return _region_key_condition(scope, query_filters, regions, prefix=prefix, params=params)
 
     return _small_panel_filter_condition(
         scope,
@@ -952,11 +985,14 @@ def _carriers_where(
     tag_variant_ids: Sequence[str] | None,
     shown_members: Sequence[_ShownMember],
     panel_constraints: PanelFilterConstraints | None = None,
+    window: ExplorerWindow | None = None,
 ) -> list[str]:
     """The WHERE clauses on the rows of the variant carrier summary (alias ``e``,
     ``variant_carrier_summary``) for these filters. ``panel_constraints`` is the panel as
     :func:`_panel_constraints` read it, and ``shown_members`` the samples the scope's families
-    show (:func:`_shown_members`).
+    show (:func:`_shown_members`). With ``window`` (and ``filters`` its own,
+    :meth:`ExplorerWindow.filters`), the rows and every subquery's are those of the window,
+    under each name of its chromosome it holds (:class:`ExplorerWindow`).
 
     A row of the summary holds the carriers of one family's rows of one class: their
     annotation set, rsID, gene symbols and whether their callset is imputed, the columns the
@@ -1031,6 +1067,10 @@ def _carriers_where(
             else "0"
         )
 
+    if window is not None:
+        # The locus clauses above bind the chromosome's names as the family page's filter
+        # names them; a window reads every name its chromosome has in the summary.
+        params["chromosomes"] = window.chromosomes
     return clauses
 
 
@@ -1097,35 +1137,232 @@ _VARIANT_COUNTS = (
 )
 # The summary is sorted by ``xpos, key``: grouped in that order, a query holds one variant's
 # sums at a time, however many variants it reads.
-_IN_ORDER = "SETTINGS optimize_aggregation_in_order = 1"
+_IN_ORDER = "optimize_aggregation_in_order = 1"
 
 
 def _carriers_table(scope: ExplorerScope) -> str:
     return _small_table_name(scope.assembly_name, CARRIERS_SUFFIX)
 
 
-async def _count_variants(
-    scope: ExplorerScope, where_sql: str, params: dict[str, Any], having_sql: str = ""
-) -> int:
-    """The distinct variants with a carrier in the rows kept, counted up to the cap (one
-    more distinguishes "exactly cap" from "more"): grouped in the summary's order, the count
-    stops at the cap."""
+# --------------------------------------------------------------------------- #
+# A broad filter, one genomic window at a time                                #
+# --------------------------------------------------------------------------- #
+
+# A filter read by a subquery (an annotation filter, the gene panel, the rsID, a sample's
+# genotype) gathers the variants it keeps, of every family of the cohort, into a set that its
+# query holds whole while it reads the summary. A broad filter (rare only, a panel of thousands
+# of genes) keeps most of the cohort's variants: tens of millions at 1,000 genomes. So a search
+# asks first in one query whose every set may hold this many variants. Past it ClickHouse
+# refuses the query (SET_SIZE_LIMIT_EXCEEDED, never a cut set: ``set_overflow_mode`` throws)
+# and the search reads the summary window by window, each query's sets holding that window's
+# variants alone (:class:`ExplorerWindow`).
+_ONE_QUERY_SET_ROWS = 2_000_000
+# The length of a window, in bases: about a million variants of 1,000 genomes.
+WINDOW_BASES = 50_000_000
+# Windows read at once.
+WINDOWS_AT_ONCE = 4
+# ``xpos`` is the chromosome's rank times this, plus the position (``_xpos``).
+_XPOS_RANK = 1_000_000_000
+# The chromosome of each rank, as ``_xpos`` ranks it; other contigs share rank 99.
+_RANK_CHROMOSOME = {**{rank: str(rank) for rank in range(1, 23)}, 23: "X", 24: "Y", 25: "M"}
+
+
+@dataclass(frozen=True, slots=True)
+class ExplorerWindow:
+    """The summary's variants of one chromosome rank (``xpos`` divided by 10⁹) from position
+    ``start`` to ``end``, either open when None.
+
+    ``chromosome`` is the name the locus filters compute ``xpos`` from, and ``chromosomes`` the
+    names the window's rows are read under: every name the summary holds for the rank (``1`` and
+    ``chr1``; every contig of rank 99), or, under the chromosome filter, the names it reads
+    (``_chromosome_options``). Each variant of the summary so lies in exactly one window of
+    :func:`explorer_windows`, and the windows' counts add up to one query's. A variant's
+    annotation rows were written by the import of its rows, at its name and position, so a
+    subquery read within the window gathers every annotation row the window's variants have:
+    it keeps the same rows."""
+
+    rank: int
+    chromosome: str
+    chromosomes: tuple[str, ...]
+    start: int | None
+    end: int | None
+
+    def filters(self, filters: GlobalVariantFilters) -> GlobalVariantFilters:
+        """``filters`` with the window as their locus."""
+        return replace(filters, chromosome=self.chromosome, start=self.start, end=self.end)
+
+    @property
+    def first_xpos(self) -> int:
+        return self.rank * _XPOS_RANK + (self.start or 0)
+
+    @property
+    def last_xpos(self) -> int:
+        return self.rank * _XPOS_RANK + (self.end if self.end is not None else _XPOS_RANK - 1)
+
+
+async def explorer_windows(scope: ExplorerScope, filters: GlobalVariantFilters) -> list[ExplorerWindow]:
+    """The windows of the summary's variants within the filters' locus, in genome order: per
+    chromosome rank, every :data:`WINDOW_BASES` bases from the first variant to the last. The
+    first and the last window of a rank are open where the locus is: a variant written after
+    this read lies in a window too."""
     rows = await execute_clickhouse(
         f"""
-        SELECT count()
-        FROM (
-            SELECT e.key AS key, {_VARIANT_COUNTS}
-            FROM {_carriers_table(scope)} AS e
-            WHERE {where_sql}
-            GROUP BY e.xpos, e.key
-            HAVING total_samples > 0 {having_sql}
-            LIMIT {_EXPLORER_COUNT_CAP + 1}
-        )
-        {_IN_ORDER}
+        SELECT intDiv(xpos, {_XPOS_RANK}) AS rank, groupUniqArray(chrom),
+               min(xpos % {_XPOS_RANK}), max(xpos % {_XPOS_RANK})
+        FROM {_carriers_table(scope)}
+        WHERE key != 0
+        GROUP BY rank
+        ORDER BY rank
         """,
-        params,
+        {},
     )
-    return int(rows[0][0]) if rows and rows[0] else 0
+    wanted_rank: int | None = None
+    options: tuple[str, ...] = ()
+    if filters.chromosome:
+        options = _chromosome_options(filters.chromosome)
+        wanted_rank = _xpos(filters.chromosome, 0) // _XPOS_RANK
+    windows: list[ExplorerWindow] = []
+    for rank_value, stored_names, first, last in rows or []:
+        rank = int(rank_value)
+        if wanted_rank is not None and rank != wanted_rank:
+            continue
+        names = tuple(sorted({str(name) for name in stored_names or ()}))
+        if not names:
+            continue
+        chromosome = filters.chromosome or _RANK_CHROMOSOME.get(rank) or names[0]
+        low = max(int(first), filters.start or 0)
+        high = int(last) if filters.end is None else min(int(last), filters.end)
+        if low > high:
+            continue
+        first_index, last_index = low // WINDOW_BASES, high // WINDOW_BASES
+        for index in range(first_index, last_index + 1):
+            windows.append(
+                ExplorerWindow(
+                    rank=rank,
+                    chromosome=chromosome,
+                    chromosomes=options or names,
+                    start=filters.start if index == first_index else index * WINDOW_BASES,
+                    end=filters.end if index == last_index else (index + 1) * WINDOW_BASES - 1,
+                )
+            )
+    return windows
+
+
+def _one_query_settings() -> str:
+    """The settings of a search's query over its whole locus: in the summary's order, each set
+    held to :data:`_ONE_QUERY_SET_ROWS`."""
+    return f"{_IN_ORDER}, max_rows_in_set = {_ONE_QUERY_SET_ROWS}, set_overflow_mode = 'throw'"
+
+
+def _set_limit_passed(exc: Exception) -> bool:
+    """ClickHouse refused the query: one of its sets passed ``max_rows_in_set``."""
+    return "SET_SIZE_LIMIT_EXCEEDED" in str(exc)
+
+
+_Read = TypeVar("_Read")
+
+
+@dataclass(slots=True)
+class _Search:
+    """A search's scope and filters, with what Postgres resolved them to: the review filter's
+    variants, the samples the families show and the gene panel. Its queries are built over the
+    whole locus or one window (:meth:`where`), and read in one query until a set passes its
+    limit; from then on every query of the search reads window by window (:meth:`read`)."""
+
+    scope: ExplorerScope
+    filters: GlobalVariantFilters
+    tag_variant_ids: Sequence[str] | None
+    shown_members: Sequence[_ShownMember]
+    panel_constraints: PanelFilterConstraints | None
+    windows: list[ExplorerWindow] | None = None
+
+    def where(
+        self, window: ExplorerWindow | None = None, *, keys: Sequence[int] = ()
+    ) -> tuple[str, str, dict[str, Any]]:
+        """The WHERE (:func:`_carriers_where`), the carrier-count bounds that follow
+        ``HAVING total_samples > 0`` (:func:`_total_samples_having`) and their parameters, over
+        ``window`` (the whole locus when None) and, with ``keys``, for those variants alone."""
+        params: dict[str, Any] = {}
+        scope = replace(self.scope, annotation_keys=tuple(int(key) for key in keys)) if keys else self.scope
+        filters = window.filters(self.filters) if window is not None else self.filters
+        clauses = _carriers_where(
+            scope,
+            filters,
+            params,
+            tag_variant_ids=self.tag_variant_ids,
+            shown_members=self.shown_members,
+            panel_constraints=self.panel_constraints,
+            window=window,
+        )
+        return " AND ".join(clauses), _total_samples_having(filters, params), params
+
+    async def read(
+        self,
+        one_query: Callable[[], Awaitable[_Read]],
+        by_window: Callable[[list[ExplorerWindow]], Awaitable[_Read]],
+    ) -> _Read:
+        """``one_query``'s answer, or, once a set of the search passed its limit,
+        ``by_window``'s over the windows of the search's locus."""
+        if self.windows is None:
+            try:
+                return await one_query()
+            except ClickHouseError as exc:
+                if not _set_limit_passed(exc):
+                    raise
+                self.windows = await explorer_windows(self.scope, self.filters)
+        return await by_window(self.windows)
+
+
+async def _windows_at_once(
+    windows: Sequence[ExplorerWindow],
+    run: Callable[[ExplorerWindow], Awaitable[_Read]],
+    *,
+    enough: Callable[[list[_Read]], bool] = lambda _done: False,
+) -> list[_Read]:
+    """``run`` over the windows in their order, :data:`WINDOWS_AT_ONCE` at a time, the
+    answers in the windows' order; it stops after the batch that makes ``enough`` true."""
+    answers: list[_Read] = []
+    for first in range(0, len(windows), WINDOWS_AT_ONCE):
+        batch = windows[first : first + WINDOWS_AT_ONCE]
+        answers.extend(await asyncio.gather(*(run(window) for window in batch)))
+        if enough(answers):
+            break
+    return answers
+
+
+async def _count_variants(search: _Search) -> int:
+    """The distinct variants with a carrier in the rows kept, counted up to the cap (one
+    more distinguishes "exactly cap" from "more"): grouped in the summary's order, the count
+    stops at the cap. Window by window, the windows' counts are summed until they pass it."""
+
+    async def count(window: ExplorerWindow | None, settings: str) -> int:
+        where_sql, having_sql, params = search.where(window)
+        rows = await execute_clickhouse(
+            f"""
+            SELECT count()
+            FROM (
+                SELECT e.key AS key, {_VARIANT_COUNTS}
+                FROM {_carriers_table(search.scope)} AS e
+                WHERE {where_sql}
+                GROUP BY e.xpos, e.key
+                HAVING total_samples > 0 {having_sql}
+                LIMIT {_EXPLORER_COUNT_CAP + 1}
+            )
+            SETTINGS {settings}
+            """,
+            params,
+        )
+        return int(rows[0][0]) if rows and rows[0] else 0
+
+    async def by_window(windows: list[ExplorerWindow]) -> int:
+        counts = await _windows_at_once(
+            windows,
+            lambda window: count(window, _IN_ORDER),
+            enough=lambda done: sum(done) > _EXPLORER_COUNT_CAP,
+        )
+        return sum(counts)
+
+    return await search.read(lambda: count(None, _one_query_settings()), by_window)
 
 
 async def _pending_families(session: AsyncSession, scope: ExplorerScope) -> list[str]:
@@ -1183,19 +1420,14 @@ async def search_global_small_variants(
     if not shown_members:
         return empty_page
 
-    params: dict[str, Any] = {}
-    where_clauses = _carriers_where(
-        scope,
-        filters,
-        params,
+    search = _Search(
+        scope=scope,
+        filters=filters,
         tag_variant_ids=tag_variant_ids,
         shown_members=shown_members,
         panel_constraints=panel_constraints,
     )
-    where_sql = " AND ".join(where_clauses)
-
-    having_sql = _total_samples_having(filters, params)
-    total, total_is_estimated = _bounded_total(await _count_variants(scope, where_sql, params, having_sql))
+    total, total_is_estimated = _bounded_total(await _count_variants(search))
     if total == 0:
         return empty_page
 
@@ -1215,15 +1447,12 @@ async def search_global_small_variants(
     # cursor that would land on an empty page (which a bare len==page_size check would).
     variants, row_cursors = await _fetch_variant_rows(
         session,
-        scope=scope,
-        where_sql=where_sql,
-        params=params,
+        search,
         sort_expr=sort_expr,
         direction=direction,
         limit=page_size + 1,
         seek_having=seek_having,
         seek_params=seek_params,
-        having_sql=having_sql,
     )
 
     next_cursor: str | None = None
@@ -1244,56 +1473,100 @@ async def search_global_small_variants(
 
 
 async def _ranked_variants(
-    scope: ExplorerScope,
+    search: _Search,
     *,
-    where_sql: str,
-    params: dict[str, Any],
     sort_expr: str,
     direction: str,
     limit: int,
     seek_having: str | None = None,
     seek_params: dict[str, Any] | None = None,
-    having_sql: str = "",
 ) -> list[tuple[Any, ...]]:
     """The page's variants in their order, each as ``(key, xpos, families, hom_samples,
-    het_samples, total_samples)``."""
-    page_params = dict(params)
-    page_params["limit"] = limit
-    if seek_params:
-        page_params.update(seek_params)
-    seek_sql = f"{having_sql} AND {seek_having}" if seek_having else having_sql
-    return list(
-        await execute_clickhouse(
-            f"""
-            SELECT key, xpos, families, hom_samples, het_samples, total_samples
-            FROM (
-                SELECT e.key AS key, e.xpos AS xpos, {_VARIANT_COUNTS}
-                FROM {_carriers_table(scope)} AS e
-                WHERE {where_sql}
-                GROUP BY e.xpos, e.key
-                HAVING total_samples > 0 {seek_sql}
+    het_samples, total_samples)``.
+
+    Window by window, a page sorted by position reads the windows in that order, from the
+    cursor's, until it is full; a page sorted by a count reads the first ``limit`` of every
+    window and keeps the first ``limit`` of those, in the page's order."""
+    seek_sql = f" AND {seek_having}" if seek_having else ""
+
+    async def ranked(window: ExplorerWindow | None, settings: str) -> list[tuple[Any, ...]]:
+        where_sql, having_sql, params = search.where(window)
+        params["limit"] = limit
+        if seek_params:
+            params.update(seek_params)
+        return list(
+            await execute_clickhouse(
+                f"""
+                SELECT key, xpos, families, hom_samples, het_samples, total_samples
+                FROM (
+                    SELECT e.key AS key, e.xpos AS xpos, {_VARIANT_COUNTS}
+                    FROM {_carriers_table(search.scope)} AS e
+                    WHERE {where_sql}
+                    GROUP BY e.xpos, e.key
+                    HAVING total_samples > 0 {having_sql}{seek_sql}
+                    ORDER BY {sort_expr} {direction}, xpos ASC, key ASC
+                    LIMIT %(limit)s
+                )
                 ORDER BY {sort_expr} {direction}, xpos ASC, key ASC
-                LIMIT %(limit)s
+                SETTINGS {settings}
+                """,
+                params,
             )
-            ORDER BY {sort_expr} {direction}, xpos ASC, key ASC
-            {_IN_ORDER}
-            """,
-            page_params,
+            or []
         )
-        or []
-    )
+
+    def run(window: ExplorerWindow) -> Awaitable[list[tuple[Any, ...]]]:
+        return ranked(window, _IN_ORDER)
+
+    async def by_window(windows: list[ExplorerWindow]) -> list[tuple[Any, ...]]:
+        if sort_expr == "xpos":
+            # A window wholly before the cursor holds none of the rows after it.
+            cursor_xpos = int(seek_params["cur_xpos"]) if seek_params else None
+            if direction == "ASC":
+                ordered = [w for w in windows if cursor_xpos is None or w.last_xpos >= cursor_xpos]
+            else:
+                ordered = [w for w in reversed(windows) if cursor_xpos is None or w.first_xpos <= cursor_xpos]
+            answers = await _windows_at_once(
+                ordered, run, enough=lambda done: sum(len(rows) for rows in done) >= limit
+            )
+            return [row for rows in answers for row in rows][:limit]
+        column = _SORT_RAW_COL[sort_expr]
+        sign = -1 if direction == "DESC" else 1
+
+        def order(row: tuple[Any, ...]) -> tuple[int, int, int]:
+            return (sign * int(row[column]), int(row[_RAW_XPOS_COL]), int(row[_RAW_KEY_COL]))
+
+        kept: list[tuple[Any, ...]] = []
+        for first in range(0, len(windows), WINDOWS_AT_ONCE):
+            batch = windows[first : first + WINDOWS_AT_ONCE]
+            answers = await asyncio.gather(*(run(window) for window in batch))
+            kept = sorted([*kept, *(row for rows in answers for row in rows)], key=order)[:limit]
+        return kept
+
+    return await search.read(lambda: ranked(None, _one_query_settings()), by_window)
 
 
-async def _variant_columns(
-    scope: ExplorerScope, *, where_sql: str, params: dict[str, Any], rows: Sequence[tuple[Any, ...]]
-) -> dict[int, tuple[Any, ...]]:
+# The variants whose columns one query reads: an export's 50,001 keys, named in every filter's
+# subquery, would make a query text of several MB.
+_COLUMN_KEYS_AT_ONCE = 5_000
+
+
+async def _variant_columns(search: _Search, rows: Sequence[tuple[Any, ...]]) -> dict[int, tuple[Any, ...]]:
     """Per variant of ``rows``: its ID, chromosome, position, REF and ALT, an rsID of a row it
     is kept by, and the gene symbols of those rows; read from the summary rows the page keeps
-    whose carriers have not been taken out."""
-    if not rows:
-        return {}
-    column_params = dict(params)
-    column_params["page_keys"] = tuple(int(row[0]) for row in rows)
+    whose carriers have not been taken out. Every filter's subquery gathers these variants
+    alone (``ExplorerScope.annotation_keys``), so a query holds that many, whatever the
+    filters; :data:`_COLUMN_KEYS_AT_ONCE` variants a query."""
+    columns: dict[int, tuple[Any, ...]] = {}
+    for first in range(0, len(rows), _COLUMN_KEYS_AT_ONCE):
+        columns.update(await _variant_columns_of(search, rows[first : first + _COLUMN_KEYS_AT_ONCE]))
+    return columns
+
+
+async def _variant_columns_of(search: _Search, rows: Sequence[tuple[Any, ...]]) -> dict[int, tuple[Any, ...]]:
+    page_keys = tuple(int(row[0]) for row in rows)
+    where_sql, _having_sql, column_params = search.where(keys=page_keys)
+    column_params["page_keys"] = page_keys
     column_params["page_xpos"] = tuple(sorted({int(row[1]) for row in rows}))
     result = await execute_clickhouse(
         f"""
@@ -1317,7 +1590,7 @@ async def _variant_columns(
                 e.rsid AS row_rsid,
                 e.gene_symbols AS row_gene_symbols,
                 sum(e.samples) AS row_carriers
-            FROM {_carriers_table(scope)} AS e
+            FROM {_carriers_table(search.scope)} AS e
             WHERE {where_sql} AND e.xpos IN %(page_xpos)s AND e.key IN %(page_keys)s
             GROUP BY e.xpos, e.key, e.family_guid, e.sample_id, e.projects, e.annotationSetHash, e.rsid,
                      e.gene_symbols, e.imputed
@@ -1332,16 +1605,13 @@ async def _variant_columns(
 
 async def _fetch_variant_rows(
     session: AsyncSession,
+    search: _Search,
     *,
-    scope: ExplorerScope,
-    where_sql: str,
-    params: dict[str, Any],
     sort_expr: str,
     direction: str,
     limit: int,
     seek_having: str | None = None,
     seek_params: dict[str, Any] | None = None,
-    having_sql: str = "",
 ) -> tuple[list[GlobalVariantRowOut], list[tuple[int, int, int]]]:
     """Run the aggregated variant query and hydrate it into row models.
 
@@ -1353,17 +1623,14 @@ async def _fetch_variant_rows(
     ``row_cursors[i]`` is the ``(sort_value, xpos, key)`` of ``rows[i]`` for building the
     next cursor.
     """
-
+    scope = search.scope
     ranked = await _ranked_variants(
-        scope,
-        where_sql=where_sql,
-        params=params,
+        search,
         sort_expr=sort_expr,
         direction=direction,
         limit=limit,
         seek_having=seek_having,
         seek_params=seek_params,
-        having_sql=having_sql,
     )
 
     # Per-row keyset cursor (sort_value, xpos, key), parallel to `variants`, so the caller
@@ -1373,7 +1640,7 @@ async def _fetch_variant_rows(
         for row in ranked
     ]
 
-    columns = await _variant_columns(scope, where_sql=where_sql, params=params, rows=ranked)
+    columns = await _variant_columns(search, ranked)
     keys = [int(row[0]) for row in ranked]
     variant_ids = [str(columns.get(key, ("", ""))[1]) for key in keys]
 
@@ -1529,26 +1796,15 @@ async def export_global_small_variants(
             pending_families=pending,
         )
 
-    params: dict[str, Any] = {}
-    where_clauses = _carriers_where(
-        scope,
-        filters,
-        params,
+    search = _Search(
+        scope=scope,
+        filters=filters,
         tag_variant_ids=tag_variant_ids,
         shown_members=shown_members,
         panel_constraints=panel_constraints,
     )
-    where_sql = " AND ".join(where_clauses)
-
     variants, _row_cursors = await _fetch_variant_rows(
-        session,
-        scope=scope,
-        where_sql=where_sql,
-        params=params,
-        sort_expr=sort_expr,
-        direction=direction,
-        limit=limit + 1,
-        having_sql=_total_samples_having(filters, params),
+        session, search, sort_expr=sort_expr, direction=direction, limit=limit + 1
     )
     row_cut = TRUNCATED_BY_ROW_LIMIT if len(variants) > limit else None
     return GlobalVariantExport(

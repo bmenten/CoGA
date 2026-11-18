@@ -208,9 +208,10 @@ def _explorer_service(monkeypatch, *, matching: int) -> tuple[types.ModuleType, 
     async def _resolve_scope(session, user, assembly_id):
         return scope
 
-    async def _fetch_variant_rows(session, *, limit, params, **_kwargs):
+    async def _fetch_variant_rows(session, search, *, limit, **_kwargs):
         seen["limit"] = limit
-        seen["tag_variant_ids"] = params.get("tag_variant_ids")
+        tagged = search.tag_variant_ids
+        seen["tag_variant_ids"] = None if tagged is None else tuple(tagged)
         rows = [_explorer_row(index) for index in range(min(limit, matching))]
         return rows, [(0, 0, index) for index in range(len(rows))]
 

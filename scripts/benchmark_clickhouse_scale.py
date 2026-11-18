@@ -33,7 +33,11 @@ What it does, step by step:
      HIGH/MODERATE impact, rare only (gnomAD AF at most 1 %), a 5,300-gene panel with
      its gene loci (Mendeliome-like), one gene;
    - the Variant Explorer search (``search_global_small_variants``, its Postgres parts
-     stubbed: every project in scope, no review filter), unfiltered and filtered;
+     stubbed: every project in scope, no review filter), unfiltered, narrow (rare and
+     HIGH/MODERATE, one gene) and broad (rare only, sorted by carriers and by position; the
+     panel), over the carrier summary as the families' rows make it or, with
+     ``--summary synthetic``, written straight from the variant pools (each common variant in
+     every project, each rare one in one), the size of a cohort's without its families' rows;
    - one trio's overwrite as the import runs it (``snapshot_family_clickhouse_state``,
      ``delete_family_small_variants``, ``restore_family_clickhouse_state``,
      ``discard_family_clickhouse_snapshot``), with the parts its mutations rewrote
@@ -608,6 +612,28 @@ def annotation_index_insert(table: str, model: CohortModel, source: str) -> str:
     )
 
 
+def synthetic_summary_insert(table: str, model: CohortModel, source: str, projects: list[str]) -> str:
+    """The Variant Explorer's carrier summary written straight from the variant pools, not
+    from families' rows (``--summary synthetic``): each common variant one aggregate row in
+    every project, each rare one in one project, with made-up counts. Its rows are as many and
+    as large as a cohort's of that size; its counts are no family's."""
+    projects_sql = _array(projects)
+    return (
+        f"INSERT INTO {table} (xpos, key, family_guid, sample_id, projects, annotationSetHash, rsid, "
+        "gene_symbols, imputed, generation, variantId, chrom, pos, ref, alt, families, samples, het, hom, "
+        "applied) "
+        "SELECT xpos, key, '', '', [project], aset_hash, ifNull(rsid, ''), CAST([] AS Array(String)), false, "
+        "0, variant_id, chrom, pos, ref, alt, toInt32(greatest(1, intDiv(carriers * 2, 3))), carriers, "
+        "carriers - hom_carriers, hom_carriers, 0 "
+        "FROM (SELECT *, project, if(is_common, toInt32(1 + cityHash64(i, project, 60) % 250), "
+        "toInt32(1 + (cityHash64(i, 61) % 10 = 0))) AS carriers, "
+        "toInt32(if(is_common, intDiv(carriers, 4), 0)) AS hom_carriers "
+        f"FROM ({variant_columns(model, source)}) "
+        f"ARRAY JOIN if(is_common, {projects_sql}, [{projects_sql}[1 + cityHash64(i, 62) % {len(projects)}]]) "
+        "AS project)"
+    )
+
+
 def gene_index_insert(table: str, model: CohortModel, source: str) -> str:
     return (
         f"INSERT INTO {table} (key, variantId, annotation_version, annotationSetHash, gene_term, chrom, "
@@ -1001,17 +1027,17 @@ def panel_constraints(admin: Admin) -> tuple[Any, int]:
     return PanelFilterConstraints(genes=genes, regions=regions), len(genes)
 
 
-def stub_explorer_postgres(projects: list[str], families: list[Family]) -> None:
+def stub_explorer_postgres(projects: list[str], families: list[Family], panel: Any = None) -> None:
     """The Variant Explorer's Postgres parts: every benchmark project in scope, every member
-    of every family shown, no panel, no review filter and no reviews to show. Its
-    ClickHouse queries are the app's own."""
+    of every family shown, the Mendeliome-like panel (``panel``) for a search that names a
+    panel, no review filter and no reviews to show. Its ClickHouse queries are the app's own."""
     from app.services import variant_explorer_service as explorer
 
     async def resolve_scope(_session: Any, _user: Any, _assembly_id: Any) -> Any:
         return explorer.ExplorerScope(assembly_id="bench-assembly", assembly_name=ASSEMBLY, project_ids=projects)
 
-    async def no_panel(*_args: Any, **_kwargs: Any) -> None:
-        return None
+    async def no_panel(_session: Any, _scope: Any, filters: Any) -> Any:
+        return panel if filters.panel_id else None
 
     async def no_review_filter(*_args: Any, **_kwargs: Any) -> tuple[None, bool]:
         return None, False
@@ -1120,6 +1146,8 @@ async def measure_step(
     projects: list[str],
     repeat: int,
     operations: frozenset[str] = frozenset(OPERATIONS),
+    *,
+    synthetic_summary: bool = False,
 ) -> None:
     from app.services import variant_explorer_service as explorer
     from app.services.clickhouse_family_variants import (
@@ -1162,26 +1190,36 @@ async def measure_step(
                 if result is not None:
                     recorder.operations[-1].detail = {"page_rows": result[0], "total": list(result[1])}
 
-    if "explorer" in operations:
+    if "explorer" in operations and not synthetic_summary:
         await build_carrier_summary(recorder, step, families)
         # The pages are measured on the summary as background merges leave it; right after
         # many families are added at once they read every family's part, and take longer.
         print(f"step {step}: summary merged in {wait_for_merges(admin, 1800):.0f} s", flush=True)
-    stub_explorer_postgres(projects, families)
-    explorer_filters = {
-        "explorer.unfiltered": explorer.GlobalVariantFilters(),
-        "explorer.rare_impact": explorer.GlobalVariantFilters(max_gnomad_af=0.01, impacts=["HIGH", "MODERATE"]),
-        "explorer.gene": explorer.GlobalVariantFilters(gene=f"SG{SINGLE_GENE_BIN}"),
+    stub_explorer_postgres(projects, families, panel)
+    # (filters, sort): the default sort is by carriers, which reads every variant kept; by
+    # position a page reads from the start of the genome.
+    explorer_searches: dict[str, tuple[Any, str]] = {
+        "explorer.unfiltered": (explorer.GlobalVariantFilters(), "total_samples"),
+        "explorer.rare_impact": (
+            explorer.GlobalVariantFilters(max_gnomad_af=0.01, impacts=["HIGH", "MODERATE"]),
+            "total_samples",
+        ),
+        "explorer.gene": (explorer.GlobalVariantFilters(gene=f"SG{SINGLE_GENE_BIN}"), "total_samples"),
+        "explorer.rare": (explorer.GlobalVariantFilters(max_gnomad_af=0.01), "total_samples"),
+        "explorer.rare_by_position": (explorer.GlobalVariantFilters(max_gnomad_af=0.01), "position"),
+        "explorer.panel": (explorer.GlobalVariantFilters(panel_id="bench-panel"), "total_samples"),
     }
-    for name, global_filters in explorer_filters.items() if "explorer" in operations else ():
+    for name, (global_filters, sort) in explorer_searches.items() if "explorer" in operations else ():
         for run in range(1, repeat + 1):
 
-            async def explore(global_filters: Any = global_filters) -> Any:
+            async def explore(global_filters: Any = global_filters, sort: str = sort) -> Any:
                 page = await explorer.search_global_small_variants(
                     None,  # type: ignore[arg-type]
                     user=None,  # type: ignore[arg-type]
                     filters=global_filters,
                     assembly_id="bench-assembly",
+                    sort=sort,
+                    order="asc" if sort == "position" else "desc",
                 )
                 return page.total, len(page.variants)
 
@@ -1478,6 +1516,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="entries rows for every family, or only for the measured ones (the shared tables grow either way)",
     )
     parser.add_argument("--skip-details", action="store_true", help="leave variants/details empty (its annotation JSON)")
+    parser.add_argument(
+        "--summary",
+        choices=("families", "synthetic"),
+        default="families",
+        help="the Explorer's carrier summary from the families' rows, or written from the variant pools",
+    )
     parser.add_argument("--writer-check", type=int, default=20_000, help="records for the writer's own rate (0: skip)")
     parser.add_argument("--min-free-gb", type=float, default=8.0, help="stop before a step that would leave less disk free")
     parser.add_argument("--merge-timeout", type=float, default=1800, help="seconds to wait for merges before measuring")
@@ -1518,7 +1562,7 @@ def measure_with_other_backend(args: argparse.Namespace, host: str, genomes: int
         "--user", args.user, "--database", args.database, "--measure-only", "--genomes", str(genomes),
         "--projects", str(args.projects), "--repeat", str(args.repeat), "--variant-scale", str(args.variant_scale),
         "--backend-dir", str(args.compare_backend_dir), "--results", str(path),
-        "--operations", ",".join(sorted(args.operations)),
+        "--operations", ",".join(sorted(args.operations)), "--summary", args.summary,
     ]
     env = {**os.environ, "BENCH_CLICKHOUSE_PASSWORD": os.environ["CLICKHOUSE_PASSWORD"]}
     subprocess.run(command, check=True, env=env)
@@ -1577,6 +1621,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             "projects": args.projects,
             "entries": args.entries,
             "details": not args.skip_details,
+            "summary": args.summary,
         },
         "steps": [],
     }
@@ -1633,6 +1678,11 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             step["shared_insert_s"] = {
                 key: round(value, 1) for key, value in generate_shared(admin, model, before, after, details=not args.skip_details).items()
             }
+            if args.summary == "synthetic":
+                summary_started = time.perf_counter()
+                for source in shared_sources(model, before, after):
+                    admin.command(synthetic_summary_insert(admin.table("carriers"), model, source, projects))
+                step["synthetic_summary_s"] = round(time.perf_counter() - summary_started, 1)
             family_seconds = [await generate_family(admin, model, family) for family in new_families]
             if family_seconds:
                 step["family_insert_s"] = {
@@ -1656,7 +1706,16 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             "per_entry": sizes.get("entries", 0) / max(step["entries_rows"], 1),
         }
         recorder.operations = []
-        await measure_step(recorder, admin, genomes, families, projects, args.repeat, args.operations)
+        await measure_step(
+            recorder,
+            admin,
+            genomes,
+            families,
+            projects,
+            args.repeat,
+            args.operations,
+            synthetic_summary=args.summary == "synthetic",
+        )
         recorder.collect()
         step["operations"] = [asdict(operation) for operation in recorder.operations]
         if args.compare_backend_dir:
