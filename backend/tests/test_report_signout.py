@@ -31,6 +31,7 @@ from backend.app.services import annotation_manifest_service as ams
 from backend.app.services import report_signout_service as rss
 from backend.app.services.access_control import SIGN_OUT_ROLE_DETAIL
 from backend.app.services.access_control import RecordNotVisible
+from backend.app.services.family_package_registration import ImportMarkShapeError
 from backend.app.services.nipt_quality_checks import PLASMA_PROFILE_VERDICTS
 from backend.app.services.report_code import parse_report_code, report_code
 from backend.app.services.signed_record_sections import RECORD_SECTIONS
@@ -2009,6 +2010,13 @@ _INCOMPLETE_FLAG = {
 }
 # Every failure outside an import job (single-file uploads): the flag names no job.
 _UPLOADS_INCOMPLETE = {**_INCOMPLETE, "job_id": None, "failed_jobs": {"snv": None, "sv": None}}
+_UPLOADS_INCOMPLETE_FLAG = {
+    **_UPLOADS_INCOMPLETE,
+    "failed_scopes": {
+        "snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}],
+        "sv": [{"scope": {"source": None, "samples": None}, "job_id": None}],
+    },
+}
 _IMPORT_ACK_REASON = "SV calls are not part of this referral; SNV re-import is booked."
 
 
@@ -2413,35 +2421,41 @@ def test_the_import_flag_is_read_from_the_family_metadata() -> None:
     assert params == {"family_uuid": "u1"}  # bound, never interpolated
 
 
-def test_the_import_flag_reader_is_deterministic_and_fails_safe() -> None:
+def test_the_import_flag_reader_is_deterministic_and_reads_only_the_written_shape() -> None:
     def read(value):
         return asyncio.run(rss._import_incomplete_state(_ScalarSession(value), "u1"))
 
     # No flag: a complete import.
     assert read(None) is None
-    # A driver that hands jsonb back as text reads the same.
-    assert read(json.dumps(_INCOMPLETE_FLAG)) == _INCOMPLETE
     # Dataset lists are frozen sorted and de-duplicated, so the hash is stable.
-    messy = {"at": _INCOMPLETE["at"], "failed_datasets": ["sv", "snv", "sv"], "imported_datasets": []}
+    messy = {**_INCOMPLETE_FLAG, "failed_datasets": ["sv", "snv", "sv"]}
     assert read(messy)["failed_datasets"] == ["snv", "sv"]
-    # Each failed dataset's job: the one the flag names for it; a value that is not a job id
-    # names none, never the flag's own job, which may be another failure's.
-    kept = {**_INCOMPLETE, "failed_jobs": {"sv": "job-earlier", "snv": 7}}
+    # Each failed dataset's job: the one the flag names for it (None: it failed outside one),
+    # never the flag's own job, which may be another failure's.
+    kept = {**_INCOMPLETE_FLAG, "failed_jobs": {"sv": "job-earlier", "snv": None}}
     assert read(kept)["failed_jobs"] == {"snv": None, "sv": "job-earlier"}
-    # Set, but not in the shape the import writes: still incomplete — it gates, with
-    # nothing to name — rather than being taken for a complete import.
-    unknown = {"at": None, "failed_datasets": [], "imported_datasets": [], "job_id": None, "failed_jobs": {}}
-    assert read(True) == unknown
-    assert read({}) == unknown
-    assert read("not json") == unknown
-    # A job id that is not a string names no job.
-    assert read({**_INCOMPLETE, "job_id": 7})["job_id"] is None
+    # Set, but not in the shape the import writes: the read raises, so the sign-out fails and
+    # its gate stays closed. Never read as a complete import, nor as one that names nothing.
+    # jsonb is decoded by the driver's codec, so JSON text is no flag either.
+    for value in (
+        True,
+        False,
+        {},
+        ["snv"],
+        "not json",
+        json.dumps(_INCOMPLETE_FLAG),
+        _INCOMPLETE,  # without each failure's scope
+        {**_INCOMPLETE_FLAG, "job_id": 7},
+        {**_INCOMPLETE_FLAG, "failed_jobs": {"sv": "job-earlier", "snv": 7}},
+    ):
+        with pytest.raises(ImportMarkShapeError):
+            read(value)
 
 
 def test_a_flag_of_failures_outside_any_import_job_still_gates(monkeypatch) -> None:
     # Single-file uploads that failed run in no import job: the flag reads and
     # gates the same, with no job to point to.
-    state = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_UPLOADS_INCOMPLETE)), "u1"))
+    state = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_UPLOADS_INCOMPLETE_FLAG)), "u1"))
     assert state == _UPLOADS_INCOMPLETE
     assert "import job" not in rss._import_gate_message(state)
 
@@ -2471,7 +2485,8 @@ def test_a_flag_of_failures_outside_any_import_job_still_gates(monkeypatch) -> N
 # families.metadata.import_unfinished, which gates sign-out the same way.
 # ---------------------------------------------------------------------------
 
-# As family_package_registration.ImportMark records it: stopped inside haplotypes.
+# As sign-out reads and freezes it (_import_unfinished_state): an import stopped inside
+# haplotypes.
 _STOPPED_JOB_ID = "7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 _UNFINISHED = {
     _STOPPED_JOB_ID: {
@@ -2479,6 +2494,18 @@ _UNFINISHED = {
         "at": "2026-10-02T09:12:00+00:00",
         "datasets": ["apcad", "haplotypes", "qdnaseq"],
         "finished_datasets": ["apcad", "qdnaseq"],
+    }
+}
+# As family_package_registration.ImportMark records it: with each dataset's scope too, which
+# is not frozen.
+_UNFINISHED_ENTRIES = {
+    _STOPPED_JOB_ID: {
+        **_UNFINISHED[_STOPPED_JOB_ID],
+        "scopes": {
+            "apcad": {"source": None, "samples": None},
+            "haplotypes": {"source": None, "samples": None},
+            "qdnaseq": {"source": None, "samples": ["EMB1"]},
+        },
     }
 }
 
@@ -2585,11 +2612,11 @@ def test_the_unfinished_imports_are_bound_into_the_content_hash(monkeypatch) -> 
     assert _body_hash(_UNFINISHED) != _body_hash(finished_all)
 
 
-def test_the_unfinished_import_reader_is_deterministic_and_fails_safe() -> None:
+def test_the_unfinished_import_reader_is_deterministic_and_reads_only_the_written_shape() -> None:
     def read(value):
         return asyncio.run(rss._import_unfinished_state(_ScalarSession(value), "u1"))
 
-    session = _ScalarSession(dict(_UNFINISHED))
+    session = _ScalarSession(copy.deepcopy(_UNFINISHED_ENTRIES))
     assert asyncio.run(rss._import_unfinished_state(session, "u1")) == _UNFINISHED
     sql, params = session.executed[0]
     assert "import_unfinished" in sql and "families" in sql
@@ -2597,18 +2624,25 @@ def test_the_unfinished_import_reader_is_deterministic_and_fails_safe() -> None:
 
     # None recorded: nothing unfinished.
     assert read(None) == {}
-    assert read(False) == {}
-    # A driver that hands jsonb back as text reads the same.
-    assert read(json.dumps(_UNFINISHED)) == _UNFINISHED
     # Lists are frozen sorted and de-duplicated, so the hash is stable.
-    messy = {"k": {"job_id": "j", "at": "t", "datasets": ["sv", "snv", "sv"], "finished_datasets": ["sv"]}}
-    assert read(messy)["k"]["datasets"] == ["snv", "sv"]
-    # Set, but not in the shape an import writes: still unfinished, with nothing to name.
-    unknown = {"job_id": None, "at": None, "datasets": [], "finished_datasets": []}
-    assert read("not json") == {"unreadable": unknown}
-    assert read(["a list"]) == {"unreadable": unknown}
-    assert read({"k": "not an entry"}) == {"k": unknown}
-    assert read({"k": {**messy["k"], "job_id": 7}})["k"]["job_id"] is None
+    entry = _UNFINISHED_ENTRIES[_STOPPED_JOB_ID]
+    messy = {"k": {**entry, "datasets": ["qdnaseq", "apcad", "haplotypes", "apcad"]}}
+    assert read(messy)["k"]["datasets"] == ["apcad", "haplotypes", "qdnaseq"]
+    # Set, but not in the shape an import writes: the read raises, so the sign-out fails and
+    # its gate stays closed. Never read as an entry that names nothing.
+    for value in (
+        False,
+        "not json",
+        json.dumps(_UNFINISHED_ENTRIES),
+        ["a list"],
+        {"k": "not an entry"},
+        _UNFINISHED,  # without each dataset's scope
+        {"k": {**entry, "job_id": 7}},
+        {"k": {**entry, "datasets": "apcad"}},
+        {"k": {**entry, "scopes": {"apcad": "garbage"}}},
+    ):
+        with pytest.raises(ImportMarkShapeError):
+            read(value)
 
 
 def test_the_gate_message_names_each_failed_datasets_job() -> None:
@@ -2629,7 +2663,14 @@ def test_a_failure_no_import_job_records_is_never_named_under_another_failures_j
     # An upload of sv failed (no job), then an import failed for snv: the
     # flag's job is the import's, and its failed_jobs lists sv with none: sv is not named
     # under the import's job, whose record holds no error of it.
-    flag = {**_INCOMPLETE, "failed_jobs": {"snv": _IMPORT_JOB_ID, "sv": None}}
+    flag = {
+        **_INCOMPLETE_FLAG,
+        "failed_jobs": {"snv": _IMPORT_JOB_ID, "sv": None},
+        "failed_scopes": {
+            **_INCOMPLETE_FLAG["failed_scopes"],
+            "sv": [{"scope": {"source": None, "samples": None}, "job_id": None}],
+        },
+    }
     state = asyncio.run(rss._import_incomplete_state(_ScalarSession(flag), "u1"))
     assert state["failed_jobs"] == {"snv": _IMPORT_JOB_ID, "sv": None}
     message = rss._import_gate_message(state)
@@ -2646,7 +2687,7 @@ def test_a_failure_no_import_job_records_is_never_named_under_another_failures_j
         f"job-earlier; snv in import job {_IMPORT_JOB_ID}."
     ) in rss._import_gate_message(state)
     # A flag that names no job for any dataset (each failed outside one) says nothing of jobs.
-    uploads = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_UPLOADS_INCOMPLETE)), "u1"))
+    uploads = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_UPLOADS_INCOMPLETE_FLAG)), "u1"))
     assert "import job" not in rss._import_gate_message(uploads)
 
 
@@ -2671,7 +2712,7 @@ def test_a_restore_that_did_not_finish_is_frozen_and_named_as_one() -> None:
         "finished_datasets": [],
         "whole_family": [{"dataset": "sv_sniffles", "scope": {"source": None, "samples": ["S1"]}}],
     }
-    stored = {"job-r": restore, "upload-1": upload_mark, _STOPPED_JOB_ID: _UNFINISHED[_STOPPED_JOB_ID]}
+    stored = {"job-r": restore, "upload-1": upload_mark, _STOPPED_JOB_ID: _UNFINISHED_ENTRIES[_STOPPED_JOB_ID]}
     state = asyncio.run(rss._import_unfinished_state(_ScalarSession(stored), "u1"))
 
     assert state["job-r"] == {
@@ -2700,7 +2741,7 @@ def test_a_restore_that_did_not_finish_is_frozen_and_named_as_one() -> None:
 
 
 def test_the_gate_message_of_a_stopped_import_that_recorded_nothing() -> None:
-    message = rss._import_gate_message(None, {"unreadable": {"job_id": None, "at": None, "datasets": [], "finished_datasets": []}})
+    message = rss._import_gate_message(None, {"run-1": {"job_id": None, "at": None, "datasets": [], "finished_datasets": []}})
     assert message.startswith("This family's data is incomplete: an import stopped before it finished.")
     assert "import job" not in message.lower()
     # Only a failed import: the message it always had.
@@ -2710,14 +2751,23 @@ def test_the_gate_message_of_a_stopped_import_that_recorded_nothing() -> None:
 
 
 def test_the_gate_message_of_what_recorded_no_dataset_still_says_the_data_may_be_incomplete() -> None:
-    # A flag set but not in the shape an import writes reads as an import that names no dataset
-    # (test_the_import_flag_reader_is_deterministic_and_fails_safe): it gates, and says that
-    # what it left out was not recorded.
-    unknown = asyncio.run(rss._import_incomplete_state(_ScalarSession(True), "u1"))
-    assert rss._import_gate_message(unknown) == (
-        "This family's data is incomplete: a package import did not complete, and which datasets "
-        "it left out was not recorded. The report may lack data from what failed. Re-run the "
-        "import to complete it, or acknowledge with a reason to sign out anyway."
+    # A flag that names no failed dataset (_flag_payload with no failure: an import that
+    # failed after marking the family and before its first dataset, having set out to import
+    # none): it gates, and says that what it left out was not recorded.
+    no_dataset = {
+        "at": "2026-10-02T09:12:00+00:00",
+        "failed_datasets": [],
+        "imported_datasets": [],
+        "job_id": None,
+        "failed_jobs": {},
+        "failed_scopes": {},
+    }
+    state = asyncio.run(rss._import_incomplete_state(_ScalarSession(no_dataset), "u1"))
+    assert rss._import_gate_message(state) == (
+        "This family's data is incomplete: a package import (2026-10-02T09:12:00+00:00) did not "
+        "complete, and which datasets it left out was not recorded. The report may lack data from "
+        "what failed. Re-run the import to complete it, or acknowledge with a reason to sign out "
+        "anyway."
     )
     # A deletion of the family's data that did not finish and names no dataset, and a restore
     # that did not finish with every dataset done, are each named for what they were.

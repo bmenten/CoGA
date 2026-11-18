@@ -885,6 +885,49 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 IMPORT_UNFINISHED_KEY = "import_unfinished"
 WHOLE_FAMILY_KEY = "whole_family"
 
+
+class ImportMarkShapeError(ValueError):
+    """A family's import mark in a shape no writer writes: its ``import_incomplete`` flag
+    (``_flag_payload``), an ``import_unfinished`` entry (``ImportMark``,
+    ``whole_family_entry``, ``FamilyWriteMark``), its ``imported_scopes``
+    (``merged_imported_scopes``), or a dataset's scope in any of them (``dataset_scopes``).
+    Each is written in one shape, and read only in that shape: any other value raises,
+    and is never read as something it does not say. A sign-out that meets one fails, so its
+    import gate stays closed. The message names the mark, never a value."""
+
+    def __init__(self, mark: str) -> None:
+        super().__init__(f"The family's {mark} is not in the shape CoGA writes.")
+
+
+def _is_name_list(value: Any) -> bool:
+    """Whether ``value`` is a list of names (datasets, samples), as every mark writes them."""
+    return isinstance(value, list) and all(isinstance(name, str) and name for name in value)
+
+
+def _is_job(value: Any) -> bool:
+    """Whether ``value`` is a job as a mark records it: its id, or None outside a job."""
+    return value is None or isinstance(value, str)
+
+
+def _written_scope(scope: Any) -> Mapping[str, Any] | None:
+    """``scope`` as ``dataset_scopes`` (and an upload, ``small_variant_upload_scope`` and
+    the functions after it) writes it: ``source``, text or None, and ``samples``, a list of
+    sample IDs or None for a family-level file. None where no scope is recorded: a dataset
+    an import did not bring, or an import run without its bookkeeping (no ``ImportMark``).
+    Raises ``ImportMarkShapeError`` for any other value."""
+    if scope is None:
+        return None
+    if (
+        isinstance(scope, Mapping)
+        and "source" in scope
+        and "samples" in scope
+        and (scope["source"] is None or isinstance(scope["source"], str))
+        and (scope["samples"] is None or _is_name_list(scope["samples"]))
+    ):
+        return scope
+    raise ImportMarkShapeError("dataset scope")
+
+
 # A dataset an import ended with one of these left nothing partly written: it imported
 # completely, or with warnings (rows its input got wrong left out), skipped (update mode:
 # data was there), or registered its files only. This says only what the import's own
@@ -988,27 +1031,27 @@ def dataset_scopes(
 def _scope_covers(replaced: Any, wanted: Any) -> bool:
     """Whether an overwrite that replaced ``replaced`` replaced all of ``wanted``: the same
     source, and every sample of a per-sample dataset (a family-level file covers only a
-    family-level file). Never for a scope not in the shape ``dataset_scopes`` gives, nor
-    for an SNV scope that names no callset (``UNRESOLVED_SNV_SOURCE``), on either side.
+    family-level file). Never where either is None (nothing brought, or no scope recorded:
+    ``_written_scope``), nor for an SNV scope that names no callset
+    (``UNRESOLVED_SNV_SOURCE``), on either side.
 
     A dataset that carried nothing (``empty``) is covered by any scope of it brought again,
     as nothing of it can be missing; one that brings nothing covers only such a dataset,
     never data another import or upload brought."""
-    if not isinstance(replaced, Mapping) or not isinstance(wanted, Mapping):
+    have_scope, want_scope = _written_scope(replaced), _written_scope(wanted)
+    if have_scope is None or want_scope is None:
         return False
-    if _carries_nothing(wanted):
+    if _carries_nothing(want_scope):
         return True
-    if _carries_nothing(replaced):
+    if _carries_nothing(have_scope):
         return False
-    source = replaced.get("source")
-    if source == UNRESOLVED_SNV_SOURCE or source != wanted.get("source"):
+    source = have_scope["source"]
+    if source == UNRESOLVED_SNV_SOURCE or source != want_scope["source"]:
         return False
-    have, want = replaced.get("samples"), wanted.get("samples")
+    have, want = have_scope["samples"], want_scope["samples"]
     if have is None or want is None:
         return have is None and want is None
-    if not isinstance(have, list) or not isinstance(want, list):
-        return False
-    return {str(sample) for sample in want} <= {str(sample) for sample in have}
+    return set(want) <= set(have)
 
 
 def imported_dataset_scopes(
@@ -1025,17 +1068,14 @@ def imported_dataset_scopes(
     ``skipped``, and is not in ``imported``."""
     result: dict[str, Any] = {}
     for name in imported:
-        scope = scopes.get(name)
+        scope = _written_scope(scopes.get(name))
         left_out = {str(sample) for sample in skipped.get(name, ())}
         if not left_out:
             result[name] = scope
             continue
-        if not isinstance(scope, Mapping):
+        if scope is None or scope["samples"] is None:
             continue
-        samples = scope.get("samples")
-        if not isinstance(samples, list):
-            continue
-        kept = sorted({str(sample) for sample in samples if sample} - left_out)
+        kept = sorted(set(scope["samples"]) - left_out)
         if kept:
             result[name] = {**scope, "samples": kept}
     return result
@@ -1046,25 +1086,25 @@ def scope_with_samples(scope: Any, samples: Iterable[str]) -> Any:
     names: what a failed dataset is flagged for when its failure may have removed the data
     of samples it does not name (``DatasetLeftMissing``), so that the flag holds until the
     dataset has been imported again for them too. A family-level scope (no samples) covers
-    every sample already, and a scope not in that shape is kept as it is."""
-    if not isinstance(scope, Mapping) or not isinstance(scope.get("samples"), list):
-        return scope
-    named = {str(sample) for sample in scope["samples"] if sample}
-    return {**scope, "samples": sorted(named | {str(sample) for sample in samples if sample})}
+    every sample already, and no scope (None) stays none."""
+    written = _written_scope(scope)
+    if written is None or written["samples"] is None:
+        return written
+    return {**written, "samples": sorted(set(written["samples"]) | {str(sample) for sample in samples if sample})}
 
 
 def _names_sample(scope: Any, sample: str) -> bool:
     """Whether ``scope`` (as ``dataset_scopes`` gives it) names ``sample`` among its samples:
     never a family-level file's, which names none."""
-    samples = scope.get("samples") if isinstance(scope, Mapping) else None
-    return isinstance(samples, list) and sample in {str(named) for named in samples if named}
+    written = _written_scope(scope)
+    return written is not None and written["samples"] is not None and sample in written["samples"]
 
 
 def _scope_without_sample(scope: Mapping[str, Any], sample: str) -> dict[str, Any] | None:
     """A scope that names ``sample`` (``_names_sample``) without it, and without what its
     coverage BED was declared to hold (``content``); None when it named that sample alone.
     The reverse of ``scope_with_samples``, for a sample that is deleted."""
-    samples = [named for named in scope["samples"] if named and str(named) != sample]
+    samples = [named for named in scope["samples"] if named != sample]
     if not samples:
         return None
     narrowed: dict[str, Any] = {**scope, "samples": samples}
@@ -1095,35 +1135,55 @@ def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) 
 FAILED_SCOPES_KEY = "failed_scopes"
 
 
-def _job_or_none(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
+def _is_failure_list(items: Any) -> bool:
+    """Whether ``items`` lists a failed dataset's failures as ``_flag_payload`` writes them:
+    at least one, each with its job and its scope (``_written_scope``, which raises for a
+    scope in another shape)."""
+    if not isinstance(items, list) or not items:
+        return False
+    for item in items:
+        if not (isinstance(item, Mapping) and "scope" in item and _is_job(item.get("job_id"))):
+            return False
+        _written_scope(item["scope"])
+    return True
 
 
-def _flag_failures(flag: Any) -> dict[str, list[dict[str, Any]]] | None:
-    """The datasets a stored ``import_incomplete`` flag names as failed, each with every
-    failure of it the flag records, oldest first: its scope, and the import job whose record
-    holds its error (``failed_scopes``). None when the flag is not in the shape an import
-    writes (``_flag_payload``): also a ``failed_scopes`` that does not list each failed
-    dataset's failures as written."""
-    if not isinstance(flag, Mapping):
+def read_import_flag(flag: Any) -> Mapping[str, Any] | None:
+    """A family's stored ``import_incomplete`` flag, None when it has none. The flag is
+    as ``_flag_payload`` writes it: when (``at``), the failed and the imported datasets,
+    the flag's job (``job_id``), the job of each failed dataset's latest failure
+    (``failed_jobs``) and each of its failures with its scope and job
+    (``failed_scopes``). Raises ``ImportMarkShapeError`` for any other value."""
+    if flag is None:
         return None
-    failed = _dataset_names(flag.get("failed_datasets"))
-    listed = flag.get(FAILED_SCOPES_KEY)
-    if failed is None or not isinstance(listed, Mapping):
-        return None
-    failures: dict[str, list[dict[str, Any]]] = {}
-    for name in failed:
-        items = listed.get(name)
-        if not (
-            isinstance(items, list)
-            and items
-            and all(isinstance(item, Mapping) and "scope" in item for item in items)
+    if isinstance(flag, Mapping):
+        failed: Any = flag.get("failed_datasets")
+        jobs = flag.get("failed_jobs")
+        listed = flag.get(FAILED_SCOPES_KEY)
+        if (
+            isinstance(flag.get("at"), str)
+            and _is_name_list(failed)
+            and _is_name_list(flag.get("imported_datasets"))
+            and _is_job(flag.get("job_id"))
+            and isinstance(jobs, Mapping)
+            and set(jobs) == set(failed)
+            and all(_is_job(job) for job in jobs.values())
+            and isinstance(listed, Mapping)
+            and set(listed) == set(failed)
+            and all(_is_failure_list(items) for items in listed.values())
         ):
-            return None
-        failures[name] = [
-            {"job_id": _job_or_none(item.get("job_id")), "scope": item["scope"]} for item in items
-        ]
-    return failures
+            return flag
+    raise ImportMarkShapeError("import_incomplete flag")
+
+
+def _flag_failures(flag: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """The datasets a flag (as ``read_import_flag`` reads it) names as failed, each with
+    every failure of it the flag records, oldest first: its scope, and the import job whose
+    record holds its error (``failed_scopes``)."""
+    return {
+        str(name): [{"job_id": item["job_id"], "scope": item["scope"]} for item in items]
+        for name, items in flag[FAILED_SCOPES_KEY].items()
+    }
 
 
 def _flag_payload(
@@ -1175,23 +1235,19 @@ def merged_import_failure(
     imported: Iterable[str],
     scopes: Mapping[str, Any],
     imported_scopes: Mapping[str, Any],
-) -> Any:
+) -> dict[str, Any]:
     """The ``import_incomplete`` flag after an import that failed for ``failed``: its own
-    failures, and those of the flag already stored that it did not import again
-    (``imported_scopes``: the scope of each dataset it imported). A later failure never
-    drops an earlier one, of another dataset or of the same dataset under another scope
-    (another callset, other samples): each failure keeps its scope and the job whose record
-    holds its error, and leaves the flag only once its scope has been brought again.
-    The same scope failing again is one failure, with its latest job.
-
-    A stored flag not in the shape an import writes (``true``, a list) is kept as it is: it
-    says the family is incomplete without naming what would complete it, as a sign-out reads
-    it, and a completed import leaves it too (``failures_left_after``). Replacing it would
-    let the family read as complete once this import's own failures had been imported again.
-    This import's failures are then named in its job's record alone."""
-    if stored is not None and stored is not False and _flag_failures(stored) is None:
-        return stored
-    failures = _failures_not_imported_again(_flag_failures(stored) or {}, imported_scopes)
+    failures, and those of the flag already stored (``stored``, None when there is none)
+    that it did not import again (``imported_scopes``: the scope of each dataset it
+    imported). A later failure never drops an earlier one, of another dataset or of the
+    same dataset under another scope (another callset, other samples): each failure keeps
+    its scope and the job whose record holds its error, and leaves the flag only once its
+    scope has been brought again. The same scope failing again is one failure, with its
+    latest job. Raises ``ImportMarkShapeError`` for a stored flag in another shape."""
+    flag = read_import_flag(stored)
+    failures = _failures_not_imported_again(
+        _flag_failures(flag) if flag is not None else {}, imported_scopes
+    )
     for name in sorted({str(name) for name in failed}):
         scope = scopes.get(name)
         earlier = [
@@ -1208,9 +1264,8 @@ class FailuresLeft:
     failed datasets still to bring again, each with the job of its latest failure
     (``failed``) and the job of each of its failures, oldest first (``jobs``)."""
 
-    flag: Any
+    flag: Mapping[str, Any] | None
     failed: dict[str, str | None]
-    unreadable: bool = False
     jobs: dict[str, list[str | None]] = field(default_factory=dict)
     changed: bool = False
 
@@ -1219,24 +1274,23 @@ def failures_left_after(stored: Any, imported_scopes: Mapping[str, Any]) -> Fail
     """The ``import_incomplete`` flag after an import that completed, or an upload, having
     brought ``imported_scopes``: each failure it brought again, for the scope the failure
     records, leaves the flag; a dataset leaves it with its last failure, and the flag goes
-    with the last dataset. A flag nothing left stays as it was stored. A flag not in the
-    shape an import writes stays as it is: nothing shows what would complete it.
+    with the last dataset. A flag nothing left stays as it was stored. Raises
+    ``ImportMarkShapeError`` for a stored flag in another shape.
 
     When the failures left are all one job's (or all of no job: uploads), that job becomes
     the flag's ``job_id``, the job the family pages and a sign-out name when one job holds
     every error: the failure that set the flag may have been brought again, and its job then
     holds none of them. Its time (``at``) stays."""
-    if stored is None:
+    flag = read_import_flag(stored)
+    if flag is None:
         return FailuresLeft(flag=None, failed={})
-    failures = _flag_failures(stored)
-    if failures is None or not isinstance(stored, Mapping):
-        return FailuresLeft(flag=stored, failed={}, unreadable=True)
+    failures = _flag_failures(flag)
     left = _failures_not_imported_again(failures, imported_scopes)
     if not left:
         return FailuresLeft(flag=None, failed={}, changed=True)
     changed = sum(map(len, left.values())) != sum(map(len, failures.values()))
     return FailuresLeft(
-        flag=_flag_with_failures(stored, left) if changed else stored,
+        flag=_flag_with_failures(flag, left) if changed else flag,
         failed={name: left[name][-1]["job_id"] for name in sorted(left)},
         jobs={name: [item["job_id"] for item in left[name]] for name in sorted(left)},
         changed=changed,
@@ -1246,34 +1300,35 @@ def failures_left_after(stored: Any, imported_scopes: Mapping[str, Any]) -> Fail
 def _flag_with_failures(
     stored: Mapping[str, Any], left: Mapping[str, list[dict[str, Any]]]
 ) -> dict[str, Any]:
-    """``stored`` (a flag in the shape an import writes) naming only the failures ``left``,
-    none of them empty: its time (``at``) and the datasets it says imported kept, and its
-    ``job_id`` the job of the failures left when they are all one job's (or all of no job:
-    uploads), else as it was (``failures_left_after``)."""
+    """``stored`` (a flag as ``read_import_flag`` reads it) naming only the failures
+    ``left``, none of them empty: its time (``at``) and the datasets it says imported kept,
+    and its ``job_id`` the job of the failures left when they are all one job's (or all of
+    no job: uploads), else as it was (``failures_left_after``)."""
     jobs_left = {item["job_id"] for items in left.values() for item in items}
     return _flag_payload(
         left,
-        at=stored.get("at"),
-        job_id=next(iter(jobs_left)) if len(jobs_left) == 1 else stored.get("job_id"),
-        imported=_dataset_names(stored.get("imported_datasets")) or (),
+        at=stored["at"],
+        job_id=next(iter(jobs_left)) if len(jobs_left) == 1 else stored["job_id"],
+        imported=stored["imported_datasets"],
     )
 
 
-def flag_without_sample(stored: Any, sample: str) -> Any:
+def flag_without_sample(stored: Any, sample: str) -> Mapping[str, Any] | None:
     """The ``import_incomplete`` flag once ``sample`` is deleted
     (``FamilyDeletion.finished``): each failure's scope without the sample
     (``_scope_without_sample``). A failure that named it alone goes, as nothing of a sample
     that is gone can be missing; one that named other samples too keeps them, as their data
     may still be; one of a family-level file names no sample and stays, as the others' part
     of it may still be missing. A dataset goes with its last failure, and the flag (None)
-    with its last dataset. ``stored`` itself when no failure names the sample, or when it is
-    not in the shape an import writes: nothing shows what would complete such a flag.
+    with its last dataset. ``stored`` itself when no failure names the sample, or when there
+    is none. Raises ``ImportMarkShapeError`` for a stored flag in another shape.
 
     No import or upload can bring a deleted sample's data again, so a failure naming it would
     never leave the flag, which would gate sign-out for good."""
-    failures = _flag_failures(stored)
-    if failures is None or not isinstance(stored, Mapping):
-        return stored
+    flag = read_import_flag(stored)
+    if flag is None:
+        return None
+    failures = _flag_failures(flag)
     left: dict[str, list[dict[str, Any]]] = {}
     struck = False
     for name, items in failures.items():
@@ -1289,8 +1344,8 @@ def flag_without_sample(stored: Any, sample: str) -> Any:
         if kept:
             left[name] = kept
     if not struck:
-        return stored
-    return _flag_with_failures(stored, left) if left else None
+        return flag
+    return _flag_with_failures(flag, left) if left else None
 
 
 @dataclass(frozen=True)
@@ -1345,40 +1400,69 @@ class ImportMark:
         }
 
 
-def _dataset_names(value: Any) -> set[str] | None:
-    """The dataset names an entry lists, or None when the list is not one CoGA writes."""
-    if not isinstance(value, list):
-        return None
-    return {str(item) for item in value if item}
-
-
-def pending_datasets(entry: Any) -> set[str] | None:
+def pending_datasets(entry: Mapping[str, Any]) -> set[str]:
     """What an unfinished import had not finished, so may have left partly written or
-    missing: the datasets it set out to import less those it finished. None when the
-    entry does not say (not in the shape an import writes): then nothing is known to be
-    complete, and no later import can show it rewrote what the entry left pending."""
-    if not isinstance(entry, Mapping):
-        return None
-    datasets = _dataset_names(entry.get("datasets"))
-    finished = _dataset_names(entry.get("finished_datasets"))
-    if datasets is None or finished is None:
-        return None
-    return datasets - finished
+    missing: the datasets it set out to import less those it finished (an entry as
+    ``read_unfinished_entries`` reads it)."""
+    return set(entry["datasets"]) - set(entry["finished_datasets"])
 
 
-def _unfinished_entries(raw: Any) -> dict[str, Any]:
-    """The `import_unfinished` map as stored; a value that is set but is not a map is
-    kept, under a key of its own, so it still marks the family (it is never dropped)."""
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except ValueError:
-            pass
+def _written_item(item: Any) -> Mapping[str, Any]:
+    """An item of a whole-family entry as ``_scope_items`` and ``reached_items`` write it:
+    its dataset and its scope (``_written_scope``), and with ``sample`` the one sample's
+    part of a family-level file it stands for (``ITEM_SAMPLE_KEY``). Raises
+    ``ImportMarkShapeError`` for any other value."""
+    if (
+        isinstance(item, Mapping)
+        and isinstance(item.get("dataset"), str)
+        and item["dataset"]
+        and "scope" in item
+        and (ITEM_SAMPLE_KEY not in item or (isinstance(item[ITEM_SAMPLE_KEY], str) and item[ITEM_SAMPLE_KEY]))
+    ):
+        _written_scope(item["scope"])
+        return item
+    raise ImportMarkShapeError("import_unfinished entry")
+
+
+def _written_entry(entry: Any) -> Mapping[str, Any]:
+    """An ``import_unfinished`` entry as its writers write it: its job (None outside one),
+    when it began (``at``), its datasets and those it finished, and its datasets' scopes
+    (an import's own entry, ``ImportMark.entry``: ``scopes``, each as ``dataset_scopes``
+    gives it), its items (a whole-family one, ``whole_family_entry``, and the mark of an
+    upload or a deletion, ``FamilyWriteMark``: ``whole_family``), or both. Raises
+    ``ImportMarkShapeError`` for any other value."""
+    if (
+        isinstance(entry, Mapping)
+        and _is_job(entry.get("job_id"))
+        and isinstance(entry.get("at"), str)
+        and _is_name_list(entry.get("datasets"))
+        and _is_name_list(entry.get("finished_datasets"))
+        and ("scopes" in entry or WHOLE_FAMILY_KEY in entry)
+    ):
+        scopes = entry.get("scopes", {})
+        listed = entry.get(WHOLE_FAMILY_KEY, [])
+        if (
+            isinstance(scopes, Mapping)
+            and all(isinstance(scope, Mapping) for scope in scopes.values())
+            and isinstance(listed, list)
+        ):
+            for scope in scopes.values():
+                _written_scope(scope)
+            for item in listed:
+                _written_item(item)
+            return entry
+    raise ImportMarkShapeError("import_unfinished entry")
+
+
+def read_unfinished_entries(raw: Any) -> dict[str, Mapping[str, Any]]:
+    """A family's stored ``import_unfinished`` map, by key, each entry as its writers write
+    it (``_written_entry``); empty when it has none. Raises ``ImportMarkShapeError`` for a
+    value, or an entry, in another shape."""
     if raw is None:
         return {}
-    if isinstance(raw, Mapping):
-        return {str(key): value for key, value in raw.items()}
-    return {"unreadable": raw}
+    if not isinstance(raw, Mapping):
+        raise ImportMarkShapeError("import_unfinished map")
+    return {str(key): _written_entry(entry) for key, entry in raw.items()}
 
 
 def _canonical(value: Any) -> str:
@@ -1387,20 +1471,20 @@ def _canonical(value: Any) -> str:
 
 def _scope_items(dataset: str, scope: Any) -> list[dict[str, Any]]:
     """A dataset's scope as ``imported_scopes`` and a whole-family entry list it: a
-    per-sample scope one sample at a time, as an overwrite of each sample replaces it. A
-    scope not in the shape ``dataset_scopes`` gives is kept as it is (None when there is
-    none): no import can be shown to cover it. A dataset that carries nothing stays marked
-    so (``EMPTY_SCOPE_KEY``).
+    per-sample scope one sample at a time, as an overwrite of each sample replaces it. No
+    scope (None, ``_written_scope``) is listed as none: no import can be shown to cover it.
+    A dataset that carries nothing stays marked so (``EMPTY_SCOPE_KEY``).
 
     A coverage BED's scope also says what each sample's BED declared it holds
     (``content``: one value for an upload's sample, or sample -> value for a package's
     ``coverage`` dataset), and each sample's item keeps its own. It says what the
     data is, not what an overwrite replaces: ``_scope_covers`` does not read it."""
-    if not isinstance(scope, Mapping):
+    written = _written_scope(scope)
+    if written is None:
         return [{"dataset": dataset, "scope": None}]
-    source, samples = scope.get("source"), scope.get("samples")
-    empty = {EMPTY_SCOPE_KEY: True} if _carries_nothing(scope) else {}
-    content = scope.get(COVERAGE_CONTENT_KEY)
+    source, samples = written["source"], written["samples"]
+    empty = {EMPTY_SCOPE_KEY: True} if _carries_nothing(written) else {}
+    content = written.get(COVERAGE_CONTENT_KEY)
 
     def item(item_samples: Any, name: str | None = None) -> dict[str, Any]:
         item_scope: dict[str, Any] = {"source": source, "samples": item_samples, **empty}
@@ -1409,10 +1493,8 @@ def _scope_items(dataset: str, scope: Any) -> list[dict[str, Any]]:
             item_scope[COVERAGE_CONTENT_KEY] = declared
         return {"dataset": dataset, "scope": item_scope}
 
-    if isinstance(samples, list):
-        names = sorted({str(sample) for sample in samples if sample})
-        if names:
-            return [item([name], name) for name in names]
+    if samples:
+        return [item([name], name) for name in sorted(set(samples))]
     return [item(samples)]
 
 
@@ -1438,19 +1520,21 @@ def merged_imported_scopes(
     stopped had finished once that one's entry goes; an upload adds what it brought with
     its own commit (``record_family_upload``). An addition without a scope (an import run
     without its bookkeeping) adds nothing, nor does one of a dataset that carried nothing
-    (``EMPTY_SCOPE_KEY``): the family holds nothing of it. A stored value not in
-    this shape is read as holding nothing. A coverage BED's item says what the BED declared
-    it holds (``content``), and a later addition for the same sample replaces it."""
-    if isinstance(stored, str):
-        try:
-            stored = json.loads(stored)
-        except ValueError:
-            stored = None
-    pairs: list[tuple[str, Any]] = []
-    if isinstance(stored, Mapping):
-        for dataset, scopes in stored.items():
-            if isinstance(scopes, list):
-                pairs.extend((str(dataset), scope) for scope in scopes)
+    (``EMPTY_SCOPE_KEY``): the family holds nothing of it. A coverage BED's item says what
+    the BED declared it holds (``content``), and a later addition for the same sample
+    replaces it. Raises ``ImportMarkShapeError`` for a stored value in another shape: the
+    map this writes, of lists of scopes (``_written_scope``), or none."""
+    if stored is not None and not (
+        isinstance(stored, Mapping)
+        and all(
+            isinstance(scopes, list) and all(isinstance(scope, Mapping) for scope in scopes)
+            for scopes in stored.values()
+        )
+    ):
+        raise ImportMarkShapeError("imported_scopes record")
+    pairs: list[tuple[str, Any]] = [
+        (str(dataset), scope) for dataset, scopes in (stored or {}).items() for scope in scopes
+    ]
     pairs.extend(
         (str(dataset), scope)
         for dataset, scope in additions
@@ -1492,32 +1576,27 @@ def whole_family_entry(
     for dataset, held in merged_imported_scopes(imported, ()).items():
         pairs.extend((dataset, scope) for scope in held if dataset_clickhouse_stores(dataset))
     for key, other in unfinished.items():
-        if key == mark.key or not isinstance(other, Mapping):
+        if key == mark.key:
             continue
-        listed = other.get(WHOLE_FAMILY_KEY)
-        if isinstance(listed, list):
+        if is_whole_family_entry(other):
             pairs.extend(
-                (str(item["dataset"]), item.get("scope"))
-                for item in listed
-                if isinstance(item, Mapping)
-                and item.get("dataset")
-                and dataset_clickhouse_stores(str(item["dataset"]))
+                (item["dataset"], item["scope"])
+                for item in other[WHOLE_FAMILY_KEY]
+                if dataset_clickhouse_stores(item["dataset"])
             )
             continue
-        scopes = other.get("scopes")
+        scopes = other["scopes"]
         pairs.extend(
-            (name, scopes.get(name) if isinstance(scopes, Mapping) else None)
-            for name in sorted(_dataset_names(other.get("datasets")) or ())
+            (name, scopes.get(name))
+            for name in sorted(set(other["datasets"]))
             if dataset_clickhouse_stores(name)
         )
     members = {str(sample) for sample in family_samples} if family_samples else None
     items: dict[str, dict[str, Any]] = {}
     for dataset, scope in pairs:
         for item in _scope_items(dataset, scope):
-            samples = item["scope"].get("samples") if isinstance(item["scope"], Mapping) else None
-            if members is not None and isinstance(samples, list) and samples and not {
-                str(sample) for sample in samples
-            } <= members:
+            samples = item["scope"]["samples"] if item["scope"] is not None else None
+            if members is not None and samples and not set(samples) <= members:
                 continue
             items[_canonical(item)] = item
     listed_items = [items[key] for key in sorted(items)]
@@ -1531,34 +1610,26 @@ def whole_family_left(entry: Mapping[str, Any], replaced: Mapping[str, Any]) -> 
     """A whole-family entry after an import that completed with ``overwrite``, or a
     single-file upload with ``overwrite``, replacing ``replaced`` (each dataset it imported
     or brought, with its scope): without what it covered (``_scope_covers``), or None when
-    it covered all that was left. A list not in the shape ``whole_family_entry`` writes
-    stays as it is: nothing can show it complete."""
-    listed = entry.get(WHOLE_FAMILY_KEY)
-    if not isinstance(listed, list):
-        return dict(entry)
+    it covered all that was left (an entry as ``read_unfinished_entries`` reads it)."""
     left = [
         item
-        for item in listed
-        if not (
-            isinstance(item, Mapping)
-            and _scope_covers(replaced.get(str(item.get("dataset"))), item.get("scope"))
-        )
+        for item in entry[WHOLE_FAMILY_KEY]
+        if not _scope_covers(replaced.get(item["dataset"]), item["scope"])
     ]
     if not left:
         return None
     return {
         **entry,
-        "datasets": sorted(
-            {str(item["dataset"]) for item in left if isinstance(item, Mapping) and item.get("dataset")}
-        ),
+        "datasets": sorted({item["dataset"] for item in left}),
         "finished_datasets": [],
         WHOLE_FAMILY_KEY: left,
     }
 
 
-def is_whole_family_entry(entry: Any) -> bool:
-    """Whether an ``import_unfinished`` entry is the whole-family one a restore leaves."""
-    return isinstance(entry, Mapping) and WHOLE_FAMILY_KEY in entry
+def is_whole_family_entry(entry: Mapping[str, Any]) -> bool:
+    """Whether an ``import_unfinished`` entry lists its items under ``whole_family``: the
+    one a restore leaves, or the mark of an upload or a deletion (``FamilyWriteMark``)."""
+    return WHOLE_FAMILY_KEY in entry
 
 
 async def _mark_family_import_unfinished(
@@ -1596,15 +1667,8 @@ async def _write_unfinished_entry(
             SET metadata = jsonb_set(
                 COALESCE(metadata, '{}'::jsonb),
                 '{import_unfinished}',
-                CASE
-                    WHEN metadata -> 'import_unfinished' IS NULL
-                         OR jsonb_typeof(metadata -> 'import_unfinished') = 'null'
-                        THEN '{}'::jsonb
-                    WHEN jsonb_typeof(metadata -> 'import_unfinished') = 'object'
-                        THEN metadata -> 'import_unfinished'
-                    -- Set, but not a map: kept, so it still marks the family.
-                    ELSE jsonb_build_object('unreadable', metadata -> 'import_unfinished')
-                END || jsonb_build_object(CAST(:import_key AS text), CAST(:entry AS jsonb)),
+                COALESCE(metadata -> 'import_unfinished', '{}'::jsonb)
+                    || jsonb_build_object(CAST(:import_key AS text), CAST(:entry AS jsonb)),
                 true
             )
             WHERE id = CAST(:family_uuid AS uuid)
@@ -1649,7 +1713,7 @@ async def _record_family_import_finished(
 _WITHOUT_IMPORT_ENTRY = """
 CASE
     WHEN CAST(:import_key AS text) IS NULL
-         OR jsonb_typeof(metadata -> 'import_unfinished') IS DISTINCT FROM 'object'
+         OR metadata -> 'import_unfinished' IS NULL
          OR NOT ((metadata -> 'import_unfinished') ? CAST(:import_key AS text))
         THEN COALESCE(metadata, '{}'::jsonb)
     WHEN (metadata -> 'import_unfinished') - CAST(:import_key AS text) = '{}'::jsonb
@@ -1716,19 +1780,12 @@ async def _write_import_failure(
     else:
         raise ValueError("An import failure is written to a family, and none was named")
     row = (await session.execute(text(row_sql), params)).mappings().first()
-    if row is None or (
-        only_with_entry and (import_key is None or import_key not in _unfinished_entries(row["unfinished"]))
-    ):
+    entries = read_unfinished_entries(row["unfinished"]) if row is not None else {}
+    if row is None or (only_with_entry and (import_key is None or import_key not in entries)):
         await session.rollback()
         return None
-    flag = row["flag"]
-    if isinstance(flag, str):
-        try:
-            flag = json.loads(flag)
-        except ValueError:
-            pass
     payload = merged_import_failure(
-        flag,
+        row["flag"],
         at=datetime.now(timezone.utc).isoformat(),
         job_id=job_id,
         failed=failed_datasets,
@@ -1736,7 +1793,6 @@ async def _write_import_failure(
         scopes=scopes,
         imported_scopes=imported_scopes,
     )
-    entries = _unfinished_entries(row["unfinished"])
     if keep is not None:
         entries[keep.key] = whole_family_entry(
             keep,
@@ -2176,7 +2232,7 @@ async def _mark_family_import_restoring(
         entry = whole_family_entry(
             mark,
             imported=row.get("imported_scopes"),
-            unfinished=_unfinished_entries(row["unfinished"]),
+            unfinished=read_unfinished_entries(row["unfinished"]),
             family_samples=family_samples,
         )
         await _mark_family_import_unfinished(
@@ -2241,7 +2297,7 @@ async def _flag_family_restore_failed(
             pass
         return None
     entry = (entries or {}).get(mark.key)
-    return sorted(_dataset_names(entry.get("datasets")) or ()) if isinstance(entry, Mapping) else None
+    return sorted(entry["datasets"]) if entry is not None else None
 
 
 # The family's metadata with each import-state key set to its new value: :flag for
@@ -2317,14 +2373,9 @@ async def _clear_family_import_incomplete(
             )
         ).mappings().first()
         stored_flag = row["flag"] if row is not None else None
-        if isinstance(stored_flag, str):
-            try:
-                stored_flag = json.loads(stored_flag)
-            except ValueError:
-                pass
         remaining: dict[str, Any] = {}
         recorded: list[tuple[str, Any]] = list((imported or {}).items())
-        for key, entry in _unfinished_entries(row["unfinished"] if row is not None else None).items():
+        for key, entry in read_unfinished_entries(row["unfinished"] if row is not None else None).items():
             if key == import_key:
                 continue
             if is_whole_family_entry(entry):
@@ -2332,20 +2383,10 @@ async def _clear_family_import_incomplete(
                 if left is not None:
                     remaining[key] = left
                 continue
-            pending = pending_datasets(entry)
-            scopes = entry.get("scopes") if isinstance(entry, Mapping) else None
-            if pending is not None and all(
-                _scope_covers(
-                    replaced.get(name),
-                    scopes.get(name) if isinstance(scopes, Mapping) else None,
-                )
-                for name in pending
-            ):
+            scopes = entry["scopes"]
+            if all(_scope_covers(replaced.get(name), scopes.get(name)) for name in pending_datasets(entry)):
                 # What it had finished stays the family's: this import replaced the rest.
-                recorded.extend(
-                    (name, scopes.get(name) if isinstance(scopes, Mapping) else None)
-                    for name in sorted(_dataset_names(entry.get("finished_datasets")) or ())
-                )
+                recorded.extend((name, scopes.get(name)) for name in sorted(set(entry["finished_datasets"])))
                 continue
             remaining[key] = entry
         failures = failures_left_after(stored_flag, dict(imported or {}))
@@ -2653,14 +2694,10 @@ class DataReach:
 
 def _item_samples(item: Mapping[str, Any]) -> set[str] | None:
     """The samples an item's scope names, or None for a dataset of one family-level file (or
-    a scope not in the shape ``dataset_scopes`` gives, which holds any sample's data)."""
-    scope = item.get("scope")
-    samples = scope.get("samples") if isinstance(scope, Mapping) else None
-    if isinstance(samples, list):
-        named = {str(sample) for sample in samples if sample}
-        if named:
-            return named
-    return None
+    an item with no scope, which may hold any sample's data)."""
+    scope = _written_scope(item["scope"])
+    samples = scope["samples"] if scope is not None else None
+    return set(samples) if samples else None
 
 
 def reached_items(
@@ -2674,8 +2711,6 @@ def reached_items(
     reaches = tuple(reaches)
     reached: list[dict[str, Any]] = []
     for item in items:
-        if not isinstance(item, Mapping) or not item.get("dataset"):
-            continue
         dataset = str(item["dataset"])
         stores = dataset_clickhouse_stores(dataset)
         samples = _item_samples(item)
@@ -2692,7 +2727,7 @@ def reached_items(
                     whole = True
             elif not (reach.but is not None and samples is not None and samples <= {reach.but}):
                 whole = True
-        base = {"dataset": dataset, "scope": item.get("scope")}
+        base = {"dataset": dataset, "scope": item["scope"]}
         if part is not None:
             if whole or str(part) in parts:
                 reached.append({**base, ITEM_SAMPLE_KEY: str(part)})
@@ -2703,24 +2738,19 @@ def reached_items(
     return _listed_items(reached)
 
 
-def _import_entry_without_sample(entry: Any, sample: str) -> Any:
+def _import_entry_without_sample(entry: Mapping[str, Any], sample: str) -> Mapping[str, Any] | None:
     """An import's own ``import_unfinished`` entry (``ImportMark.entry``) once ``sample`` is
     deleted: each dataset's scope without the sample (``_scope_without_sample``). A dataset
     whose scope named it alone goes from the entry, finished or not: nothing of it can be
     partly written or missing, and none of it is the family's to record. The entry goes
     (None) with its last dataset; one left with finished datasets only stays, for the import
     that completes it to record them (``_clear_family_import_incomplete``). The entry itself
-    when no scope names the sample, or when it is not in the shape an import writes.
+    when no scope names the sample.
 
     Only an import of a dataset for every sample its scope names removes the entry, and none
     can name a deleted sample, so an entry naming one would stay for good."""
-    if not isinstance(entry, Mapping):
-        return entry
-    scopes = entry.get("scopes")
-    datasets = _dataset_names(entry.get("datasets"))
-    finished = _dataset_names(entry.get("finished_datasets"))
-    if not isinstance(scopes, Mapping) or datasets is None or finished is None:
-        return entry
+    scopes = entry["scopes"]
+    datasets, finished = set(entry["datasets"]), set(entry["finished_datasets"])
     if not any(_names_sample(scope, sample) for scope in scopes.values()):
         return entry
     left_scopes: dict[str, Any] = {}
@@ -2745,7 +2775,7 @@ def _import_entry_without_sample(entry: Any, sample: str) -> Any:
     }
 
 
-def _without_sample(entry: Any, sample: str) -> Any:
+def _without_sample(entry: Mapping[str, Any], sample: str) -> Mapping[str, Any] | None:
     """An ``import_unfinished`` entry without what it names of ``sample``, a sample that is
     deleted. A whole-family entry loses the sample's items: its own items and its part of a
     family-level dataset (``ITEM_SAMPLE_KEY``); None when nothing is left of a list that had
@@ -2754,16 +2784,11 @@ def _without_sample(entry: Any, sample: str) -> Any:
     is struck."""
     if not is_whole_family_entry(entry):
         return _import_entry_without_sample(entry, sample)
-    listed = entry.get(WHOLE_FAMILY_KEY)
-    if not isinstance(listed, list):
-        return entry
+    listed = entry[WHOLE_FAMILY_KEY]
     left = [
         item
         for item in listed
-        if not (
-            isinstance(item, Mapping)
-            and (item.get(ITEM_SAMPLE_KEY) == sample or _item_samples(item) == {sample})
-        )
+        if not (item.get(ITEM_SAMPLE_KEY) == sample or _item_samples(item) == {sample})
     ]
     if len(left) == len(listed):
         return entry
@@ -2771,9 +2796,7 @@ def _without_sample(entry: Any, sample: str) -> Any:
         return None
     return {
         **entry,
-        "datasets": sorted(
-            {str(item["dataset"]) for item in left if isinstance(item, Mapping) and item.get("dataset")}
-        ),
+        "datasets": sorted({item["dataset"] for item in left}),
         "finished_datasets": [],
         WHOLE_FAMILY_KEY: left,
     }
@@ -2898,14 +2921,9 @@ class FamilyDeletion:
         ).mappings().first()
         if row is None:  # the family is gone, and the mark with it
             return
-        entries = _unfinished_entries(row["unfinished"])
+        entries = read_unfinished_entries(row["unfinished"])
         changed = entries.pop(self.mark.key, None) is not None
         flag = row["flag"]
-        if isinstance(flag, str):
-            try:
-                flag = json.loads(flag)
-            except ValueError:
-                pass  # set, but not JSON an import wrote: kept as it is
         flag_left = flag
         if deleted_sample is not None:
             for key, entry in list(entries.items()):
@@ -2943,15 +2961,14 @@ class FamilyDeletion:
             row = (
                 await session.execute(text(_UNFINISHED_ROW), {"family_uuid": self.family_uuid})
             ).mappings().first()
-            entries = _unfinished_entries(row["unfinished"] if row is not None else None)
+            entries = read_unfinished_entries(row["unfinished"] if row is not None else None)
             entry = entries.get(self.mark.key)
-            if not isinstance(entry, Mapping):  # the family is gone, or the mark is
+            if entry is None:  # the family is gone, or the mark is
                 await session.rollback()
                 return
-            listed = entry.get(WHOLE_FAMILY_KEY)
-            items = reached_items(listed if isinstance(listed, list) else (), self._reached)
+            items = reached_items(entry[WHOLE_FAMILY_KEY], self._reached)
             if items:
-                entries[self.mark.key] = replace(self.mark, at=str(entry.get("at") or self.mark.at), items=items).entry()
+                entries[self.mark.key] = replace(self.mark, at=entry["at"], items=items).entry()
             else:
                 del entries[self.mark.key]
             await session.execute(
@@ -3062,7 +3079,7 @@ async def record_family_upload(
             merged_imported_scopes(row["imported_scopes"], [(dataset, scope)])
         ),
     }
-    entries = _unfinished_entries(row["unfinished"])
+    entries = read_unfinished_entries(row["unfinished"])
     struck = False
     if mark is not None and mark.key in entries:
         # The upload is about to commit what it wrote: nothing of it is left to mark.
@@ -3084,13 +3101,8 @@ async def record_family_upload(
     if struck:
         metadata = _WITH_IMPORTED_SCOPES_AND_UNFINISHED
         params["unfinished"] = json.dumps(entries or None)
-    stored_flag = row.get("flag")
-    if isinstance(stored_flag, str):
-        try:
-            stored_flag = json.loads(stored_flag)
-        except ValueError:
-            pass
-    if _flag_failures(stored_flag):
+    stored_flag = read_import_flag(row["flag"])
+    if stored_flag is not None and _flag_failures(stored_flag):
         # Rewritten once it strikes a failure off: a dataset that failed for several
         # scopes stays, for the others.
         failures = failures_left_after(stored_flag, {dataset: scope})

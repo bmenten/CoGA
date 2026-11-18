@@ -388,32 +388,59 @@ async def test_an_import_of_less_than_failed_leaves_it_flagged(case, imported) -
     assert left.failures.failed == {name: "job-1"}, case
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("flag", ["garbage", True, {"failed_datasets": "snv"}])
-async def test_a_flag_not_in_the_shape_an_import_writes_stays(flag) -> None:
-    row = _FamilyRow(flag=flag)
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _SCOPES["snv"]})
-    assert row.flag == flag
-    assert left.failures.unreadable
+# Flags no writer writes (registration._flag_payload writes the one shape): `true` and
+# `false`, text, a list, an empty map, a map whose lists or jobs are not as written.
+_FLAGS_NOT_WRITTEN = [
+    pytest.param(True, id="true"),
+    pytest.param(False, id="false"),
+    pytest.param("garbage", id="text"),
+    pytest.param(["snv"], id="a-list"),
+    pytest.param({}, id="an-empty-map"),
+    pytest.param({**_flag("job-1", ["snv"]), "failed_datasets": "snv"}, id="failed-datasets-text"),
+    pytest.param({key: value for key, value in _flag("job-1", ["snv"]).items() if key != "at"}, id="no-at"),
+    pytest.param({**_flag("job-1", ["snv"]), "job_id": 7}, id="job-not-text"),
+    pytest.param({**_flag("job-1", ["snv"]), "failed_jobs": {"snv": 7}}, id="failed-job-not-text"),
+    pytest.param({**_flag("job-1", ["snv"]), "failed_jobs": {}}, id="failed-job-missing"),
+]
+
+
+@pytest.mark.parametrize("flag", _FLAGS_NOT_WRITTEN)
+def test_a_flag_not_in_the_shape_an_import_writes_raises(flag) -> None:
+    # Never read as "incomplete, nothing named", nor `false` as no flag.
+    with pytest.raises(registration.ImportMarkShapeError, match="import_incomplete flag"):
+        registration.read_import_flag(flag)
+    with pytest.raises(registration.ImportMarkShapeError):
+        registration.failures_left_after(flag, {"snv": _SCOPES["snv"]})
+    with pytest.raises(registration.ImportMarkShapeError):
+        registration.merged_import_failure(
+            flag, at=_AT, job_id="job-2", failed=["coverage"], imported=[], scopes=_SCOPES, imported_scopes={}
+        )
+    with pytest.raises(registration.ImportMarkShapeError):
+        registration.flag_without_sample(flag, "S1")
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("flag", ["garbage", True, {"failed_datasets": "snv"}, {}])
-async def test_a_later_failure_keeps_a_flag_not_in_the_shape_an_import_writes(flag) -> None:
-    # the flag stays as it was, so the family does not read as complete once
-    # coverage is imported again, whatever the first flag stands for.
+@pytest.mark.parametrize("flag", _FLAGS_NOT_WRITTEN)
+async def test_a_flag_not_in_the_shape_an_import_writes_is_never_replaced_or_cleared(flag) -> None:
+    # A later failure, an upload's failure and a completed import each fail to write the
+    # flag, so it stays as stored and the family stays marked; a sign-out reading it fails
+    # (test_report_signout). An upload that meets it fails.
     row = _FamilyRow(flag=copy.deepcopy(flag))
     await fpi._flag_family_import_incomplete(
         row, _ctx(), failed_datasets=["coverage"], imported_datasets=["snv"], job_id="job-2", scopes=_SCOPES
     )
     assert row.flag == flag
-    # So does an upload's failure.
     await registration.record_family_upload_failure(
         row, family_uuid="uuid-1", dataset="snv", scope=_SCOPES["snv"]
     )
     assert row.flag == flag
     left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"coverage": _SCOPES["coverage"]})
-    assert row.flag == flag and left.failures.unreadable
+    assert left is None and row.flag == flag
+    with pytest.raises(registration.ImportMarkShapeError):
+        await registration.record_family_upload(
+            row, family_uuid="uuid-1", dataset="snv", scope=_SCOPES["snv"], overwrite=True
+        )
+    assert row.flag == flag
 
 
 @pytest.mark.asyncio
@@ -426,8 +453,6 @@ async def test_a_completed_import_removes_its_own_entry_and_those_it_completed()
         "job-done": _entry("job-done", ["snv"], finished=["snv"]),
         # Stopped in haplotypes, which this import did not import.
         "job-other": _entry("job-other", ["haplotypes"]),
-        # Not in the shape an import writes: nothing shows it complete.
-        "unreadable": "garbage",
     }
     row = _FamilyRow(unfinished=copy.deepcopy(stored))
     left = await fpi._clear_family_import_incomplete(
@@ -436,8 +461,8 @@ async def test_a_completed_import_removes_its_own_entry_and_those_it_completed()
         import_key="job-own",
         rewritten={"snv": _SCOPES["snv"], "coverage": _SCOPES["coverage"]},
     )
-    assert set(left.unfinished) == {"job-other", "unreadable"}
-    assert row.unfinished == {"job-other": stored["job-other"], "unreadable": "garbage"}
+    assert set(left.unfinished) == {"job-other"}
+    assert row.unfinished == {"job-other": stored["job-other"]}
 
 
 @pytest.mark.asyncio
@@ -658,14 +683,73 @@ async def test_one_overwrite_of_the_whole_family_removes_the_entry() -> None:
     assert left.unfinished == {} and row.unfinished is None
 
 
+def _without(entry, key):
+    return {name: value for name, value in entry.items() if name != key}
+
+
+# `import_unfinished` values no writer writes (ImportMark.entry, whole_family_entry and
+# FamilyWriteMark.entry write the one shape).
+_UNFINISHED_NOT_WRITTEN = [
+    pytest.param("garbage", id="text"),
+    pytest.param(["job-1"], id="a-list"),
+    pytest.param({"job-1": "garbage"}, id="an-entry-of-text"),
+    pytest.param({"job-1": {}}, id="an-empty-entry"),
+    pytest.param({"job-1": {**_entry("job-1", ["snv"]), "datasets": "snv"}}, id="datasets-text"),
+    pytest.param({"job-1": _without(_entry("job-1", ["snv"]), "finished_datasets")}, id="no-finished-datasets"),
+    pytest.param({"job-1": _without(_entry("job-1", ["snv"]), "at")}, id="no-at"),
+    pytest.param({"job-1": {**_entry("job-1", ["snv"]), "job_id": 7}}, id="job-not-text"),
+    pytest.param({"job-1": _without(_entry("job-1", ["snv"]), "scopes")}, id="neither-scopes-nor-items"),
+    pytest.param({"job-1": {**_entry("job-1", ["snv"]), "scopes": {"snv": "clair3"}}}, id="a-scope-of-text"),
+    pytest.param({"job-1": {**_entry("job-1", ["snv"]), "scopes": {"snv": {"source": "clair3"}}}}, id="a-scope-without-samples"),
+    pytest.param(
+        {"job-1": {**_entry("job-1", ["coverage"]), "scopes": {"coverage": {"source": None, "samples": "S1"}}}},
+        id="samples-text",
+    ),
+    pytest.param({"job-2": {**_entry("job-2", ["snv"]), "whole_family": "garbage"}}, id="items-text"),
+    pytest.param({"job-2": {**_entry("job-2", ["snv"]), "whole_family": [{"dataset": "snv"}]}}, id="an-item-without-scope"),
+    pytest.param(
+        {"job-2": {**_entry("job-2", ["snv"]), "whole_family": [{"dataset": "snv", "scope": "clair3"}]}},
+        id="an-item-scope-of-text",
+    ),
+]
+
+
 @pytest.mark.asyncio
-async def test_a_whole_family_list_not_in_the_shape_written_is_never_completed() -> None:
-    stored = {**_entry("job-2", ["snv"]), "whole_family": "garbage"}
-    row = _FamilyRow(unfinished={"job-2": copy.deepcopy(stored)})
-
+@pytest.mark.parametrize("unfinished", _UNFINISHED_NOT_WRITTEN)
+async def test_an_unfinished_entry_not_in_the_shape_written_raises_and_stays(unfinished) -> None:
+    # Never read as an entry that names nothing, and never kept under a key of its own.
+    with pytest.raises(registration.ImportMarkShapeError):
+        registration.read_unfinished_entries(unfinished)
+    # A completed import cannot clear the family's marks, so they stay as stored.
+    row = _FamilyRow(unfinished=copy.deepcopy(unfinished))
     left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={"snv": _SCOPES["snv"]})
+    assert left is None and row.unfinished == unfinished
 
-    assert left.unfinished == {"job-2": stored}
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        pytest.param("garbage", id="text"),
+        pytest.param(["snv"], id="a-list"),
+        pytest.param({"snv": "garbage"}, id="scopes-text"),
+        pytest.param({"snv": [None]}, id="no-scope"),
+        pytest.param({"snv": [{"source": "clair3"}]}, id="a-scope-without-samples"),
+    ],
+)
+def test_imported_scopes_not_in_the_shape_written_raise(stored) -> None:
+    with pytest.raises(registration.ImportMarkShapeError):
+        registration.merged_imported_scopes(stored, [("coverage", _SCOPES["coverage"])])
+
+
+def test_a_scope_not_in_the_shape_written_raises() -> None:
+    for scope in ("clair3", ["S1"], {"source": "clair3"}, {"source": 3, "samples": None}, {"source": None, "samples": [""]}):
+        with pytest.raises(registration.ImportMarkShapeError, match="dataset scope"):
+            registration._scope_covers(_SCOPES["snv"], scope)
+        with pytest.raises(registration.ImportMarkShapeError):
+            registration.scope_with_samples(scope, ["S1"])
+    # None: no scope recorded (an import run without its bookkeeping), which nothing covers.
+    assert registration._scope_covers(_SCOPES["snv"], None) is False
+    assert registration.scope_with_samples(None, ["S1"]) is None
 
 
 @pytest.mark.asyncio
@@ -753,10 +837,6 @@ def test_a_second_restore_that_fails_keeps_what_the_first_left_to_import() -> No
 def test_pending_datasets_are_those_an_import_had_not_finished() -> None:
     assert registration.pending_datasets(_entry("j", ["snv", "sv"], ["snv"])) == {"sv"}
     assert registration.pending_datasets(_entry("j", ["snv"], ["snv"])) == set()
-    # Not in the shape an import writes: unknown, never "nothing pending".
-    assert registration.pending_datasets("garbage") is None
-    assert registration.pending_datasets({"datasets": ["snv"]}) is None
-    assert registration.pending_datasets({"datasets": "snv", "finished_datasets": []}) is None
 
 
 def test_an_import_mark_is_keyed_by_its_job_or_its_own_run() -> None:
@@ -1837,16 +1917,19 @@ async def test_an_upload_brings_again_only_the_scope_it_brought_of_a_dataset_tha
         {"snv": []},
         {"snv": "garbage"},
         {"snv": [{"job_id": "job-1"}]},
+        {"snv": [{"scope": "clair3", "job_id": "job-1"}]},
+        {"snv": [{"scope": {"source": "clair3"}, "job_id": "job-1"}]},
+        {"snv": [{"scope": _SCOPES["snv"], "job_id": 7}]},
         {"coverage": [{"scope": None, "job_id": "job-1"}]},
     ],
 )
-async def test_a_flag_whose_failed_scopes_are_not_as_written_stays(failed_scopes) -> None:
-    # Nothing shows what would complete it.
+async def test_a_flag_whose_failed_scopes_are_not_as_written_raises_and_stays(failed_scopes) -> None:
     flag = {**_flag("job-1", ["snv"]), "failed_scopes": failed_scopes}
+    with pytest.raises(registration.ImportMarkShapeError):
+        registration.read_import_flag(flag)
     row = _FamilyRow(flag=copy.deepcopy(flag))
     left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _SCOPES["snv"]})
-    assert row.flag == flag
-    assert left is not None and left.failures.unreadable
+    assert left is None and row.flag == flag
 
 
 def test_the_job_log_names_each_job_that_holds_an_error_left() -> None:

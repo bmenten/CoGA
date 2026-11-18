@@ -191,13 +191,10 @@ def _still_unfinished_message(family_id: str, remaining: Mapping[str, Any]) -> s
     earlier import that stopped part-way (its `import_unfinished` entry)."""
     stopped: list[str] = []
     for _key, entry in sorted(remaining.items()):
-        job_id = entry.get("job_id") if isinstance(entry, Mapping) else None
-        pending = pending_datasets(entry)
-        name = f"import job {job_id}" if isinstance(job_id, str) and job_id else "an import"
-        if pending:
-            stopped.append(f"{name}, which had not finished {', '.join(sorted(pending))}")
-        else:
-            stopped.append(f"{name}, which did not record what it had not finished")
+        job_id = entry["job_id"]
+        pending = sorted(pending_datasets(entry))
+        name = f"import job {job_id}" if job_id else "an import"
+        stopped.append(f"{name}, which had not finished {', '.join(pending)}" if pending else name)
     return (
         f"Family {family_id} stays marked import-incomplete: an earlier import stopped "
         f"part-way ({'; '.join(stopped)}), and what it had not finished may be partly "
@@ -212,11 +209,6 @@ def _still_failed_message(family_id: str, failures: FailuresLeft) -> str:
     an error of it still flagged: one that failed for several scopes (callsets, samples)
     can have more than one. A failure no job records is a single-file upload's,
     or an import's run outside a job, and is said so."""
-    if failures.unreadable:
-        return (
-            f"Family {family_id} stays flagged import-incomplete: its flag is not in the shape "
-            "an import writes, so nothing shows what would complete it."
-        )
     outside = "outside an import job"
     by_job: dict[str, list[str]] = {}
     for name, latest in sorted(failures.failed.items()):
@@ -240,9 +232,9 @@ def _still_not_restored_message(family_id: str, remaining: Mapping[str, Any]) ->
     brought again with overwrite since."""
     restores: list[str] = []
     for _key, entry in sorted(remaining.items()):
-        job_id = entry.get("job_id") if isinstance(entry, Mapping) else None
-        name = f"import job {job_id}" if isinstance(job_id, str) and job_id else "an import"
-        pending = sorted(pending_datasets(entry) or ())
+        job_id = entry["job_id"]
+        name = f"import job {job_id}" if job_id else "an import"
+        pending = sorted(pending_datasets(entry))
         restores.append(f"{name}, still to import: {', '.join(pending)}" if pending else name)
     return (
         f"Family {family_id} stays marked import-incomplete: the restore of an earlier "
@@ -266,7 +258,7 @@ def _still_unwritten_message(family_id: str, remaining: Mapping[str, Any]) -> st
             if unfinished_entry_writer(key) == "upload"
             else "a deletion of this family's data"
         )
-        pending = sorted(pending_datasets(entry) or ())
+        pending = sorted(pending_datasets(entry))
         writes.append(f"{name}, still to bring again: {', '.join(pending)}" if pending else name)
     return (
         f"Family {family_id} stays marked import-incomplete: an earlier write of its data did "
@@ -1106,7 +1098,7 @@ async def _import_family_datasets(
                     "marked import-incomplete; an import that completes clears them."
                 )
             else:
-                if left.failures.failed or left.failures.unreadable:
+                if left.failures.failed:
                     logs.append(_still_failed_message(family_context.family_id, left.failures))
                 # A single-file upload's mark, or a deletion's, is said apart from an
                 # import's entry.

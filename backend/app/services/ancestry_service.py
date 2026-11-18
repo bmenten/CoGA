@@ -150,7 +150,7 @@ async def family_state(session: AsyncSession, family_uuid: str, family_identifie
                                       {"id": family_uuid})).scalar_one_or_none()
     if not isinstance(metadata, dict):
         metadata = {}
-    if metadata.get("import_incomplete") not in (None, False) or metadata.get("import_unfinished"):
+    if metadata.get("import_incomplete") is not None or metadata.get("import_unfinished") is not None:
         return "import_incomplete"
     if (await session.execute(text(_IMPORT_RUNNING), {"family": family_identifier})).first():
         return "import_in_progress"

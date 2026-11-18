@@ -700,7 +700,9 @@ def test_a_skip_is_not_counted_as_importing_a_dataset_again() -> None:
     # The flag's coverage failure, for S1 and S2, is not completed by it; one for S2 is.
     def flag(samples: list[str]) -> dict:
         return {
+            "at": "2026-10-01T09:00:00+00:00",
             "failed_datasets": ["coverage"],
+            "imported_datasets": [],
             "job_id": "job-1",
             "failed_jobs": {"coverage": "job-1"},
             "failed_scopes": {"coverage": [{"scope": {"source": None, "samples": samples}, "job_id": "job-1"}]},

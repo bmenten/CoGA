@@ -117,7 +117,7 @@ def _mark() -> registration.ImportMark:
 
 
 def _write_mark() -> registration.FamilyWriteMark:
-    return registration.FamilyWriteMark.begin(registration.UPLOAD_MARK_PREFIX, [("snv", {"source": "clair3"})])
+    return registration.FamilyWriteMark.begin(registration.UPLOAD_MARK_PREFIX, [("snv", {"source": "clair3", "samples": None})])
 
 
 _WRITES: dict[str, Callable[[_FailingSession], Awaitable[Any]]] = {
@@ -146,7 +146,7 @@ _WRITES: dict[str, Callable[[_FailingSession], Awaitable[Any]]] = {
         session, family_uuid=FAMILY_UUID, mark=_write_mark()  # type: ignore[arg-type]
     ),
     "the flag of an upload that failed": lambda session: registration.record_family_upload_failure(
-        session, family_uuid=FAMILY_UUID, dataset="snv", scope={"source": "clair3"}  # type: ignore[arg-type]
+        session, family_uuid=FAMILY_UUID, dataset="snv", scope={"source": "clair3", "samples": None}  # type: ignore[arg-type]
     ),
     "the narrowed mark of a deletion that failed": lambda session: registration.FamilyDeletion(
         family_uuid=FAMILY_UUID, family_id=FAMILY_ID, mark=_write_mark()

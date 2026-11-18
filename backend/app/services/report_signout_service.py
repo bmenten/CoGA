@@ -65,7 +65,12 @@ from .finding_review_pg import (
     finding_reviews_for_record,
     unreviewed_finding_names,
 )
-from .family_package_registration import is_whole_family_entry, unfinished_entry_writer
+from .family_package_registration import (
+    is_whole_family_entry,
+    read_import_flag,
+    read_unfinished_entries,
+    unfinished_entry_writer,
+)
 from .family_variant_write_lock import try_share_family_variant_writes
 from .hash_chain import ChainVerification, canonical_hash, canonical_json, chain_row_hash, verify_chain
 from .access_control import CurrentUser, RecordNotVisible, require_sign_out_authority
@@ -115,9 +120,6 @@ _QC_BLOCKING_STATUSES = {"fail"}
 # Pedigree-declared first-degree relationships whose swap check, when it cannot run,
 # indicates missing data for an asserted edge (vs a non-asserted/"unrelated" pair).
 _ASSERTED_RELATIONSHIPS = frozenset({"parent-child", "sibling"})
-
-# The dataset lists an incomplete-import flag records; frozen sorted so the hash is stable.
-_IMPORT_FLAG_DATASET_LISTS = ("failed_datasets", "imported_datasets")
 
 # The snapshot section holding the SV/CNV evidence drift.
 STRUCTURAL_DRIFT_SECTION = "structural_drift"
@@ -487,8 +489,10 @@ async def _import_incomplete_state(
     fully successful import removes it. Frozen into the snapshot and gating sign-out, so
     a report on partly loaded data is never released as if it were complete.
 
-    Fails safe: a flag that is set but not in the shape the import writes still counts
-    as incomplete, with nothing to name.
+    The flag is read in the shape the import writes
+    (``family_package_registration.read_import_flag``); a flag in any other shape raises
+    ``ImportMarkShapeError``, so the sign-out fails and its gate stays closed. Dataset lists
+    are frozen sorted, for a stable hash.
 
     ``failed_jobs`` names, for each failed dataset, the import job whose record holds its
     error: a later failure keeps an earlier import's failed datasets in the flag
@@ -509,35 +513,18 @@ async def _import_incomplete_state(
             {"family_uuid": family_uuid},
         )
     ).scalar_one_or_none()
-    if isinstance(raw, str):
-        # jsonb decodes through the asyncpg codec; a driver that hands back the JSON
-        # text instead must read the same.
-        try:
-            raw = json.loads(raw)
-        except ValueError:
-            pass  # set, but not JSON the import wrote: still incomplete
-    if raw is None or raw is False:
+    flag = read_import_flag(raw)
+    if flag is None:
         return None
-    flag: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
-    at = flag.get("at")
-    state: dict[str, Any] = {"at": str(at) if at else None}
-    for key in _IMPORT_FLAG_DATASET_LISTS:
-        state[key] = _sorted_names(flag.get(key))
-    job_id = flag.get("job_id")
-    state["job_id"] = job_id if isinstance(job_id, str) and job_id else None
-    jobs = flag.get("failed_jobs")
-    listed: Mapping[str, Any] = jobs if isinstance(jobs, Mapping) else {}
-    failed_jobs: dict[str, str | None] = {}
-    for name in state["failed_datasets"]:
-        dataset_job = listed.get(name)
+    failed = sorted(set(flag["failed_datasets"]))
+    return {
+        "at": flag["at"],
+        "failed_datasets": failed,
+        "imported_datasets": sorted(set(flag["imported_datasets"])),
+        "job_id": flag["job_id"],
         # None: it failed outside an import job.
-        failed_jobs[name] = dataset_job if isinstance(dataset_job, str) and dataset_job else None
-    state["failed_jobs"] = failed_jobs
-    return state
-
-
-def _sorted_names(values: Any) -> list[str]:
-    return sorted({str(value) for value in values if value}) if isinstance(values, list) else []
+        "failed_jobs": {name: flag["failed_jobs"][name] for name in failed},
+    }
 
 
 async def _import_unfinished_state(
@@ -560,8 +547,10 @@ async def _import_unfinished_state(
     that says which (``unfinished_entry_writer``), with no job, listing what may be partly
     written or missing. It reads and gates as an import's.
 
-    Fails safe like that flag: a value that is set but not in the shape an import writes
-    still counts, with nothing to name. Dataset lists are frozen sorted, for a stable hash.
+    Each entry is read in the shape its writer writes
+    (``family_package_registration.read_unfinished_entries``); a value in any other shape
+    raises ``ImportMarkShapeError``, as the flag does. Dataset lists are frozen sorted, for a
+    stable hash.
 
     The entry a failed overwrite's restore leaves when it does not finish (its datasets the
     whole family's: ``family_package_registration.whole_family_entry``) is frozen with
@@ -577,28 +566,17 @@ async def _import_unfinished_state(
             {"family_uuid": family_uuid},
         )
     ).scalar_one_or_none()
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except ValueError:
-            pass  # set, but not JSON an import wrote: still unfinished
-    if raw is None or raw is False:
-        return {}
-    entries: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {"unreadable": raw}
     state: dict[str, dict[str, Any]] = {}
-    for key, value in entries.items():
-        entry: Mapping[str, Any] = value if isinstance(value, Mapping) else {}
-        job_id = entry.get("job_id")
-        at = entry.get("at")
-        state[str(key)] = {
-            "job_id": job_id if isinstance(job_id, str) and job_id else None,
-            "at": str(at) if at else None,
-            "datasets": _sorted_names(entry.get("datasets")),
-            "finished_datasets": _sorted_names(entry.get("finished_datasets")),
+    for key, entry in read_unfinished_entries(raw).items():
+        state[key] = {
+            "job_id": entry["job_id"],
+            "at": entry["at"],
+            "datasets": sorted(set(entry["datasets"])),
+            "finished_datasets": sorted(set(entry["finished_datasets"])),
         }
         # An upload's or a deletion's mark lists its items the same way, but is no restore.
-        if unfinished_entry_writer(str(key)) == "import" and is_whole_family_entry(entry):
-            state[str(key)]["whole_family"] = True
+        if unfinished_entry_writer(key) == "import" and is_whole_family_entry(entry):
+            state[key]["whole_family"] = True
     return state
 
 

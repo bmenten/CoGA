@@ -55,14 +55,23 @@ _JOB_1 = "11111111-2222-4333-8444-555555555555"
 _JOB_2 = "66666666-7777-4888-8999-aaaaaaaaaaaa"
 
 
+# What an overwrite of each dataset replaces (family_package_registration.dataset_scopes).
+_SCOPES = {
+    "snv": {"source": "clair3", "samples": None},
+    "sv_needlr": {"source": None, "samples": None},
+}
+
+
 def _flag(failed: list[str], jobs: dict[str, str], job_id: str) -> dict[str, Any]:
-    """The import_incomplete flag a failed package import leaves on the family."""
+    """The import_incomplete flag a failed package import leaves on the family, as
+    family_package_registration._flag_payload writes it."""
     return {
         "at": "2026-10-27T10:14:00+00:00",
         "failed_datasets": failed,
         "imported_datasets": ["coverage"],
         "job_id": job_id,
         "failed_jobs": jobs,
+        "failed_scopes": {name: [{"scope": _SCOPES[name], "job_id": jobs[name]}] for name in failed},
     }
 
 

@@ -648,14 +648,18 @@ async def test_a_sample_deletion_removes_a_flag_that_named_that_sample_alone(sto
 
 
 @pytest.mark.asyncio
-async def test_a_sample_deletion_leaves_a_flag_not_in_the_shape_an_import_writes(stores) -> None:
-    # Nothing shows what such a flag would need, so nothing is struck off it.
+async def test_a_sample_deletion_fails_on_a_flag_not_in_the_shape_an_import_writes(stores) -> None:
+    # Such a flag is never read: the deletion fails before it commits, so the flag stays as
+    # stored, and the deletion's mark stays listing what its ClickHouse writes reached.
     database = _Postgres([], flag=True)
     stores(database)
 
-    await _delete_s2(database)
+    with pytest.raises(registration.ImportMarkShapeError):
+        await _delete_s2(database)
 
     assert database.committed["flag"] is True
+    _key, mark = _deletion_mark(database)
+    assert "snv" in mark["datasets"]
 
 
 @pytest.mark.asyncio

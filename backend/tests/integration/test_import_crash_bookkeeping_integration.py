@@ -9,7 +9,8 @@ one that was ``running`` is ended ``failed``, interrupted, and keeps its record.
 drives the real statements against the real schema:
 
 - the entry is written and rewritten without touching the family's other metadata or
-  another import's entry, and a value that is set but is not a map is kept, not dropped;
+  another import's entry; a value in a shape no writer writes is never read: the sign-out
+  reader raises on it and a clear leaves it as stored;
 - the flag, the end of a put-back import and the clear remove what they should and keep
   the rest; the map goes once it is empty; the sign-out reader reads what they leave;
 - after a failed overwrite whose restore failed part-way, the import's entry stays, naming
@@ -68,6 +69,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
     from backend.app.services.family_package_qc import record_family_pipeline_metadata
     from backend.app.services.family_package_registration import (
         ImportMark,
+        ImportMarkShapeError,
         _clear_family_import_incomplete,
         _end_family_import_unfinished,
         _end_import_failed_before_datasets,
@@ -170,7 +172,8 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         assert "import_unfinished" not in metadata
         assert metadata["import_incomplete"], "the end of a put-back import keeps the flag"
 
-        # A value that is set but is not a map is kept, under a key of its own.
+        # A value in a shape no writer writes is never read: the sign-out reader raises on it,
+        # so the sign-out fails, and a completed import cannot clear it: it stays as stored.
         async with sm() as s:
             await s.execute(
                 text(
@@ -180,14 +183,25 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
                 {"f": family_uuid},
             )
             await s.commit()
+            with pytest.raises(ImportMarkShapeError):
+                await rss._import_unfinished_state(s, family_uuid)
+            assert await _clear_family_import_incomplete(s, context) is None
+            metadata = await _metadata(s, family_uuid)
+            assert metadata["import_unfinished"] == "garbage" and metadata["import_incomplete"]
+            # Removed by hand, the next import's entry is written as usual.
+            await s.execute(
+                text("UPDATE families SET metadata = metadata - 'import_unfinished' WHERE id = CAST(:f AS uuid)"),
+                {"f": family_uuid},
+            )
+            await s.commit()
             own = mark("snv")
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own)
             metadata = await _metadata(s, family_uuid)
-        assert metadata["import_unfinished"] == {"unreadable": "garbage", own.key: own.entry()}
+        assert metadata["import_unfinished"] == {own.key: own.entry()}
 
         # A completed overwrite of snv and coverage: its own entry goes, and so does the
-        # stopped import it completed; one it did not (haplotypes) and the unreadable value
-        # stay, and the flag is cleared.
+        # stopped import it completed; one it did not (haplotypes) stays, and the flag is
+        # cleared.
         covered = mark("snv", "coverage")
         other = mark("haplotypes", "snv")
         async with sm() as s:
@@ -201,32 +215,17 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
             )
             metadata = await _metadata(s, family_uuid)
         assert left is not None
-        assert set(left.unfinished) == {"unreadable", other.key}
-        assert metadata["import_unfinished"] == {"unreadable": "garbage", other.key: other.entry()}
+        assert set(left.unfinished) == {other.key}
+        assert metadata["import_unfinished"] == {other.key: other.entry()}
         # It imported coverage again, the dataset the flag names as failed.
         assert "import_incomplete" not in metadata and left.failures.failed == {}
 
-        # One that imports haplotypes and snv completes the other stopped import; the value
-        # that is not an entry stays, as nothing can show it complete.
+        # One that imports haplotypes and snv completes the other stopped import, the last
+        # entry: the map goes with it.
         async with sm() as s:
             left = await _clear_family_import_incomplete(
                 s, context, rewritten={"snv": scopes["snv"], "haplotypes": scopes["haplotypes"]}
             )
-            metadata = await _metadata(s, family_uuid)
-        assert left is not None and left.unfinished == {"unreadable": "garbage"}
-        assert metadata["import_unfinished"] == {"unreadable": "garbage"}
-
-        # Removed by hand, nothing is left: the next clear drops the empty map.
-        async with sm() as s:
-            await s.execute(
-                text(
-                    "UPDATE families SET metadata = metadata #- '{import_unfinished,unreadable}' "
-                    "WHERE id = CAST(:f AS uuid)"
-                ),
-                {"f": family_uuid},
-            )
-            await s.commit()
-            left = await _clear_family_import_incomplete(s, context)
             metadata = await _metadata(s, family_uuid)
             state = await rss._import_unfinished_state(s, family_uuid)
         assert left is not None and left.unfinished == {}
