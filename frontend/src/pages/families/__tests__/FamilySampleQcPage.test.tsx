@@ -503,9 +503,7 @@ describe('FamilySampleQcPage', () => {
     const evidence = (ratio: string, y: string, x: string) =>
       `(ngs-bits chrY/chrX read ratio ${ratio}, ${y} chrY and ${x} chrX reads, from the pipeline; no chrX genotypes)`;
     const motherMismatch = `Recorded female but the reads indicate male ${evidence('0.1050', '10,500', '100,000')} — possible sample swap or mislabel.`;
-    const embryoPass =
-      `Read-inferred sex matches the record ${evidence('0.0011', '90', '80,000')}. The embryo's recorded sex was ` +
-      'taken from this same ngs-bits call, so the match confirms nothing independent.';
+    const embryoUnrecorded = `Embryo's sex not recorded; the reads indicate female ${evidence('0.0011', '90', '80,000')}.`;
     const readCheck = (sampleId: string, recorded: string, inferred: string, status: string, message: string) => ({
       sample_id: sampleId,
       recorded_sex: recorded,
@@ -535,7 +533,7 @@ describe('FamilySampleQcPage', () => {
             `Read-inferred sex matches the record ${evidence('0.1050', '10,500', '100,000')}.`,
           ),
           readCheck('MOTHER1', 'female', 'male', 'fail', motherMismatch),
-          readCheck('EMB1', 'female', 'female', 'pass', embryoPass),
+          readCheck('EMB1', 'unknown', 'female', 'pass', embryoUnrecorded),
         ],
         relatedness_checks: [],
         mendelian_checks: [],
@@ -545,7 +543,7 @@ describe('FamilySampleQcPage', () => {
         members: [
           { sample_id: 'FATHER1', role: 'father', affected: false, sex: 'male' },
           { sample_id: 'MOTHER1', role: 'mother', affected: false, sex: 'female' },
-          { sample_id: 'EMB1', role: 'embryo', affected: false, sex: 'female' },
+          { sample_id: 'EMB1', role: 'embryo', affected: false, sex: 'unknown' },
         ],
         relationships: [
           { id: 'r1', relationship_type: 'parent_child', sample_id_a: 'FATHER1', sample_id_b: 'EMB1', role_a: 'father' },
@@ -562,10 +560,16 @@ describe('FamilySampleQcPage', () => {
     expect(genotypeSexCell('MOTHER1')).toHaveClass('qc-genotype-sex--mismatch');
     expect(genotypeSexCell('MOTHER1')).toHaveTextContent('male ✗');
     expect(genotypeSexCell('MOTHER1')).toHaveAccessibleName(motherMismatch);
-    // The embryo passes, and its tooltip says the match is the ngs-bits call against itself.
+    // An embryo without a recorded sex passes with the sex its reads indicate; its tooltip and
+    // its ring say so, never "(matches record)".
     expect(genotypeSexCell('EMB1')).toHaveClass('qc-genotype-sex--match');
     expect(genotypeSexCell('EMB1')).toHaveTextContent('female ✓');
-    expect(genotypeSexCell('EMB1')).toHaveAccessibleName(embryoPass);
+    expect(genotypeSexCell('EMB1')).toHaveAccessibleName(embryoUnrecorded);
+    await waitFor(() =>
+      expect(container.querySelector('[data-pedigree-node="EMB1"]')).toHaveAttribute('data-qc-status', 'pass'),
+    );
+    expect(pedigreeTooltip(container, 'EMB1')).toContain(embryoUnrecorded);
+    expect(pedigreeTooltip(container, 'EMB1')).not.toMatch(/matches record/);
     await waitFor(() =>
       expect(container.querySelector('[data-pedigree-node="MOTHER1"]')).toHaveAttribute('data-qc-status', 'fail'),
     );

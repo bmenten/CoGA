@@ -236,10 +236,6 @@ _FEMALE_EVIDENCE = (
     "ngs-bits chrY/chrX read ratio 0.0012, 150 chrY and 125,000 chrX reads, from the pipeline; "
     "no chrX genotypes"
 )
-_SAME_CALL = (
-    " The embryo's recorded sex was taken from this same ngs-bits call, so the match confirms "
-    "nothing independent."
-)
 
 
 def _pgt_family(sexes: dict[str, str] | None = None):
@@ -287,11 +283,8 @@ def test_without_chrx_genotypes_the_sex_check_compares_the_ngsbits_sex() -> None
     assert checks["FATHER1"].message == f"Read-inferred sex matches the record ({_MALE_EVIDENCE})."
     assert checks["MOTHER1"].message == f"Read-inferred sex matches the record ({_FEMALE_EVIDENCE})."
     assert checks["INDEX1"].message == f"Read-inferred sex matches the record ({_MALE_EVIDENCE})."
-    # The embryo's recorded sex is the ngs-bits call itself (the copgtm PED): it passes, and
-    # says the match confirms nothing independent. The parents and the index were compared.
-    assert checks["EMB1"].message == (
-        f"Read-inferred sex matches the record ({_FEMALE_EVIDENCE}).{_SAME_CALL}"
-    )
+    # An embryo whose PED records a sex is compared with it, as the parents and the index are.
+    assert checks["EMB1"].message == f"Read-inferred sex matches the record ({_FEMALE_EVIDENCE})."
     # Every sample was checked: no note names one, and the family passes.
     assert report.notes == []
     assert report.overall_status == "pass"
@@ -313,6 +306,19 @@ def test_without_chrx_genotypes_the_sex_check_compares_the_ngsbits_sex() -> None
         (
             "INDEX1", "unknown", _MALE_READS, "warn",
             f"Sex not recorded; the reads indicate male ({_MALE_EVIDENCE}).",
+        ),
+        # An embryo's sex is rarely known before it is tested (its PED gives sex 0): it passes
+        # with the sex the reads indicate, which no record confirms.
+        (
+            "EMB1", "unknown", _MALE_READS, "pass",
+            f"Embryo's sex not recorded; the reads indicate male ({_MALE_EVIDENCE}).",
+        ),
+        # Reads that tell no sex still warn for an embryo without a recorded sex.
+        (
+            "EMB1", "unknown",
+            ReadSexCall("indeterminate", reads_chry=4_500, reads_chrx=100_000, ratio_chry_chrx=0.045), "warn",
+            "Could not infer sex from the reads (ngs-bits chrY/chrX read ratio 0.0450, 4,500 chrY and "
+            "100,000 chrX reads, from the pipeline; no chrX genotypes).",
         ),
         # ngs-bits read no sex: not confirmed, as an indeterminate genotype sex.
         (
@@ -914,6 +920,18 @@ def test_a_sex_the_genotypes_do_not_tell_or_the_record_lacks_warns() -> None:
     assert (unrecorded.inferred_sex, unrecorded.status, unrecorded.message) == (
         "male", "warn", "Sex not recorded; genotypes indicate male (0.0% chrX het over 1000 sites)."
     )
+
+
+def test_an_embryo_without_a_recorded_sex_passes_with_the_sex_its_genotypes_indicate() -> None:
+    # An embryo's PED gives sex 0: no record to confirm, and no warning for it.
+    embryo = _evaluate_sex("EMB1", "unknown", _x_calls(400, 1_000), embryo=True)
+    assert (embryo.recorded_sex, embryo.inferred_sex, embryo.status, embryo.message) == (
+        "unknown", "female", "pass",
+        "Embryo's sex not recorded; genotypes indicate female (40.0% chrX het over 1000 sites).",
+    )
+    # Genotypes that tell no sex still warn.
+    between = _evaluate_sex("EMB1", "unknown", _x_calls(100, 1_000), embryo=True)
+    assert (between.inferred_sex, between.status) == ("indeterminate", "warn")
 
 
 def _mendel(errors: int, informative: int) -> list[tuple[int, int]]:

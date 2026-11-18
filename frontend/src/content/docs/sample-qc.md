@@ -82,10 +82,10 @@ call or no recorded sex a **warn**. The message says the sex was read from the r
 and quotes the ratio and the read counts. A sample with X genotypes is sexed from them, not from the
 call.
 
-An embryo with sex `0` in the family's PED (unknown before the analysis) gets a **warn**: *Sex not
-recorded; the reads indicate …*. An embryo whose recorded sex matches the call is a **pass**, and its
-message says the match confirms nothing independent, reading the recorded sex as taken from that same
-call. The parents' and the index's recorded sex come from the PED, so theirs is a real comparison.
+An embryo's sex is rarely known before it is tested, so the family's PED gives it sex `0`. Such an
+embryo **passes** with the sex its data indicate: *Embryo's sex not recorded; the reads indicate …*.
+Data that tell no sex still **warn**. An embryo whose PED does record a sex is compared with it, as the
+parents and the index are.
 
 ### Relatedness against the pedigree
 
