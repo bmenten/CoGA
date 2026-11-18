@@ -1,0 +1,482 @@
+# 8. Filter pages ↔ API
+
+After a correct import (chapter 6), CoGA *filters* and *shows* a family's variants. Part A follows that chain for the two largest data types: the *small variants* (SNVs and indels: point mutations and small insertions or deletions) and the *structural variants* (SVs: large deletions, duplications, …). Part B summarises it for the specialised analyses: mitochondrial DNA and sample QC, Paraphase, repeat expansions, monogenic NIPT and PGT. The clinical rules for the laboratory are in the app, under *Docs*; this chapter points to where they sit in the code.
+
+An **endpoint** is a URL the backend listens on; a **query parameter** is a `?key=value` pair in that URL, through which the frontend passes on the filter choices. A **parameterised query** passes user values separately instead of pasting them into the SQL text (chapter 7).
+
+## The fixed pattern
+
+For every variant data type, searching runs the same way:
+
+1. **Filter in the UI:** the analyst fills in a filter form (frequency, effect, genes, genotype per sample, tags, …).
+2. **Query parameters:** the frontend converts the choices into a query string and requests the endpoint.
+3. **Endpoint:** the router checks access and builds the family's context (chapter 2).
+4. **Filter service:** a service turns them into a parameterised ClickHouse query, with pagination and a bounded count.
+5. **Link with Postgres:** the variant rows are supplemented with review state, tags, gene metadata and the frequency in the in-house cohort.
+6. **Display:** the browser shows the result as a table or as cards.
+
+**Where in the code:** the routers in `backend/app/routers/`, the filter services in `backend/app/services/clickhouse_family_variants.py` and `clickhouse_variant_queries.py`, the pages in `frontend/src/pages/families/`.
+
+## Part A — Small variants
+
+### The filter form
+
+The page `FamilySmallVariantsPage.tsx` loads the family and the gene panels; the search state is in `smallVariantSearch.ts`, the form in `SmallVariantFilterForm.tsx`, the filter categories in `smallVariantFilterSections.tsx`. The categories are under *Advanced filters*, closed when the page opens, one per row, as in seqr; when closed, the button says how many categories hold a filter. A row with a filter is red on the left; *Expand all* and *Collapse all* open or close all rows. The SV and NIPT pages share that layout (`VariantFilterAccordion.tsx`).
+
+| Category | What it sets |
+| --- | --- |
+| *Phenotype* | the phenotype prioritisation, and with *Rank by* the order: the combined score or the variant score (chapter 12) |
+| *Structural second hit* | "only genes that are also hit by an SV" |
+| *Inheritance* | inheritance model (de novo/dominant, recessive, X-linked, compound heterozygous), genotype per family member, *expanded carrier screening* |
+| *Pathogenicity* | the ClinVar status |
+| *Annotations* | impact (HIGH, MODERATE, …), consequence terms, the SpliceAI minimum, transcript, rsID, HGVS, only canonical or MANE transcripts, only loss-of-function |
+| *In silico* | CADD, REVEL, SIFT, PolyPhen; the SpliceAI minimum also counts as a predictor |
+| *Frequency* | maximum frequency in gnomAD (exomes, genomes), popmax (gnomAD's own popmax, otherwise VEP's `MAX_AF`, the highest frequency across the populations of 1000 Genomes and gnomAD) and TOPMed; homozygote and hemizygote counts (gnomAD's total: the combined count, otherwise exomes plus genomes); "a (likely) pathogenic ClinVar variant passes the frequency filter" |
+| *Call quality* | genotype quality, read depth, allele fraction, alt depth, and *Pass variants only* (the caller's FILTER) |
+| *Locations* | a gene panel (by default the Mendeliome), genes, a list of intervals. A locus (chromosome, start, end) comes in only through a link, e.g. from the genome browser |
+| *Exclude* | ClinVar statuses, review tags, genes and intervals to exclude |
+| *Review and curation* | ACMG class, tags, "has notes" |
+
+**Without a gnomAD count.** A maximum on a gnomAD count keeps a variant that has no such count, as absent from gnomAD. One line above the list counts, per filter, the shown variants that stayed in unchecked in this way and may still be in gnomAD: those with a gnomAD frequency, or from a callset that was not annotated with gnomAD (`gnomadCountNotes.ts`). A hemizygote count counts only on chrX and chrY outside the pseudo-autosomal regions.
+
+*Annotations*, *Frequency* and *Call quality* follow seqr's layout:
+
+- ***Annotations*** groups the VEP consequences as seqr does (nonsense, essential splice site, frameshift, missense, in frame, synonymous, extended splice site, other, motif and regulatory features), with a box per group for all its terms. A term from a saved search that has no box of its own is shown ticked under *Other selected terms*, so that it stays visible and can be unticked.
+- ***Frequency*** has a slider per population, with seqr's steps (0 to 1). AF in the header sets all populations at once; next to it are AC (the allele count in gnomAD) and H/H (homozygotes and hemizygotes in gnomAD).
+- ***Call quality*** sets the minimum genotype quality, allele balance (the call's allele fraction), depth and alt reads, for all members or per member. With *Affected only*, which is on as long as no unaffected member has a minimum, they apply only to the affected members: a parent's reference call need not meet an allele balance it cannot have.
+
+***Pass variants only*** (under *Filter value*, parameter `pass_only`) keeps a variant if every call with the ALT allele passed its caller's FILTER (PASS, `.` or no filter), independently of *Affected only* (the owner's decision of 2026-11-03). Only the calls of the shown members count: a sample that left the family or is not in it yet holds nothing back and does not decide which FILTER counts. The same goes for the *phase set* (`ps`): only that of a shown member counts (the owner's decision of 2026-11-06). Which FILTER counts depends on the callset:
+
+- **One file per sample:** every call has its own FILTER (`calls.filters`), and only that of the calls with the ALT allele counts. A parent's RefCall or NoCall record, which the import stores as their 0/0 or ./. call, therefore does not hold back a de novo variant.
+- **Multi-sample VCF:** it stores no FILTER per call; there the site's FILTER (`filters`) applies.
+
+As soon as one call of a row has its own FILTER, the row is read the first way. The condition is `_small_pass_only_condition` in `clickhouse_variant_queries.py`. The quick choices *High quality* and *Passing* turn the filter on, as in seqr; *All variants* turns it off; the built-in presets do not set it. The NIPT list and the Variant Explorer do not apply it.
+
+If the page opens without a search in the URL, it applies the built-in preset *Phenotype priority (Exomiser-style)* within the Mendeliome panel:
+
+- phenotype prioritisation;
+- impact HIGH or MODERATE;
+- in gnomAD (exomes, genomes, popmax) at most 1% and at most 10 homozygotes and hemizygotes;
+- a (likely) pathogenic ClinVar variant as an exception to the frequency limit;
+- ClinVar (likely) benign excluded;
+- in the affected members Hom or Het, with a genotype quality of at least 20, a depth of at least 10, an allele fraction of at least 0.2 and at least 4 alt reads.
+
+**The annotation filters apply per transcript.** Impact and consequence, transcript, HGVS, *Canonical only*, *MANE only* and *LoF only*, the ClinVar status, the frequencies and the predictors must hold together for one transcript of the variant (one row of the table `annotations`). With *MANE only* and impact HIGH, a variant whose HIGH transcript is not the MANE transcript therefore drops out. Of the predictors, one is enough, and a SpliceAI score at or above the cut-off also counts as a hit for impact and consequence. The gene, the panel, the rsID and the ClinVar statuses to exclude apply to the variant as a whole.
+
+**Each row with its own annotation.** A row of `entries` is read with the annotation it was imported with: its variant key and its annotation set (`annotationSetHash`, the hash of its annotation), under whichever version (the source, e.g. `vcf_info` or `vep_tsv`). Rows with one key and one set carry the same annotation.
+
+- The family search reads the transcripts of that annotation together with the row (`entries.transcripts`; see *The endpoint and the filter service*).
+- When a search reads the shared annotation tables (the Variant Explorer; the family search for a gene, panel, rsID or text), it compares key and set, not the version: the version makes the set ClickHouse builds per filter two to three times slower. In a measurement in the Variant Explorer, a search with a frequency, impact or CADD filter on 4 million rows took 0.6 to 1.0 s with the version and 0.23 to 0.47 s without (`_OWN_ANNOTATION` in `clickhouse_variant_queries.py`).
+- The rsID from the VCF sits beside the annotation: a row also finds the rsID that another import of the same variant with the same annotation wrote, under whichever version.
+
+Per kind of filter:
+
+- **Gene.** A gene term is a symbol or an Ensembl gene ID. In every view, the gene filter keeps every variant that carries the gene in its annotation, including one that VEP assigns to it from just outside (upstream or downstream). An excluded gene leaves out every variant that carries it in its annotation, and every variant in its loci.
+- **Panel.** A panel keeps a variant that lies in one of its regions (PanelApp's regions for the family's assembly, and the locus of each gene in the gene reference) or carries one of its genes, however large the panel is: CoGA compares even the Mendeliome, with more than 1000 regions, by position (the owner's decision of 14 October 2026). A gene that the panel names by its Ensembl gene ID counts with that ID and its symbol in the annotation, and with the ID's loci (chapter 15). The regions go to ClickHouse merged (`_small_region_bounds`): regions of one chromosome that share a base become one region. In this way the roughly 42,000 loci of the Mendeliome (one per transcript) become about one region per gene, with the same variants. The Variant Explorer builds its annotation and panel condition with the same function (chapter 14).
+- **Precision.** Frequencies, in silico scores and a call's allele fraction are stored in ClickHouse as a 32-bit number (`Float32`), and a filter compares them with its limit at that precision (`toFloat32`). In this way a value exactly on the limit does not round past it: CADD 25.3 meets a minimum of 25.3, a gnomAD frequency of 0.001 a maximum of 0.001.
+- **MANE.** *MANE only* keeps a variant with a MANE Select or MANE Plus Clinical transcript. VEP sets those flags only on GRCh38, so *MANE only* keeps nothing on GRCh37 and T2T.
+
+**SIFT and PolyPhen: the prediction, not the score.** VEP writes the prediction with its score, e.g. `deleterious(0.01)` or `probably_damaging(0.998)`; the import stores them like that, in lower case. A choice under SIFT or PolyPhen keeps a transcript whose prediction is exactly that choice, with or without a score: *deleterious* keeps `deleterious(0.01)` and `deleterious`, not `deleterious_low_confidence(0.03)` (a choice of its own). Case does not matter and a space counts as an underscore. The SQL applies the pattern `in_silico_prediction_pattern` (`family_variant_filters.py`) with `match` on the columns `sift` and `polyphen`.
+
+**The transcript the filters apply to.** A variant's fields (consequence, impact, HGVS, LoF, frequencies, CADD, REVEL, SpliceAI, SIFT, PolyPhen) come from its primary transcript: MANE Select, otherwise canonical, otherwise the most severe impact (`_select_primary_annotation`). The ranking and its cache, the ACMG suggestions, the report and the signed record read that primary transcript. The annotation filters may apply to another transcript: SIFT *deleterious*, for example, keeps a variant for which SIFT calls the primary transcript *tolerated* and a second one *deleterious*; the card and the CSV then read *tolerated*. Therefore:
+
+- If the primary transcript does not pass the annotation filters, the variant names in `filter_transcript` (`SmallVariantFilterTranscriptOut`) the transcript that does pass them, with its gene, transcript, impact, consequence, HGVS, LoF, CADD, REVEL, SpliceAI, SIFT and PolyPhen. Without annotation filters, or if the primary transcript passes them, the field is empty.
+- Which transcripts pass the filters is decided by the SQL: the same per-row condition on `annotations` that the search applies, for the variants of the page in one query (`_filter_transcript_matches`), each transcript recognised by the hash of its stored row (`annotationHash`). The transcript named is the first of those transcripts in the order used to pick the primary one. If no transcript of the variant is recognised in those rows, the field stays empty, never a wrong transcript.
+- Every page of the search gives the field (the ClickHouse page, the candidates with their pairs, the track, the prioritisation computed, from the cache and from a broader panel ranking), as do the CSV export and the NIPT list; the ranking itself computes without it (`filter_annotation_hashes=None`).
+
+The display:
+
+- the card says it under its transcript, a table row under its effect (*Filters met on*, `FilterTranscriptNote.tsx`), with the values of that transcript that differ from those of the row (`describeFilterTranscript`): consequence, LoF, CADD, REVEL, SpliceAI, SIFT and PolyPhen;
+- the card's transcript list marks the transcript *Filters met*;
+- the CSV gives it in its last columns, *Filter-matched transcript* to *Filter-matched PolyPhen*, after all the other columns.
+
+**Where in the code:** `frontend/src/pages/families/SmallVariantFilterForm.tsx`, `smallVariantFilterSections.tsx` and `smallVariantSearch.ts`; the transcript the filters apply to in `_filter_transcript_matches` and `_small_variant_outs` (`clickhouse_family_variants.py`), `_filter_transcript_annotation` (`clickhouse_variant_queries.py`) and `describeFilterTranscript` (`smallVariantResultUtils.ts`).
+
+### From form to request
+
+`buildSmallVariantQueryParams` converts the choices into a query string. Three details matter for traceability:
+
+- **Default values are sent explicitly.** The phenotype prioritisation and the ClinVar exception to the frequency filter are on by default. They are always sent as `true` or `false`, so that a choice that was turned off is kept in the URL.
+- **A filter per sample** is sent as one parameter: `sample_filter=<sample>:<genotypes>:<quality>:<depth>:<allele-fraction>:<alt-depth>`, for example `child:0/1|1/1:20:10:0.2:5`.
+- **What the list does not apply is not sent.** The small-variant page shares the saved searches (of every user, in every family) with the NIPT page. A search from the NIPT page can carry filters that only the NIPT list knows: an inheritance view (`de_novo`, `paternal_dominant`, `maternal_dominant`, `recessive_at_risk`), the categories, the minimum confidence, `include_not_inherited`, `de_novo_priority` and the recurrence filter `max_unexplained_recurrence`.
+
+    - The list's request and that of the CSV export are built without those filters (`smallVariantListFilters`). The page shows no chip for them, does not count them under *Active filters* and names them once under the active filters. The URL and *Save current* do keep them.
+    - Another spelling of an inheritance model that the backend reads as that model (`_SMALL_INHERITANCE_ALIASES`, e.g. `dominant`) is sent by the page as that model. The backend refuses `de_novo` (400), like the other NIPT views: NIPT's de novo view reads the fetus in the cfDNA, the de novo/dominant pattern reads the genotypes of the affected and unaffected members.
+    - `test_small_variant_page_sends_what_the_list_reads.py` keeps the page's lists (`SMALL_VARIANT_INHERITANCE_MODES`, `SMALL_VARIANT_INHERITANCE_ALIASES`, `SMALL_VARIANT_UNSUPPORTED_FILTERS`) in line with those of the backend and with the endpoint's query parameters.
+    - Conversely, the NIPT page sends nothing from a small-variant search that its list does not apply.
+
+The backend reads genotypes as **classes**, not as literal text: *hom_alt* (all alleles the same ALT, including a haploid `1`), *het* (at least one ALT, including `1/2` or `./1`), *hom_ref* (all alleles `0`) and *no_call*. A filter on "Hom" therefore also finds a hemizygous `1` on chrX in a male or on chrM. One definition serves all filters, counts and tracks.
+
+**De novo in a son on X and Y.** Outside the pseudo-autosomal regions a male has one X and one Y. A de novo variant there is usually written as `1` or `1/1` in the VCF; a `0/1` (e.g. with mosaicism) also counts as a call with the alternative allele. The de novo/dominant pattern counts such a call in an affected male as one copy. The strict de novo check follows the transmission: a son gets his X from his mother and his Y from his father. Only that parent therefore has to be reliably reference; the other parent must not carry the variant (that points to an artefact). The boundaries of the pseudo-autosomal regions are fixed per assembly (GRCh38, GRCh37 and T2T-CHM13v2.0); on an assembly without known boundaries the diploid rules apply. Those of T2T-CHM13v2.0 come from the T2T consortium's PAR file (`chm13v2.0_PAR.bed`) and NCBI's region report for GCF_009914755.1, which agree: there, PAR1 runs from the first base and PAR2 to the last.
+
+**Where in the code:** `frontend/src/pages/families/smallVariantSearch.ts`; the genotype classes in `backend/app/services/genotypes.py` (mirrored in `frontend/src/lib/genotypes.ts`); the PAR boundaries in `backend/app/services/sex_chromosomes.py`.
+
+### The endpoint and the filter service
+
+`GET /api/families/{family_id}/small-variants` bounds the page size, reads all filters through one shared dependency (the same one as the CSV export) and builds the family's access checkpoint. The service then chooses a path:
+
+- a **presence check** (`count_only`) for the dashboard: "does this family have small variants?";
+- first the **scoping**: panel, review selections, intervals and excluded regions. If the question cannot return anything (e.g. a panel without genes), an empty page follows straight away. An unreadable interval line (e.g. a BED line or an end before the start) gets `422`, naming the line; the form already reports such lines before searching;
+- the **phenotype prioritisation** (on by default), with a cache (chapter 12). It changes the order of a search, never what the search finds: for compound het, recessive or carrier screening it applies the same rules as without prioritisation (the pairs, the couple's gene rule, below) and only ranks the variants and pairs that remain;
+- the **track mode** for the genome browser: above a limit it returns only the count, so that the track can say there are too many variants;
+- otherwise **ClickHouse** filters and paginates itself, or the service fetches a bounded candidate set and applies in Python what ClickHouse cannot (carrier screening, inheritance across variants such as compound het).
+
+**The filters live in one place: in the SQL.** Every view of the search (the list, the list on one page, the track and its sampled subset, the prioritisation computed or from the cache, the pairs and the carrier screening) reads the rows the SQL keeps (`_small_query_filter_parts` in `clickhouse_variant_queries.py`). Python then only compares rows with each other: the pairs and their phase, the couple's gene rule, the ranking. The inheritance models for a single variant (de novo/dominant, homozygous recessive, X-linked) are SQL too: whatever needs them (the recessive union, the ranking's segregation) asks for them as a flag per row (`segregation_*`). Every view keeps what the list keeps (the owner's decision of 2026-11-06; the roadmap: *One filter definition*). That every view reads every filter in this way is tested on ClickHouse by `integration/test_small_variant_filter_parity_clickhouse.py`.
+
+**The query itself** always starts with the family and `sign = 1`, adds the project filter and then each filter, each time as a parameter.
+
+- **The per-transcript filters** (impact, consequence, ClinVar, frequencies, scores, Canonical, MANE, LoF), the ClinVar statuses to exclude and the salient variants of the broad track are tested on the transcripts that each of the family's rows carries itself (`transcripts`, with `arrayExists`; `_small_own_transcripts_condition`). That column stores the filtered values of the row's annotation set as its rows in `annotations` store them, without transcript and HGVS text (`ENTRY_TRANSCRIPT_FIELDS` in `clickhouse_variant_rows.py`). In this way the search reads only the family's rows, however large the cohort is.
+- **A gene or a panel** is looked up in the gene index, **an rsID and a transcript or HGVS text** in the other annotation tables (`_small_annotation_row_membership_condition`). Those tables are shared by all families; for a panel, an rsID and a text the query reads only the family's variants from them (`_small_family_key_condition`).
+
+The rows are deduplicated per variant and sorted by genomic position; the user does not control that order (the sort buttons in the table work in the browser). The full annotation per variant comes separately for each page, by the sort key of `variants/details`, only for the variants of that page. The **count** is bounded: above a limit the UI shows a "+" counter instead of an expensive full count. A query that is too heavy gives `422`, asking for the search to be refined.
+
+**Where in the code:** `backend/app/routers/families_small_variants.py`; `get_family_small_variants_page` in `backend/app/services/clickhouse_family_variants.py`; the WHERE builders in `clickhouse_variant_queries.py`; the filter set in `family_variant_filters.py`.
+
+### Supplementing with Postgres
+
+For each page the rows are supplemented with:
+
+- the **review**: class, ACMG criteria, tags and note from Postgres (chapter 10);
+- the **frequency in the in-house cohort** across the accessible projects, so that recurring artefacts stand out;
+- **gene constraint** from the table `gene_info`;
+- a mark if a **structural variant** hits the same gene (the "second hit", below).
+
+### The display
+
+`SmallVariantResults.tsx` shows the counter, the choice between table and cards ("Auto" picks cards for a small number, otherwise a table), the CSV export with the same query string, a warning if the search read only part of the callset, and a notice if the ranking comes from the cache. That warning (`CandidateCapNotice.tsx`) comes from two flags in the response:
+
+- `candidates_capped`: compound het, recessive or carrier screening read a bounded candidate window, between 1,000 and 5,000 rows depending on the requested page, and always 5,000 with prioritisation;
+- `ranking_truncated`: the prioritisation ranked only its window. For a ranked search with pairs or carrier screening, both flags are then on.
+
+`candidate_limit` says after how many candidates the search stopped. The counter is then a lower bound, and the warning asks for the filters to be refined with a region, a gene panel or a gene. Compound heterozygous pairs are at the top as pair cards, also with prioritisation: a pair then takes the place of its best-ranked variant, and each variant shows its own rank. The table (`SmallVariantTable.tsx`) sorts in the browser by position, gene, impact and, with prioritisation, the score.
+
+A card, also on the NIPT page, names in a line under its header the gene's diseases with their source, and the gene's inheritance, ClinGen dosage curation and ACMG SF status (`VariantGeneDiseases.tsx`; chapter 13). *HGVS.g* is VEP's HGVSg; if the annotation has none, the card derives the change from the VCF record, not HGVS-normalised, and says so in the tooltip. The predictors get coloured dots at seqr's cut-offs (chapter 10).
+
+### Compound heterozygous, second hit and carrier screening
+
+In a recessive disorder, one heterozygous variant is usually not causal. Two different heterozygous variants in the same gene can be, if they lie **in trans** (one on each allele). CoGA therefore shows such candidates as a **pair**, with their phase: *in trans* or unknown.
+
+- **A pair** arises when both variants are heterozygous in all affected members and no unaffected member carries both.
+- **The phase** comes from the reads (a shared *phase set*), otherwise from the parents in the pedigree: if each variant goes back to a different parent, they lie in trans. A half call with one missing allele (e.g. `.|1`) does not say on which haplotype the variant lies; the phase then comes from the parents. A family member who carries neither variant and is not a parent says nothing about the phase.
+- **A pair in cis drops out:** the reads place both variants on the same haplotype, or both go back to the same parent while both parents are genotyped for both variants.
+
+The same phase rule applies to the **second hit**, which does show a phase in cis: a heterozygous small variant together with a structural variant (e.g. a deletion) in the same gene, where the deletion removes the second copy. If several SVs hit the gene, each SV gets its own phase relative to the small variant. The mark summarises them:
+
+- a deletion in trans makes the gene effectively bi-allelic, whatever the other SVs are;
+- otherwise it says `trans` if one SV that the affected members carry lies in trans;
+- and `cis` only if every such SV lies in cis.
+
+The explanation with the mark lists the SVs, each with its phase. A deletion is a `DEL` (also `DEL:ME`), a `LOSS` or `CNV_LOSS`, or a `CNV`, unless the stored copy number of its carriers shows no loss; the ranking of the SVs reads a deletion the same way (chapter 12). For each family CoGA keeps an index of the genes an SV hits; the SNV page uses it as a mark and as a filter. Every change to a family's SVs (an import, an upload for one sample, a deletion) changes a version in ClickHouse (`SV/family_data_version`), and the next time the page opens CoGA rebuilds the index. The rules for trans and cis are in the app (*Docs → SNV + SV compound heterozygosity*, `frontend/src/content/docs/sv-second-hit.md`) and in `docs/snv-sv-compound-het.md`.
+
+**Expanded carrier screening** is a reproductive question: are two partners together at risk of having an affected child? The difference with compound het: there, two hits sit in one person; here, one hit in each of two partners. The choice appears only when the frontend recognises a couple in the family. CoGA then shows:
+
+- the genes in which **both** partners carry a qualifying variant;
+- every variant that a female partner carries on chrX outside the pseudo-autosomal regions: in an X-linked disorder her carrier status alone puts a son at risk. A partner without a recorded sex counts as female here, just as CoGA reads such a sample as diploid on chrX everywhere. On an assembly without known boundaries of the pseudo-autosomal regions, only the rule of both partners applies (`_filter_expanded_carrier_screening`, with `hemizygous_chromosome` from `sex_chromosomes.py`).
+
+A mitochondrial variant (chrM) does not count: mtDNA is inherited only through the mother, so a variant of both partners in one chrM gene says nothing about a child's risk.
+
+The built-in preset *Expanded carrier screening* turns the choice on, together with rare (below 1%, popmax included), impact HIGH or MODERATE, and ClinVar pathogenic or likely pathogenic as an exception to the frequency limit. In this way a frequent founder variant (CFTR p.Phe508del) stays in. The preset leaves out ClinVar benign and likely benign: such a variant never makes a gene one in which both partners carry a variant. Without an impact filter, a long-read genome contains hundreds of thousands of rare variants: the search then stops at its candidate limit long before chrX, and the X-linked rule never sees the female partner's variants.
+
+**Where in the code:** the pairs in `clickhouse_variant_queries.py` and `SmallVariantPairCards.tsx`; the phase rule via the parents in `backend/app/services/compound_het_phase.py`; the SV index in `backend/app/services/sv_gene_index_service.py`; the carrier screening in `clickhouse_variant_queries.py` and `smallVariantSearch.ts`.
+
+## Part A — Structural variants
+
+The SV page follows the same pattern, with its own files (`FamilyStructuralVariantsPage.tsx`, `structuralVariantSearch.ts`, `StructuralVariantFilterForm.tsx`). The filters cover type (DEL, DUP, …), length, source, region flags, frequency in controls and population, gene constraint, phenotype fields, gene or panel, inheritance and genotype per sample. Besides the filtered request, the page makes one request without filters, for the total "All variants". The length rule and the panel rule below apply in every view: the list, ranked or not, the CSV export, the genome track and the track availability.
+
+**The length.** The two length filters, a minimum (`min_length`) and an exact length (`length`), measure an SV the way the list shows its length, without the minus sign of a deletion. They take the call's SVLEN (column `svLen` of `SV/variants/details`), and END − POS only if the call has no SVLEN. Most callers (Sniffles2, pbsv) write an insertion with END equal to POS and its length in SVLEN; measured as END − POS, such an insertion would be 0 bp long, so that a minimum would leave it out and an exact length would never find it.
+
+- **Sequence allele without SVLEN.** Such a call is stored with the length its alleles give, len(ALT) − len(REF) (VCF 4.4 prescribes SVLEN only for a symbolic allele, and `.` for a sequence allele): for an insertion the inserted bases, for a deletion the removed bases as a negative number, the way Sniffles2 and pbsv write the SVLEN of a deletion (the owner's decision, 2026-10-14). Every SV reader does this (`record_sv_len` in `structural_variant_ingest.py`): the uploads, including a TSV row with REF and ALT as sequence, and the NeedlR, HiFiCNV and chrM files of a package. A written SVLEN stays as written, and END and the SV's id do not change.
+- **Translocation.** A translocation (type BND or TRA) has no length and is never a small event: it meets every minimum and no exact length, whatever SVLEN or END its caller wrote (the owner's decision, 2026-10-13).
+- **Other call without SVLEN.** With END equal to POS it measures 0 bp, e.g. a symbolic insertion `<INS>` from a TSV upload, which has no SVLEN.
+
+That one rule is in `structural_variant_length_filters_match` (`family_variant_filters.py`). No SQL applies a length filter: a search with a length never goes through the native page, but reads the candidates (up to 50,000 SVs) and filters them in Python.
+
+**The gene panel.** A gene panel keeps an SV whose annotation names one of its genes (the SV's gene symbols, in upper or lower case; a gene that the panel names by its Ensembl gene ID counts with its symbol, because an SV's annotation names genes only by symbol), or that overlaps one of its regions. Those regions are PanelApp's regions for the family's assembly and the loci of its genes in the gene reference. Overlapping means: on the same chromosome, with the SV's start at or before the region's end and its end at or after the region's start. The partner of a breakend does not count here. This holds for every panel, however large, the Mendeliome included, as with small variants (the owner's decision of 20 October 2026).
+
+The rule is in SQL (`_structural_panel_filter_condition` in `clickhouse_variant_queries.py`) and in Python (`_StructuralPanelMatch`).
+
+- In SQL, a join on windows of 64 kb finds the regions for the family's own SV rows (`_structural_family_region_condition`), as on the small-variant page. A search on one chromosome, such as that of a track, binds only that chromosome's regions.
+- The regions go to ClickHouse without the regions that lie within another one (`_structural_region_bounds`). Unlike with small variants, regions that share a base are not merged: an SV stored with its END before its POS overlaps, by the rule, a region that contains both, and a chain of merged regions can contain both where none of those regions does.
+- Because the panel scopes the candidates in SQL, the limit of 50,000 SVs applies to the panel's SVs. A panel and a gene filter apply together. The costs are in `docs/variant-ranking-cache.md` (*Structural variants*).
+
+**The classification filter.** The filter *Classification* under *Review* keeps an SV by the class that its review shows on the SV page, as with small variants (the owner's decision of 10 November 2026). The table and the cards read that class from the review's text and tags with `reviewClassChips`, the family page's helper (built on `normalizeReviewClassification`), and show it once: a bare class word in the text ("VUS") as its label, otherwise the most severe class tag, otherwise the text as stored. The server uses the same rule (`review_shows_class` in `list_matching_structural_variant_review_ids`, `structural_variant_review_pg.py`), regardless of case. So *Likely pathogenic - class 4* also finds an SV with only the class tag `acmg_class_4`, and not an SV with the text "VUS - class 3" next to the tag `acmg_class_5`: that one shows class 5. A CNV classification counts through the class label that the CNV dialog stores as text; its class in `cnv_class` alone is not shown by the page, and the filter does not read it. The list, ranked or not, and the CSV export read the same selection; the filters on tags and on notes and the list of reported SVs (the tag *Report*) are separate from this rule.
+
+The endpoint is `GET /api/families/{family_id}/structural-variants`; the parameter `sample` asks for the SVs of one sample. As with small variants, one shared dependency (`_family_structural_variant_filters`) reads all filters, for the list and for the CSV export. A new filter therefore applies to both, and the file holds the SVs that the list shows. That dependency refuses a sample filter with an unreadable number with `422`, after login and before the access checkpoint, like a filter of the wrong type. The page reads the details of the SVs (`SV/variants/details`, sorted by family and key) only for the keys of its own rows (`_structural_row_details`), so never the SVs of every family. The differences from small variants:
+
+| Aspect | Small variants | Structural variants |
+| --- | --- | --- |
+| Filtering | Mostly in ClickHouse, with annotation indexes | Partly in ClickHouse; otherwise first fetched and then filtered in Python, with a hard limit (50,000 SVs). Above that limit the total is a lower bound (`candidates_capped`, `candidate_limit`) and the page shows the same warning as for small variants. A review selection (tag, classification, note), such as the report's list of reported SVs, goes into the SQL as variant ids (`_structural_variant_where_clauses`), before the limit, so that the limit cannot cut off a reported SV. A gene panel of any size and the loci of a gene also go into the SQL |
+| Cytoband | From the Postgres table `chromosomes` (on the cards) | From the Postgres table `chromosomes` |
+| Review | `small_variant_review_pg.py` | `structural_variant_review_pg.py` |
+| Track mode | Yes | Yes, without review and cytoband |
+
+Every SV comes with `copy_change`: `loss` if it removes a copy of what it spans, `gain` if it adds one, otherwise nothing. This follows the rule of the SV ranking (`sv_copy_change.py`), from the calls that the row shows. A track asks for one sample and so gets the change of that sample's call; the family's list gets that of all carriers, like the ranking. The SV tracks and the Circos plot use it to draw an SV (chapter 9).
+
+**Where in the code:** `backend/app/routers/families_structural_variants.py`; `get_family_structural_variants_page` in `clickhouse_family_variants.py`; the length rule in `structural_variant_length_filters_match` (`backend/app/services/family_variant_filters.py`).
+
+## Security and traceability in Part A
+
+- **Access at the gate.** Every endpoint requires `get_current_user` (uploads `get_current_admin_user`, managing the custom tags `get_current_superuser`) and passes through the family's access checkpoint.
+- **Scoping in every query.** The WHERE builders always start with the family and add the project filter. An extra filter limits the rows to the samples the user may see; if that list is empty, the query gets a condition that returns nothing. Manipulating parameters therefore does not help.
+- **No injection.** Values are passed only as parameters; table names come from a safe function; page sizes are bounded, and for small variants the page number too.
+- **A failed request is not an empty result.** If a search fails, the SV and NIPT pages show "Could not load … — this is not an empty result", with the reason, a *Retry* button and counters "—" instead of 0. The small-variant page then shows *Unable to load small variants* with the reason, instead of the results. A failed panel list says that the default Mendeliome scope was not applied.
+- **The export is what the analyst saw.** The CSV export uses the same filters as the screen, and cells are stripped of formula injection (`csv_safe_cell` in `backend/app/core/csv_export.py`).
+    - The column *Classification* holds the class that the review shows on screen, and *Classification text* next to it the classification as stored (chapter 10); the SV export shares those cells with the small-variant export (`_family_export_cell`).
+    - The small-variant export gives VEP's HGVSg in a column before HGVSc, empty if the annotation has none; the export never derives it from REF and ALT.
+    - The export looks up the review, the gene constraint and the SV second hit of its rows in Postgres with the ids as one array parameter. With one parameter per id, every export of more than 32,766 rows would break off, before its limit of 50,000 rows: asyncpg refuses a query with more than 32,767 parameters.
+
+## Part B — Specialised analyses
+
+### Mitochondrial DNA and sample QC
+
+**mtDNA.** Mitochondrial DNA is inherited only through the mother and occurs in many copies per cell. A variant can therefore sit in part of the copies (**heteroplasmy**) or in almost all of them (**homoplasmy**). The mtDNA page shows, per variant, the allele fraction per family member, and:
+
+- **a categorisation per call:** homoplasmic, heteroplasmic, low level or reference, with fixed thresholds in the service;
+- **the gene or region** of each position, with links to MITOMAP and VarSome (on rCRS, as `MT` on hg38, whatever assembly the family has). A protein-altering change of one base in one of the 13 protein-coding genes also links to MitImpact, which contains only such changes;
+- **the maternal line:** whether a variant is shared through the maternal line, with the mother that the pedigree links to the proband (a variant only in the father is suspicious). *Not seen in mother* requires a mother who was assessed: linked to the proband, with mtDNA data and no no-call at that position. If there is no such mother (a singleton, a father–child duo, a mother without mtDNA data), it says *Mother not assessed*; without a proband (a couple in carrier screening), *No proband*. Neither goes into the maternal review;
+- **the mitochondrial structural variants** (under *Mitochondrial structural variants*), if there are any: large deletions and duplications on chrM from each sample's chrM SV file (source `mito_sv`), with the heteroplasmy per family member.
+
+Classifying uses the same ACMG dialog as small variants, with its own mtDNA evaluator (chapter 10).
+
+Per sample the page shows coverage and a QC status; the limits come from the family's QC profile (*Admin → Sequencing QC thresholds*, chapter 15). Without a set limit, a metric does not count: the status is then *Not run* (`skip`), not *Pass*. The coverage comes from one coverage track per sample with read depth (`coverage_read_depth.py`): the sample's coverage BED if it is declared as read depth (`content: read_depth`, chapter 6), otherwise HiFiCNV's depth if the import stored it as read (`normalization: none`, chapter 9).
+
+- The bins of WisecondorX and QDNAseq, HiFiCNV's normalised depth and a BED declared as log2 ratio are log2 ratios and never count as depth: together with the depths of a BED they would give an average that is neither. A coverage BED that does not declare what it contains (`unknown`) does not count either. The page's QC notes name every track that was not read as depth, with the reason.
+- A sample without a track with read depth gets the depth of its chrM calls, like a sample without a coverage track. A mother with only a log2-ratio track on chrM and without calls therefore does not count as assessed (*Mother not assessed*).
+
+**Sample QC.** This page checks that the right data belong to the right person. Otherwise a swapped sample or a wrong pedigree leads, unnoticed, to wrong reasoning about inheritance. Three checks compute on the genotypes themselves:
+
+- **sex:** from the heterozygosity on X (a haploid call counts as homozygous), compared with the recorded sex; without chrX genotypes, from the reads (see below);
+- **relatedness:** KING kinship and IBS0 per pair, compared with the pedigree. Within the first degree (kinship 0.177–0.354), a pair is parent–child if its IBS0 is below one eighth of that of the family's parents, who count as unrelated (with more than one parental pair, the median). Siblings share no parental copy on a quarter of the genome and therefore come out at around a quarter of that IBS0, parent and child only through genotype errors. Without such a parental pair (one parent sequenced, parents who appear related, too few shared sites), a fixed limit of 0.8% applies (`ibs0_parent_child_cut` in `sample_integrity_qc.py`). The message for each first-degree pair names the limit used;
+- **Mendelian error rate:** genotypes the child cannot have from its parents.
+
+They read a fixed subset of SNVs (an indel is genotyped with more errors): up to 90,000 sites across chr1–22 (relatedness and Mendelian errors) and up to 20,000 sites on chrX outside the pseudo-autosomal regions (sex). In each case these are the sites with the smallest storage key, so that the same data give the same subset.
+
+- A genotype with a GQ below 20 counts as a no-call (`MIN_GENOTYPE_QUALITY`): unfiltered, the low-depth homozygous calls of a raw joint callset can make parent and child opposite homozygotes at almost 1% of the sites. A callset without GQ (imputed GLIMPSE2 calls, Mutect2) is read as it is.
+- If the sites lie on fewer than 20 of the 22 autosomes (a callset of part of the genome), the checks still run, but the report warns about it and the overall result is at least *Warning*.
+
+Each check gives *Pass*, *Warning*, *Fail* or *Not run* (in the API `pass`, `warn`, `fail`, `skip`). The worst one determines the overall result, and a check that could not run counts as *Warning* in it (`_overall_status` in `sample_integrity_qc.py`). Only if no check at all could run is the overall result *Not run*. In this way a check that did not run never becomes a silent *Pass*.
+
+- A fixed note names the samples whose sex could not be checked (*Sex could not be checked for sample … A check that could not run counts as a warning, not a pass.*), and the signed snapshot freezes the *Warning* with that note.
+- The ring and the status per sample roll up in the same way (`worstIntegrityStatus` in `frontend/src/lib/qcStatus.ts`): a parent with a passed relatedness check but without a sex check gets *Warning*, not *Pass*.
+- The *Warning* itself does not block sign-out; a sex that could not be determined in a sample that no relatedness check covers does (chapter 11).
+- For the sequencing QC and the mtDNA QC, *Not run* still means that there is nothing to measure or that no limit is set; there it does not count as *Warning*.
+
+**Sex from the reads.** A sample without a called chrX site gets the sex that ngs-bits *SampleGender* read in the pipeline from the ratio of its reads on chrY and chrX. After all, a PGT family has no chrX genotypes: GLIMPSE2 imputes only the autosomes. The package's `qc` dataset stores that call at import in `samples.metadata.sequencing_qc.sex_check`; the service reads only a call with the method `ngs-bits SampleGender` (`_read_sex_calls` in `sample_integrity_service.py`). The check judges it like the sex from the genotypes (`_evaluate_read_sex` in `sample_integrity_qc.py`): equal to the recorded sex gives *Pass*, different gives *Fail*, an undetermined call or no recorded sex gives *Warning*. The message says that the sex comes from the reads, not from the genotypes, with the ratio and the read counts (*Read-inferred sex matches the record (ngs-bits chrY/chrX read ratio …, from the pipeline; no chrX genotypes).*). If a sample has chrX genotypes, those take precedence and the call is not read.
+
+- **Embryo:** the family's PED, at the top of the package folder, gives an embryo sex `0`, unknown before the analysis (`family_package_pgt.py`, chapter 6). An embryo's sex is rarely known before the test. Such an embryo therefore gets *Pass*, with the sex its data indicate: *Embryo's sex not recorded; the reads indicate …* (`_unrecorded_embryo`, the owner's decision of 2026-11-18). Data that indicate no sex still give *Warning*. If the PED does give an embryo a sex, the result is compared with it, as for the parents and the index.
+- **Parents and index:** their sex comes from the PED, so they are genuinely compared.
+
+The frozen snapshot carries the source only in the message, not in a field of its own in `SexCheck`. In the column *Genetic sex* there is ✓ only for *Pass* (the recorded sex confirmed, or, for an embryo without a recorded sex, the sex its data indicate), ! for *Warning* (not confirmed: the sex stayed undetermined or there was no recorded sex), ✗ for *Fail* and ? for *Not run* (no chrX genotypes and no sex from the reads). The tooltip of the ring in the pedigree says "(matches record)" only for *Pass* against a recorded sex; for every other verdict, and for an embryo without a recorded sex, it gives the check's message.
+
+Which checks run depends on the application (family with parents, PGT, NIPT, couple, single sample). For NIPT the paternity comes from the cfDNA analysis, and only sites with a usable call of the father count. That analysis reads two fractions separately: the alleles for which the father is homozygous must (almost) all be visible in the cfDNA, his heterozygous alleles about half of them. For a per-sample NIPT callset, the sample QC reads the genotypes from the allele depths, because Mutect2 writes `0/1` for every call.
+
+**A failed step.** If loading the genotypes or the cfDNA analysis fails, a fixed note says so (*Genotypes could not be loaded.*, *NIPT cfDNA analysis could not run.*, *The NIPT parents' sex could not be checked.*), never with the text of the error. After all, the notes are frozen into the signed snapshot, and the text of a failed query quotes the SQL and the parameters. The warning that the backend logs alongside names the kind of error (chapter 7). If the genotypes of the NIPT parents cannot be loaded, their sex reads *indeterminate*, as for a parent without chrX calls. No relatedness check covers those samples, so sign-out waits for a reason (chapter 11). A *Fail* blocks sign-out until it is acknowledged (chapter 11). The rules for the laboratory are in the app (*Docs → Sample-integrity QC*, `frontend/src/content/docs/sample-qc.md`).
+
+**Where in the code:** `backend/app/services/mitochondrial_analysis.py`; `sample_integrity_qc.py` (the computing core) and `sample_integrity_service.py` (loading and application profiles); the pages `FamilyMitoDNAAnalysisPage.tsx` and `FamilySampleQcPage.tsx`.
+
+### Paraphase: paralogous genes
+
+Some important genes lie in regions with near-identical copies, such as *SMN1/SMN2* or *PMS2*; ordinary variant calling fails there. **Paraphase** (an external tool) determines for those regions the copy number, the reads per distinguishing position and the haplotypes. CoGA stores the result in `sample_paraphase_results` and interprets it with a catalogue of medical regions (`data/ref-data/paraphase-medical-regions.json`). That catalogue records per locus which fields count clinically and which disorders belong to it.
+
+- **Interpretation.** Where possible, the catalogue gives a rule that derives *normal*, *carrier* or *pathogenic* from the copy number; without a rule, a deviating signal becomes *review*. Deviating means: outside the normal copy number that the catalogue records per locus and per chromosome copy (NEB 6, a gene with a pseudogene 4, ...).
+- **chrX.** A male counts one copy and a female two, with the sex that Paraphase determines itself (otherwise the one from the pedigree); without a sex, a chrX value is not called normal.
+- **No change.** A field without a fixed norm (*highest_total_cn*) and a no-call do not count as a change.
+
+The filter *Copy-number changes and abnormal calls only* is ticked when the page opens. It shows the loci with such a change or with a member's call that reads *pathogenic*, *carrier* or *review*; a fusion gives *review* without a change in copy number and so stays in view. The page shows a card per locus with the interpretation and, per sample, the status.
+
+**Where in the code:** `backend/app/services/paraphase_pg.py`; the page `FamilyParaphasePage.tsx`.
+
+### Repeat expansions (TRGT)
+
+In a repeat expansion disorder, a short motif is repeated too many times (e.g. `CAG` in *HTT*). **TRGT** determines the allele lengths per locus. At import, each locus is linked to the catalogue `repeat_loci` (a built-in list plus STRchive, with thresholds per locus), and each allele gets the status *normal*, *intermediate* (grey zone), *premutation* or *pathogenic*. The STRchive release is pinned: v2.28.0, 82 loci, recognised by its SHA-256 (`STRCHIVE_PINNED_LOCI_SHA256` in `backend/app/core/config.py`). The cut-offs are those of STRchive, as the release gives them.
+
+- **Premutation.** This exists for a locus with a premutation range, currently only *FMR1*: 55 to 200 CGG repeats. Such an allele does not cause fragile X syndrome in the carrier themselves, but can expand to a full mutation in a child; a carrier screening reports it. STRchive counts that range as part of its intermediate range (45–200); the threshold of 55 is therefore in `repeat_expansion_catalog.py` (`PREMUTATION_MIN_BY_GENE`). A full mutation is more than 200 repeats.
+- **Thresholds.** A threshold in the catalogue is the first count of its range: the classification tests `>=`, just as STRchive's ranges are inclusive. The full mutation therefore starts at 201.
+
+The TRID of a call determines which catalogue row assesses it. The gene name of a built-in locus (as in the demo data, e.g. `FMR1`) finds the built-in row, a STRchive ID (`FXS_FMR1`) the STRchive row. Every built-in row carries the two thresholds of its STRchive row (the start of the intermediate range and of the pathogenic range), so that an allele gets the same status whichever row its TRID finds (the owner's decision, 2026-10-09; a test fails as soon as they diverge).
+
+- **No intermediate range.** If STRchive gives a locus no intermediate range, the built-in row has none either: for SCA31 (*BEAN1*) an allele below 110 repeats is normal and from 110 pathogenic. If the catalogue does list a benign range below the pathogenic threshold for such a locus, a count between the two falls in the grey zone (*intermediate*): it is neither benign nor pathogenic (the owner's decision, 2026-10-27). This applies to 27 of the 82 STRchive loci, e.g. *ABCD3* (benign up to 44, pathogenic from 118) and `PRTS_ARX` (benign 12, pathogenic from 20).
+- **Several loci per gene.** Some genes have several loci in STRchive, each its own repeat tract with its own thresholds (*ARX*: `EIEE1_ARX` pathogenic from 17 GCN repeats, `PRTS_ARX` from 20; *HOXA13*: `HFG_HOXA13-I`, `-II` and `-III`). The gene name as TRID then chooses the locus whose STRchive coordinates on the family's assembly (GRCh38, GRCh37 or T2T-CHM13) overlap the call's region (the owner's decision, 2026-10-14). If the region overlaps none or more than one of those loci, or if STRchive gives no coordinates on the assembly, the call gets no thresholds and the status *not assessed*, never that of another tract. The note with the call on the repeat page names the loci and says why. Nor does the repeat page link such a call to one of those loci through the gene name: a name that names several STRchive loci chooses none.
+
+**No thresholds: *not assessed*.** If no catalogue row finds the TRID (a locus the catalogue lacks, or a TRID spelt differently), or if the row gives no intermediate, premutation or pathogenic threshold (for STRchive *MUC1*, *CEL*, *POLG* and *VWA1*), the locus has no thresholds. An allele with a repeat count then gets the status *not assessed*, not *normal*, so that such an expansion stays visible (the owner's decision, 2026-10-13).
+
+- Only a count within the benign range that such a row lists is *normal* (the owner's decision, 2026-10-14): for *POLG* exactly 10 repeats, for *VWA1* exactly 2. A benign range is not a threshold: every other count, above or below it, stays *not assessed*, just like every count for *MUC1* and *CEL*, which list no range. A range with a missing bound does not count.
+- A row with one threshold keeps it and is normal below it; its benign range then does not count.
+- An allele's count is TRGT's count for the catalogue motif across the whole locus, the flanking copies included, summed over every rotation of the motif that the call names (STRchive's TRGT catalogue names the repeat of *FXN*, for example, as `GAA` and `AAG`). The ordinary 10-repeat allele of *POLG* thus stays *not assessed* (below).
+
+The repeat page shows a call that was not assessed as *Not assessed* (blue), with *No reference cutoff* at the cut-off values (for *POLG*: *normal 10 · no threshold*). It keeps the locus in the view *Aberrant only*, which is ticked when the page opens; the status weighs more than *normal* and *review*, less than *intermediate*. Its header counts the calls not assessed (*Calls not assessed*). The card of a locus links to its page on STRchive (`strchive.org/loci/<id>`), after OMIM.
+
+The calls are in `repeat_expansions`; the TRGT version from the VCF header goes into the annotation manifest. The repeat page and the genome tracks reassess the alleles against the **current** thresholds of their catalogue row (chapter 9); a threshold that the row no longer has does not count any more. A changed threshold thus takes effect as soon as the catalogue is updated (at every start).
+
+**chrX in a male.** Outside the PARs a male has one X. If TRGT (without `--karyotype XY`) writes his allele twice, one remains. Two **different** alleles both stay: TRGT puts the shortest first, and otherwise a mosaic full mutation, or the premutation of a woman who is registered as a man, would disappear. Such a call gets at least *review* and a note: mosaicism, TRGT without `--karyotype XY`, a sex that does not match the sample, or 47,XXY.
+
+Only an administrator can upload separately from a package. A per-sample TRGT file reads that sample's column (`<sample>_sort`), wherever it is; a single column without a sample name (`Sample0`) belongs to that sample. If the column names another sample, of this family or another, the file is refused before anything is written.
+
+**A count close to a boundary.** TRGT counts the motif across the region that its own catalogue gives a locus. That need not be the clinical repeat count on which the catalogue's ranges are based. Checked in the public TRGT output of HG002 and in the laboratory's long-read files:
+
+- *FMR1*: TRGT counts only the CGG copies and leaves out the AGG interruptions. An allele of about 31 triplets thus reads 29, 1 to 3 below the clinical count: a premutation of 55 can read 53, in the grey zone.
+- *HTT*: TRGT also counts the CAG after the CAA interruption (the pure 17-repeat allele of HG002 reads 18).
+- *POLG*: TRGT also counts four flanking GCT copies. In the TRGT catalogue in use (TRID `CPEO_POLG`, motifs GCT and GTT), the ordinary 10-repeat allele reads 14, outside the benign range.
+
+Neither the cut-offs nor TRGT's count relative to the clinical repeat count are validated per locus (the owner's decision, 2026-11-16). QA can record a count correction per catalogue locus (the owner's decision, 2026-11-04). The register is the table `repeat_locus_count_units`: per row of `repeat_loci` a count correction (`count_offset`, in repeats, 0 for none), with the reason, who and when. A locus without a row has no correction. The seed that rewrites the catalogue at every start never touches this register, and nothing fills it in beforehand: even for *HTT* and *POLG* a correction exists only once QA enters it (CLIN-57).
+
+**The count correction.** CoGA adds the correction to TRGT's count before it classifies the count (`corrected_repeat_count` in `repeat_count_units.py`; −1 turns TRGT's 18 into 17, never below 0).
+
+- This happens wherever a count is classified or compared with a range: at import (the stored status), on the repeat page, in the genome tracks and in the signed record, all through `_reclassify_repeat_alleles` in `repeat_expansion_pg.py`.
+- The stored alleles keep TRGT's count. Every allele that the API returns carries the corrected count (`repeat_count`) and TRGT's count (`trgt_repeat_count`), and the repeat page shows them together: *17 / 36 (TRGT 18 / 37)*.
+- The family table and the track read the register in the same query as the calls, so that the correction with which a call was classified and the register that the record freezes alongside it are always the same.
+- For *FMR1* no fixed correction fits (TRGT counts 1 to 3 too low there, depending on the number of AGG interruptions); the administration page says so next to the field (`CONSTANT_OFFSET_UNSUITABLE`).
+
+**The *Near a boundary* mark.** For every locus, the repeat page and the genome tracks mark a (corrected) count that is 3 repeats or fewer from a boundary that the locus's classification uses (`count_unit_warning` in `repeat_count_units.py`). A boundary is where `classify_repeat_count` itself changes status: the benign range, the grey zone, the premutation and the pathogenic threshold, each only where the locus's classification uses them. The margin of 3 covers the largest underestimate found (up to 3 AGG interruptions in *FMR1*). It applies in both directions, because the difference can go either way (for *HTT* one above, for *POLG* four). The tooltip names the count, the nearest count with a different status on each side, and what is known about TRGT's count for the gene. The status itself does not change. *Aberrant only* keeps such a locus in view, whatever its status, and the page's header counts the calls close to a boundary. The genome tracks compute the mark, like the colour of their glyph, with the same thresholds as the repeat page.
+
+**The administration page.** An administrator records the correction per locus on *Repeat catalogue* (`GET /api/admin/repeat-loci`, which also names the STRchive release of the cut-offs and links each locus to STRchive; `PUT /api/admin/repeat-loci/{locus_id}/count-units`, with `count_offset` and a required reason).
+
+- Every save states the correction, so that a client that does not name it does not unintentionally keep or clear it (422). A correction outside −20 to 20 is refused both by the API and by a `CHECK` on the table.
+- Every change is an event in the clinical audit trail, on its own chain `system:repeat-loci`, with the correction and the reason before and after (chapter 11).
+- A correction changes the status and leaves the mark as it is.
+- At sign-out, the record freezes per allele the corrected count, TRGT's count and the mark (`count_unit_warning`: the count, the nearest count within the margin with a different status on each side, and the margin). It also freezes per locus QA's register as the family table read it (the correction, the reason, who and when; chapter 11). If a correction is recorded or changed after sign-out, the check reports the repeat expansions as changed.
+
+**Where in the code:** `backend/app/services/repeat_expansion_pg.py`, `repeat_expansion_catalog.py` and `repeat_count_units.py`; the pages `FamilyRepeatExpansionsPage.tsx` and `AdminRepeatLociPage.tsx`.
+
+### Monogenic NIPT
+
+Monogenic NIPT tests a pregnancy for single-gene disorders through **cell-free DNA (cfDNA)** in the mother's blood, together with a sample from the father. The cfDNA is a mixture: mostly maternal DNA with a small **fetal fraction**. The fetus is never sequenced itself; its genotype follows from how far the allele fraction in the cfDNA deviates from what the mother alone would give. A family is a NIPT family if its analysis type is `monogenic_nipt`; the cfDNA sample is the sample with the assay `nipt_cfdna`, otherwise the mother's. The input is one VCF per sample (the plasma and the father), each with a table of the coverage per capture target, or one combined VCF with a column for the father and one for the plasma (chapter 6).
+
+**The analysis.** CoGA assigns each variant to one of eight categories (combinations of the state in mother and fetus).
+
+- It estimates the fetal fraction, with a confidence interval, from the sites where only the father carries the allele and the fetus inherited it.
+- Each variant is classified with a beta-binomial model against the expected allele fractions; the model's constants come from the laboratory's R validation (NIPT-M version 0.5.1). Besides the category, each variant gives the probability that the fetus inherited the paternal or the maternal allele, or is homozygous.
+- The allele fraction follows from the allele depths (FORMAT/AD), and so does the father's genotype, because Mutect2 writes `0/1` for every call. That genotype limits the possible categories. A call of the father counts only from 20 reads; if it has alt reads, then also only from 5 alt reads, 20% alt reads and a quality (TLOD) of 20.
+- If a sample from a per-sample callset has no call at a site, CoGA reads its depth there from its coverage table. This shows whether a paternal allele that the plasma does not show should have been visible.
+
+A cfDNA call that does not pass the quality filter (quality, number of alt reads, allele fraction, strand bias) and a site on the list of recurring artefacts (kept per assay in `nipt_artifact_variants`) do not count for the fetal fraction, the categories and the de novo candidates; the page shows that funnel. The variant list leaves out the artefacts, except an allele that the family's own annotation calls frequent or ClinVar-pathogenic (marked `artifact_list_protected`). The list shows a call that does not pass the quality filter with the reason (`quality:…`). The summary and the variant list compute with the same fetal fraction.
+
+**The quality checks.** The endpoints return a summary with the quality checks, the classified variants, and the coverage (per capture target if there is a coverage table). The quality checks are the fetal fraction, the fetal sex (from the father's X alleles and from the chrY coverage), the paternity, the plasma sample and the coverage of the capture targets. Every verdict of those checks is made by the backend (`nipt_quality_checks.py`), including those on the fetal fraction and the fetal sex (`fetal_fraction_status`, `fetal_sex.status`). In this way the signed record freezes the same verdicts. The NIPT report signs out the analysis with the family's sign-out (chapter 11). The NIPT page links to it on the right of its header, next to *Report*, and does not sign out itself.
+
+**The coverage.** The NIPT page counts the genes with a weak target; a separate coverage page shows the genes below and above the goal, each with its targets. Without a coverage table, the coverage check reads the median depth across the genes or the ROI from one coverage track of the plasma with read depth, chosen as for mtDNA (above); without such a track every region gets *no coverage*. A log2-ratio track never counts as depth: next to a BED it would pull the median towards zero and cover the gaps of the BED. A coverage BED that does not declare what it contains does not count either. The check names every track it did not read as depth, with the reason (`coverage_notes`); the NIPT page, the coverage page and the printed report show this, and the sign-out freezes those notes as the check gives them over the ROI without gene or panel (chapter 11).
+
+**Opening.** Without a search in the URL, the page opens with the preset *De novo* on the Mendeliome panel, without ClinVar benign and likely benign variants. It requests no variants before those filters and the panel list are there. The preset window names that preset as the active filter, marked as *default* (*De novo, Mendeliome panel*), as the small-variant page does with its own. The *Quality checks* box opens collapsed, with one verdict over the checks that have one: *Pass* if they all passed, *Fail* as soon as one failed, otherwise *Warning*, also for a check that could not run (`worstIntegrityStatus`). A click shows each check.
+
+The variant list has the ordinary small-variant filters plus category, confidence and an inheritance view (`inheritance`):
+
+- *de novo* in the fetus, with the triage of the R pipeline: a window around the fetal allele fraction, a score and a priority (`de_novo_priority`). A candidate that the cfDNA of another family of the assay also carries (`carriers`, below) drops out as recurring, unless a ClinVar submission can call it pathogenic;
+- *paternally* or *maternally inherited*, with the probability that the fetus inherited the allele (`include_not_inherited` also shows the alleles it did not inherit);
+- *recessive*, with, per gene for which both parents are heterozygous carriers, the risk that the fetus inherited both alleles.
+
+**Recurrence in other cfDNA samples.** Each variant in the list says how its allele recurs in the other cfDNA samples of the same assay, across all projects (`nipt.recurrence`; counts only, never which family). `count_cfdna_recurrence` in `clickhouse_family_variants.py` counts the samples with a call of at least 5 alt reads and 1% of the reads (`carriers`) and classifies each call:
+
+- `maternal`: an allele fraction of 25% or more (that mother carries the allele);
+- `paternal_low_vaf`: lower, where the father of that family carries the allele het or hom-alt (20 reads, 5 alt reads, 20% of the reads, quality 20);
+- `unexplained_low_vaf`: lower, without a parent who explains it, with the median allele fraction. That is the hallmark of a recurring artefact; a polymorphism stays at virtually 0 there, however many pregnancies carry it.
+
+The auto-seed of the artefact list reads the calls in the same way and counts only those unexplained calls (`fetch_recurrent_artifact_candidates`; chapter 15). `other_samples` (`count_other_cfdna_samples`, from `family_sample_variant_summary`) is the number of other cfDNA samples of the assay with data on the assembly. The filter `max_unexplained_recurrence` (*Hide recurrent low-VAF calls*) leaves out a variant that is an unexplained low-VAF call in more other cfDNA samples of the assay than the maximum set, unless `artifact_protection` protects it (a ClinVar submission that can call it pathogenic, or a population frequency above 5%). It only narrows the list, like the category filter, and changes no classification. The signed record freezes the counts of every reported variant, without `other_samples`, so that a pregnancy imported later changes the record only if it carries a reported allele.
+
+**The limit of 5,000.** The variant list classifies the first 5,000 variants of a search, in genomic order. If more match, the page says so (`total_is_estimated`, `count_limit`) and the number is a lower bound. The review tags filter as on the small-variant list (`review_tag`, `exclude_review_tag`; `resolve_review_selection` in `clickhouse_family_variants.py`: a variant's own tags or those of its compound het pair). They go into the query as variant ids, so that the limit of 5,000 never cuts off a tagged variant. A selected variant that the analysis does not classify is in no list at all. The page names it with the reason (`not_classified`: not in the data, on the artefact list or without a call in the plasma), the same as in the signed record (`_classify_selected`, which `get_family_nipt_record` also uses).
+
+**The report.** *Show reported (N)* in the header of the NIPT page shows, before sign-out, what the sign-out freezes: the variants with the tag *report*, without any other filter. The sign-out selects them with the same rule, the variant's own tag or that of its compound het pair (`_reported_reviews` in `report_signout_service.py`). A pair with the tag *report* is therefore in the list, in the count, in the record and in the recessive fetal risk that the record computes from it. The report uses only the gene panel and the gene of the search: it names them under *Scope* and says that no other filter applies. It states the fetal fraction, the quality checks and the coverage of the targets in its scope, and shows at most 500 candidates. If it shows fewer than fall within its scope, it says on screen and on the printout how many of how many, where the list stops and why. The report carries a disclaimer that the classifications must be confirmed with an invasive diagnostic test. If the family is not a NIPT family, the page says so.
+
+The clinical explanation is in the app (*Docs → Monogenic NIPT (cfDNA)*, `frontend/src/content/docs/monogenic-nipt.md`), the design in `docs/monogenic-nipt.md`.
+
+**Where in the code:** `backend/app/services/nipt.py` (the trio), `nipt_analysis.py` (the computing core), `nipt_triage.py` (de novo triage and recessive risk), `nipt_target_coverage.py` (the coverage tables), `nipt_service.py` (link with the data and the views), `nipt_coverage.py` and `nipt_artifact_pg.py`; `backend/app/routers/families_nipt.py`; the pages `FamilyNiptPage.tsx`, `FamilyNiptReportPage.tsx` and `FamilyNiptCoveragePage.tsx` (the coverage), with `NiptQcPanel.tsx`, `NiptRecessiveGenes.tsx` and `NiptTargetCoverage.tsx`.
+
+### PGT: haplotype segregation
+
+In preimplantation genetic testing (PGT), a couple, or one parent with a donor, creates embryos; a known disorder segregates in the family. The question for each embryo: did it inherit the disease haplotype? CoGA colours each member's two haplotypes by the grandparental founder they descend from (*identity by descent*), and determines which haplotype carries the disease allele. The track has two layers: **coloured haplotype blocks** (the cleaned-up interpretation) and the **raw phased markers**, one dot per informative site. The latter are deliberately not grouped or averaged, so that phasing noise and the exact place of a recombination stay visible.
+
+**Relatives.** The stored blocks are meaningful only for the nuclear family. A family member's role field is flat (`mother`/`father` also applies to a grandparent), so CoGA recomputes the colour of relatives from the raw genotypes and follows the pedigree outwards. A member who cannot be placed with certainty stays grey, never wrongly coloured; on the sex chromosomes and mtDNA, relatives stay grey. A relative with a `relative` link gets colour if the genome-wide test shows them to be a parent or child of the linked member; a more distant relative only around the ROI (chapter 6). A family with **one known parent** (e.g. with a donor) is supported: the donor side stays grey.
+
+**When the blocks are made.** At the import of the phased genotypes, with the couple, the couple's children and the sexes as the pedigree records them at that moment; CoGA stores those data alongside. So fill in the sexes before the import. If one of those data changes afterwards, the blocks are outdated until the phased genotypes have been imported again: the family page warns, every embryo reads *Uninformative* and closing the analysis records the reason. A changed affected status does not make them outdated: the embryo calls read it only when they are made. A phase switch of a parent that all children show at the same place is reverted, and the colouring and the markers read that parent's phase accordingly (chapter 9).
+
+**The markers and chrX.** The raw markers are computed for the index parents (the alleles on their own two homologues) and their children, with a QC per child: the number of informative sites and the Mendelian error rate. Relatives get none. On chrX outside the PARs, that QC reads a male as one copy:
+
+- a call of one allele (`1`) or of two identical alleles (`1|1`) is that one allele;
+- a son is tested only against his mother, because his X comes from her (his father gives him a Y); a call with two different alleles is a Mendelian error in him;
+- a daughter gets the one X of her father;
+- a member without a recorded sex counts with two copies, as does everyone on an assembly whose PAR boundaries CoGA does not know.
+
+The *ROI marker review* flags a Mendelian error by the same rule. The haplotype blocks also read chrX this way (`haplotype_block_builder.py`). Outside the PARs a son shows only the haplotype he inherited from his mother, read where she is heterozygous. A daughter shows the one X of her father, the same one in every daughter, next to her mother's haplotype, read where her father's allele is known. Each block lies in PAR1, in the X between the PARs or in PAR2, so that a haplotype from a PAR does not run on across the X.
+
+**The call for an embryo** (*Affected / at risk*, *Carrier*, *Unaffected* or *Uninformative*) is made by the backend (`pgt_embryo_calls.py`, served by `GET /families/{id}/pgt-analysis`). The family page shows it; a sign-out of the family report freezes the same call in the record (chapter 11). The haplotype tracks draw the risk lane and the risk status with the same rules in the browser (`haplotypeRisk.ts`); shared test cases keep the two in line. The rules:
+
+- A call that says the embryo does not carry a disease haplotype rests on the embryo's own haplotype. That haplotype must be visible across the whole region of interest, on every parental side the call needs; otherwise the call is *Uninformative*.
+- A male has one copy on chrX, except in the pseudo-autosomal regions (PAR1 and PAR2): there he also carries his father's copy, and the call counts both. The backend marks each haplotype block `hemizygous_in_males` with the PAR boundaries of the family's assembly, from the same table as the variant filters (`sex_chromosomes.py`). If CoGA does not know those boundaries, it reads a male as having two copies everywhere.
+- In X-linked recessive inheritance, the X of an unaffected father counts as healthy: an unaffected male does not carry an X-linked recessive disorder with full penetrance, so a daughter of his inherits a healthy X. Her call then rests on her maternal X, seen across the whole ROI: *Carrier* with the mother's risk haplotype, *Unaffected* with the mother's other X. The owner confirmed this rule on 2026-10-14 for an X-linked recessive disorder with full penetrance (`TF-09a`, REQ-PGT-005).
+- If, in X-linked recessive inheritance, the embryo's sex is not recorded, CoGA calls it both as a son and as a daughter. If the two differ, it assumes no sex: *Affected / at risk* if either of them is, otherwise *Uninformative*.
+
+**Warnings** report:
+
+- a recombination close to the region of interest;
+- a call without an outcome;
+- a missing sex on which the call depends;
+- a phase correction of a parent in or close to the ROI (*⚠ phase corrected*);
+- an embryo call at the ROI that could not be loaded (*⚠ segregation not derived*);
+- a phasing QC at the ROI that does not meet its thresholds (*⚠ phasing QC*): at least 50 informative sites, a Mendelian error rate of at most 2% and at least 6 markers on each side of the ROI, for every parental side that the call reads. That is the side or sides on which a disease haplotype was found; for a son on chrX outside the PARs, his mother's side.
+
+The backend makes the QC verdict (`pgt_embryo_qc.py`, where the thresholds are named constants). They are provisional values, which the laboratory director and QA still have to confirm (CLIN-61). If no QC was counted at the ROI, *⚠ QC not counted* reports that the call was not tested against the thresholds; that is not a passed QC. Such a warning leaves the call as it is and does not hold back sign-out: the analyst decides (the owner's decision of 2026-10-20). The page *ROI marker review* shows the raw genotypes around that region, so that the analyst can trace a surprising outcome.
+
+**Both homologues of a parent.** The blocks of an embryo show one homologue per parent everywhere. If an embryo carries both homologues of one parent at the ROI, as in a trisomy of that chromosome caused by an error in the first meiotic division, it gets equally neat blocks of one of the two, and a classification as if it did not carry the other. The embryo's own markers do show it. With one homologue, they follow it at almost every site (or two, on either side of a crossover). With both, the imputation, which reads every embryo as two copies, assigns the sites to both homologues, and the markers mix.
+
+- Per parental side, `pgt_embryo_qc.marker_discordance` measures the fraction of markers in the ROI ± 1 Mb that deviate from the best reading as one homologue, or as two with one crossover.
+- Above 10%, over at least 20 markers, on a side that the call reads, the embryo is left uncalled: *Uninformative* with *⚠ both homologs* on the family page, and the haplotype tracks show no risk status for that embryo (`useMixedHomologEmbryos.ts`).
+- It is the only QC measure that changes a call instead of warning alongside it (the owner's decision of 2026-10-30). It is a safety net under the analyst's aneuploidy assessment, not an aneuploidy detector: an isodisomic trisomy (two copies of the same homologue) leaves the markers in agreement. The threshold is provisional, like the others (CLIN-61).
+
+These choices are in `docs/haplotype-segregation-analysis.md`; the explanation for the laboratory is in the app (*Docs → Haplotype segregation analysis*, `frontend/src/content/docs/haplotype-segregation.md`).
+
+**Where in the code:** `backend/app/services/haplotype_lineage_service.py` (colouring, also with one parent) and `phased_marker_service.py` (raw markers and QC); `backend/app/services/pgt_embryo_calls.py` and `pgt_analysis.py` (embryo call), `pgt_embryo_qc.py` (the QC thresholds and the verdict per embryo), `frontend/src/lib/haplotypeRisk.ts` (risk in the tracks) and `embryoSegregation.ts` (the call on the family page); the page `FamilyRoiMarkersPage.tsx`.
+
+### The variant summary
+
+The page *Variant summary* (`FamilyVariantSummaryPage.tsx`) describes all of a family's variant data, with a tab per kind of data the family has. The figures describe the calls; no filter, classification or sign-out reads them.
+
+- **The tabs.** The first one is open, the others are hidden. The open tab is kept in the hash of the URL (`#structural-variants`), so that reloading or a shared link opens it again. Which kinds there are is read by the same presence checks as the links in the header of each family page (`familyDataPresence.ts`); the tabs wait until all checks are in. A kind without data gets no tab. A kind whose check failed does get one, so that its section itself says what went wrong.
+- **Loading.** A section loads only when its tab first opens and then stays loaded, hidden, so that switching back requests nothing again. A section that does not load shows the error with *Retry*; the other tabs work normally. A click on a tab, like every click, goes into the UI telemetry.
+
+The sections:
+
+- **Small variants:** `GET /families/{id}/small-variant-statistics` (`family_variant_statistics.py`) counts in ClickHouse, with bound parameters, only the family's rows in its projects. Imputed callsets (glimpse2, shapeit) and chrM do not count, as in the other summary tables; the response names the imputed callsets the family has.
+    - Per member it counts each variant once (by its key), whichever callsets carry it: the genotype class (the one classification of `genotypes.py`), the type (SNV, insertion, deletion, other), transitions and transversions, whether a call passed its caller's FILTER (as the filter *Pass variants only* reads it), and the chromosomes.
+    - The most severe consequence, in VEP's order, comes from each row's own transcripts (`entries.transcripts`, their `effects`): the terms of all transcripts of its annotation set, the same ones that `annotation_index` merges for that set. The statistics therefore read only the family's rows, no annotation table that all families share. If another callset carries the same variant with an annotation, that one counts.
+    - The histograms of genotype quality, depth and allele balance (heterozygous calls) count calls: a variant in two callsets counts twice. The backend bins them; the boundaries are constants in the module: genotype quality in steps of 5, depth in steps of 2 up to 60, of 5 up to 100 and coarser above that. If the widest label does not fit in one bin, the x-axis shows the label of every nth bin, and always that of the last one (`labelledBins` in `Histogram.tsx`).
+
+- **NIPT-M:** for a monogenic NIPT family this tab comes first. `GET /families/{id}/nipt/statistics` (`nipt_variant_statistics.py`) reads the same analysis as the NIPT page (the same fetal fraction, filters and categories) and groups its sites by the genotype of mother and fetus: each category, plus the father's het alleles that the fetus did not inherit. The GT of the plasma says nothing about a genotype (Mutect2 writes 0/1 for every call, and the plasma contains DNA of both mother and fetus), so the genotypes come from the allele fractions.
+    - Per group: the expected and the observed allele fraction in the plasma, the confidence, the father's genotype, the variant class and a histogram in bins of 0.01. The allele fractions are shown per group (each row on its own scale) or stacked, where a hom/hom peak that rises more than one and a half times above the highest other bin is cut off, with its full count shown next to it.
+    - Per autosome: the father's alleles that the fetus inherited (the counts of the paternity check), the mother's het alleles next to a reliable hom-ref or hom-alt father, and the fetus's hom-alt sites. An autosome where, over at least 20 sites, not a single allele of one parent reached the fetus gets a mark: a hint of UPD or a deletion, not a finding.
+    - What the artefact list did: how many alleles the assay's list contains, how many of them are in the family, how many were removed and how many kept (ClinVar P/LP or frequent); the funnel counts under `failed_artifact` only the removed plasma calls that passed the quality filter.
+    - The caller's FILTER (Mutect2's somatic filters, which the analysis does not use) and the father's genotypes from his allele fraction.
+
+    The signed record does not contain these figures. In the tab *Small variants*, `nipt_samples` names the plasma and the father; their het and hom counts are not in it.
+
+- **Mendelian inconsistencies:** for each member with both parents in the family, per callset and autosome, the backend counts the sites where all three have a biallelic diploid call and one of them carries the ALT allele. Of those, it counts the genotypes that no inheritance explains: the father's allele is missing, the mother's is, or neither parent explains the child. `mendelian_class` is that rule in Python; the SQL follows it, and an integration test sets the two side by side for every combination of three genotypes. A chromosome where the inconsistencies consistently miss the allele of one parent may point to uniparental disomy or a deletion. CoGA does not diagnose UPD; the page says so.
+- **Structural variants:** the SV lengths, the sharing matrix and, per member and type, `GET /families/{id}/structural-variant-sample-counts`: an SV counts for each member whose call carries the ALT allele, from every SV caller.
+- **Repeats, Paraphase and mtDNA:** the section reads the response of the analysis page itself, under the same query key, and counts the calls per member by the status that page gives.
+
+Every request runs through the family's access checkpoint, like the other endpoints; the statistics read the members that the family shows. The counts are recomputed at every visit. They first group the rows per variant, with one byte of flags per member, so that memory grows with the number of variants and not with the number of members; the histograms and the Mendelian tables are separate, light requests that run at the same time. A synthetic trio of 6.3 million rows (a whole genome) took about 2.4 s on a laptop, with up to 385 MiB for one request (`clickhouse-scale-benchmark.md`, "Variant statistics"); on the real platform it has not been timed yet (OPS-9).
+
+## Security and traceability across all analyses
+
+- **Access:** all endpoints require `get_current_user` (the TRGT upload `get_current_admin_user`) and build their data through the family's access checkpoint.
+- **Provenance:** the TRGT version comes from the VCF header into the annotation manifest; NIPT artefacts are kept per assay, with their source (curated or automatic).
+- **Gate before the report:** a sample QC failure must be acknowledged before a report can be signed out (chapter 11).
+- **No data without the family:** the warnings *Import incomplete* and *Not validated for clinical use* come from the family record and its project. That is why no family page shows its data without that record, or while the reference of its project is still loading (the warning about the scope would then show nothing). While they load, the page shows a loading screen. If they do not load, it shows only *Family could not be loaded*, with *Retry* (for a report: *Report could not be loaded*). A test walks through every family route for this (`frontend/src/__tests__/familyRouteBanners.test.tsx`).
+- **Computed, not typed in:** the NIPT categories, the fetal fraction, the haplotype colouring and the embryo call are computed from the VCFs and the pedigree, and are therefore traceable to the input.
+
+## Key files
+
+| File | Role |
+| --- | --- |
+| `backend/app/routers/families_small_variants.py` · `families_structural_variants.py` | Endpoints for small and structural variants |
+| `backend/app/services/clickhouse_family_variants.py` | The filter services and the path of a request |
+| `backend/app/services/clickhouse_variant_queries.py` | Parameterised WHERE builders, pairs, carrier screening |
+| `backend/app/services/clickhouse_variant_rows.py` | A row's own transcripts (`ENTRY_TRANSCRIPT_FIELDS`) |
+| `backend/app/services/family_variant_filters.py` · `genotypes.py` | The filter set and the genotype classes |
+| `backend/app/routers/families_tracks.py` · `families_nipt.py` · `families_reports.py` | mtDNA, Paraphase, repeats, haplotypes; NIPT; sample QC |
+| `backend/app/services/mitochondrial_analysis.py` · `sample_integrity_service.py` | mtDNA interpretation; sample QC |
+| `backend/app/services/paraphase_pg.py` · `repeat_expansion_pg.py` | Paraphase; repeat expansions |
+| `backend/app/services/nipt_service.py` · `nipt_analysis.py` · `nipt_triage.py` | Monogenic NIPT |
+| `backend/app/services/haplotype_lineage_service.py` · `phased_marker_service.py` | PGT: colouring and raw markers |
+| `frontend/src/pages/families/FamilySmallVariantsPage.tsx` · `smallVariantSearch.ts` | Small-variant page and search state |
+| `frontend/src/pages/families/VariantFilterAccordion.tsx` | The filter categories under *Advanced filters*, on the small-variant, SV and NIPT pages |
+| `frontend/src/pages/families/FamilyStructuralVariantsPage.tsx` | SV page |
+| `backend/app/services/pgt_embryo_calls.py` · `pgt_analysis.py` · `pgt_embryo_qc.py` | Embryo call, the QC verdict beside it and the gate for mixed homologues (shown, and frozen at sign-out) |
+| `frontend/src/lib/haplotypeRisk.ts` · `embryoSegregation.ts` | Risk in the haplotype tracks; the call on the family page |
+| `backend/app/services/family_variant_statistics.py` · `frontend/src/pages/families/FamilyVariantSummaryPage.tsx` · `VariantSummary*.tsx` | The variant summary: the small-variant statistics and a tab per kind of data |

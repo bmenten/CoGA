@@ -1,6 +1,6 @@
 # CoGA — Codebase-handleiding
 
-Deze handleiding legt de codebase van CoGA (*Comprehensive Genomic Analysis*) hoofdstuk per hoofdstuk uit, in het Nederlands. Ze is geschreven voor het **review board en auditoren**, ook voor wie weinig Python of TypeScript kent: elk vakbegrip wordt kort uitgelegd, en bij elk onderwerp staat **waar in de code** het zit.
+Deze handleiding legt de codebase van CoGA (*Comprehensive Genomic Analysis*) hoofdstuk per hoofdstuk uit. Ze bestaat in het Nederlands (deze map) en in het Engels (de map `en/`), met dezelfde hoofdstukken. Ze is geschreven voor het **review board en auditoren**, ook voor wie weinig Python of TypeScript kent: elk vakbegrip wordt kort uitgelegd, en bij elk onderwerp staat **waar in de code** het zit.
 
 CoGA draait als **in-house IVD onder IVDR Artikel 5(5)** bij CMGG (ISO 15189). Het gereguleerde deel loopt van het *geannoteerde VCF-bestand* tot de *afgesloten, bevroren analyse in CoGA*. Het klinische verslag wordt buiten het hulpmiddel opgesteld en medisch ondertekend, in het EPD (het elektronisch patiëntendossier van het ziekenhuis). Het verwijst 1-op-1 naar die analyse. De rode draad is daarom **uitlegbaarheid, traceerbaarheid en veiligheid**, telkens met de plaats in de code waar een controle, een logregel of een toegangsbeperking wordt afgedwongen.
 
@@ -8,7 +8,7 @@ CoGA draait als **in-house IVD onder IVDR Artikel 5(5)** bij CMGG (ISO 15189). H
 
 ## Welke code beschrijft deze handleiding?
 
-De handleiding beschrijft de huidige `main`. Wijzigt een PR gedrag dat hier beschreven staat, dan werkt dezelfde PR het hoofdstuk bij en vermeldt dat in zijn beschrijving (vanaf de eerste release candidate ook in zijn CHANGELOG-regel). De CI-controle `scripts/check-handleiding-sync.sh` bewaakt dat de webpagina overeenkomt met de Markdown. Reviewt u een vaste versie, noteer dan de release-tag of de commit die u leest. Bij een verschil gaat de code voor, dan `docs/regulatory/`, dan `docs/`.
+De handleiding beschrijft de huidige `main`. Wijzigt een PR gedrag dat hier beschreven staat, dan werkt dezelfde PR het hoofdstuk in beide talen bij en vermeldt dat in zijn beschrijving (vanaf de eerste release candidate ook in zijn CHANGELOG-regel). De CI-controle `scripts/check-handleiding-sync.sh` bewaakt dat de webpagina overeenkomt met de Markdown. Reviewt u een vaste versie, noteer dan de release-tag of de commit die u leest. Bij een verschil gaat de code voor, dan `docs/regulatory/`, dan `docs/`.
 
 ## Leeswijzer
 
@@ -20,16 +20,16 @@ De handleiding beschrijft de huidige `main`. Wijzigt een PR gedrag dat hier besc
 
 ## Webversie
 
-Er is ook een webpagina met alle hoofdstukken op één pagina: [`coga-handleiding.html`](coga-handleiding.html). Ze heeft een inhoudstabel in de zijbalk, een licht en donker thema en een printweergave voor PDF. Open het bestand rechtstreeks in een browser; het heeft niets extern nodig. De zijbalk toont de productversie uit `VERSION`.
+Er is ook een webpagina met alle hoofdstukken op één pagina, in beide talen: [`coga-handleiding.html`](coga-handleiding.html). Bovenaan kiest u met de knop **NL | EN** de taal; de pagina onthoudt die keuze en blijft bij het hoofdstuk dat u aan het lezen bent. Zonder eerdere keuze volgt ze de taalvoorkeur van de browser. Ze heeft een inhoudstabel in de zijbalk, een licht en donker thema en een printweergave voor PDF, die alleen de gekozen taal afdrukt. Open het bestand rechtstreeks in een browser; het heeft niets extern nodig. De zijbalk toont de productversie uit `VERSION`.
 
-[`build_site.py`](build_site.py) bouwt de pagina uit precies deze Markdown-bestanden:
+[`build_site.py`](build_site.py) bouwt de pagina uit precies deze Markdown-bestanden. Eerst vergelijkt het elk Engels hoofdstuk met het Nederlandse: dezelfde koppen, tabellen (met evenveel rijen), alinea's, lijstpunten en codeblokken, dezelfde `code`-verwijzingen en dezelfde verwijzingen naar andere hoofdstukken. Verschillen ze, dan schrijft het script niets en noemt het de verschillen. Een wijziging in maar één taal valt zo op zodra ze een kop, een tabelrij, een alinea, een lijstpunt of een codeverwijzing raakt; de betekenis van de zinnen zelf vergelijkt het script niet.
 
 ```bash
 pip install markdown
 python docs/handleiding/build_site.py
 ```
 
-Werk je een hoofdstuk bij of verandert `VERSION`, bouw de pagina dan opnieuw en commit ze mee. Gebruik dezelfde versie van `markdown` als CI (de job *catalogue* in `.github/workflows/ci.yml`), zodat de uitvoer overeenkomt.
+Werk je een hoofdstuk bij, doe het dan in beide talen. Bouw de pagina daarna opnieuw, ook als `VERSION` verandert, en commit ze mee. Gebruik dezelfde versie van `markdown` als CI (de job *catalogue* in `.github/workflows/ci.yml`), zodat de uitvoer overeenkomt.
 
 ## Inhoudstabel
 
@@ -53,4 +53,4 @@ Werk je een hoofdstuk bij of verandert `VERSION`, bouw de pagina dan opnieuw en 
 
 ## Hoe deze handleiding is opgesteld
 
-Elk hoofdstuk is geschreven uit de broncode en de projectdocumentatie. Elke verwijzing naar een bestand, functie of tabel is in de code nagegaan. Een samenvatting van `docs/` of `docs/regulatory/` noemt haar bron (zie *Leeswijzer*).
+Elk hoofdstuk is geschreven uit de broncode en de projectdocumentatie. Elke verwijzing naar een bestand, functie of tabel is in de code nagegaan. Een samenvatting van `docs/` of `docs/regulatory/` noemt haar bron (zie *Leeswijzer*). De Engelse hoofdstukken zijn een vertaling van de Nederlandse, met dezelfde opbouw en dezelfde verwijzingen.

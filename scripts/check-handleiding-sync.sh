@@ -8,6 +8,10 @@
 # browser), so nothing else stops a Markdown edit from landing without a regeneration,
 # leaving the page with a heading the chapter no longer has.
 #
+# The handleiding is written in Dutch (docs/handleiding/) and English (docs/handleiding/en/).
+# build_site.py first compares every English chapter's structure with its Dutch original and
+# writes nothing when they differ; this check then fails with the differences it lists.
+#
 # Method: regenerate in place and fail if that changes the file. build_site.py embeds no
 # timestamps and is idempotent, so a clean tree means in sync, and any diff is real
 # drift. On failure the regenerated file is LEFT IN PLACE — the fix is to commit it.
@@ -36,7 +40,10 @@ if ! "$PYTHON" -c 'import markdown' 2>/dev/null; then
   exit 1
 fi
 
-"$PYTHON" "$GENERATOR" >/dev/null
+if ! "$PYTHON" "$GENERATOR" >/dev/null; then
+  echo "❌ $GENERATOR refused to build: the English and Dutch chapters differ (see above)."
+  exit 1
+fi
 
 if git diff --quiet -- "$TARGET"; then
   echo "✓ $TARGET is in sync with the handleiding Markdown."

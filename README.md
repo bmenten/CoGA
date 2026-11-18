@@ -67,7 +67,7 @@ is Google Cloud, deployed with Terraform.
 | Run it locally or change the code | [docs/development.md](docs/development.md), then [CONTRIBUTING.md](CONTRIBUTING.md) |
 | See how it is built | [docs/application-scheme.md](docs/application-scheme.md) |
 | Deploy and operate it | [docs/deployment-gcp.md](docs/deployment-gcp.md) and [RELEASING.md](RELEASING.md) |
-| Review or audit it | [docs/regulatory/README.md](docs/regulatory/README.md) (technical file) and [docs/handleiding/README.md](docs/handleiding/README.md) (Dutch technical manual) |
+| Review or audit it | [docs/regulatory/README.md](docs/regulatory/README.md) (technical file) and [docs/handleiding/README.md](docs/handleiding/README.md) (technical manual, in Dutch and English) |
 
 Every document is listed in [docs/README.md](docs/README.md).
 

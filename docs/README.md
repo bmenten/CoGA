@@ -54,7 +54,7 @@ The rules for lab users are in the in-app reference docs; these files hold the i
 ## Regulatory and review
 
 - [regulatory/README.md](regulatory/README.md) — the IVDR technical file.
-- [handleiding/README.md](handleiding/README.md) — the Dutch technical manual for the review board.
+- [handleiding/README.md](handleiding/README.md) — the technical manual for the review board, in Dutch and English.
 - [ROADMAP.md](ROADMAP.md) — the open work.
 - [repeat-paraphase-review-design.md](repeat-paraphase-review-design.md) — the design (in Dutch) of the repeat-expansion and Paraphase reviews, with its decisions (B1–B23).
 - [open-issues.md](open-issues.md) — what still has to be done, ranked by priority.

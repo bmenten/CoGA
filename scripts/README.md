@@ -10,7 +10,7 @@ scripts that import backend code need the backend's environment, installed from
 | --- | --- |
 | **Checks (run in CI)** | |
 | [check-test-catalogue.sh](check-test-catalogue.sh) | Fails unless `docs/testing.md` lists exactly the test files in the tree. |
-| [check-handleiding-sync.sh](check-handleiding-sync.sh) | Rebuilds the handleiding HTML and fails if that changed it; needs the `markdown` package. |
+| [check-handleiding-sync.sh](check-handleiding-sync.sh) | Rebuilds the handleiding HTML and fails if that changed it, or if an English chapter's structure differs from its Dutch original; needs the `markdown` package. |
 | [check-coverage-floor.py](check-coverage-floor.py) | Fails when a clinical-critical backend module, or the backend as a whole, drops below its coverage floor. |
 | [check-release-version.sh](check-release-version.sh) | Checks that `VERSION` is valid SemVer without the identifier `dev` or build metadata, that `frontend/package.json` carries the same version and, given a tag, that the tag is `v<VERSION>` ([RELEASING.md](../RELEASING.md)). |
 | [check-release-on-main.sh](check-release-on-main.sh) | Checks that a release tag names a commit on `main`, with `main`'s whole history; `build.yml` runs it before it builds a release ([RELEASING.md](../RELEASING.md)). |

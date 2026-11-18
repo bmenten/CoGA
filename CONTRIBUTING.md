@@ -57,7 +57,7 @@ python scripts/generate-api-types.py --check
 
 # repository gates
 ./scripts/check-test-catalogue.sh      # docs/testing.md lists every test file
-./scripts/check-handleiding-sync.sh    # the handleiding HTML matches its Markdown
+./scripts/check-handleiding-sync.sh    # the handleiding HTML matches its Markdown, in both languages
 node scripts/audit-frontend-prod.mjs   # production dependency audit
 ```
 
@@ -71,8 +71,12 @@ The rules these gates enforce, and the ones they cannot:
 - **Tests are catalogued.** A new test file needs its row in [docs/testing.md](docs/testing.md),
   and a deleted one loses its row. The `catalogue` check fails otherwise, and also when the
   handleiding HTML is out of date.
-- **The handleiding is rebuilt.** After editing a chapter under `docs/handleiding/`, run
+- **The handleiding is rebuilt, in both languages.** A chapter exists in Dutch
+  (`docs/handleiding/`) and English (`docs/handleiding/en/`); edit both, then run
   `python docs/handleiding/build_site.py` and commit the regenerated `coga-handleiding.html`.
+  The build refuses, and so the check fails, when an English chapter's structure (headings,
+  tables, paragraphs, list items, inline code, links between chapters) differs from its Dutch
+  original. It cannot tell whether the sentences say the same thing: the reviewer reads both.
 - **The frontend's API types follow the backend.** After changing a Pydantic model the API
   serves, run `python scripts/generate-api-types.py` in an environment installed from
   `backend/requirements-dev.txt`, and commit the regenerated types. Read a response through

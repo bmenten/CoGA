@@ -76,8 +76,8 @@ requests); it names only a representative pull request where one helps.
   the production bundle, backing TF-09c/TF-09d; a computed-style diff tool for stylesheet
   changes.
 - **Regulatory and release** — the IVDR technical file under
-  [`docs/regulatory/`](docs/regulatory/README.md), a Dutch codebase manual (handleiding) for
-  the review board, `RELEASING.md` and the release-version check.
+  [`docs/regulatory/`](docs/regulatory/README.md), a codebase manual (handleiding) in Dutch
+  and English for the review board, `RELEASING.md` and the release-version check.
 
 ### Changed
 
