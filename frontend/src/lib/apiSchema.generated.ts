@@ -71,19 +71,6 @@ export interface AncestryCallsetScanOut {
   reason: string | null;
 }
 
-/** A VCF file the family's package declared for ancestry, and its latest scan. */
-export interface AncestryFileOut {
-  id: string;
-  label: string;
-  relative_path: string;
-  declared_at: string;
-  status: "pending" | "scanned" | "failed";
-  sha256: string | null;
-  error: string | null;
-  scanned_at: string | null;
-  columns: string[];
-}
-
 export interface AncestryReferenceOut {
   sha256: string;
   name: string;
@@ -755,7 +742,6 @@ export interface FamilyAncestryOut {
   notices: string[];
   choices: AncestrySampleChoiceOut[];
   can_choose: boolean;
-  files: AncestryFileOut[];
 }
 
 /**

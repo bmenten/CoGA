@@ -37,7 +37,7 @@ const ChoiceRow: React.FC<{
   queryKey: unknown[];
 }> = ({ familyId, projectId, sample, choice, panels, queryKey }) => {
   const client = useQueryClient();
-  // The callsets that hold the individual, as the scan names them (a declared VCF file by its label).
+  // The callsets that hold the individual, as the scan names them.
   const labels = new Map((sample.candidates ?? []).map((scan) => [scan.callset, scan.label]));
   const [mode, setMode] = useState(
     choice?.mode === 'callset' ? `callset:${choice.callset}` : (choice?.mode ?? 'auto')
@@ -53,9 +53,7 @@ const ChoiceRow: React.FC<{
   const params = projectId ? { project_id: projectId } : {};
   const save = useMutation({
     mutationFn: async () => {
-      const [kind, ...rest] = mode.split(':');
-      // A declared file's callset holds a colon itself (file:<id>).
-      const callset = rest.join(':');
+      const [kind, callset = ''] = mode.split(':');
       if (kind === 'callset' && regions === 'bed') {
         const form = new FormData();
         form.append('callset', callset);

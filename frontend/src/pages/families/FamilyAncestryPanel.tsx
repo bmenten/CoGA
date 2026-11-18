@@ -415,30 +415,6 @@ const FamilyAncestryPanel: React.FC<Props> = ({
           )}
           {analysis && <SampleTable analysis={analysis} />}
           {analysis && <CallsetTable analysis={analysis} />}
-          {(data.files ?? []).length > 0 && (
-            <details>
-              <summary>VCF files declared for ancestry</summary>
-              <p className="table-subtle">
-                Files the family’s package declared for the ancestry PCA without
-                importing them, such as a gVCF. Each is read once in the
-                background; a projection reads what was kept of it, its calls at
-                the reference markers.
-              </p>
-              <ul className="report-criteria-list">
-                {(data.files ?? []).map((file) => (
-                  <li key={file.id}>
-                    <strong>{file.label}</strong> · <code>{file.relative_path}</code>{' '}
-                    ·{' '}
-                    {file.status === 'pending'
-                      ? 'waiting to be read'
-                      : file.status === 'failed'
-                        ? `not read: ${file.error ?? ''}`
-                        : `read ${file.scanned_at ? new Date(file.scanned_at).toLocaleString() : ''}, SHA-256 ${file.sha256 ?? ''}`}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
           {data.can_choose && analysis && (
             <AncestryChoices
               familyId={familyId}

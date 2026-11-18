@@ -1,11 +1,10 @@
 # Runbook — flip the application to the restricted DB role (`coga_app`)
 
 Schema `05_grants.sql` creates a **restricted runtime role `coga_app`** and revokes
-`UPDATE`/`DELETE`/`TRUNCATE` on the thirteen append-only tables: `audit_log_events`,
+`UPDATE`/`DELETE`/`TRUNCATE` on the eleven append-only tables: `audit_log_events`,
 `clinical_audit_events`, `report_signouts`, `integrity_anchors`, `qc_threshold_changes`,
 `family_structure_versions`, `ui_events`, `ancestry_reference_panels`, `ancestry_results`,
-`ancestry_sample_choices`, `ancestry_files`, `ancestry_file_scans` and
-`import_delivery_revisions` (the corrections of a delivered package). It ships in **fallback
+`ancestry_sample_choices` and `import_delivery_revisions` (the corrections of a delivered package). It ships in **fallback
 mode**: the role exists (`NOLOGIN`), but the application connects as the table **owner**, so
 nothing changes at runtime.
 

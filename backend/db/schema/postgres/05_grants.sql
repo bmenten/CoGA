@@ -69,4 +69,3 @@ REVOKE UPDATE, DELETE, TRUNCATE ON
     FROM coga_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON import_delivery_revisions FROM coga_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON ancestry_reference_panels, ancestry_results, ancestry_sample_choices FROM coga_app;
-REVOKE UPDATE, DELETE, TRUNCATE ON ancestry_files, ancestry_file_scans FROM coga_app;

@@ -5,8 +5,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-# The callsets a choice can name: the stored ones, or a declared VCF file (ancestry_files).
-CALLSET_PATTERN = r"^(clair3|nipt|glimpse2|file:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+# The callsets a choice can name: the stored ones.
+CALLSET_PATTERN = r"^(clair3|nipt|glimpse2)$"
 
 
 class AncestryReferencePoint(BaseModel):
@@ -92,7 +92,7 @@ class AncestrySampleChoiceIn(BaseModel):
     """How to read one individual: CoGA's own reading, one callset, or not at all."""
 
     mode: Literal["auto", "callset", "exclude"]
-    # A stored callset, or a VCF file the family's package declared for ancestry (file:<its id>).
+    # A stored callset.
     callset: str | None = Field(default=None, pattern=CALLSET_PATTERN)
     # With a callset: the regions of this gene panel's genes (their coding markers).
     panel_id: str | None = None
@@ -139,21 +139,6 @@ class AncestryAnalysisOut(BaseModel):
     current_reference: bool = False
 
 
-class AncestryFileOut(BaseModel):
-    """A VCF file the family's package declared for ancestry, and its latest scan."""
-
-    id: str
-    label: str
-    relative_path: str
-    declared_at: datetime
-    status: Literal["pending", "scanned", "failed"]
-    sha256: str | None = None
-    error: str | None = None
-    scanned_at: datetime | None = None
-    # The file's sample columns; those of the family's individuals are read.
-    columns: list[str] = Field(default_factory=list)
-
-
 class FamilyAncestryOut(BaseModel):
     project_id: str
     # ``ready`` when a calculation can run now, else why not (ancestry_service.STATE_NOTICES).
@@ -167,5 +152,4 @@ class FamilyAncestryOut(BaseModel):
     # The latest choice of each individual that has one, and whether the caller may make one.
     choices: list[AncestrySampleChoiceOut] = Field(default_factory=list)
     can_choose: bool = False
-    files: list[AncestryFileOut] = Field(default_factory=list)
 
