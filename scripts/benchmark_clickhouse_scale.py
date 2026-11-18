@@ -572,21 +572,45 @@ def details_insert(table: str, model: CohortModel, source: str) -> str:
     )
 
 
+def tx_filter_values(t: str) -> list[str]:
+    """Transcript ``t``'s values of the columns the filters test, in the order of
+    ``ENTRY_TRANSCRIPT_FIELDS``: its ``variants/annotations`` row and the ``transcripts`` of
+    the variant's ``entries`` rows hold the same."""
+    csq = tx_csq(t)
+    return [
+        f"lower({_impact(csq)})",
+        f"arraySort(splitByChar('&', lower({csq})))",
+        "clinvar_terms",
+        f"genic AND {t} = 0",
+        f"genic AND pc AND {t} = 0",
+        "false",
+        f"lower({tx_lof(t)})",
+        "af",
+        "af_exomes",
+        "af",
+        "af_popmax",
+        "af_topmed",
+        "g_ac",
+        "g_hom",
+        "g_hemi",
+        "cadd",
+        f"if({csq} = 'missense_variant', revel, NULL)",
+        "splice",
+        f"if({csq} = 'missense_variant', sift, '')",
+        f"if({csq} = 'missense_variant', polyphen, '')",
+    ]
+
+
 def annotations_insert(table: str, model: CohortModel, source: str) -> str:
-    csq = tx_csq("t")
-    impact = _impact(csq)
+    from app.services.clickhouse_variant_rows import ENTRY_TRANSCRIPT_FIELDS
+
+    filtered = ", ".join(name for name, _type in ENTRY_TRANSCRIPT_FIELDS)
     return (
         f"INSERT INTO {table} (key, variantId, annotation_version, annotationSetHash, annotationHash, "
-        "chrom, pos, ref, alt, gene_symbol, gene_id, transcript_id, hgvsc, hgvsp, impact, effects, "
-        "clinvar_terms, canonical, mane_select, mane_plus_clinical, lof, gnomad_af, gnomad_exomes_af, "
-        "gnomad_genomes_af, gnomad_popmax_af, topmed_af, gnomad_ac, gnomad_hom_count, gnomad_hemi_count, "
-        "cadd_phred, revel, spliceai_max, sift, polyphen) "
+        f"chrom, pos, ref, alt, gene_symbol, gene_id, transcript_id, hgvsc, hgvsp, {filtered}) "
         "SELECT key, variant_id, 'current', aset_hash, cityHash64(i, t, 37), chrom, pos, ref, alt, "
-        f"lower(gene), lower(gene_id), {tx_id('t')}, {tx_hgvsc('t')}, {tx_hgvsp('t')}, lower({impact}), "
-        f"arraySort(splitByChar('&', lower({csq}))), clinvar_terms, genic AND t = 0, "
-        f"genic AND pc AND t = 0, false, lower({tx_lof('t')}), af, af_exomes, af, af_popmax, af_topmed, "
-        f"g_ac, g_hom, g_hemi, cadd, if({csq} = 'missense_variant', revel, NULL), splice, "
-        f"if({csq} = 'missense_variant', sift, ''), if({csq} = 'missense_variant', polyphen, '') "
+        f"lower(gene), lower(gene_id), {tx_id('t')}, {tx_hgvsc('t')}, {tx_hgvsp('t')}, "
+        f"{', '.join(tx_filter_values('t'))} "
         f"FROM ({variant_columns(model, source)}) ARRAY JOIN range(n_tx) AS t"
     )
 
@@ -704,14 +728,25 @@ def entries_insert(table: str, model: CohortModel, family: Family) -> str:
         "arrayMap((d, n, f) -> if(d = 0, [n, toUInt32(0)], if(d = 2, [toUInt32(0), n], "
         "[n - toUInt32(round(n * f)), toUInt32(round(n * f))])), dos, dp, frac)"
     )
+    # The variant's transcripts as the storage writer keeps them on its rows
+    # (``clickhouse_variant_rows._entry_transcripts``): the filtered values of its
+    # ``variants/annotations`` rows, each distinct tuple once.
+    from app.services.clickhouse_variant_rows import ENTRY_TRANSCRIPT_FIELDS
+
+    transcript_type = ", ".join(f"{name} {column_type}" for name, column_type in ENTRY_TRANSCRIPT_FIELDS)
+    transcripts = (
+        f"arrayDistinct(arrayMap(t -> CAST(tuple({', '.join(tx_filter_values('t'))}), "
+        f"'Tuple({transcript_type})'), range(n_tx)))"
+    )
     return (
         f"INSERT INTO {table} (key, variantId, annotation_version, annotationSetHash, project_guid, "
         "family_guid, xpos, chrom, pos, ref, alt, source, rsid, is_gnomad_gt_5_percent, "
-        "is_annotated_in_any_gene, gene_symbols, filters, qual, `calls.sampleId`, `calls.gt`, `calls.gq`, "
-        "`calls.dp`, `calls.ab`, `calls.af`, `calls.ad`, `calls.ps`, `calls.filters`, `calls.metrics`, sign) "
+        "is_annotated_in_any_gene, gene_symbols, transcripts, filters, qual, `calls.sampleId`, `calls.gt`, "
+        "`calls.gq`, `calls.dp`, `calls.ab`, `calls.af`, `calls.ad`, `calls.ps`, `calls.filters`, `calls.metrics`, "
+        "sign) "
         f"SELECT key, variant_id, 'current', aset_hash, '{family.project_uuid}', '{family.family_uuid}', "
         f"xpos, chrom, pos, ref, alt, '{SOURCE}', rsid, gt5, genic, "
-        "if(genic, [gene], CAST([] AS Array(String))), CAST([] AS Array(String)), "
+        f"if(genic, [gene], CAST([] AS Array(String))), {transcripts}, CAST([] AS Array(String)), "
         f"toFloat32(round(30 + 40 * {u('i', family.index, 43)}, 2)), {sample_ids}, "
         "arrayMap(d -> ['0/0', '0/1', '1/1'][d + 1], dos), "
         f"arrayMap(k -> toUInt16(20 + cityHash64(i, k, {family.index}, 44) % 80), range({members})), "

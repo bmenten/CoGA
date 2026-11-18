@@ -2841,21 +2841,27 @@ def _small_family_key_condition(
     *,
     params: dict[str, Any],
     alias: str,
+    narrow: bool = False,
 ) -> str | None:
     """On the family page, "the annotation row ``alias`` is of a variant the family carries":
     its key is the key of one of the rows the search reads. None for a search that is not a
-    family's (the Variant Explorer's reads every family's variants at once).
+    family's (the Variant Explorer's reads every family's variants at once), and for a
+    ``narrow`` subquery, one that reads few rows by itself: a gene's or a panel's genes' rows
+    of the gene index, which its sort key finds (``_small_annotation_gene_membership_condition``).
 
-    The annotation tables are shared by every family on the assembly. An annotation subquery
-    (``_small_annotation_*_membership_condition``) without this clause gathers every matching
-    variant of the whole cohort into the set its ``IN`` tests, whatever the family's size: a
-    frequency filter alone gathers almost every variant stored, 1.6 GiB for 8 M variants, and
-    at a few hundred genomes would pass the 4 GB a query may hold
+    The annotation tables are shared by every family on the assembly. The family search tests
+    its per-transcript filters on its rows' own transcripts (``_small_own_transcripts_condition``),
+    and reads the shared tables for the rest: the gene (``gene_index``), the rsID
+    (``annotation_index``) and the per-transcript filters with a transcript or HGVS text
+    (``annotations``). Such a subquery without this clause gathers every matching variant of
+    the whole cohort into the set its ``IN`` tests, whatever the family's size: a frequency
+    filter alone gathered almost every variant stored, 1.6 GiB for 8 M variants, and at a few
+    hundred genomes would pass the 4 GB a query may hold
     (``clickhouse/users.d/memory-guards.xml``). With it the set holds at most the family's own
-    variants: 0.9 GiB for a whole-genome family of 5.4 M rows on that data, in half the time,
-    and no more as other families are added. A narrow filter (rare and of high or moderate
-    impact) gathers few variants either way; with the clause it also holds the family's keys,
-    about 240 MiB for that family, at the same speed.
+    variants, and no more as other families are added. The clause costs a set of the family's
+    keys, about 240 MiB for a whole-genome trio, and one more read of its rows: for a gene,
+    whose own rows the gene index reads in a few granules, ten times what the subquery costs
+    without it (26 MiB), so a narrow subquery goes without it.
 
     The key is tested through ``identity``, which ClickHouse does not match to an index:
     ``key`` is in the primary key of the annotation tables and has a bloom filter, so a plain
@@ -2878,7 +2884,7 @@ def _small_family_key_condition(
     if page_keys:
         params["annotation_keys"] = page_keys
         return f"{alias}.key IN %(annotation_keys)s"
-    if not isinstance(context, FamilyMetadataContext) or not context.assembly_name:
+    if narrow or not isinstance(context, FamilyMetadataContext) or not context.assembly_name:
         return None
     params["annotation_family_guid"] = context.family_uuid
     rows_where = ["fk.family_guid = %(annotation_family_guid)s", "fk.sign = 1"]
@@ -2930,7 +2936,7 @@ def _small_annotation_gene_membership_condition(
     gene_index_table = _small_annotation_gene_index_table_name(context.assembly_name)
     scope_clauses = _small_annotation_scope_clauses(filters, params=params, alias="gi")
     index_where = [*scope_clauses, f"gi.gene_term IN %({terms_param})s"]
-    family_keys = _small_family_key_condition(context, filters, params=params, alias="gi")
+    family_keys = _small_family_key_condition(context, filters, params=params, alias="gi", narrow=True)
     if family_keys:
         index_where.append(family_keys)
     return (
@@ -2966,6 +2972,32 @@ def _small_annotation_key_membership_condition(
     )
 
 
+def _small_own_transcripts_condition(condition: str, *, negate: bool = False) -> str:
+    """On the family page, "a transcript of the entry row's (alias ``e``) own annotation meets
+    ``condition``", a condition on a transcript row ``a`` of ``variants/annotations``, read
+    from the row's ``transcripts``: the values of its annotation's ``annotations`` rows that
+    the filters test, under the same names and types
+    (``clickhouse_variant_rows.ENTRY_TRANSCRIPT_FIELDS``), written with the row. With
+    ``negate``, none does.
+
+    It keeps the rows the subquery over the shared table keeps
+    (``_small_annotation_row_membership_condition``), for ``IN`` and ``NOT IN`` alike: that
+    subquery keeps a row when an ``annotations`` row of its key and annotation set, under any
+    version, meets the condition, and the row's transcripts are made from the same annotations
+    (the annotation set is their hash), each annotation's values as its ``annotations`` row
+    stores them; a variant without an annotation holds the one transcript of the empty
+    annotation, as the table holds its row. The subquery's locus clauses
+    (``_small_annotation_scope_clauses``) leave out no row the search reads: a variant's
+    annotation rows lie at its own position, which the search's WHERE holds to the locus.
+
+    The shared table holds the whole cohort's variants, and the subquery read all of it for
+    every search, list and count, however few rows the family has: 360 M rows for a rare
+    search at 250 genomes, about 750 M at 1,000. The row's own transcripts are read with the
+    row, so the search reads the family's rows alone, and builds no set."""
+    test = f"arrayExists(a -> ({condition}), e.transcripts)"
+    return f"NOT {test}" if negate else test
+
+
 def _small_annotation_row_membership_condition(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
@@ -2973,9 +3005,19 @@ def _small_annotation_row_membership_condition(
     params: dict[str, Any],
     condition: str,
     negate: bool = False,
+    reads_text: bool = False,
 ) -> str:
+    """"A transcript of the entry row's (alias ``e``) own annotation meets ``condition``" (a
+    condition on a transcript row ``a`` of ``variants/annotations``); with ``negate``, none
+    does. A family search reads it from the row's own transcripts
+    (``_small_own_transcripts_condition``), unless the condition ``reads_text`` (a transcript
+    or HGVS text, which the row's transcripts do not hold); that search, and the Variant
+    Explorer's, read the shared table, narrowed to the family's keys on the family page
+    (``_small_family_key_condition``)."""
     if not context.assembly_name:
         return "0" if not negate else "1"
+    if isinstance(context, FamilyMetadataContext) and not reads_text:
+        return _small_own_transcripts_condition(condition, negate=negate)
     annotations_table = _small_annotation_table_name(context.assembly_name)
     scope_clauses = _small_annotation_scope_clauses(filters, params=params, alias="a")
     operator = "NOT IN" if negate else "IN"
@@ -3487,12 +3529,20 @@ def _small_annotation_filter_clauses(
     the salient variants alone (``_small_salient_condition``). The family search
     (``_small_query_filter_parts``) and the Variant Explorer
     (``variant_explorer_service._carriers_where``) read them here, after the row filters
-    (``_small_row_filter_clauses``), whose locus the annotation subqueries repeat.
+    (``_small_row_filter_clauses``), whose locus the annotation subqueries repeat. The
+    family search reads the transcript conditions on the row's own transcripts, but with a
+    transcript or HGVS text (``_small_annotation_row_membership_condition``).
 
     A variant that two families carry under two annotations (two VEP runs) is so kept for
     the family whose own annotation meets the filters: the Explorer counts that family's
     carriers alone (the owner's decision of 2026-11-06)."""
     clauses: list[str] = []
+    # The transcript and HGVS filters test text a row's own transcripts do not hold
+    # (``ENTRY_TRANSCRIPT_FIELDS``), as _text_contains_any reads them: their condition reads
+    # the shared table.
+    reads_text = any(
+        str(value or "").strip() for value in (filters.transcript, filters.hgvsc, filters.hgvsp)
+    )
     gene_condition = _small_gene_condition(
         context,
         filters,
@@ -3513,6 +3563,7 @@ def _small_annotation_filter_clauses(
                 filters,
                 params=params,
                 condition=detail_where_clause,
+                reads_text=reads_text,
             )
         )
 

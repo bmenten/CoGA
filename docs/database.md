@@ -1107,10 +1107,10 @@ names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | Table | Holds |
 | --- | --- |
 | `SNV_INDEL/variants/details` | one row per small variant and annotation set: position, alleles, the full annotation |
-| `SNV_INDEL/variants/annotations` | per variant and transcript: gene, consequence, HGVS, population frequencies, scores. The family search and the Variant Explorer test their annotation filters here, all on one row (one transcript), and each entries row against its own annotation (its key and annotation set, under any version), here and in the two indexes below. The family search reads only the rows of variants the family carries; the Variant Explorer reads every family's |
+| `SNV_INDEL/variants/annotations` | per variant and transcript: gene, consequence, HGVS, population frequencies, scores. The Variant Explorer tests its per-transcript filters here, all on one row (one transcript), and each row against its own annotation (its key and annotation set, under any version), here and in the two indexes below. The family search tests the same filters, with the same text, on each `entries` row's own transcripts (`transcripts`, below); it reads this table only for a transcript or HGVS text, which those do not hold, and then only the rows of variants the family carries |
 | `SNV_INDEL/variants/annotation_index` | per variant and annotation set: its genes and the fields the filters use, pooled over its transcripts, for what holds for the variant as a whole (the rsID filter reads it). The Variant Explorer shows a row's annotation from it, and reads each variant's position here to apply a gene panel's regions to every family at once |
 | `SNV_INDEL/variants/gene_index` | per gene term (symbol or gene id) and variant, for gene searches and the gene panel filter of the family page and the Variant Explorer |
-| `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`). The family page also reads a family's own rows here: by position, to apply a gene panel's regions (a join on 64-kb windows); and by key, so that each annotation filter gathers the family's own variants into its set, not every family's (`_small_family_key_condition`) |
+| `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`), and `transcripts`: the values of the row's own annotation (its annotation set) that the per-transcript filters test, as its `variants/annotations` rows hold them under the same names and types, each distinct tuple once, without the transcript and HGVS text (`ENTRY_TRANSCRIPT_FIELDS`). The writer builds them from the annotations it writes those rows from; a rewrite keeps them with the row's annotation set. The family search tests its per-transcript filters, the excluded ClinVar terms and the salient variants there (`arrayExists`), so it reads the family's own rows alone, whatever the cohort's size. The family page also reads a family's own rows here: by position, to apply a gene panel's regions (a join on 64-kb windows); and by key, so that the rsID filter and a transcript or HGVS text gather the family's own variants into their set, not every family's (`_small_family_key_condition`) |
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
 | `SNV_INDEL/carriers` | the Variant Explorer's carrier summary: per variant, the carriers each family adds, kept as the families' rows are written (below, "The variant carrier summary") |
@@ -1200,6 +1200,7 @@ erDiagram
         String variantId
         String annotation_version
         UInt64 annotationSetHash
+        Array transcripts "the filtered values of its annotation's transcripts"
         Nested calls "calls.sampleId, calls.gt and the other call fields, one per sample"
         Int8 sign "always 1"
     }

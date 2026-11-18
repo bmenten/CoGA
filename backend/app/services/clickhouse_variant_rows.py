@@ -248,6 +248,87 @@ def _annotation_columns(annotation: dict[str, Any]) -> _AnnotationColumns:
     )
 
 
+# The fields of an ``entries`` row's ``transcripts``, as ``(name, ClickHouse type)``: the
+# columns of ``variants/annotations`` that the family search's per-transcript filters test
+# (``clickhouse_variant_queries._small_annotation_filter_condition``, the salient and the
+# excluded-ClinVar conditions), under the same names and types, so that a condition on a
+# transcript row ``a`` means the same on the shared table and on a row's own transcripts. The
+# text columns (transcript, HGVS c. and p.) are left out: on a synthetic whole-genome trio
+# they took 92 B a row, against 36 B for these (ZSTD; 83 B for the rest of the row), and their
+# filters read the shared table.
+ENTRY_TRANSCRIPT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("impact", "LowCardinality(String)"),
+    ("effects", "Array(String)"),
+    ("clinvar_terms", "Array(String)"),
+    ("canonical", "Bool"),
+    ("mane_select", "Bool"),
+    ("mane_plus_clinical", "Bool"),
+    ("lof", "LowCardinality(String)"),
+    ("gnomad_af", "Nullable(Float32)"),
+    ("gnomad_exomes_af", "Nullable(Float32)"),
+    ("gnomad_genomes_af", "Nullable(Float32)"),
+    ("gnomad_popmax_af", "Nullable(Float32)"),
+    ("topmed_af", "Nullable(Float32)"),
+    ("gnomad_ac", "Nullable(UInt32)"),
+    ("gnomad_hom_count", "Nullable(UInt32)"),
+    ("gnomad_hemi_count", "Nullable(UInt32)"),
+    ("cadd_phred", "Nullable(Float32)"),
+    ("revel", "Nullable(Float32)"),
+    ("spliceai_max", "Nullable(Float32)"),
+    ("sift", "LowCardinality(String)"),
+    ("polyphen", "LowCardinality(String)"),
+)
+ENTRY_TRANSCRIPTS_TYPE = (
+    f"Array(Tuple({', '.join(f'{name} {column_type}' for name, column_type in ENTRY_TRANSCRIPT_FIELDS)}))"
+)
+
+
+def _entry_transcripts(columns: Sequence[_AnnotationColumns]) -> list[dict[str, Any]]:
+    """An ``entries`` row's ``transcripts``: for each of the variant's ``annotations`` rows
+    (``columns``, one per annotation, the empty annotation of a variant without one
+    included), the values of ``ENTRY_TRANSCRIPT_FIELDS`` as that row stores them, each
+    distinct tuple once, in the order of the annotations. A condition holds on some
+    transcript here exactly when it holds on some ``annotations`` row of the variant's
+    annotation set: both are made from the same annotations, and a repeated tuple adds no
+    transcript a condition could hold on.
+
+    Each transcript is a mapping of field to value, the form the ClickHouse client reads a
+    named tuple back in: a rewrite writes the rows it read (``fetch_family_small_variant_entries``)
+    and the rows it builds in one insert, and the client takes one form per column."""
+    distinct: dict[tuple[Any, ...], None] = {}
+    for column in columns:
+        distinct.setdefault(
+            (
+                column.impact,
+                tuple(sorted(column.effect_terms)),
+                tuple(sorted(column.clinvar_terms)),
+                column.canonical,
+                column.mane_select,
+                column.mane_plus_clinical,
+                column.lof,
+                column.gnomad_af,
+                column.gnomad_exomes_af,
+                column.gnomad_genomes_af,
+                column.gnomad_popmax_af,
+                column.topmed_af,
+                column.gnomad_ac,
+                column.gnomad_hom_count,
+                column.gnomad_hemi_count,
+                column.cadd_phred,
+                column.revel,
+                column.spliceai_max,
+                column.sift,
+                column.polyphen,
+            ),
+            None,
+        )
+    names = [name for name, _type in ENTRY_TRANSCRIPT_FIELDS]
+    return [
+        dict(zip(names, (impact, list(effects), list(clinvar), *rest), strict=True))
+        for impact, effects, clinvar, *rest in distinct
+    ]
+
+
 def _annotation_row_from_columns(
     *,
     variant_key: int,
@@ -566,6 +647,7 @@ def _small_variant_entry_rows(
                 )
             )
         gnomad_over_5_percent = _annotation_gnomad_over_5_percent(record.annotations)
+        transcripts = _entry_transcripts(row_columns)
         xpos = _xpos(record.chr, record.start)
         sample_ids = [call.sample for call in record.calls]
         sample_gts = [call.gt for call in record.calls]
@@ -596,6 +678,7 @@ def _small_variant_entry_rows(
                     gnomad_over_5_percent,
                     bool(gene_symbols),
                     gene_symbols,
+                    transcripts,
                     filters,
                     column_float32(record.qual),
                     sample_ids,

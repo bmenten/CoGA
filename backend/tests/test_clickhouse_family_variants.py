@@ -739,8 +739,11 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     assert [q for q, _p in queries if "groupUniqArray(a.annotationHash)" in q and "variants/annotations" in q]
     query, params = queries[0]
     assert "INNER JOIN" not in query
-    assert "GRCh38/SNV_INDEL/variants/annotations" in query
-    assert "(e.key, e.annotationSetHash) IN (SELECT a.key, a.annotationSetHash" in query
+    # The per-transcript filters are read on the row's own transcripts, not on the cohort's
+    # shared annotation table.
+    assert "GRCh38/SNV_INDEL/variants/annotations" not in query
+    assert "arrayExists(a -> (((a.impact IN %(detail_impact_terms)s" in query
+    assert "), e.transcripts)" in query
     assert "GROUP BY e.key" in query  # list dedups by key
     assert "a.impact IN %(detail_impact_terms)s" in query
     assert "hasAny(a.effects, %(detail_effect_terms)s)" in query
