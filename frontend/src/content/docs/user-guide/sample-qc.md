@@ -29,8 +29,9 @@ of sites). A genotype with a quality (GQ) below 20 counts as a no-call.
   rate. The genetic sex carries green ✓ when it matches the record, red ✗ when it does not, amber !
   when it could not be confirmed and grey ? when it was not checked. Hover a cell for the reason. A
   sample without X genotypes (for example in a PGT family) is sexed from its reads by the pipeline's
-  ngs-bits; the reason says so. An embryo has sex `0` (unknown) in the family's PED, so its genetic
-  sex reads amber ! (*Sex not recorded*), with the sex the data indicate.
+  ngs-bits; the reason says so. An embryo has sex `0` (unknown) in the family's PED: its genetic sex
+  shows the sex its data indicate, with ✓ (*Embryo's sex not recorded*), and amber ! only when the
+  data tell no sex.
 - **Relatedness vs pedigree** (**Parentage (embryos ↔ parents)** in a PGT family) — each pair's
   inferred relationship, kinship and IBS0. A pair that contradicts the pedigree, including parents who
   look related, is outlined: red for a fail, amber for a warning. A first-degree pair reads as

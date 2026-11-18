@@ -739,8 +739,7 @@ def test_service_sexes_a_pgt_family_without_chrx_genotypes_from_the_ngsbits_call
         "EMB1": (
             "pass",
             "Read-inferred sex matches the record (ngs-bits chrY/chrX read ratio 0.0011, 90 chrY and "
-            "80,000 chrX reads, from the pipeline; no chrX genotypes). The embryo's recorded sex was "
-            "taken from this same ngs-bits call, so the match confirms nothing independent.",
+            "80,000 chrX reads, from the pipeline; no chrX genotypes).",
         ),
         "FATHER1": (
             "pass",

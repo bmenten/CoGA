@@ -471,6 +471,10 @@ def _evaluate_sex(
     The genotypes come first. Without a called chrX site the check compares the sex the
     pipeline's ngs-bits read off the sample's reads (``read_sex``) instead, when there is
     one; with neither it could not run ("skip").
+
+    An embryo's sex is rarely known before it is tested, so its PED gives it sex 0: an embryo
+    without a recorded sex passes with the sex its data indicate (``_unrecorded_embryo``,
+    the owner's decision of 2026-11-18). Any other sample without one is a warning.
     """
     inferred, het_rate, n = infer_sex(x_gts) if x_gts else ("indeterminate", None, 0)
     if n == 0 and read_sex is not None:
@@ -483,6 +487,9 @@ def _evaluate_sex(
         return SexCheck(sample_id, recorded, inferred, het_rate, n, "warn",
                         f"Could not infer sex ({rate_text}).")
     if recorded == "unknown":
+        if embryo:
+            return _unrecorded_embryo(sample_id, inferred, f"genotypes indicate {inferred}", rate_text,
+                                      het_rate=het_rate, sites=n)
         return SexCheck(sample_id, recorded, inferred, het_rate, n, "warn",
                         f"Sex not recorded; genotypes indicate {inferred} ({rate_text}).")
     if inferred == recorded:
@@ -491,6 +498,22 @@ def _evaluate_sex(
     return SexCheck(sample_id, recorded, inferred, het_rate, n, "fail",
                     f"Recorded {recorded} but genotypes indicate {inferred} "
                     f"({rate_text}) — possible sample swap or mislabel.")
+
+
+def _unrecorded_embryo(
+    sample_id: str,
+    inferred: str,
+    finding: str,
+    evidence: str,
+    *,
+    het_rate: float | None = None,
+    sites: int = 0,
+) -> SexCheck:
+    """The sex check of an embryo whose PED gives no sex: a pass that states the sex its
+    data indicate (``finding``), with no record to confirm. A sex its data cannot read
+    (``indeterminate``) stays a warning: the callers grade it before they reach this."""
+    return SexCheck(sample_id, "unknown", inferred, het_rate, sites, "pass",
+                    f"Embryo's sex not recorded; {finding} ({evidence}).")
 
 
 def _read_sex_evidence(call: ReadSexCall) -> str:
@@ -515,9 +538,8 @@ def _evaluate_read_sex(
     """The sex check of a sample without chrX genotypes: the sex ngs-bits read off its
     chrY/chrX read ratio against the recorded sex, graded as the genotype check grades.
 
-    The message says the sex was read from the reads, not the genotypes. A copgtm PED gives
-    an embryo the sex ngs-bits read, so an embryo's match is that call compared with itself:
-    still a pass (the owner's decision of 2026-10-30), with a sentence saying so.
+    The message says the sex was read from the reads, not the genotypes. An embryo without a
+    recorded sex passes with the sex the reads indicate (``_evaluate_sex``).
     """
     inferred = call.inferred_sex
     evidence = _read_sex_evidence(call)
@@ -525,16 +547,13 @@ def _evaluate_read_sex(
         return SexCheck(sample_id, recorded, inferred, None, 0, "warn",
                         f"Could not infer sex from the reads ({evidence}).")
     if recorded == "unknown":
+        if embryo:
+            return _unrecorded_embryo(sample_id, inferred, f"the reads indicate {inferred}", evidence)
         return SexCheck(sample_id, recorded, inferred, None, 0, "warn",
                         f"Sex not recorded; the reads indicate {inferred} ({evidence}).")
     if inferred == recorded:
-        message = f"Read-inferred sex matches the record ({evidence})."
-        if embryo:
-            message += (
-                " The embryo's recorded sex was taken from this same ngs-bits call, so the "
-                "match confirms nothing independent."
-            )
-        return SexCheck(sample_id, recorded, inferred, None, 0, "pass", message)
+        return SexCheck(sample_id, recorded, inferred, None, 0, "pass",
+                        f"Read-inferred sex matches the record ({evidence}).")
     return SexCheck(sample_id, recorded, inferred, None, 0, "fail",
                     f"Recorded {recorded} but the reads indicate {inferred} "
                     f"({evidence}) — possible sample swap or mislabel.")

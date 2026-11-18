@@ -67,11 +67,14 @@ const SEX_CHECK_MARK: Record<QcStatus, { tone: string; glyph: string }> = {
 // The API types the verdict as a string: an unexpected one reads as unconfirmed.
 const sexCheckMark = (status: QcStatus) => SEX_CHECK_MARK[status] ?? SEX_CHECK_MARK.warn;
 
-// The ring tooltip's words for a sex check: "(matches record)" for a pass alone. Any other
-// verdict gives its own message, which says why the sex was not confirmed and what it was
-// read from: the genotypes, or the reads (ngs-bits) for a sample without chrX genotypes.
+// The ring tooltip's words for a sex check: "(matches record)" for a pass against a recorded
+// sex alone. Any other verdict, and an embryo's pass without a recorded sex, gives its own
+// message, which says what the sex was read from: the genotypes, or the reads (ngs-bits) for
+// a sample without chrX genotypes.
 const sexCheckNote = (check: ApiSampleIntegritySexCheck): string =>
-  check.status === 'pass' ? `Sex ${formatSex(check.inferred_sex)} (matches record)` : check.message;
+  check.status === 'pass' && check.recorded_sex !== 'unknown'
+    ? `Sex ${formatSex(check.inferred_sex)} (matches record)`
+    : check.message;
 
 // Roll each sample's sex / Mendelian / relatedness checks into one ring status for the
 // pedigree, with a tooltip summarising why. As in the overall verdict, a check that could
