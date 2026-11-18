@@ -45,6 +45,7 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
 | DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
 | DATA-14 | P3 | Give `coga-package.json` a field for the VCF files read only for ancestry, or remove that path: no delivered package can declare one | owner, developer | |
+| CLIN-79 | P2 | Warn when an embryo's sex chromosomes look abnormal (X0, XXY, another anomaly): choose the source of X dosage and its cut-offs | owner, lab director | validation |
 | CLIN-14 | P3 | Settle the repeat catalogue's open points | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
 | CLIN-39 | P3 | Decide whether one SV in two siblings' per-sample records gets one second-hit verdict | owner | |
@@ -58,6 +59,7 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
 | ENG-24 | P3 | Make the end-to-end modules independent of their order: the review-audit module leaves a variant tagged for the report | developer | |
+| ENG-26 | P3 | Remove the reading of import marks in a shape no import writes: the `import_incomplete` flag, `import_unfinished` entries and dataset scopes (owner: remove) | developer | |
 | ENG-25 | P3 | Settle the copies that differ: two ROI region parsers, two Mendelian-consistency rules, two `_coerce_int`; drop the unused tag `family_id` column | developer | |
 
 ## Waiting for a decision
@@ -66,11 +68,11 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **Owner:** REG-1 (wording, REQ-TRACE-007), OPS-2, OPS-3 (separate validation environment?),
   OPS-12 (builder, Terraform lock), OPS-22, SEC-6 (with the DPO), REG-14, CLIN-10,
-  CLIN-39, CLIN-50, CLIN-68, DATA-14, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), REG-17, OPS-15
+  CLIN-39, CLIN-50, CLIN-68, CLIN-79, DATA-14, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), REG-17, OPS-15
   (role mailbox), OPS-24 (pre-migration backup retention).
 - **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, REG-16, REG-17, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
   CLIN-70, OPS-7, SEC-19; with RA, REG-11.
-- **Lab director:** REG-5, CLIN-10, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
+- **Lab director:** REG-5, CLIN-10, CLIN-79, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
 
 ## P1
 
@@ -144,6 +146,12 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - Gate: an embryo more than 10 % off one homolog, over at least 20 markers, is uninformative.
 - At exactly 2 % the Sample QC warns and the haplotype track does not.
 - Validate with an X-linked locus, trisomies of the ROI chromosome and mosaics.
+
+### CLIN-79 · An embryo's sex-chromosome anomaly
+
+- An embryo without a recorded sex (PED sex `0`) passes the sex check with the sex its data indicate (the owner's decision of 2026-11-18). The owner also wants a warning when its sex chromosomes look abnormal: monosomy X, XXY, or another anomaly.
+- The Sample QC reads an embryo's sex from the ngs-bits chrY/chrX read ratio (no chrX genotypes in an imputed callset). That ratio cannot tell X0 from XX or XXY from XY: it needs the X dosage against the autosomes.
+- Possible sources of X dosage: the per-contig coverage in the embryo's Qualimap `genome_results.txt` (not read yet), its ngs-bits chrX reads against Qualimap's mapped reads, or the copy-number segments on chrX and chrY (QDNAseq, WisecondorX). The owner and the lab director choose one and its cut-offs. REQ-PGT-008 (no automatic aneuploidy detector) and TF-01 §3.3 then name this check.
 
 ### REG-12 · Owner and QA confirmations of the fix rounds
 
@@ -308,6 +316,11 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - The end-to-end suite run on a database the integration suite has just used fails in `clickhouse_integrity`, the Explorer's counts and panel match, the family panel-region join, the ranking cache and ancestry; each passes on fresh containers, as CI runs it. Integration tests leave rows behind that these modules read.
 - Run on their own, `test_e2e_review_audit.py` then `test_e2e_signout_acknowledges_what_was_shown.py` fail the latter's `test_the_module_leaves_nothing_tagged_for_the_report`: the review-audit module leaves a variant of the shared family tagged for the report, and the sign-out module checks that the family's report list ends empty. The full suite, with other modules run in between, passes. Each module should leave the family as it found it, or check only its own tags.
+
+### ENG-26 · Import marks in a shape no import writes
+
+- Every writer of a family's import marks writes one shape (`family_package_registration._flag_payload`, the `import_unfinished` entries, `dataset_scopes`). Their readers still accept other shapes: a flag of `true` or a list kept as "incomplete, nothing named" (`_flag_failures`, `merged_import_failure`, `failures_left_after`), the sign-out's "fails safe" reading (`report_signout_service._import_incomplete_state`, `_import_unfinished_state`), `False` read as no flag (`imported_package_folders`, `ancestry_service`), and entries and scopes "not in the shape an import writes".
+- The owner decided (2026-11-18) that this reading goes (AGENTS.md: a value the current writer always writes is required when read). A value in another shape then raises instead of reading as incomplete, which still blocks the sign-out. Handleiding chapter 6 ("Andere vormen") and the tests that pin those shapes change with it.
 
 ### ENG-25 · Copies that differ
 
