@@ -88,6 +88,10 @@ async def get_small_variant_family_record(
     # Reviews and the drift check read one: the direct call, as the diagnostic list shows,
     # and among several direct callsets the one whose name sorts first, so it is always
     # the same row.
+    #
+    # The details are read for these rows' own annotation sets, by the details' sort key:
+    # the join's right side is otherwise built from the whole table, every variant of the
+    # cohort with its annotation JSON, to answer one variant.
     query = f"""
         SELECT
             e.key,
@@ -99,7 +103,15 @@ async def get_small_variant_family_record(
             e.annotation_version,
             e.annotationSetHash
         FROM {entries_table} AS e
-        LEFT JOIN {details_table} AS d
+        LEFT JOIN (
+            SELECT key, annotation_version, annotationSetHash, annotationsJson
+            FROM {details_table}
+            WHERE (key, annotation_version, annotationSetHash) IN (
+                SELECT key, annotation_version, annotationSetHash
+                FROM {entries_table}
+                WHERE family_guid = %(family_guid)s AND variantId = %(variant_id)s AND sign = 1
+            )
+        ) AS d
           ON d.key = e.key
          AND d.annotation_version = e.annotation_version
          AND d.annotationSetHash = e.annotationSetHash

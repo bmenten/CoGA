@@ -51,6 +51,26 @@ def build_small_variant_id(chrom: str, start: int, ref: str, alt: str) -> str:
     return f"{normalize_chromosome(chrom)}-{int(start)}-{ref}-{alt}"
 
 
+def small_variant_loci(variant_id: str) -> set[tuple[str, int]]:
+    """The chromosomes and positions at which a small variant stored as ``variant_id`` can
+    sit, for a read that finds its rows in a shared table by the sort key (``chrom, pos``).
+
+    Every stored id is :func:`build_small_variant_id`'s ``chrom-pos-ref-alt``, built from
+    the row's own chromosome and position. A contig name or an ALT allele can itself hold a
+    ``-``, so every split into a contig, a whole-number position, a REF and an ALT is
+    listed, with the contig both as written and normalized; the split that built the id is
+    one of them. An id with no such split names no stored variant.
+    """
+    parts = str(variant_id).split("-")
+    loci: set[tuple[str, int]] = set()
+    for index in range(1, len(parts) - 2):
+        if not parts[index].isdigit():
+            continue
+        chrom, position = "-".join(parts[:index]), int(parts[index])
+        loci.update({(chrom, position), (normalize_chromosome(chrom), position)})
+    return loci
+
+
 def build_structural_variant_id(
     chrom: str,
     start: int,

@@ -51,6 +51,7 @@ from .clickhouse_variant_queries import (
     _string_list,
     _structural_info_text,
     _structural_pli,
+    _structural_row_details,
     _structural_variant_where_clauses,
 )
 from .clickhouse_variant_ids import _structural_table_name
@@ -166,6 +167,9 @@ async def fetch_structural_variant_records(
     if source is not None:
         where_clauses.append("e.source = %(evidence_source)s")
         params["evidence_source"] = source
+    details = _structural_row_details(
+        assembly_name, where_clauses, ("remoteChrom", "remoteStart", "svLen", "filters", "annotationsJson")
+    )
     query = f"""
         SELECT
             any(e.key) AS key,
@@ -182,7 +186,7 @@ async def fetch_structural_variant_records(
             any(d.annotationsJson) AS annotations_json,
             any(e.gene_symbols) AS gene_symbols
         FROM {_structural_table_name(assembly_name, "entries")} AS e
-        LEFT JOIN {_structural_table_name(assembly_name, "variants/details")} AS d
+        LEFT JOIN {details} AS d
           ON d.key = e.key
         WHERE {' AND '.join(where_clauses)}
         GROUP BY e.key, e.variantId

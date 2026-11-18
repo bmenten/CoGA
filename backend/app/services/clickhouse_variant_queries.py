@@ -3343,6 +3343,53 @@ def _structural_variant_where_clauses(
     exclude_variant_ids: Collection[str] = (),
     panel: PanelFilterConstraints | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
+    """The WHERE of the family's SV rows (alias ``e``): its scope
+    (``_structural_variant_scope_clauses``), then its regions and panel
+    (``_structural_variant_region_clauses``)."""
+    where_clauses, params = _structural_variant_scope_clauses(
+        context, filters, include_variant_ids=include_variant_ids, exclude_variant_ids=exclude_variant_ids
+    )
+    where_clauses.extend(
+        _structural_variant_region_clauses(context, filters, include_regions, panel, params=params)
+    )
+    return where_clauses, params
+
+
+def _structural_variant_region_clauses(
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+    include_regions: Sequence[Region],
+    panel: PanelFilterConstraints | None,
+    *,
+    params: dict[str, Any],
+) -> list[str]:
+    """The clauses of a search's regions (a gene filter's loci) and gene panel, on the rows
+    of its scope (alias ``e``), binding their values in ``params``.
+
+    A gene filter's loci and a gene panel are applied in SQL. Pushing them into SQL is
+    what makes a candidate cap safe: the cap then bounds the ranking of an already-narrowed
+    set rather than deciding, before the filter runs, which rows the filter gets to see."""
+    where_clauses: list[str] = []
+    region_condition = _structural_region_filter_condition(
+        include_regions, prefix="sv_include_region", params=params
+    )
+    if region_condition:
+        where_clauses.append(region_condition)
+    if panel is not None:
+        where_clauses.append(_structural_panel_filter_condition(context, filters, panel, params=params))
+    return where_clauses
+
+
+def _structural_variant_scope_clauses(
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+    *,
+    include_variant_ids: Collection[str] | None = None,
+    exclude_variant_ids: Collection[str] = (),
+) -> tuple[list[str], dict[str, Any]]:
+    """The family's SV rows (alias ``e``) a search reads before its regions and panel: the
+    family's live rows in its projects with a call of a visible member, within the
+    search's chromosome and locus, and of its review selection."""
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
     if context.project_ids:
@@ -3355,16 +3402,6 @@ def _structural_variant_where_clauses(
     else:
         where_clauses.append("0")
     where_clauses.extend(_structural_locus_clauses(filters, alias="e", params=params))
-    # A gene filter's loci and a gene panel are applied in SQL. Pushing them into SQL is
-    # what makes a candidate cap safe: the cap then bounds the ranking of an already-narrowed
-    # set rather than deciding, before the filter runs, which rows the filter gets to see.
-    region_condition = _structural_region_filter_condition(
-        include_regions, prefix="sv_include_region", params=params
-    )
-    if region_condition:
-        where_clauses.append(region_condition)
-    if panel is not None:
-        where_clauses.append(_structural_panel_filter_condition(context, filters, panel, params=params))
     # A review selection (the report's "report" tag, a classification, notes) resolves to
     # variant ids in Postgres. In SQL, like the regions, it narrows the rows before the
     # candidate cap, so the cap cannot decide which reviewed SVs the search sees: a
@@ -3386,6 +3423,22 @@ def _structural_variant_where_clauses(
         where_clauses.append("e.variantId NOT IN %(sv_exclude_variant_ids)s")
         params["sv_exclude_variant_ids"] = tuple(normalized_exclude_ids)
     return where_clauses, params
+
+
+def _structural_row_details(assembly_name: str, where_clauses: Sequence[str], columns: Sequence[str]) -> str:
+    """The SV ``variants/details`` rows (``key`` and ``columns``) of the ``entries`` rows,
+    alias ``e``, that ``where_clauses`` keep: the right side of a join on ``d.key = e.key``
+    that answers exactly as the whole table does.
+
+    It reads the details by their sort key, for those rows' keys only. Joined whole, the
+    right side is built from every family's SVs, with their annotation JSON, to answer one
+    family's page or one SV."""
+    entries_table = _structural_table_name(assembly_name, "entries")
+    details_table = _structural_table_name(assembly_name, "variants/details")
+    return (
+        f"(SELECT key, {', '.join(columns)} FROM {details_table}"
+        f" WHERE key IN (SELECT e.key FROM {entries_table} AS e WHERE {' AND '.join(where_clauses)}))"
+    )
 
 
 def _page_offset(page: int, page_size: int) -> int:
