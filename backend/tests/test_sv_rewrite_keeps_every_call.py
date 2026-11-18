@@ -213,10 +213,10 @@ async def test_storage_read_has_the_deletes_scope_and_no_family_view_filter(stor
     assert "project_guid IN" not in query
     assert "hasAny" not in query
     # Every stored field comes back, the details from their latest version, read for the
-    # rows' own keys (the details' sort key).
+    # family and the rows' own keys (the details' sort key).
     for column in ("e.`calls.ps`", "e.`calls.cn`", "d.remoteEnd", "e.project_guid"):
         assert column in query
-    assert "FINAL\n            WHERE key IN (" in query
+    assert "FINAL\n            WHERE family_guid = %(family_guid)s AND key IN (" in query
 
 
 @pytest.mark.asyncio

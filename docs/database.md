@@ -1115,7 +1115,7 @@ names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
 | `SNV_INDEL/carriers` | the Variant Explorer's carrier summary: per variant, the carriers each family adds, kept as the families' rows are written (below, "The variant carrier summary") |
 | `SNV_INDEL/carrier_generations` | what each family's contribution to the carrier summary was computed from |
-| `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the SVLEN its caller wrote (`svLen`; the SV length filters measure it), the full annotation. A call written as a sequence allele without SVLEN (VCF 4.4 writes it `.`) is stored with the length its alleles state, len(ALT) − len(REF), negative for a deletion; any other call without SVLEN is stored with none and measured by END − POS. The SV page and an SV's classification evidence read it by key (its sort key), for the keys of the `entries` rows of their scope (`_structural_row_details`). A key is a hash, so a family's SVs lie across the whole table: one SV's evidence reads a granule, a family's whole page about a granule per SV |
+| `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the SVLEN its caller wrote (`svLen`; the SV length filters measure it), the full annotation. A call written as a sequence allele without SVLEN (VCF 4.4 writes it `.`) is stored with the length its alleles state, len(ALT) − len(REF), negative for a deletion; any other call without SVLEN is stored with none and measured by END − POS. Sorted by the family, then the key (`family_guid, key`), and every read filters the family, so it reads the family's own rows: the SV page and an SV's classification evidence the details of the keys of the `entries` rows of their scope (`_structural_row_details`), the write path's read of a family's stored SVs (`fetch_family_structural_variant_rows`) those of its rows. A key is a hash: sorted by the key alone, one family's SVs would lie across the whole table, and a family's page would read about a granule per SV |
 | `SV/key_lookup` | maps a family's variant ids, per source, to their internal keys |
 | `SV/entries` | the structural-variant calls per family and sample |
 | `SV/family_data_version` | one token per change to a family's structural variants (below) |
@@ -1238,9 +1238,9 @@ erDiagram
         UInt64 key
     }
     SV_details["SV/variants/details"] {
+        String family_guid PK
         UInt64 key PK "hash of the assembly, family, variant ID and source"
         String variantId
-        String family_guid
         String source
         String svType
         String chrom "with start and end"

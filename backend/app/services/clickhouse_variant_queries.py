@@ -3430,14 +3430,18 @@ def _structural_row_details(assembly_name: str, where_clauses: Sequence[str], co
     alias ``e``, that ``where_clauses`` keep: the right side of a join on ``d.key = e.key``
     that answers exactly as the whole table does.
 
-    It reads the details by their sort key, for those rows' keys only. Joined whole, the
-    right side is built from every family's SVs, with their annotation JSON, to answer one
-    family's page or one SV."""
+    ``where_clauses`` are a family's scope (``_structural_variant_scope_clauses``), which
+    binds ``family_guid``. The details are read by their sort key, the family and then the
+    key, for those rows' keys only: a key's details row is its family's, as the key hashes
+    the family, so the read is the family's own rows. Joined whole, the right side is built
+    from every family's SVs, with their annotation JSON, to answer one family's page or one
+    SV."""
     entries_table = _structural_table_name(assembly_name, "entries")
     details_table = _structural_table_name(assembly_name, "variants/details")
     return (
         f"(SELECT key, {', '.join(columns)} FROM {details_table}"
-        f" WHERE key IN (SELECT e.key FROM {entries_table} AS e WHERE {' AND '.join(where_clauses)}))"
+        " WHERE family_guid = %(family_guid)s"
+        f" AND key IN (SELECT e.key FROM {entries_table} AS e WHERE {' AND '.join(where_clauses)}))"
     )
 
 

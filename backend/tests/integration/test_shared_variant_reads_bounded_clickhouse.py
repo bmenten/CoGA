@@ -18,6 +18,12 @@ every read answers as its reference, the same read of the whole table, and reads
 few granules (``read_rows`` in ``system.query_log``, found by the read's ``log_comment``),
 with the same bound after the second fill; the reference reads every row of the table.
 
+A family with more than four granules' worth of SVs is written the same way. Its SV page,
+an SV's evidence and the write path's read of its stored rows
+(``fetch_family_structural_variant_rows``) answer as the whole table does, and read the
+family's own rows, in ``SV/entries`` and in ``SV/variants/details`` (sorted by the family
+first), with at most a granule at either end: less than the details table holds.
+
 The test writes to a ClickHouse dataset of its own (an assembly named for the run), so it
 can merge each table to one part and count only its own granules. Synthetic data only.
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -46,6 +52,11 @@ _GRANULE = 8192
 _MAX_GRANULES = 6
 # Other families' rows written to each shared table per fill.
 _FILL_ROWS = 150_000
+# The SVs of the family with many: more than four granules' worth, each with an annotation
+# of its own, and the one whose evidence is read.
+_MANY_SVS = 4 * _GRANULE + 1_000
+_MANY_SAMPLE = "MANYPROBAND"
+_MANY_EVIDENCE_INDEX = _MANY_SVS // 2
 
 _TRIO = ("PROBAND", "MOTHER", "FATHER1")
 _DIRECT_AND_IMPUTED = "7-1000101-C-T"
@@ -120,23 +131,42 @@ def _sv(variant_id: str, source: str) -> Any:
     )
 
 
-def _trio_context(family_uuid: str, project: str, assembly_name: str) -> Any:
+def _many_sv(index: int) -> Any:
+    """One SV of the family with many: a deletion on chromosome 8, with its own annotation."""
+    from backend.app.services.clickhouse_variant_records import StructuralVariantCall, StructuralVariantRecord
+
+    start = 1_000_001 + index * 1_000
+    return StructuralVariantRecord(
+        variant_key=None, variant_id=f"8-{start}-{start + 500}-DEL", chr="8", start=start, end=start + 500,
+        sv_type="DEL", source="sniffles", remote_chr=None, remote_start=None, remote_end=None,
+        sv_len=-500, filters=["PASS"], gene_symbols=["MANYSV"],
+        annotations=[{"gene": "MANYSV", "index": index}],
+        calls=[StructuralVariantCall(sample=_MANY_SAMPLE, gt="0/1", qual=30.0, read_support=12, filter="PASS")],
+    )
+
+
+def _family_context(
+    family_uuid: str, family_id: str, samples: Sequence[str], project: str, assembly_name: str
+) -> Any:
+    """The family's read context: every member visible, the first one affected."""
     from backend.app.services.family_metadata_context import FamilyMetadataContext
 
     return FamilyMetadataContext(
         family_uuid=family_uuid,
-        family_id="BOUNDED-TRIO",
+        family_id=family_id,
         project_ids=[project],
-        sample_rows=[{"sample_id": sample} for sample in _TRIO],
-        sample_uuid_to_name={sample: sample for sample in _TRIO},
-        sample_name_to_uuid={sample: sample for sample in _TRIO},
-        affected_sample_names=["PROBAND"],
+        sample_rows=[{"sample_id": sample} for sample in samples],
+        sample_uuid_to_name={sample: sample for sample in samples},
+        sample_name_to_uuid={sample: sample for sample in samples},
+        affected_sample_names=[samples[0]],
         assembly_id=str(uuid4()),
         assembly_name=assembly_name,
     )
 
 
-async def _write_families(assembly_name: str, trio_uuid: str, project: str) -> None:
+async def _write_families(
+    assembly_name: str, trio_uuid: str, project: str, many_uuid: str, many_project: str
+) -> None:
     from backend.app.services.clickhouse_variant_storage import (
         insert_small_variant_records,
         insert_structural_variant_records,
@@ -163,6 +193,10 @@ async def _write_families(assembly_name: str, trio_uuid: str, project: str) -> N
         trio_uuid,
         [project],
         [_sv(_SV_TWO_CALLERS, "sniffles"), _sv(_SV_TWO_CALLERS, "spectre"), _sv(_SV_ONE_CALLER, "sniffles")],
+    )
+    # The family with many SVs, in a project of its own.
+    await insert_structural_variant_records(
+        assembly_name, many_uuid, [many_project], [_many_sv(index) for index in range(_MANY_SVS)]
     )
     # Another family: the trio's variant under another annotation version (another
     # annotation set of the same key), and the variants the NIPT protections read.
@@ -404,7 +438,10 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
     from backend.app.services.clickhouse_small_variants import get_small_variant_family_record
     from backend.app.services.clickhouse_variant_ids import _small_table_name, _structural_table_name
     from backend.app.services.clickhouse_variant_records import Region
-    from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
+    from backend.app.services.clickhouse_variant_storage import (
+        ensure_clickhouse_variant_tables,
+        fetch_family_structural_variant_rows,
+    )
     from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
     from backend.app.services.nipt_analysis import NiptQualityThresholds
     from backend.app.services.nipt_artifact_pg import recurrence_rules
@@ -413,7 +450,10 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
     tag = uuid4().hex[:8].upper()
     assembly_name = f"BOUNDREADS{tag}"
     trio_uuid, project = str(uuid4()), str(uuid4())
-    context = _trio_context(trio_uuid, project, assembly_name)
+    context = _family_context(trio_uuid, "BOUNDED-TRIO", _TRIO, project, assembly_name)
+    many_uuid, many_project = str(uuid4()), str(uuid4())
+    many_context = _family_context(many_uuid, "BOUNDED-MANY", (_MANY_SAMPLE,), many_project, assembly_name)
+    many_evidence_id = _many_sv(_MANY_EVIDENCE_INDEX).variant_id
     sv_page = StructuralVariantQueryFilters(page=1, page_size=50)
     rules = recurrence_rules(NiptQualityThresholds())
     protection_ids = [
@@ -427,6 +467,10 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
     sv_details = _structural_table_name(assembly_name, "variants/details")
     annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
     bound = _MAX_GRANULES * _GRANULE
+    # What a read of the family with many SVs may read: its own rows in ``SV/entries`` (a
+    # partition of its own) twice, and its own rows in ``SV/variants/details``, each with at
+    # most a granule at either end that it shares with other rows.
+    many_bound = 3 * (_MANY_SVS + 2 * _GRANULE)
 
     async def _check(stage: str) -> None:
         def label(read: str) -> str:
@@ -494,6 +538,46 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
             assert await _read_rows(label(read)) <= bound, (read, await _read_rows(label(read)))
             assert await _read_rows(label(f"{read}-whole")) >= await _row_count(sv_details)
 
+        # The family with many SVs: its page, an SV's evidence and the write path's read of
+        # its stored rows read the family's own details, not every family's.
+        many_page = await _measured(label("many-page"), _fetch_structural_variant_rows(many_context, sv_page))
+        many_evidence = await _measured(
+            label("many-evidence"), fetch_structural_variant_records(many_context, many_evidence_id)
+        )
+        many_stored = await _measured(
+            label("many-stored"), fetch_family_structural_variant_rows(assembly_name, many_uuid)
+        )
+        with (
+            patch.object(clickhouse_family_variants, "_structural_row_details", _whole_sv_details),
+            patch.object(structural_variant_evidence, "_structural_row_details", _whole_sv_details),
+        ):
+            many_page_reference = await _measured(
+                label("many-page-whole"), _fetch_structural_variant_rows(many_context, sv_page)
+            )
+            many_evidence_reference = await _measured(
+                label("many-evidence-whole"), fetch_structural_variant_records(many_context, many_evidence_id)
+            )
+        assert many_page == many_page_reference
+        assert len(many_page) == _MANY_SVS
+        assert all(record.annotations == [{"gene": "MANYSV", "index": index}] for index, record in enumerate(many_page))
+        assert many_evidence == many_evidence_reference
+        assert [record.variant_id for record in many_evidence] == [many_evidence_id]
+
+        # The write path's read gives each stored row the details the page gives it.
+        def details(record: Any) -> tuple[Any, ...]:
+            return (record.remote_chr, record.remote_start, record.sv_len, record.filters, record.annotations)
+
+        assert len(many_stored) == _MANY_SVS
+        assert {(row.record.variant_id, row.record.source): details(row.record) for row in many_stored} == {
+            (record.variant_id, record.source): details(record) for record in many_page
+        }
+        # The bound is less than the details table holds: a read of the whole table exceeds it.
+        assert many_bound < await _row_count(sv_details)
+        for read in ("many-page", "many-evidence", "many-stored"):
+            assert await _read_rows(label(read)) <= many_bound, (read, await _read_rows(label(read)))
+        for read in ("many-page", "many-evidence"):
+            assert await _read_rows(label(f"{read}-whole")) >= await _row_count(sv_details)
+
         # The NIPT protections read every annotation of the variant on the assembly: another
         # family's annotation protects a variant the plasmas' own rows do not.
         flags = await _measured(label("protection"), fetch_artifact_protection_flags(assembly_name, protection_ids))
@@ -520,7 +604,7 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
 
     async def _run() -> None:
         await ensure_clickhouse_variant_tables(assembly_name)
-        await _write_families(assembly_name, trio_uuid, project)
+        await _write_families(assembly_name, trio_uuid, project, many_uuid, many_project)
         for round_ in (1, 2):
             await _fill_with_other_families(assembly_name, round_)
             assert await _row_count(small_details) >= round_ * _FILL_ROWS
