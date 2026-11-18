@@ -54,6 +54,7 @@ the intended workflow, and CoGA's outcome is compared with the comparator.
 | Expanded carrier screening (BeGECS, long-read) | **BeGECS couples** | **50 couples** | **Current gold standard: WES analysis + FraX + SMA + DMD deletion (MLPA) + CYP21A2 analysis** |
 | PGT (shallow WGS) | **PGT embryos** | **100 embryos** | **Current GENType / HOPLA method**, and/or confirmatory testing |
 | Rare-disorder diagnostics (long-read) | **WGS trios** | **30 trios** | Validated diagnostic NGS result / established clinical conclusion |
+| Rare-disorder diagnostics (short-read WGS) | **🔲 (define)** | **🔲 N (define)** | 🔲 (define) |
 | Monogenic NIPT | **Monogenic NIPT samples** | **30 samples** | Validated comparator (‹invasive confirmatory genotype / established NIPT result / known fetal genotype›) |
 | Mitochondrial disease (ONT adaptive sampling) | **mtDNA + nuclear mito-gene cases** | **🔲 N (define)** | Validated comparator (‹established mtDNA assay + nuclear mito-gene NGS result; orthogonal heteroplasmy quantitation›) |
 
@@ -125,6 +126,12 @@ agreement estimates.
 - **Proposed acceptance (confirm):** 100% detection of known causal mtDNA/nuclear variant(s); heteroplasmy within ‹±X%› of comparator; swaps caught on the mismatch controls; no missed causal variant.
 - **Edge cases:** low heteroplasmy near the limit of detection, homoplasmy, mtDNA coverage gaps, nuclear–mtDNA dual findings, single- vs multi-tissue heteroplasmy.
 - **🔲 INPUT NEEDED:** validation N, comparator method(s), heteroplasmy-agreement tolerance, and which tissues are validated.
+
+### 3.6 Rare-disorder diagnostics — short-read WGS (N to define)
+- **Unit of analysis:** as §3.3, for SNV/indel: the **diagnostic conclusion** and the set of reported variants.
+- **Inputs:** the family's VEP-annotated joint GATK callset (HaplotypeCaller, GenotypeGVCFs), each sample's alignment, HPO, pedigree (TF-01 §3.6).
+- **Metrics:** concordance of the reported causal/candidate SNV/indel(s) with the established diagnosis; ACMG-class concordance; de novo / inheritance-mode concordance; the callset read as GATK writes it (no FILTER of its own, physical phasing not taken for imputation).
+- **🔲 INPUT NEEDED:** validation set and N, comparator, acceptance criteria, and whether proband-only cases are included.
 
 ## 4. Reproducibility, robustness & cross-cutting checks
 - **Reproducibility/repeatability:** the same validated input gives an identical signed report (content-hash equality); a second analyst re-analyses a subset (inter-operator).

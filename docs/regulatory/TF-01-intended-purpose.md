@@ -62,7 +62,7 @@ autoclassifier"* — every criterion is overridable.)
 
 ## 3. Clinical applications (intended uses)
 
-CoGA is one software device with five declared clinical applications. Each is a distinct
+CoGA is one software device with six declared clinical applications. Each is a distinct
 intended use, with its own population, input, output and limitations, evaluated separately
 in the Performance Evaluation (TF-10/TF-11).
 
@@ -106,6 +106,14 @@ in the Performance Evaluation (TF-10/TF-11).
 - **Panel scope:** the nuclear mito-gene panel is a **controlled document in the CMGG kwaliteitshandboek (KHB)**; the applicable document ID and version must be recorded per study and per release. The CMGG-specific mitochondrial validation dossier also governs this application.
 - **Tissue scope:** **multiple tissues may be analysed** for heteroplasmy; the tissues covered by the validated claim will be those established by the [TF-10](TF-10-performance-evaluation-plan.md) study.
 - **Nature of result:** Diagnostic decision support; mtDNA heteroplasmy and maternal inheritance are interpreted with their QC, and final classification/reporting is by the laboratory.
+
+### 3.6 Rare-disorder diagnostics (short-read whole-genome sequencing)
+- **Purpose:** Support **diagnostic** interpretation of rare inherited disorders from conventional short-read (Illumina) whole-genome sequencing, through its small-variant callset.
+- **Input:** The family's joint small-variant callset from the validated short-read workflow (GATK HaplotypeCaller per sample, joint-genotyped with GenotypeGVCFs), VEP-annotated; each sample's alignment (CRAM/BAM) for review in the genome browser; HPO terms; pedigree. Reference: [data-import.md](../data-import.md).
+- **Output:** As §3.4, for SNV/indel: pedigree-aware candidate filtering and prioritization, semi-automatic ACMG/AMP classification, gene/HPO/panel context, and a reproducible analysis a supervisor signs out (closed and frozen), to which the clinical report in the EPD refers.
+- **Scope of the data:** SNV/indel only. Structural variants, repeat expansions, Paraphase and mtDNA heteroplasmy are not part of this application's input.
+- **Population:** Patients (and families) with suspected rare Mendelian disease referred to CMGG, proband-only and family analysis (🔲 to confirm, §5).
+- **Nature of result:** Diagnostic decision support; final classification and reporting by the clinical laboratory.
 
 ---
 
@@ -156,3 +164,6 @@ What remains before this statement can be approved:
 - **🔲 Belgian transitional dates / FAMHP national provisions** (questionnaire A6) and the
   **publication location of the Art. 5(5)(f) declaration** (A7).
 - **🔲 The assigned CMGGMC software number `Sxxxx`** ([TF-02](TF-02-device-description.md)).
+- **🔲 Short-read WGS (§3.6).** The owner added it as a clinical application on 2026-11-18. The
+  owner confirms its population and its limitation to SNV/indel; [TF-10](TF-10-performance-evaluation-plan.md)
+  §3.6 needs its validation set, comparator and acceptance.

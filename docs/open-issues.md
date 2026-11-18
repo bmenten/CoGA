@@ -25,7 +25,7 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | REG-12 | P2 | Confirm or reverse the choices the fix PRs left for the owner or QA | QA, owner | RC |
 | REG-14 | P2 | Decide which browser journeys back a TF-09d claim | owner, QA | RC |
 | REG-16 | P2 | Add to TF-10 §8 the clinical behaviour no area covers; validate the two Major filter changes with it | developer, QA | RC |
-| REG-17 | P2 | Decide whether short-read WGS is in the intended purpose: CoGA imports its family folders, but no TF-01 application covers it and TF-08 lists no GATK | owner, QA, RA | RC |
+| REG-17 | P2 | Confirm the short-read WGS application's population and SNV/indel scope (TF-01 §3.6); define its TF-10 §3.6 study | owner, QA | validation |
 | REG-15 | P2 | Decide whether the variant summary's figures belong in the validation scope: no rule reads them, but its Mendelian table can point to UPD | QA | RC |
 | CLIN-9 | P2 | Confirm the carrier-screening preset and the chrM exclusion | QA | RC |
 | CLIN-10 | P2 | Check the Sample QC's relationship reading on real families: parent–embryo IBS0 on an imputed PGT family, the GQ 20 floor and the parent–child cut on a raw joint callset | owner, lab director | validation |
@@ -44,7 +44,6 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | SEC-40 | P3 | Keep an error's text out of the last stored job errors, HTTP answers and log lines | developer | |
 | UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
 | DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
-| CLIN-79 | P2 | Decide what a PGT embryo's sex check reads when the PED gives it sex 0: each such embryo's check warns, so the family's Sample QC is at least a warning | owner | validation |
 | DATA-14 | P3 | Give `coga-package.json` a field for the VCF files read only for ancestry, or remove that path: no delivered package can declare one | owner, developer | |
 | CLIN-14 | P3 | Settle the repeat catalogue's open points | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
@@ -59,7 +58,6 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
 | ENG-24 | P3 | Make the end-to-end modules independent of their order: the review-audit module leaves a variant tagged for the report | developer | |
-| ENG-26 | P3 | Remove, or justify, the reading of an `import_incomplete` flag in a shape no import writes (`true`, a list) | developer, owner | |
 | ENG-25 | P3 | Settle the copies that differ: two ROI region parsers, two Mendelian-consistency rules, two `_coerce_int`; drop the unused tag `family_id` column | developer | |
 
 ## Waiting for a decision
@@ -68,10 +66,10 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **Owner:** REG-1 (wording, REQ-TRACE-007), OPS-2, OPS-3 (separate validation environment?),
   OPS-12 (builder, Terraform lock), OPS-22, SEC-6 (with the DPO), REG-14, CLIN-10,
-  CLIN-39, CLIN-50, CLIN-68, CLIN-79, DATA-14, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), REG-17, ENG-26, OPS-15
+  CLIN-39, CLIN-50, CLIN-68, DATA-14, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), REG-17, OPS-15
   (role mailbox), OPS-24 (pre-migration backup retention).
 - **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, REG-16, REG-17, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
-  CLIN-70, OPS-7, SEC-19; with RA, REG-11 and REG-17.
+  CLIN-70, OPS-7, SEC-19; with RA, REG-11.
 - **Lab director:** REG-5, CLIN-10, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
 
 ## P1
@@ -147,12 +145,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - At exactly 2 % the Sample QC warns and the haplotype track does not.
 - Validate with an X-linked locus, trisomies of the ROI chromosome and mosaics.
 
-### CLIN-79 · A PGT embryo's sex check
-
-- A PGT family's pedigree is the `<family>.ped` at the top of its folder; it marks an embryo by a `role=embryo` column or by sex `0` (unknown) (`family_package_pgt.py`). Without a recorded sex, `sample_integrity_qc.py::_evaluate_read_sex` warns "Sex not recorded; the reads indicate …", so a family whose embryos have sex `0` has a Sample QC verdict of at least a warning.
-- The same function's pass sentence for an embryo ("The embryo's recorded sex was taken from this same ngs-bits call …") and its docstring describe a pedigree that gives an embryo the sex ngs-bits read, which this PED does not.
-- The owner decides whether an embryo without a recorded sex warns, passes with the read sex shown, or takes the read sex as its record; the code and the Sample QC docs then follow.
-
 ### REG-12 · Owner and QA confirmations of the fix rounds
 
 - The choices of the fix rounds up to 2026-10-28 are listed under REG-12 in `git show dbdf9ffc:docs/open-issues.md`; the other fix pull requests name theirs in their description.
@@ -217,10 +209,11 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - QA decides whether TF-10 §8 lists the summary, and whether TF-09a needs a requirement or TF-06 a hazard for a count read as a UPD finding.
 - Done when: QA records the decision.
 
-### REG-17 · Short-read WGS and the intended purpose
+### REG-17 · The short-read WGS application
 
-- A short-read WGS family folder (an annotated GATK HaplotypeCaller VCF at its top) is recognised as a delivery and imported like the long-read ones ([data-import.md](data-import.md)).
-- TF-01 names no short-read WGS application and TF-08 B.1 has no GATK row. The owner decides whether short-read WGS is in the intended purpose; if it is, TF-01, TF-08 and TF-10 name it.
+- The owner added rare-disorder diagnostics from short-read WGS as a clinical application (2026-11-18): TF-01 §3.6, TF-08 B.1 (GATK), TF-10 §2 and §3.6.
+- Its input is the family's VEP-annotated joint GATK callset and each sample's alignment ([data-import.md](data-import.md)), so the application covers SNV/indel only.
+- The owner confirms the population and that scope; the owner and QA set the validation set, N, comparator and acceptance of TF-10 §3.6 (with REG-6).
 
 ### OPS-6 · Deployment settings
 
@@ -315,11 +308,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - The end-to-end suite run on a database the integration suite has just used fails in `clickhouse_integrity`, the Explorer's counts and panel match, the family panel-region join, the ranking cache and ancestry; each passes on fresh containers, as CI runs it. Integration tests leave rows behind that these modules read.
 - Run on their own, `test_e2e_review_audit.py` then `test_e2e_signout_acknowledges_what_was_shown.py` fail the latter's `test_the_module_leaves_nothing_tagged_for_the_report`: the review-audit module leaves a variant of the shared family tagged for the report, and the sign-out module checks that the family's report list ends empty. The full suite, with other modules run in between, passes. Each module should leave the family as it found it, or check only its own tags.
-
-### ENG-26 · An `import_incomplete` flag in another shape
-
-- `family_package_registration.py` keeps a stored `import_incomplete` flag that is not in the shape an import writes (`true`, a list) and reads it as "incomplete, nothing named" (`_flag_failures` and its callers); handleiding chapter 6 describes it.
-- Every writer found writes the shape `_flag_payload` builds. Once that is confirmed, AGENTS.md's no-legacy rule removes the reading, unless the owner keeps it as a guard against a hand edit of the family's metadata.
 
 ### ENG-25 · Copies that differ
 

@@ -26,9 +26,10 @@
 ## 2. Intended purpose
 
 See [TF-01 Intended Purpose Statement](TF-01-intended-purpose.md). CoGA is decision-support
-software for genomic variant interpretation across five clinical applications (monogenic
-NIPT, expanded carrier screening, PGT, rare-disorder diagnostics, and combined mtDNA +
-nuclear mitochondrial-disease testing from ONT long-read adaptive sampling).
+software for genomic variant interpretation across six clinical applications (monogenic
+NIPT, expanded carrier screening, PGT, rare-disorder diagnostics from long-read and from
+short-read whole-genome sequencing, and combined mtDNA + nuclear mitochondrial-disease testing
+from ONT long-read adaptive sampling).
 
 ## 3. Device boundary
 

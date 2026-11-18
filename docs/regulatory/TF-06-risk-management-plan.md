@@ -26,7 +26,7 @@
 
 ## 1. Scope
 
-All five clinical applications of CoGA (TF-01) and the full software lifecycle (development,
+All six clinical applications of CoGA (TF-01) and the full software lifecycle (development,
 release, clinical use, change, decommissioning). Upstream wet-lab/bioinformatics risks are
 **out of scope** (covered by their own validation), **except** at the interface: CoGA's
 assumptions about, and handling of, its inputs.

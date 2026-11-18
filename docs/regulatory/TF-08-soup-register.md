@@ -216,6 +216,7 @@ rests on. Versions are captured **per family** from the pipeline's `software_ver
 | minimap2 / samtools / bcftools / mosdepth / NanoPlot | Alignment, file handling, coverage, read QC | pipeline manifest |
 | nf-core/lrsvar + Nextflow | Workflow definition and engine | pipeline manifest (`Workflow:` block) |
 | Mutect2 (NIPT-M); GLIMPSE2, SHAPEIT5 (PGT) | cfDNA and paternal calling; imputation and phasing | VCF header (`##source`, `##MutectVersion`) |
+| GATK HaplotypeCaller + GenotypeGVCFs (short-read WGS) | Small-variant calling and joint genotyping | VCF header (`##GATKCommandLine`, its `Version`) |
 
 **Policy:** updating any source in B is a controlled change (TF-18). The version manifest and
 drift detection ensure no signed report silently changes; the **performance-evaluation scope**
