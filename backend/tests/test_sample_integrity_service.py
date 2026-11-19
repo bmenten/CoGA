@@ -217,6 +217,37 @@ def test_service_clean_trio_passes(monkeypatch) -> None:
     assert report.autosomal_sites == 2_400
 
 
+def test_a_sign_out_of_one_analysis_runs_its_qc_on_its_own_callset(monkeypatch) -> None:
+    # Short-read then long-read WGS of the same trio: the short-read sign-out reads the
+    # short-read callset, although the long-read one is preferred for the family's own QC.
+    read: list[str] = []
+
+    def _sample(scope, limit, source):
+        read.append(source)
+        return _x_rows(600) if scope == "chrX" else _autosomal_rows(2_400, seed=11, swap_child=False)
+
+    _stub_reads(monkeypatch, context=_context(), sources=["clair3", "gatk"], sample=_sample)
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=_Session(),
+            family_id="FAM1",
+            user=None,
+            analysis_types=["short_read_wgs"],
+            genotype_source_held=lambda source: source == "gatk",
+        )
+    )
+    assert report.genotype_source == "gatk" and set(read) == {"gatk"}
+    # The conventional NIPT of a family holding both NIPTs: its profile, which runs no check.
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_types": ["conventional_nipt", "monogenic_nipt"]})
+    cnipt = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=_Session(), family_id="FAM1", user=None, analysis_types=["conventional_nipt"]
+        )
+    )
+    assert cnipt.application == "cnipt"
+    assert (cnipt.sex_checks, cnipt.relatedness_checks, cnipt.mendelian_checks) == ([], [], [])
+
+
 def test_service_swapped_child_fails(monkeypatch) -> None:
     _patch(monkeypatch, swap_child=True)
     report = asyncio.run(

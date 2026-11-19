@@ -41,7 +41,7 @@ import dataclasses
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Callable, Iterator, Mapping, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -56,6 +56,7 @@ from .annotation_manifest_service import (
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import audit_actor, compound_het_pair_state, record_clinical_event
+from .family_analysis_types import family_analysis_types
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .finding_review_pg import (
     FINDING_DRIFT_SECTION,
@@ -105,6 +106,7 @@ from .sample_integrity_qc import (
     SampleIntegrityReport,
 )
 from .sample_integrity_service import get_family_sample_integrity_qc
+from .signout_scope import SignoutScope, reviews_left_out, signout_scope
 
 logger = logging.getLogger(__name__)
 
@@ -604,6 +606,44 @@ async def _import_unfinished_state(
         if unfinished_entry_writer(key) == "import" and is_whole_family_entry(entry):
             state[key]["whole_family"] = True
     return state
+
+
+def _scoped_import_incomplete(state: dict[str, Any] | None, scope: SignoutScope) -> dict[str, Any] | None:
+    """What the family's imports left incomplete of the analysis signed out (``scope``): its
+    datasets (``SignoutScope.holds_dataset``); None when none of them failed."""
+    if state is None or scope.whole:
+        return state
+    failed = [name for name in state["failed_datasets"] if scope.holds_dataset(name)]
+    if not failed:
+        return None
+    return {
+        **state,
+        "failed_datasets": failed,
+        "imported_datasets": [name for name in state["imported_datasets"] if scope.holds_dataset(name)],
+        "failed_jobs": {name: state["failed_jobs"][name] for name in failed},
+    }
+
+
+def _scoped_import_unfinished(state: dict[str, dict[str, Any]], scope: SignoutScope) -> dict[str, dict[str, Any]]:
+    """The unfinished writes of the family that touch the analysis signed out (``scope``), each
+    with its datasets of that analysis: a write that touched only other analyses' datasets is
+    left out. A failed overwrite's restore (``whole_family``) is the whole family's, kept whole."""
+    if scope.whole:
+        return state
+    scoped: dict[str, dict[str, Any]] = {}
+    for key, entry in state.items():
+        if entry.get("whole_family"):
+            scoped[key] = entry
+            continue
+        datasets = [name for name in entry["datasets"] if scope.holds_dataset(name)]
+        if entry["datasets"] and not datasets:
+            continue
+        scoped[key] = {
+            **entry,
+            "datasets": datasets,
+            "finished_datasets": [name for name in entry["finished_datasets"] if scope.holds_dataset(name)],
+        }
+    return scoped
 
 
 def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
@@ -1214,38 +1254,113 @@ def _with_class_shown(entry: Mapping[str, Any]) -> dict[str, Any]:
     return {**entry, CLASS_SHOWN_KEY: review_class_label(entry.get("classification"), entry.get("tags"))}
 
 
+_FAMILY_METADATA = text("SELECT metadata FROM families WHERE id = CAST(:family_uuid AS uuid)")
+
+
+async def _family_metadata(session: AsyncSession, family_uuid: str) -> Mapping[str, Any] | None:
+    metadata = (await session.execute(_FAMILY_METADATA, {"family_uuid": family_uuid})).scalar_one_or_none()
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+    return metadata if isinstance(metadata, Mapping) else None
+
+
+async def family_signout_analyses(session: AsyncSession, family_uuid: str) -> list[str]:
+    """The analyses a family holds (``family_analysis_types``), sorted: each signed out on its
+    own (the owner's decision of 2026-11-19), such as the monogenic and the conventional NIPT of
+    one pregnancy, or short-read and then long-read WGS of the same DNA."""
+    return sorted(family_analysis_types(await _family_metadata(session, family_uuid)))
+
+
+async def family_signout_scope(session: AsyncSession, family_uuid: str, asked: str | None) -> SignoutScope:
+    """The scope of a sign-out of the family's analysis ``asked`` (``resolve_signout_analysis``):
+    the data it freezes and checks, that analysis's own (``signout_scope``)."""
+    metadata = await _family_metadata(session, family_uuid)
+    analysis = resolve_signout_analysis(sorted(family_analysis_types(metadata)), asked)
+    return signout_scope(metadata, analysis)
+
+
+def resolve_signout_analysis(held: Sequence[str], asked: str | None) -> str | None:
+    """The analysis a sign-out (or its check) is of: ``asked``, which the family must hold
+    (``held``); without one, the family's only analysis, or None for a family that holds none
+    (its record covers the whole family). A family holding two or more must be asked which:
+    422 otherwise, as for an analysis it does not hold."""
+    if asked is not None:
+        if asked not in held:
+            raise HTTPException(
+                status_code=422,
+                detail="This family holds no such analysis to sign out"
+                + (f"; it holds {', '.join(held)}." if held else "."),
+            )
+        return asked
+    if len(held) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail=f"This family holds several analyses ({', '.join(held)}): name the one to sign out.",
+        )
+    return held[0] if held else None
+
+
 async def build_report_snapshot(
     session: AsyncSession,
     *,
     family_id: str,
     user: CurrentUser,
     project_id: str | None = None,
+    analysis_type: str | None = None,
 ) -> dict[str, Any]:
-    """Assemble (but do not persist) the frozen report snapshot for a family."""
+    """Assemble (but do not persist) the frozen report snapshot of one of the family's
+    analyses (``analysis_type``, ``resolve_signout_analysis``; none for a family that holds
+    none), as a sign-out of it freezes it: the record names its analysis."""
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
+    # The analysis's data, which its record freezes and its gates check (signout_scope): the
+    # whole family, for a family of one analysis or none.
+    scope = await family_signout_scope(session, context.family_uuid, analysis_type)
+    analysis = scope.analysis
+    left_out = await reviews_left_out(session, context, scope)
     manifest = await get_family_annotation_manifest(
         session, family_id=family_id, user=user, project_id=project_id
     )
     drift = await evaluate_classification_drift(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, left_out=left_out
     )
     # A monogenic NIPT family's analysis, over its whole callset, is computed once: the
     # Sample QC's NIPT checks and the record's NIPT section below read the same values.
     shared_nipt = SharedNiptAnalysis()
     qc_report = await get_family_sample_integrity_qc(
-        session, family_id=family_id, user=user, project_id=project_id, shared_nipt=shared_nipt
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        shared_nipt=shared_nipt,
+        # The QC of the analysis signed out, on genotypes of its own callset.
+        analysis_types=None if scope.whole or analysis is None else [analysis],
+        genotype_source_held=None if scope.whole else lambda source: scope.holds("small_variants", [source]),
     )
     # Each with the class its review shows, by the family page's rule.
-    reported = [_with_class_shown(entry) for entry in await _reported_reviews(session, context.family_uuid)]
+    reported = [
+        _with_class_shown(entry)
+        for entry in await _reported_reviews(session, context.family_uuid)
+        if str(entry["variant_id"]) not in left_out.small
+    ]
     reported_structural = [
-        _with_class_shown(entry) for entry in await _reported_structural_reviews(session, context.family_uuid)
+        _with_class_shown(entry)
+        for entry in await _reported_structural_reviews(session, context.family_uuid)
+        if str(entry["variant_id"]) not in left_out.structural
     ]
     sequencing_qc = await _canonical_sequencing_qc(session, context)
-    import_incomplete = await _import_incomplete_state(session, context.family_uuid)
-    import_unfinished = await _import_unfinished_state(session, context.family_uuid)
-    package_source_changes = await _package_source_changes_state(session, context.family_uuid)
+    import_incomplete = _scoped_import_incomplete(
+        await _import_incomplete_state(session, context.family_uuid), scope
+    )
+    import_unfinished = _scoped_import_unfinished(
+        await _import_unfinished_state(session, context.family_uuid), scope
+    )
+    package_source_changes = [
+        change
+        for change in await _package_source_changes_state(session, context.family_uuid)
+        if scope.holds_record(change["analysis_type"])
+    ]
     # A reported classification with no frozen evidence snapshot cannot be drift-verified
     # (evaluate_classification_drift only checks reviews that HAVE a snapshot), so it would
     # otherwise clear the sign-out drift gate unchallenged. Surface each as a "no_snapshot"
@@ -1291,6 +1406,7 @@ async def build_report_snapshot(
         reported=reported,
         reported_structural=reported_structural,
         shared_nipt=shared_nipt,
+        scope=scope,
     )
     # The reviews of the repeat loci and Paraphase regions that carry a classification or the
     # Report tag, with whether the calls each froze are still the family's; those whose calls
@@ -1302,6 +1418,8 @@ async def build_report_snapshot(
         # What the record is: the analytical sign-off, to which the EPD's report refers.
         "record_statement": ANALYTICAL_SIGN_OFF_STATEMENT,
         "family_id": context.family_id,
+        # The analysis it closes (None: a family that holds none, whose record covers it whole).
+        "analysis_type": analysis,
         "assembly": manifest.get("assembly"),
         "modules": manifest.get("modules", []),
         # Build identity of the software that produced this snapshot, frozen into the
@@ -1427,6 +1545,7 @@ async def _report_code_taken(session: AsyncSession, code: str) -> bool:
 def _serialize_signout(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "version": row["version"],
+        "analysis_type": row.get("analysis_type"),
         "signed_out_by": row["signed_out_by"],
         "signed_out_at": row["signed_out_at"],
         "content_hash": row["content_hash"],
@@ -1479,8 +1598,10 @@ async def sign_out_report(
     unreviewed_findings_acknowledgement_reason: str | None = None,
     unreviewed_findings_concerns_fingerprint: str | None = None,
     project_id: str | None = None,
+    analysis_type: str | None = None,
 ) -> dict[str, Any]:
-    """Sign the family out: freeze, hash and append its report snapshot, past its gates.
+    """Sign one of the family's analyses out (``analysis_type``; ``resolve_signout_analysis``):
+    freeze, hash and append its report snapshot, past its gates.
 
     Each gate the signer may acknowledge (evidence drift, Sample QC, an incomplete import, a
     package folder that changed or went after its import, an abnormal repeat or Paraphase call
@@ -1518,7 +1639,7 @@ async def sign_out_report(
     # sign-out chain's lock below, as every variant-write lock comes first.
     await _refuse_while_family_is_written(session, context)
     snapshot_body = await build_report_snapshot(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, analysis_type=analysis_type
     )
     # An import claimed while the snapshot was read may have written part of what it read.
     await _refuse_if_import_started(session, context)
@@ -1968,6 +2089,7 @@ async def list_report_signouts(
             text(
                 """
                 SELECT version, signed_out_by, signed_out_at, content_hash, family_identifier,
+                       snapshot->>'analysis_type' AS analysis_type,
                        snapshot->'software'->>'version' AS software_version,
                        snapshot->'software'->>'git_sha'  AS git_sha,
                        snapshot->'sample_qc'->>'overall_status' AS qc_status,
@@ -1995,9 +2117,17 @@ async def list_report_signouts(
         )
     ).mappings().all()
     signouts = [_serialize_signout(dict(row)) for row in rows]
+    # Each analysis is signed out on its own: its latest version, in the order of the analyses
+    # (a record of no analysis first).
+    latest_per_analysis: dict[str | None, dict[str, Any]] = {}
+    for signout in signouts:
+        latest_per_analysis.setdefault(signout.get("analysis_type"), signout)
     return {
         "family_id": context.family_id,
         "latest": signouts[0] if signouts else None,
+        "latest_per_analysis": [
+            latest_per_analysis[key] for key in sorted(latest_per_analysis, key=lambda key: (key is not None, key or ""))
+        ],
         "signouts": signouts,
     }
 
@@ -2018,6 +2148,7 @@ async def get_report_signout(
             text(
                 """
                 SELECT version, signed_out_by, signed_out_at, content_hash, snapshot,
+                       snapshot->>'analysis_type' AS analysis_type,
                        family_identifier,
                        snapshot->'software'->>'version' AS software_version,
                        snapshot->'software'->>'git_sha'  AS git_sha,
@@ -2191,8 +2322,11 @@ async def compare_report_with_latest_signout(
     family_id: str,
     user: CurrentUser,
     project_id: str | None = None,
+    analysis_type: str | None = None,
 ) -> dict[str, Any]:
-    """Does the report, as it would be signed now, still match the latest sign-out?
+    """Does the report of one of the family's analyses (``analysis_type``,
+    ``resolve_signout_analysis``), as it would be signed now, still match that analysis's latest
+    sign-out?
 
     The report page renders a signed version from its frozen snapshot and the live report
     from current data. A change after sign-out (a review edit, a new report tag, a
@@ -2203,12 +2337,19 @@ async def compare_report_with_latest_signout(
     with the frozen one: a section that differs, or that only one of the two holds, is
     changed. A section of one application that neither holds (``pgt_analysis`` of a family
     without an embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype
-    blocks; ``nipt`` of a family that is no monogenic NIPT family) is not compared.
+    blocks; ``nipt`` of a family that is no monogenic NIPT family), or of a kind of data the
+    analysis does not hold (``signout_scope``), is not compared. Both snapshots are of the
+    analysis's own data, so a change to another analysis's leaves its check matching.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
     checked_at = datetime.now(timezone.utc)
+    analysis = resolve_signout_analysis(
+        await family_signout_analyses(session, context.family_uuid), analysis_type
+    )
+    # The analysis's latest record (each analysis is signed out on its own, in one series of
+    # versions per family).
     row = (
         await session.execute(
             text(
@@ -2216,16 +2357,18 @@ async def compare_report_with_latest_signout(
                 SELECT version, content_hash, snapshot
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid)
+                  AND snapshot ->> 'analysis_type' IS NOT DISTINCT FROM CAST(:analysis AS text)
                 ORDER BY version DESC
                 LIMIT 1
                 """
             ),
-            {"family_uuid": context.family_uuid},
+            {"family_uuid": context.family_uuid, "analysis": analysis},
         )
     ).mappings().first()
     if row is None:
         return {
             "family_id": context.family_id,
+            "analysis_type": analysis,
             "version": None,
             "content_hash": None,
             "matches": None,
@@ -2235,14 +2378,15 @@ async def compare_report_with_latest_signout(
         }
     signed = _as_snapshot(row["snapshot"]) or {}
     current = await build_report_snapshot(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, analysis_type=analysis
     )
     changed: list[str] = []
     for section in REPORT_CONTENT_SECTIONS:
         if section not in signed and section not in current:
             # Another application's section (the PGT embryo calls of a family without an
             # embryo or of a NIPT family's fetus, the NIPT results of a family that is no
-            # NIPT family): there is nothing to compare.
+            # NIPT family), or a kind of data the analysis does not hold (the repeat calls of a
+            # short-read analysis beside a long-read one, signout_scope): nothing to compare.
             continue
         if (
             section not in signed
@@ -2253,6 +2397,7 @@ async def compare_report_with_latest_signout(
             changed.append(section)
     return {
         "family_id": context.family_id,
+        "analysis_type": analysis,
         "version": row["version"],
         "content_hash": row["content_hash"],
         "matches": not changed,

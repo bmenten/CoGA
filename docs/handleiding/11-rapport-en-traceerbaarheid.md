@@ -23,7 +23,7 @@ Er zijn twee rapportpagina's:
 
 Een monogene NIPT-familie gebruikt dezelfde ondertekening:
 
-- Ze wordt ondertekend vanaf het NIPT-rapport (**Sign out NIPT analysis**) of het familierapport, niet vanaf de NIPT-pagina zelf. Er is één ondertekend record per analyse, met dezelfde poorten, versie en rapportcode.
+- Ze wordt ondertekend vanaf het NIPT-rapport (**Sign out NIPT analysis**) of het familierapport, niet vanaf de NIPT-pagina zelf; houdt de familie ook andere analyses, dan alleen vanaf het NIPT-rapport (zie *Eén ondertekening per analyse*). Er is één ondertekend record per analyse, met dezelfde poorten, versie en rapportcode.
 - Haar record bevat ook de sectie `nipt` (`signed_record_nipt.py`, zie verder): de NIPT-analyse zoals de NIPT-pagina ze toonde, door de backend berekend.
 - De controles van de sample-QC blijven in `sample_qc`: het vaderschap, het foetale geslacht uit de X-allelen van de vader, het categoriepatroon van het cfDNA en het geslacht van de ouders.
 - Een gerapporteerde NIPT-variant staat in `reported_variants` en `variant_descriptions`, zoals elke gerapporteerde small variant, en in `nipt` met zijn categorie, reads en kansen.
@@ -101,6 +101,27 @@ Ondertekenen gaat via **`POST /api/families/{id}/report/sign-out`**. De service 
 **Wijzigingen.** Elke ondertekening is een nieuwe versie; een ondertekende versie wordt nooit gewijzigd. In het live rapport heet de knop dan *Amend sign-out*. Een klinisch verslag dat op de gewijzigde analyse steunt, verwijst naar de nieuwe versie.
 
 **Waar in de code:** `backend/app/services/report_signout_service.py` (`sign_out_report`, `build_report_snapshot`); de rol in `require_sign_out_authority` en `user_can_sign_out_metadata_projects` (`backend/app/services/access_control.py`).
+
+### Eén ondertekening per analyse
+
+Een familie kan meerdere analyses houden (`analysis_types`), elk uit een eigen pakket geïmporteerd: de monogene en de conventionele NIPT van één zwangerschap, of eerst short-read en dan long-read WGS van hetzelfde DNA. Elke analyse wordt apart ondertekend (beslissingen van de eigenaar van 2026-11-19): haar record bevriest en controleert alleen de data van die analyse.
+
+- **Het verzoek noemt de analyse** (`analysis_type` in `ReportSignoutRequest`). Een familie met twee of meer analyses moet er een noemen: zonder `422`, en `422` voor een analyse die de familie niet houdt. Een familie met één analyse of geen hoeft er geen te noemen: haar record noemt haar enige analyse, of geen, en dekt de hele familie.
+- **Eén reeks versies per familie**, welke analyse een versie ook afsluit; de rapportcode wordt op dezelfde manier gemaakt. Elk snapshot noemt zijn analyse (`analysis_type`), en de inhoudshash dekt ze.
+- **Wat bij een analyse hoort.** Elk pakketrecord (`families.metadata.package_imports`, hoofdstuk 6) somt de opslagbronnen op die zijn import schreef, per soort data (`sources`: `small_variants`, `structural_variants`, `tracks`, `repeats`, `paraphase`), en zijn datasets. Een item hoort bij analyse X als een van zijn bronnen van X zelf is of door geen andere analyse van de familie geclaimd wordt. Data uit een upload, uit een toevoeging van een analist of uit een pakket dat geen analyse noemde, horen dus bij elke analyse. Een pakketrecord dat niet in de vorm is die de import schrijft, stopt de ondertekening (`PackageRecordShapeError`): CoGA raadt niet welke data van de analyse zijn.
+- **Wat de ondertekening van X bevriest en controleert:**
+    - de gerapporteerde small variants en SV's, hun drift en hun beschrijvingen: volgens de bronnen waaronder hun opgeslagen rijen staan (`entries` in ClickHouse); een variant waarvan de rijen weg zijn, telt mee;
+    - de dekkingssporen: op dezelfde manier volgens de bron van het spoor;
+    - de repeatcalls en de Paraphase-resultaten, met hun reviews, hun drift en poort 4: alleen als het record van X zulke bronnen opsomt of dat van geen andere analyse. Anders houdt het record geen van beide secties, en de ondertekende weergave zegt dat (*Not part of this record: the analysis it closes holds no repeat-expansion calls …*);
+    - de sectie van een toepassing: `nipt` alleen voor de monogene NIPT, `cnipt` alleen voor de conventionele NIPT, `pgt_analysis` voor PGT of de monogene NIPT. Een sectie van een toepassing waarvan de familie geen enkele analyse houdt, gaat naar elke analyse;
+    - de sample-QC: die van de eigen toepassing van X (de conventionele NIPT voert geen controle uit), op genotypes uit een eigen callset;
+    - `package_intake` en `package_source_changes`: het eigen record van X, en dat van een pakket dat geen analyse noemde;
+    - `import_incomplete` en `import_unfinished`: de datasets van het record van X of van het record van geen andere analyse; een niet afgeraakte terugzetting van een `overwrite` blijft geheel.
+- **Geheel:** de genpanels, de referentiedata (voor de genen die het record beschrijft), de modules en de sequencing-QC.
+- **De poorten en de controle.** De poorten lezen dit snapshot, dus elke poort is die van de analyse zelf. De controle (`sign-out-check?analysis_type=…`) vergelijkt het laatste record van X met het snapshot van X zoals het nu bevroren zou worden, en slaat een sectie over die geen van beide heeft: een wijziging aan de data van een andere analyse laat de controle van X overeenkomen.
+- **Waar ze ondertekend wordt.** Het NIPT-rapport ondertekent de monogene NIPT, het familierapport elke andere analyse, met een keuze (*Analysis to sign out*) als er meerdere overblijven. De knop noemt de analyse (*Sign out the conventional NIPT*, *Amend sign-out of the conventional NIPT*). Het familierapport somt elke analyse op (*Sign-out of each analysis*): de laatste ondertekende versie met haar rapportcode, ondertekenaar en datum, en of de data van de familie er nog mee overeenkomen. De live pagina's tonen de huidige data van de familie geheel; de ondertekening bevriest het deel van de analyse.
+
+**Waar in de code:** `backend/app/services/signout_scope.py`; `resolve_signout_analysis` en `family_signout_scope` in `report_signout_service.py`; `package_sources` in `family_package_records.py`; `AnalysisSignouts.tsx` en `familyAnalyses.ts` in de frontend.
 
 ### Poort 0b — er wordt niet naar de familie geschreven
 
@@ -266,6 +287,7 @@ Zo wordt een bevinding die opdook nadat de dialoog ze toonde, nooit ongezien mee
 | Veld | Inhoud |
 | --- | --- |
 | `family_id`, `assembly` | De familie en de referentie-assembly |
+| `analysis_type` | De analyse die het record afsluit; `null` voor een familie die er geen houdt, waarvan het record de hele familie dekt (zie *Eén ondertekening per analyse*) |
 | `modules` | Het volledige annotatie- en referentiemanifest, per modaliteit |
 | `software` | De build die het snapshot maakte (`app_version` en `git_sha`) |
 | `drift` | Het aantal gecontroleerde classificaties van small variants en de lijst met drift (ook `no_snapshot`), met per drift wat verschoof |
@@ -354,8 +376,9 @@ De tekens zijn Crockfords base 32 (cijfers en hoofdletters zonder I, L, O en U).
 
 Alleen de ondertekende versie is het ondertekende rapport. De rapportpagina heeft twee weergaven:
 
-- **Een ondertekende versie** (`?version=N`). Een ondertekende casus opent op de laatste. `SignedFamilyReport.tsx` tekent ze uitsluitend uit het bevroren snapshot dat `GET /families/{id}/report/sign-outs/{version}` teruggeeft; `signedReportRecord.ts` leest het sectie per sectie. De pagina toont:
+- **Een ondertekende versie** (`?version=N`). Een ondertekende casus opent op de laatste (bij een familie met meerdere analyses de laatste van de analyses die het familierapport ondertekent). `SignedFamilyReport.tsx` tekent ze uitsluitend uit het bevroren snapshot dat `GET /families/{id}/report/sign-outs/{version}` teruggeeft; `signedReportRecord.ts` leest het sectie per sectie. De pagina toont:
     - de versie, de ondertekenaar, het tijdstip, de **rapportcode**, de zin die zegt wat het record is, de inhoudshash en of die nog klopt (`verified`), en de build die ondertekende;
+    - de analyse die het record afsluit, in de titel (*Clinical report — signed version 2 of the conventional NIPT*) en, als de versies van de familie meer dan één analyse afsluiten, naast elke versie in de lijst van versies; de *latest* en de controle zijn die van die analyse;
     - per gerapporteerde variant de beschrijving zoals de analist ze zag, de klasse, de aanvaarde criteria, het bevroren bewijs (ook de gnomAD-datasets waarmee de callset geannoteerd werd), de tags en de notitie; bij een variant die haar compound-het-paar rapporteert ook die paarreview, onder *Compound-het pair*. De klasse is die het record als getoond bevroor (`class_shown`), met de ACMG-score ernaast als die een andere klasse geeft (zie *De klasse die elke gerapporteerde variant toont*);
     - de SV's met hun beschrijving en ClinGen-CNV-criteria, de klasse zoals de SV-pagina ze toont en de CNV-score ernaast als die een andere klasse geeft, nooit als klasse;
     - bij een PGT-familie de embryo-indeling (*PGT embryo results*): per embryo de indeling, de homologen bij de ROI zoals het spoor ze noemt (P1, P2, M1 en M2), de waarschuwingen, de QC, het oordeel over die QC en de drempels die golden;
@@ -378,11 +401,11 @@ Verder:
 
 - Wat geen snapshot bevat, zegt de ondertekende versie, voor het rapport en per variant: de populatiefrequenties en in-silicovoorspellingen, de segregatie, de gen- en fenotypecontext, het auditspoor en de pipelinesettings. Ze vult het nooit aan met huidige data. Een sectie die bij het ondertekenen niet gelezen kon worden, of die de pagina niet kan lezen, staat er als *Not captured*, met de reden, nooit als leeg. Kan de pagina een lijst in een sectie niet lezen (een waarde die geen lijst is, of een element dat niet van zijn soort is), dan laat ze die weg en zegt de sectie dat (*Part of … cannot be read here*; `parseRecordSection` in `signedReportRecord.ts`).
 - De printknop drukt de ondertekende versie af. Bovenaan de afdruk staat een melding bij een record dat niet meer bij zijn inhoudshash past, bij een versie die door een latere vervangen is, en bij een versie waarvan niet vaststaat dat ze de laatste is.
-- Een controle (`GET /families/{id}/report/sign-out-check`) bouwt het snapshot zoals het nu zou worden bevroren, en vergelijkt het sectie per sectie, elke sectie helemaal, met de laatste ondertekende versie. Zo zegt het live rapport of het nog overeenkomt, welke delen wijzigden, of dat de controle niet kon draaien. Op de laatste ondertekende versie zegt dezelfde controle, alleen op het scherm, of de data van de familie sindsdien veranderde.
+- Een controle (`GET /families/{id}/report/sign-out-check`) bouwt het snapshot van een analyse zoals het nu zou worden bevroren, en vergelijkt het sectie per sectie, elke sectie helemaal, met de laatste ondertekende versie van die analyse. Zo zegt het live rapport of het nog overeenkomt, welke delen wijzigden, of dat de controle niet kon draaien. Op de laatste ondertekende versie zegt dezelfde controle, alleen op het scherm, of de data van de familie sindsdien veranderde.
 - Het bevroren record zelf is in beide weergaven als JSON te downloaden.
 - Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly, de genloci, Monarch of HPO), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als *niet beschikbaar*, met de reden. Het auditevent en de ondertekende versie noemen die delen (`not_captured`, ook in het antwoord van `GET …/sign-outs/{version}`).
 - Ook een sectie die CoGA sindsdien anders berekent, leest als gewijzigd. De ondertekende versie toont wat er ondertekend werd; wie de nieuwe beoordeling wil vastleggen, ondertekent opnieuw.
-- CoGA leest één snapshotformaat: het formaat dat het zelf schrijft. Elk record bevat elke sectie en elk veld (een sectie van één toepassing alleen bij de families van die toepassing). De verificatie hasht het record zoals het bewaard is.
+- CoGA leest één snapshotformaat: het formaat dat het zelf schrijft. Elk record bevat elke sectie en elk veld (een sectie van één toepassing alleen bij de families van die toepassing; de repeat- en Paraphase-secties alleen in het record van een analyse die zulke data houdt). De verificatie hasht het record zoals het bewaard is.
 - Wat het snapshot bevriest, besliste de eigenaar: de variantbeschrijving, de toegepaste genpanels, de releases van de referentiedata en de repeat- en Paraphase-resultaten op 2026-10-14; wat elk dekkingsspoor bevat en, bij een PGT-familie, de embryo-indeling op 2026-10-20. De gen- en fenotypecontext bevriest het niet.
 - Geen van de QC-drempels houdt een embryo-indeling tegen. Haalt de faserings-QC bij de ROI haar drempels niet (minstens 50 informatieve sites, een Mendel-foutgraad van hoogstens 2 %, minstens 6 markers aan elke kant van de ROI voor elke ouderkant die de indeling leest), of werd ze niet geteld, dan staat er een waarschuwing naast de indeling, op de familiepagina en in de ondertekende versie. De indeling blijft staan, de ondertekening wordt niet tegengehouden en de analist beslist (beslissing van de eigenaar van 2026-10-20); het record bevriest het oordeel met de drempels. Die drempels zijn voorlopig: de labodirecteur en QA moeten ze nog bevestigen (CLIN-61). Eén andere maat wijzigt de indeling wel: een embryo dat bij de ROI beide homologen van een ouder draagt, wordt *Uninformative* (hoofdstuk 8).
 

@@ -40,6 +40,7 @@ from backend.app.schemas import (
 from backend.app.services import report_signout_service as rss
 from backend.app.services import signed_record_sections as srs
 from backend.app.services.pgt_embryo_qc import QC_THRESHOLDS, embryo_qc_verdict
+from backend.app.services.signout_scope import SignoutScope
 from backend.tests._query_results import MappingRows as _Result
 
 
@@ -913,6 +914,63 @@ def test_cnipt_results_that_cannot_be_read_are_frozen_as_unavailable_and_named(m
     assert {"section": "cnipt", "item": "Conventional NIPT results", "reason": "The conventional NIPT results could not be read."} in srs.record_section_gaps(sections)
 
 
+def _germline_scope(analysis: str) -> SignoutScope:
+    """Short-read then long-read WGS of the same DNA: the long-read package brings the repeat
+    calls and the Paraphase results."""
+    return SignoutScope(
+        analysis=analysis,
+        own={"repeats": frozenset({"trgt"}), "paraphase": frozenset({"paraphase"})} if analysis == "long_read_wgs" else {},
+        others={} if analysis == "long_read_wgs" else {"repeats": frozenset({"trgt"}), "paraphase": frozenset({"paraphase"})},
+        held=frozenset({"long_read_wgs", "short_read_wgs"}),
+    )
+
+
+def test_a_sign_out_of_an_analysis_without_repeat_or_paraphase_data_holds_neither_section(monkeypatch) -> None:
+    _stub_other_sections(monkeypatch)
+
+    def _sections(analysis: str) -> dict[str, Any]:
+        return asyncio.run(
+            srs.build_record_sections(
+                _Session(), context=_context(), reported=[], reported_structural=[], scope=_germline_scope(analysis)
+            )
+        )
+
+    short_read, long_read = _sections("short_read_wgs"), _sections("long_read_wgs")
+    assert "repeat_expansions" not in short_read and "paraphase" not in short_read
+    assert "repeat_expansions" in long_read and "paraphase" in long_read
+    # Every other section is each analysis's.
+    for key in ("variant_descriptions", "gene_panels", "reference_data", "coverage_tracks", "package_intake"):
+        assert key in short_read and key in long_read, key
+
+
+def test_each_nipt_of_a_pregnancy_holds_its_own_application_section(monkeypatch) -> None:
+    async def results(_session, _context):
+        return {"samples": []}
+
+    async def nipt(_session, _context, *, reported_ids, shared_nipt=None):
+        return {"plasma": []}
+
+    monkeypatch.setattr(srs, "cnipt_results", results)
+    monkeypatch.setattr(srs, "nipt_results", nipt)
+    held = frozenset({"conventional_nipt", "monogenic_nipt"})
+    session = _Session({"FROM families": [{"metadata": {"analysis_types": sorted(held)}}]})
+
+    def _sections(analysis: str) -> dict[str, Any]:
+        return asyncio.run(
+            srs.build_record_sections(
+                session,
+                context=_cnipt_family(),
+                reported=[],
+                reported_structural=[],
+                scope=SignoutScope(analysis=analysis, own={}, held=held),
+            )
+        )
+
+    conventional, monogenic = _sections("conventional_nipt"), _sections("monogenic_nipt")
+    assert conventional["cnipt"] == {"samples": []} and "nipt" not in conventional
+    assert monogenic["nipt"] == {"plasma": []} and "cnipt" not in monogenic
+
+
 # --- The delivered package and its corrections --------------------------------------
 
 
@@ -998,6 +1056,24 @@ def test_the_record_names_the_delivered_package_and_every_correction_made_at_int
         }]
     }
     assert session.executed[0][1] == {"family_uuid": _context().family_uuid}
+
+
+def test_a_sign_out_of_one_analysis_holds_its_own_delivery_and_one_of_no_analysis() -> None:
+    records = {
+        "monogenic_nipt": {"delivery": {"id": "d1", "corrections": []}},
+        "conventional_nipt": {"delivery": {"id": "d0", "corrections": []}},
+        # A package that named no analysis: every analysis's.
+        "unspecified": {"delivery": {"id": "d2", "corrections": []}},
+    }
+    scope = SignoutScope(
+        analysis="conventional_nipt", own={}, held=frozenset({"conventional_nipt", "monogenic_nipt"})
+    )
+    session = _Session({"package_imports": [{"package_imports": records}]})
+    intake = asyncio.run(srs.package_intake(session, _context(), scope))  # type: ignore[arg-type]
+    assert [(entry["analysis_type"], entry["id"]) for entry in intake["deliveries"]] == [
+        ("conventional_nipt", "d0"),
+        ("unspecified", "d2"),
+    ]
 
 
 @pytest.mark.parametrize(

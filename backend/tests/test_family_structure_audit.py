@@ -832,7 +832,7 @@ async def test_a_package_imports_status_refresh_is_checked_for_a_pedigree_change
     bundle = SimpleNamespace(
         manifest=SimpleNamespace(
             schema_version=1, metadata={}, analysis_type=None, samples={}, relationships=[],
-            carriers={}, members={},
+            carriers={}, members={}, datasets={},
         ),
         ped=SimpleNamespace(members=[], text=""),
         root=Path("/packages/F1"),

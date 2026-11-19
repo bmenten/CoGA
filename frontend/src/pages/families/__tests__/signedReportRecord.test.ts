@@ -1288,15 +1288,15 @@ describe('what the analysis looked at', () => {
   it('reads a record without these sections as unreadable, never as empty', () => {
     const record = parseSignedReport(SNAPSHOT)!;
     expect(record.statement).toBeNull();
-    for (const section of [
-      record.variantDescriptions,
-      record.genePanels,
-      record.referenceData,
-      record.repeatExpansions,
-      record.paraphase,
-    ]) {
+    for (const section of [record.variantDescriptions, record.genePanels, record.referenceData]) {
       expect(section).toEqual({ state: 'unavailable', reason: 'it cannot be read here; the downloaded record holds it as stored' });
     }
+    // The record of an analysis that holds no repeat calls or Paraphase results, beside another
+    // analysis of the family that does, holds neither section.
+    expect(record.repeatExpansions).toEqual({ state: 'absent' });
+    expect(record.paraphase).toEqual({ state: 'absent' });
+    expect(record.analysisType).toBeNull();
+    expect(parseSignedReport({ ...SNAPSHOT, analysis_type: 'conventional_nipt' })!.analysisType).toBe('conventional_nipt');
   });
 
   it('reads a section that could not be read at sign-out as not captured, with its reason', () => {

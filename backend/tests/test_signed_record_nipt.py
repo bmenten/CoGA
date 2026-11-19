@@ -883,7 +883,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     async def manifest(_session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": []}
 
-    async def no_drift(_session, *, family_id, user, project_id=None):
+    async def no_drift(_session, *, family_id, user, project_id=None, left_out=None):
         nothing = {"checked": 0, "drifted_count": 0, "drifted": []}
         return {**nothing, "structural": dict(nothing)}
 
@@ -917,6 +917,11 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", sequencing_qc)
     monkeypatch.setattr(rss, "_import_incomplete_state", complete)
     monkeypatch.setattr(rss, "_import_unfinished_state", unfinished)
+
+    async def holds_monogenic_nipt(_session, _family_uuid):
+        return {"analysis_types": ["monogenic_nipt"]}
+
+    monkeypatch.setattr(rss, "_family_metadata", holds_monogenic_nipt)
     async def as_imported(_session, _family_uuid):
         return []
 

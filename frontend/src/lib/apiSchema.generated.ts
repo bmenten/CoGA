@@ -3999,6 +3999,7 @@ export interface ReportCodeLookupOut {
  */
 export interface ReportSignoutCheckOut {
   family_id: string;
+  analysis_type: string | null;
   version: number | null;
   content_hash: string | null;
   matches: boolean | null;
@@ -4010,6 +4011,7 @@ export interface ReportSignoutCheckOut {
 /** A frozen, content-hashed report snapshot. */
 export interface ReportSignoutDetail {
   version: number;
+  analysis_type: string | null;
   signed_out_by: string;
   signed_out_at: string;
   content_hash: string;
@@ -4035,6 +4037,7 @@ export interface ReportSignoutDetail {
 export interface ReportSignoutListOut {
   family_id: string;
   latest: ReportSignoutSummary | null;
+  latest_per_analysis: ReportSignoutSummary[];
   signouts: ReportSignoutSummary[];
 }
 
@@ -4065,10 +4068,12 @@ export interface ReportSignoutRequest {
   acknowledge_unreviewed_findings?: boolean;
   unreviewed_findings_acknowledgement_reason?: string | null;
   unreviewed_findings_concerns_fingerprint?: string | null;
+  analysis_type?: string | null;
 }
 
 export interface ReportSignoutSummary {
   version: number;
+  analysis_type: string | null;
   signed_out_by: string;
   signed_out_at: string;
   content_hash: string;

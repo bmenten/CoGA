@@ -138,6 +138,9 @@ MODULE_FLOORS: dict[str, float] = {
     # (100.0 measured locally: what the signed analysis record freezes of
     # what the analysis looked at)
     "backend/app/services/signed_record_sections.py": 97.0,
+    # (100.0 measured locally: what a sign-out of one of a family's analyses freezes and
+    # checks)
+    "backend/app/services/signout_scope.py": 97.0,
     "backend/app/services/small_variant_review_tags.py": 90.0,  # (93.8, 2026-11-03)
     # (100.0 measured locally: the stored-value readers the
     # mitochondrial, repeat and annotation-manifest services share)

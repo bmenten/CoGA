@@ -101,6 +101,7 @@ files = [
     "backend/app/services/signed_record_cnipt.py",
     "backend/app/services/signed_record_nipt.py",
     "backend/app/services/signed_record_sections.py",
+    "backend/app/services/signout_scope.py",
     "backend/app/services/small_variant_review_tags.py",
     "backend/app/services/stored_values.py",
     "backend/app/services/structural_variant_evidence.py",

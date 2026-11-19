@@ -363,6 +363,20 @@
   font-size: var(--fs-sm);
 }
 
+/* A family holding several analyses, each signed out on its own: where each stands. */
+.report-analysis-signouts {
+  display: grid;
+  gap: 0.1875rem;
+}
+.report-analysis-signout-list {
+  margin: 0;
+  padding-left: 0.75rem;
+  display: grid;
+  gap: 0.125rem;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
 /* Case sign-out: the frozen, versioned, content-hashed report record. */
 .report-signout {
   border-left: 4px solid #16a34a;

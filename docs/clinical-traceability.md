@@ -12,7 +12,8 @@ it into a *signed version* (in the UI also *signed report*; *Sign out report* ma
 the medical sign-off. The device boundary is *annotated VCF → closed, frozen analysis in CoGA*
 ([TF-02 §3](regulatory/TF-02-device-description.md)). The clinical report is drafted and medically
 signed in the hospital's electronic patient record (EPD), outside the device, and refers 1:1 to the
-signed version.
+signed version. A family that holds several analyses signs each out on its own (*One sign-out per
+analysis*, below).
 
 Code comments number the parts: Phase 0 annotation manifest, Phase 1 evidence snapshots and drift,
 Phase 2 clinical audit trail, Phase 3 sign-out.
@@ -367,11 +368,18 @@ a note is not checked.
 ## Sign-out
 
 A sign-out is the analytical sign-off (*What sign-out is*, above).
-`POST /families/{family_id}/report/sign-out` runs seven gates (*The gates*, below), then freezes a
+`POST /families/{family_id}/report/sign-out` signs out one analysis of the family (`analysis_type`;
+*One sign-out per analysis*, below): it runs seven gates (*The gates*, below), then freezes a
 snapshot, which the clinical report in the EPD refers to by its report code (*The report code*).
 
 ### What a sign-out freezes
 
+A sign-out of one analysis of a family that holds several freezes that analysis's part of each
+item below (*One sign-out per analysis*).
+
+- **The analysis** (`analysis_type`): the analysis the record closes, as the family's
+  `analysis_types` name it (`monogenic_nipt`, `conventional_nipt`, `short_read_wgs`…), or null for
+  a family that holds none. The content hash covers it.
 - **What the record is** (`record_statement`): *This record is the analytical sign-off in CoGA,
   which closes and freezes the analysis; the medical sign-off of the patient report happens in
   the EPD, which refers to this record by its report code.*
@@ -633,9 +641,10 @@ naming its analysis.
 ### A NIPT family's record
 
 A monogenic NIPT family is signed out through the same `POST /families/{family_id}/report/sign-out`
-(owner decision of 2026-10-14), from the NIPT report or the report page: one signed record per
-analysis, with the same gates, version and report code, which also holds the NIPT results (`nipt`,
-above). Where it is signed out from does not change what is frozen.
+(owner decision of 2026-10-14), from the NIPT report or the report page (of a family that holds
+other analyses too, from the NIPT report alone): one signed record per analysis, with the same
+gates, version and report code, which also holds the NIPT results (`nipt`, above). Where it is
+signed out from does not change what is frozen.
 
 - The Sample QC's NIPT checks stay in `sample_qc` (`paternity_check`, `fetal_sex_check` from the
   father's X alleles, `category_qc_check`, the parents' sex, and their fixed notes); the gene panels
@@ -673,6 +682,54 @@ cNIPT results (`cnipt`, above).
 - The bounds are read at sign-out. A bound QA sets afterwards changes the section (the bound's value
   or its provisional mark), so the sign-out check names `cnipt` as changed.
 
+### One sign-out per analysis
+
+A family may hold several analyses (`families.metadata.analysis_types`), each imported from a
+package of its own: the monogenic and the conventional NIPT of one pregnancy, or short-read and then
+long-read WGS of the same DNA. Each analysis is signed out on its own, and its record freezes and
+checks that analysis's data only (the owner's decisions of 2026-11-19;
+`services/signout_scope.py`).
+
+- **Which analysis.** The request names it (`analysis_type`). A family that holds two or more
+  analyses must name one: 422 without it, and 422 for an analysis the family does not hold. A
+  family of one analysis or none need name none: its record names its only analysis, or none, and
+  it is signed out whole.
+- **One series of versions.** A family's versions are numbered in one series, whichever analysis
+  each closes, and the report code is made as for any record (*The report code*). Each snapshot
+  names its analysis (`analysis_type`), which the content hash covers.
+- **What is the analysis's data.** Each package record
+  (`families.metadata.package_imports[<analysis>]`) lists the storage sources its import wrote, per
+  kind of data (`sources`: `small_variants`, `structural_variants`, `tracks`, `repeats`,
+  `paraphase`; `family_package_records.package_sources`), and its `datasets`. An item belongs to
+  analysis X when one of its sources is X's own or is claimed by no other analysis the family holds.
+  So the data of an upload, of an analyst's addition or of a package that named no analysis belong
+  to every analysis, and each sign-out freezes and checks them.
+- **A record not in the import's shape.** A package record whose `sources` or `datasets` are not in
+  the shape the import writes them stops the sign-out (`PackageRecordShapeError`): it does not guess
+  which data are the analysis's.
+
+A sign-out of analysis X freezes and checks:
+
+| Part of the record | X's part |
+| --- | --- |
+| `reported_variants`, `reported_structural_variants`, their evidence drift (`drift`, `structural_drift`) and their descriptions (`variant_descriptions`) | the variants with a stored row (the ClickHouse `entries`) under a source of X's or of no other analysis's; a variant whose rows are gone counts in |
+| `coverage_tracks` | the tracks of X's sources or of no other analysis's |
+| `repeat_expansions` and `paraphase`, with their reviews, `finding_review_drift` and `unreviewed_findings` (gate 7) | each section whole, only when X's record lists such sources or no other analysis's record does; otherwise the record holds neither the section nor its reviews |
+| `pgt_analysis`, `nipt`, `cnipt` | the PGT embryo calls for `pgt` or `monogenic_nipt`, the NIPT results for `monogenic_nipt`, the cNIPT results for `conventional_nipt`; a section of an application none of whose analyses the family holds goes to every analysis |
+| `sample_qc` | the QC of X's own application (the conventional NIPT runs no check), on genotypes from a callset of X's own |
+| `package_intake`, `package_source_changes` (gate 6) | X's own package record, and that of a package that named no analysis |
+| `import_incomplete`, `import_unfinished` (gate 5) | the datasets of X's record, or of no other analysis's record; a failed overwrite whose restore did not finish (`whole_family`) stays whole |
+| `gene_panels`, `reference_data`, `modules`, `sequencing_qc` | whole (`reference_data` for the genes the record describes) |
+
+The gates read this snapshot, so each gate is the analysis's own: a drifted classification, a QC
+concern or a failed dataset of another analysis does not stop it. The sign-out check of X compares
+X's snapshot as a sign-out would freeze it now with X's latest record, and skips a section neither
+holds, so a change to another analysis's data leaves X's check matching.
+
+The family's report pages show its current data whole; a sign-out freezes the analysis's part of it.
+The NIPT report signs out the monogenic NIPT, and the Report page every other analysis (*The live
+report*, *The NIPT report*, below).
+
 ### Versions and the sign-out check
 
 - **Hash and version.** The snapshot is hashed with SHA-256 over a canonical encoding and stored as
@@ -685,13 +742,16 @@ cNIPT results (`cnipt`, above).
   refuses a second record under them (`uq_report_signouts_family_identifier_version`). The family's
   pages list only its own versions; the deleted family's stay on the chain, verifiable by the ID,
   and are not opened through the new family.
-- **The sign-out check** (`compare_report_with_latest_signout`) reads the one snapshot format CoGA
-  writes: every record holds every section and field (a section of one application, that
-  application's families' records only). Each section is compared whole, so a section that
-  differs, or that only one of the record and the family's current data holds, is changed. A
-  section of one application that neither holds (the NIPT results of a family that is not a NIPT
-  family) is not compared. The live report, the signed version and the NIPT pages say whether the
-  family's data still matches the latest version, and name the sections that changed.
+- **The sign-out check** (`compare_report_with_latest_signout`) is of one analysis
+  (`analysis_type`, named as for a sign-out): it compares that analysis's latest record with the
+  snapshot a sign-out of it would freeze now. It reads the one snapshot format CoGA writes: every
+  record holds every section and field (a section of one application, that application's families'
+  records only; the repeat and Paraphase sections, the records of analyses that hold such data).
+  Each section is compared whole, so a section that differs, or that only one of the record and the
+  family's current data holds, is changed. A section that neither holds (the NIPT results of a
+  family that is not a NIPT family, the repeat calls of an analysis beside another that holds them)
+  is not compared. The live report, the signed version and the NIPT pages say whether the family's
+  data still matches the analysis's latest version, and name the sections that changed.
 
 Because each section is compared whole, these read as a change since signing:
 
@@ -713,6 +773,8 @@ The signed version still shows what was signed; signing out again records the ne
 
 Seven gates run first, in this order. Each refuses the sign-out with 409. Gates 3 to 7 can be
 acknowledged: the request sets the gate's flag with a reason (a flag without its reason gets 422).
+Gates 3 to 7 read the snapshot of the analysis signed out, so each is that analysis's own (*One
+sign-out per analysis*).
 
 | # | Gate | Refusal | Acknowledgement |
 | --- | --- | --- | --- |
@@ -947,9 +1009,9 @@ names them.
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /families/{family_id}/report/sign-outs` | the list of signed versions, each with its `report_code` |
-| `GET /families/{family_id}/report/sign-outs/{version}` | one signed version, with its `report_code`, `verified` (its content hash recomputed on read) and `not_captured` (what its record could not capture) |
-| `GET /families/{family_id}/report/sign-out-check` | whether the report as it would be signed now matches the latest version: `matches`, `changed_sections`, `not_captured` |
+| `GET /families/{family_id}/report/sign-outs` | the list of signed versions, each with its `report_code` and the analysis it closes (`analysis_type`); `latest`, the family's newest version, and `latest_per_analysis`, the newest of each analysis signed out |
+| `GET /families/{family_id}/report/sign-outs/{version}` | one signed version, with its `analysis_type`, `report_code`, `verified` (its content hash recomputed on read) and `not_captured` (what its record could not capture) |
+| `GET /families/{family_id}/report/sign-out-check?analysis_type=…` | whether the report of that analysis (named as for a sign-out) as it would be signed now matches the analysis's latest version: `analysis_type`, `matches`, `changed_sections`, `not_captured` |
 | `GET /report-codes/{code}` | the family and version of the signed record a report code names (*The report code*) |
 
 ### The report code
@@ -999,8 +1061,8 @@ the signed version.
 ## The report page and the signed record
 
 `/families/{family_id}/report` has two views. A signed-out family opens on its latest signed
-version; one never signed out opens on the live report. Both views download the frozen record as
-JSON.
+version (of a family that holds several analyses, the latest of the analyses the page signs out);
+one never signed out opens on the live report. Both views download the frozen record as JSON.
 
 ### The signed version
 
@@ -1009,6 +1071,9 @@ nothing else (`frontend/src/pages/families/signedReportRecord.ts` reads it). It 
 
 - the version, signer, time, **report code**, content hash, `verified` and the frozen build, and the
   sentence that says what the record is;
+- the analysis the record closes, in its title (*Clinical report — signed version 2 of the
+  conventional NIPT*) and, where the family's versions close more than one analysis, beside each
+  version in the versions list. Its *latest* and its check are that analysis's;
 - each reported variant's description as reviewed, classification, accepted criteria, evidence
   snapshot, tags and note; the reported SVs with their description and ClinGen CNV scoring;
 - in a PGT family, the embryo calls (*PGT embryo results*): the ROI, the inheritance model, the
@@ -1082,6 +1147,10 @@ missense Z.*). A group the snapshot did not freeze is left out.
   read, names both causes.
 - A record without `pgt_analysis`, `nipt` or `cnipt` is another application's family's: it shows no
   PGT, NIPT or conventional NIPT section.
+- A record without `repeat_expansions` or `paraphase` closes an analysis that holds no such data,
+  beside another analysis that does (*One sign-out per analysis*). The section says so: *Not part
+  of this record: the analysis it closes holds no repeat-expansion calls. Another analysis of the
+  family holds them, and its own record freezes them.* (or *Paraphase results*).
 - What no snapshot holds is said on the page: the population frequencies and in silico predictions
   the live report shows, the segregation, the gene and phenotype context, the audit trail and the
   pipeline settings.
@@ -1114,6 +1183,13 @@ signed record.
   recent of its 450 events …").
 - While the sign-out record is loading or could not be loaded, sign-out is not offered. After a
   sign-out the page shows the new version.
+- Of a family that holds several analyses, it signs out every analysis but the monogenic NIPT,
+  which the NIPT report signs out. With several left (short-read and long-read WGS), *Analysis to
+  sign out* chooses one. The button names it (*Sign out the conventional NIPT*, *Amend sign-out of
+  the conventional NIPT*), and the page checks itself against that analysis's latest version.
+- Of such a family it also lists each analysis (*Sign-out of each analysis*): its latest signed
+  version with its report code, signer and date, and whether the family's data still match it; for
+  the monogenic NIPT, that it is signed out on the NIPT report.
 
 ### The NIPT report
 
@@ -1123,9 +1199,11 @@ acknowledgement dialogs as the live report (`reportSignOut.tsx`, which both page
 page offers no sign-out. The NIPT report names the latest signed version with its report code, says
 whether the family's data still matches it (`sign-out-check`) and links to it; after a sign-out it
 opens the new version on the report page. It offers no sign-out outside the validated assembly
-scope, nor while the sign-out record is loading or could not be loaded. The NIPT report is live too:
-it says so on screen, beside the latest signed version, and every printout starts with the live
-report's notice ("Draft …", "Not the signed report …", "Not verified …").
+scope, nor while the sign-out record is loading or could not be loaded. Of a family that holds
+other analyses too, it signs out the monogenic NIPT (`analysis_type: monogenic_nipt`), and names
+and checks that analysis's latest signed version. The NIPT report is live too: it says so on
+screen, beside the latest signed version, and every printout starts with the live report's notice
+("Draft …", "Not the signed report …", "Not verified …").
 
 ### Adding a section to the signed record
 
@@ -1138,7 +1216,9 @@ A section only one application's families hold names that application in its `Re
 it for those families alone, so another family's record holds no such key. The sign-out check
 compares it where the record or the family's current data holds it (one side alone is a change),
 and skips it where neither does. The signed view renders it only for a record that holds it
-(`PgtAnalysisSection`, `isNiptRecord`, `CniptResults`).
+(`PgtAnalysisSection`, `isNiptRecord`, `CniptResults`). A section of data that one of a family's
+analyses may hold reads the sign-out's scope (`SignoutScope`, which `build_record_sections` is
+given) for what a sign-out of one analysis freezes of it (*One sign-out per analysis*).
 
 1. **Its builder** in `backend/app/services/signed_record_sections.py`: an async function that
    reads what the analysis showed the analyst and returns a JSON-safe, deterministic dict (lists
@@ -1215,6 +1295,8 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   chromosomes a depth check read: the mtDNA coverage reads a track only where it has rows on chrM,
   the NIPT coverage check its targets' chromosomes, and a sample with two read-depth tracks is read
   from its coverage BED. The mtDNA coverage and its verdict are not frozen.
+- The sequencing QC is one per sample, so the record of each analysis of a family that holds several
+  freezes it whole, as it does the gene panels and the modules.
 
 **Sign-out and the EPD**
 

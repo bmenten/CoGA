@@ -111,6 +111,13 @@ from .repeat_count_units import COUNT_UNIT_MARGIN
 from .repeat_expansion_pg import get_family_repeat_expansion_table_response
 from .signed_record_cnipt import cnipt_results, holds_ccnv_output
 from .signed_record_nipt import is_nipt_family, nipt_results
+from .signout_scope import (
+    CNIPT_SECTION_ANALYSES,
+    NIPT_SECTION_ANALYSES,
+    PGT_SECTION_ANALYSES,
+    WHOLE_FAMILY,
+    SignoutScope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -761,7 +768,9 @@ def _distinct(records: Sequence[Mapping[str, Any]], key: str) -> list[str]:
     return sorted({str(record[key]) for record in records if record.get(key) is not None})
 
 
-async def coverage_tracks(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any]:
+async def coverage_tracks(
+    session: AsyncSession, context: FamilyMetadataContext, scope: SignoutScope = WHOLE_FAMILY
+) -> dict[str, Any]:
     """Every coverage track of the family's members, one per sample and caller (source), with
     what it holds as the depth readers read it -- ``read_depth``, ``log2_ratio`` or
     ``unknown``, by their one rule (``coverage_read_depth.coverage_track_content``) over the same
@@ -771,7 +780,8 @@ async def coverage_tracks(session: AsyncSession, context: FamilyMetadataContext)
     Read from the tracks' records in Postgres, as the PGT and NIPT sections read their inputs.
     The depth readers take a track only where its rows cover the chromosomes they read (chrM, the
     NIPT targets'); the record names every track, so a depth check's note that leaves one out,
-    and why, can be traced to it."""
+    and why, can be traced to it. A sign-out of one of the family's analyses names the tracks of
+    that analysis's sources (``scope``)."""
     rows = (
         await session.execute(
             _COVERAGE_TRACKS_SQL,
@@ -788,7 +798,7 @@ async def coverage_tracks(session: AsyncSession, context: FamilyMetadataContext)
     by_track: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in rows:
         sample = members.get(str(row.get("sample_uuid") or ""))
-        if sample is None:
+        if sample is None or not scope.holds("tracks", [row.get("source")]):
             continue
         by_track.setdefault((str(sample), str(row.get("source") or "")), []).append(dict(row))
     tracks: list[dict[str, Any]] = []
@@ -872,13 +882,16 @@ def _intake_delivery(analysis: str, delivery: Mapping[str, Any]) -> dict[str, An
     }
 
 
-async def package_intake(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any]:
+async def package_intake(
+    session: AsyncSession, context: FamilyMetadataContext, scope: SignoutScope = WHOLE_FAMILY
+) -> dict[str, Any]:
     """The delivered package each of the family's analyses was last imported from (one package
     record per analysis, ``family_package_records``; each record's ``delivery``:
     ``import_delivery_review.approve_delivery``), in the order of the analyses, each with every
     correction made to that package in CoGA before the import, in revision order: each field
     changed (its path, its kind, its value before and after), why, by whom and when.
-    ``{"deliveries": []}`` for a family no analysis of which was last imported from a delivery."""
+    ``{"deliveries": []}`` for a family no analysis of which was last imported from a delivery.
+    A sign-out of one of the family's analyses holds that analysis's delivery (``scope``)."""
     row = (await session.execute(_PACKAGE_RECORDS_SQL, {"family_uuid": context.family_uuid})).mappings().first()
     records = row.get("package_imports") if row is not None else None
     if isinstance(records, str):
@@ -886,7 +899,7 @@ async def package_intake(session: AsyncSession, context: FamilyMetadataContext) 
     deliveries = [
         _intake_delivery(analysis, record["delivery"])
         for analysis, record in sorted(family_package_records({"package_imports": records}).items())
-        if isinstance(record.get("delivery"), Mapping)
+        if isinstance(record.get("delivery"), Mapping) and scope.holds_record(analysis)
     ]
     return {"deliveries": deliveries}
 
@@ -901,13 +914,19 @@ async def build_record_sections(
     reported: Sequence[Mapping[str, Any]],
     reported_structural: Sequence[Mapping[str, Any]],
     shared_nipt: SharedNiptAnalysis | None = None,
+    scope: SignoutScope = WHOLE_FAMILY,
 ) -> dict[str, Any]:
     """Every section of ``RECORD_SECTIONS`` the family's record holds, keyed by its snapshot
     key: each one without an application, the PGT section of a PGT family (of a monogenic
     NIPT family, only where an embryo has haplotype blocks of its own), the NIPT section of
     a monogenic NIPT family (from ``shared_nipt``'s analysis, when the sign-out's Sample QC has
-    read it) and the conventional NIPT section of a family that holds a ccnv output. ``reported`` holds every small variant the report tag selects, by the variant's
-    own review or its compound-het pair's (``report_signout_service._reported_reviews``)."""
+    read it) and the conventional NIPT section of a family that holds a ccnv output. ``reported``
+    holds every small variant the report tag selects, by the variant's own review or its
+    compound-het pair's (``report_signout_service._reported_reviews``).
+
+    A sign-out of one of the family's analyses (``scope``, ``signout_scope``) holds that analysis's
+    sections only: the repeat and Paraphase sections when it holds such data, its coverage tracks,
+    its delivery, and the section of its own application."""
     descriptions = await _guarded(
         session,
         VARIANT_DESCRIPTIONS.unavailable,
@@ -926,32 +945,40 @@ async def build_record_sections(
             lambda: _gene_panels(session, context),
         ),
         REFERENCE_DATA.key: await reference_data(session, context, described_genes(descriptions)),
-        REPEAT_EXPANSIONS.key: await _guarded(
+        COVERAGE_TRACKS.key: await _guarded(
+            session, COVERAGE_TRACKS.unavailable, lambda: coverage_tracks(session, context, scope)
+        ),
+        PACKAGE_INTAKE.key: await _guarded(
+            session, PACKAGE_INTAKE.unavailable, lambda: package_intake(session, context, scope)
+        ),
+    }
+    # The repeat calls and the Paraphase results are read whole: in the record of an analysis
+    # that holds such data (``SignoutScope.holds_kind``), as the reviews of their findings.
+    if scope.holds_kind("repeats"):
+        sections[REPEAT_EXPANSIONS.key] = await _guarded(
             session,
             REPEAT_EXPANSIONS.unavailable,
             lambda: repeat_expansion_calls(session, context),
-        ),
-        PARAPHASE.key: await _guarded(
+        )
+    if scope.holds_kind("paraphase"):
+        sections[PARAPHASE.key] = await _guarded(
             session, PARAPHASE.unavailable, lambda: paraphase_results(session, context)
-        ),
-        COVERAGE_TRACKS.key: await _guarded(
-            session, COVERAGE_TRACKS.unavailable, lambda: coverage_tracks(session, context)
-        ),
-        PACKAGE_INTAKE.key: await _guarded(
-            session, PACKAGE_INTAKE.unavailable, lambda: package_intake(session, context)
-        ),
-    }
+        )
     # Read outside a savepoint of its own: whether the record holds the key at all cannot be
     # frozen as unavailable.
     nipt = await is_nipt_family(session, context)
     # A monogenic NIPT family's fetus is an embryo member too, with no data of its own: its
     # record holds the PGT section only where an embryo has haplotype blocks of its own, which
     # every embryo call reads. Every other family with an embryo holds it.
-    if is_pgt_family(context) and (not nipt or await embryo_has_haplotype_blocks(session, context)):
+    if (
+        scope.holds_application(PGT_SECTION_ANALYSES)
+        and is_pgt_family(context)
+        and (not nipt or await embryo_has_haplotype_blocks(session, context))
+    ):
         sections[PGT_ANALYSIS.key] = await _guarded(
             session, PGT_ANALYSIS.unavailable, lambda: pgt_embryo_results(session, context)
         )
-    if nipt:
+    if nipt and scope.holds_application(NIPT_SECTION_ANALYSES):
         sections[NIPT_RESULTS.key] = await _guarded(
             session,
             NIPT_RESULTS.unavailable,
@@ -962,7 +989,7 @@ async def build_record_sections(
                 shared_nipt=shared_nipt,
             ),
         )
-    if holds_ccnv_output(context):
+    if holds_ccnv_output(context) and scope.holds_application(CNIPT_SECTION_ANALYSES):
         sections[CNIPT_RESULTS.key] = await _guarded(
             session, CNIPT_RESULTS.unavailable, lambda: cnipt_results(session, context)
         )

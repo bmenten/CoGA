@@ -123,7 +123,7 @@ def family(monkeypatch) -> _Family:
     async def _manifest(session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None):
+    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
         return {
             "checked": len(state.drifted),
             "drifted_count": len(state.drifted),
@@ -135,7 +135,9 @@ def family(monkeypatch) -> _Family:
             },
         }
 
-    async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
+    async def _qc(
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+    ):
         return copy.deepcopy(state.qc)
 
     async def _nothing_reported(session, family_uuid):
@@ -160,7 +162,7 @@ def family(monkeypatch) -> _Family:
     async def _writes_shared(session, family_uuid):
         return True
 
-    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None):
+    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None, scope=None):
         return copy.deepcopy(_SECTIONS)
 
     async def _code_free(session, code):
@@ -183,6 +185,11 @@ def family(monkeypatch) -> _Family:
     monkeypatch.setattr(rss, "try_share_family_variant_writes", _writes_shared)
     monkeypatch.setattr(rss, "build_record_sections", _sections)
     monkeypatch.setattr(rss, "_report_code_taken", _code_free)
+
+    async def _holds_no_analysis(_session, _family_uuid):
+        return None
+
+    monkeypatch.setattr(rss, "_family_metadata", _holds_no_analysis)
     monkeypatch.setattr(rss, "record_clinical_event", _audit)
     return state
 
@@ -437,6 +444,7 @@ _SOURCE_CHANGED = {
     "removed_count": 0,
     "changed_count": 1,
     "detected_at": "2026-11-11T10:00:00+00:00",
+    "analysis_type": "unspecified",
 }
 _SOURCE_REASON = "The CRAM was re-aligned with the same reads."
 

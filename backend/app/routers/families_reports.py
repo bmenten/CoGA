@@ -177,6 +177,7 @@ async def sign_out_family_report_endpoint(
                 payload.unreviewed_findings_concerns_fingerprint if payload else None
             ),
             project_id=project_id,
+            analysis_type=payload.analysis_type if payload else None,
         )
     )
 
@@ -199,13 +200,15 @@ async def list_family_report_signouts_endpoint(
 async def check_family_report_against_signout_endpoint(
     family_id: str,
     project_id: str | None = None,
+    analysis_type: str | None = Query(default=None, max_length=64),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> ReportSignoutCheckOut:
-    """Whether the report as it would be signed now matches the latest sign-out."""
+    """Whether the report of an analysis (``analysis_type``: required for a family holding two or
+    more) as it would be signed now matches that analysis's latest sign-out."""
     return ReportSignoutCheckOut.model_validate(
         await compare_report_with_latest_signout(
-            session, family_id=family_id, user=user, project_id=project_id
+            session, family_id=family_id, user=user, project_id=project_id, analysis_type=analysis_type
         )
     )
 

@@ -49,7 +49,13 @@ from .family_structure_audit import (
     record_structure_change,
 )
 from .family_analysis_types import SAMPLE_ASSAYS_KEY, added_to, sample_assays
-from .family_package_records import PACKAGE_IMPORTS_KEY, family_package_records, package_record_key
+from .family_package_records import (
+    PACKAGE_IMPORTS_KEY,
+    SOURCES_KEY,
+    family_package_records,
+    package_record_key,
+    package_sources,
+)
 from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
@@ -112,6 +118,15 @@ def _dataset_provenance(validation: FamilyPackageValidationOut) -> dict[str, Any
         for summary in validation.datasets
         if summary.enabled
     }
+
+
+def _package_record_sources(bundle: FamilyPackageBundle) -> dict[str, list[str]]:
+    """The storage sources the package's import writes, per kind (``family_package_records.
+    package_sources``): its enabled datasets, with the callset its ``snv`` dataset is stored as
+    (``dataset_scopes``, read from the package as the loader reads it)."""
+    enabled = [name for name, dataset in bundle.manifest.datasets.items() if dataset.enabled]
+    snv_callset = dataset_scopes(bundle, ["snv"])["snv"]["source"] if "snv" in enabled else None
+    return package_sources(enabled, None if snv_callset == UNRESOLVED_SNV_SOURCE else snv_callset)
 
 
 def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]:
@@ -468,6 +483,9 @@ async def _register_package_provenance(
         # The members the package listed: an import of another analysis keeps them
         # (family_structure_service.take_package_pedigree).
         "members": sorted({member.iid for member in bundle.ped.members}),
+        # The storage sources its import writes, per kind of data: a sign-out of the analysis is
+        # scoped by them (report_signout_service).
+        SOURCES_KEY: _package_record_sources(bundle),
         "registered_at": now,
     }
     # Imported here: the module follows the import watcher, which imports this one.

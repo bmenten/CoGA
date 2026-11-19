@@ -18,7 +18,7 @@ SQL that reads every record of a family joins ``PACKAGE_RECORDS_OF_A_FAMILY``: o
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 # Family.metadata["package_imports"]: the family's package records, keyed by analysis.
@@ -56,6 +56,48 @@ def analysis_data_words(analysis: object) -> str:
     (``UNSPECIFIED_ANALYSIS``)."""
     label = ANALYSIS_LABELS.get(str(analysis or ""))
     return f"this family's {label} data" if label else "this family's data"
+
+
+# The kinds of data a sign-out of one analysis is scoped by (report_signout_service), each the
+# storage ``source`` of its rows: small variants and structural variants (ClickHouse), interval
+# tracks, repeat calls (``repeat_expansions.source``) and Paraphase results (one source).
+SOURCE_KINDS = ("small_variants", "structural_variants", "tracks", "repeats", "paraphase")
+# The key of a package record that lists the sources its import wrote, per kind (``package_sources``).
+SOURCES_KEY = "sources"
+
+# The sources each dataset of a package writes, per kind; the ``snv`` dataset's small-variant
+# callset is read from the package (``family_package_datasets.snv_dataset_callset``).
+_DATASET_SOURCES: dict[str, dict[str, tuple[str, ...]]] = {
+    "haplotypes": {"small_variants": ("glimpse2",), "tracks": ("glimpse2",)},
+    "mito": {"small_variants": ("mito",), "structural_variants": ("mito_sv",)},
+    "sv_needlr": {"structural_variants": ("needlr",)},
+    "cnv": {"structural_variants": ("hificnv",), "tracks": ("hificnv",)},
+    "wisecondorx": {"tracks": ("wisecondorx",)},
+    "qdnaseq": {"tracks": ("qdnaseq",)},
+    "ccnv": {"structural_variants": ("ccnv",), "tracks": ("ccnv",)},
+    "apcad": {"tracks": ("apcad",)},
+    "pcf": {"tracks": ("pcf",)},
+    # A coverage BED (stored as an upload's, ``web``) or a NIPT per-target table.
+    "coverage": {"tracks": ("web", "coverage_table")},
+    "repeats_trgt": {"repeats": ("trgt",)},
+    "paraphase": {"paraphase": ("paraphase",)},
+}
+
+
+def package_sources(dataset_types: Iterable[str], snv_callset: str | None) -> dict[str, list[str]]:
+    """The storage sources a package's import writes, per kind (``SOURCE_KINDS``), from its
+    enabled ``dataset_types`` and the callset its ``snv`` dataset is stored as (``snv_callset``;
+    None when it has none, or one the import cannot tell): each list sorted, every kind present.
+    A sign-out of the package's analysis is scoped by them."""
+    sources: dict[str, set[str]] = {kind: set() for kind in SOURCE_KINDS}
+    for dataset_type in dataset_types:
+        if dataset_type == "snv":
+            if snv_callset:
+                sources["small_variants"].add(snv_callset)
+            continue
+        for kind, names in _DATASET_SOURCES.get(dataset_type, {}).items():
+            sources[kind].update(names)
+    return {kind: sorted(names) for kind, names in sources.items()}
 
 
 def package_record_key(analysis_type: str | None) -> str:

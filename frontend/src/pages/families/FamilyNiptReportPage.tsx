@@ -34,7 +34,8 @@ import { apiPath } from '../../lib/apiPath';
 import { memberLabel } from '../../lib/familyMembers';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
-import { useReportSignoutCheck, useReportSignouts } from './reportSignoutQueries';
+import { latestSignoutOf, useReportSignoutCheck, useReportSignouts } from './reportSignoutQueries';
+import { niptReportAnalysis } from '../../lib/familyAnalyses';
 import {
   describeReportSections,
   formatReportTime,
@@ -293,10 +294,15 @@ const FamilyNiptReportPage: React.FC = () => {
     isError: signoutsFailed,
     isPending: signoutsPending,
   } = useReportSignouts(queryReady ? familyId : undefined);
-  const latestSignout = signouts?.latest ?? null;
+  // A family that holds the conventional NIPT of the pregnancy too signs out each NIPT on its own
+  // (the owner's decision of 2026-11-19): this report signs out the monogenic NIPT, and reads its
+  // latest signed version and check; a family of the monogenic NIPT alone is signed out whole.
+  const signOutAnalysis = niptReportAnalysis(family?.metadata);
+  const latestSignout = latestSignoutOf(signouts, signOutAnalysis);
   const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
     familyId,
     latestSignout?.version ?? null,
+    signOutAnalysis,
   );
   // Signed out through the family sign-out, its gates and report code: one record per
   // analysis, which holds the NIPT results (signed_record_nipt). The signed version it issues
@@ -317,7 +323,11 @@ const FamilyNiptReportPage: React.FC = () => {
     (version) => navigate(signedVersionLink(version), { state: { signedOut: { version } } }),
     // A viewer or a reader in the family's project signs nothing out, nor does a user
     // below supervisor (TF-06 H15).
-    { readOnly: Boolean(family?.read_only), canSignOut: Boolean(family?.can_sign_out) },
+    {
+      readOnly: Boolean(family?.read_only),
+      canSignOut: Boolean(family?.can_sign_out),
+      analysisType: signOutAnalysis,
+    },
   );
   const signOutBlocked = signOutRefusal(
     {

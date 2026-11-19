@@ -105,7 +105,9 @@ before clinical use.
 The family is signed out from its **Report** page, which shows the result above the reported
 findings. The signed version freezes each plasma's result as the cNIPT page showed it: the verdicts,
 the findings, the fetal fractions, the bounds (each QA's or provisional) and the files it was read
-from.
+from. A family that also holds the monogenic NIPT of the pregnancy signs out each NIPT on its own:
+the **Report** page then signs out the conventional NIPT, and its record freezes and checks the
+conventional NIPT's data only (see *Report traceability & sign-out*, *One sign-out per analysis*).
 
 The sign-out asks for an acknowledgement with a reason, in the Sample QC's dialog, when a plasma has
 no result or its result rests on provisional bounds. The Sample QC runs no check of its own here:

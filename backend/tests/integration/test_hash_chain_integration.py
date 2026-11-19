@@ -627,7 +627,7 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
             family_uuid=holder["uuid"], family_id=holder["label"], assembly_name="GRCh38"
         )
 
-    async def _stub_snapshot(session, *, family_id, user, project_id=None):
+    async def _stub_snapshot(session, *, family_id, user, project_id=None, analysis_type=None):
         # Minimal snapshot_body with the keys sign_out_report reads — incl. a large
         # integral float to exercise the JSONB normalisation through the real writer.
         # The drift lists too: the drift gate's refusal lists them.

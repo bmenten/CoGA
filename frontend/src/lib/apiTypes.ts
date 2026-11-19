@@ -444,14 +444,17 @@ export interface ApiClinicalAudit {
 }
 
 // The sign-outs are served as ReportSignoutSummary: each field's meaning is on the backend
-// model (schemas/traceability.py).
+// model (schemas/traceability.py). One series of versions per family, each naming the analysis
+// it closes: `latest` is the family's newest, `latest_per_analysis` the newest of each analysis.
 export interface ApiReportSignoutList {
   family_id: string;
   latest: ReportSignoutSummary | null;
+  latest_per_analysis: ReportSignoutSummary[];
   signouts: ReportSignoutSummary[];
 }
 
-// Whether the report, as it would be signed now, matches the latest sign-out.
+// Whether the report of one analysis (`analysis_type`), as it would be signed now, matches that
+// analysis's latest sign-out.
 // `matches` is null when the family has never been signed out; `changed_sections` names
 // the snapshot sections that differ, each section compared whole.
 export interface ApiReportSnapshotGap {
@@ -462,6 +465,7 @@ export interface ApiReportSnapshotGap {
 
 export interface ApiReportSignoutCheck {
   family_id: string;
+  analysis_type: string | null;
   version: number | null;
   content_hash: string | null;
   matches: boolean | null;

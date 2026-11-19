@@ -15,11 +15,13 @@ import pytest
 from backend.app.services import family_package_registration as registration
 from backend.app.services import family_structure_service as structure
 from backend.app.services.family_package_records import (
+    SOURCE_KINDS,
     analysis_data_words,
     family_package_folders,
     family_package_records,
     package_folder_of,
     package_record_key,
+    package_sources,
 )
 
 _RECORDS = {
@@ -34,6 +36,31 @@ def test_a_record_is_keyed_by_its_packages_analysis() -> None:
     assert package_record_key(" monogenic_nipt ") == "monogenic_nipt"
     for none in (None, "", "  "):
         assert package_record_key(none) == "unspecified"
+
+
+def test_a_record_lists_the_sources_its_import_writes_per_kind() -> None:
+    # A conventional NIPT: ccnv's calls and tracks.
+    assert package_sources(["ccnv"], None) == {
+        "small_variants": [],
+        "structural_variants": ["ccnv"],
+        "tracks": ["ccnv"],
+        "repeats": [],
+        "paraphase": [],
+    }
+    # A monogenic NIPT: its per-sample calls and the per-target coverage.
+    sources = package_sources(["snv", "coverage"], "nipt")
+    assert (sources["small_variants"], sources["tracks"]) == (["nipt"], ["coverage_table", "web"])
+    # A long-read family: each caller's own source, the repeats and Paraphase.
+    sources = package_sources(["snv", "sv_needlr", "cnv", "mito", "repeats_trgt", "paraphase", "qc"], "clair3")
+    assert sources == {
+        "small_variants": ["clair3", "mito"],
+        "structural_variants": ["hificnv", "mito_sv", "needlr"],
+        "tracks": ["hificnv"],
+        "repeats": ["trgt"],
+        "paraphase": ["paraphase"],
+    }
+    # An SNV callset the import cannot tell writes nothing it can name; every kind is listed.
+    assert package_sources(["snv"], None) == {kind: [] for kind in SOURCE_KINDS}
 
 
 def test_a_family_reads_each_of_its_records_and_their_folders() -> None:
