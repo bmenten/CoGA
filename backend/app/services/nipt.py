@@ -18,22 +18,24 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
 from ..schemas import FamilyOut
+from .family_analysis_types import family_analysis_types, sample_assays
 
-# Family.metadata["analysis_type"] == this marks a monogenic NIPT family and is
-# what surfaces the NIPT analysis section in the UI.
-FAMILY_ANALYSIS_TYPE_KEY = "analysis_type"
+# A family whose analysis types (``family_analysis_types``) hold this is a monogenic NIPT family:
+# the UI shows its NIPT pages.
 MONOGENIC_NIPT_ANALYSIS_TYPE = "monogenic_nipt"
-# Family.metadata["analysis_type"] == this marks a conventional NIPT family: the genome-wide
-# copy number of a maternal plasma, from the laboratory's ccnv tool (ccnv_output.py).
+# A family whose analysis types hold this holds a conventional NIPT: the genome-wide copy number of
+# a maternal plasma, from the laboratory's ccnv tool (ccnv_output.py). One family may hold both.
 CONVENTIONAL_NIPT_ANALYSIS_TYPE = "conventional_nipt"
 
-# Sample.metadata["assay"] == this marks the maternal-plasma cfDNA sample (the
-# maternal + fetal mixture), uploaded as the mother member's sample.
+# The ``assay`` a package names for a sample (coga_package), which the import adds to the
+# sample's assays (``family_analysis_types.sample_assays``). A sample whose assays hold this is
+# the maternal-plasma cfDNA of a monogenic NIPT (the maternal + fetal mixture), the mother
+# member's sample.
 SAMPLE_ASSAY_KEY = "assay"
 NIPT_CFDNA_ASSAY = "nipt_cfdna"
-# Sample.metadata["assay"] == this marks the maternal plasma of a conventional NIPT (shallow
-# whole-genome sequencing). The monogenic NIPT's artefact list and recurrence counts, which read
-# the samples tagged ``nipt_cfdna``, do not count it.
+# A sample whose assays hold this is the maternal plasma of a conventional NIPT (shallow
+# whole-genome sequencing). The monogenic NIPT's artefact list and recurrence counts read the
+# samples whose assays hold ``nipt_cfdna``; one plasma may hold both.
 CNIPT_CFDNA_ASSAY = "cnipt_cfdna"
 
 # Sample.metadata["assay_panel"] (optional) names the capture panel/chemistry,
@@ -57,14 +59,13 @@ class NiptTrio:
 
 
 def is_monogenic_nipt_family(family: FamilyOut) -> bool:
-    """True when the family is tagged for monogenic NIPT analysis."""
-    metadata = family.metadata or {}
-    return metadata.get(FAMILY_ANALYSIS_TYPE_KEY) == MONOGENIC_NIPT_ANALYSIS_TYPE
+    """True when the family holds a monogenic NIPT analysis."""
+    return MONOGENIC_NIPT_ANALYSIS_TYPE in family_analysis_types(family.metadata)
 
 
 def is_cfdna_sample_metadata(metadata: Mapping[str, Any] | None) -> bool:
-    """True when a sample's metadata tags it as the maternal-plasma cfDNA."""
-    return (metadata or {}).get(SAMPLE_ASSAY_KEY) == NIPT_CFDNA_ASSAY
+    """True when a sample's assays make it the maternal-plasma cfDNA of a monogenic NIPT."""
+    return NIPT_CFDNA_ASSAY in sample_assays(metadata)
 
 
 def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
@@ -73,7 +74,7 @@ def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
     Returns ``None`` when the family is not tagged for monogenic NIPT or the
     required father and cfDNA samples cannot both be identified.
 
-    The cfDNA sample is identified by its ``assay`` tag, falling back to the
+    The cfDNA sample is identified by its assays (``nipt_cfdna``), falling back to the
     active ``mother`` member when no sample carries the tag. The father is the active ``father``
     member; the fetus is the active ``embryo`` member, or the ``proband`` child
     when no ``embryo`` is present (manual family creation labels the child

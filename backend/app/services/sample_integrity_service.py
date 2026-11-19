@@ -28,6 +28,7 @@ from .clickhouse_family_variants import (
     fetch_genotype_site_sample,
 )
 from .data_scope import normalize_chromosome
+from .family_analysis_types import family_analysis_types
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .genotypes import NO_CALL, classify_genotype
 from .haplotype_lineage_service import build_pedigree
@@ -359,14 +360,14 @@ async def get_family_sample_integrity_qc(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
     family = await get_family_record(session, family_id, user)
-    analysis_type = str((getattr(family, "metadata", None) or {}).get("analysis_type") or "")
+    analysis_types = family_analysis_types(getattr(family, "metadata", None))
 
     spec = _build_pedigree_spec(context)
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
     samples = sorted(context.sample_name_to_uuid)
 
     application = resolve_application(
-        analysis_type=analysis_type,
+        analysis_types=analysis_types,
         roles=pedigree.roles,
         parents_of=pedigree.parents_of,
         sample_count=len(samples),

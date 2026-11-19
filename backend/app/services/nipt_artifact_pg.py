@@ -13,6 +13,8 @@ See docs/monogenic-nipt.md.
 
 from __future__ import annotations
 
+import json
+
 import csv
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -341,7 +343,7 @@ async def bulk_upsert_nipt_artifacts(
 async def _cfdna_sample_scopes(session: AsyncSession) -> list[tuple[str, str]]:
     """Each cfDNA sample's ID with its artifact scope, in every project.
 
-    A cfDNA sample is one tagged ``assay: nipt_cfdna``; its scope is its
+    A cfDNA sample is one whose assays hold ``nipt_cfdna``; its scope is its
     ``assay_panel``, resolved as ``nipt_assay_key`` resolves it for the analysis.
     """
     result = await session.execute(
@@ -351,11 +353,12 @@ async def _cfdna_sample_scopes(session: AsyncSession) -> list[tuple[str, str]]:
                    CASE WHEN jsonb_typeof(metadata -> 'assay_panel') = 'string'
                         THEN metadata ->> 'assay_panel' END AS assay_panel
             FROM samples
-            WHERE metadata ->> 'assay' = :assay
+            WHERE jsonb_typeof(metadata -> 'assays') = 'array'
+              AND (metadata -> 'assays') @> CAST(:assays AS jsonb)
             ORDER BY sample_id
             """
         ),
-        {"assay": NIPT_CFDNA_ASSAY},
+        {"assays": json.dumps([NIPT_CFDNA_ASSAY])},
     )
     return [
         (str(sample_id), assay_key_for_sample_metadata({SAMPLE_ASSAY_PANEL_KEY: assay_panel}))

@@ -91,7 +91,7 @@ async def test_each_plasma_is_judged_from_its_stored_qc_and_segments(monkeypatch
 
 @pytest.mark.asyncio
 async def test_a_family_without_ccnv_output_answers_404(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install(monkeypatch, sample_metadata={"assay": "nipt_cfdna"}, configured={})
+    _install(monkeypatch, sample_metadata={"assays": ["nipt_cfdna"]}, configured={})
 
     with pytest.raises(HTTPException) as refused:
         await cnipt_service.get_family_cnipt_result(None, family_id="CNIPT1", user=None)  # type: ignore[arg-type]

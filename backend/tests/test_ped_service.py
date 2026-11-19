@@ -516,13 +516,13 @@ async def test_manual_family_creation_threads_family_and_sample_metadata(
 
     family = ManualPedFamilyCreate(
         family_id="NIPT001",
-        metadata={"analysis_type": MONOGENIC_NIPT_ANALYSIS_TYPE},
+        metadata={"analysis_types": [MONOGENIC_NIPT_ANALYSIS_TYPE]},
         members=[
             ManualPedMemberCreate(sample_id="father-1", sex="male"),
             ManualPedMemberCreate(
                 sample_id="cfdna-1",
                 sex="female",
-                metadata={"assay": NIPT_CFDNA_ASSAY},
+                metadata={"assays": [NIPT_CFDNA_ASSAY]},
             ),
             ManualPedMemberCreate(
                 sample_id="fetus-1",
@@ -541,10 +541,10 @@ async def test_manual_family_creation_threads_family_and_sample_metadata(
     )
 
     captured = written[-1]["created"]
-    assert captured["family_metadata"] == {"analysis_type": MONOGENIC_NIPT_ANALYSIS_TYPE}
+    assert captured["family_metadata"] == {"analysis_types": [MONOGENIC_NIPT_ANALYSIS_TYPE]}
 
     members_by_id = {member["sample_id"]: member for member in captured["members"]}
-    assert members_by_id["cfdna-1"]["metadata"] == {"assay": NIPT_CFDNA_ASSAY}
+    assert members_by_id["cfdna-1"]["metadata"] == {"assays": [NIPT_CFDNA_ASSAY]}
     assert members_by_id["father-1"]["metadata"] == {}
     # The fetus is the child of both parents; manual creation labels it proband.
     assert members_by_id["father-1"]["role"] == "father"
@@ -557,10 +557,18 @@ async def test_manual_family_creation_threads_family_and_sample_metadata(
 REFUSED_METADATA = [
     pytest.param({"package_import": {"folder_path": "/client"}}, {}, "Family", id="family-package-record"),
     pytest.param({"import_incomplete": False}, {}, "Family", id="family-import-state"),
-    pytest.param({"analysis_type": "pgt"}, {}, "Family", id="family-other-analysis-type"),
+    pytest.param({"analysis_types": ["pgt"]}, {}, "Family", id="family-other-analysis-type"),
+    # The lists the import writes, as lists only: no bare value, no empty list, no repeat.
+    pytest.param({"analysis_types": "monogenic_nipt"}, {}, "Family", id="family-analysis-type-not-a-list"),
+    pytest.param({"analysis_types": []}, {}, "Family", id="family-analysis-types-empty"),
+    pytest.param(
+        {"analysis_types": ["monogenic_nipt", "monogenic_nipt"]}, {}, "Family", id="family-analysis-type-twice"
+    ),
+    pytest.param({"analysis_type": "monogenic_nipt"}, {}, "Family", id="family-single-analysis-type"),
     pytest.param({}, {"sequencing_qc": {"mean_coverage": 40}}, "Sample S2", id="sample-sequencing-qc"),
     pytest.param({}, {"assay_panel": "panel-x"}, "Sample S2", id="sample-assay-panel"),
-    pytest.param({}, {"assay": {"name": NIPT_CFDNA_ASSAY}}, "Sample S2", id="sample-assay-not-text"),
+    pytest.param({}, {"assays": [{"name": NIPT_CFDNA_ASSAY}]}, "Sample S2", id="sample-assay-not-text"),
+    pytest.param({}, {"assay": NIPT_CFDNA_ASSAY}, "Sample S2", id="sample-single-assay"),
 ]
 
 

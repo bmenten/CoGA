@@ -66,6 +66,7 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/compound_het_phase.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured locally)
     "backend/app/services/coverage_read_depth.py": 97.0,  # (100.0, measured locally)
+    "backend/app/services/family_analysis_types.py": 97.0,  # (100.0, measured locally)
     "backend/app/services/family_identifiers.py": 97.0,  # (100.0)
     # (84.5 measured locally: a conventional NIPT package's ccnv entry, its checks and
     # Discover's draft)

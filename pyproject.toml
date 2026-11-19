@@ -54,6 +54,7 @@ files = [
     "backend/app/services/compound_het_phase.py",
     "backend/app/services/coverage_content.py",
     "backend/app/services/coverage_read_depth.py",
+    "backend/app/services/family_analysis_types.py",
     "backend/app/services/family_identifiers.py",
     "backend/app/services/family_package_ccnv.py",
     "backend/app/services/family_package_datasets.py",

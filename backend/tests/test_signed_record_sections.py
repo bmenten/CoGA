@@ -545,7 +545,7 @@ def test_what_a_section_cannot_use_is_left_out_not_guessed() -> None:
 
 
 def _nipt_family_session(analysis_type: str | None = "monogenic_nipt") -> _Session:
-    return _Session({"FROM families": [{"analysis_type": analysis_type}]})
+    return _Session({"FROM families": [{"metadata": {"analysis_types": [analysis_type]} if analysis_type else {}}]})
 
 
 def _sections_of(
@@ -596,7 +596,7 @@ def test_a_nipt_family_holds_its_nipt_results_read_for_its_reported_variants(mon
     [(sql, params)] = [
         (sql, params) for sql, params in session.executed if "FROM families" in sql and "package_import" not in sql
     ]
-    assert "analysis_type" in sql and params == {"family_uuid": _context().family_uuid}
+    assert "SELECT metadata" in sql and params == {"family_uuid": _context().family_uuid}
 
 
 @pytest.mark.parametrize("analysis_type", [None, "", "long_read_wgs", "MONOGENIC_NIPT"])
@@ -750,7 +750,7 @@ def _nipt_family_with_a_fetus() -> types.SimpleNamespace:
             **vars(_context()),
             "sample_rows": [
                 {"sample_id": "FATHER1", "role": "father", "sample_metadata": {}},
-                {"sample_id": "CFDNA1", "role": "mother", "sample_metadata": {"assay": "nipt_cfdna"}},
+                {"sample_id": "CFDNA1", "role": "mother", "sample_metadata": {"assays": ["nipt_cfdna"]}},
                 {"sample_id": "FETUS1", "role": "embryo", "sample_metadata": None},
             ],
             "sample_name_to_uuid": {"FATHER1": "u-father", "CFDNA1": "u-cfdna", "FETUS1": "u-fetus"},
@@ -787,7 +787,7 @@ def test_a_nipt_familys_fetus_read_as_an_embryo_brings_no_pgt_section(monkeypatc
     # The father's blocks are no input of an embryo call: the fetus has none of its own.
     session = _Session(
         {
-            "FROM families": [{"analysis_type": "monogenic_nipt"}],
+            "FROM families": [{"metadata": {"analysis_types": ["monogenic_nipt"]}}],
             _HAPLOTYPE_SOURCES: [_haplotype_source("FATHER1")],
         }
     )
@@ -818,7 +818,7 @@ def test_a_nipt_family_whose_embryo_has_haplotype_blocks_keeps_the_pgt_section(m
     monkeypatch.setattr(srs, "family_pgt_analysis", _analysis_of)
     session = _Session(
         {
-            "FROM families": [{"analysis_type": "monogenic_nipt"}],
+            "FROM families": [{"metadata": {"analysis_types": ["monogenic_nipt"]}}],
             _HAPLOTYPE_SOURCES: [_haplotype_source("FETUS1")],
         }
     )
@@ -835,7 +835,7 @@ def test_a_pgt_familys_section_does_not_wait_on_its_embryos_blocks(monkeypatch) 
         return _analysis()
 
     monkeypatch.setattr(srs, "family_pgt_analysis", _analysis_of)
-    session = _Session({"FROM families": [{"analysis_type": None}]})
+    session = _Session({"FROM families": [{"metadata": {}}]})
     sections = _sections_of(session, monkeypatch, context=_pgt_context("father", "mother", "embryo"))
 
     assert sections["pgt_analysis"] == _analysis().model_dump(mode="json")

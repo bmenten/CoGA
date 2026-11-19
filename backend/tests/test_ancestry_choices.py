@@ -71,7 +71,7 @@ def test_a_bed_files_name_is_shown_as_its_printable_last_part(name, label):
 
 @pytest.mark.parametrize("member_row,choice,status", [
     (None, AncestrySampleChoiceIn(mode="auto"), 404),
-    ({"sample_metadata": {"assay": "nipt_cfdna"}}, AncestrySampleChoiceIn(mode="exclude"), 409),
+    ({"sample_metadata": {"assays": ["nipt_cfdna"]}}, AncestrySampleChoiceIn(mode="exclude"), 409),
     ({"sample_metadata": {}}, AncestrySampleChoiceIn(mode="callset"), 422),
     ({"sample_metadata": {}}, AncestrySampleChoiceIn(mode="auto", callset="clair3"), 422),
     ({"sample_metadata": {}}, AncestrySampleChoiceIn(mode="exclude", panel_id="p"), 422),
@@ -145,7 +145,7 @@ def test_an_embryo_is_read_only_when_a_callset_is_chosen_and_a_user_may_leave_an
 
 def test_a_cfdna_sample_stays_out_whatever_is_stored_for_it():
     model = reference()
-    family = [member("PLASMA", "mother", {"assay": "nipt_cfdna"})]
+    family = [member("PLASMA", "mother", {"assays": ["nipt_cfdna"]})]
     result = callsets.project_family(rows("PLASMA", range(N)), model, family, {"PLASMA": _choice("callset", "clair3")})[0]
     assert (result.status, result.reason, result.candidates) == ("excluded", callsets.EXCLUDED_CFDNA, [])
 

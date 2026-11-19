@@ -323,7 +323,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
         assay_key="nipt_cfdna",
         min_unexplained_samples=3,
     )
-    assert session.sample_queries == [{"assay": "nipt_cfdna"}]
+    assert session.sample_queries == [{"assays": "[\"nipt_cfdna\"]"}]
     assert seen["carrier_samples"] == ["CF1", "CF3"]
     assert (result["seeded"], result["cfdna_samples"]) == (1, 2)
 

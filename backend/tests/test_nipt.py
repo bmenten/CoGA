@@ -23,9 +23,9 @@ def _member(
     assay: str | None = None,
     assay_panel: str | None = None,
 ) -> FamilyMemberOut:
-    metadata: dict[str, str] = {}
+    metadata: dict[str, object] = {}
     if assay:
-        metadata["assay"] = assay
+        metadata["assays"] = [assay]
     if assay_panel:
         metadata["assay_panel"] = assay_panel
     return FamilyMemberOut(
@@ -42,7 +42,7 @@ def _family(
     *,
     analysis_type: str | None = MONOGENIC_NIPT_ANALYSIS_TYPE,
 ) -> FamilyOut:
-    metadata = {"analysis_type": analysis_type} if analysis_type else {}
+    metadata = {"analysis_types": [analysis_type]} if analysis_type else {}
     return FamilyOut(
         id="family-uuid",
         family_id="FAM001",
@@ -52,10 +52,26 @@ def _family(
     )
 
 
-def test_is_monogenic_nipt_family_reads_analysis_type() -> None:
+def test_is_monogenic_nipt_family_reads_the_analysis_types() -> None:
     assert is_monogenic_nipt_family(_family([], analysis_type=MONOGENIC_NIPT_ANALYSIS_TYPE))
     assert not is_monogenic_nipt_family(_family([], analysis_type=None))
     assert not is_monogenic_nipt_family(_family([], analysis_type="other"))
+
+
+def test_a_family_holding_both_nipts_is_a_monogenic_nipt_family() -> None:
+    family = _family([])
+    both = family.model_copy(update={"metadata": {"analysis_types": ["conventional_nipt", "monogenic_nipt"]}})
+    assert is_monogenic_nipt_family(both)
+    only_cnipt = family.model_copy(update={"metadata": {"analysis_types": ["conventional_nipt"]}})
+    assert not is_monogenic_nipt_family(only_cnipt)
+
+
+def test_a_plasma_of_both_nipts_is_the_cfdna_sample() -> None:
+    plasma = _member("PLASMA", "mother").model_copy(
+        update={"sample_metadata": {"assays": ["cnipt_cfdna", "nipt_cfdna"]}}
+    )
+    trio = resolve_nipt_trio(_family([_member("FATHER1", "father"), plasma]))
+    assert trio is not None and trio.cfdna_sample_id == "PLASMA"
 
 
 def test_resolve_nipt_trio_identifies_cfdna_by_assay_tag() -> None:

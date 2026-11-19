@@ -183,8 +183,8 @@ def run(tmp_path_factory) -> dict:
 def test_the_ccnv_output_is_imported_for_a_conventional_nipt(run) -> None:
     assert run["import"]["completed"] is True, run["import"]
     assert run["import"]["datasets"]["ccnv"][0] == "imported", run["import"]["datasets"]
-    assert run["family_metadata"]["analysis_type"] == "conventional_nipt"
-    assert run["sample_metadata"]["assay"] == "cnipt_cfdna"
+    assert run["family_metadata"]["analysis_types"] == ["conventional_nipt"]
+    assert run["sample_metadata"]["assays"] == ["cnipt_cfdna"]
 
 
 def test_the_bins_and_segments_are_the_plasmas_log2_ratio_tracks_with_ccnvs_values(run) -> None:

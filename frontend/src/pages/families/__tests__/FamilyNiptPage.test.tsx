@@ -57,7 +57,7 @@ describe('FamilyNiptPage', () => {
           data: {
             family_id: 'NIPT001',
             members: [],
-            metadata: { analysis_type: 'monogenic_nipt' },
+            metadata: { analysis_types: ['monogenic_nipt'] },
           },
         });
       }
@@ -271,7 +271,7 @@ describe('FamilyNiptPage', () => {
               { sample_id: 'CFDNA', role: 'proband', active: true },
               { sample_id: 'FATHER', role: 'father', active: true },
             ],
-            metadata: { analysis_type: 'monogenic_nipt' },
+            metadata: { analysis_types: ['monogenic_nipt'] },
           },
         });
       }
@@ -327,7 +327,7 @@ describe('FamilyNiptPage', () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/NIPT001') {
         return Promise.resolve({
-          data: { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } },
+          data: { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } },
         });
       }
       if (url === '/families/NIPT001/nipt/variants') {
@@ -384,7 +384,7 @@ describe('FamilyNiptPage', () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/NIPT001') {
         return Promise.resolve({
-          data: { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } },
+          data: { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } },
         });
       }
       if (url === '/families/NIPT001/nipt/summary') {
@@ -426,7 +426,7 @@ describe('FamilyNiptPage', () => {
             family_id: 'NIPT001',
             members: [],
             projects: ['p1'],
-            metadata: { analysis_type: 'monogenic_nipt', ...INCOMPLETE_IMPORT_METADATA },
+            metadata: { analysis_types: ['monogenic_nipt'], ...INCOMPLETE_IMPORT_METADATA },
           },
         });
       }
@@ -517,7 +517,7 @@ describe('FamilyNiptPage', () => {
                 { sample_id: 'CFDNA', role: 'mother', active: true },
                 { sample_id: 'FATHER', role: 'father', active: true },
               ],
-              metadata: { analysis_type: 'monogenic_nipt' },
+              metadata: { analysis_types: ['monogenic_nipt'] },
             },
           });
         }
@@ -894,7 +894,7 @@ describe('FamilyNiptPage', () => {
         }
         if (url === '/families/NIPT001') {
           return Promise.resolve({
-            data: { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } },
+            data: { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } },
           });
         }
         if (url === '/families/NIPT001/nipt/summary') {

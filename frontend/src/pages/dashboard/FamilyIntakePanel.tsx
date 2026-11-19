@@ -591,7 +591,7 @@ const FamilyIntakePanel: React.FC = () => {
       project_id: selectedProjectId,
       // Monogenic NIPT families are tagged so the workspace surfaces the NIPT tab
       // and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
-      ...(monogenicNipt ? { metadata: { analysis_type: MONOGENIC_NIPT_ANALYSIS_TYPE } } : {}),
+      ...(monogenicNipt ? { metadata: { analysis_types: [MONOGENIC_NIPT_ANALYSIS_TYPE] } } : {}),
       members: members.map((member) => ({
         sample_id: member.sampleId.trim(),
         father_id: member.fatherId.trim() || null,
@@ -602,7 +602,7 @@ const FamilyIntakePanel: React.FC = () => {
         is_proband: member.isProband,
         carrier_status: member.carrierStatus ? 'carrier' : 'not_carrier',
         carrier_type: member.carrierStatus ? member.carrierType : null,
-        ...(member.isCfdna ? { metadata: { assay: 'nipt_cfdna' } } : {}),
+        ...(member.isCfdna ? { metadata: { assays: ['nipt_cfdna'] } } : {}),
       })),
       couples: couples
         .filter((couple) => couple.partnerAId.trim() && couple.partnerBId.trim())

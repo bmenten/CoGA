@@ -112,7 +112,7 @@ def _patch_nipt_family(monkeypatch) -> None:
     """The trio as a monogenic NIPT family: FATHER, and MOTHER's plasma as the cfDNA sample
     (the mother member's maternal-plasma sample; there is no separate maternal germline
     sample). The NIPT analysis itself is left to each test."""
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_types": ["monogenic_nipt"]})
     monkeypatch.setattr(
         sample_integrity_service, "resolve_nipt_trio",
         lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
@@ -476,7 +476,7 @@ def test_service_a_nipt_family_whose_trio_is_not_resolved_runs_no_cfdna_check(mo
     # gate holds as a NIPT family none of whose checks could be assessed.
     from backend.app.services.report_signout_service import _unverifiable_swap_checks
 
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_types": ["monogenic_nipt"]})
     monkeypatch.setattr(sample_integrity_service, "resolve_nipt_trio", lambda family: None)
 
     async def _not_run(*args, **kwargs):

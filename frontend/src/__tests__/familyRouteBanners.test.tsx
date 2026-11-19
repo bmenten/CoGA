@@ -100,7 +100,7 @@ interface PageData {
   api?: Record<string, unknown>;
 }
 
-const NIPT_FAMILY = { metadata: { analysis_type: 'monogenic_nipt', ...INCOMPLETE_IMPORT_METADATA } };
+const NIPT_FAMILY = { metadata: { analysis_types: ['monogenic_nipt'], ...INCOMPLETE_IMPORT_METADATA } };
 const NO_VARIANTS = { total: 0, variants: [] };
 
 /**
@@ -174,7 +174,7 @@ const PAGE_DATA: Record<string, PageData> = {
   '/families/:familyId/nipt/report': { family: NIPT_FAMILY, api: { '/families/F1/nipt/variants': NO_VARIANTS } },
   '/families/:familyId/nipt/coverage': { family: NIPT_FAMILY },
   '/families/:familyId/cnipt': {
-    family: { metadata: { analysis_type: 'conventional_nipt', ...INCOMPLETE_IMPORT_METADATA } },
+    family: { metadata: { analysis_types: ['conventional_nipt'], ...INCOMPLETE_IMPORT_METADATA } },
     api: { '/families/F1/cnipt': { family_id: 'F1', samples: [] } },
   },
   '/families/:familyId/igv': {},

@@ -16,10 +16,11 @@ validation against invasive exomes stays in the R project.
 
 A NIPT case is a trio backed by two samples (`backend/app/services/nipt.py`, `resolve_nipt_trio`):
 
-- `family.metadata.analysis_type = "monogenic_nipt"` marks the family and shows the NIPT page. Family
-  Builder sets it; a package's `analysis_type` is promoted to it.
-- The cfDNA sample carries `sample.metadata.assay = "nipt_cfdna"` and the `mother` role. Without the
-  tag, the active `mother` member's sample is used.
+- `"monogenic_nipt"` among the family's analysis types (`family.metadata.analysis_types`) marks the
+  family and shows the NIPT page. Family Builder sets it; a package import adds its `analysis_type`
+  to the list, beside any other (a conventional NIPT of the same pregnancy).
+- The cfDNA sample's assays (`sample.metadata.assays`) hold `"nipt_cfdna"`, and it has the `mother`
+  role. Without the tag, the active `mother` member's sample is used.
 - `sample.metadata.assay_panel` (optional, on the cfDNA sample; a package member's is promoted) names
   the capture panel and scopes the artifact list. Without it, every NIPT family on the assembly
   shares the `nipt_cfdna` list.

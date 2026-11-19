@@ -1,11 +1,15 @@
 import type { ApiNiptCoverageLowRegion, NiptLowCoverageReason } from '../../lib/apiTypes';
+import { holdsAnalysis } from '../../lib/familyAnalyses';
 
 // Shared presentation helpers for the monogenic NIPT views (the workbench page
 // and the clinical report). Kept separate from the filter-state presets in
 // smallVariantSearch so both surfaces format categories / coverage identically.
 
-/** The family metadata `analysis_type` that marks a monogenic NIPT family. */
+/** The analysis type of a monogenic NIPT, among a family's analysis types (`familyAnalysisTypes`). */
 export const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
+
+/** Whether a family holds a monogenic NIPT (it may hold a conventional NIPT beside it). */
+export const isMonogenicNipt = (metadata: unknown): boolean => holdsAnalysis(metadata, MONOGENIC_NIPT_ANALYSIS_TYPE);
 
 // How the NIPT quality checks' tokens read (nipt_quality_checks), on the screen's QC panel and
 // in the printed report alike: the report printed the raw tokens, "female_no_chrY_signal"
