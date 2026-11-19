@@ -29,7 +29,9 @@ from .family_package_mito_table import mito_sample_calls, read_mito_table
 from .family_package_pgt import pgt_roi_phasing_issue
 from .family_package_source import _ensure_authorized_package_path, package_folder_link_issues, package_folder_path, parse_manifest_text
 from .family_package_nipt import nipt_vcf_column_issue
-from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
+from .ccnv_output import CcnvOutputError, ccnv_vcf_header_problems
+from .family_package_ccnv import CCNV_DATASET, ccnv_entry_paths, ccnv_sample_issues, check_ccnv_track_header, read_ccnv_qc_file, read_ccnv_vcf_header
+from .nipt import CONVENTIONAL_NIPT_ANALYSIS_TYPE, MONOGENIC_NIPT_ANALYSIS_TYPE
 from .nipt_target_coverage import target_table_missing_columns
 from .coverage_content import COVERAGE_CONTENT_KEY, DECLARED_COVERAGE_CONTENTS
 
@@ -376,6 +378,124 @@ def _validate_wisecondorx_dataset(
         samples=samples,
     )
 
+
+
+def _validate_ccnv_dataset(
+    *,
+    root: Path,
+    dataset: ManifestDataset,
+    ped_sample_ids: set[str],
+    errors: list[FamilyImportValidationIssue],
+    warnings: list[FamilyImportValidationIssue] | None,
+    analysis_type: str | None,
+) -> FamilyImportDatasetSummary:
+    """A ccnv dataset (family_package_ccnv.py): ccnv's prenatal output, read for a conventional
+    NIPT only. Each sample's entry names its bins, segments, calls VCF and QC file. The QC file is
+    read whole and the other files' headers: a file that is no ccnv prenatal output, a calls VCF
+    whose header states another result than its QC file, and two files that name different
+    samples are errors; a sample named otherwise than its member is a warning. Whether the bins
+    and segments hold a row is the import's check, made before it replaces anything."""
+    files: list[str] = []
+    samples: list[str] = []
+    before = len(errors)
+    if (analysis_type or "").strip() != CONVENTIONAL_NIPT_ANALYSIS_TYPE:
+        errors.append(
+            _issue(
+                "ccnv_analysis_type",
+                "The ccnv dataset is ccnv's prenatal output: it is read for a conventional NIPT "
+                f"(analysis_type: {CONVENTIONAL_NIPT_ANALYSIS_TYPE})",
+                dataset=CCNV_DATASET,
+            )
+        )
+    if not dataset.per_sample:
+        errors.append(
+            _issue(
+                "dataset_per_sample_missing",
+                "The ccnv dataset must define per_sample entries",
+                dataset=CCNV_DATASET,
+            )
+        )
+    for sample_id, raw_entry in dataset.per_sample.items():
+        samples.append(sample_id)
+        _validate_per_sample_id(
+            dataset_type=CCNV_DATASET,
+            sample_id=sample_id,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+        entry = _sample_entry_mapping(
+            dataset_type=CCNV_DATASET,
+            sample_id=sample_id,
+            entry=raw_entry,
+            errors=errors,
+        )
+        paths = {
+            role: _require_file(
+                root=root,
+                dataset_type=CCNV_DATASET,
+                value=value,
+                field_name=role,
+                errors=errors,
+                files=files,
+                sample_id=sample_id,
+            )
+            for role, value in ccnv_entry_paths(entry).items()
+        }
+        for role, track_type in (("bins", "coverage"), ("segments", "segments")):
+            path = paths[role]
+            if path is None or not path.is_file():
+                continue
+            try:
+                check_ccnv_track_header(path, track_type=track_type, file=_display_path(root, path))
+            except CcnvOutputError as exc:
+                errors.append(
+                    _issue("ccnv_file_invalid", str(exc), dataset=CCNV_DATASET, sample_id=sample_id, path=path)
+                )
+        qc_path, calls_path = paths["qc"], paths["calls"]
+        if qc_path is None or not qc_path.is_file():
+            continue
+        qc_file = _display_path(root, qc_path)
+        try:
+            qc = read_ccnv_qc_file(qc_path, file=qc_file)
+        except CcnvOutputError as exc:
+            errors.append(
+                _issue("ccnv_qc_invalid", str(exc), dataset=CCNV_DATASET, sample_id=sample_id, path=qc_path)
+            )
+            continue
+        if calls_path is None or not calls_path.is_file():
+            continue
+        vcf_file = _display_path(root, calls_path)
+        try:
+            meta_lines, columns = read_ccnv_vcf_header(calls_path, file=vcf_file)
+        except CcnvOutputError as exc:
+            errors.append(
+                _issue("ccnv_file_invalid", str(exc), dataset=CCNV_DATASET, sample_id=sample_id, path=calls_path)
+            )
+            continue
+        for problem in ccnv_vcf_header_problems(meta_lines, qc, file=vcf_file):
+            errors.append(
+                _issue("ccnv_results_disagree", problem, dataset=CCNV_DATASET, sample_id=sample_id, path=calls_path)
+            )
+        name_errors, name_warnings = ccnv_sample_issues(
+            sample_id=sample_id,
+            entry=entry,
+            qc=qc,
+            vcf_columns=columns,
+            family_sample_ids=ped_sample_ids,
+            qc_file=qc_file,
+            vcf_file=vcf_file,
+            path=calls_path,
+        )
+        errors.extend(name_errors)
+        if warnings is not None:
+            warnings.extend(name_warnings)
+    return FamilyImportDatasetSummary(
+        dataset_type=CCNV_DATASET,
+        enabled=True,
+        status="error" if len(errors) > before else "valid",
+        files=list(dict.fromkeys(files)),
+        samples=samples,
+    )
 
 # The ``source_format`` a per-sample SNV callset outside monogenic NIPT declares: the
 # family's primary callset of germline calls, one file per sample (the long-read
@@ -1422,6 +1542,15 @@ def _validate_dataset(
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
             errors=errors,
+        )
+    if dataset_type == CCNV_DATASET:
+        return _validate_ccnv_dataset(
+            root=root,
+            dataset=dataset,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+            warnings=warnings,
+            analysis_type=analysis_type,
         )
     if dataset_type == "coverage":
         return _validate_coverage_dataset(

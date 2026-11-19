@@ -23,6 +23,7 @@ from .family_metadata_context import (
 )
 
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SEGREGATION_TRACK_TYPE, APCAD_SOURCE, ImportRefused, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, whole_package_text_handle
+from .ccnv_output import CCNV_SOURCE, CCNV_TRACK_FILE_LABEL, CcnvOutputError, ccnv_track_rows
 from .clickhouse_column_bounds import UINT64, column_int
 from .import_progress import bytes_read_on_disk, file_size, read_stats
 from .vcf_fields import parse_format, parse_info
@@ -562,6 +563,104 @@ async def _import_copy_number_track(
             # The transform the stored values went through, when they went through one:
             # without it a stored log2 ratio cannot be traced back to the file's value.
             **(extra_metadata or {}),
+        },
+    )
+    await session.commit()
+    if progress is not None:
+        await progress(result)
+    return result
+
+
+def _ccnv_rows(
+    handle: Iterable[str],
+    *,
+    sample_context: SampleMetadataContext,
+    track_type: str,
+    path: Path,
+) -> Iterator[dict[str, Any] | None]:
+    """Each data line of a ccnv bins or segments file (``ccnv_track_rows``) as the row it is
+    stored as, None for a line left out: its log2 ratio as the value, and the columns ccnv
+    gives beside it (the z-score, weight and branch of a bin; the z-score, call, expected
+    ratio, implied fetal fraction, discordance and origin call of a segment) in its
+    ``metadata_json``."""
+    for row in ccnv_track_rows(handle, track_type=track_type, file=path.name):
+        if row is None:
+            yield None
+            continue
+        yield {
+            "sample_id": sample_context.sample_uuid,
+            "family_id": sample_context.family_uuid,
+            "assembly_id": sample_context.assembly_id or "",
+            "assembly_name": sample_context.assembly_name or "",
+            "track_type": track_type,
+            "source": CCNV_SOURCE,
+            "chr": row.chrom,
+            "start": row.start,
+            "end": row.end,
+            "record_id": row.record_id,
+            "value": row.value,
+            "origin": None,
+            "metadata_json": json.dumps(
+                _jsonb_safe(
+                    {"source": CCNV_SOURCE, "filename": path.name, "line_no": row.line_no, **row.kept}
+                )
+            ),
+        }
+
+
+async def _import_ccnv_track(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    path: Path,
+    track_type: str,
+    progress: Callable[[dict[str, int]], Awaitable[None]] | None = None,
+    check_only: bool = False,
+) -> dict[str, int]:
+    """Store a ccnv bins file as the sample's ``coverage`` track or its segments file as its
+    ``segments`` track, source ``ccnv``, in place of the one stored from that file. Both hold
+    log2 ratios of the maternal plasma, as ccnv wrote them.
+
+    The file is read up to its first row before anything is deleted: one that is no ccnv
+    prenatal output (``CcnvOutputError``) or holds no row is refused with the stored track as
+    it was. ``check_only`` stops there, deleting and storing nothing."""
+    if not sample_context.assembly_name:
+        raise ImportRefused("Cannot import ccnv interval tracks without an assembly name")
+    label = CCNV_TRACK_FILE_LABEL[track_type]
+    async with _open_package_text(path) as handle:
+        rows = _ccnv_rows(handle, sample_context=sample_context, track_type=track_type, path=path)
+        try:
+            first, left_out = _first_stored_row(rows)
+        except CcnvOutputError as exc:
+            raise ImportRefused(str(exc)) from exc
+        if first is None:
+            raise EmptyTrackFileError(
+                f"The ccnv {label} file {path.name} holds no record of the {track_type} track; "
+                "its track was not replaced"
+            )
+        if check_only:
+            return {}
+        await _delete_sample_interval_source(
+            session,
+            sample_context=sample_context,
+            track_type=track_type,
+            source=CCNV_SOURCE,
+            filename=path.name,
+        )
+        result = await _store_track_rows(
+            session, chain([first], rows), left_out=left_out, progress=progress
+        )
+    await upsert_interval_track_source(
+        session,
+        sample_context=sample_context,
+        track_type=track_type,
+        source=CCNV_SOURCE,
+        filename=path.name,
+        row_count=result["inserted"],
+        metadata={
+            "source": CCNV_SOURCE,
+            "filename": path.name,
+            "uploaded_from": "family_package",
         },
     )
     await session.commit()

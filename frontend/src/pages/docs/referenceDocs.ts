@@ -8,6 +8,7 @@ import monarchIntegration from '../../content/docs/monarch-integration.md?raw';
 import acmgClassification from '../../content/docs/acmg-classification.md?raw';
 import haplotypeSegregation from '../../content/docs/haplotype-segregation.md?raw';
 import monogenicNipt from '../../content/docs/monogenic-nipt.md?raw';
+import conventionalNipt from '../../content/docs/conventional-nipt.md?raw';
 import svSecondHit from '../../content/docs/sv-second-hit.md?raw';
 import clinicalTraceability from '../../content/docs/clinical-traceability.md?raw';
 import ancestryPca from '../../content/docs/ancestry-pca.md?raw';
@@ -24,6 +25,7 @@ export const referenceDocs: ReferenceDoc[] = [
   { slug: 'acmg-classification', markdown: acmgClassification },
   { slug: 'haplotype-segregation', markdown: haplotypeSegregation },
   { slug: 'monogenic-nipt', markdown: monogenicNipt },
+  { slug: 'conventional-nipt', markdown: conventionalNipt },
   { slug: 'sv-second-hit', markdown: svSecondHit },
   { slug: 'clinical-traceability', markdown: clinicalTraceability },
   { slug: 'ancestry-pca', markdown: ancestryPca },

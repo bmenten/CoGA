@@ -6,6 +6,7 @@ import FamilyCaseControls, { FamilyCaseActions, type FamilyCaseActionKey } from 
 import FamilyModuleNav, { type FamilyModuleKey } from './FamilyModuleNav';
 import { useFamilyDataPresence } from './familyDataPresence';
 import { MONOGENIC_NIPT_ANALYSIS_TYPE } from './niptClassification';
+import { isConventionalNipt } from './cniptResult';
 
 /**
  * The top card of every family page (the workspace, the analyses, the Sample QC, the report),
@@ -93,6 +94,7 @@ const FamilyCaseHeader: React.FC<{
               projectId={projectId}
               presence={presence}
               isMonogenicNipt={isMonogenicNipt}
+              isConventionalNipt={isConventionalNipt(family?.metadata)}
               current={current}
               views={views}
             />

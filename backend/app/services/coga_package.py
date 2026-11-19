@@ -60,7 +60,8 @@ PACKAGE_MAX_BYTES = 20 * 1024 * 1024
 
 PackageStatus = Literal["running", "complete", "failed"]
 # The analyses a package may name: the laboratory's LR-WGS, LR-AS (long-read adaptive sampling),
-# SR-WGS (conventional short-read Illumina WGS), PGT, expanded carrier screening and mNIPT.
+# SR-WGS (conventional short-read Illumina WGS), PGT, expanded carrier screening, mNIPT and
+# cNIPT (conventional NIPT: genome-wide copy number of the maternal plasma, from ccnv).
 AnalysisType = Literal[
     "long_read_wgs",
     "long_read_adaptive_sampling",
@@ -68,6 +69,7 @@ AnalysisType = Literal[
     "pgt",
     "expanded_carrier_screening",
     "monogenic_nipt",
+    "conventional_nipt",
 ]
 # The datasets the import reads (family_package_common.SUPPORTED_DATASETS).
 DatasetName = Literal[
@@ -76,6 +78,7 @@ DatasetName = Literal[
     "repeats_trgt",
     "wisecondorx",
     "qdnaseq",
+    "ccnv",
     "apcad",
     "pcf",
     "haplotypes",

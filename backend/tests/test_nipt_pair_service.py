@@ -121,6 +121,14 @@ def test_per_sample_observations() -> None:
     assert paternal_only.cf_depth_estimated and not paternal_only.cf_present
     assert (paternal_only.cf_dp, paternal_only.cf_alt_reads, paternal_only.father_state) == (1500, 0, "hom_alt")
     assert sites["7-9000-G-A"].cf_dp is None
+    # Paternity judges a site at the plasma's depth from its coverage, whether or not the
+    # plasma called the allele: the call's own depth is known only where it shows.
+    assert paternal_only.cf_coverage_dp == 1500
+    assert both.cf_dp == 1500 and both.cf_coverage_dp is None  # outside every target
+    assert sites["7-9000-G-A"].cf_coverage_dp is None
+    inside = _record("7-3050-A-G", [_call(PLASMA, [1100, 100]), _call(FATHER, [150, 150])])
+    called = build_nipt_observations([inside], father_sample_id=FATHER, cfdna_sample_id=PLASMA, plasma_depth=plasma_lookup)
+    assert (called[0].cf_dp, called[0].cf_coverage_dp) == (1200, 1500)
 
 
 # --------------------------------------------------------------------------- #
@@ -260,7 +268,8 @@ def _gene_sites() -> list[SmallVariantRecord]:
 
 def _plasma_targets() -> list[TargetCoverageRow]:
     return [
-        TargetCoverageRow(chrom="1", start=4900, end=5200, gene="GENEZ", attribute="GENEZ", mean=1500.0, median=1500.0),
+        # Over every chr1 site of _ff_sites, called by the plasma or not.
+        TargetCoverageRow(chrom="1", start=900, end=8100, gene="GENEZ", attribute="GENEZ", mean=1500.0, median=1500.0),
         TargetCoverageRow(chrom="7", start=350, end=450, gene="GENEB", attribute="GENEB", mean=1500.0, median=1500.0),
         TargetCoverageRow(chrom="7", start=0, end=120, gene="GENEA", attribute="GENEA;NM_1", mean=250.0, median=240.0,
                           proportion_covered=100.0),
@@ -329,11 +338,14 @@ async def test_the_summary_reads_the_paternal_alleles_and_the_target_coverage(mo
     summary = await get_family_nipt_summary(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
     analysis = summary.analysis
     assert analysis.fetal_fraction.ff_computed == pytest.approx(0.20, abs=0.01)
-    # 60 + 1 het alleles inherited (GENEA's), 60 + 1 not (GENEB's; their plasma depth from
-    # the targets), 30 hom ones seen.
+    # 60 het alleles inherited, 60 + 1 not (GENEB's), 30 hom ones seen, each judged at the
+    # plasma's depth from the targets. GENEA's paternal allele lies outside every target: the
+    # plasma shows it, but had it not, there would be no depth to judge it at, so it does
+    # not count either way.
     evidence = analysis.paternal_transmission
-    assert (evidence.het_transmitted, evidence.het_not_transmitted) == (61, 61)
+    assert (evidence.het_transmitted, evidence.het_not_transmitted) == (60, 61)
     assert (evidence.hom_alt_transmitted, evidence.hom_alt_not_transmitted) == (30, 0)
+    assert evidence.without_plasma_depth == 1
     assert analysis.filter_counts["paternal_only"] == 61  # 60 missed + the GENEB paternal allele
     assert summary.target_coverage is not None and summary.target_coverage.targets == 3
     assert summary.sex_chromosomes is not None and summary.sex_chromosomes.profile == "no_chrY_targets"
@@ -571,7 +583,7 @@ async def test_the_quality_checks_payload(monkeypatch: pytest.MonkeyPatch) -> No
     _wire(monkeypatch, filtered=_gene_sites(), targets=[*_plasma_targets(), *sex_targets])
     qc = _qc_out(await get_family_nipt_summary(session=None, family_id="NIPTFAM1", user=None))  # type: ignore[arg-type]
     assert qc.paternity.status == "pass"
-    assert (qc.paternity.het_transmitted, qc.paternity.het_not_transmitted) == (61, 61)
+    assert (qc.paternity.het_transmitted, qc.paternity.het_not_transmitted) == (60, 61)
     # No paternal-X site; no chrY signal at an FF of 20%: female, by the chrY coverage.
     assert (qc.fetal_sex.paternal_x, qc.fetal_sex.chry_profile, qc.fetal_sex.call) == (
         "indeterminate", "female_no_chrY_signal", "female"
@@ -593,6 +605,26 @@ async def test_the_quality_checks_payload(monkeypatch: pytest.MonkeyPatch) -> No
     assert male.fetal_sex.chry_profile == "male_like_not_maternal_plasma"
     # Neither signal tells the fetal sex then: a warning.
     assert (male.fetal_sex.call, male.fetal_sex.status) == ("indeterminate", "warn")
+
+
+@pytest.mark.asyncio
+async def test_without_a_plasma_coverage_table_paternity_cannot_be_assessed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Without the plasma's per-target coverage, an allele it did not show has no depth to be
+    # judged at. Counting only the alleles it did show would read every rate near 100%: the
+    # het ones failed as "too many", the homozygous ones passed whoever the father is.
+    from backend.app.routers.families_nipt import _qc_out
+
+    _wire(monkeypatch, filtered=_gene_sites(), targets=[])
+    summary = await get_family_nipt_summary(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
+    evidence = summary.analysis.paternal_transmission
+    assert (evidence.het_transmitted, evidence.het_not_transmitted) == (0, 0)
+    assert (evidence.hom_alt_transmitted, evidence.hom_alt_not_transmitted) == (0, 0)
+    # His 120 + 2 het alleles and 30 homozygous ones, the plasma's call or none.
+    assert evidence.without_plasma_depth == 152
+    qc = _qc_out(summary)
+    assert qc.paternity.status == "warn"
+    assert qc.paternity.message.startswith("Too few paternal-informative sites (0 homozygous, 0 het)")
+    assert "The plasma's depth is not known at 152 of the father's sites" in qc.paternity.message
 
 
 @pytest.mark.asyncio

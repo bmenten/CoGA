@@ -1,6 +1,6 @@
 # 8. Filter pages ↔ API
 
-After a correct import (chapter 6), CoGA *filters* and *shows* a family's variants. Part A follows that chain for the two largest data types: the *small variants* (SNVs and indels: point mutations and small insertions or deletions) and the *structural variants* (SVs: large deletions, duplications, …). Part B summarises it for the specialised analyses: mitochondrial DNA and sample QC, Paraphase, repeat expansions, monogenic NIPT and PGT. The clinical rules for the laboratory are in the app, under *Docs*; this chapter points to where they sit in the code.
+After a correct import (chapter 6), CoGA *filters* and *shows* a family's variants. Part A follows that chain for the two largest data types: the *small variants* (SNVs and indels: point mutations and small insertions or deletions) and the *structural variants* (SVs: large deletions, duplications, …). Part B summarises it for the specialised analyses: mitochondrial DNA and sample QC, Paraphase, repeat expansions, monogenic NIPT, conventional NIPT and PGT. The clinical rules for the laboratory are in the app, under *Docs*; this chapter points to where they sit in the code.
 
 An **endpoint** is a URL the backend listens on; a **query parameter** is a `?key=value` pair in that URL, through which the frontend passes on the filter choices. A **parameterised query** passes user values separately instead of pasting them into the SQL text (chapter 7).
 
@@ -240,7 +240,7 @@ Classifying uses the same ACMG dialog as small variants, with its own mtDNA eval
 
 Per sample the page shows coverage and a QC status; the limits come from the family's QC profile (*Admin → Sequencing QC thresholds*, chapter 15). Without a set limit, a metric does not count: the status is then *Not run* (`skip`), not *Pass*. The coverage comes from one coverage track per sample with read depth (`coverage_read_depth.py`): the sample's coverage BED if it is declared as read depth (`content: read_depth`, chapter 6), otherwise HiFiCNV's depth if the import stored it as read (`normalization: none`, chapter 9).
 
-- The bins of WisecondorX and QDNAseq, HiFiCNV's normalised depth and a BED declared as log2 ratio are log2 ratios and never count as depth: together with the depths of a BED they would give an average that is neither. A coverage BED that does not declare what it contains (`unknown`) does not count either. The page's QC notes name every track that was not read as depth, with the reason.
+- The bins of WisecondorX, QDNAseq and ccnv, HiFiCNV's normalised depth and a BED declared as log2 ratio are log2 ratios and never count as depth: together with the depths of a BED they would give an average that is neither. A coverage BED that does not declare what it contains (`unknown`) does not count either. The page's QC notes name every track that was not read as depth, with the reason.
 - A sample without a track with read depth gets the depth of its chrM calls, like a sample without a coverage track. A mother with only a log2-ratio track on chrM and without calls therefore does not count as assessed (*Mother not assessed*).
 
 **Sample QC.** This page checks that the right data belong to the right person. Otherwise a swapped sample or a wrong pedigree leads, unnoticed, to wrong reasoning about inheritance. Three checks compute on the genotypes themselves:
@@ -268,7 +268,7 @@ Each check gives *Pass*, *Warning*, *Fail* or *Not run* (in the API `pass`, `war
 
 The frozen snapshot carries the source only in the message, not in a field of its own in `SexCheck`. In the column *Genetic sex* there is ✓ only for *Pass* (the recorded sex confirmed, or, for an embryo without a recorded sex, the sex its data indicate), ! for *Warning* (not confirmed: the sex stayed undetermined or there was no recorded sex), ✗ for *Fail* and ? for *Not run* (no chrX genotypes and no sex from the reads). The tooltip of the ring in the pedigree says "(matches record)" only for *Pass* against a recorded sex; for every other verdict, and for an embryo without a recorded sex, it gives the check's message.
 
-Which checks run depends on the application (family with parents, PGT, NIPT, couple, single sample). For NIPT the paternity comes from the cfDNA analysis, and only sites with a usable call of the father count. That analysis reads two fractions separately: the alleles for which the father is homozygous must (almost) all be visible in the cfDNA, his heterozygous alleles about half of them. For a per-sample NIPT callset, the sample QC reads the genotypes from the allele depths, because Mutect2 writes `0/1` for every call.
+Which checks run depends on the application (family with parents, PGT, NIPT, couple, single sample). For NIPT the paternity comes from the cfDNA analysis, and only sites with a usable call of the father count. That analysis reads two fractions separately: the alleles for which the father is homozygous must (almost) all be visible in the cfDNA, his heterozygous alleles about half of them. A site counts only where the plasma's depth there is known, whether or not it shows the allele (for a per-sample callset: the coverage per target); otherwise only what the plasma shows would count, and every fraction would be close to 100%. For a per-sample NIPT callset, the sample QC reads the genotypes from the allele depths, because Mutect2 writes `0/1` for every call.
 
 **A failed step.** If loading the genotypes or the cfDNA analysis fails, a fixed note says so (*Genotypes could not be loaded.*, *NIPT cfDNA analysis could not run.*, *The NIPT parents' sex could not be checked.*), never with the text of the error. After all, the notes are frozen into the signed snapshot, and the text of a failed query quotes the SQL and the parameters. The warning that the backend logs alongside names the kind of error (chapter 7). If the genotypes of the NIPT parents cannot be loaded, their sex reads *indeterminate*, as for a parent without chrX calls. No relatedness check covers those samples, so sign-out waits for a reason (chapter 11). A *Fail* blocks sign-out until it is acknowledged (chapter 11). The rules for the laboratory are in the app (*Docs → Sample-integrity QC*, `frontend/src/content/docs/sample-qc.md`).
 
@@ -378,6 +378,23 @@ The auto-seed of the artefact list reads the calls in the same way and counts on
 The clinical explanation is in the app (*Docs → Monogenic NIPT (cfDNA)*, `frontend/src/content/docs/monogenic-nipt.md`), the design in `docs/monogenic-nipt.md`.
 
 **Where in the code:** `backend/app/services/nipt.py` (the trio), `nipt_analysis.py` (the computing core), `nipt_triage.py` (de novo triage and recessive risk), `nipt_target_coverage.py` (the coverage tables), `nipt_service.py` (link with the data and the views), `nipt_coverage.py` and `nipt_artifact_pg.py`; `backend/app/routers/families_nipt.py`; the pages `FamilyNiptPage.tsx`, `FamilyNiptReportPage.tsx` and `FamilyNiptCoveragePage.tsx` (the coverage), with `NiptQcPanel.tsx`, `NiptRecessiveGenes.tsx` and `NiptTargetCoverage.tsx`.
+
+### Conventional NIPT
+
+Conventional NIPT screens a pregnancy for aneuploidies and copy-number changes through the genome-wide copy number of the **maternal plasma**. ccnv, the laboratory's program, measures the copy number and the fetal fraction; CoGA imports its output (chapter 6), draws it in the views (chapter 9) and gives an **automatic result** per target (`GET /api/families/{family_id}/cnipt`, the page *cNIPT*).
+
+**The rule.** The owner's choice of 2026-11-19, *z-score and concordance with the fetal fraction* (`cnipt_result.py`, pure):
+
+- The fetal fraction is ccnv's effective one; the other estimates are shown beside it. Below the bound `cnipt.fetal_fraction` there is no result for any target.
+- A segment spanning at least half of its chromosome is an aneuploidy of that chromosome; a shorter segment a segmental CNV, assessed from a size that ccnv's limits of detection raise at this fetal fraction.
+- A segment with a |z-score| from the error bound of `cnipt.call_zscore` is **high risk** when it is concordant with the fetal fraction: the implied fetal fraction within the band, ccnv does not call it discordant, and the origin is not maternal or mosaic. Otherwise, or in the grey zone below the error bound, it is **inconclusive**.
+- The sex chromosomes follow ccnv's sex-chromosome call and its confidence (`cnipt.sca_confidence`).
+
+**The bounds.** QA sets them in the profile *Conventional NIPT* of the QC thresholds (chapter 15), each change with a reason. As long as QA has not set a bound, the rule applies a provisional value (`PROVISIONAL_BOUNDS`), and the result marks it as provisional.
+
+The clinical explanation is in the app (*Docs → Conventional NIPT (cell-free DNA)*, `frontend/src/content/docs/conventional-nipt.md`), the design in `docs/conventional-nipt.md`.
+
+**Where in the code:** `backend/app/services/cnipt_result.py` (the rule), `cnipt_service.py` (link with the data), `ccnv_output.py` (ccnv's output), `routers/families_cnipt.py`; the page `FamilyCniptPage.tsx` with `cniptResult.ts`.
 
 ### PGT: haplotype segregation
 

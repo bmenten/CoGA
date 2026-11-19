@@ -132,6 +132,9 @@
   --color-coverage-gain: #556f87;
   --color-coverage-loss: #8d3f44;
   --color-coverage-neutral: #8d9499;
+  /* A maternal plasma's segment ccnv called but flagged as discordant with the fetal
+     fraction (a maternal or mosaic event), in purple as ccnv's own plot draws it. */
+  --color-coverage-discordant: #8a5aa8;
   --color-coverage-border: #7c909d;
   --color-cnv-clinical: #c2772e;
   --color-gene-fill: #556f87;

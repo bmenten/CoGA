@@ -76,6 +76,7 @@ def _codes(payload: dict[str, Any]) -> list[tuple[str, str | None]]:
 
 def test_there_is_an_example_of_each_kind_of_package() -> None:
     assert [path.name for path in EXAMPLES] == [
+        "conventional-nipt.json",
         "long-read-couple.json",
         "minimum.json",
         "monogenic-nipt.json",

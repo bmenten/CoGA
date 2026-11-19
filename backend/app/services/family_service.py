@@ -8,10 +8,12 @@ from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .ccnv_output import ccnv_track_summary
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
     FamilyOut,
     FamilyRegionOfInterestUpdate,
+    CcnvTrackSummaryOut,
     FamilyTrackAvailabilityOut,
     HaplotypeResponse,
     PhasedMarkerResponse,
@@ -538,7 +540,16 @@ async def get_family_track_availability_for_user(
         )
         structural_records = []
 
+    # A conventional NIPT's plasma: the ccnv results its ccnv tracks are drawn with.
+    ccnv_records = {
+        row["sample_id"]: (row.get("sample_metadata") or {}).get("ccnv")
+        for row in context.sample_rows
+        if isinstance(row.get("sample_metadata"), dict)
+    }
     for sample_name, sample_availability in availability.items():
+        ccnv_record = ccnv_records.get(sample_name)
+        if isinstance(ccnv_record, dict):
+            sample_availability.ccnv = CcnvTrackSummaryOut(**ccnv_track_summary(ccnv_record))
         sample_availability.coverage_sources = coverage_sources.get(sample_name, [])
         sample_availability.coverage_normalizations = {
             source: transforms

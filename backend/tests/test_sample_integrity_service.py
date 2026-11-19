@@ -838,7 +838,7 @@ def _nipt_site(variant_id: str, *, father_state: str, father_dp: int | None, pre
     return NiptSiteObservation(
         variant_id=variant_id, chrom="1", pos=100, is_autosomal=True,
         cf_present=present, cf_dp=400, cf_alt_reads=20 if present else 0,
-        cf_vaf=0.05 if present else 0.0, cf_qual=40.0,
+        cf_vaf=0.05 if present else 0.0, cf_qual=40.0, cf_coverage_dp=400,
         father_state=father_state, father_dp=father_dp, father_qual=None,
     )
 
