@@ -4,7 +4,7 @@
  * (`ccnv`, `ccnv_output.ccnv_track_summary`).
  *
  * The plasma's ratios are small: a fetal trisomy at a fetal fraction f raises a chromosome by
- * log2(1 + f/2), about +0.06 at 12 %. On the views' log2-ratio axis (±1.5, gain and loss from
+ * log2(1 + f/2), about +0.08 at 12 %. On the views' log2-ratio axis (±1.5, gain and loss from
  * ±0.35) it would never be coloured. So a ccnv track has a NIPT axis of its own, colours each
  * segment by ccnv's own call, and draws the expected log2 ratio of a fetal trisomy and monosomy
  * at the plasma's fetal fraction as dashed lines, on chromosomes 1–22 and X, as ccnv's own plot

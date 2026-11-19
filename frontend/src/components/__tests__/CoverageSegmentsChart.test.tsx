@@ -474,7 +474,7 @@ describe('CoverageSegmentsChart', () => {
 });
 
 // A conventional NIPT's maternal plasma (ccnv): a fetal trisomy raises its log2 ratio by about
-// +0.06, which the ±0.35 gain/loss cut-offs would never colour. Its track has an axis of its own,
+// +0.08 at a fetal fraction of 12 %, which the ±0.35 gain/loss cut-offs would never colour. Its track has an axis of its own,
 // colours each segment by ccnv's call, and draws where a fetal trisomy and monosomy lie at the
 // plasma's fetal fraction, on every chromosome but Y.
 describe('CoverageSegmentsChart of a maternal plasma (ccnv)', () => {

@@ -55,7 +55,7 @@ Coverage is drawn as one track per CNV caller, on the axis of what the track hol
 - The callers' log2 ratios share the log2-ratio axis, with the gain and loss colours and the caller's
   segments. Hover a segment for the values its caller gives (for WisecondorX its z-score).
 - A conventional NIPT's maternal plasma (**ccnv**) has an axis of its own (±0.3): a fetal trisomy raises
-  the plasma by only about +0.06 at a 12 % fetal fraction, which the gain and loss colours would never
+  the plasma by only about +0.08 at a 12 % fetal fraction, which the gain and loss colours would never
   show. Each segment takes the colour of ccnv's call: gain, loss, or purple where ccnv calls it
   discordant with the fetal fraction (a maternal or mosaic event, say). The dashed lines are where a
   fetal trisomy (above) and monosomy (below) lie at the plasma's fetal fraction, on chromosomes 1–22

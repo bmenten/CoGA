@@ -1868,7 +1868,7 @@ track's record names (`coverage_normalizations`) and what each holds (`coverage_
 - A log2 ratio is drawn on the viewers' log2-ratio axis, with the gain/loss colouring and the
   caller's segments.
 - A conventional NIPT's maternal plasma (ccnv) is a log2 ratio too, but a fetal trisomy raises it
-  by only log2(1 + FF/2), about +0.06 at a fetal fraction of 12 %, which the gain/loss colouring
+  by only log2(1 + FF/2), about +0.08 at a fetal fraction of 12 %, which the gain/loss colouring
   (±0.35) would never colour. Its track is drawn on a NIPT axis of its own (±0.3, a gridline every
   0.1), each segment and its bins in the colour of ccnv's call (gain, loss, or discordant with the
   fetal fraction, in purple; uncalled ones neutral, called ones thicker), and dashed lines where a
