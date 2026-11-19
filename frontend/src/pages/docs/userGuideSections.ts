@@ -121,6 +121,12 @@ const sections: Omit<GuideSection, 'markdown'>[] = [
       'Screen a pregnancy for single-gene disorders from maternal-plasma cfDNA and a paternal sample: set it up, read the page, print the report.',
   },
   {
+    id: 'conventional-nipt',
+    title: 'Conventional NIPT',
+    summary:
+      'Screen a pregnancy for aneuploidies and copy-number changes from the maternal plasma (ccnv): read the automatic result, its findings and its bounds.',
+  },
+  {
     id: 'explorers',
     title: 'Gene, variant and CNV explorers',
     summary:

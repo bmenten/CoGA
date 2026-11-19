@@ -488,7 +488,8 @@
             "short_read_wgs",
             "pgt",
             "expanded_carrier_screening",
-            "monogenic_nipt"
+            "monogenic_nipt",
+            "conventional_nipt"
           ],
           "type": "string"
         },
@@ -546,6 +547,7 @@
               "repeats_trgt",
               "wisecondorx",
               "qdnaseq",
+              "ccnv",
               "apcad",
               "pcf",
               "haplotypes",
@@ -575,6 +577,7 @@
           "repeats_trgt",
           "wisecondorx",
           "qdnaseq",
+          "ccnv",
           "apcad",
           "pcf",
           "haplotypes",

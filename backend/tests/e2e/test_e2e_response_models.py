@@ -245,11 +245,14 @@ def test_each_answer_is_what_its_model_describes(answers, key: str) -> None:
 
 
 def test_the_bed_reads_answer_each_track_type_with_its_rows(answers) -> None:
-    from backend.app.schemas import BedApcadRecordOut, BedRecordOut
+    from backend.app.schemas import BedApcadRecordOut, BedRecordOut, BedSegmentRecordOut
 
-    for key in ("coverage", "coverage_window", "coverage_batch", "segments"):
+    for key in ("coverage", "coverage_window", "coverage_batch"):
         body = answers[key]["json"]
         assert body["items"] and all(set(item) == set(BedRecordOut.model_fields) for item in body["items"]), body
+    # A segment comes with its caller's values (``details``), null where the caller gives none.
+    body = answers["segments"]["json"]
+    assert body["items"] and all(set(item) == set(BedSegmentRecordOut.model_fields) for item in body["items"]), body
     for key in ("apcad", "apcad_window_batch", "apcad_pcf", "apcad_pcf_batch"):
         body = answers[key]["json"]
         assert body["items"] and all(set(item) == set(BedApcadRecordOut.model_fields) for item in body["items"]), body

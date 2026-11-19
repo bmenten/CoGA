@@ -114,6 +114,7 @@ describe('AddDeliveryForm', () => {
       'PGT',
       'Expanded Carrier Screening',
       'mNIPT',
+      'cNIPT',
     ]);
     fireEvent.change(analysis, {
       target: { value: 'long_read_adaptive_sampling' },

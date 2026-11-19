@@ -27,7 +27,8 @@ must carry FORMAT/AD.
   plasma sample, the coverage of the capture targets and why cfDNA calls failed the quality filter. The
   section opens folded, with one verdict: **Pass** when every check passed, **Fail** as soon as one
   failed, **Warning** otherwise (a check that could not run counts as a warning). Click it for the
-  details. A failed paternity check means another father or a sample mix-up: do not read the variants.
+  details. A failed paternity check means another father, a sample mix-up, the father's own DNA in the
+  plasma or more than one fetus (its message says which): do not read the variants.
 - **The filters** sit under **Advanced filters**, closed when the page opens, as on the small-variant
   page. They are the small-variant page's *Pathogenicity*, *Annotations*, *In silico*, *Frequency*,
   *Locations* and *Exclude* filters and its review tags (*Review and curation*: the tags, not the

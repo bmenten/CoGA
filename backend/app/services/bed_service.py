@@ -454,6 +454,32 @@ async def _require_one_coverage_source(
         )
 
 
+# The keys of a row's ``metadata_json`` that say where the row came from rather than what its
+# caller measured: never served as its details.
+_ROW_PROVENANCE_KEYS = frozenset({"source", "filename", "line_no"})
+
+
+def _segment_details(metadata_json: Any) -> dict[str, Any] | None:
+    """A segment row's details: the values its caller gives beside it, as the import kept them
+    in its ``metadata_json`` (a WisecondorX segment's z-score; a ccnv segment's z-score, call,
+    expected ratio, implied fetal fraction, discordance and origin call), without the row's
+    provenance. None when its caller gives none."""
+    if not isinstance(metadata_json, str) or not metadata_json:
+        return None
+    try:
+        metadata = json.loads(metadata_json)
+    except ValueError:
+        return None
+    if not isinstance(metadata, dict):
+        return None
+    details = {
+        str(key): value
+        for key, value in metadata.items()
+        if key not in _ROW_PROVENANCE_KEYS and isinstance(value, (bool, int, float, str))
+    }
+    return details or None
+
+
 def _serialize_bed_record(track_type: str, row: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "chr": row["chr"],
@@ -461,6 +487,8 @@ def _serialize_bed_record(track_type: str, row: dict[str, Any]) -> dict[str, Any
         "end": int(row["end"]),
         "value": float(row["value"]) if row.get("value") is not None else None,
     }
+    if track_type == "segments":
+        payload["details"] = _segment_details(row.get("metadata_json"))
     if track_type in {"apcad", "apcad_pcf", "apcad_segregation"}:
         payload["origin"] = row.get("origin") or "und"
     if track_type == "apcad_segregation":
@@ -503,6 +531,9 @@ async def _fetch_raw_track_rows(
         start=start,
         end=end,
         limit=limit,
+        # A segment is served with its caller's values (``_segment_details``); a sample's
+        # segments are few, so their metadata costs little.
+        include_metadata=track_type == "segments",
     )
 
 
@@ -653,6 +684,7 @@ async def _fetch_bed_records_for_chroms(
         source=source,
         start=start,
         end=end,
+        include_metadata=bed_type == "segments",
     )
 
     grouped: dict[str, list[dict[str, Any]]] = {chrom: [] for chrom in ordered}

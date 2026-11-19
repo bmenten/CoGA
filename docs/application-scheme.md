@@ -368,7 +368,9 @@ Backend, under `backend/app/`:
   `services/report_signout_service.py`, `services/clinical_audit_service.py`,
   `services/hash_chain.py`, `services/integrity_anchor_service.py` — traceability and
   sign-out.
-- `services/nipt_*.py` — monogenic NIPT; `services/haplotype_lineage_service.py` and
+- `services/nipt_*.py` — monogenic NIPT; `services/ccnv_output.py` and
+  `services/family_package_ccnv.py` — a conventional NIPT's ccnv output;
+  `services/haplotype_lineage_service.py` and
   `services/phased_marker_service.py` — PGT haplotypes; `services/sample_integrity_*.py` —
   sample QC.
 - `services/gene_metadata_service.py`, `services/hpo_service.py`, `services/monarch_*.py` —

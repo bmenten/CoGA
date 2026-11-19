@@ -53,7 +53,15 @@ exon or an intron, its number in the transcript (*Exon 3 / 12*), counted from th
 Coverage is drawn as one track per CNV caller, on the axis of what the track holds:
 
 - The callers' log2 ratios share the log2-ratio axis, with the gain and loss colours and the caller's
-  segments.
+  segments. Hover a segment for the values its caller gives (for WisecondorX its z-score).
+- A conventional NIPT's maternal plasma (**ccnv**) has an axis of its own (±0.3): a fetal trisomy raises
+  the plasma by only about +0.08 at a 12 % fetal fraction, which the gain and loss colours would never
+  show. Each segment takes the colour of ccnv's call: gain, loss, or purple where ccnv calls it
+  discordant with the fetal fraction (a maternal or mosaic event, say). The dashed lines are where a
+  fetal trisomy (above) and monosomy (below) lie at the plasma's fetal fraction, on chromosomes 1–22
+  and X. The track's header gives that fetal fraction (ccnv's effective one), the fetal sex and the
+  sex-chromosome call; hover it for every estimate, and a segment for ccnv's values: its call, z-score,
+  bins, expected ratio, implied fetal fraction, discordance and origin.
 - Read depth is drawn on a depth axis from 0, without those colours or segments. This covers a coverage
   BED declared as read depth, and a HiFiCNV depth file without autosomal depth: that file gives no
   baseline to take a ratio against, so its depths are kept as read (the track's header says so).

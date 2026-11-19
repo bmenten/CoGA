@@ -2,10 +2,11 @@
 
 Artifacts are scoped per ``(assembly_id, assay_key)`` -- recurrent artifacts are
 capture/chemistry-specific, so a new panel starts with a clean list. The list is
-curated through the admin API (no UI), where ``auto-seed`` proposes the alleles that recur
-as an unexplained low-VAF call in the assay's own cfDNA samples; ``load_nipt_artifact_ids``
-provides the fast membership set the analysis uses to exclude (and count) artifacts. Every
-change to the list is recorded in the clinical audit trail (``NIPT_ARTIFACT_AUDIT_CHAIN``).
+curated on the admin page *NIPT artefact list* through the admin API, where ``auto-seed``
+lists the alleles that recur as an unexplained low-VAF call in the assay's own cfDNA samples
+(its preview reads them without writing); ``load_nipt_artifact_ids`` provides the fast
+membership set the analysis uses to exclude (and count) artifacts. Every change to the list
+is recorded in the clinical audit trail (``NIPT_ARTIFACT_AUDIT_CHAIN``).
 
 See docs/monogenic-nipt.md.
 """
@@ -13,6 +14,7 @@ See docs/monogenic-nipt.md.
 from __future__ import annotations
 
 import csv
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Any, Sequence
 
@@ -28,7 +30,12 @@ from .clickhouse_family_variants import (
 )
 from .clickhouse_variant_ids import build_small_variant_id
 from .clinical_audit_service import record_clinical_event
-from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_PANEL_KEY, assay_key_for_sample_metadata
+from .nipt import (
+    DEFAULT_NIPT_ASSAY_KEY,
+    NIPT_CFDNA_ASSAY,
+    SAMPLE_ASSAY_PANEL_KEY,
+    assay_key_for_sample_metadata,
+)
 from .nipt_analysis import MATERNAL_ALLELE_VAF_BOUNDARY, NiptQualityThresholds
 
 # A change to the artifact list changes which variants every NIPT analysis of its scope
@@ -331,9 +338,8 @@ async def bulk_upsert_nipt_artifacts(
     return len(rows)
 
 
-async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> list[str]:
-    """The IDs of the cfDNA samples whose artifact scope is ``assay_key``: whose calls
-    count as recurrence.
+async def _cfdna_sample_scopes(session: AsyncSession) -> list[tuple[str, str]]:
+    """Each cfDNA sample's ID with its artifact scope, in every project.
 
     A cfDNA sample is one tagged ``assay: nipt_cfdna``; its scope is its
     ``assay_panel``, resolved as ``nipt_assay_key`` resolves it for the analysis.
@@ -352,9 +358,46 @@ async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) 
         {"assay": NIPT_CFDNA_ASSAY},
     )
     return [
-        str(sample_id)
+        (str(sample_id), assay_key_for_sample_metadata({SAMPLE_ASSAY_PANEL_KEY: assay_panel}))
         for sample_id, assay_panel in result.all()
-        if assay_key_for_sample_metadata({SAMPLE_ASSAY_PANEL_KEY: assay_panel}) == assay_key
+    ]
+
+
+async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> list[str]:
+    """The IDs of the cfDNA samples whose artifact scope is ``assay_key``: whose calls
+    count as recurrence."""
+    return [sample_id for sample_id, scope in await _cfdna_sample_scopes(session) if scope == assay_key]
+
+
+async def list_nipt_artifact_scopes(session: AsyncSession, *, assembly_id: str) -> list[dict[str, Any]]:
+    """The scopes an artifact list of the assembly can have, for the admin page to choose
+    from: the default scope, each scope a cfDNA sample's ``assay_panel`` resolves to and
+    each scope the assembly's list holds entries for. Each with its cfDNA samples, in every
+    project, and its entries on the list; the default scope first, then by name.
+
+    A value that spells no UUID names no assembly: its scopes hold no entry, as the list
+    reads it.
+    """
+    samples = Counter(scope for _sample_id, scope in await _cfdna_sample_scopes(session))
+    listed: dict[str, int] = {}
+    assembly_uuid = canonical_uuid(assembly_id)
+    if assembly_uuid is not None:
+        result = await session.execute(
+            text(
+                """
+                SELECT assay_key, count(*) AS listed
+                FROM nipt_artifact_variants
+                WHERE assembly_id = CAST(:assembly_id AS uuid)
+                GROUP BY assay_key
+                """
+            ),
+            {"assembly_id": assembly_uuid},
+        )
+        listed = {str(assay_key): int(count) for assay_key, count in result.all()}
+    scopes = {DEFAULT_NIPT_ASSAY_KEY, *samples, *listed}
+    return [
+        {"assay_key": scope, "cfdna_samples": samples.get(scope, 0), "listed": listed.get(scope, 0)}
+        for scope in sorted(scopes, key=lambda scope: (scope != DEFAULT_NIPT_ASSAY_KEY, scope))
     ]
 
 
@@ -382,7 +425,7 @@ async def auto_seed_nipt_artifacts(
     min_unexplained_samples: int,
     created_by: str | None = None,
     actor: str = "system",
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Seed the artifact list from the alleles that recur as an artefact does in the
     assay's own cfDNA samples.
 
@@ -411,15 +454,22 @@ async def auto_seed_nipt_artifacts(
     paternal alleles, so a polymorphism can still reach the threshold in a large cohort of
     such families. "Not common" is the import-time flag, and the ClinVar protection needs a
     ClinVar annotation. A cfDNA sample counts only when tagged ``assay: nipt_cfdna``.
+
+    Returns what it wrote: the number of cfDNA samples it read and each seeded allele, with
+    the source of its entry already on the list (``_auto_seed_candidates``, the reading
+    ``preview_auto_seed_nipt_artifacts`` shows without writing).
     """
     assembly_uuid, assembly_name = await _require_assembly(session, assembly_id)
     rules = recurrence_rules(NiptQualityThresholds())
-    recurrent = await fetch_recurrent_artifact_candidates(
-        assembly_name,
-        carrier_samples=await assay_cfdna_carrier_samples(session, assay_key=assay_key),
-        rules=rules,
+    candidates = await _auto_seed_candidates(
+        session,
+        assembly_uuid=assembly_uuid,
+        assembly_name=assembly_name,
+        assay_key=assay_key,
         min_unexplained_samples=min_unexplained_samples,
+        rules=rules,
     )
+    recurrent = [(variant["variant_id"], variant["recurrence_count"]) for variant in candidates["variants"]]
     seeded = await bulk_upsert_nipt_artifacts(
         session,
         assembly_id=assembly_uuid,
@@ -453,7 +503,74 @@ async def auto_seed_nipt_artifacts(
             },
         )
         await session.commit()
-    return {"seeded": seeded, "min_unexplained_samples": min_unexplained_samples}
+    return {**candidates, "seeded": seeded}
+
+
+async def preview_auto_seed_nipt_artifacts(
+    session: AsyncSession,
+    *,
+    assembly_id: str,
+    assay_key: str,
+    min_unexplained_samples: int,
+) -> dict[str, Any]:
+    """What ``auto_seed_nipt_artifacts`` would write now, read exactly as it reads it (the
+    same samples, rules, threshold and protections), without writing: no entry and no
+    audit event. Each allele says whether it is on the list already (``listed_source``),
+    where the seed would only refresh its recurrence count. An unknown assembly is a 404,
+    as for the seed."""
+    assembly_uuid, assembly_name = await _require_assembly(session, assembly_id)
+    return await _auto_seed_candidates(
+        session,
+        assembly_uuid=assembly_uuid,
+        assembly_name=assembly_name,
+        assay_key=assay_key,
+        min_unexplained_samples=min_unexplained_samples,
+        rules=recurrence_rules(NiptQualityThresholds()),
+    )
+
+
+async def _auto_seed_candidates(
+    session: AsyncSession,
+    *,
+    assembly_uuid: str,
+    assembly_name: str,
+    assay_key: str,
+    min_unexplained_samples: int,
+    rules: CfdnaRecurrenceRules,
+) -> dict[str, Any]:
+    """The alleles the auto-seed lists for a scope, most recurrent first, with the cfDNA
+    samples it reads them in and the source of each one's entry already on the list: the
+    one reading the seed writes from and its preview shows."""
+    carrier_samples = await assay_cfdna_carrier_samples(session, assay_key=assay_key)
+    recurrent = await fetch_recurrent_artifact_candidates(
+        assembly_name,
+        carrier_samples=carrier_samples,
+        rules=rules,
+        min_unexplained_samples=min_unexplained_samples,
+    )
+    listed: dict[str, str] = {}
+    if recurrent:
+        result = await session.execute(
+            text(
+                """
+                SELECT variant_id, source
+                FROM nipt_artifact_variants
+                WHERE assembly_id = CAST(:assembly_id AS uuid)
+                  AND assay_key = :assay_key
+                """
+            ),
+            {"assembly_id": assembly_uuid, "assay_key": assay_key},
+        )
+        listed = {str(variant_id): str(source) for variant_id, source in result.all()}
+    return {
+        "assay_key": assay_key,
+        "min_unexplained_samples": min_unexplained_samples,
+        "cfdna_samples": len(carrier_samples),
+        "variants": [
+            {"variant_id": variant_id, "recurrence_count": int(count), "listed_source": listed.get(variant_id)}
+            for variant_id, count in recurrent
+        ],
+    }
 
 
 # The R NIPT-M pipeline's recurrent-artefact table

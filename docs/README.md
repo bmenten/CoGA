@@ -45,6 +45,7 @@ The rules for lab users are in the in-app reference docs; these files hold the i
 - [monarch-integration.md](monarch-integration.md) — Monarch gene–disease and disease–phenotype data.
 - [haplotype-segregation-analysis.md](haplotype-segregation-analysis.md) — PGT haplotype segregation.
 - [monogenic-nipt.md](monogenic-nipt.md) — monogenic NIPT, with its fetal-fraction and classification algorithm.
+- [conventional-nipt.md](conventional-nipt.md) — conventional NIPT: ccnv's output of the maternal plasma, its views and the automatic result per target.
 - [ancestry-pca.md](ancestry-pca.md) — the exploratory family ancestry PCA, outside the intended purpose.
 - [family-member-management.md](family-member-management.md) — what an edit to a family member changes.
 - [report-template.md](report-template.md) — how the family report is drafted.

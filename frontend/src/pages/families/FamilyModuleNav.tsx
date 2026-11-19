@@ -12,6 +12,7 @@ export type FamilyModuleKey =
   | 'paraphase'
   | 'mitochondrial-dna'
   | 'nipt'
+  | 'cnipt'
   | 'variant-summary';
 
 /**
@@ -28,12 +29,14 @@ const FamilyModuleNav: React.FC<{
   projectId?: string | null;
   presence: FamilyDataPresence;
   isMonogenicNipt: boolean;
+  /** A conventional NIPT family (`analysis_type: conventional_nipt`): its cNIPT result page. */
+  isConventionalNipt?: boolean;
   /** The page this is: its link is marked; a page outside the row (the report) marks none. */
   current?: string;
   /** A page's views of the genome (Genome, Circos), after the analyses of the family's own
    *  calls (mtDNA analysis last), before the NIPT and the variant summary. */
   views?: React.ReactNode;
-}> = ({ familyId, projectId, presence, isMonogenicNipt, current, views }) => {
+}> = ({ familyId, projectId, presence, isMonogenicNipt, isConventionalNipt = false, current, views }) => {
   const projectSuffix = projectId
     ? `?project_id=${encodeURIComponent(projectId)}`
     : '';
@@ -80,6 +83,12 @@ const FamilyModuleNav: React.FC<{
       withProject: false,
     },
     {
+      key: 'cnipt',
+      label: 'cNIPT',
+      available: isConventionalNipt,
+      withProject: true,
+    },
+    {
       key: 'variant-summary',
       label: 'Variant summary',
       available: presence.hasVariantSummary,
@@ -90,7 +99,7 @@ const FamilyModuleNav: React.FC<{
     (module) => module.available || module.key === current
   );
   const viewsBefore = shown.findIndex(
-    (module) => module.key === 'nipt' || module.key === 'variant-summary'
+    (module) => module.key === 'nipt' || module.key === 'cnipt' || module.key === 'variant-summary'
   );
   const viewsGroup = views ? (
     <span

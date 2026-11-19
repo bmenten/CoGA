@@ -94,16 +94,19 @@ from .family_package_qc import (
     record_family_pipeline_metadata as _record_family_pipeline_metadata,
     record_family_pipeline_qc as _record_family_pipeline_qc,
     record_sample_alignment_metadata as _record_sample_alignment_metadata,
+    record_sample_ccnv_metadata,
     record_sample_mtdna_metadata,
     record_sample_signal_tracks as _record_sample_signal_tracks,
     record_sample_qc_metadata as _record_sample_qc_metadata,
 )
 from .family_package_registration import UNRESOLVED_SNV_SOURCE, _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count
-from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_segregation_table, _import_wisecondorx_track
+from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_ccnv_track, _import_copy_number_track, _import_pcf_segment_file, _import_segregation_table, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _manifest_individuals, _pcf_role_path
 from .structural_variant_ingest import SkippedRecords
 from .family_package_variants import ParaphaseValueError, _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
 from .import_progress import FilesReadInTurn
+from .ccnv_output import CCNV_CALL_GENOTYPE, CCNV_SOURCE, CcnvOutputError, ccnv_vcf_header_problems
+from .family_package_ccnv import ccnv_entry_paths, read_ccnv_qc_file
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .per_sample_small_variants import (
     PER_SAMPLE_CALLSET_SOURCE,
@@ -899,6 +902,205 @@ async def _import_qdnaseq_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
         track_importer=partial(_import_copy_number_track, source="qdnaseq"),
     )
 
+
+
+@dataclass(frozen=True, slots=True)
+class _CcnvSample:
+    """One sample's ccnv output, read and checked before anything of the dataset is written."""
+
+    sample_id: str
+    context: SampleMetadataContext
+    paths: dict[str, Path]
+    qc: dict[str, Any]
+
+
+@_dataset_importer("ccnv")
+async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    """ccnv's prenatal output of each maternal plasma (a conventional NIPT): its bins as the
+    sample's ``coverage`` track and its segments as its ``segments`` track, both log2 ratios,
+    source ``ccnv``; its gain and loss calls as structural variants, source ``ccnv``, each with
+    the values ccnv states for it (FORMAT and INFO) in its annotation; and its QC file under
+    ``samples.metadata["ccnv"]``.
+
+    Every sample's files are read and checked first (the QC file, the calls VCF and its
+    agreement with the QC file, the bins and segments up to their first row): a later sample's
+    refused file fails the dataset with every sample's data as it was. An update leaves the
+    dataset as it is when the family holds ccnv tracks or calls of any of its samples, as the
+    calls of every sample are replaced together."""
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    conflict_mode = job.conflict_mode
+    if not family_context.assembly_name:
+        return await _register_only(summary, "Registered only; family is not linked to a single assembly")
+    if not dataset.per_sample:
+        return await _register_only(summary, "Registered only; the ccnv dataset has no per_sample entries")
+    named = [
+        (sample_id, sample_contexts[sample_id], raw_entry)
+        for sample_id, raw_entry in dataset.per_sample.items()
+        if sample_id in sample_contexts and isinstance(raw_entry, dict)
+    ]
+    if conflict_mode == "update":
+        stored_tracks = 0
+        for _sample_id, sample_context, _entry in named:
+            stored_tracks += await _stored_track_rows(sample_context, track_type="coverage", source=CCNV_SOURCE)
+        stored_calls = await count_family_structural_variants(
+            family_context.assembly_name,
+            family_context.family_uuid,
+            project_ids=family_context.project_ids,
+            source=CCNV_SOURCE,
+        )
+        if stored_tracks or stored_calls:
+            return summary.model_copy(
+                update={
+                    "status": "skipped",
+                    "message": "Skipped the ccnv import in update mode because the family holds ccnv data",
+                    "summary": {"existing_bins": stored_tracks, "existing_calls": stored_calls},
+                }
+            )
+
+    from .annotation_manifest_service import merge_vcf_header_provenance
+    from .vcf_header_provenance import extract_header_provenance, merge_module_maps
+
+    records: list[Any] = []
+    modules: dict[str, dict[str, Any]] = {}
+    sample_results: dict[str, Any] = {}
+    prepared: list[_CcnvSample] = []
+    for sample_id, sample_context, entry in named:
+        paths: dict[str, Path] = {}
+        for role, value in ccnv_entry_paths(entry).items():
+            path = _resolve_package_path(bundle.root, value)
+            if path is None or not path.is_file():
+                raise ImportRefused(f"The ccnv entry of {sample_id} names no {role} file in the package")
+            paths[role] = path
+        qc_file = _display_path(bundle.root, paths["qc"])
+        vcf_file = _display_path(bundle.root, paths["calls"])
+        try:
+            qc = read_ccnv_qc_file(paths["qc"], file=qc_file)
+        except CcnvOutputError as exc:
+            raise ImportRefused(str(exc)) from exc
+        text_value = _read_package_text(paths["calls"])
+        header_lines = [line for line in text_value.splitlines() if line.startswith("##")]
+        problems = ccnv_vcf_header_problems(header_lines, qc, file=vcf_file)
+        if problems:
+            raise ImportRefused(problems[0])
+        columns = next(
+            (line.rstrip("\r").split("\t")[9:] for line in text_value.splitlines() if line.startswith("#CHROM")),
+            None,
+        )
+        if columns is None or len(columns) != 1 or columns[0].strip() != qc.sample:
+            raise ImportRefused(
+                f"The ccnv calls VCF of {sample_id} ({vcf_file}) does not hold the one sample its QC "
+                f"file names ({qc_file})"
+            )
+        skipped = SkippedRecords()
+        sample_records = _iter_cnv_structural_records(
+            text_value,
+            sample_id=sample_id,
+            source=CCNV_SOURCE,
+            sample_column=0,
+            skipped=skipped,
+            keep_format=True,
+            # ccnv states no genotype: its call is the plasma's event, of no stated zygosity.
+            genotype_without_gt=CCNV_CALL_GENOTYPE,
+        )
+        if not sample_records and skipped.without_extent:
+            raise ImportRefused(
+                f"No ccnv call was replaced: the calls VCF of {sample_id} ({vcf_file}) holds no call "
+                f"it can read{_without_extent_clause(skipped)}"
+            )
+        modules = merge_module_maps(
+            modules,
+            extract_header_provenance(header_lines, modality="cnv").as_modules(),
+        )
+        records.extend(sample_records)
+        for role, track_type in (("bins", "coverage"), ("segments", "segments")):
+            await _check_track_unless_present(
+                sample_context=sample_context,
+                track_type=track_type,
+                source=CCNV_SOURCE,
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_ccnv_track,
+                    session,
+                    sample_context=sample_context,
+                    path=paths[role],
+                    track_type=track_type,
+                ),
+            )
+        sample_results[sample_id] = {
+            "calls": len(sample_records),
+            "filename": paths["calls"].name,
+            "vcf_column": columns[0],
+            **_without_extent_count(skipped),
+        }
+        prepared.append(
+            _CcnvSample(
+                sample_id=sample_id,
+                context=sample_context,
+                paths=paths,
+                qc={"qc": qc.payload, "qc_file": qc_file},
+            )
+        )
+    if not prepared:
+        return await _register_only(summary, "Registered only; no ccnv output of a family sample could be found")
+
+    for sample in prepared:
+        for role, track_type in (("bins", "coverage"), ("segments", "segments")):
+            sample_results[sample.sample_id][role] = await _import_interval_track_unless_present(
+                session,
+                sample_context=sample.context,
+                track_type=track_type,
+                source=CCNV_SOURCE,
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_ccnv_track,
+                    session,
+                    sample_context=sample.context,
+                    path=sample.paths[role],
+                    track_type=track_type,
+                ),
+            )
+        await record_sample_ccnv_metadata(session, sample_context=sample.context, ccnv=sample.qc)
+
+    # Held until the commit that records the SV files (the import holds it for its whole run).
+    await lock_family_variant_writes(
+        session,
+        family_context.family_uuid,
+        [STRUCTURAL_VARIANTS],
+        samples=[sample.context.sample_uuid for sample in prepared],
+    )
+    # Only ccnv's calls are replaced: a family can hold other callers' SVs beside them. A
+    # sample whose calls VCF holds no call (no gain or loss) leaves none.
+    await replace_family_structural_variants(
+        family_context.assembly_name,
+        family_context.family_uuid,
+        family_context.project_ids,
+        _merge_sv_records_by_id(records),
+        source=CCNV_SOURCE,
+    )
+    await _update_sv_file_metadata(
+        session,
+        sample_contexts=sample_contexts,
+        source=CCNV_SOURCE,
+        filename=", ".join(str(result["filename"]) for result in sample_results.values()),
+    )
+    await merge_vcf_header_provenance(
+        session,
+        family_uuid=family_context.family_uuid,
+        assembly_id=getattr(family_context, "assembly_id", None),
+        modules=modules,
+        modality="cnv",
+    )
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": (
+                "Imported ccnv bins as coverage and segments as segment interval tracks, its QC, "
+                + ("and its calls into structural variant storage" if records else "and no call (none was made)")
+            ),
+            "summary": {"processed": len(records), "source": CCNV_SOURCE, "samples": sample_results},
+        }
+    )
 
 @_dataset_importer("sv_needlr")
 async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:

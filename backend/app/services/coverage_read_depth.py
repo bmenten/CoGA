@@ -80,8 +80,9 @@ DEPTH_STORED_AS_READ = "none"
 #: The transforms after which a track's values are a log2 ratio.
 _LOG2_RATIO_TRANSFORMS = frozenset({"log2_ratio_to_autosomal_median", "log2_ratio_to_diploid"})
 
-#: The callers whose coverage files hold log2 ratios, stored as their files hold them.
-_LOG2_RATIO_CALLERS = frozenset({"wisecondorx", "qdnaseq"})
+#: The callers whose coverage files hold log2 ratios, stored as their files hold them: ccnv's
+#: bins are the maternal plasma's log2 ratios (a conventional NIPT).
+_LOG2_RATIO_CALLERS = frozenset({"wisecondorx", "qdnaseq", "ccnv"})
 
 #: How a note names a caller's coverage track.
 _TRACK_LABELS = {
@@ -89,6 +90,7 @@ _TRACK_LABELS = {
     "wisecondorx": "WisecondorX coverage",
     "qdnaseq": "QDNAseq coverage",
     "hificnv": "HiFiCNV coverage",
+    "ccnv": "ccnv coverage",
 }
 
 

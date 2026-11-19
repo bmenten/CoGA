@@ -69,10 +69,10 @@ The list of packages found shows only folders that the check accepts, and reads 
 
 ## What a package contains
 
-A package is a folder with the pipeline's files; the manifest that CoGA keeps for it describes them. The manifest knows fifteen kinds of datasets:
+A package is a folder with the pipeline's files; the manifest that CoGA keeps for it describes them. The manifest knows sixteen kinds of datasets:
 
 - **Variants:** `snv` (small variants, with an optional annotation table), `sv_needlr` (structural variants), `cnv` (CNV calls with their signal files), `mito` (mitochondrial variants), `repeats_trgt` (repeat expansions).
-- **Tracks:** `wisecondorx` and `qdnaseq` (CNV coverage and segments), `coverage`, `apcad` and `pcf` (embryo analyses), `haplotypes` (a phased family VCF from GLIMPSE2 or SHAPEIT5).
+- **Tracks:** `wisecondorx` and `qdnaseq` (CNV coverage and segments), `ccnv` (the copy number of the maternal plasma in a conventional NIPT, with ccnv's gain and loss calls and its QC), `coverage`, `apcad` and `pcf` (embryo analyses), `haplotypes` (a phased family VCF from GLIMPSE2 or SHAPEIT5).
 - **Other:** `paraphase` (paralogous genes), `alignments` (CRAM/BAM for the genome browser), `qc` (sequencing QC) and `pipeline_info` (the pipeline's run record: tool versions and parameters).
 
 The expected folder layout per dataset is in `docs/data-import.md`. The discovery step, with which CoGA proposes what a package file leaves out or a folder added by hand does not have, searches those paths and shows what it found. The long-read pipeline puts the tool version in file names. A search path may therefore contain a `*`, but the manifest always contains the concrete path found, never the pattern.
@@ -233,6 +233,7 @@ First the import registers the family and the provenance, then the datasets foll
 | `sv_needlr`, `cnv` (VCF) | Structural variants; for `cnv` also coverage, copy number and allele fraction as interval tracks | ClickHouse |
 | `mito` `sv_vcf` (Sniffles2, chrM) | Structural variants, callset `mito_sv`, with the heteroplasmy per sample; replaced per sample | ClickHouse |
 | `wisecondorx`, `qdnaseq`, `apcad`, `pcf`, `coverage` | Interval tracks | ClickHouse |
+| `ccnv` (conventional NIPT) | Interval tracks (bins as coverage, segments), source `ccnv`, with ccnv's values beside each row; the gain and loss calls as structural variants, source `ccnv`; the QC file in the sample's metadata (`samples.metadata.ccnv`) | ClickHouse, Postgres |
 | `coverage` with `target_table` (NIPT) | Interval track `target_coverage`: per capture target the mean depth, the gene and the other columns of the table | ClickHouse |
 | Source of every interval track | `sample_interval_track_sources` | Postgres |
 | `repeats_trgt` (VCF) | `repeat_expansions` | Postgres |
@@ -248,7 +249,7 @@ First the import registers the family and the provenance, then the datasets foll
 
 **Every track belongs to the caller that wrote it.** A sample can have tracks of one track type from different callers, each under its own source (`source`):
 
-- coverage from a BED (`web`), from WisecondorX, QDNAseq and HiFiCNV; segments from the same callers;
+- coverage from a BED (`web`), from WisecondorX, QDNAseq, HiFiCNV and ccnv; segments from the same callers;
 - on the APCAD track: that of the dataset `apcad` (`apcad`), HiFiCNV's minor allele fraction (`hificnv`) and a separate BED upload (`web`);
 - on `apcad_pcf`: that of the dataset `pcf` (`pcf`) and a BED upload.
 
@@ -302,6 +303,7 @@ ClickHouse has no transactions. If writing fails after the wipe even so (ClickHo
 - `repeats_trgt` reads every sample's TRGT VCF in full, and once more to store them; that way only one sample's calls are in memory at a time.
 - `cnv` checks every sample's HiFiCNV VCF (sample column, records) and reads every signal file up to its first value, before it writes a track.
 - `wisecondorx` and `qdnaseq` read every sample's bins and segments, and `pcf` every sample's tables, up to the first row, before they wipe a track.
+- `ccnv` reads every sample's QC file and calls VCF in full and checks that they give the same result (fetal sex, fetal fraction, sex-chromosome call, sample), and reads the bins and segments up to the first row, before it writes anything.
 - `apcad` reads every embryo's file up to that embryo's first value, before it wipes an embryo's track. A VCF in which its reader finds no record is read in full as a BED.
 - `coverage` reads every sample's file before it replaces a sample's track: a BED fully decoded (like the BED loader) and read up to its first record, a per-target coverage table fully parsed.
 - The per-sample SNV files of a monogenic NIPT are checked for their one sample column and a record before the plasma's calls are written.

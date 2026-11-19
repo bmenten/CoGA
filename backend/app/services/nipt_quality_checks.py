@@ -200,6 +200,7 @@ def paternity_verdict(evidence: PaternalTransmissionEvidence, father: str) -> Pa
         hom_alt_not_transmitted=evidence.hom_alt_not_transmitted,
         het_transmitted=evidence.het_transmitted,
         het_not_transmitted=evidence.het_not_transmitted,
+        without_plasma_depth=evidence.without_plasma_depth,
     )
 
 

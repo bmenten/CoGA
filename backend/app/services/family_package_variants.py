@@ -418,9 +418,16 @@ def _iter_cnv_structural_records(
     source: str = "hificnv",
     sample_column: int = 0,
     skipped: SkippedRecords | None = None,
+    keep_format: bool = False,
+    genotype_without_gt: str = "./.",
 ) -> list[StructuralVariantRecord]:
-    """Parse a depth-based CNV caller's VCF (HiFiCNV) into structural-variant records. A
-    record whose extent is not stated is left out and counted in ``skipped``.
+    """Parse a depth-based CNV caller's VCF (HiFiCNV, ccnv) into structural-variant records. A
+    record whose extent is not stated is left out and counted in ``skipped``. With
+    ``keep_format`` the sample's FORMAT values go into the call's annotation (``format``):
+    ccnv states each call's log2 ratio, z-score, bins, expected ratio and implied fetal
+    fraction there, which the call's genotype and copy number cannot hold. A call whose sample
+    states no GT gets ``genotype_without_gt``: a no-call by default; ``./1`` for ccnv, which writes
+    a call only where it found the event in the plasma and states no zygosity for a mixture.
 
     The calls land in the structural-variant store rather than an interval track so
     they are filterable, reviewable and reachable by the ClinGen CNV dosage scoring,
@@ -470,10 +477,11 @@ def _iter_cnv_structural_records(
         qual = _coerce_finite_float(qual_raw)
         filt = None if filt_raw in {"", "."} else filt_raw
         copy_number: int | None = None
-        gt = "./."
+        gt = genotype_without_gt
+        fmt_vals: dict[str, Any] = {}
         if len(parts) > 9 + sample_column:
             fmt_vals = parse_format(parts[8], parts[9 + sample_column])
-            gt = fmt_vals.get("GT") or "./."
+            gt = fmt_vals.get("GT") or genotype_without_gt
             copy_number = _coerce_int(fmt_vals.get("CN"))
         annotations = extract_small_variant_annotations(info, annotation_state)
         gene_symbols: list[str] = []
@@ -500,6 +508,8 @@ def _iter_cnv_structural_records(
         if not _missing_scalar(record_id):
             annotation["id"] = record_id
         annotation.update({"ref": ref, "alt": alt, "info": info})
+        if keep_format and fmt_vals:
+            annotation["format"] = fmt_vals
         records.append(
             StructuralVariantRecord(
                 variant_key=None,

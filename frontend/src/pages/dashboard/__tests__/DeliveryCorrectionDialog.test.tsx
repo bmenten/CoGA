@@ -273,6 +273,7 @@ describe('DeliveryCorrectionDialog', () => {
       'PGT',
       'Expanded Carrier Screening',
       'mNIPT',
+      'cNIPT',
     ]);
   });
 

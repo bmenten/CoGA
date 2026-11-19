@@ -259,6 +259,26 @@ export interface BedRecordOut {
 }
 
 /**
+ * One segment: the row with the values its caller gives beside it (``details``): a
+ * WisecondorX segment's z-score; a ccnv segment's z-score, bin count, call, expected ratio,
+ * implied fetal fraction, discordance and its reason, fragment statistics and origin call.
+ * Null for a segment whose caller gives none.
+ */
+export interface BedSegmentRecordOut {
+  chr: string;
+  start: number;
+  end: number;
+  value: number | null;
+  details: Record<string, boolean | number | string> | null;
+}
+
+/** A BED read of a segments track: each segment with its caller's values. */
+export interface BedSegmentsTrackOut {
+  bed_type: "segments";
+  items: BedSegmentRecordOut[];
+}
+
+/**
  * One site of an embryo's segregation table: its origin is its heterozygous parent, its value
  * the embryo's fraction of the allele the other parent does not carry
  * (``family_package_tracks._parse_segregation_row``), and its group the PGT pipeline's: 2A or
@@ -281,9 +301,9 @@ export interface BedSegregationTrackOut {
   items: BedSegregationRecordOut[];
 }
 
-/** A BED read of a coverage or segments track. */
+/** A BED read of a coverage track. */
 export interface BedTrackOut {
-  bed_type: "coverage" | "segments";
+  bed_type: "coverage";
   items: BedRecordOut[];
 }
 
@@ -361,6 +381,28 @@ export interface CasSignInOut {
 /** The service ticket the CAS server sent the browser back with. */
 export interface CasTicketIn {
   ticket: string;
+}
+
+/**
+ * A conventional NIPT plasma's ccnv results its tracks are drawn with
+ * (``ccnv_output.ccnv_track_summary``): the fetal fraction the expected trisomy and monosomy
+ * lines are drawn at (ccnv's Fisher-weighted ``effective_ff``), the fused ``active_ff`` with its
+ * standard error and source, each estimator's own fraction, the fetal sex, the sex-chromosome
+ * call with its confidence, and ccnv's low-fetal-fraction warning. Fractions from 0 to 1.
+ */
+export interface CcnvTrackSummaryOut {
+  fetal_fraction: number;
+  active_ff: number;
+  active_ff_se: number | null;
+  active_ff_source: string | null;
+  ffy: number | null;
+  ffx: number | null;
+  ffa: number | null;
+  ff_size: number | null;
+  fetal_sex: string;
+  sca_call: string;
+  sca_confidence: number | null;
+  low_ff_warning: boolean | null;
 }
 
 export interface ChromosomeOut {
@@ -555,6 +597,127 @@ export interface ClinicalCnvOut {
   clinvar_pathogenic_accessions: string[] | null;
 }
 
+/**
+ * One bound of the rule as the result applied it: QA's, from the profile
+ * ``nipt_conventional``, or the provisional value QA has not replaced (``provisional``).
+ */
+export interface CniptBoundOut {
+  key: string;
+  label: string;
+  unit: string;
+  warn_value: number | null;
+  error_value: number | null;
+  provisional: boolean;
+}
+
+/**
+ * ccnv's fetal fractions of the plasma, from 0 to 1: the effective one the result and the
+ * expected lines use, the fused active one with its standard error and source, and each
+ * estimator's own.
+ */
+export interface CniptFetalFractionOut {
+  effective: number;
+  active: number;
+  active_se: number | null;
+  active_source: string | null;
+  ffy: number | null;
+  ffx: number | null;
+  ffa: number | null;
+  ff_size: number | null;
+}
+
+/**
+ * A segment the rule looked at: one ccnv called, or one whose |z-score| reaches the grey
+ * zone. ``kind`` says whether it is read as an aneuploidy of its chromosome (``chromosome``)
+ * or as a segmental CNV; ``implied_ff_ratio`` is its implied fetal fraction over the
+ * plasma's.
+ */
+export interface CniptFindingOut {
+  chrom: string;
+  start: number;
+  end: number;
+  size_mb: number;
+  direction: "gain" | "loss";
+  ratio: number;
+  zscore: number | null;
+  bin_count: number | null;
+  ccnv_call: "gain" | "loss" | null;
+  expected_ratio: number | null;
+  implied_ff: number | null;
+  implied_ff_ratio: number | null;
+  discordant: boolean;
+  discordance_reason: string | null;
+  origin_call: string | null;
+  kind: "chromosome" | "segmental";
+  verdict: "high_risk" | "inconclusive" | "low_risk" | "no_result" | "not_assessed";
+  reasons: string[];
+}
+
+/**
+ * ccnv's limits of detection (as fetal fractions) of arm-level and 3 Mb events, the size
+ * segmental CNVs are assessed from at this fetal fraction (none when they are not), and a
+ * sentence that says so.
+ */
+export interface CniptLimitsOut {
+  lod_ff_35mb: number | null;
+  lod_ff_3mb: number | null;
+  segmental_assessed_from_mb: number | null;
+  statement: string;
+}
+
+/**
+ * What of the rule is fixed in code: the profile its bounds are read from, the share of a
+ * chromosome a segment must span to be read as its aneuploidy, and ccnv's origins that make a
+ * finding inconclusive.
+ */
+export interface CniptRuleOut {
+  threshold_profile: string;
+  whole_chromosome_share: number;
+  maternal_or_mosaic_origins: string[];
+}
+
+/**
+ * The result for one maternal plasma (``status`` ``no_result`` with its reasons when there
+ * is none), with what it rests on.
+ */
+export interface CniptSampleResultOut {
+  sample_id: string;
+  qc_file: string;
+  status: "result" | "no_result";
+  no_result_reasons: string[];
+  fetal_fraction: CniptFetalFractionOut;
+  fetal_sex: string;
+  sca: CniptScaOut;
+  gestation: string | null;
+  limits_of_detection: CniptLimitsOut;
+  read_metrics: Record<string, number>;
+  warnings: string[];
+  targets: CniptTargetOut[];
+  findings: CniptFindingOut[];
+  bounds: CniptBoundOut[];
+  rule: CniptRuleOut;
+}
+
+/**
+ * ccnv's sex-chromosome call: its karyotype (XX, XY, XO, XXX, XXY, XYY, DISCORDANT_MIXED),
+ * whether it is an aneuploidy, and its confidence.
+ */
+export interface CniptScaOut {
+  call: string;
+  is_aneuploid: boolean;
+  confidence: number | null;
+}
+
+/**
+ * One target's result: an autosome (``1``…``22``), ``sex_chromosomes`` or ``segmental``,
+ * with the reasons for it.
+ */
+export interface CniptTargetOut {
+  target: string;
+  verdict: "high_risk" | "inconclusive" | "low_risk" | "no_result" | "not_assessed";
+  reasons: string[];
+}
+
 /** ClinGen 2019 copy-number classification (structural variants only). */
 export interface CnvAcmgClassificationPayload {
   kind?: "loss" | "gain";
@@ -742,6 +905,12 @@ export interface FamilyAncestryOut {
   notices: string[];
   choices: AncestrySampleChoiceOut[];
   can_choose: boolean;
+}
+
+/** A conventional NIPT family's result: one per maternal plasma with ccnv output. */
+export interface FamilyCniptOut {
+  family_id: string;
+  samples: CniptSampleResultOut[];
 }
 
 /**
@@ -1898,7 +2067,7 @@ export interface ImportDeliveryAdd {
   folder_path: string;
   project_id: string;
   family_id?: string | null;
-  analysis_type?: "long_read_wgs" | "long_read_adaptive_sampling" | "short_read_wgs" | "pgt" | "expanded_carrier_screening" | "monogenic_nipt" | null;
+  analysis_type?: "long_read_wgs" | "long_read_adaptive_sampling" | "short_read_wgs" | "pgt" | "expanded_carrier_screening" | "monogenic_nipt" | "conventional_nipt" | null;
 }
 
 /**
@@ -2330,9 +2499,25 @@ export interface NiptArtifactAutoSeed {
   min_unexplained_samples?: number;
 }
 
+/** What an auto-seed wrote: the ``seeded`` alleles, each in ``variants``. */
 export interface NiptArtifactAutoSeedOut {
-  seeded: number;
+  assay_key: string;
   min_unexplained_samples: number;
+  cfdna_samples: number;
+  variants: NiptArtifactSeedVariantOut[];
+  seeded: number;
+}
+
+/**
+ * What an auto-seed at ``min_unexplained_samples`` would write now, read as the seed
+ * reads it, without writing: the number of cfDNA samples of the assay whose calls it
+ * reads, and each allele it would list, most recurrent first.
+ */
+export interface NiptArtifactAutoSeedPreviewOut {
+  assay_key: string;
+  min_unexplained_samples: number;
+  cfdna_samples: number;
+  variants: NiptArtifactSeedVariantOut[];
 }
 
 /**
@@ -2389,6 +2574,32 @@ export interface NiptArtifactOut {
   label: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * An artifact-list scope (``assay_key``): the default ``nipt_cfdna``, a panel that a
+ * cfDNA sample's ``assay_panel`` names, or a scope the assembly's list holds entries for.
+ * ``cfdna_samples`` counts the samples tagged ``assay: nipt_cfdna`` whose panel resolves
+ * to the scope, in every project: the samples whose calls the auto-seed reads. ``listed``
+ * counts the scope's entries on the assembly's list.
+ */
+export interface NiptArtifactScopeOut {
+  assay_key: string;
+  cfdna_samples: number;
+  listed: number;
+}
+
+/**
+ * An allele the auto-seed lists, or would list: an unexplained low-VAF call in
+ * ``recurrence_count`` cfDNA samples of the assay, the count its entry takes.
+ * ``listed_source`` is the source of the allele's entry already on the list, whose
+ * recurrence count the seed refreshes and whose source and label it keeps; ``None`` for
+ * an allele the seed adds.
+ */
+export interface NiptArtifactSeedVariantOut {
+  variant_id: string;
+  recurrence_count: number;
+  listed_source: "curated" | "auto" | null;
 }
 
 /**
@@ -2810,7 +3021,7 @@ export interface NiptVariantOut {
   filter_transcript: SmallVariantFilterTranscriptOut | null;
   genotypes: GenotypeOut[];
   hemizygous_in_males: boolean;
-  copy_change: "loss" | "gain" | null;
+  copy_change: "gain" | "loss" | null;
   review: SmallVariantReviewOut | null;
   internal_cohort: VariantInternalCohortOut | null;
   priority: VariantPriorityOut | null;
@@ -4455,6 +4666,7 @@ export interface TrackAvailabilityOut {
   small_variants: boolean;
   haplotypes: boolean;
   repeat_expansions: boolean;
+  ccnv: CcnvTrackSummaryOut | null;
 }
 
 export interface UiEventBatchIn {
@@ -4695,7 +4907,7 @@ export interface VariantOut {
   filter_transcript: SmallVariantFilterTranscriptOut | null;
   genotypes: GenotypeOut[];
   hemizygous_in_males: boolean;
-  copy_change: "loss" | "gain" | null;
+  copy_change: "gain" | "loss" | null;
   review: SmallVariantReviewOut | null;
   internal_cohort: VariantInternalCohortOut | null;
   priority: VariantPriorityOut | null;

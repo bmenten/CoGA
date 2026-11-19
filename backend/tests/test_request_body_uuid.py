@@ -287,8 +287,9 @@ def test_an_auto_seed_by_any_spelling_writes_and_audits_the_canonical_id(
         )
     )
     assert result["seeded"] == 1
-    # The assembly's lookup and the upserted entry.
-    assert session.bound.count(CANONICAL) == 2
+    # The assembly's lookup, the read of the entries the list holds already and the upserted
+    # entry.
+    assert session.bound.count(CANONICAL) == 3
     assert spelling not in session.bound
     [event] = events
     assert event["metadata"]["assembly_id"] == CANONICAL

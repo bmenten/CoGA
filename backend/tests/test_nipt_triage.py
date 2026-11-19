@@ -52,6 +52,7 @@ def _site(
         cf_alt_reads=round(vaf * depth),
         cf_vaf=vaf,
         cf_qual=None,
+        cf_coverage_dp=depth,
         father_state=father_state,
         ref=ref,
         alt=alt,

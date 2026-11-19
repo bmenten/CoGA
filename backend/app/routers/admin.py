@@ -46,10 +46,12 @@ from ..schemas import (
     MonarchStatusOut,
     NiptArtifactAutoSeed,
     NiptArtifactAutoSeedOut,
+    NiptArtifactAutoSeedPreviewOut,
     NiptArtifactCreate,
     NiptArtifactDeleteOut,
     NiptArtifactImportOut,
     NiptArtifactOut,
+    NiptArtifactScopeOut,
     ProjectsUpdate,
     QcMetricCatalogueOut,
     QcThresholdCatalogueOut,
@@ -156,7 +158,9 @@ from ..services.nipt_artifact_pg import (
     auto_seed_nipt_artifacts,
     delete_nipt_artifact,
     import_nipt_artifact_table,
+    list_nipt_artifact_scopes,
     list_nipt_artifacts,
+    preview_auto_seed_nipt_artifacts,
 )
 from ..services.upload_safety import decode_upload_text
 from ..services.small_variant_review_tags import (
@@ -282,6 +286,19 @@ async def list_nipt_artifacts_endpoint(
     return [NiptArtifactOut(**row) for row in rows]
 
 
+@router.get("/nipt/artifacts/scopes", response_model=List[NiptArtifactScopeOut])
+async def list_nipt_artifact_scopes_endpoint(
+    assembly_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> List[NiptArtifactScopeOut]:
+    """The scopes of the assembly's artifact list: the default ``nipt_cfdna``, each panel a
+    cfDNA sample's ``assay_panel`` names and each scope with entries, with their cfDNA
+    samples and entries."""
+    rows = await list_nipt_artifact_scopes(session, assembly_id=assembly_id)
+    return [NiptArtifactScopeOut(**row) for row in rows]
+
+
 @router.post("/nipt/artifacts", response_model=NiptArtifactOut)
 async def add_nipt_artifact_endpoint(
     payload: NiptArtifactCreate,
@@ -331,6 +348,25 @@ async def auto_seed_nipt_artifacts_endpoint(
         actor=user.username,
     )
     return NiptArtifactAutoSeedOut(**result)
+
+
+@router.get("/nipt/artifacts/auto-seed/preview", response_model=NiptArtifactAutoSeedPreviewOut)
+async def preview_auto_seed_nipt_artifacts_endpoint(
+    assembly_id: str,
+    assay_key: str = "nipt_cfdna",
+    min_unexplained_samples: int = Query(3, ge=1),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> NiptArtifactAutoSeedPreviewOut:
+    """What ``POST /nipt/artifacts/auto-seed`` would write now with the same assembly, scope
+    and threshold, read as the seed reads it, without writing: no entry, no audit event."""
+    result = await preview_auto_seed_nipt_artifacts(
+        session,
+        assembly_id=assembly_id,
+        assay_key=assay_key,
+        min_unexplained_samples=min_unexplained_samples,
+    )
+    return NiptArtifactAutoSeedPreviewOut(**result)
 
 
 @router.post("/nipt/artifacts/import", response_model=NiptArtifactImportOut)
