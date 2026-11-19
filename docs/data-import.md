@@ -480,11 +480,13 @@ delivers that one through a watched folder).
 - A typed path to a folder the list leaves out is refused with the reason.
 
 **Imported folders.** A package folder stays on the share after its import: CoGA never moves it,
-and serves the alignments and the QC report from it. The list gives each folder the families
-whose package record names it as the folder they were imported from
-(`families.metadata.package_import.folder_path`, with or without its closing `/`), with when their
-last import registered them and whether that import did not complete or still runs (the family
-is flagged import-incomplete, or carries an import's unfinished mark). The form marks a folder:
+and serves the alignments and the QC report from it. The list gives each folder the families one
+of whose package records names it as the folder they were imported from
+(`families.metadata.package_imports[<analysis>].folder_path`, with or without its closing `/`; a
+family imported for two analyses from two folders is listed under both), with when their last
+import from it registered them and whether that import did not complete or still runs (the
+family is flagged import-incomplete, or carries an import's unfinished mark). The form marks a
+folder:
 
 | Mark | When | Listed |
 | --- | --- | --- |
@@ -524,9 +526,10 @@ backend's user, imports as any other.
 - Its members, under `family.add_members`, are the pedigree the import reads: no PED is read, and
   a manifest that names one (`ped`) is refused (`manifest_names_a_ped`).
 - The validation report names the manifest read in its metadata: `manifest_source` (`coga`) and
-  `manifest_sha256`. The family's package record (`families.metadata.package_import`) keeps
-  both, with `manifest_path` null, and the family's raw files hold a managed copy of it, as dataset
-  `manifest`, for download and **Verify** ([database.md](database.md)).
+  `manifest_sha256`. The family's package record of the package's analysis
+  (`families.metadata.package_imports[<analysis>]`) keeps both, and the family's raw files hold a
+  managed copy of it, as dataset `manifest`, for download and **Verify**
+  ([database.md](database.md)).
 
 #### A package that changes after it was checked
 
@@ -558,14 +561,16 @@ out, and an empty folder adds nothing.
   - A family it created is removed with everything of it, the managed copy of a kept manifest
     included.
   - An existing family's datasets are put back from the snapshot taken before the datasets (for an
-    update as for an overwrite, whenever the package has a fingerprint), and so is its package
-    record. The pedigree and descriptive metadata the registration refreshed from the validated
-    package stay, as for any failed overwrite, each change on the family's clinical audit trail.
-    Where the family cannot be put back, it is flagged import-incomplete.
+    update as for an overwrite, whenever the package has a fingerprint), and so are the package
+    record of the package's analysis (the record it replaced, or none) and the family's analysis
+    types; the records of the family's other analyses stay as they are. The pedigree and
+    descriptive metadata the registration refreshed from the validated package stay, as for any
+    failed overwrite, each change on the family's clinical audit trail. Where the family cannot be
+    put back, it is flagged import-incomplete.
   - The job ends `failed` with `package_changed_during_import`, and the package list flags the
     folder (above): import it again once it is complete, dry run first.
-- **The family's package record** keeps the fingerprint it was imported with
-  (`families.metadata.package_import.package_fingerprint`).
+- **The family's package record** of the package's analysis keeps the fingerprint it was imported
+  with (`families.metadata.package_imports[<analysis>].package_fingerprint`).
 - **After the import of a delivery**, the watcher follows its folder by the same fingerprint, read
   with the folder's own manifest: a folder that changes, or goes, is shown on the family's pages
   and warned of at sign-out ([below](#after-the-import-a-package-folder-that-changes)).
@@ -593,7 +598,11 @@ out, and an empty folder adds nothing.
 #### The existing family's members
 
 The package's members are the pedigree an import reads. It is compared with the family as CoGA
-holds it (each member, its sex and its parents):
+holds it (each member, its sex and its parents). A family may hold several analyses, each from a
+package of its own (the monogenic and the conventional NIPT of one pregnancy), and each package
+record keeps the members its package listed (`members`). So a member the package lacks that the
+package of another of the family's analyses listed is not missing: a conventional NIPT package
+that lists only the maternal plasma updates a family that holds the monogenic NIPT's trio.
 
 - `update` adds the members the family lacks, with the links the package gives them, and changes
   no member the family holds. A package that does (another sex, other parents), or that lacks one
@@ -603,7 +612,8 @@ holds it (each member, its sex and its parents):
 - `overwrite` makes the package's members the family's pedigree: a member the family lacks is
   added (one it held before is made active again), each member it holds takes the package's sex,
   role and statuses, one the package lacks is made inactive (its stored data stays, as for a
-  structure edit), and the family's links are the package's.
+  structure edit), and the family's links are the package's. The members the packages of the
+  family's other analyses listed stay active, with the family's links between them.
 
 Either change is made through the family-structure service once the import has marked the
 family, before its datasets: the next structure version, a pedigree change on the family's
@@ -1036,10 +1046,11 @@ is not ready or needing attention, whose package CoGA could not read, or whose f
   issues before and after.
 - A correction belongs to its delivery: a folder that changes is a new delivery, checked from its
   package file, without the corrections of the one before.
-- Once the delivery is imported, the family's record keeps its corrections
-  (`families.metadata.package_import.delivery.corrections`): the family page lists them (*Corrected
-  at intake*), and every signed version of the family's analysis freezes them in its section
-  `package_intake` ([clinical-traceability.md](clinical-traceability.md)).
+- Once the delivery is imported, the family's package record of its analysis keeps its
+  corrections (`families.metadata.package_imports[<analysis>].delivery.corrections`): the family
+  page lists them (*Corrected at intake*, one note per corrected delivery, naming its analysis),
+  and every signed version of the family's analysis freezes them in its section `package_intake`
+  ([clinical-traceability.md](clinical-traceability.md)).
 
 #### Adding a folder by hand
 
@@ -1061,7 +1072,7 @@ the analysis, the family, and the members and datasets Discover proposes from th
 its PED or per-sample folders, and its layout), written into the package. It is checked as a
 delivered package is, and is a delivery of origin `manual` (`import_deliveries.origin`), listed as
 *Added by hand*. It is then corrected (**Correct…**), approved or refused like any delivery, and
-the family's record names it as added by hand.
+the family's package record of its analysis names it as added by hand.
 
 - CoGA writes nothing in the folder: the package it made is kept with the delivery, shown and
   saved as `coga-package.json`, and corrected in **Correct…** as a form or as JSON (**Edit as
@@ -1103,9 +1114,10 @@ Nothing is imported until a superuser decides, on the Package Import page or thr
     manifest the delivery keeps (made from the package as last corrected). Its metadata names the
     delivery (its id, run, package file's SHA-256 and fingerprint, the revision, the SHA-256 of
     the package it imports, and every correction: what it changed, why, by whom and when), which
-    the family's package record keeps (`families.metadata.package_import.delivery`). The job's own
-    checks (its fingerprint as it starts, the undo of a package that changes while it is read)
-    hold as for any import.
+    the family's package record of its analysis keeps
+    (`families.metadata.package_imports[<analysis>].delivery`). The job's own checks (its
+    fingerprint as it starts, the undo of a package that changes while it is read) hold as for any
+    import.
   - A real approval makes the delivery `queued`; a dry run leaves it as it is. The delivery is
     locked while it is decided, so two approvals of it queue one job.
 - `POST /family-imports/deliveries/{id}/refuse` with a `reason` (plain text, at most 2,000
@@ -1123,21 +1135,24 @@ request audit.
 
 #### After the import: a package folder that changes
 
-CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder its
-import read, where it lies. So after the import the watcher follows that folder
+CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder the
+import that recorded them read, where it lies. So after the import the watcher follows that folder
 ([package_changed_after_import.py](../backend/app/services/package_changed_after_import.py); the
-owner's decisions of 2026-11-11).
+owner's decisions of 2026-11-11). A family keeps one package record per analysis it was imported
+for (`families.metadata.package_imports`, keyed by the package's `analysis_type`: the monogenic and
+the conventional NIPT of one pregnancy each have their own), and all below holds per record: each
+analysis's folder is followed against its own reference, never another's.
 
 - **The reference.** An import with update skips the datasets the family holds already, so only an
-  import that read the family's data whole, as a new family or with overwrite, says what its source
-  files were. The family's record keeps that delivery as its reference
-  (`families.metadata.package_import.reference_delivery`) with the import's mode (`import_mode`:
-  `new_family`, `update` or `overwrite`); an update keeps the reference the record had. A family's
-  first package import is its reference, whatever its mode.
-- **The rule.** The folder CoGA serves the family's source files from (that of the delivery its
-  record names, `package_import.delivery`) must be as the reference was imported. Each round the
-  watcher compares it, for every family imported from a delivery (delivered into a watched folder
-  or added by hand), by its package fingerprint alone: each file's size and modification time,
+  import that read the analysis's data whole, as a new family or with overwrite, says what its
+  source files were. The analysis's record keeps that delivery as its reference
+  (`families.metadata.package_imports[<analysis>].reference_delivery`) with the import's mode
+  (`import_mode`: `new_family`, `update` or `overwrite`); an update keeps the reference the record
+  had. An analysis's first package import is its reference, whatever its mode.
+- **The rule.** The folder CoGA serves the analysis's source files from (that of the delivery its
+  record names, `delivery`) must be as the reference was imported. Each round the watcher compares
+  it, for every record of a family imported from a delivery (delivered into a watched folder or
+  added by hand), by its package fingerprint alone: each file's size and modification time,
   nothing of its content, so a slow share costs one listing of the folder. A delivery keeps the
   listing its fingerprint was taken over (`import_deliveries.file_listing`, at most 5,000 entries;
   a larger folder is kept without one), so a change says which files changed.
@@ -1146,7 +1161,7 @@ owner's decisions of 2026-11-11).
   in size or modification time against the reference's listing, each list to 50 paths with its
   count (a folder kept without a listing is said to have changed, without its files). A watched
   folder that changed is also a new delivery of the folder; its family exists, so it needs an update
-  or overwrite. Importing it with update keeps the change: the family's record then names the new
+  or overwrite. Importing it with update keeps the change: the analysis's record then names the new
   delivery, but its reference stays the one before, and the folder still differs from it. An update
   from another folder is a change too: CoGA then serves the source files from that folder.
 - **Gone.** A folder that cannot be listed for two rounds, while the folder it lies under (its
@@ -1160,18 +1175,20 @@ owner's decisions of 2026-11-11).
   warn of it, but every page of the family says *Source files archived*, and the record of a later
   sign-out freezes it. A folder that comes back as it was imported ends it; one that comes back
   otherwise is a change again.
-- **What it shows.** Every page of the family shows *Package folder changed after import* (or
-  *Package folder gone*, or *Source files archived*), with what changed (`GET /families/{family_id}`,
-  `package_source_change`, which answers 404 for a family outside the caller's projects as the
-  family does). The Deliveries list shows the reference delivery as *Changed after import*, with
-  what changed and what ends it, among the deliveries that wait, and asks before an approval of the
-  changed folder's new delivery that only an overwrite ends the notice. A sign-out warns of it, to
-  acknowledge with a reason, which the signed record keeps with the change
-  ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out also takes the
-  folder's fingerprint itself, so a change the watcher has not seen yet warns too.
+- **What it shows.** Every page of the family shows one *Package folder changed after import* (or
+  *Package folder gone*, or *Source files archived*) banner per analysis whose folder changed,
+  naming the analysis (*The package folder this family's monogenic NIPT data was imported
+  from …*), with what changed (`GET /families/{family_id}`, `package_source_changes`: a list, one
+  entry per such analysis, each with its `analysis_type`; it answers 404 for a family outside the
+  caller's projects as the family does). The Deliveries list shows the reference delivery as
+  *Changed after import*, with what changed and what ends it, among the deliveries that wait, and
+  asks before an approval of the changed folder's new delivery that only an overwrite ends the
+  notice. A sign-out warns of it, to acknowledge with a reason, which the signed record keeps with
+  the change ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out also
+  takes the folder's fingerprint itself, so a change the watcher has not seen yet warns too.
 - **How it ends.** Only so:
   - the folder is as the reference was imported again (the same fingerprint), by itself;
-  - a delivery of the family is imported with overwrite, which makes it the reference;
+  - a delivery of the same analysis is imported with overwrite, which makes it the reference;
   - the folder's new delivery is refused with a reason, which ends the change at once. A folder
     state a refused delivery of the folder has is never raised again; a state neither imported
     nor refused is.
@@ -1179,16 +1196,18 @@ owner's decisions of 2026-11-11).
   A folder added by hand is added again by hand, and that delivery imported with overwrite or
   refused. A folder that is gone has no new delivery: it ends when the folder is back as it was
   imported, or is confirmed as archived. A delivery imported with update whose family still has
-  the notice (its record names it, made with update, and its reference is `changed_after_import`)
-  may be approved again by an administrator, with overwrite only (`overwrite_approvable` in the
-  list; 400 for another choice, 409 for any other imported delivery). A failed overwrite of it
-  leaves it `imported` (`import_delivery_overwrite_failed`), the family put back as it was.
+  the notice (a package record names it, made with update, and that record's reference is
+  `changed_after_import`) may be approved again by an administrator, with overwrite only
+  (`overwrite_approvable` in the list; 400 for another choice, 409 for any other imported
+  delivery). A failed overwrite of it leaves it `imported` (`import_delivery_overwrite_failed`),
+  the family put back as it was.
 - **The record.** Each transition is an event on the `system:import-inbox` chain:
   `import_delivery_changed_after_import` (by `system:import-watcher`, with the change and the one
   it replaced), `import_delivery_archived` (by the superuser, with the reason) and
   `import_delivery_change_resolved` (with how it ended: `as_imported`, `refused` with the refused
   delivery and the reason, by the person who refused it, `overwritten` with the delivery the
-  family's record names as its reference now, or `not_named` when no family names it any more).
+  family's package record names as its reference now, or `not_named` when no family's record names
+  it any more).
 
 ## 4. Package layout and manifest
 
@@ -1701,7 +1720,7 @@ declares nothing: it holds each target's depth.
 | `cnv` (HiFiCNV) | structural variants, source `hificnv`, each named by its coordinates, type and source, never by the record's ID (its annotation keeps it); one event in two samples' VCFs is one SV with both calls. The depth bigWig as `coverage` and the copy-number bedGraph as `segments`, both stored as log2 ratios like the other callers, each with its transform recorded in its `sample_interval_track_sources` row ([database.md](database.md)); a depth file without autosomal depth gives no median to normalise by, so its depths are stored as read, recorded as `none`. The MAF bigWig as `apcad` |
 | `mito` | chrM small variants, source `mito`, annotated from the mutserve table, from a chrM VCF per sample or a sample's rows of one mtDNA-Server table for all samples (`table`, `table_id`); each sample's mtDNA haplogroup is the one most of its annotated variants name. The chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
-| `alignments` | the CRAM/BAM location, used by IGV: the package-relative path of the file and its index. IGV reads the file there, under any name, in the package folder the import read (below `FAMILY_IMPORT_ROOTS`, such as a share or bucket mounted as a second root) |
+| `alignments` | the CRAM/BAM location, used by IGV: the package-relative path of the file and its index, and the analysis whose import recorded it (`package`). IGV reads the file there, under any name, in the package folder that analysis's import read (below `FAMILY_IMPORT_ROOTS`, such as a share or bucket mounted as a second root), never in another analysis's |
 | `pipeline_info` | tool versions in the annotation manifest; run parameters on the family (for the PGT pipeline also the affected parent, the ROI, the QDNAseq bin size, and the callset and phasing panel it started from) |
 
 Each caller's rows carry their own source tag, so re-importing one callset never removes another,
@@ -1888,9 +1907,9 @@ track's record names (`coverage_normalizations`) and what each holds (`coverage_
   their own range, without an axis, and the track's head says so in the warning tone.
 
 The three HiFiCNV files are also served unchanged to the genome browser (IGV): from the package
-folder the family's import read, at the path the import recorded, then from
-`data/families/<family>/`, and never from outside that folder (a recorded path or a symlink that
-leads elsewhere names no file).
+folder of the analysis whose import recorded them (the source's `package`), at the path the import
+recorded, then from `data/families/<family>/`, and never from outside that folder (a recorded path
+or a symlink that leads elsewhere names no file).
 
 **Coverage read as depth.** The readers that take coverage as read depth (the mtDNA coverage with
 its depth verdict, and the NIPT coverage check without a per-target table) read one coverage track
@@ -1913,8 +1932,9 @@ HiFiCNV's depth when its record says it is stored as read (`none`).
 the entry uses: a NIPT pair's coverage table under `target_table`, a PCF table under
 `maternal_file` as under `maternal`. The admin page lists these files with the family's data, and
 **Verify** checks them later. It reads a recorded file only where an import of its family puts
-one: in the package folder the family's import read, below `FAMILY_IMPORT_ROOTS`, or in the upload
-folder ([database.md](database.md)).
+one: in a package folder one of the family's package records names (one per analysis it was
+imported for), below `FAMILY_IMPORT_ROOTS`, or in the upload folder
+([database.md](database.md)).
 
 ### Monogenic NIPT pairs
 
@@ -2791,7 +2811,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `members_missing` | The manifest names no members under `family.add_members`. |
 | `package_not_in_project_folder` | The package folder lies directly in the watched folder. Move it into the folder of its project (`<watched folder>/<project>/`), or refuse the delivery. |
 | `package_project_folder_differs` | The package lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
-| `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents). An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the family's pedigree. |
+| `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents); a member the package of another of the family's analyses listed is not lacking. An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the family's pedigree and keeps the other analyses' members. |
 | `package_adds_members` (warning) | The package adds members to a family that exists. Update and overwrite add them to the family's pedigree: check that they belong to it. |
 | `package_files_without_checksum` (warning) | `coga-package.json` lists files without a `sha256` or `md5`. CoGA computed their SHA-256 (the import records it), but cannot check that the copy on the share is what the pipeline made. Acknowledge it to approve, or have the pipeline or its copy step write the checksums. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |

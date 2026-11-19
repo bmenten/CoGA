@@ -1146,7 +1146,7 @@ export interface FamilyOut {
   metadata: Record<string, unknown>;
   read_only: boolean;
   can_sign_out: boolean;
-  package_source_change: FamilyPackageSourceChangeOut | null;
+  package_source_changes: FamilyPackageSourceChangeOut[];
 }
 
 /** A package folder under the import roots that can be added to Deliveries by hand. */
@@ -1184,12 +1184,14 @@ export interface FamilyPackageImportJobOut {
 }
 
 /**
- * The change of the package folder a family's source files are served from, against the
- * delivery its data was last imported from whole (its id, its folder's name, and the fingerprint
- * it was imported with), which is ``changed_after_import`` or, for a gone folder confirmed as
- * deliberately gone, ``archived``. The change ends when the folder is as so imported again, when
- * a delivery of the family is imported with overwrite, or when the folder's new delivery is
- * refused with a reason; an update import keeps it.
+ * The change of a package folder a family's source files are served from, against the
+ * delivery the data of its analysis (``analysis_type``, the key of the family's package record:
+ * a family imported for a monogenic and a conventional NIPT has one per NIPT) was last imported
+ * from whole (its id, its folder's name, and the fingerprint it was imported with), which is
+ * ``changed_after_import`` or, for a gone folder confirmed as deliberately gone, ``archived``.
+ * The change ends when the folder is as so imported again, when a delivery of the analysis is
+ * imported with overwrite, or when the folder's new delivery is refused with a reason; an update
+ * import keeps it.
  */
 export interface FamilyPackageSourceChangeOut {
   kind: "changed" | "gone";
@@ -1204,6 +1206,7 @@ export interface FamilyPackageSourceChangeOut {
   detected_at: string | null;
   found_at_sign_out: boolean;
   archived: PackageSourceArchivedOut | null;
+  analysis_type: string;
   delivery_id: string;
   folder: string;
   imported_fingerprint: string | null;

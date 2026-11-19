@@ -773,12 +773,14 @@ describe('parseSignedReport', () => {
     };
     const record = parseSignedReport({
       ...SNAPSHOT,
-      package_source_change: change,
+      // One per analysis the family was imported for; an entry that is no change is not read.
+      package_source_changes: [{ ...change, analysis_type: 'monogenic_nipt' }, 'not a change'],
       acknowledged_package_source_change: true,
       package_source_change_acknowledgement_reason: 'CRAM re-aligned from the same reads.',
     })!;
 
-    expect(record.packageSourceChange).toEqual({
+    expect(record.packageSourceChanges).toEqual([{
+      analysisType: 'monogenic_nipt',
       deliveryId: 'd1',
       folder: 'FAM1',
       kind: 'changed',
@@ -795,38 +797,38 @@ describe('parseSignedReport', () => {
       detectedAt: '2026-11-11T10:00:00+00:00',
       foundAtSignOut: false,
       archived: null,
-    });
+    }]);
     expect(record.packageSourceAcknowledgement).toEqual({
       acknowledged: true,
       reason: 'CRAM re-aligned from the same reads.',
     });
-    const gone = parseSignedReport({ ...SNAPSHOT, package_source_change: { kind: 'gone', listed: false } })!;
-    expect(gone.packageSourceChange).toMatchObject({ kind: 'gone', fingerprint: null, added: [], addedCount: null });
-    // Recorded as none (as imported), and not in a record at all, read apart.
-    expect(parseSignedReport({ ...SNAPSHOT, package_source_change: null })!.packageSourceChange).toBeNull();
-    expect(parseSignedReport(SNAPSHOT)!.packageSourceChange).toBe('absent');
+    const gone = parseSignedReport({ ...SNAPSHOT, package_source_changes: [{ kind: 'gone', listed: false }] })!;
+    expect(gone.packageSourceChanges).toMatchObject([{ kind: 'gone', fingerprint: null, added: [], addedCount: null }]);
+    // Recorded as none (each folder as imported), and not in a record at all, read apart.
+    expect(parseSignedReport({ ...SNAPSHOT, package_source_changes: [] })!.packageSourceChanges).toEqual([]);
+    expect(parseSignedReport(SNAPSHOT)!.packageSourceChanges).toBe('absent');
   });
 
   it('reads a gone folder confirmed as archived, and a change the sign-out found itself', () => {
     const archived = parseSignedReport({
       ...SNAPSHOT,
-      package_source_change: {
+      package_source_changes: [{
         kind: 'gone',
         listed: false,
         archived: { archived_at: '2026-11-11T11:00:00+00:00', archived_by: 'superuser', reason: 'Archived to tape.' },
-      },
+      }],
       acknowledged_package_source_change: false,
     })!;
-    expect(archived.packageSourceChange).toMatchObject({
+    expect(archived.packageSourceChanges).toMatchObject([{
       kind: 'gone',
       archived: { archivedAt: '2026-11-11T11:00:00+00:00', archivedBy: 'superuser', reason: 'Archived to tape.' },
-    });
+    }]);
     // Only a gone folder is archived.
     const changed = parseSignedReport({
       ...SNAPSHOT,
-      package_source_change: { kind: 'changed', found_at_sign_out: true, archived: { reason: 'no' } },
+      package_source_changes: [{ kind: 'changed', found_at_sign_out: true, archived: { reason: 'no' } }],
     })!;
-    expect(changed.packageSourceChange).toMatchObject({ kind: 'changed', foundAtSignOut: true, archived: null });
+    expect(changed.packageSourceChanges).toMatchObject([{ kind: 'changed', foundAtSignOut: true, archived: null }]);
   });
 
   it('reads an import that had not finished when the version was signed', () => {
@@ -1616,7 +1618,8 @@ describe('the delivered package and its corrections at intake', () => {
     const section = parseSignedReport({
       ...SNAPSHOT,
       package_intake: {
-        delivery: {
+        deliveries: [{
+          analysis_type: 'monogenic_nipt',
           id: 'd1',
           run_id: 'RUN1',
           package_file_sha256: 'a'.repeat(64),
@@ -1639,14 +1642,15 @@ describe('the delivered package and its corrections at intake', () => {
               changes: [{ path: 'members.PROBAND.sex', kind: 'pipeline_used', before: 'male', after: 'female' }, 'x'],
             },
           ],
-        },
+        }],
       },
     })!.packageIntake;
 
     expect(section).toEqual({
       state: 'recorded',
       value: {
-        delivery: {
+        deliveries: [{
+          analysisType: 'monogenic_nipt',
           id: 'd1',
           runId: 'RUN1',
           packageFileSha256: 'a'.repeat(64),
@@ -1670,16 +1674,16 @@ describe('the delivered package and its corrections at intake', () => {
               changes: [{ path: 'members.PROBAND.sex', kind: 'pipeline_used', before: 'male', after: 'female' }],
             },
           ],
-        },
+        }],
       },
       malformed: 1,
     });
   });
 
   it('reads a family not imported from a delivery, a record without the section, and one that could not capture it', () => {
-    expect(parseSignedReport({ ...SNAPSHOT, package_intake: { delivery: null } })!.packageIntake).toEqual({
+    expect(parseSignedReport({ ...SNAPSHOT, package_intake: { deliveries: [] } })!.packageIntake).toEqual({
       state: 'recorded',
-      value: { delivery: null },
+      value: { deliveries: [] },
     });
     expect(parseSignedReport(SNAPSHOT)!.packageIntake).toEqual({ state: 'unavailable', reason: 'it cannot be read here; the downloaded record holds it as stored' });
     expect(

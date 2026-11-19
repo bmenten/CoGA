@@ -191,7 +191,7 @@ describe('RawFileProvenanceTable', () => {
 
   it('gives the reason a Verify was refused', async () => {
     const reason =
-      "The file's recorded storage path lies outside its family's package folder (below FAMILY_IMPORT_ROOTS) and CoGA's upload folder, so the file is not read.";
+      "The file's recorded storage path lies outside its family's package folders (below FAMILY_IMPORT_ROOTS) and CoGA's upload folder, so the file is not read.";
     (api.post as unknown as Mock).mockRejectedValue({ response: { status: 403, data: { detail: reason } } });
     renderTable();
 

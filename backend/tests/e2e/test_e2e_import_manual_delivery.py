@@ -121,7 +121,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         ).scalar_one()
         out["record"] = (
             await session.execute(
-                text("SELECT metadata -> 'package_import' -> 'delivery' FROM families WHERE family_id = :f"), {"f": family}
+                text("SELECT (SELECT r.value FROM jsonb_each(metadata -> 'package_imports') AS r LIMIT 1) -> 'delivery' FROM families WHERE family_id = :f"), {"f": family}
             )
         ).scalar_one()
         out["events"] = [

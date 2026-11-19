@@ -168,7 +168,7 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
     - The package file `coga-package.json`'s choices, to confirm with the pipeline owners ([coga-package.md](coga-package.md)): MD5 accepted beside SHA-256, a minimal file accepted (CoGA proposes the members and datasets), `request_id` kept, a pipeline QC `fail` needs attention, an unknown field refused.
     - A review's classification text is audited as stored, trimmed but case-sensitive.
 - 2026-11-10:
-    - Raw files are read only in the latest import's package folder and CoGA's upload folder, as IGV reads them (the owner's decision): the files an earlier package of the same family recorded show as not read.
+    - Raw files are read only in the package folder of each analysis's last import and CoGA's upload folder, as IGV reads them (the owner's decision): the files an earlier package of the same analysis recorded show as not read.
     - An error of a class CoGA defines keeps its text where an import or a gene source stores its failure (`own_error_message`); any other is named by its kind. The sign-out tamper alarm's log field is `family_uuid`. A refused raw-file path is logged by its kind (the owner's decision).
     - The import-job service refuses a user below superuser itself, as its routes do.
     - A stored bare class word ("Pathogenic") shows as its label in the Explorer, and a class tag outranks a class label in the text.

@@ -75,6 +75,7 @@ MODULE_FLOORS: dict[str, float] = {
     # and checked with)
     "backend/app/services/family_package_fingerprint.py": 97.0,
     "backend/app/services/family_package_jobs.py": 94.0,  # (97.3, 2026-11-03; also floored combined)
+    "backend/app/services/family_package_records.py": 97.0,  # (100.0, measured locally)
     # (100.0 measured locally: a family's variants following it between projects)
     "backend/app/services/family_project_variants.py": 97.0,
     "backend/app/services/family_structure_audit.py": 95.0,  # (98.6, 2026-11-03)

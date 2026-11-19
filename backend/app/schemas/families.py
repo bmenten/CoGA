@@ -122,13 +122,16 @@ class PackageSourceChangeOut(BaseModel):
 
 
 class FamilyPackageSourceChangeOut(PackageSourceChangeOut):
-    """The change of the package folder a family's source files are served from, against the
-    delivery its data was last imported from whole (its id, its folder's name, and the fingerprint
-    it was imported with), which is ``changed_after_import`` or, for a gone folder confirmed as
-    deliberately gone, ``archived``. The change ends when the folder is as so imported again, when
-    a delivery of the family is imported with overwrite, or when the folder's new delivery is
-    refused with a reason; an update import keeps it."""
+    """The change of a package folder a family's source files are served from, against the
+    delivery the data of its analysis (``analysis_type``, the key of the family's package record:
+    a family imported for a monogenic and a conventional NIPT has one per NIPT) was last imported
+    from whole (its id, its folder's name, and the fingerprint it was imported with), which is
+    ``changed_after_import`` or, for a gone folder confirmed as deliberately gone, ``archived``.
+    The change ends when the folder is as so imported again, when a delivery of the analysis is
+    imported with overwrite, or when the folder's new delivery is refused with a reason; an update
+    import keeps it."""
 
+    analysis_type: str
     delivery_id: str
     folder: str
     imported_fingerprint: Optional[str] = None
@@ -155,12 +158,13 @@ class FamilyOut(ApiDocumentModel):
     # Whether the caller may sign the family's analysis out: they may change the family, and
     # their role is supervisor or higher (TF-06 H15).
     can_sign_out: bool = False
-    # The package folder the family's source files are served from is no longer as its data was
-    # imported whole (as a new family or with overwrite), or is gone: the family page says so, and a
-    # sign-out warns of it; or that gone folder was confirmed as archived (``archived``), which the
-    # page says and a sign-out records (package_changed_after_import.py). None: as imported, or the
-    # family was not imported from a delivery.
-    package_source_change: Optional[FamilyPackageSourceChangeOut] = None
+    # Each package folder the family's source files are served from (one per analysis it was
+    # imported for) that is no longer as its analysis's data was imported whole (as a new family or
+    # with overwrite), or is gone: the family page says so, and a sign-out warns of it; or whose
+    # gone folder was confirmed as archived (``archived``), which the page says and a sign-out
+    # records (package_changed_after_import.py). Empty: each as imported, or the family was not
+    # imported from a delivery.
+    package_source_changes: List[FamilyPackageSourceChangeOut] = Field(default_factory=list)
 
 
 class FamilyMetadataUpdate(BaseModel):

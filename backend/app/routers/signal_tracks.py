@@ -40,6 +40,7 @@ from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import SignalTrackManifestEntryOut
+from ..services.family_package_records import package_folder_of
 from ..services.family_package_source import local_family_package_folder
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
@@ -102,9 +103,10 @@ async def _accessible_sample_ids(
 async def _signal_track_rows(
     session: AsyncSession, sample_ids: list[str]
 ) -> list[tuple[str, dict[str, Any], str | None]]:
-    """``(sample_id, metadata['signal_tracks'], package folder)`` for the samples that have
-    one. The package folder is the folder the sample's family's import read
-    (``families.metadata.package_import.folder_path``), where a recorded path is looked up."""
+    """``(sample_id, metadata['signal_tracks'], package records)`` for the samples that have
+    one. The package records are the family's (``families.metadata.package_imports``): each
+    source's tracks are looked up in the folder of the analysis whose import recorded them
+    (``_source_folder``)."""
 
     if not sample_ids:
         return []
@@ -113,7 +115,7 @@ async def _signal_track_rows(
             """
             SELECT s.sample_id,
                    s.metadata -> 'signal_tracks' AS signal_tracks,
-                   f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
+                   f.metadata -> 'package_imports' AS package_records
             FROM samples s
             JOIN families f ON f.id = s.family_id
             WHERE s.sample_id = ANY(:sample_ids)
@@ -123,17 +125,24 @@ async def _signal_track_rows(
         {"sample_ids": sample_ids},
     )
     return [
-        (str(sample_id), signal_tracks, package_folder if isinstance(package_folder, str) else None)
-        for sample_id, signal_tracks, package_folder in result.all()
+        (str(sample_id), signal_tracks, package_records)
+        for sample_id, signal_tracks, package_records in result.all()
         if isinstance(signal_tracks, dict)
     ]
 
 
-def _track_paths(rows: list[tuple[str, dict[str, Any], str | None]]) -> dict[str, dict[str, dict[str, str]]]:
+def _source_folder(package_records: Any, signal_tracks: dict[str, Any], source: str) -> str | None:
+    """The package folder a source's tracks were imported from: that of the analysis its entry
+    names (``family_package_records.package_folder_of``)."""
+    entry = signal_tracks.get(source)
+    return package_folder_of(package_records, entry if isinstance(entry, dict) else None)
+
+
+def _track_paths(rows: list[tuple[str, dict[str, Any], Any]]) -> dict[str, dict[str, dict[str, str]]]:
     """``sample_id -> source -> kind -> package-relative path``, as the import left it."""
 
     recorded: dict[str, dict[str, dict[str, str]]] = {}
-    for sample_id, signal_tracks, _package_folder in rows:
+    for sample_id, signal_tracks, _package_records in rows:
         by_source = {
             str(source): {
                 str(kind): str(path)
@@ -151,7 +160,7 @@ def _track_paths(rows: list[tuple[str, dict[str, Any], str | None]]) -> dict[str
 
 def _resolve_track_path(family_id: str, relative_path: str, package_folder: object = None) -> Path | None:
     """The file a recorded path names in the package folder the family's import read,
-    ``package_folder`` (``families.metadata.package_import.folder_path``), else in its package
+    ``package_folder`` (the folder of the analysis whose import recorded it), else in its package
     folder ``<data>/families/<family>``; ``None`` when it is gone or lies outside them.
 
     The import records the path relative to the package, but it comes back from
@@ -218,7 +227,10 @@ async def get_signal_track_manifest(
     ordered = list(dict.fromkeys(requested))
     rows = await _signal_track_rows(session, ordered)
     recorded = _track_paths(rows)
-    package_folders = {sample_id: package_folder for sample_id, _tracks, package_folder in rows}
+    package_folders = {
+        sample_id: {source: _source_folder(records, tracks, source) for source in tracks}
+        for sample_id, tracks, records in rows
+    }
 
     def _build() -> list[SignalTrackManifestEntryOut]:
         entries: list[SignalTrackManifestEntryOut] = []
@@ -232,7 +244,7 @@ async def get_signal_track_manifest(
                         source,
                         kind,
                         paths.get(source, {}).get(kind),
-                        package_folders.get(sample_id),
+                        package_folders.get(sample_id, {}).get(source),
                     )
                     if url is None:
                         continue
@@ -265,7 +277,7 @@ async def _requested_track(
 ) -> tuple[str, _TrackKind, str | None]:
     """``(recorded path, kind, package folder)`` of a track the user may read,
     after the family-membership check; 404 when nothing is recorded for it. The package folder
-    is the one the family's import read (``_signal_track_rows``)."""
+    is that of the analysis whose import recorded the source's tracks (``_source_folder``)."""
     if kind not in _TRACK_KINDS:
         raise HTTPException(status_code=404, detail="Unknown signal-track kind")
     family_sample_ids = await _accessible_sample_ids(session, family_id, user)
@@ -275,7 +287,7 @@ async def _requested_track(
     relative_path = _track_paths(rows).get(sample_id, {}).get(source, {}).get(kind)
     if not relative_path:
         raise HTTPException(status_code=404, detail="Signal track not found")
-    package_folder = next((folder for _sample, _tracks, folder in rows), None)
+    package_folder = next((_source_folder(records, tracks, source) for _sample, tracks, records in rows), None)
     return relative_path, _TRACK_KINDS[kind], package_folder
 
 

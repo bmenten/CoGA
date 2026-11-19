@@ -945,12 +945,30 @@ def test_the_record_names_the_delivered_package_and_every_correction_made_at_int
             "not a correction",
         ],
     }
-    session = _Session({"package_import": [{"delivery": delivery}]})
+    # A family imported for two analyses, each from a delivery of its own, and a record of a third
+    # imported from no delivery.
+    records = {
+        "monogenic_nipt": {"delivery": delivery},
+        "conventional_nipt": {"delivery": {"id": "d0", "corrections": []}},
+        "unspecified": {"folder_path": "/imports/F1"},
+    }
+    session = _Session({"package_imports": [{"package_imports": records}]})
 
     intake = asyncio.run(srs.package_intake(session, _context()))  # type: ignore[arg-type]
 
+    conventional = {
+        "analysis_type": "conventional_nipt",
+        "id": "d0",
+        "run_id": None,
+        "package_file_sha256": None,
+        "package_fingerprint": None,
+        "revision": None,
+        "package_sha256": None,
+        "corrections": [],
+    }
     assert intake == {
-        "delivery": {
+        "deliveries": [conventional, {
+            "analysis_type": "monogenic_nipt",
             "id": "d1",
             "run_id": "RUN1",
             "package_file_sha256": "a" * 64,
@@ -977,12 +995,20 @@ def test_the_record_names_the_delivered_package_and_every_correction_made_at_int
                     ],
                 },
             ],
-        }
+        }]
     }
     assert session.executed[0][1] == {"family_uuid": _context().family_uuid}
 
 
-@pytest.mark.parametrize("rows", [[], [{"delivery": None}], [{"delivery": "null"}]])
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [],
+        [{"package_imports": None}],
+        [{"package_imports": "null"}],
+        [{"package_imports": {"unspecified": {"delivery": None}}}],
+    ],
+)
 def test_a_family_not_imported_from_a_delivery_holds_none(rows: list[dict[str, Any]]) -> None:
-    intake = asyncio.run(srs.package_intake(_Session({"package_import": rows}), _context()))  # type: ignore[arg-type]
-    assert intake == {"delivery": None}
+    intake = asyncio.run(srs.package_intake(_Session({"package_imports": rows}), _context()))  # type: ignore[arg-type]
+    assert intake == {"deliveries": []}

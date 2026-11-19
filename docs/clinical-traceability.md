@@ -411,16 +411,21 @@ snapshot, which the clinical report in the EPD refers to by its report code (*Th
     overwrite whose restore did not finish, that is every dataset of the family still to import
     again, none finished; for a single-file upload or a deletion that did not finish, no job, under
     its `upload-…` or `deletion-…` key.
-- **Package folder** (`package_source_change`, gate 6): null when the folder CoGA serves the
-  family's source files from is as the family's reference delivery was imported, or the family was
-  not imported from a delivery. Otherwise that delivery (its id), the name of the folder, the
-  fingerprint the reference was imported with and the folder's now; what was found (`changed`, with
-  the paths added, removed and changed in size or modification time, each list to 50 paths with its
-  count, none named when `listed` is false; or `gone`, the source files no longer available); when
-  the watcher found it, or `found_at_sign_out` when the sign-out's own check did; and, for a gone
-  folder a superuser confirmed as deliberately gone, `archived` (when, by whom and why)
+- **Package folders** (`package_source_changes`, gate 6): a family holds one package record per
+  analysis it was imported for (the monogenic and the conventional NIPT of one pregnancy each have
+  their own), and CoGA serves each analysis's source files from the folder its record names. The
+  list is empty when each such folder is as its analysis's reference delivery was imported, or the
+  family was not imported from a delivery. Otherwise it holds one entry per analysis whose folder
+  is not, in the order of the analyses: the analysis (`analysis_type`, its record's key), that
+  delivery (its id), the name of the folder, the fingerprint the reference was imported with and
+  the folder's now; what was found (`changed`, with the paths added, removed and changed in size or
+  modification time, each list to 50 paths with its count, none named when `listed` is false; or
+  `gone`, the source files no longer available); when the watcher found it, or `found_at_sign_out`
+  when the sign-out's own check did; and, for a gone folder a superuser confirmed as deliberately
+  gone, `archived` (when, by whom and why)
   ([data-import.md](data-import.md#after-the-import-a-package-folder-that-changes)). It is read
-  outside any savepoint: a read that fails stops the sign-out, never lets the gate pass.
+  outside any savepoint: a read that fails stops the sign-out, never lets the gate pass. The
+  sign-out check compares the list without `detected_at` and `found_at_sign_out`.
 - **What the analysis looked at:** the sections below.
 - **Who and when:** the signer, the time, and any acknowledgement with its reason.
 
@@ -611,16 +616,19 @@ NIPT family's per-target coverage tables are another track type (`target_coverag
 `nipt` (`inputs.target_tables`), as are, without them, the coverage check's notes over these tracks
 (`nipt.coverage_notes`, above).
 
-**`package_intake`** (owner decision of 2026-11-10). The delivered package the family's last package
-import came from, as the family's record names it (`families.metadata.package_import.delivery`):
-its id, the pipeline's run, the SHA-256 of the pipeline's package file, the package's fingerprint,
-the revision imported and the SHA-256 of the package imported. With it, each correction made to
-that package in CoGA before the import (`import_delivery_revisions`), in revision order: every
-field changed, by its path (`members.PROBAND.sex`), its kind (`pipeline_used` for a member's sex or
-parents and the couples, which the pipeline computed with; `laboratory` else) and its value before
-and after, with the reason, who made it and when. Every family's record holds it:
-`{"delivery": null}` for one whose last import was no delivery's, so an import after sign-out reads
-as a change. The family page shows the same corrections (*Corrected at intake*).
+**`package_intake`** (owner decision of 2026-11-10). Per analysis the family was imported for, the
+delivered package that analysis's last package import came from, as its package record names it
+(`families.metadata.package_imports[<analysis>].delivery`), in `deliveries`, in the order of the
+analyses: the analysis (`analysis_type`), the delivery's id, the pipeline's run, the SHA-256 of the
+pipeline's package file, the package's fingerprint, the revision imported and the SHA-256 of the
+package imported. With each, each correction made to that package in CoGA before the import
+(`import_delivery_revisions`), in revision order: every field changed, by its path
+(`members.PROBAND.sex`), its kind (`pipeline_used` for a member's sex or parents and the couples,
+which the pipeline computed with; `laboratory` else) and its value before and after, with the
+reason, who made it and when. Every family's record holds it: `{"deliveries": []}` for one no
+analysis of which was last imported from a delivery, so an import after sign-out reads as a change.
+The family page shows the same corrections, one *Corrected at intake* note per corrected delivery,
+naming its analysis.
 
 ### A NIPT family's record
 
@@ -855,11 +863,13 @@ family page shows *Import incomplete* while one is set.
   the import-incomplete flag's failures and from a stopped import's entry; each goes once it names
   nothing else.
 
-**6. Package folder changed after its import** (REQ-TRACE-018; owner decisions of 2026-11-11). CoGA
-shows a family's read files (IGV), signal tracks and QC report from the package folder its record
-names. That folder must be as the family's *reference delivery* was imported: the delivery its data
-was last imported from whole, as a new family or with overwrite (an update skips the datasets the
-family holds, so it keeps the reference it had). The sign-out:
+**6. Package folder changed after its import** (REQ-TRACE-018; owner decisions of 2026-11-11). A
+family holds one package record per analysis it was imported for, and CoGA shows each analysis's
+read files (IGV), signal tracks and QC report from the package folder that analysis's record names.
+Each such folder must be as its analysis's *reference delivery* was imported: the delivery that
+analysis's data was last imported from whole, as a new family or with overwrite (an update skips the
+datasets the family holds, so it keeps the reference it had). Each folder is held against its own
+analysis's reference, never another's. For each, the sign-out:
 
 - reads what the import watcher last found (the reference is `changed_after_import`, each
   `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`);
@@ -870,14 +880,16 @@ family holds, so it keeps the reference it had). The sign-out:
   root configured, any local folder is read, as the watcher watches any. A folder too large to list
   in full is still fingerprinted, and one too large to fingerprint has changed.
 
-Either finding refuses the sign-out, with `package_source_change` and a message saying what
-changed, or that the source files are no longer available. It is a warning: the sign-out stays
-possible. Every family page shows *Package folder changed after import* (or *gone*) while the
-watcher's finding holds. It ends only when the folder is as the reference was imported again, when
-a delivery of the family is imported with overwrite, or when the folder's new delivery is refused
-with a reason. A gone folder a superuser confirmed as deliberately gone (`archived`) does not gate:
-the snapshot freezes it, and the family page says the source files are archived; a check that finds
-that folder back otherwise gates again.
+Either finding refuses the sign-out, with `package_source_changes` (one entry per analysis whose
+folder changed, each naming its `analysis_type`) and a message saying, for each analysis by name
+(*the package folder this family's monogenic NIPT data was imported from*), what changed, or that
+the source files are no longer available. It is a warning: the sign-out stays possible. Every family
+page shows one *Package folder changed after import* (or *gone*) banner per changed folder, naming
+the analysis, while the watcher's finding holds. It ends only when the folder is as the reference
+was imported again, when a delivery of that analysis is imported with overwrite, or when the
+folder's new delivery is refused with a reason. A gone folder a superuser confirmed as deliberately
+gone (`archived`) does not gate: the snapshot freezes it, and the family page says the source files
+are archived; a check that finds that folder back otherwise gates again.
 
 **7. Findings without a review** (REQ-TRACE-016). A repeat locus or Paraphase region with an
 abnormal call and no review; a review with a classification, a tag or a note counts.
@@ -904,7 +916,7 @@ acknowledgement.
 | Evidence drift | `drifted`, `structural_drifted`, `finding_drifted` | `drift_concerns_fingerprint` |
 | Sample QC | its four groups (gate 4) | `qc_concerns_fingerprint` |
 | Incomplete import | `import_incomplete` and `import_unfinished`, each without its `at` (the message names the time; the jobs and datasets say which failure it is) | `import_incomplete_concerns_fingerprint` |
-| Package folder | `package_source_change` without `detected_at` (a change found again, as it was, is the same concern; a change the sign-out's own check found has none) | `package_source_change_concerns_fingerprint` |
+| Package folder | `package_source_changes`: each change that gates (one per analysis), without `detected_at` (a change found again, as it was, is the same concern; a change the sign-out's own check found has none) | `package_source_change_concerns_fingerprint` |
 | Findings without a review | `unreviewed_findings` | `unreviewed_findings_concerns_fingerprint` |
 
 The sign-out reads the gate again and compares the fingerprint it was sent with:
@@ -922,7 +934,7 @@ meanwhile acknowledges nothing. The gates are read in order, so a change at an e
 refused there first; the acknowledgements already given travel on to the next attempt. The
 sign-out's audit event records the fingerprint each acknowledgement carried (the five fields above;
 None for a gate without concerns). The snapshot freezes the concerns themselves (the drift
-sections, `sample_qc`, the import state, `package_source_change`) and the audit event the Sample-QC
+sections, `sample_qc`, the import state, `package_source_changes`) and the audit event the Sample-QC
 groups, so each fingerprint can be recomputed from the record. The snapshot holds no fingerprint:
 the concerns it freezes are those the sign-out checked the fingerprint against.
 
@@ -1018,10 +1030,10 @@ nothing else (`frontend/src/pages/families/signedReportRecord.ts` reads it). It 
   the files they were loaded from);
 - the gene panels applied; the repeat expansions; the Paraphase results; the coverage tracks
   (*Coverage tracks*: per sample and caller, what the track held, read depth, a log2 ratio or
-  unknown, and the file it was loaded from, from where and when); the delivered package and its
-  corrections (*Package intake*: the run, the package file and the revision imported, and each
-  correction with what it changed, a change the pipeline used marked, why, by whom and when); and
-  the reference-data releases;
+  unknown, and the file it was loaded from, from where and when); per analysis, the delivered
+  package and its corrections (*Package intake*: the analysis, the run, the package file and the
+  revision imported, and each correction with what it changed, a change the pipeline used marked,
+  why, by whom and when); and the reference-data releases;
 - the drift, Sample QC, sequencing QC and import state, with the acknowledgements;
 - in the footer, with the report code, the frozen modules and beside them the reference-data
   releases and the coverage tracks (*Coverage tracks as signed: S1 coverage BED (package) — read

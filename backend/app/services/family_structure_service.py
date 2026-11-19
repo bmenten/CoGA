@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from fastapi import HTTPException
@@ -1394,6 +1394,7 @@ async def take_package_pedigree(
     relationships: Sequence[Mapping[str, Any]],
     user: CurrentUser,
     replace: bool,
+    kept: Collection[str] = (),
 ) -> FamilyStructureUpdateOut | None:
     """Give the existing family ``family_id`` the pedigree of a package an import reads: its
     ``members`` and ``relationships`` (as ``family_package_registration`` makes them for a new
@@ -1409,6 +1410,10 @@ async def take_package_pedigree(
       takes the package's sex, role and statuses, one the package lacks is made inactive (its data
       stays, as a structure edit leaves it), and the links are the package's.
 
+    ``kept``: the members the packages of the family's other analyses listed (a monogenic and a
+    conventional NIPT of one pregnancy, each with its own package). An overwrite leaves them active
+    though the package lacks them, and keeps the family's links between two of them.
+
     The change is made against the structure version read here: a change made since refuses it
     (409), as for an edit. A member's sample ID held by another family refuses it (409)."""
     family_row = await get_accessible_family_mapping(session, family_id, user)
@@ -1422,9 +1427,24 @@ async def take_package_pedigree(
     updates: list[FamilyStructureMemberUpdate] = []
     removed: list[str] = []
     if replace:
+        kept_keys = {_sample_key(sample_id) for sample_id in kept}
         updates = [FamilyStructureMemberUpdate(**fields) for key, fields in package.items() if key in active]
-        removed = [str(row["sample_id"]) for key, row in held.items() if key in active and key not in package]
+        removed = [
+            str(row["sample_id"])
+            for key, row in held.items()
+            if key in active and key not in package and key not in kept_keys
+        ]
         links = list(relationships)
+        if kept_keys:
+            # The family's links between two of the kept members stay (``_link_payload`` names
+            # a link the package gives too once).
+            current = await _fetch_current_relationship_rows(session, family_uuid=family_uuid)
+            links.extend(
+                link
+                for link in current
+                if _sample_key(str(link["sample_id_a"])) in kept_keys
+                and _sample_key(str(link["sample_id_b"])) in kept_keys
+            )
     else:
         current = await _fetch_current_relationship_rows(session, family_uuid=family_uuid)
         links = [

@@ -1530,7 +1530,7 @@ describe('FamilyReportPage', () => {
       },
     },
     import_incomplete: null,
-    package_source_change: null,
+    package_source_changes: [],
     reported_variants: [
       {
         variant_id: '17-43000000-A-G',
@@ -1980,7 +1980,8 @@ describe('FamilyReportPage', () => {
           ...SIGNED_SNAPSHOT,
           ...SIGNED_ANALYSIS,
           package_intake: {
-            delivery: {
+            deliveries: [{
+              analysis_type: 'unspecified',
               id: 'd1',
               run_id: 'RUN1',
               package_file_sha256: 'a'.repeat(64),
@@ -2007,7 +2008,7 @@ describe('FamilyReportPage', () => {
                   ],
                 },
               ],
-            },
+            }],
           },
         },
       });
@@ -2022,10 +2023,54 @@ describe('FamilyReportPage', () => {
       expect(intake).toHaveTextContent('members.REL1: not set → {"sample_id":"REL1","sex":"male"} (a member added)');
       first.unmount();
 
-      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, package_intake: { delivery: null } } });
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, package_intake: { deliveries: [] } } });
       renderPage();
       const none = (await screen.findByRole('heading', { name: 'Package intake' })).closest('section')!;
       expect(none).toHaveTextContent('The family’s last package import was not from a delivered package file');
+    });
+
+    it('names the analysis of each delivered package and each changed package folder of a family imported for two', async () => {
+      // A monogenic and a conventional NIPT of one pregnancy, each from a package of its own.
+      const delivery = (analysis: string, run: string) => ({
+        analysis_type: analysis,
+        id: run,
+        run_id: run,
+        package_file_sha256: null,
+        package_fingerprint: null,
+        revision: 0,
+        package_sha256: null,
+        corrections: [],
+      });
+      const change = (analysis: string, folder: string) => ({
+        analysis_type: analysis,
+        delivery_id: folder,
+        folder,
+        kind: 'gone',
+        listed: false,
+        added: [],
+        removed: [],
+        changed: [],
+      });
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          package_intake: {
+            deliveries: [delivery('conventional_nipt', 'CNIPT_RUN'), delivery('monogenic_nipt', 'MNIPT_RUN')],
+          },
+          package_source_changes: [change('conventional_nipt', 'CNIPT_DIR'), change('monogenic_nipt', 'MNIPT_DIR')],
+          acknowledged_package_source_change: true,
+          package_source_change_acknowledgement_reason: 'Both run folders moved to cold storage.',
+        },
+      });
+      renderPage();
+      const intake = (await screen.findByRole('heading', { name: 'Package intake' })).closest('section')!;
+      expect(intake).toHaveTextContent('The family’s conventional NIPT data came from a delivered package of pipeline run CNIPT_RUN');
+      expect(intake).toHaveTextContent('The family’s monogenic NIPT data came from a delivered package of pipeline run MNIPT_RUN');
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent('The package folder the family’s conventional NIPT data came from (CNIPT_DIR) was gone');
+      expect(checks).toHaveTextContent('The package folder the family’s monogenic NIPT data came from (MNIPT_DIR) was gone');
+      expect(checks).toHaveTextContent('Both run folders moved to cold storage.');
     });
 
     it('says a family held no coverage track, and what a record could not capture', async () => {
@@ -3745,7 +3790,7 @@ describe('FamilyReportPage', () => {
             gate: 'package_source_change',
             message:
               "The package folder this family's data was imported from (F1) has changed since its import: 1 changed in size or time. CoGA serves the family's read files (IGV), signal tracks and QC report from that folder, so they may no longer be the ones imported and analysed. Import the folder's new delivery with overwrite (an update skips the datasets the family holds, so this warning stays), or refuse it with a reason, or acknowledge with a reason to sign out anyway.",
-            package_source_change: CHANGE,
+            package_source_changes: [CHANGE],
             concerns_fingerprint: SOURCE_FINGERPRINT,
             concerns_changed: false,
           },
@@ -3766,7 +3811,7 @@ describe('FamilyReportPage', () => {
                 projects: [],
                 can_sign_out: true,
                 metadata: {},
-                package_source_change: change,
+                package_source_changes: [change],
               },
             })
           : base(url, config),
@@ -3820,7 +3865,7 @@ describe('FamilyReportPage', () => {
       mockSignedCase({
         snapshot: {
           ...SIGNED_SNAPSHOT,
-          package_source_change: CHANGE,
+          package_source_changes: [CHANGE],
           acknowledged_package_source_change: true,
           package_source_change_acknowledgement_reason: REASON,
         },
@@ -3850,7 +3895,7 @@ describe('FamilyReportPage', () => {
       mockSignedCase({
         snapshot: {
           ...SIGNED_SNAPSHOT,
-          package_source_change: ARCHIVED,
+          package_source_changes: [ARCHIVED],
           acknowledged_package_source_change: false,
           package_source_change_acknowledgement_reason: null,
         },
@@ -3860,7 +3905,7 @@ describe('FamilyReportPage', () => {
       await signedRecordCard();
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(checks).toHaveTextContent(
-        'The package folder the family’s data came from (F1) was gone since its import, and had been confirmed as archived by superuser on 2026-11-11 11:00 UTC. The family’s source files (the read files IGV shows, the signal tracks and the QC report) were archived and no longer available; no acknowledgement was needed.',
+        'The package folder the family’s data came from (F1) was gone since its import, and had been confirmed as archived by superuser on 2026-11-11 11:00 UTC. Its source files (the read files IGV shows, the signal tracks and the QC report) were archived and no longer available; no acknowledgement was needed.',
       );
       expect(checks).toHaveTextContent('Reason: The run folder was archived to tape.');
     });
@@ -3869,7 +3914,7 @@ describe('FamilyReportPage', () => {
       mockSignedCase({
         snapshot: {
           ...SIGNED_SNAPSHOT,
-          package_source_change: { ...CHANGE, detected_at: null, found_at_sign_out: true },
+          package_source_changes: [{ ...CHANGE, detected_at: null, found_at_sign_out: true }],
           acknowledged_package_source_change: true,
           package_source_change_acknowledgement_reason: REASON,
         },

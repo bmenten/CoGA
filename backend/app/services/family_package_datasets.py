@@ -79,6 +79,7 @@ from .nipt_target_coverage import (
     parse_target_coverage_table,
     target_row_metadata,
 )
+from .family_package_records import PACKAGE_KEY, package_record_key
 from .family_package_qc import (
     extract_pipeline_versions,
     parse_ado_adi_text,
@@ -2564,10 +2565,14 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             },
         )
         if signal_tracks:
+            # The analysis whose import recorded them: they are read in that analysis's package
+            # folder (family_package_records).
             await _record_sample_signal_tracks(
                 session,
                 sample_context=sample_context,
-                signal_tracks={CNV_SOURCE: signal_tracks},
+                signal_tracks={
+                    CNV_SOURCE: {**signal_tracks, PACKAGE_KEY: package_record_key(bundle.manifest.analysis_type)}
+                },
             )
 
     if not sample_results:
@@ -3133,6 +3138,10 @@ async def _import_qc_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummar
             metrics["pgt"] = pgt_metrics[sample_id]
         if not metrics:
             continue
+        if "report" in metrics:
+            # The analysis whose import recorded it: its report is read in that analysis's
+            # package folder (family_package_records).
+            metrics[PACKAGE_KEY] = package_record_key(bundle.manifest.analysis_type)
         await _record_sample_qc_metadata(
             session,
             sample_context=sample_context,
@@ -3290,6 +3299,9 @@ async def _import_alignments_dataset(job: DatasetImportJob) -> FamilyImportDatas
         entry = _local_alignment_entry(bundle.root, alignment_path, index_path)
         if entry is None:
             continue
+        # The analysis whose import recorded it: it is read in that analysis's package folder
+        # (family_package_records).
+        entry[PACKAGE_KEY] = package_record_key(bundle.manifest.analysis_type)
         await _record_sample_alignment_metadata(
             session,
             sample_context=sample_context,

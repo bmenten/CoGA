@@ -234,17 +234,19 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   (`routers/cram.py`, `routers/signal_tracks.py`, `routers/family_qc_reports.py`) check family
   and sample access before they serve a byte, and the backend serves every file itself: no
   browser gets a bucket's or a share's address. They look a file up first at the path the
-  import recorded on the sample, in the package folder the family's own import read, then in
-  the family's own folders, `data/<family>/` and `data/families/<family>/`
-  (`core/family_folders.py`): a sample's reads by the layouts, its signal files and QC report
-  at the recorded path. Nothing outside the recorded path and the layouts is tried.
-  - The package folder (`families.metadata.package_import.folder_path`) is used only when it
-    lies, symlinks resolved, below a `FAMILY_IMPORT_ROOTS` entry, and is not the root itself
-    (`local_family_package_folder` in `services/family_package_source.py`). With no root
-    configured, nothing is served from it. A recorded file must lie, symlinks resolved, inside
+  import recorded on the sample, in the package folder of the analysis whose import recorded it
+  (the record's `package`: a family holds one package record per analysis it was imported for,
+  and a file is never looked up in another analysis's folder), then in the family's own folders,
+  `data/<family>/` and `data/families/<family>/` (`core/family_folders.py`): a sample's reads by
+  the layouts, its signal files and QC report at the recorded path. Nothing outside the recorded
+  path and the layouts is tried.
+  - The package folder (`families.metadata.package_imports[<analysis>].folder_path`) is used
+    only when it lies, symlinks resolved, below a `FAMILY_IMPORT_ROOTS` entry, and is not the
+    root itself (`local_family_package_folder` in `services/family_package_source.py`). With no
+    root configured, nothing is served from it. A recorded file must lie, symlinks resolved, inside
     it, and a recorded CRAM/BAM or index must have that file's extension: a changed database
-    row can point at most at another file of that kind in the family's own package, never at
-    another family's package in the import area.
+    row can point at most at another file of that kind in one of the family's own packages,
+    never at another family's package in the import area.
   - A path built from the IDs or read back from `samples.metadata` is normalised, and dropped
     before any look-up when it leaves the family's folder: a sample ID such as `../F2/S2`, a
     recorded path holding `..` or naming an absolute path elsewhere, a family ID that is no
@@ -256,15 +258,16 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
     `FAMILY_IMPORT_ROOTS`.
 
   The admin page's raw-file download and **Verify** read the path recorded in
-  `raw_import_files` only when its real path, symlinks resolved, lies inside the package folder
-  the family's own import read (`families.metadata.package_import.folder_path`, below a
+  `raw_import_files` only when its real path, symlinks resolved, lies inside a package folder
+  the family's own package records name
+  (`families.metadata.package_imports[<analysis>].folder_path`, one per analysis, each below a
   `FAMILY_IMPORT_ROOTS` entry, as above) or the upload folder `data/raw_imports`, which holds
-  every managed copy (`services/raw_import_files_pg.py`). Any other path answers 403 and is
-  logged; the file list shows it unavailable without looking it up and marks the row as
-  recorded outside what CoGA reads (`outside_read_folders`), and the page gives the reason a
-  Verify was refused. A family or sample delete unlinks a managed copy only inside the upload
-  folder, and skips any other path a managed row names, with a log line. So an edited row can
-  neither download any file the backend can read, nor make a delete remove any file it may
+  every managed copy (`readable_folders` in `services/raw_import_files_pg.py`). Any other path
+  answers 403 and is logged; the file list shows it unavailable without looking it up and marks
+  the row as recorded outside what CoGA reads (`outside_read_folders`), and the page gives the
+  reason a Verify was refused. A family or sample delete unlinks a managed copy only inside the
+  upload folder, and skips any other path a managed row names, with a log line. So an edited row
+  can neither download any file the backend can read, nor make a delete remove any file it may
   write, nor name another family's package.
 - ✅ **A package import reads only its own folder.** Package Import takes a folder only below
   `FAMILY_IMPORT_ROOTS` (`package_folder_not_allowed`), local folders only: a bucket is read

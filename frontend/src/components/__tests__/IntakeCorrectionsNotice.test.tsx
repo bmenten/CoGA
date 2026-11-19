@@ -6,9 +6,10 @@ import IntakeCorrectionsNotice, {
   memberAddedOrRemoved,
 } from '../IntakeCorrectionsNotice';
 
-// A family record's metadata after the approval of a corrected delivery (synthetic values).
+// A family record's metadata after the approval of a corrected delivery (synthetic values): the
+// package record of a package naming no analysis type.
 const metadata = {
-  package_import: {
+  package_imports: { unspecified: {
     delivery: {
       id: 'd1',
       revision: 2,
@@ -45,13 +46,15 @@ const metadata = {
         'not a correction',
       ],
     },
-  },
+  } },
 };
 
 describe('IntakeCorrectionsNotice', () => {
   it('reads the corrections the family record keeps, and none where there are none', () => {
-    expect(intakeCorrectionsFromMetadata(metadata)).toHaveLength(2);
-    expect(intakeCorrectionsFromMetadata(metadata)[1].changes).toEqual([
+    const [delivery] = intakeCorrectionsFromMetadata(metadata);
+    expect(delivery.analysisType).toBe('unspecified');
+    expect(delivery.corrections).toHaveLength(2);
+    expect(delivery.corrections[1].changes).toEqual([
       {
         path: 'members.PROBAND.sex',
         kind: 'pipeline_used',
@@ -63,8 +66,9 @@ describe('IntakeCorrectionsNotice', () => {
       undefined,
       null,
       {},
-      { package_import: {} },
-      { package_import: { delivery: { corrections: 'x' } } },
+      { package_imports: {} },
+      { package_imports: { unspecified: { delivery: { corrections: 'x' } } } },
+      { package_imports: { unspecified: 'not a record' } },
     ]) {
       expect(intakeCorrectionsFromMetadata(empty)).toEqual([]);
     }
@@ -104,7 +108,7 @@ describe('IntakeCorrectionsNotice', () => {
     render(
       <IntakeCorrectionsNotice
         metadata={{
-          package_import: {
+          package_imports: { unspecified: {
             delivery: {
               corrections: [
                 {
@@ -121,7 +125,7 @@ describe('IntakeCorrectionsNotice', () => {
                 },
               ],
             },
-          },
+          } },
         }}
       />
     );
@@ -138,18 +142,40 @@ describe('IntakeCorrectionsNotice', () => {
     const { container } = render(
       <IntakeCorrectionsNotice
         metadata={{
-          package_import: { delivery: { id: 'd1', corrections: [] } },
+          package_imports: { unspecified: { delivery: { id: 'd1', corrections: [] } } },
         }}
       />
     );
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('names the analysis of each corrected delivery, for a family imported for two', () => {
+    // A monogenic and a conventional NIPT of one pregnancy, each from a delivery of its own.
+    const corrected = (reason: string) => ({
+      delivery: { corrections: [{ revision: 1, reason, changes: [{ path: 'family.roi', after: 'CFTR' }] }] },
+    });
+    render(
+      <IntakeCorrectionsNotice
+        metadata={{
+          package_imports: {
+            monogenic_nipt: corrected('From the request form.'),
+            conventional_nipt: corrected('Another tube.'),
+          },
+        }}
+      />
+    );
+    const notices = screen.getAllByText('Corrected at intake.').map((strong) => strong.closest('details')!);
+    expect(notices).toHaveLength(2);
+    expect(notices[0]).toHaveTextContent('The delivered package this family’s conventional NIPT data was imported from');
+    expect(notices[0]).toHaveTextContent('Another tube.');
+    expect(notices[1]).toHaveTextContent('The delivered package this family’s monogenic NIPT data was imported from');
+  });
+
   it('counts one correction in the singular, without a pedigree change', () => {
     render(
       <IntakeCorrectionsNotice
         metadata={{
-          package_import: {
+          package_imports: { unspecified: {
             delivery: {
               corrections: [
                 {
@@ -158,7 +184,7 @@ describe('IntakeCorrectionsNotice', () => {
                 },
               ],
             },
-          },
+          } },
         }}
       />
     );

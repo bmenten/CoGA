@@ -893,6 +893,11 @@ def _registration(monkeypatch, *, refuse: bool) -> list[str]:
 
     monkeypatch.setattr(registration.ped_service, "_resolve_accessible_project_id", resolve)
     monkeypatch.setattr(registration, "_fetch_existing_family", existing)
+    # The family holds no other analysis whose members its packages listed.
+    async def no_other_analysis(*_args, **_kwargs):
+        return frozenset()
+
+    monkeypatch.setattr(registration, "members_of_other_analyses", no_other_analysis)
     monkeypatch.setattr(registration.ped_service, "build_pedigree_text", stored_pedigree)
     monkeypatch.setattr(registration, "_package_family_id", lambda _validation, _bundle: "FAM001")
     monkeypatch.setattr(registration, "refuse_project_on_other_assembly", refuse_other_assembly)

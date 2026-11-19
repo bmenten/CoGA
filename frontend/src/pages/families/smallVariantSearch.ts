@@ -191,7 +191,7 @@ export type SmallVariantFamily = Pick<
   ApiFamilyRecord,
   'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata' | 'read_only' | 'can_sign_out'
 > &
-  Partial<Pick<ApiFamilyRecord, 'package_source_change'>>;
+  Partial<Pick<ApiFamilyRecord, 'package_source_changes'>>;
 
 // A panel of the panel list (GenePanelOut), as the filters offer it.
 export type GenePanel = Pick<GenePanelOut, '_id' | 'name' | 'source'>;

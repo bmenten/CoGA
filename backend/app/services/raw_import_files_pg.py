@@ -16,8 +16,8 @@ Two kinds of records exist:
 
 The recorded ``storage_path`` is read back as data: an edited row can name any path. So a
 file is read (downloaded, verified, or checked for in the list) only where an import of its
-family put it: in the package folder the family's import read
-(``families.metadata.package_import.folder_path``, below a local FAMILY_IMPORT_ROOTS entry,
+family put it: in a package folder an import of the family read (each of its analyses' records,
+``family_package_records``, below a local FAMILY_IMPORT_ROOTS entry,
 ``local_family_package_folder``), or in the managed upload folder (``data/raw_imports``),
 which holds every managed copy; its real path, symlinks resolved, inside one of them. The IGV
 endpoints serve a sample's recorded files by the same rule. So an edited row can point at
@@ -112,7 +112,7 @@ def _managed_dir(family_id: str) -> Path:
 
 # The answers to a download or Verify of a file whose recorded location CoGA does not read.
 OUTSIDE_FOLDERS_DETAIL = (
-    "The file's recorded storage path lies outside its family's package folder (below "
+    "The file's recorded storage path lies outside its family's package folders (below "
     "FAMILY_IMPORT_ROOTS) and CoGA's upload folder, so the file is not read."
 )
 
@@ -128,23 +128,24 @@ def _inside(path: str, folder: str) -> bool:
     return Path(folder) in Path(path).parents
 
 
-def readable_folders(package_folder: object = None) -> tuple[str, ...]:
+def readable_folders(package_folders: Iterable[object] = ()) -> tuple[str, ...]:
     """The real paths of the folders a family's recorded file is read from: the managed
-    upload folder, and the family's package folder ``package_folder`` (the folder its import
-    read, ``families.metadata.package_import.folder_path``) when it lies below a
+    upload folder, and each of the family's package folders ``package_folders`` (the folder
+    the import of each of its analyses read, ``family_package_records``) that lies below a
     FAMILY_IMPORT_ROOTS entry (``local_family_package_folder``).
 
     Every managed copy CoGA writes (an upload, a manifest kept for an import's job) is in the
     upload folder, and every file a package import records is in its package folder: a file
-    of the family lies in one of the two, wherever the row says it is. Not the rest of the
+    of the family lies in one of them, wherever the row says it is. Not the rest of the
     import area: another family's package there. Without a usable package folder (none
     recorded, the import root itself, outside the roots, FAMILY_IMPORT_ROOTS empty as in
     development) it is the upload folder alone. Blocking (file-system look-ups).
     """
     folders = [_managed_root()]
-    package = family_package_source.local_family_package_folder(package_folder)
-    if package is not None:
-        folders.append(package)
+    for package_folder in package_folders:
+        package = family_package_source.local_family_package_folder(package_folder)
+        if package is not None and package not in folders:
+            folders.append(package)
     return tuple(folders)
 
 
@@ -195,11 +196,11 @@ def local_file_to_download(record: dict[str, Any]) -> str:
     """The real path of the file to serve for a download of ``record``.
 
     403 for a recorded path outside the folders its family's files are read from
-    (``readable_folders``, with the family's ``package_folder`` the record was read with),
+    (``readable_folders``, with the family's ``package_folders`` the record was read with),
     410 when the file is no longer there. Blocking.
     """
     storage_path = record.get("storage_path") or ""
-    folders = readable_folders(record.get("package_folder"))
+    folders = readable_folders(record.get("package_folders") or ())
     path = readable_local_path(storage_path, folders) if storage_path else None
     if storage_path and path is None:
         raise _refuse_outside_folders(record, OUTSIDE_FOLDERS_DETAIL)
@@ -422,14 +423,14 @@ async def record_upload_file_obj(
 
 def _row_to_dict(row: Any, folders: Iterable[str] | None = None) -> dict[str, Any]:
     """A row as the API serves it, with whether its file is there to download. The row
-    carries its family's ``package_folder``; ``folders``: ``readable_folders`` of it, when the
-    caller already has them."""
+    carries its family's ``package_folders``; ``folders``: ``readable_folders`` of them, when
+    the caller already has them."""
     record = dict(row)
     storage_path = record.get("storage_path") or ""
     # A recorded path outside the folders its family's files are read from is shown
     # unavailable, whether or not a file lies there: it is not looked up.
     if folders is None:
-        folders = readable_folders(record.get("package_folder"))
+        folders = readable_folders(record.get("package_folders") or ())
     path = readable_local_path(storage_path, folders) if storage_path else None
     exists = path is not None and os.path.isfile(path)
     record["outside_read_folders"] = bool(storage_path) and path is None
@@ -442,14 +443,14 @@ def _row_to_dict(row: Any, folders: Iterable[str] | None = None) -> dict[str, An
 
 
 def _rows_to_dicts(rows: Iterable[Any]) -> list[dict[str, Any]]:
-    # The rows are one family's, read with its package folder: its folders are found once.
-    folders: dict[Any, tuple[str, ...]] = {}
+    # The rows are one family's, read with its package folders: its folders are found once.
+    folders: dict[tuple[Any, ...], tuple[str, ...]] = {}
     listed = []
     for row in rows:
-        package_folder = row.get("package_folder")
-        if package_folder not in folders:
-            folders[package_folder] = readable_folders(package_folder)
-        listed.append(_row_to_dict(row, folders[package_folder]))
+        package_folders = tuple(row.get("package_folders") or ())
+        if package_folders not in folders:
+            folders[package_folders] = readable_folders(package_folders)
+        listed.append(_row_to_dict(row, folders[package_folders]))
     return listed
 
 
@@ -471,7 +472,13 @@ async def list_raw_import_files(session: AsyncSession, family_uuid: str) -> list
                 rif.metadata,
                 rif.created_at,
                 s.sample_id AS sample_identifier,
-                f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
+                ARRAY(
+                    SELECT r.record ->> 'folder_path'
+                    FROM families fr
+                    CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(fr.metadata -> 'package_imports') = 'object' THEN fr.metadata -> 'package_imports' ELSE '{}'::jsonb END) AS r(analysis, record)
+                    WHERE fr.id = f.id AND r.record ->> 'folder_path' IS NOT NULL
+                    ORDER BY 1
+                ) AS package_folders
             FROM raw_import_files rif
             JOIN families f ON f.id = rif.family_id
             LEFT JOIN samples s ON s.id = rif.sample_id
@@ -511,7 +518,13 @@ async def get_raw_import_file(session: AsyncSession, file_id: str) -> dict[str, 
                 rif.metadata,
                 rif.created_at,
                 s.sample_id AS sample_identifier,
-                f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
+                ARRAY(
+                    SELECT r.record ->> 'folder_path'
+                    FROM families fr
+                    CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(fr.metadata -> 'package_imports') = 'object' THEN fr.metadata -> 'package_imports' ELSE '{}'::jsonb END) AS r(analysis, record)
+                    WHERE fr.id = f.id AND r.record ->> 'folder_path' IS NOT NULL
+                    ORDER BY 1
+                ) AS package_folders
             FROM raw_import_files rif
             JOIN families f ON f.id = rif.family_id
             LEFT JOIN samples s ON s.id = rif.sample_id
@@ -539,14 +552,14 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
     """Recompute the SHA-256 of the stored file and compare to the recorded value.
 
     A recorded location CoGA does not read from is refused (403) before anything is read: a
-    path outside its family's package folder and the upload folder (``readable_folders``, with
-    the record's ``package_folder``)."""
+    path outside its family's package folders and the upload folder (``readable_folders``, with
+    the record's ``package_folders``)."""
     storage_path = record.get("storage_path") or ""
-    package_folder = record.get("package_folder")
+    package_folders = tuple(record.get("package_folders") or ())
     expected = record.get("sha256")
 
     def readable() -> str | None:
-        return readable_local_path(storage_path, readable_folders(package_folder))
+        return readable_local_path(storage_path, readable_folders(package_folders))
 
     real = await asyncio.to_thread(readable) if storage_path else None
     if storage_path and real is None:

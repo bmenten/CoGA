@@ -604,7 +604,7 @@ class _Unnamed:
         if "NOT EXISTS" in sql:
             rows = self.rows
             return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
-        if "JOIN families" in sql:
+        if "JOIN (families" in sql:
             named = self.named.get(str((params or {}).get("folder")))
             return SimpleNamespace(first=lambda: named)
         return SimpleNamespace()
@@ -662,7 +662,7 @@ async def test_a_round_counts_what_it_raised_and_ended(tmp_path: Path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_a_family_reads_the_change_of_the_delivery_its_record_names() -> None:
+async def test_a_family_reads_the_change_of_each_delivery_its_records_name() -> None:
     raw = {
         "delivery_id": "d1",
         "folder": "FAM1",
@@ -672,15 +672,22 @@ async def test_a_family_reads_the_change_of_the_delivery_its_record_names() -> N
     }
     calls: list[dict[str, Any]] = []
 
-    class _Scalar:
+    class _Rows:
         async def execute(self, _statement: Any, params: Any = None) -> Any:
             calls.append(dict(params or {}))
-            return SimpleNamespace(scalar_one_or_none=lambda: raw)
+            # One per analysis the family was imported for, as each record names its delivery.
+            return SimpleNamespace(all=lambda: [("conventional_nipt", raw), ("monogenic_nipt", None)])
 
-    change = await followed.family_package_source_change(_Scalar(), "family-uuid")  # type: ignore[arg-type]
+    changes = await followed.family_package_source_changes(_Rows(), "family-uuid")  # type: ignore[arg-type]
 
     assert calls == [{"family_uuid": "family-uuid", "raised": ["changed_after_import", "archived"]}]
-    assert change is not None and (change["kind"], change["folder"], change["listed"]) == ("gone", "FAM1", False)
+    [change] = changes
+    assert (change["analysis_type"], change["kind"], change["folder"], change["listed"]) == (
+        "conventional_nipt",
+        "gone",
+        "FAM1",
+        False,
+    )
     assert followed._describe({"kind": "gone"}) == "its folder is gone or cannot be read"
     assert followed._describe({"kind": "changed", "listed": False}) == "its folder changed"
     assert followed._json_object("not json") is None
@@ -714,8 +721,8 @@ class _Registration:
         previous = self.previous
         if "-> 'reference_delivery' FROM families" in sql:
             return SimpleNamespace(scalar_one_or_none=lambda: previous)
-        if sql.lstrip().startswith("UPDATE families") and params and "metadata" in params:
-            self.written = json.loads(params["metadata"])
+        if sql.lstrip().startswith("UPDATE families") and params and "record" in params:
+            self.written = {"key": params["record_key"], "record": json.loads(params["record"])}
         return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: []))
 
     async def commit(self) -> None:
@@ -773,12 +780,15 @@ async def test_an_imports_record_keeps_its_mode_and_the_reference_delivery(
     )
 
     assert session.written is not None
-    record = session.written["package_import"]
+    # The record of the package's analysis: one that names none is keyed "unspecified".
+    assert session.written["key"] == "unspecified"
+    record = session.written["record"]
     assert (record["import_mode"], record["delivery"]["id"], record["reference_delivery"]["id"]) == (
         import_mode,
         "d2",
         reference,
     )
+    assert record["members"] == []
 
 
 # --- an archived folder ---------------------------------------------------------------------------
@@ -943,15 +953,16 @@ def test_an_archived_change_is_read_with_its_archiving_and_does_not_gate_a_sign_
 # --- a sign-out's own check of the folder ---------------------------------------------------------
 
 
-class _Record:
-    """A session for ``check_family_package_folder``: it answers the read of the family's record."""
+class _Records:
+    """A session for ``check_family_package_folders``: it answers the read of the family's package
+    records, one row per analysis."""
 
-    def __init__(self, row: dict[str, Any] | None) -> None:
-        self.row = row
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self.rows = rows
 
     async def execute(self, _statement: Any, _params: Any = None) -> Any:
-        row = self.row
-        return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
+        rows = self.rows
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
 
 
 def _record(folder: Path | str | None, fingerprint: str, listing: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -979,10 +990,26 @@ async def test_a_sign_out_finds_a_folder_as_imported_and_a_family_without_a_deli
     (served / "a.txt").write_text("a", encoding="utf-8")
     imported = fingerprints.package_fingerprint(served, kept_manifest_sha256=None).sha256
 
-    assert await followed.check_family_package_folder(_Record(_record(served, imported)), "family-uuid") is None  # type: ignore[arg-type]
+    assert await followed.check_family_package_folder(_record(served, imported)) is None  # type: ignore[arg-type]
     unimported = {"reference": None, "folder_path": str(served), "file_listing": None}
-    assert await followed.check_family_package_folder(_Record(unimported), "family-uuid") is None  # type: ignore[arg-type]
-    assert await followed.check_family_package_folder(_Record(None), "family-uuid") is None  # type: ignore[arg-type]
+    assert await followed.check_family_package_folder(unimported) is None  # type: ignore[arg-type]
+    assert await followed.check_family_package_folder({}) is None
+
+
+@pytest.mark.asyncio
+async def test_a_sign_out_checks_each_analysiss_folder_against_its_own_reference(served: Path) -> None:
+    # A monogenic and a conventional NIPT of one pregnancy, each from a package folder of its own:
+    # the one still as imported passes, the other is named by its analysis.
+    (served / "a.txt").write_text("a", encoding="utf-8")
+    imported = fingerprints.package_fingerprint(served, kept_manifest_sha256=None).sha256
+    rows = [
+        {"analysis": "conventional_nipt", **_record(served, _A)},
+        {"analysis": "monogenic_nipt", **_record(served, imported)},
+    ]
+
+    changes = await followed.check_family_package_folders(_Records(rows), "family-uuid")  # type: ignore[arg-type]
+
+    assert [(change["analysis_type"], change["kind"]) for change in changes] == [("conventional_nipt", "changed")]
 
 
 @pytest.mark.asyncio
@@ -991,9 +1018,7 @@ async def test_a_sign_out_finds_a_folder_changed_since_its_reference_with_what_c
     kept = fingerprints.package_listing(served)
     (served / "b.txt").write_text("b", encoding="utf-8")
 
-    change = await followed.check_family_package_folder(
-        _Record(_record(served, kept.fingerprint.sha256, kept.entries)), "family-uuid"  # type: ignore[arg-type]
-    )
+    change = await followed.check_family_package_folder(_record(served, kept.fingerprint.sha256, kept.entries))
 
     assert change is not None
     assert (change["kind"], change["found_at_sign_out"], change["detected_at"]) == ("changed", True, None)
@@ -1020,9 +1045,9 @@ async def test_in_development_without_import_roots_a_sign_out_checks_any_local_f
     (folder / "a.txt").write_text("a", encoding="utf-8")
     kept = fingerprints.package_listing(folder)
 
-    assert await followed.check_family_package_folder(_Record(_record(folder, kept.fingerprint.sha256, kept.entries)), "family-uuid") is None  # type: ignore[arg-type]
+    assert await followed.check_family_package_folder(_record(folder, kept.fingerprint.sha256, kept.entries)) is None  # type: ignore[arg-type]
     (folder / "b.txt").write_text("b", encoding="utf-8")
-    changed = await followed.check_family_package_folder(_Record(_record(folder, kept.fingerprint.sha256, kept.entries)), "family-uuid")  # type: ignore[arg-type]
+    changed = await followed.check_family_package_folder(_record(folder, kept.fingerprint.sha256, kept.entries))  # type: ignore[arg-type]
     assert changed is not None and (changed["kind"], changed["added"]) == ("changed", ["b.txt"])
     assert followed._checked_folder("relative/folder") is None
     assert followed._checked_folder(str(folder) + "\x00") is None
@@ -1032,8 +1057,8 @@ async def test_in_development_without_import_roots_a_sign_out_checks_any_local_f
 async def test_a_sign_out_never_passes_a_folder_gone_unreadable_slow_unrecorded_or_unserved(
     served: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    gone = await followed.check_family_package_folder(_Record(_record(served / "missing", _A)), "family-uuid")  # type: ignore[arg-type]
-    unrecorded = await followed.check_family_package_folder(_Record(_record(None, _A)), "family-uuid")  # type: ignore[arg-type]
+    gone = await followed.check_family_package_folder(_record(served / "missing", _A))  # type: ignore[arg-type]
+    unrecorded = await followed.check_family_package_folder(_record(None, _A))  # type: ignore[arg-type]
     # A folder CoGA serves no file from (outside every import root) is not listed.
     outside = tmp_path / "elsewhere"
     outside.mkdir()
@@ -1044,14 +1069,14 @@ async def test_a_sign_out_never_passes_a_folder_gone_unreadable_slow_unrecorded_
         return fingerprints.PackageListing(fingerprints.PackageFingerprint(sha256=_A, files=0), {})
 
     monkeypatch.setattr(followed, "package_listing", listing)
-    unserved = await followed.check_family_package_folder(_Record(_record(outside, _A)), "family-uuid")  # type: ignore[arg-type]
+    unserved = await followed.check_family_package_folder(_record(outside, _A))  # type: ignore[arg-type]
     assert listed == []
 
     def fails(_folder: str) -> Any:
         raise ValueError("embedded null byte")
 
     monkeypatch.setattr(followed, "package_listing", fails)
-    unreadable = await followed.check_family_package_folder(_Record(_record(served, _A)), "family-uuid")  # type: ignore[arg-type]
+    unreadable = await followed.check_family_package_folder(_record(served, _A))  # type: ignore[arg-type]
 
     def slow(_folder: str) -> Any:
         import time
@@ -1061,7 +1086,7 @@ async def test_a_sign_out_never_passes_a_folder_gone_unreadable_slow_unrecorded_
 
     monkeypatch.setattr(followed, "package_listing", slow)
     monkeypatch.setattr(followed, "SIGN_OUT_FOLDER_CHECK_SECONDS", 0.05)
-    timed_out = await followed.check_family_package_folder(_Record(_record(served, _A)), "family-uuid")  # type: ignore[arg-type]
+    timed_out = await followed.check_family_package_folder(_record(served, _A))  # type: ignore[arg-type]
 
     for change in (gone, unrecorded, unserved, unreadable, timed_out):
         assert change is not None and change["kind"] == "gone" and change["found_at_sign_out"] is True
@@ -1077,7 +1102,7 @@ async def test_a_sign_out_takes_a_folder_too_large_to_fingerprint_as_changed(
 
     monkeypatch.setattr(followed, "package_listing", too_large)
 
-    change = await followed.check_family_package_folder(_Record(_record(served, _A)), "family-uuid")  # type: ignore[arg-type]
+    change = await followed.check_family_package_folder(_record(served, _A))  # type: ignore[arg-type]
 
     assert change is not None and (change["kind"], change["fingerprint"], change["listed"]) == ("changed", None, False)
 

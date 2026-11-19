@@ -17,8 +17,9 @@ export interface FamilyAssemblyScope {
 /**
  * The warnings every family page carries in its header: a reference assembly outside the
  * validated scope (or one that could not be loaded), a package import of the family that
- * partly failed or has not finished, and a package folder the family came from that changed, or
- * went, after its import (the family record's `package_source_change`). Each shows only when it
+ * partly failed or has not finished, and each package folder the family came from that changed, or
+ * went, after its import (the family record's `package_source_changes`: one per analysis it was
+ * imported for, such as a monogenic and a conventional NIPT of one pregnancy). Each shows only when it
  * applies, and each prints with a report. Beneath them, a note when the delivered package the
  * family came from was corrected in CoGA before its import, listing each correction.
  *
@@ -30,9 +31,9 @@ const FamilyPageBanners: React.FC<{
   /** The family record's metadata, where an import records what it left incomplete. */
   metadata?: unknown;
   assemblyScope?: FamilyAssemblyScope;
-  /** The family record's `package_source_change`: its package folder changed or went after import. */
-  packageSourceChange?: FamilyPackageSourceChangeOut | null;
-}> = ({ metadata, assemblyScope, packageSourceChange }) => (
+  /** The family record's `package_source_changes`: each package folder that changed or went after import. */
+  packageSourceChanges?: FamilyPackageSourceChangeOut[];
+}> = ({ metadata, assemblyScope, packageSourceChanges }) => (
   <>
     <AssemblyScopeBanner
       assemblyName={assemblyScope?.name}
@@ -41,7 +42,9 @@ const FamilyPageBanners: React.FC<{
       onRetry={assemblyScope?.onRetry}
     />
     <ImportIncompleteBanner metadata={metadata} />
-    <PackageSourceChangedBanner change={packageSourceChange} />
+    {(packageSourceChanges ?? []).map((change) => (
+      <PackageSourceChangedBanner key={change.analysis_type} change={change} />
+    ))}
     <IntakeCorrectionsNotice metadata={metadata} />
   </>
 );

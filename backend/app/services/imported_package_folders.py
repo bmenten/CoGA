@@ -3,11 +3,12 @@
 A package folder stays on the share it was delivered to: CoGA never moves it, and serves the
 alignments and the QC report from it after the import. The import page's list of the folders in
 the import roots therefore keeps every folder ever imported, and a folder that was imported reads
-like one that waits. Each family a package import registered names the folder it was imported
-from (``families.metadata.package_import.folder_path``: the folder's real path), so the list is told, per folder, which families were imported from it, when their
-last import registered them, and whether that import did not complete or is still running
-(``import_incomplete``, ``import_unfinished``). Nothing in the folders is read: the record is the
-family's.
+like one that waits. Each family a package import registered names, per analysis it was imported
+for, the folder that analysis was imported from (its package records, ``family_package_records``:
+the folder's real path), so the list is told, per folder, which families were imported from it,
+when their last import from it registered them, and whether that import did not complete or is
+still running (``import_incomplete``, ``import_unfinished``). Nothing in the folders is read: the
+record is the family's.
 
 A folder whose last import was undone because the package changed while it was read
 (``package_changed_during_import``, the owner's decision of 2026-11-05) is offered again: the
@@ -25,17 +26,20 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import ImportedPackageFamily
+from .family_package_records import PACKAGE_RECORDS_OF_A_FAMILY
 
+# Each family's package records (one per analysis it was imported for) whose folder is asked.
 _IMPORTED_FROM = text(
-    """
-    SELECT family_id,
-           metadata -> 'package_import' ->> 'folder_path' AS folder_path,
-           metadata -> 'package_import' ->> 'registered_at' AS registered_at,
-           metadata -> 'import_incomplete' AS import_incomplete,
-           metadata -> 'import_unfinished' AS import_unfinished
-    FROM families
-    WHERE rtrim(metadata -> 'package_import' ->> 'folder_path', '/') = ANY(CAST(:folders AS text[]))
-    ORDER BY family_id
+    f"""
+    SELECT f.family_id,
+           r.record ->> 'folder_path' AS folder_path,
+           r.record ->> 'registered_at' AS registered_at,
+           f.metadata -> 'import_incomplete' AS import_incomplete,
+           f.metadata -> 'import_unfinished' AS import_unfinished
+    FROM families f
+    {PACKAGE_RECORDS_OF_A_FAMILY}
+    WHERE rtrim(r.record ->> 'folder_path', '/') = ANY(CAST(:folders AS text[]))
+    ORDER BY f.family_id
     """
 )
 

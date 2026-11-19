@@ -103,8 +103,8 @@ interface ChromosomeViewWorkspaceProps {
   assemblyValidated?: boolean;
   /** The family record's metadata, where an import records what it left incomplete. */
   familyMetadata?: unknown;
-  /** The family record's `package_source_change` (FamilyPageBanners). */
-  familyPackageSourceChange?: FamilyPackageSourceChangeOut | null;
+  /** The family record's `package_source_changes` (FamilyPageBanners). */
+  familyPackageSourceChanges?: FamilyPackageSourceChangeOut[];
   projectId?: string;
   trackAreaRef: React.Ref<HTMLElement>;
   region: { start: number; end: number };
@@ -190,7 +190,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   assemblyId,
   assemblyValidated,
   familyMetadata,
-  familyPackageSourceChange,
+  familyPackageSourceChanges,
   projectId,
   trackAreaRef,
   region,
@@ -371,7 +371,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
         </div>
         <FamilyPageBanners
           metadata={familyMetadata}
-          packageSourceChange={familyPackageSourceChange}
+          packageSourceChanges={familyPackageSourceChanges}
           assemblyScope={{ name: assembly, validated: assemblyValidated }}
         />
         <div className="analysis-toolbar mt-5 items-end">

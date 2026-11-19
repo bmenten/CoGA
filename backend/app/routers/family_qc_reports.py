@@ -90,9 +90,9 @@ def _verify_qc_report_token(token: str, family_id: str, sample_id: str) -> None:
 
 class _RecordedReport(NamedTuple):
     """The report path recorded on a sample at import, relative to the package, and the
-    package folder the family's import read (``families.metadata.package_import.folder_path``,
-    ``None`` when none is recorded). Both are data from the database, checked before use
-    (``_resolve_report_file``)."""
+    package folder of the analysis whose import recorded the sample's QC (its ``package``:
+    ``family_package_records``; ``None`` when none is recorded). Both are data from the
+    database, checked before use (``_resolve_report_file``)."""
 
     path: str
     package_folder: str | None = None
@@ -105,7 +105,9 @@ async def _recorded_report(session: AsyncSession, *, family_id: str, sample_id: 
     result = await session.execute(
         text(
             """
-            SELECT s.metadata, f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
+            SELECT s.metadata,
+                   f.metadata -> 'package_imports' -> (s.metadata -> 'sequencing_qc' ->> 'package')
+                       ->> 'folder_path' AS package_folder
             FROM samples s
             JOIN family_members fm ON fm.sample_id = s.id
             JOIN families f ON f.id = fm.family_id

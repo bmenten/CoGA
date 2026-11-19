@@ -82,8 +82,8 @@ interface GenomeOverviewWorkspaceProps {
   assemblyValidated?: boolean;
   /** The family record's metadata, where an import records what it left incomplete. */
   familyMetadata?: unknown;
-  /** The family record's `package_source_change` (FamilyPageBanners). */
-  familyPackageSourceChange?: FamilyPackageSourceChangeOut | null;
+  /** The family record's `package_source_changes` (FamilyPageBanners). */
+  familyPackageSourceChanges?: FamilyPackageSourceChangeOut[];
   projectId?: string;
   trackAreaRef: React.Ref<HTMLElement>;
   backDest: string;
@@ -264,7 +264,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   assembly,
   assemblyValidated,
   familyMetadata,
-  familyPackageSourceChange,
+  familyPackageSourceChanges,
   projectId,
   trackAreaRef,
   backDest,
@@ -341,7 +341,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
         )}
         <FamilyPageBanners
           metadata={familyMetadata}
-          packageSourceChange={familyPackageSourceChange}
+          packageSourceChanges={familyPackageSourceChanges}
           assemblyScope={{ name: assembly, validated: assemblyValidated }}
         />
       </section>

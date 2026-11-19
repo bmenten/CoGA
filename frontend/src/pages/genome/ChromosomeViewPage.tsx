@@ -85,13 +85,13 @@ const ChromosomeViewPage: React.FC = () => {
 
   const { data, isLoading, isError, error, refetch } = useQuery<
     Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'> &
-      Partial<Pick<ApiFamilyRecord, 'package_source_change'>>
+      Partial<Pick<ApiFamilyRecord, 'package_source_changes'>>
   >({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}`);
       return response.data as Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'> &
-      Partial<Pick<ApiFamilyRecord, 'package_source_change'>>;
+      Partial<Pick<ApiFamilyRecord, 'package_source_changes'>>;
     },
   });
 
@@ -559,7 +559,7 @@ const ChromosomeViewPage: React.FC = () => {
         assemblyId={assemblyId}
         assemblyValidated={assemblyValidated}
         familyMetadata={data.metadata}
-        familyPackageSourceChange={data.package_source_change}
+        familyPackageSourceChanges={data.package_source_changes}
         projectId={resolvedProjectId}
         region={region}
         trackWidth={trackWidth}

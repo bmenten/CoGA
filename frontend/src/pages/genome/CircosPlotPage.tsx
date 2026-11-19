@@ -59,11 +59,11 @@ const CircosPlotPage: FC = () => {
     isError: familyFailed,
     error: familyError,
     refetch: refetchFamily,
-  } = useQuery<Pick<FamilyOut, 'projects' | 'metadata'> & Partial<Pick<FamilyOut, 'package_source_change'>>>({
+  } = useQuery<Pick<FamilyOut, 'projects' | 'metadata'> & Partial<Pick<FamilyOut, 'package_source_changes'>>>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const response = await api.get<Pick<FamilyOut, 'projects' | 'metadata'> & Partial<Pick<FamilyOut, 'package_source_change'>>>(apiPath`/families/${familyId}`);
+      const response = await api.get<Pick<FamilyOut, 'projects' | 'metadata'> & Partial<Pick<FamilyOut, 'package_source_changes'>>>(apiPath`/families/${familyId}`);
       return response.data;
     },
   });
@@ -339,7 +339,7 @@ const CircosPlotPage: FC = () => {
           </div>
           <FamilyPageBanners
             metadata={family?.metadata}
-            packageSourceChange={family?.package_source_change}
+            packageSourceChanges={family?.package_source_changes}
             assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
           />
         </section>
