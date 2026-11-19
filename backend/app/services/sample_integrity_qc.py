@@ -802,36 +802,45 @@ def evaluate_paternity(
     hom_alt_not_transmitted: int,
     het_transmitted: int,
     het_not_transmitted: int,
+    without_plasma_depth: int = 0,
 ) -> PaternityCheck:
     """Paternity from the father's alleles in the plasma (see the constants above): his
     homozygous alleles must all be seen (90% passes, under 80% fails), his het ones half
-    (35-65% passes, outside 25-75% fails). Too few sites of both kinds warns."""
+    (35-65% passes, outside 25-75% fails). Too few sites of both kinds warns, and names
+    ``without_plasma_depth``, his alleles left out because the plasma's depth there is not
+    known. The message says which way the rates miss: too few of his alleles seen points
+    to another father, too many of his het ones to his own DNA in the plasma."""
     hom_informative = hom_alt_transmitted + hom_alt_not_transmitted
     het_informative = het_transmitted + het_not_transmitted
-    statuses: list[Verdict] = []
+    # Each kind's verdict, and whether its rate lies below or above what one fetus shows.
+    graded: list[tuple[Verdict, Literal["low", "high"] | None]] = []
     findings: list[str] = []
     if hom_informative >= MIN_PATERNITY_HOM_ALT_SITES:
         rate = hom_alt_transmitted / hom_informative
         findings.append(
-            f"{hom_alt_transmitted} of {hom_informative} ({rate:.0%}) of his homozygous alleles seen"
+            f"{hom_alt_transmitted} of {hom_informative} ({rate:.1%}) of his homozygous alleles seen (all expected)"
         )
         if rate < PATERNITY_HOM_ALT_FAIL_RATE:
-            statuses.append("fail")
+            graded.append(("fail", "low"))
         elif rate < PATERNITY_HOM_ALT_PASS_RATE:
-            statuses.append("warn")
+            graded.append(("warn", "low"))
         else:
-            statuses.append("pass")
+            graded.append(("pass", None))
     if het_informative >= MIN_PATERNITY_HET_SITES:
         rate = het_transmitted / het_informative
-        findings.append(f"{het_transmitted} of {het_informative} ({rate:.0%}) of his het alleles seen (half expected)")
+        findings.append(f"{het_transmitted} of {het_informative} ({rate:.1%}) of his het alleles seen (half expected)")
         low_pass, high_pass = PATERNITY_HET_PASS_RANGE
         low_fail, high_fail = PATERNITY_HET_FAIL_RANGE
-        if rate < low_fail or rate > high_fail:
-            statuses.append("fail")
-        elif rate < low_pass or rate > high_pass:
-            statuses.append("warn")
+        if rate < low_fail:
+            graded.append(("fail", "low"))
+        elif rate > high_fail:
+            graded.append(("fail", "high"))
+        elif rate < low_pass:
+            graded.append(("warn", "low"))
+        elif rate > high_pass:
+            graded.append(("warn", "high"))
         else:
-            statuses.append("pass")
+            graded.append(("pass", None))
     check = PaternityCheck(
         father=father,
         hom_alt_transmitted=hom_alt_transmitted,
@@ -841,24 +850,49 @@ def evaluate_paternity(
         status="warn",
         message="",
     )
-    if not statuses or paternity_unverifiable(hom_alt_informative=hom_informative, het_informative=het_informative):
+    if not graded or paternity_unverifiable(hom_alt_informative=hom_informative, het_informative=het_informative):
         check.message = (
             f"Too few paternal-informative sites ({hom_informative} homozygous, {het_informative} het) "
             "to assess paternity."
         )
+        if without_plasma_depth:
+            check.message += (
+                f" The plasma's depth is not known at {without_plasma_depth} of the father's sites "
+                "(no per-target coverage there, or a call without its depth), so whether the fetus "
+                "inherited his allele there cannot be counted."
+            )
         return check
-    check.status = max(statuses, key=_STATUS_RANK.__getitem__)
-    metrics = "; ".join(findings)
-    if check.status == "fail":
-        check.message = (
+    check.status = max((verdict for verdict, _side in graded), key=_STATUS_RANK.__getitem__)
+    sides = {side for verdict, side in graded if verdict == check.status and side is not None}
+    check.message = _paternity_message(check.status, sides, "; ".join(findings))
+    return check
+
+
+def _paternity_message(status: Verdict, sides: set[Literal["low", "high"]], metrics: str) -> str:
+    """The paternity verdict in words, by which way the worst rates miss what one fetus of
+    the father shows (``sides``)."""
+    if status == "pass":
+        return f"Paternity supported ({metrics})."
+    if status == "warn":
+        if sides == {"low"}:
+            return f"Fewer of the father's alleles in the plasma than expected ({metrics}); check the samples."
+        if sides == {"high"}:
+            return f"More of the father's het alleles in the plasma than expected ({metrics}); check the samples."
+        return f"Paternal transmission off its expectation ({metrics}); check the samples."
+    if sides == {"low"}:
+        return (
             f"The father's alleles are largely absent from the plasma ({metrics}): another father, "
             "or a sample or file mixup."
         )
-    elif check.status == "warn":
-        check.message = f"Paternal transmission off its expectation ({metrics}); check the samples."
-    else:
-        check.message = f"Paternity supported ({metrics})."
-    return check
+    if sides == {"high"}:
+        return (
+            f"More of the father's het alleles are in the plasma than one fetus inherits ({metrics}): "
+            "his own DNA in the plasma (contamination, or a sample or file mixup), or more than one fetus."
+        )
+    return (
+        f"The father's alleles in the plasma fit no fetus of his ({metrics}): a sample or file mixup, "
+        "or contamination."
+    )
 
 
 def evaluate_fetal_sex(

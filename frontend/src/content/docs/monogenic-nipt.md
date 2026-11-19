@@ -65,7 +65,7 @@ median and covered share) belong with the VCFs.
 
 Without the tables, CoGA falls back on the plasma's coverage BED declared as read depth, or another
 coverage track of read depth (see *Coverage*), over the family's region of interest; and an allele the
-plasma does not show cannot be read.
+plasma does not show cannot be read, so paternity cannot be checked.
 
 ### The father's genotype
 
@@ -373,17 +373,21 @@ check that could not run included). A click shows each check.
 - **Fetal sex**, from two independent signals:
   - *Paternal X*: at the father's X alleles (outside the pseudo-autosomal regions, where he is hom-alt
     and the plasma's allele fraction is below 30%), a daughter shows the allele and a son does not.
-    From at least 8 informative sites, 80% or more seen is female and 10% or less male. A share in
+    As for paternity, a site counts only where the target coverage gives the plasma's depth, shown or
+    not. From at least 8 informative sites, 80% or more seen is female and 10% or less male. A share in
     between is indeterminate: the alleles are not this fetus's father's, or the calls are noisy.
   - *chrY coverage*: a chrY signal above the noise (2% of the autosomal depth) means a male fetus; none,
     at an FF of 4% or more, a female one.
 
   The call is the signal(s) that tell, and *discordant* when they disagree.
 - **Paternity.** The father's alleles that the fetus must or may carry, at sites where the mother does
-  not carry them and the plasma depth leaves at least 10 expected alt reads. Every allele of a hom-alt
-  father must show: 90% or more seen passes, below 80% fails. Half of a het father's alleles show:
-  35–65% seen passes, outside 25–75% fails. A check needs 20 hom-alt or 50 het sites. A fail means
-  another father, or a sample or file mix-up: do not read the variants.
+  not carry them and the plasma depth there leaves at least 10 expected alt reads. That depth is the
+  target coverage's, known whether or not the plasma shows the allele, so a site outside every target
+  does not count. Every allele of a hom-alt father must show: 90% or more seen passes, below 80% fails.
+  Half of a het father's alleles show: 35–65% seen passes, outside 25–75% fails. A check needs 20
+  hom-alt or 50 het sites. Too few of his alleles seen means another father, or a sample or file
+  mix-up; too many of his het ones, his own DNA in the plasma or more than one fetus. On a fail, do not
+  read the variants.
 - **Maternal plasma sample**, from the chrX and chrY depth: female plasma passes; a chrY near the
   autosomal level with a low chrX is male DNA, which cannot be maternal plasma (fail).
 - **Target coverage** and the **cfDNA quality filter** (see *Coverage*, and above).

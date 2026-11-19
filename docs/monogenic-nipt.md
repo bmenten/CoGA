@@ -68,8 +68,9 @@ allele:
   call are `missing`.
 - A per-sample record with only the father's call is kept. The plasma's depth there comes from its
   per-target coverage (`TargetDepthLookup`: the lower of the target's mean and median), marked
-  `cf_depth_estimated`. A record with only the plasma's call takes the father's depth from his
-  table.
+  `cf_depth_estimated`. Every per-sample site, called by the plasma or not, carries that coverage
+  depth as `cf_coverage_dp`; a joint VCF's site carries its plasma call's depth. A record with only
+  the plasma's call takes the father's depth from his table.
 - **Representations.** Mutect2 writes adjacent phased SNVs as one MNV, so the two VCFs can hold one
   allele differently. A per-sample record missing the other sample's call looks it up base by base
   (`_BaseCallIndex`) among that sample's calls of every record of the family (`counterpart_records`;
@@ -118,12 +119,17 @@ it.
   the probabilities: `paternal_transmission_probability` (category 7 and absent paternal alleles),
   and `_maternal_probabilities` for the maternal bands (maternal allele inherited, fetus hom-alt,
   the fetal genotype posterior).
-- **Fetal sex** — `infer_fetal_sex` (non-PAR chrX sites where the father is hom-alt: ≥ 8
-  informative; a transmitted share ≥ 0.80 is female, ≤ 0.10 male), `sex_chromosome_coverage` (the
+- **Fetal sex** — `infer_fetal_sex` (non-PAR chrX sites where the father is hom-alt and
+  `cf_coverage_dp × FF/2 ≥ 3`, admitted like paternity's: ≥ 8 informative; a transmitted share ≥ 0.80
+  is female, ≤ 0.10 male), `sex_chromosome_coverage` (the
   plasma's chrX and chrY depth over the autosomes, from the target table) and `combined_fetal_sex`.
 - **Paternity** — `paternal_transmission_evidence` counts his hom-alt and het alleles seen and not
-  seen, where the mother does not carry them and `n × FF/2 ≥ 10`.
-  `sample_integrity_qc.evaluate_paternity` turns the rates into a verdict.
+  seen, where the mother does not carry them and `cf_coverage_dp × FF/2 ≥ 10`. That depth does not
+  depend on whether the plasma called the allele, so a seen and a missed allele are admitted alike;
+  on the call's own depth only the seen ones would be, and every rate would read near 100%. A site
+  without it counts in `without_plasma_depth`, which an unverifiable verdict names.
+  `sample_integrity_qc.evaluate_paternity` turns the rates into a verdict, worded by the side they
+  miss on: too few seen (another father) or too many het ones (his own DNA in the plasma).
 - **The verdicts** — `nipt_quality_checks.py` makes every verdict of the page's quality checks,
   once: the fetal fraction (`fail` without an estimate, `warn` low-confidence), the fetal sex (`fail`
   when the two signals disagree, `warn` when neither tells), paternity and the plasma sample's sex
