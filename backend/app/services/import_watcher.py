@@ -547,7 +547,9 @@ async def assess_content(
         # family in CoGA lacks (a warning), and one that changes or lacks a member the family holds
         # is corrected first, or overwrites the family's pedigree (an administrator's choice).
         if bundle is not None and validation.family_id:
-            differences = await family_member_differences(session, family_id=validation.family_id, ped=bundle.ped)
+            differences = await family_member_differences(
+                session, family_id=validation.family_id, ped=bundle.ped, analysis_type=bundle.manifest.analysis_type
+            )
             if not differences.kept_by_an_update:
                 issues.append(
                     _issue("package_members_differ_from_family", members_differ_message(validation.family_id, differences))
@@ -1426,18 +1428,23 @@ stop_import_watcher = stop_worker
 DELIVERY_LIST_LIMIT = 200
 
 # A fixed column list (never input), with the delivery's import job's status.
-# Whether the delivery ``d`` is the one a family's record names as its last import, made with
-# update, while the family's reference delivery (its data's last import as a new family or with
-# overwrite) is ``changed_after_import``: an administrator may then approve it again, to overwrite
-# (the owner's decision of 2026-11-11; ``import_delivery_review.approve_delivery``).
+# Whether the delivery ``d`` is the one a family's package record names as its analysis's last
+# import, made with update, while that record's reference delivery (the analysis's data's last
+# import as a new family or with overwrite) is ``changed_after_import``: an administrator may then
+# approve it again, to overwrite (the owner's decision of 2026-11-11;
+# ``import_delivery_review.approve_delivery``). One record per analysis (family_package_records).
 UPDATE_IMPORT_UNDER_A_CHANGE = """
     EXISTS (
         SELECT 1
         FROM families f
+        CROSS JOIN LATERAL jsonb_each(
+            CASE WHEN jsonb_typeof(f.metadata -> 'package_imports') = 'object'
+                 THEN f.metadata -> 'package_imports' ELSE '{}'::jsonb END
+        ) AS pr(analysis, record)
         JOIN import_deliveries r
-          ON r.id::text = f.metadata -> 'package_import' -> 'reference_delivery' ->> 'id'
-        WHERE f.metadata -> 'package_import' -> 'delivery' ->> 'id' = d.id::text
-          AND f.metadata -> 'package_import' ->> 'import_mode' = 'update'
+          ON r.id::text = pr.record -> 'reference_delivery' ->> 'id'
+        WHERE pr.record -> 'delivery' ->> 'id' = d.id::text
+          AND pr.record ->> 'import_mode' = 'update'
           AND r.state = 'changed_after_import'
     )
 """

@@ -1484,7 +1484,7 @@
    },
    "signed_out_by": "admin",
    "package_intake": {
-    "delivery": null
+    "deliveries": []
    },
    "reference_data": {
     "clinical_cnvs": null,
@@ -2444,7 +2444,7 @@
    },
    "signed_out_by": "admin",
    "package_intake": {
-    "delivery": null
+    "deliveries": []
    },
    "reference_data": {
     "clinical_cnvs": null,

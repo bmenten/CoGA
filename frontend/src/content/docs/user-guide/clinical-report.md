@@ -45,8 +45,9 @@ It refers to exactly one signed version: the one it rests on.
     structure change that clears its data.
 
   The warning shows on every family page until an import or an upload has brought those datasets again.
-- A **Package folder changed after import** warning at the top when the folder the family was imported
-  from has changed since its import, naming the files added, removed or changed; or **Package folder
+- A **Package folder changed after import** warning at the top when a folder the family was imported
+  from (one per analysis) has changed since its import, naming the analysis and the files added, removed
+  or changed; or **Package folder
   gone** when it is gone or cannot be read, so the read files, signal tracks and QC report shown from it
   are no longer available. It shows until the folder is as it was imported again, or its new delivery is
   imported with overwrite or refused with a reason; an import with update keeps it. A gone folder a

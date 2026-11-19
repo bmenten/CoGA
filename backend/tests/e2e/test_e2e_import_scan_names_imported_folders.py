@@ -2,7 +2,7 @@
 
 A package folder stays on the share after its import. The list (``GET /family-imports/packages``)
 gives each folder the families whose package record names it
-(``families.metadata.package_import.folder_path``), and the import page hides a folder whose
+(its package records, ``families.metadata.package_imports``), and the import page hides a folder whose
 families all imported completely.
 
 Through the app over HTTP (an in-process ``httpx.ASGITransport`` client on one event loop, see
@@ -67,7 +67,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         async with sessionmaker() as session:
             out["registered_at"] = (
                 await session.execute(
-                    text("SELECT metadata -> 'package_import' ->> 'registered_at' FROM families WHERE family_id = :f"),
+                    text("SELECT (SELECT r.value FROM jsonb_each(metadata -> 'package_imports') AS r LIMIT 1) ->> 'registered_at' FROM families WHERE family_id = :f"),
                     {"f": imported_id},
                 )
             ).scalar_one()
@@ -88,9 +88,12 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         )
         out["incomplete"] = capture(await client.get("/api/family-imports/packages"))
         await update_record(
+            # The family's one package record (keyed by its package's analysis), its folder with
+            # a slash at the end.
             "UPDATE families SET metadata = (metadata - 'import_incomplete') || jsonb_build_object("
-            "'package_import', (metadata -> 'package_import') || jsonb_build_object('folder_path', "
-            "(metadata -> 'package_import' ->> 'folder_path') || '/')) WHERE family_id = :f"
+            "'package_imports', (SELECT jsonb_object_agg(r.key, r.value || jsonb_build_object("
+            "'folder_path', (r.value ->> 'folder_path') || '/')) "
+            "FROM jsonb_each(metadata -> 'package_imports') AS r)) WHERE family_id = :f"
         )
         out["slash"] = capture(await client.get("/api/family-imports/packages"))
     out["folder"] = str(imported.resolve())

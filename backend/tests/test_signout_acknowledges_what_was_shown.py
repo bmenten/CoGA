@@ -151,7 +151,8 @@ def family(monkeypatch) -> _Family:
         return copy.deepcopy(state.import_unfinished)
 
     async def _package_source_change(session, family_uuid):
-        return copy.deepcopy(state.package_source_change)
+        # One analysis's folder (the family's package records hold one per analysis).
+        return [] if state.package_source_change is None else [copy.deepcopy(state.package_source_change)]
 
     async def _no_import_job(session, family_identifier):
         return None
@@ -177,7 +178,7 @@ def family(monkeypatch) -> _Family:
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
     monkeypatch.setattr(rss, "_import_incomplete_state", _import_incomplete)
     monkeypatch.setattr(rss, "_import_unfinished_state", _import_unfinished)
-    monkeypatch.setattr(rss, "_package_source_change_state", _package_source_change)
+    monkeypatch.setattr(rss, "_package_source_changes_state", _package_source_change)
     monkeypatch.setattr(rss, "_active_import_job", _no_import_job)
     monkeypatch.setattr(rss, "try_share_family_variant_writes", _writes_shared)
     monkeypatch.setattr(rss, "build_record_sections", _sections)
@@ -461,7 +462,7 @@ def test_a_package_folder_that_changed_again_after_the_dialog_is_refused_with_th
         package_source_change_concerns_fingerprint=_shown(shown),
     )
     assert (status, refused["gate"], refused["concerns_changed"]) == (409, "package_source_change", True)
-    assert refused["package_source_change"]["added"] == ["qc/report.html"]
+    assert refused["package_source_changes"][0]["added"] == ["qc/report.html"]
     assert _wrote_nothing(session, family)
 
     # Found again later, as it was: when the watcher found it is no concern, so the

@@ -285,7 +285,7 @@ Sign-out stops at each of these, in this order:
 | **Evidence drift** | A reported classification (small variant, structural variant or CNV) drifted (banner above), or has no frozen evidence; or the calls a repeat-locus or Paraphase-region review froze are no longer the family's. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
 | **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data: a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample no relatedness check covers (such as a NIPT parent). For a NIPT family, also a failed NIPT quality check: no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA given as the maternal plasma. | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Import what failed again, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
-| **Package folder changed** | The package folder the family was imported from changed, or is gone, since its import, as the watcher or the sign-out's own check of the folder found. The pages carry *Package folder changed after import* (below). | Import the folder's new delivery with overwrite, or refuse it, or acknowledge with a reason (*Package folder changed after import — acknowledgement required*). A gone folder confirmed as archived needs no reason. |
+| **Package folder changed** | A package folder the family was imported from (one per analysis it was imported for) changed, or is gone, since its import, as the watcher or the sign-out's own check of the folder found. The pages carry *Package folder changed after import* (below). | Import the folder's new delivery with overwrite, or refuse it, or acknowledge with a reason (*Package folder changed after import — acknowledgement required*). A gone folder confirmed as archived needs no reason. |
 | **Findings without a review** | A repeat locus or Paraphase region has an abnormal call and no review (no classification, tag or note): a repeat call that reads *Pathogenic*, *Premutation*, *Review* or *Not assessed*, or a count *Near a boundary*; a Paraphase call that reads *Pathogenic*, *Carrier* or *Review*. A grey-zone repeat call alone does not stop. | Review it, or acknowledge with a reason (*Findings without a review — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail.
@@ -327,12 +327,13 @@ with **Retry**, and none of the family's data (a report: *Report could not be lo
 
 ### Package folder changed after import
 
-CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder its import
-read. After the import it keeps watching that folder, against the import that read the family's data
-whole (as a new family or with overwrite):
+CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder of the
+analysis whose import recorded them: a family imported for two analyses, such as the monogenic and the
+conventional NIPT of a pregnancy, has a folder for each. After the import it keeps watching each folder,
+against the import that read that analysis's data whole (as a new family or with overwrite):
 
 - A file added, removed or changed in size or time: every family page shows *Package folder changed
-  after import*, naming the files.
+  after import*, naming the analysis and the files.
 - The folder gone or unreadable: *Package folder gone*; the source files are no longer available.
 - The warning prints with the report. Signing out meanwhile asks for a reason, which the signed
   version keeps with what had changed. The sign-out also checks the folder itself, so a change made

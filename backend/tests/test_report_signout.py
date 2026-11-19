@@ -79,7 +79,7 @@ _RECORD_SECTIONS = {
 
 # The real readers, kept before the fixture below stands a stub in for them.
 _REPORT_CODE_TAKEN = rss._report_code_taken
-_REAL_PACKAGE_SOURCE_STATE = rss._package_source_change_state
+_REAL_PACKAGE_SOURCE_STATE = rss._package_source_changes_state
 
 
 @pytest.fixture(autouse=True)
@@ -94,11 +94,11 @@ def _record_sections(monkeypatch):
     monkeypatch.setattr(rss, "_report_code_taken", _code_free)
     # The package folder the family's data came from is as it was imported (a test of the gate
     # stubs its own change; the reader itself is tested against a database in e2e).
-    monkeypatch.setattr(rss, "_package_source_change_state", _source_as_imported)
+    monkeypatch.setattr(rss, "_package_source_changes_state", _source_as_imported)
 
 
 async def _source_as_imported(session, family_uuid):
-    return None
+    return []
 
 
 def test_canonical_hash_is_stable_and_order_independent() -> None:
@@ -2168,6 +2168,7 @@ _DELIVERY_ID = "00000000-0000-4000-8000-0000000000d1"
 # The change as the watcher records it and the sign-out freezes it
 # (package_changed_after_import.source_change_out).
 _SOURCE_CHANGED = {
+    "analysis_type": "short_read_wgs",
     "delivery_id": _DELIVERY_ID,
     "folder": "FAM1",
     "kind": "changed",
@@ -2197,11 +2198,18 @@ _SOURCE_ACK_REASON = "The CRAM was re-aligned with the same reads; the reported 
 
 
 def _patch_source_change(monkeypatch, change) -> None:
+    """The family's package folder changes as the sign-out finds them: ``change`` (one, or a list:
+    one per analysis), or none."""
+
     async def _change(session, family_uuid):
         assert family_uuid == "u1"
-        return change
+        return change if isinstance(change, list) else ([] if change is None else [change])
 
-    monkeypatch.setattr(rss, "_package_source_change_state", _change)
+    monkeypatch.setattr(rss, "_package_source_changes_state", _change)
+
+
+def _without_when(change):
+    return {key: value for key, value in change.items() if key != "detected_at"}
 
 
 def test_a_package_folder_changed_after_its_import_gates_the_sign_out(monkeypatch) -> None:
@@ -2215,15 +2223,34 @@ def test_a_package_folder_changed_after_its_import_gates_the_sign_out(monkeypatc
     assert excinfo.value.status_code == 409
     detail = excinfo.value.detail
     assert detail["gate"] == "package_source_change"
-    assert detail["package_source_change"] == _SOURCE_CHANGED
-    assert "(FAM1) has changed since its import: 1 file(s) added, 1 changed in size or time" in detail["message"]
+    assert detail["package_source_changes"] == [_SOURCE_CHANGED]
+    assert (
+        "The package folder this family's short-read WGS data was imported from (FAM1) has changed since its "
+        "import: 1 file(s) added, 1 changed in size or time" in detail["message"]
+    )
     assert "read files (IGV), signal tracks and QC report" in detail["message"]
     # The fingerprint covers the change without when the watcher found it.
     assert detail["concerns_fingerprint"] == rss.concerns_fingerprint(
-        "package_source_change",
-        {"package_source_change": {key: value for key, value in _SOURCE_CHANGED.items() if key != "detected_at"}},
+        "package_source_change", {"package_source_changes": [_without_when(_SOURCE_CHANGED)]}
     )
     assert _inserts(session) == [] and captured == {}
+
+
+def test_each_analysiss_changed_package_folder_gates_the_sign_out_and_is_named(monkeypatch) -> None:
+    # A family holding the monogenic and the conventional NIPT of a pregnancy, each from a package
+    # of its own: both folders changed, each is listed and named by its analysis.
+    mnipt = {**_SOURCE_CHANGED, "analysis_type": "monogenic_nipt", "folder": "MNIPT_RUN"}
+    cnipt = {**_SOURCE_GONE, "analysis_type": "conventional_nipt", "folder": "CNIPT_RUN"}
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_source_change(monkeypatch, [cnipt, mnipt])
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    detail = excinfo.value.detail
+    assert detail["package_source_changes"] == [cnipt, mnipt]
+    message = detail["message"]
+    assert "this family's conventional NIPT data was imported from (CNIPT_RUN) is gone" in message
+    assert "this family's monogenic NIPT data was imported from (MNIPT_RUN) has changed" in message
 
 
 def test_a_package_folder_gone_after_its_import_says_the_source_files_are_not_available(monkeypatch) -> None:
@@ -2269,17 +2296,16 @@ def test_an_acknowledged_package_folder_change_is_frozen_and_audited(monkeypatch
     )
 
     snapshot = out["snapshot"]
-    assert snapshot["package_source_change"] == _SOURCE_CHANGED
+    assert snapshot["package_source_changes"] == [_SOURCE_CHANGED]
     assert snapshot["acknowledged_package_source_change"] is True
     assert snapshot["package_source_change_acknowledgement_reason"] == _SOURCE_ACK_REASON
     assert out["content_hash"] == rss._canonical_hash(snapshot)
     after = captured["after"]
-    assert after["package_source_change"] == _SOURCE_CHANGED
+    assert after["package_source_changes"] == [_SOURCE_CHANGED]
     assert after["acknowledged_package_source_change"] is True
     assert after["package_source_change_acknowledgement_reason"] == _SOURCE_ACK_REASON
     assert after["package_source_change_concerns_fingerprint"] == rss.concerns_fingerprint(
-        "package_source_change",
-        {"package_source_change": {key: value for key, value in _SOURCE_CHANGED.items() if key != "detected_at"}},
+        "package_source_change", {"package_source_changes": [_without_when(_SOURCE_CHANGED)]}
     )
     assert ", changed package folder acknowledged" in captured["summary"]
 
@@ -2290,7 +2316,7 @@ def test_a_package_folder_as_imported_needs_no_acknowledgement(monkeypatch) -> N
     out = asyncio.run(
         rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), acknowledge_package_source_change=True)
     )
-    assert out["snapshot"]["package_source_change"] is None
+    assert out["snapshot"]["package_source_changes"] == []
     assert out["snapshot"]["acknowledged_package_source_change"] is False
     assert out["snapshot"]["package_source_change_acknowledgement_reason"] is None
     assert captured["after"]["package_source_change_concerns_fingerprint"] is None
@@ -2307,7 +2333,7 @@ def test_the_package_folder_change_is_bound_into_the_content_hash_and_compared(m
     assert rss._canonical_hash(_body(None)) != rss._canonical_hash(_body(_SOURCE_CHANGED))
     assert rss._canonical_hash(_body(_SOURCE_CHANGED)) != rss._canonical_hash(_body(_SOURCE_GONE))
     # The sign-out check compares it as a section of its own.
-    assert "package_source_change" in rss.REPORT_CONTENT_SECTIONS
+    assert "package_source_changes" in rss.REPORT_CONTENT_SECTIONS
 
 
 _SOURCE_ARCHIVED = {
@@ -2329,10 +2355,10 @@ def test_an_archived_package_folder_does_not_gate_and_is_frozen_without_an_ackno
 
     snapshot = out["snapshot"]
     # The signed record says the source files were archived, who confirmed it, when and why.
-    assert snapshot["package_source_change"] == _SOURCE_ARCHIVED
+    assert snapshot["package_source_changes"] == [_SOURCE_ARCHIVED]
     assert snapshot["acknowledged_package_source_change"] is False
     assert snapshot["package_source_change_acknowledgement_reason"] is None
-    assert captured["after"]["package_source_change"] == _SOURCE_ARCHIVED
+    assert captured["after"]["package_source_changes"] == [_SOURCE_ARCHIVED]
     assert captured["after"]["package_source_change_concerns_fingerprint"] is None
     assert ", package source files archived" in captured["summary"]
     assert "changed package folder acknowledged" not in captured["summary"]
@@ -2357,13 +2383,13 @@ def test_the_sign_out_check_compares_a_folder_change_by_what_changed_not_who_fou
     other = {**found_by_the_watcher, "fingerprint": "c" * 64}
 
     def same(signed, current):
-        return rss._section_fingerprint(rss._comparable("package_source_change", signed)) == rss._section_fingerprint(
-            rss._comparable("package_source_change", current)
+        return rss._section_fingerprint(rss._comparable("package_source_changes", signed)) == rss._section_fingerprint(
+            rss._comparable("package_source_changes", current)
         )
 
-    assert same(found_at_sign_out, found_by_the_watcher)
-    assert not same(found_by_the_watcher, other)
-    assert not same(found_by_the_watcher, None)
+    assert same([found_at_sign_out], [found_by_the_watcher])
+    assert not same([found_by_the_watcher], [other])
+    assert not same([found_by_the_watcher], [])
     # Every other section is compared whole.
     assert rss._comparable("import_incomplete", {"at": "t"}) == {"at": "t"}
 
@@ -2382,22 +2408,30 @@ def test_the_sign_out_reads_the_watchers_finding_and_checks_the_folder_itself(mo
             calls.append(f"own {family_uuid}")
             return own
 
-        monkeypatch.setattr(rss, "family_package_source_change", _watcher)
-        monkeypatch.setattr(rss, "check_family_package_folder", _own)
+        monkeypatch.setattr(rss, "family_package_source_changes", _watcher)
+        monkeypatch.setattr(rss, "check_family_package_folders", _own)
         return asyncio.run(_REAL_PACKAGE_SOURCE_STATE(None, "u1"))
 
+    def one(watcher, own):
+        found = _state([watcher] if watcher else [], [own] if own else [])
+        assert len(found) <= 1
+        return found[0] if found else None
+
     # As imported, and the watcher found nothing: nothing to warn of.
-    assert _state(None, None) is None
+    assert one(None, None) is None
     assert calls == ["watcher u1", "own u1"]
     # The watcher's finding, which the folder still shows.
-    assert _state(watcher_found, {**watcher_found, "detected_at": None, "found_at_sign_out": True}) == watcher_found
+    assert one(watcher_found, {**watcher_found, "detected_at": None, "found_at_sign_out": True}) == watcher_found
     # A change the watcher has not seen yet, and a folder gone or unreadable now: each warns.
-    assert _state(None, own_found) == own_found
-    assert _state(watcher_found, own_found) == own_found
+    assert one(None, own_found) == own_found
+    assert one(watcher_found, own_found) == own_found
     gone_now = {**_SOURCE_GONE, "detected_at": None, "found_at_sign_out": True, "archived": None}
-    assert _state(None, gone_now) == gone_now
+    assert one(None, gone_now) == gone_now
     # An archived folder the check finds still gone stays archived.
-    assert _state(_SOURCE_ARCHIVED, gone_now) == _SOURCE_ARCHIVED
+    assert one(_SOURCE_ARCHIVED, gone_now) == _SOURCE_ARCHIVED
+    # Per analysis: each folder's own check is read with the watcher's finding of that folder.
+    other_folder = {**own_found, "analysis_type": "conventional_nipt"}
+    assert _state([watcher_found], [other_folder]) == [other_folder, watcher_found]
 
 
 class _ScalarSession:

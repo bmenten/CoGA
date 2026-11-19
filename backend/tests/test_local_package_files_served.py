@@ -96,6 +96,23 @@ class _Session:
     async def execute(self, statement: Any, params: Any = None) -> Any:
         params = params or {}
         if "sample_ids" in params:
+            if "package_records" in str(statement):
+                # Signal tracks: each source names the analysis whose import recorded it, and the
+                # family's package records give that analysis's folder (family_package_records).
+                records = {"short_read_wgs": {"folder_path": self.package_folder}}
+                rows = [
+                    (
+                        sample_id,
+                        {
+                            source: {**entry, "package": "short_read_wgs"} if isinstance(entry, dict) else entry
+                            for source, entry in value.items()
+                        },
+                        records,
+                    )
+                    for sample_id, value in self.recorded.items()
+                    if sample_id in set(params["sample_ids"])
+                ]
+                return SimpleNamespace(all=lambda: rows)
             rows = [
                 (sample_id, value, self.package_folder)
                 for sample_id, value in self.recorded.items()
@@ -494,4 +511,5 @@ def test_the_qc_report_query_reads_the_familys_package_folder(data: Path) -> Non
     report = asyncio.run(family_qc_reports._recorded_report(session, family_id="F1", sample_id="S1"))  # type: ignore[arg-type]
 
     assert report == family_qc_reports._RecordedReport(" qc/S1.html ", _package(data))
-    assert "f.metadata -> 'package_import' ->> 'folder_path'" in session.sql[0]
+    # The folder of the analysis whose import recorded the sample's QC (family_package_records).
+    assert "f.metadata -> 'package_imports' -> (s.metadata -> 'sequencing_qc' ->> 'package') ->> 'folder_path'" in session.sql[0]

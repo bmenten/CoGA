@@ -111,12 +111,17 @@ async def test_the_package_record_is_put_back_as_it_was() -> None:
     await family_package_registration.put_back_family_package_record(
         session,  # type: ignore[arg-type]
         "00000000-0000-4000-8000-000000000001",
+        "conventional_nipt",
     )
 
     [(sql, params)] = session.statements
     assert "UPDATE families" in sql
-    assert "metadata -> 'package_import' -> 'previous_import'" in sql and "- 'package_import'" in sql
-    assert params == {"family_uuid": "00000000-0000-4000-8000-000000000001"}
+    # The record of the import's analysis, and the family's analysis types, as they were before it;
+    # the records of the family's other analyses as they are.
+    assert "metadata -> 'package_imports' -> CAST(:key AS text) -> 'previous_import'" in sql
+    assert "metadata -> 'package_imports' -> CAST(:key AS text) -> 'previous_analysis_types'" in sql
+    assert "((metadata -> 'package_imports') - CAST(:key AS text))" in sql
+    assert params == {"family_uuid": "00000000-0000-4000-8000-000000000001", "key": "conventional_nipt"}
     assert session.commits == 1
 
 
@@ -124,5 +129,5 @@ def test_the_registration_keeps_the_record_the_family_had_before() -> None:
     import inspect
 
     source = inspect.getsource(family_package_registration)
-    assert "jsonb_build_object('previous_import', (metadata -> 'package_import') - 'previous_import')" in source
-    assert "WHEN jsonb_typeof(metadata -> 'package_import') = 'object' THEN jsonb_build_object(" in source
+    assert "(metadata -> 'package_imports' -> CAST(:record_key AS text)) - 'previous_import'" in source
+    assert "jsonb_build_object('previous_analysis_types', metadata -> 'analysis_types')" in source

@@ -61,6 +61,7 @@ from .family_package_common import (
     _json_list,
 )
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
+from .family_package_records import package_record_key
 from .family_package_source import package_folder_path
 from .raw_import_files_pg import unlink_managed_files
 from .stored_values import json_object
@@ -958,7 +959,9 @@ async def _import_family_datasets(
             # The family's package record goes back with its data: it names the delivery the
             # family's data was imported from, which a sign-out compares the package folder with
             # (package_changed_after_import).
-            await put_back_family_package_record(session, family_context.family_uuid)
+            await put_back_family_package_record(
+                session, family_context.family_uuid, package_record_key(bundle.manifest.analysis_type)
+            )
             restored = True
             logs.append(
                 "The package changed while it was imported; restored the family's data, and its "

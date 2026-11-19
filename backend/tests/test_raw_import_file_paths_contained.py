@@ -46,7 +46,7 @@ from backend.app.services import raw_import_files_pg as rif
 from backend.app.services.access_control import CurrentUser
 
 OUTSIDE = (
-    "The file's recorded storage path lies outside its family's package folder (below "
+    "The file's recorded storage path lies outside its family's package folders (below "
     "FAMILY_IMPORT_ROOTS) and CoGA's upload folder, so the file is not read."
 )
 
@@ -138,7 +138,7 @@ def _record(
         "storage_path": storage_path,
         "file_name": "F1.vcf.gz",
         "sha256": sha256,
-        "package_folder": package_folder,
+        "package_folders": [package_folder],
     }
 
 
@@ -394,8 +394,8 @@ async def test_the_list_shows_a_file_outside_the_folders_unavailable(where: Simp
         str(where.imports / "run-2026-10" / "gone.vcf.gz"),
         *(outside[case] for case in cases),
     ]
-    # Each row is read with its family's package folder.
-    rows = [{"storage_path": path, "created_at": None, "package_folder": where.folder} for path in paths]
+    # Each row is read with its family's package folders (one per analysis it was imported for).
+    rows = [{"storage_path": path, "created_at": None, "package_folders": [where.folder]} for path in paths]
 
     listed = await rif.list_raw_import_files(_ListSession(rows), "family-uuid")  # type: ignore[arg-type]
 

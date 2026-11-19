@@ -710,23 +710,28 @@ export interface SignedIntakeCorrection {
   changes: SignedIntakeChange[];
 }
 
+/** The delivered package one of the family's analyses was last imported from. */
+export interface SignedIntakeDelivery {
+  /** The analysis (the key of the family's package record). */
+  analysisType: string | null;
+  id: string | null;
+  runId: string | null;
+  /** The SHA-256 of the pipeline's package file, as delivered. */
+  packageFileSha256: string | null;
+  /** The revision of the package imported: 0 when it was not corrected. */
+  revision: number | null;
+  /** The SHA-256 of the package imported, as corrected. */
+  packageSha256: string | null;
+  corrections: SignedIntakeCorrection[];
+}
+
 /**
- * The delivered package the family's last package import came from, and each correction made to
- * it in CoGA before the import (`signed_record_sections.package_intake`; owner decision of
- * 2026-11-10). `delivery` null: the family's last import was no delivery's.
+ * The delivered package each of the family's analyses was last imported from, and each correction
+ * made to it in CoGA before the import (`signed_record_sections.package_intake`; owner decision of
+ * 2026-11-10); empty when no analysis's last import was a delivery's.
  */
 export interface SignedPackageIntake {
-  delivery: {
-    id: string | null;
-    runId: string | null;
-    /** The SHA-256 of the pipeline's package file, as delivered. */
-    packageFileSha256: string | null;
-    /** The revision of the package imported: 0 when it was not corrected. */
-    revision: number | null;
-    /** The SHA-256 of the package imported, as corrected. */
-    packageSha256: string | null;
-    corrections: SignedIntakeCorrection[];
-  } | null;
+  deliveries: SignedIntakeDelivery[];
 }
 
 /**
@@ -740,6 +745,8 @@ export interface SignedPackageIntake {
  * folder found it, before the import watcher.
  */
 export interface SignedPackageSourceChange {
+  /** The analysis whose package folder it is (the key of the family's package record). */
+  analysisType: string | null;
   deliveryId: string | null;
   folder: string | null;
   kind: 'changed' | 'gone';
@@ -760,6 +767,7 @@ export interface SignedPackageSourceChange {
 /** The change as the banner and the dialog word it (`PackageSourceChangedBanner`). */
 export const packageSourceChangeWords = (change: SignedPackageSourceChange): PackageSourceChange => ({
   folder: change.folder,
+  analysis_type: change.analysisType,
   kind: change.kind,
   listed: change.listed,
   added: change.added,
@@ -1111,10 +1119,10 @@ export interface SignedReport {
   importUnfinished: FamilyImportUnfinished[] | 'absent' | 'unreadable';
   importAcknowledgement: SignedAcknowledgement;
   /**
-   * The package folder the family came from, changed or gone after its import; null: as
-   * imported (or no delivery's); `absent`: not in the record.
+   * Each package folder the family came from (one per analysis it was imported for), changed or
+   * gone after its import; empty: each as imported (or no delivery's); `absent`: not in the record.
    */
-  packageSourceChange: SignedPackageSourceChange | null | 'absent';
+  packageSourceChanges: SignedPackageSourceChange[] | 'absent';
   packageSourceAcknowledgement: SignedAcknowledgement;
   reportedVariants: SignedSmallVariant[] | null;
   /** Null: the record holds no list of reported SVs. */
@@ -1800,31 +1808,28 @@ const parseCoverageTracks = (value: Json): SignedCoverageTrack[] =>
 const intakeKind = (value: unknown): SignedIntakeChange['kind'] =>
   value === 'laboratory' || value === 'pipeline_used' ? value : null;
 
-const parsePackageIntake = (value: Json): SignedPackageIntake => {
-  if (!isObject(value.delivery)) return { delivery: null };
-  const delivery = value.delivery;
-  return {
-    delivery: {
-      id: text(delivery.id),
-      runId: text(delivery.run_id),
-      packageFileSha256: text(delivery.package_file_sha256),
-      revision: number(delivery.revision),
-      packageSha256: text(delivery.package_sha256),
-      corrections: objects(delivery.corrections).map((correction) => ({
-        revision: number(correction.revision),
-        reason: text(correction.reason),
-        by: text(correction.by),
-        at: text(correction.at),
-        changes: objects(correction.changes).map((change) => ({
-          path: text(change.path) ?? 'a field',
-          kind: intakeKind(change.kind),
-          before: change.before ?? null,
-          after: change.after ?? null,
-        })),
+const parsePackageIntake = (value: Json): SignedPackageIntake => ({
+  deliveries: objects(value.deliveries).map((delivery) => ({
+    analysisType: text(delivery.analysis_type),
+    id: text(delivery.id),
+    runId: text(delivery.run_id),
+    packageFileSha256: text(delivery.package_file_sha256),
+    revision: number(delivery.revision),
+    packageSha256: text(delivery.package_sha256),
+    corrections: objects(delivery.corrections).map((correction) => ({
+      revision: number(correction.revision),
+      reason: text(correction.reason),
+      by: text(correction.by),
+      at: text(correction.at),
+      changes: objects(correction.changes).map((change) => ({
+        path: text(change.path) ?? 'a field',
+        kind: intakeKind(change.kind),
+        before: change.before ?? null,
+        after: change.after ?? null,
       })),
-    },
-  };
-};
+    })),
+  })),
+});
 
 const RISK_STATES: HaplotypeRiskState[] = ['affected_or_at_risk', 'carrier', 'unaffected_non_carrier', 'uninformative'];
 const riskState = (value: unknown): HaplotypeRiskState | null =>
@@ -2261,6 +2266,7 @@ const countOrNull = (value: unknown): number | null =>
 export const parsePackageSourceChange = (value: unknown): SignedPackageSourceChange | null => {
   if (!isObject(value)) return null;
   return {
+    analysisType: text(value.analysis_type),
     deliveryId: text(value.delivery_id),
     folder: text(value.folder),
     kind: value.kind === 'gone' ? 'gone' : 'changed',
@@ -2320,8 +2326,10 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
       'acknowledged_import_incomplete',
       'import_incomplete_acknowledgement_reason',
     ),
-    packageSourceChange: has(snapshot, 'package_source_change')
-      ? parsePackageSourceChange(snapshot.package_source_change)
+    packageSourceChanges: has(snapshot, 'package_source_changes')
+      ? list(snapshot.package_source_changes)
+          .map(parsePackageSourceChange)
+          .filter((change): change is SignedPackageSourceChange => change !== null)
       : 'absent',
     packageSourceAcknowledgement: acknowledgement(
       snapshot,
@@ -2410,7 +2418,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   sequencing_qc: 'sequencing QC cut-offs',
   import_incomplete: 'import completeness',
   import_unfinished: 'unfinished imports',
-  package_source_change: 'package folder after its import',
+  package_source_changes: 'package folders after their import',
   variant_descriptions: 'variant descriptions',
   gene_panels: 'gene panels applied',
   reference_data: 'reference-data releases',

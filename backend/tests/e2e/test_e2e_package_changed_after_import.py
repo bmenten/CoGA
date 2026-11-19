@@ -134,7 +134,7 @@ async def _exercise(base: Path, away: Path, run: str) -> dict[str, Any]:
         async with sessionmaker() as session:
             package = (
                 await session.execute(
-                    text("SELECT metadata -> 'package_import' FROM families WHERE family_id = :f"), {"f": family}
+                    text("SELECT (SELECT r.value FROM jsonb_each(metadata -> 'package_imports') AS r LIMIT 1) FROM families WHERE family_id = :f"), {"f": family}
                 )
             ).scalar_one()
         return {
@@ -166,7 +166,10 @@ async def _exercise(base: Path, away: Path, run: str) -> dict[str, Any]:
         async def family_change() -> Any:
             response = capture(await client.get(f"/api/families/{family}"))
             assert response["status"] == 200, response
-            return response["json"]["package_source_change"]
+            # The family was imported for one analysis: one package record, at most one change.
+            changes = response["json"]["package_source_changes"]
+            assert len(changes) <= 1, changes
+            return changes[0] if changes else None
 
         url = f"/api/families/{family}/report/sign-out"
 
@@ -378,11 +381,11 @@ def test_a_sign_out_warns_of_the_change_and_keeps_its_acknowledgement(ran) -> No
     signed = ran["signout"]
     assert signed["status"] == 200, signed
     snapshot = signed["json"]["snapshot"]
-    assert snapshot["package_source_change"]["added"] == ["notes/added.txt"]
+    assert [change["added"] for change in snapshot["package_source_changes"]] == [["notes/added.txt"]]
     assert snapshot["acknowledged_package_source_change"] is True
     assert snapshot["package_source_change_acknowledgement_reason"] == _REASON
     event = ran["signout_event"]
-    assert event["package_source_change"]["changed"] == ["family.ped"]
+    assert [change["changed"] for change in event["package_source_changes"]] == [["family.ped"]]
     assert event["package_source_change_concerns_fingerprint"] == detail["concerns_fingerprint"]
 
 
@@ -430,14 +433,14 @@ def test_a_sign_out_checks_the_folder_itself_before_the_watcher_has(ran) -> None
     detail = refused["json"]["detail"]
     assert detail["gate"] == "package_source_change"
     assert "This sign-out's own check of the folder found it" in detail["message"]
-    change = detail["package_source_change"]
+    [change] = detail["package_source_changes"]
     assert (change["found_at_sign_out"], change["detected_at"], change["added"]) == (True, None, ["notes/unseen.txt"])
     # The watcher has not raised it: the reference is imported still.
     assert {row["state"] for row in ran["unseen_states"]} == {"imported"}
     # The folder back as imported, the sign-out passes the gate without an acknowledgement.
     passed = ran["signout_as_imported"]
     assert passed["status"] == 200, passed
-    assert passed["json"]["snapshot"]["package_source_change"] is None
+    assert passed["json"]["snapshot"]["package_source_changes"] == []
 
 
 def test_refusing_the_new_delivery_of_a_changed_folder_ends_the_change_for_good(ran) -> None:
@@ -479,7 +482,7 @@ def test_a_gone_folder_confirmed_as_archived_no_longer_gates_and_is_frozen(ran) 
     signed = ran["signout_archived"]
     assert signed["status"] == 200, signed
     snapshot = signed["json"]["snapshot"]
-    assert snapshot["package_source_change"]["archived"]["reason"] == _ARCHIVED_REASON
+    assert [change["archived"]["reason"] for change in snapshot["package_source_changes"]] == [_ARCHIVED_REASON]
     assert snapshot["acknowledged_package_source_change"] is False
     # The next round keeps it archived while the folder is gone.
     assert ran["still_archived"][2]["state"] == "archived"

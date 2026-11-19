@@ -222,7 +222,7 @@ export const useReportSignOut = (
   // The package folder the family came from changed, or went, after its import.
   const [packageSourceGate, setPackageSourceGate] = useState<(ShownConcerns & {
     message: string;
-    change: PackageSourceChange | null;
+    changes: PackageSourceChange[];
   }) | null>(null);
   const [packageSourceReason, setPackageSourceReason] = useState('');
   const [unreviewedGate, setUnreviewedGate] = useState<(ShownConcerns & {
@@ -397,16 +397,17 @@ export const useReportSignOut = (
         });
         return;
       }
-      // The package folder the family came from changed, or went, after its import: a warning
-      // that lists what changed, acknowledged with a reason like the gates above.
+      // A package folder the family came from (one per analysis it was imported for) changed, or
+      // went, after its import: a warning that lists what changed, acknowledged with a reason like
+      // the gates above.
       if (gate === 'package_source_change') {
-        const source = detail as { message?: string; package_source_change?: PackageSourceChange | null };
+        const source = detail as { message?: string; package_source_changes?: PackageSourceChange[] };
         const shown = shownConcerns(detail);
         if (shown.changed) setPackageSourceReason('');
         setPackageSourceGate({
           message:
             source.message || 'The package folder this family was imported from changed after its import.',
-          change: source.package_source_change ?? null,
+          changes: Array.isArray(source.package_source_changes) ? source.package_source_changes : [],
           ...shown,
           vars,
         });
@@ -798,7 +799,9 @@ export const useReportSignOut = (
               <p className="report-paragraph">
                 To sign out anyway you must record a reason — it is frozen into the signed record, with the change.
               </p>
-              {packageSourceGate.change ? <PackageSourceChangePaths change={packageSourceGate.change} /> : null}
+              {packageSourceGate.changes.map((change, index) => (
+                <PackageSourceChangePaths key={change.analysis_type ?? index} change={change} />
+              ))}
               <label className="report-footer-label" htmlFor="package-source-ack-reason">
                 Reason for signing out despite the changed package folder (required)
               </label>

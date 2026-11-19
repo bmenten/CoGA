@@ -30,7 +30,7 @@ export interface FamilyPageHeaderFamily {
   /** The caller is a reader in the family's projects. */
   read_only?: boolean;
   /** Its package folder changed, or went, after its import (FamilyPageBanners). */
-  package_source_change?: FamilyPackageSourceChangeOut | null;
+  package_source_changes?: FamilyPackageSourceChangeOut[];
 }
 
 const FamilyPageHeader: React.FC<{
@@ -105,7 +105,7 @@ const FamilyPageHeader: React.FC<{
               not finished: on every family page, so the data is never read as complete. */}
           <FamilyPageBanners
             metadata={family?.metadata}
-            packageSourceChange={family?.package_source_change}
+            packageSourceChanges={family?.package_source_changes}
             assemblyScope={assemblyScope}
           />
         </div>

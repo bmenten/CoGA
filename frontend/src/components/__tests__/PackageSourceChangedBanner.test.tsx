@@ -4,8 +4,9 @@ import { describe, expect, it } from 'vitest';
 import PackageSourceChangedBanner, {
   describePackageSourceChange,
 } from '../PackageSourceChangedBanner';
+import FamilyPageBanners from '../FamilyPageBanners';
 
-// The family record's package_source_change, as the API serves it (synthetic values).
+// One of the family record's package_source_changes, as the API serves it (synthetic values).
 const CHANGED = {
   delivery_id: 'd1',
   folder: 'FAM1',
@@ -28,6 +29,26 @@ describe('PackageSourceChangedBanner', () => {
   it('shows nothing while the folder is as it was imported', () => {
     const { container } = render(<PackageSourceChangedBanner change={null} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("names the analysis whose folder it is, and the family's pages show one banner per analysis", () => {
+    // A monogenic and a conventional NIPT of one pregnancy, each from a package folder of its own.
+    render(
+      <FamilyPageBanners
+        packageSourceChanges={[
+          { ...CHANGED, analysis_type: 'conventional_nipt', folder: 'CNIPT_RUN', kind: 'gone', listed: false },
+          { ...CHANGED, analysis_type: 'monogenic_nipt', folder: 'MNIPT_RUN' },
+        ]}
+      />,
+    );
+    const banners = screen.getAllByRole('alert');
+    expect(banners).toHaveLength(2);
+    expect(banners[0]).toHaveTextContent(
+      'Package folder gone. The package folder this family’s conventional NIPT data was imported from (CNIPT_RUN) is gone',
+    );
+    expect(banners[1]).toHaveTextContent(
+      'The package folder this family’s monogenic NIPT data was imported from (MNIPT_RUN) has changed',
+    );
   });
 
   it('says what changed in the folder, names its paths, and what ends it', () => {

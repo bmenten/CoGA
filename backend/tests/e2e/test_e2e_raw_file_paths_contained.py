@@ -10,7 +10,7 @@ write.
 Over the real API (an in-process ``httpx.ASGITransport`` client, one event loop, see
 test_e2e_api_contract.py) and Postgres and ClickHouse, with the seeded admin signed in, a
 family of two samples made through the Family Builder, its package folder recorded as its
-import records it (``families.metadata.package_import.folder_path``), and its
+import records it (the family's package records, ``families.metadata.package_imports``), and its
 ``raw_import_files`` rows written as the import writes them and as an edited row would hold
 them. The files lie in the test's own folders: ``imports`` (FAMILY_IMPORT_ROOTS), holding the
 family's package and another family's, ``data`` (the data directory, whose ``raw_imports`` is
@@ -45,7 +45,7 @@ from backend.tests.e2e._harness import ensure_postgres_schema, place_file
 pytestmark = pytest.mark.integration
 
 OUTSIDE = (
-    "The file's recorded storage path lies outside its family's package folder (below "
+    "The file's recorded storage path lies outside its family's package folders (below "
     "FAMILY_IMPORT_ROOTS) and CoGA's upload folder, so the file is not read."
 )
 
@@ -124,11 +124,13 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
                     await session.execute(text("SELECT id::text FROM families WHERE family_id = :f"), {"f": family})
                 ).scalar_one()
                 # The package folder the family's import read, as the import's registration
-                # records it: its files are read only there and in the upload folder.
+                # records it (the record of its package's analysis): its files are read only
+                # there and in the upload folder.
                 await session.execute(
                     text(
                         "UPDATE families SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object("
-                        "'package_import', jsonb_build_object('folder_path', CAST(:folder AS text))) "
+                        "'package_imports', jsonb_build_object('unspecified', "
+                        "jsonb_build_object('folder_path', CAST(:folder AS text)))) "
                         "WHERE id = CAST(:f AS uuid)"
                     ),
                     {"folder": str(package_folder), "f": family_uuid},

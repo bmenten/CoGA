@@ -524,7 +524,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
         <h1 className="section-title">ROI marker review — {roi.label}</h1>
         <FamilyPageBanners
           metadata={family?.metadata}
-          packageSourceChange={family?.package_source_change}
+          packageSourceChanges={family?.package_source_changes}
           assemblyScope={{
             name: assemblyName,
             validated: assemblyValidated,

@@ -123,7 +123,7 @@ async def _registered_at() -> str | None:
         return (
             await session.execute(
                 text(
-                    "SELECT metadata -> 'package_import' ->> 'registered_at' "
+                    "SELECT (SELECT r.value FROM jsonb_each(metadata -> 'package_imports') AS r LIMIT 1) ->> 'registered_at' "
                     "FROM families WHERE family_id = :f"
                 ),
                 {"f": FAMILY},

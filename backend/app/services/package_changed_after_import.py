@@ -1,13 +1,15 @@
 """A package folder that changes, or goes, after its import (the owner's decisions of 2026-11-11).
 
-A family's record names the delivery its data was last imported from (``families.metadata.
-package_import.delivery``), and CoGA serves the family's read files (IGV), signal tracks and QC
-report from that delivery's package folder, where it lies. An import with update skips the
-datasets the family holds already, so only an import that read the family's data whole, as a new
-family or with overwrite, says what the source files were: the record keeps that delivery as its
-**reference** (``package_import.reference_delivery``; an update keeps the reference the record
-had, and the first package import of a family is its reference whatever its mode), and the
-import's mode (``package_import.import_mode``).
+A family keeps a package record per analysis it was imported for (``family_package_records``: a
+monogenic and a conventional NIPT of one pregnancy each have their own). Each record names the
+delivery its analysis's data was last imported from (``delivery``), and CoGA serves that
+analysis's read files (IGV), signal tracks and QC report from that delivery's package folder,
+where it lies. An import with update skips the datasets the family holds already, so only an
+import that read the analysis's data whole, as a new family or with overwrite, says what the
+source files were: the record keeps that delivery as its **reference** (``reference_delivery``;
+an update keeps the reference the record had, and the first package import of an analysis is its
+reference whatever its mode), and the import's mode (``import_mode``). Everything below holds per
+record: each analysis's folder is followed against its own reference, never another's.
 
 **The rule.** The folder CoGA serves a family's source files from (its record's delivery's) must be
 as the reference was imported: the same package fingerprint. So the import watcher follows, each
@@ -35,7 +37,7 @@ folder's, or one added by hand):
   signed record freezes it. A folder that comes back as imported ends it; one that comes back
   otherwise is a change again.
 
-The family page shows the change (``family_package_source_change``) and a sign-out warns of it, to
+The family page shows each change (``family_package_source_changes``) and a sign-out warns of it, to
 acknowledge with a reason (``report_signout_service``, the gate ``package_source_change``); a
 sign-out also takes the folder's fingerprint itself (``check_family_package_folder``), so a change
 the watcher has not seen yet is warned of too. The change ends only:
@@ -57,7 +59,7 @@ import asyncio
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,6 +76,7 @@ from ..schemas import ImportDeliveryOut
 from .access_control import CurrentUser
 from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_package_fingerprint import PackageFolderTooLarge, PackageListing, package_listing
+from .family_package_records import PACKAGE_RECORDS_OF_A_FAMILY
 from .family_package_source import local_family_package_folder
 from .import_watcher import GONE_AFTER_ROUNDS, IMPORT_INBOX_CHAIN, WATCHER_ACTOR, _names_in, get_import_delivery
 
@@ -94,9 +97,9 @@ NAMED_PATHS = 50
 # not listed by then is a folder that cannot be read, which warns, never one as imported.
 SIGN_OUT_FOLDER_CHECK_SECONDS = 30.0
 
-# The keys of a family's package record (``families.metadata.package_import``) this module reads:
-# the delivery its data was last imported from whole (as a new family or with overwrite), and the
-# mode of its last import (``new_family``, ``update`` or ``overwrite``).
+# The keys of a family's package record (one per analysis, ``family_package_records``) this module
+# reads: the delivery the analysis's data was last imported from whole (as a new family or with
+# overwrite), and the mode of its last import (``new_family``, ``update`` or ``overwrite``).
 REFERENCE_KEY = "reference_delivery"
 IMPORT_MODE_KEY = "import_mode"
 # The modes of an import that reads the family's data whole: its delivery is the reference.
@@ -105,11 +108,14 @@ WHOLE_IMPORT_MODES = frozenset({"new_family", "overwrite"})
 ChangeKind = Literal["changed", "gone"]
 Resolution = Literal["as_imported", "refused", "overwritten", "not_named"]
 
-# The reference delivery ``d`` a family ``f``'s record names.
-_REFERENCE_OF_A_FAMILY = "f.metadata -> 'package_import' -> 'reference_delivery' ->> 'id' = d.id::text"
-# The delivery ``n`` a family ``f``'s record names as the one its last import read: CoGA serves the
-# family's source files from its folder.
-_NAMED_BY_THE_RECORD = "n.id::text = f.metadata -> 'package_import' -> 'delivery' ->> 'id'"
+# The reference delivery ``d`` a package record ``r`` of a family ``f`` names (joined with
+# ``PACKAGE_RECORDS_OF_A_FAMILY``: one record per analysis the family was imported for).
+_REFERENCE_OF_A_FAMILY = "r.record -> 'reference_delivery' ->> 'id' = d.id::text"
+# The delivery ``n`` a package record ``r`` names as the one its analysis's last import read: CoGA
+# serves that analysis's source files from its folder.
+_NAMED_BY_THE_RECORD = "n.id::text = r.record -> 'delivery' ->> 'id'"
+# A family ``f`` with each of its package records ``r``.
+_FAMILY_RECORDS = f"families f {PACKAGE_RECORDS_OF_A_FAMILY}"
 
 
 def reference_delivery(
@@ -336,11 +342,11 @@ async def end_changes_no_family_names(session_factory: async_sessionmaker[AsyncS
                     SELECT d.id::text AS id, d.folder_path, d.folder_name, d.package_fingerprint, d.family_id
                     FROM import_deliveries d
                     WHERE d.state = ANY(CAST(:raised AS text[]))
-                      AND NOT EXISTS (SELECT 1 FROM families f WHERE {_REFERENCE_OF_A_FAMILY})
+                      AND NOT EXISTS (SELECT 1 FROM {_FAMILY_RECORDS} WHERE {_REFERENCE_OF_A_FAMILY})
                       AND NOT EXISTS (
-                          SELECT 1 FROM families f
+                          SELECT 1 FROM {_FAMILY_RECORDS}
                           JOIN import_deliveries q
-                            ON q.id::text = f.metadata -> 'package_import' -> 'reference_delivery' ->> 'id'
+                            ON q.id::text = r.record -> 'reference_delivery' ->> 'id'
                           WHERE q.state = 'queued' AND (q.folder_path = d.folder_path OR f.family_id = d.family_id)
                       )
                     FOR UPDATE OF d SKIP LOCKED
@@ -355,7 +361,7 @@ async def end_changes_no_family_names(session_factory: async_sessionmaker[AsyncS
                     text(
                         f"""
                         SELECT d.id::text, f.family_id FROM import_deliveries d
-                        JOIN families f ON {_REFERENCE_OF_A_FAMILY}
+                        JOIN ({_FAMILY_RECORDS}) ON {_REFERENCE_OF_A_FAMILY}
                         WHERE (d.folder_path = :folder OR f.family_id = :family_id) AND d.id <> CAST(:id AS uuid)
                         ORDER BY d.state_changed_at DESC
                         LIMIT 1
@@ -430,7 +436,7 @@ async def follow_imported_deliveries(
                            COALESCE(n.watch_root, d.watch_root) AS watch_root,
                            COALESCE(n.folder_path, d.folder_path) AS folder_path,
                            COALESCE(n.folder_name, d.folder_name) AS followed_name
-                    FROM families f
+                    FROM {_FAMILY_RECORDS}
                     JOIN import_deliveries d ON {_REFERENCE_OF_A_FAMILY}
                     LEFT JOIN import_deliveries n ON {_NAMED_BY_THE_RECORD}
                     WHERE d.state = ANY(CAST(:followed AS text[]))
@@ -724,20 +730,21 @@ async def archive_gone_delivery(
 
 # --- What a family's page and its sign-out read --------------------------------------
 
-# The change of the family's reference delivery, when it is changed after its import or archived.
-_FAMILY_SOURCE_CHANGE = text(
+# The change of each of the family's reference deliveries (one per analysis it was imported for)
+# that is changed after its import or archived, by analysis.
+_FAMILY_SOURCE_CHANGES = text(
     f"""
-    SELECT jsonb_build_object(
+    SELECT r.analysis,
+           jsonb_build_object(
                'delivery_id', d.id::text,
                'folder', d.folder_name,
                'imported_fingerprint', d.package_fingerprint
-           ) || d.source_change
-    FROM families f
+           ) || d.source_change AS change
+    FROM {_FAMILY_RECORDS}
     JOIN import_deliveries d ON {_REFERENCE_OF_A_FAMILY}
     WHERE f.id = CAST(:family_uuid AS uuid) AND d.state = ANY(CAST(:raised AS text[]))
       AND d.source_change IS NOT NULL
-    ORDER BY d.state_changed_at DESC
-    LIMIT 1
+    ORDER BY r.analysis
     """
 )
 
@@ -795,15 +802,20 @@ def gates_a_sign_out(change: Mapping[str, Any] | None) -> bool:
     return change is not None and change.get("archived") is None
 
 
-async def family_package_source_change(session: AsyncSession, family_uuid: str) -> dict[str, Any] | None:
-    """The change of the package folder the family's source files are served from, as the
-    watcher last found it: the family's reference delivery, when it is ``changed_after_import``
-    or ``archived`` (``source_change_out``); None when it is not, or the family was not imported
-    from a delivery."""
-    raw = (
-        await session.execute(_FAMILY_SOURCE_CHANGE, {"family_uuid": family_uuid, "raised": list(CHANGE_STATES)})
-    ).scalar_one_or_none()
-    return source_change_out(raw)
+def _of_analysis(analysis: Any, change: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    return None if change is None else {**change, "analysis_type": str(analysis)}
+
+
+async def family_package_source_changes(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
+    """The change of each package folder the family's source files are served from (one per
+    analysis it was imported for), as the watcher last found it: each reference delivery that is
+    ``changed_after_import`` or ``archived`` (``source_change_out``), with the analysis it is
+    the folder of (``analysis_type``, its package record's key), in the order of the analyses.
+    Empty when none is, or the family was not imported from a delivery."""
+    rows = (
+        await session.execute(_FAMILY_SOURCE_CHANGES, {"family_uuid": family_uuid, "raised": list(CHANGE_STATES)})
+    ).all()
+    return [change for analysis, raw in rows if (change := _of_analysis(analysis, source_change_out(raw)))]
 
 
 def _checked_folder(folder: str) -> str | None:
@@ -842,24 +854,42 @@ async def _folder_at_sign_out(folder: str) -> FolderNow:
         return FolderNow(gone=True)
 
 
-# The family's record and the listing kept with its reference delivery, for a sign-out's check.
-_FAMILY_PACKAGE_RECORD = text(
+# Each of the family's package records (one per analysis) and the listing kept with its reference
+# delivery, for a sign-out's check.
+_FAMILY_PACKAGE_RECORDS = text(
     f"""
-    SELECT f.metadata -> 'package_import' -> 'reference_delivery' AS reference,
-           f.metadata -> 'package_import' ->> 'folder_path' AS folder_path,
+    SELECT r.analysis,
+           r.record -> 'reference_delivery' AS reference,
+           r.record ->> 'folder_path' AS folder_path,
            d.file_listing
-    FROM families f
+    FROM {_FAMILY_RECORDS}
     LEFT JOIN import_deliveries d ON {_REFERENCE_OF_A_FAMILY}
     WHERE f.id = CAST(:family_uuid AS uuid)
+    ORDER BY r.analysis
     """
 )
 
 
-async def check_family_package_folder(session: AsyncSession, family_uuid: str) -> dict[str, Any] | None:
-    """A sign-out's own check of the package folder the family's source files are served from
-    (its record's ``folder_path``): its fingerprint now, stat-only, against the fingerprint the
-    family's reference delivery was imported with (the owner's decision of 2026-11-11). None when
-    the folder is as imported, or the family was not imported from a delivery; else the change,
+async def check_family_package_folders(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
+    """A sign-out's own check of each package folder the family's source files are served from,
+    one per analysis it was imported for (``check_family_package_folder``), each change with the
+    analysis it is the folder of (``analysis_type``), in the order of the analyses. Empty when
+    each folder is as imported, or the family was not imported from a delivery."""
+    rows = (await session.execute(_FAMILY_PACKAGE_RECORDS, {"family_uuid": family_uuid})).mappings().all()
+    changes: list[dict[str, Any]] = []
+    for row in rows:
+        change = _of_analysis(row["analysis"], await check_family_package_folder(dict(row)))
+        if change is not None:
+            changes.append(change)
+    return changes
+
+
+async def check_family_package_folder(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """A sign-out's own check of the package folder an analysis's source files are served from
+    (its record's ``folder_path``, in ``row`` with its ``reference`` delivery and the
+    ``file_listing`` kept with it): its fingerprint now, stat-only, against the fingerprint the
+    reference delivery was imported with (the owner's decision of 2026-11-11). None when
+    the folder is as imported, or the analysis was not imported from a delivery; else the change,
     in ``source_change_out``'s shape, with ``found_at_sign_out``: what changed (read against the
     reference's listing), or, for a folder that cannot be listed, cannot be read in
     ``SIGN_OUT_FOLDER_CHECK_SECONDS``, whose path the record does not hold, or that CoGA serves no
@@ -867,9 +897,8 @@ async def check_family_package_folder(session: AsyncSession, family_uuid: str) -
     Never fails open: an error reading the folder is a change, not a pass. A
     folder of more entries than a listing keeps is fingerprinted all the same; one too large to
     fingerprint has changed (the reference was fingerprinted)."""
-    row = (await session.execute(_FAMILY_PACKAGE_RECORD, {"family_uuid": family_uuid})).mappings().first()
-    reference = _json_object(row["reference"]) if row is not None else None
-    if row is None or reference is None:
+    reference = _json_object(row.get("reference"))
+    if reference is None:
         return None
     imported = reference.get("package_fingerprint")
     folder = row["folder_path"]
@@ -893,11 +922,27 @@ async def check_family_package_folder(session: AsyncSession, family_uuid: str) -
     )
 
 
+def sign_out_source_changes(
+    watcher: Sequence[Mapping[str, Any]], own: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """What a sign-out records of the family's package folders: per analysis (``analysis_type``),
+    the watcher's last finding and the sign-out's own check together
+    (``sign_out_source_change``), in the order of the analyses."""
+    by_watcher = {str(change.get("analysis_type")): change for change in watcher}
+    by_own = {str(change.get("analysis_type")): change for change in own}
+    changes: list[dict[str, Any]] = []
+    for analysis in sorted(set(by_watcher) | set(by_own)):
+        change = sign_out_source_change(by_watcher.get(analysis), by_own.get(analysis))
+        if change is not None:
+            changes.append({**change, "analysis_type": analysis})
+    return changes
+
+
 def sign_out_source_change(
     watcher: Mapping[str, Any] | None, own: Mapping[str, Any] | None
 ) -> dict[str, Any] | None:
     """What a sign-out records of the package folder: the watcher's last finding (``watcher``,
-    ``family_package_source_change``) and its own check (``own``, ``check_family_package_folder``),
+    ``family_package_source_changes``) and its own check (``own``, ``check_family_package_folder``),
     together. The own check's change, unless the watcher found the same already (the same kind
     and, for a changed folder, the same fingerprint), whose finding it keeps, or the watcher's
     folder was confirmed as archived and the check finds it still gone. With no own change, the

@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { analysisLabel } from '../lib/familyAnalyses';
 import { formatTimestamp } from '../lib/format';
 
 interface IntakeChange {
@@ -22,17 +23,38 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const text = (value: unknown): string | null =>
   typeof value === 'string' && value ? value : null;
 
+/** The corrections made in CoGA to the delivery one of the family's analyses was imported from. */
+export interface CorrectedDelivery {
+  /** The analysis (the key of the family's package record). */
+  analysisType: string;
+  corrections: IntakeCorrection[];
+}
+
 /**
- * The corrections made in CoGA to the delivered package the family's last import came from, as
- * the family record keeps them (`metadata.package_import.delivery.corrections`, written by the
- * approval of a corrected delivery); none for a family not imported from a delivery, or from one
- * not corrected.
+ * For each analysis the family was imported for (`metadata.package_imports`: one package record
+ * per analysis, such as a monogenic and a conventional NIPT of one pregnancy), in the order of the
+ * analyses, the corrections made in CoGA to the delivered package its last import came from, as
+ * the record keeps them (`delivery.corrections`, written by the approval of a corrected
+ * delivery); none for an analysis not imported from a delivery, or from one not corrected.
  */
 export const intakeCorrectionsFromMetadata = (
   metadata: unknown
-): IntakeCorrection[] => {
-  if (!isObject(metadata) || !isObject(metadata.package_import)) return [];
-  const delivery = metadata.package_import.delivery;
+): CorrectedDelivery[] => {
+  if (!isObject(metadata) || !isObject(metadata.package_imports)) return [];
+  const records = metadata.package_imports;
+  return Object.keys(records)
+    .sort()
+    .map((analysisType) => {
+      const record = records[analysisType];
+      return {
+        analysisType,
+        corrections: correctionsOf(isObject(record) ? record.delivery : null),
+      };
+    })
+    .filter((delivery) => delivery.corrections.length > 0);
+};
+
+const correctionsOf = (delivery: unknown): IntakeCorrection[] => {
   if (!isObject(delivery) || !Array.isArray(delivery.corrections)) return [];
   return delivery.corrections.filter(isObject).map((correction) => ({
     revision:
@@ -83,9 +105,20 @@ const shown = (value: unknown): string =>
  */
 const IntakeCorrectionsNotice: React.FC<{ metadata?: unknown }> = ({
   metadata,
+}) => (
+  <>
+    {intakeCorrectionsFromMetadata(metadata).map((delivery) => (
+      <CorrectedDeliveryNotice key={delivery.analysisType} delivery={delivery} />
+    ))}
+  </>
+);
+
+/** The corrections of one analysis's delivery, named by its analysis. */
+const CorrectedDeliveryNotice: React.FC<{ delivery: CorrectedDelivery }> = ({
+  delivery,
 }) => {
-  const corrections = intakeCorrectionsFromMetadata(metadata);
-  if (!corrections.length) return null;
+  const { corrections } = delivery;
+  const label = analysisLabel(delivery.analysisType);
   const pedigree = corrections.some((correction) =>
     correction.changes.some(
       (change) =>
@@ -96,7 +129,8 @@ const IntakeCorrectionsNotice: React.FC<{ metadata?: unknown }> = ({
     <details className="status-note">
       <summary>
         <strong>Corrected at intake.</strong> The delivered package this family
-        was imported from was corrected in CoGA before its import (
+        {label ? `\u2019s ${label} data` : ''} was imported from was corrected
+        in CoGA before its import (
         {corrections.length} correction{corrections.length === 1 ? '' : 's'}
         {pedigree ? ', the pedigree, a member or a sex among them' : ''}).
       </summary>

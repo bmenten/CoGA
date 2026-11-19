@@ -27,12 +27,13 @@ of its own:
   BED what it declared), and the file(s) it was loaded from, from where and when
   (owner decision of 2026-10-20), so it stays traceable which kind of coverage a depth check
   rested on;
-* ``package_intake`` — the delivered package the family's last package import came from (its
-  run, the SHA-256 of the pipeline's package file, the revision imported and that package's
-  SHA-256) and each correction made to it in CoGA before the import: every field changed, its
-  value before and after and whether the pipeline used it (a member's sex or parents, the
-  couples), why, by whom and when (``import_delivery_revisions``; owner decision of
-  2026-11-10). A family not imported from a delivery holds ``{"delivery": null}``;
+* ``package_intake`` — per analysis the family was imported for (a monogenic and a conventional
+  NIPT of one pregnancy each have their own), the delivered package its last package import came
+  from (its run, the SHA-256 of the pipeline's package file, the revision imported and that
+  package's SHA-256) and each correction made to it in CoGA before the import: every field
+  changed, its value before and after and whether the pipeline used it (a member's sex or
+  parents, the couples), why, by whom and when (``import_delivery_revisions``; owner decision of
+  2026-11-10). A family not imported from a delivery holds ``{"deliveries": []}``;
 * ``pgt_analysis`` — in a PGT family (one with an embryo) only: the PGT analysis at the ROI,
   each embryo's call with what it rests on, as the family page shows it (``pgt_analysis``,
   REQ-PGT-005). A family without an embryo has no such key, and nor has a monogenic NIPT
@@ -96,6 +97,7 @@ from .clickhouse_family_variants import (
 from .coverage_content import COVERAGE_CONTENT_KEY
 from .coverage_read_depth import COVERAGE_TRACK_TYPE, coverage_track_content
 from .family_metadata_context import FamilyMetadataContext
+from .family_package_records import family_package_records
 from .family_variant_filters import StructuralVariantQueryFilters
 from .nipt_service import SharedNiptAnalysis
 from .panel_use_audit import applied_gene_panels
@@ -155,9 +157,9 @@ PARAPHASE = RecordSection(
 COVERAGE_TRACKS = RecordSection(
     "coverage_tracks", "Coverage tracks", "The coverage tracks could not be read."
 )
-# Every family's: the delivered package its data came from, and each correction made to that
-# package in CoGA before its import (import_delivery_revisions): what changed, why, by whom and
-# when. A family not imported from a delivery holds it too, without one.
+# Every family's: per analysis, the delivered package its data came from, and each correction made
+# to that package in CoGA before its import (import_delivery_revisions): what changed, why, by whom
+# and when. A family not imported from a delivery holds it too, with none.
 PACKAGE_INTAKE = RecordSection(
     "package_intake",
     "Package intake",
@@ -821,8 +823,8 @@ async def coverage_tracks(session: AsyncSession, context: FamilyMetadataContext)
 
 # --- The delivered package and its corrections --------------------------------------
 
-_PACKAGE_DELIVERY_SQL = text(
-    "SELECT metadata -> 'package_import' -> 'delivery' AS delivery FROM families WHERE id = CAST(:family_uuid AS uuid)"
+_PACKAGE_RECORDS_SQL = text(
+    "SELECT metadata -> 'package_imports' AS package_imports FROM families WHERE id = CAST(:family_uuid AS uuid)"
 )
 
 
@@ -852,34 +854,41 @@ def _intake_correction(correction: Any) -> dict[str, Any] | None:
     }
 
 
-async def package_intake(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any]:
-    """The delivered package the family's last package import came from, as its record names it
-    (``families.metadata.package_import.delivery``: ``import_delivery_review.approve_delivery``),
-    and every correction made to that package in CoGA before the import, in revision order:
-    each field changed (its path, its kind, its value before and after), why, by whom and when.
-    ``{"delivery": None}`` for a family whose last import was no delivery's."""
-    row = (await session.execute(_PACKAGE_DELIVERY_SQL, {"family_uuid": context.family_uuid})).mappings().first()
-    delivery = row.get("delivery") if row is not None else None
-    if isinstance(delivery, str):
-        delivery = json.loads(delivery)
-    if not isinstance(delivery, Mapping):
-        return {"delivery": None}
+def _intake_delivery(analysis: str, delivery: Mapping[str, Any]) -> dict[str, Any]:
     corrections = [
         entry
         for entry in (_intake_correction(correction) for correction in delivery["corrections"])
         if entry is not None
     ]
     return {
-        "delivery": {
-            "id": _text(delivery.get("id")),
-            "run_id": _text(delivery.get("run_id")),
-            "package_file_sha256": _text(delivery.get("marker_sha256")),
-            "package_fingerprint": _text(delivery.get("package_fingerprint")),
-            "revision": _int_or_none(delivery.get("revision")),
-            "package_sha256": _text(delivery.get("package_sha256")),
-            "corrections": sorted(corrections, key=lambda entry: entry["revision"] if entry["revision"] is not None else -1),
-        }
+        "analysis_type": analysis,
+        "id": _text(delivery.get("id")),
+        "run_id": _text(delivery.get("run_id")),
+        "package_file_sha256": _text(delivery.get("marker_sha256")),
+        "package_fingerprint": _text(delivery.get("package_fingerprint")),
+        "revision": _int_or_none(delivery.get("revision")),
+        "package_sha256": _text(delivery.get("package_sha256")),
+        "corrections": sorted(corrections, key=lambda entry: entry["revision"] if entry["revision"] is not None else -1),
     }
+
+
+async def package_intake(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any]:
+    """The delivered package each of the family's analyses was last imported from (one package
+    record per analysis, ``family_package_records``; each record's ``delivery``:
+    ``import_delivery_review.approve_delivery``), in the order of the analyses, each with every
+    correction made to that package in CoGA before the import, in revision order: each field
+    changed (its path, its kind, its value before and after), why, by whom and when.
+    ``{"deliveries": []}`` for a family no analysis of which was last imported from a delivery."""
+    row = (await session.execute(_PACKAGE_RECORDS_SQL, {"family_uuid": context.family_uuid})).mappings().first()
+    records = row.get("package_imports") if row is not None else None
+    if isinstance(records, str):
+        records = json.loads(records)
+    deliveries = [
+        _intake_delivery(analysis, record["delivery"])
+        for analysis, record in sorted(family_package_records({"package_imports": records}).items())
+        if isinstance(record.get("delivery"), Mapping)
+    ]
+    return {"deliveries": deliveries}
 
 
 # --- The sections together ----------------------------------------------------------

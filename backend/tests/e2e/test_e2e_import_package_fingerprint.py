@@ -108,7 +108,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         async with sessionmaker() as session:
             family = (
                 await session.execute(
-                    text("SELECT id::text AS uuid, metadata -> 'package_import' AS record FROM families WHERE family_id = :f"),
+                    text("SELECT id::text AS uuid, (SELECT r.value FROM jsonb_each(metadata -> 'package_imports') AS r LIMIT 1) AS record FROM families WHERE family_id = :f"),
                     {"f": family_id},
                 )
             ).mappings().one()

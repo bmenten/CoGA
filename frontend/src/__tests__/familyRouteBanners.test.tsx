@@ -195,7 +195,7 @@ const FAMILY = {
   assigned_to: null,
   reviewed_by: null,
   metadata: INCOMPLETE_IMPORT_METADATA,
-  package_source_change: PACKAGE_SOURCE_CHANGE,
+  package_source_changes: [PACKAGE_SOURCE_CHANGE],
 };
 
 const serverError = () =>

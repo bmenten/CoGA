@@ -159,14 +159,15 @@ async def _recorded_alignments(
     """
     if not sample_ids:
         return {}
-    # Each sample's family's package folder, the folder its import read: a recorded location
-    # is served only from there.
+    # The package folder of the analysis whose import recorded each sample's alignment (its
+    # ``package``, family_package_records): a recorded location is served only from there.
     result = await session.execute(
         text(
             """
             SELECT s.sample_id,
                    s.metadata -> 'alignment' AS alignment,
-                   f.metadata -> 'package_import' ->> 'folder_path' AS package_folder
+                   f.metadata -> 'package_imports' -> (s.metadata -> 'alignment' ->> 'package')
+                       ->> 'folder_path' AS package_folder
             FROM samples s
             JOIN families f ON f.id = s.family_id
             WHERE s.sample_id = ANY(:sample_ids)

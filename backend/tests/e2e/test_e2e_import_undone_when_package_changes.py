@@ -80,7 +80,7 @@ async def _exercise(base: Path, data_dir: Path, run: str, patch: pytest.MonkeyPa
         async with sessionmaker() as session:
             row = (
                 await session.execute(
-                    text("SELECT id::text AS uuid, metadata -> 'package_import' AS record FROM families WHERE family_id = :f"),
+                    text("SELECT id::text AS uuid, (SELECT r.value FROM jsonb_each(metadata -> 'package_imports') AS r LIMIT 1) AS record FROM families WHERE family_id = :f"),
                     {"f": family_id},
                 )
             ).mappings().first()

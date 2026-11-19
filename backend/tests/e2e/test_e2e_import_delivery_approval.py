@@ -109,7 +109,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         async with sessionmaker() as session:
             out["record"] = (
                 await session.execute(
-                    text("SELECT metadata -> 'package_import' -> 'delivery' FROM families WHERE family_id = :f"),
+                    text("SELECT (SELECT r.value FROM jsonb_each(metadata -> 'package_imports') AS r LIMIT 1) -> 'delivery' FROM families WHERE family_id = :f"),
                     {"f": names["NEW"]},
                 )
             ).scalar_one()

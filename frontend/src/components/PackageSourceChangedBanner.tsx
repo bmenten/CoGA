@@ -1,7 +1,14 @@
 import React from 'react';
 
 import type { PackageSourceArchivedOut, PackageSourceChangeOut } from '../lib/apiSchema.generated';
+import { analysisLabel } from '../lib/familyAnalyses';
 import { joinWithAnd } from '../lib/format';
+
+/** Whose package folder it is, in the banner's sentence: "this family's monogenic NIPT data was". */
+const importedWords = (change: PackageSourceChange): string => {
+  const label = analysisLabel(change.analysis_type);
+  return label ? `this family\u2019s ${label} data was` : 'this family was';
+};
 
 /** A change of a package folder after its import, as the API serves it. */
 export type PackageSourceChange = Pick<
@@ -9,6 +16,8 @@ export type PackageSourceChange = Pick<
   'kind' | 'listed' | 'added' | 'removed' | 'changed' | 'added_count' | 'removed_count' | 'changed_count'
 > & {
   folder?: string | null;
+  // The analysis whose package folder it is (the key of the family's package record).
+  analysis_type?: string | null;
   // A gone folder a superuser confirmed as deliberately gone: no sign-out is warned of it.
   archived?: PackageSourceArchivedOut | null;
   // Found by a sign-out's own check of the folder, before the import watcher.
@@ -101,7 +110,7 @@ const PackageSourceChangedBanner: React.FC<{
   if (change.kind === 'gone' && change.archived) {
     return (
       <div className="import-incomplete-banner" role="status">
-        <strong>Source files archived.</strong> The package folder this family was imported from{folder} is
+        <strong>Source files archived.</strong> The package folder {importedWords(change)} imported from{folder} is
         gone since its import, and was confirmed as archived {describeArchiving(change.archived)}.
         <ArchivingReason archived={change.archived} /> The family&rsquo;s source files (the read files in IGV,
         the signal tracks and the QC report) are archived and no longer available; a signed record says so.
@@ -111,7 +120,7 @@ const PackageSourceChangedBanner: React.FC<{
   if (change.kind === 'gone') {
     return (
       <div className="import-incomplete-banner" role="alert">
-        <strong>Package folder gone.</strong> The package folder this family was imported from{folder} is
+        <strong>Package folder gone.</strong> The package folder {importedWords(change)} imported from{folder} is
         gone, or cannot be read, since its import: the source files CoGA showed from it (the read files in
         IGV, the signal tracks and the QC report) are no longer available. Put the folder back as it was
         imported, or, if it was archived on purpose, have a superuser confirm it as archived in Deliveries.
@@ -121,8 +130,8 @@ const PackageSourceChangedBanner: React.FC<{
   }
   return (
     <div className="import-incomplete-banner" role="alert">
-      <strong>Package folder changed after import.</strong> The package folder this family was imported
-      from{folder} has {describePackageSourceChange(change)} since its import. CoGA shows the family&rsquo;s
+      <strong>Package folder changed after import.</strong> The package folder {importedWords(change)}{' '}
+      imported from{folder} has {describePackageSourceChange(change)} since its import. CoGA shows the family&rsquo;s
       read files (IGV), signal tracks and QC report from that folder, so they may no longer be the ones
       imported. Import the folder&rsquo;s new delivery with overwrite, or refuse it with a reason, in
       Deliveries: an update skips the datasets the family holds, so this notice stays. Until then, signing

@@ -39,7 +39,7 @@ def test_verify_reports_verified_when_checksum_matches(tmp_path):
 
     result = asyncio.run(
         rif.verify_raw_import_file(
-            {"id": "rec-1", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": expected}
+            {"id": "rec-1", "package_folders": [str(tmp_path)], "storage_path": str(f), "sha256": expected}
         )
     )
 
@@ -54,7 +54,7 @@ def test_verify_detects_a_corrupted_or_altered_file(tmp_path):
 
     result = asyncio.run(
         rif.verify_raw_import_file(
-            {"id": "rec-2", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": "0" * 64}
+            {"id": "rec-2", "package_folders": [str(tmp_path)], "storage_path": str(f), "sha256": "0" * 64}
         )
     )
 
@@ -66,7 +66,7 @@ def test_verify_detects_a_corrupted_or_altered_file(tmp_path):
 def test_verify_reports_missing_when_file_is_absent(tmp_path):
     result = asyncio.run(
         rif.verify_raw_import_file(
-            {"id": "rec-3", "package_folder": str(tmp_path), "storage_path": str(tmp_path / "gone.vcf.gz"), "sha256": "abc"}
+            {"id": "rec-3", "package_folders": [str(tmp_path)], "storage_path": str(tmp_path / "gone.vcf.gz"), "sha256": "abc"}
         )
     )
 
@@ -80,7 +80,7 @@ def test_verify_reports_unverifiable_without_a_recorded_checksum(tmp_path):
 
     result = asyncio.run(
         rif.verify_raw_import_file(
-            {"id": "rec-4", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": None}
+            {"id": "rec-4", "package_folders": [str(tmp_path)], "storage_path": str(f), "sha256": None}
         )
     )
 
@@ -106,7 +106,7 @@ def test_verify_hashes_a_local_file_only_under_the_size_cap(monkeypatch, tmp_pat
     f.write_bytes(b"0123456789")  # 10 bytes
     expected = _sha256_of(f)
 
-    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-5", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": expected}))
+    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-5", "package_folders": [str(tmp_path)], "storage_path": str(f), "sha256": expected}))
 
     assert result["status"] == status
     # Over the cap the file was never hashed.
@@ -124,7 +124,7 @@ def test_a_hash_that_runs_out_of_time_is_not_a_verdict(monkeypatch, tmp_path):
     monkeypatch.setattr(rif, "_hash_and_size", slow)
     monkeypatch.setattr(rif, "_VERIFY_TIMEOUT_SECONDS", 0.02)
 
-    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-6", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": _sha256_of(f)}))
+    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-6", "package_folders": [str(tmp_path)], "storage_path": str(f), "sha256": _sha256_of(f)}))
 
     assert (result["status"], result["computed_sha256"]) == ("too_large", None)
     assert "timed out" in result["message"]
@@ -146,7 +146,7 @@ def test_a_file_whose_size_cannot_be_read_is_still_hashed(monkeypatch, tmp_path)
 
     monkeypatch.setattr(rif, "Path", _SizeUnreadable)
 
-    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-7", "package_folder": str(tmp_path), "storage_path": str(f), "sha256": _sha256_of(f)}))
+    result = asyncio.run(rif.verify_raw_import_file({"id": "rec-7", "package_folders": [str(tmp_path)], "storage_path": str(f), "sha256": _sha256_of(f)}))
 
     assert stat_calls[0] == str(f.resolve())
     assert (result["status"], result["computed_sha256"]) == ("verified", _sha256_of(f))
@@ -173,7 +173,7 @@ def test_a_recorded_path_holding_a_nul_is_read_nowhere(tmp_path):
     assert rif.readable_local_path(recorded) is None
     assert rif.readable_local_path(recorded, folders=[str(tmp_path)]) is None
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(rif.verify_raw_import_file({"id": "rec-8", "package_folder": str(tmp_path), "storage_path": recorded, "sha256": "abc"}))
+        asyncio.run(rif.verify_raw_import_file({"id": "rec-8", "package_folders": [str(tmp_path)], "storage_path": recorded, "sha256": "abc"}))
     assert (exc.value.status_code, exc.value.detail) == (403, rif.OUTSIDE_FOLDERS_DETAIL)
 
 
@@ -184,7 +184,7 @@ def test_the_admin_list_says_whether_each_file_is_there(tmp_path):
     local = tmp_path / "F1.vcf.gz"
     local.write_bytes(b"vcf")
 
-    package = {"package_folder": str(tmp_path)}
+    package = {"package_folders": [str(tmp_path)]}
     local_row = rif._row_to_dict({"storage_path": str(local), "created_at": None, **package})
     gone_row = rif._row_to_dict({"storage_path": str(tmp_path / "gone.vcf.gz"), "created_at": None, **package})
 

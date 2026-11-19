@@ -65,10 +65,12 @@ export const findAssemblyScopeBanner = async (): Promise<HTMLElement> => {
 };
 
 /**
- * A family record's `package_source_change`: the package folder its data came from changed after
- * its import. Every family page warns *Package folder changed after import*.
+ * One of a family record's `package_source_changes`: the package folder its data came from (that of
+ * a package naming no analysis type) changed after its import. Every family page warns *Package
+ * folder changed after import*.
  */
 export const PACKAGE_SOURCE_CHANGE = {
+  analysis_type: 'unspecified',
   delivery_id: 'delivery-1',
   folder: 'F1',
   imported_fingerprint: 'a'.repeat(64),

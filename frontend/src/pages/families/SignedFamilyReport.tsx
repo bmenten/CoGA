@@ -20,6 +20,7 @@ import FamilyPageHeader from './FamilyPageHeader';
 import { ClassificationMotivationSentence, ReportClassificationChip } from './ReportClassification';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { formatCount, joinWithAnd } from '../../lib/format';
+import { analysisLabel } from '../../lib/familyAnalyses';
 import { CATEGORY_LABELS, depth, pct } from './niptClassification';
 import { boundValue, cniptTargetLabel, cniptVerdictLabel, HEADLINE_TARGETS, percent } from './cniptResult';
 import type { ReportedClass } from './reportNarrative';
@@ -97,6 +98,8 @@ import {
   type SignedNipt,
   type SignedCniptFinding,
   type SignedCniptSample,
+  type SignedIntakeDelivery,
+  type SignedPackageSourceChange,
   type SignedRecordSection,
   type SignedReport,
   type SignedSmallVariant,
@@ -594,47 +597,53 @@ const PackageIntakeSection: React.FC<{ record: SignedReport; version: number }> 
     section={record.packageIntake}
     version={version}
   >
-    {(intake) => {
-      const delivery = intake.delivery;
-      if (!delivery) {
-        return (
-          <p className="report-paragraph">
-            The family’s last package import was not from a delivered package file: nothing was corrected at
-            intake.
-          </p>
-        );
-      }
-      return (
-        <>
-          <p className="report-paragraph">
-            The family’s data came from a delivered package
-            {delivery.runId ? ` of pipeline run ${delivery.runId}` : ''}
-            {delivery.packageFileSha256 ? ` (package file ${delivery.packageFileSha256.slice(0, 12)})` : ''}, imported{' '}
-            {delivery.revision ? `as revision ${delivery.revision}, corrected in CoGA before its import` : 'as delivered'}
-            {delivery.packageSha256 ? ` (package ${delivery.packageSha256.slice(0, 12)})` : ''}. The pipeline’s file
-            itself was never changed.
-          </p>
-          {delivery.corrections.length ? (
-            <ol className="report-signed-list">
-              {delivery.corrections.map((correction, index) => (
-                <li key={`${correction.revision ?? 'r'}-${index}`}>
-                  <strong>Revision {correction.revision ?? '?'}</strong>
-                  {correction.by ? ` by ${correction.by}` : ''}
-                  {correction.at ? `, ${formatReportTime(correction.at)}` : ''}: {correction.reason ?? 'no reason recorded'}
-                  <ul>
-                    {correction.changes.map((change, changeIndex) => (
-                      <IntakeChangeLine key={`${change.path}-${changeIndex}`} change={change} />
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ol>
-          ) : null}
-        </>
-      );
-    }}
+    {(intake) =>
+      intake.deliveries.length ? (
+        intake.deliveries.map((delivery, index) => (
+          <IntakeDeliveryLines key={delivery.analysisType ?? index} delivery={delivery} />
+        ))
+      ) : (
+        <p className="report-paragraph">
+          The family’s last package import was not from a delivered package file: nothing was corrected at
+          intake.
+        </p>
+      )
+    }
   </RecordSectionBlock>
 );
+
+/** One analysis's delivered package and its corrections, as the record froze them. */
+const IntakeDeliveryLines: React.FC<{ delivery: SignedIntakeDelivery }> = ({ delivery }) => {
+  const label = analysisLabel(delivery.analysisType);
+  return (
+    <>
+      <p className="report-paragraph">
+        The family’s {label ? `${label} ` : ''}data came from a delivered package
+        {delivery.runId ? ` of pipeline run ${delivery.runId}` : ''}
+        {delivery.packageFileSha256 ? ` (package file ${delivery.packageFileSha256.slice(0, 12)})` : ''}, imported{' '}
+        {delivery.revision ? `as revision ${delivery.revision}, corrected in CoGA before its import` : 'as delivered'}
+        {delivery.packageSha256 ? ` (package ${delivery.packageSha256.slice(0, 12)})` : ''}. The pipeline’s file
+        itself was never changed.
+      </p>
+      {delivery.corrections.length ? (
+        <ol className="report-signed-list">
+          {delivery.corrections.map((correction, index) => (
+            <li key={`${correction.revision ?? 'r'}-${index}`}>
+              <strong>Revision {correction.revision ?? '?'}</strong>
+              {correction.by ? ` by ${correction.by}` : ''}
+              {correction.at ? `, ${formatReportTime(correction.at)}` : ''}: {correction.reason ?? 'no reason recorded'}
+              <ul>
+                {correction.changes.map((change, changeIndex) => (
+                  <IntakeChangeLine key={`${change.path}-${changeIndex}`} change={change} />
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </>
+  );
+};
 
 // A NIPT check that could not run reads "Not run", as on the NIPT page.
 const niptStatusLabel = (status: string | null): string =>
@@ -1230,31 +1239,19 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
   </>
 );
 
-/**
- * Whether the package folder the family's data came from had changed, or gone, since its import
- * when this version was signed (owner decision of 2026-11-11): what changed, or that the source
- * files were no longer available, and the acknowledgement that let the sign-out through.
- */
-const SignedPackageSource: React.FC<{ record: SignedReport }> = ({ record }) => {
-  const change = record.packageSourceChange;
-  if (change === 'absent') return <p className="report-paragraph">Not in the signed record.</p>;
-  if (change === null) {
-    return (
-      <p className="report-paragraph">
-        The package folder the family’s data came from was as it was imported (or the family was not
-        imported from a delivered package), by the import watcher and the sign-out’s own check.
-      </p>
-    );
-  }
+/** One package folder's change as the record froze it, in the words of its analysis. */
+const SignedPackageSourceChangeLines: React.FC<{ change: SignedPackageSourceChange }> = ({ change }) => {
+  const label = analysisLabel(change.analysisType);
+  const whose = `The package folder the family’s ${label ? `${label} ` : ''}data came from`;
   const folder = change.folder ? ` (${change.folder})` : '';
   if (change.kind === 'gone' && change.archived) {
     const { archivedAt, archivedBy, reason } = change.archived;
     return (
       <>
         <p className="report-paragraph">
-          {`The package folder the family’s data came from${folder} was gone since its import, and had been confirmed as archived by ${archivedBy ?? 'unknown'}${
+          {`${whose}${folder} was gone since its import, and had been confirmed as archived by ${archivedBy ?? 'unknown'}${
             archivedAt ? ` on ${formatReportTime(archivedAt)}` : ''
-          }. The family’s source files (the read files IGV shows, the signal tracks and the QC report) were archived and no longer available; no acknowledgement was needed.`}
+          }. Its source files (the read files IGV shows, the signal tracks and the QC report) were archived and no longer available; no acknowledgement was needed.`}
         </p>
         {reason ? <p className="report-paragraph">Reason: {reason}</p> : null}
       </>
@@ -1264,17 +1261,46 @@ const SignedPackageSource: React.FC<{ record: SignedReport }> = ({ record }) => 
     <>
       <p className="report-paragraph">
         {change.kind === 'gone'
-          ? `The package folder the family’s data came from${folder} was gone, or could not be read, since its import: the source files (the read files IGV shows, the signal tracks and the QC report) were no longer available.`
-          : `The package folder the family’s data came from${folder} had ${describePackageSourceChange(packageSourceChangeWords(change))} since its import${
+          ? `${whose}${folder} was gone, or could not be read, since its import: the source files (the read files IGV shows, the signal tracks and the QC report) were no longer available.`
+          : `${whose}${folder} had ${describePackageSourceChange(packageSourceChangeWords(change))} since its import${
               change.fingerprint ? ` (fingerprint ${change.fingerprint.slice(0, 12)}` : ''
             }${change.fingerprint && change.importedFingerprint ? `, imported as ${change.importedFingerprint.slice(0, 12)})` : change.fingerprint ? ')' : ''}.`}
         {change.detectedAt ? ` Found ${formatReportTime(change.detectedAt)}.` : ''}
         {change.foundAtSignOut ? ' Found by the sign-out’s own check of the folder.' : ''}
       </p>
       <PackageSourceChangePaths change={packageSourceChangeWords(change)} />
+    </>
+  );
+};
+
+/**
+ * Whether each package folder the family's data came from (one per analysis it was imported for)
+ * had changed, or gone, since its import when this version was signed (owner decision of
+ * 2026-11-11): what changed, or that the source files were no longer available, and the
+ * acknowledgement that let the sign-out through.
+ */
+const SignedPackageSource: React.FC<{ record: SignedReport }> = ({ record }) => {
+  const changes = record.packageSourceChanges;
+  if (changes === 'absent') return <p className="report-paragraph">Not in the signed record.</p>;
+  if (!changes.length) {
+    return (
       <p className="report-paragraph">
-        {acknowledgementLine(record.packageSourceAcknowledgement) ?? 'No acknowledgement is recorded.'}
+        The package folder the family’s data came from was as it was imported (or the family was not
+        imported from a delivered package), by the import watcher and the sign-out’s own check.
       </p>
+    );
+  }
+  const acknowledged = changes.some((change) => !(change.kind === 'gone' && change.archived));
+  return (
+    <>
+      {changes.map((change, index) => (
+        <SignedPackageSourceChangeLines key={change.analysisType ?? index} change={change} />
+      ))}
+      {acknowledged ? (
+        <p className="report-paragraph">
+          {acknowledgementLine(record.packageSourceAcknowledgement) ?? 'No acknowledgement is recorded.'}
+        </p>
+      ) : null}
     </>
   );
 };
