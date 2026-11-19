@@ -508,6 +508,37 @@ def test_evaluate_paternity_supported_vs_mixup() -> None:
     assert _paternity((0, 0), (0, 0)).status == "warn"
 
 
+def test_the_paternity_message_says_which_way_the_rates_miss() -> None:
+    # Nearly all his het alleles seen fails as surely as too few, but it does not mean they are
+    # absent: one fetus shows only half, so the plasma holds more of his DNA than a fetus's.
+    high = _paternity((500, 0), (1996, 4))
+    assert high.status == "fail"
+    assert "More of the father's het alleles are in the plasma than one fetus inherits" in high.message
+    assert "largely absent" not in high.message and "another father" not in high.message
+    # One decimal: 1996 of 2000 is 99.8%, not "100%".
+    assert "1996 of 2000 (99.8%) of his het alleles seen (half expected)" in high.message
+    assert "500 of 500 (100.0%) of his homozygous alleles seen (all expected)" in high.message
+    low = _paternity((200, 300), (500, 1500))
+    assert low.message.startswith("The father's alleles are largely absent from the plasma")
+    # The warnings name their side too.
+    assert _paternity((100, 0), (70, 30)).message.startswith("More of the father's het alleles in the plasma than expected")
+    assert _paternity((85, 15), (50, 50)).message.startswith("Fewer of the father's alleles in the plasma than expected")
+    # His homozygous alleles too few and his het ones too many fits no fetus of his.
+    both = _paternity((50, 50), (90, 10))
+    assert both.status == "fail" and both.message.startswith("The father's alleles in the plasma fit no fetus of his")
+
+
+def test_unverifiable_paternity_names_the_sites_without_plasma_depth() -> None:
+    check = evaluate_paternity(
+        "FATHER", hom_alt_transmitted=0, hom_alt_not_transmitted=0, het_transmitted=0, het_not_transmitted=0,
+        without_plasma_depth=152,
+    )
+    assert check.status == "warn"
+    assert "The plasma's depth is not known at 152 of the father's sites" in check.message
+    # Without such sites the warning says only that there are too few.
+    assert "depth" not in _paternity((5, 1), (10, 9)).message
+
+
 def test_a_paternity_check_is_pass_warn_or_fail_never_skip() -> None:
     # the check's status allowed "skip", which evaluate_paternity never gives (too few
     # sites warns), so the NIPT route had to silence the type it serves (pass, warn or fail).

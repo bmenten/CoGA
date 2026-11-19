@@ -163,8 +163,11 @@ not genotype relatedness. The analysis is explained in the
 
 A fetus carries every allele its father is homozygous for, and half of those he is heterozygous for.
 CoGA counts the father's alleles at sites where the mother does not carry them (no cfDNA call, or one
-at 25% or less) and the cfDNA depth leaves at least 10 expected alt reads, so a transmitted allele is
-almost never missed. Only usable father calls count: a genotype read off his allele depths at a depth
+at 25% or less) and the cfDNA depth there leaves at least 10 expected alt reads, so a transmitted allele
+is almost never missed. That depth must be known whether or not the cfDNA shows the allele: with one VCF
+per sample it is the plasma's per-target coverage, so a site outside every target does not count, nor
+does any site of a plasma without a coverage table. Counted on the depth of the plasma's own calls,
+only the alleles it shows would count, and every rate would read close to 100%. Only usable father calls count: a genotype read off his allele depths at a depth
 of 20 or more. An allele counts as seen when the probability that the fetus inherited it is 50% or
 more.
 
@@ -172,9 +175,13 @@ more.
   → **warn**. Needs at least **20** such sites.
 - **His heterozygous alleles** (half expected): 35–65% seen → **pass**; outside 25–75% → **fail**;
   between → **warn**. Needs at least **50** such sites.
-- The verdict is the worse of the two. Too few sites of both kinds → **warn** (unverifiable).
+- The verdict is the worse of the two. Too few sites of both kinds → **warn** (unverifiable); the
+  message then says at how many of the father's sites the plasma's depth is not known.
 
-A fail means another father, or a sample or file mix-up (for example the wrong paternal VCF).
+A fail on too few of his alleles seen means another father, or a sample or file mix-up (for example
+the wrong paternal VCF). A fail on too many of his heterozygous alleles seen (above 75%) means more of
+his DNA in the plasma than one fetus carries: his own DNA in the plasma (contamination, or a sample or
+file mix-up), or more than one fetus. The message says which of the two it is.
 
 ### Fetal sex (paternal X transmission)
 

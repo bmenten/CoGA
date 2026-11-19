@@ -162,6 +162,9 @@ def test_build_observation_paternal_transmitted_site() -> None:
     assert site.cf_vaf == pytest.approx(0.05)
     assert site.cf_present
     assert site.cf_qual == 42.0
+    # A joint VCF holds a plasma call at every record, shown or not: paternity judges the
+    # site at that call's depth.
+    assert site.cf_coverage_dp == 120
 
 
 def test_build_observation_false_negative_site_is_absent() -> None:

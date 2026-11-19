@@ -330,6 +330,9 @@ def build_nipt_observations(
     show: it is kept, with the plasma's depth there from its per-target coverage
     (``plasma_depth``; None outside every target), and a record without the father's call
     reads his genotype as ``absent``, with his depth there from his coverage when known.
+    Every per-sample site, called by the plasma or not, also carries that coverage depth
+    as ``cf_coverage_dp``, the depth paternity judges a site at; a joint VCF's site carries
+    its plasma call's depth.
 
     The two per-sample VCFs can write one allele in two representations (an MNV in one,
     its SNVs in the other), so a call missing from a record is first looked up base by
@@ -382,6 +385,7 @@ def build_nipt_observations(
         )
         father_vaf = _call_vaf(father_call, father_dp) if father_call is not None else None
         father_alt = _alt_reads(father_call) if father_call is not None else None
+        plasma_coverage = _lookup_depth(plasma_depth, record.chr, record.start) if per_sample else None
         if cf_call is None:
             sites.append(
                 NiptSiteObservation(
@@ -390,10 +394,11 @@ def build_nipt_observations(
                     pos=record.start,
                     is_autosomal=_is_autosomal(record.chr),
                     cf_present=False,
-                    cf_dp=_lookup_depth(plasma_depth, record.chr, record.start),
+                    cf_dp=plasma_coverage,
                     cf_alt_reads=0,
                     cf_vaf=None,
                     cf_qual=None,
+                    cf_coverage_dp=plasma_coverage,
                     father_state=father_state,
                     father_dp=father_dp,
                     father_qual=_call_quality(father_call) if father_call is not None else None,
@@ -423,6 +428,7 @@ def build_nipt_observations(
                 cf_alt_reads=alt_reads,
                 cf_vaf=_call_vaf(cf_call, depth),
                 cf_qual=record.qual if not per_sample else None,
+                cf_coverage_dp=plasma_coverage if per_sample else depth,
                 father_state=father_state,
                 father_dp=father_dp,
                 father_qual=_call_quality(father_call) if father_call is not None else None,
