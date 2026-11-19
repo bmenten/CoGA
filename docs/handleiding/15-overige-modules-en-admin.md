@@ -153,6 +153,15 @@ Op de pagina *Sequencing QC thresholds* stelt een superuser of beheerder per QC-
 - **De telcorrectie.** *Set count correction* opent het venster met het veld *Count correction*: een geheel getal van −20 tot 20, het aantal repeats dat CoGA bij de telling van TRGT optelt voor het die classificeert (0 voor geen). Het veld toont de huidige correctie. Bij *FMR1* staat naast het veld dat een vaste correctie er fout is (TRGT telt 1 tot 3 te laag, naargelang de AGG-onderbrekingen): laat ze op 0. Niets is vooraf ingevuld.
 - **Altijd met een reden.** Een wijziging vraagt een bevestiging en een reden (bv. het rapport, de nagekeken TRGT-catalogus en -versie). Ze is een gebeurtenis in de klinische audittrail, op de keten `system:repeat-loci`, met de correctie ervoor en erna; de geschiedenis staat onderaan de pagina. Een correctie geldt meteen. Bij elk locus markeren de repeatpagina en de genoomtracks (gecorrigeerde) tellingen dicht bij een grens (hoofdstuk 8).
 
+### De NIPT-artefactenlijst
+
+- **Per assembly en assay** (`AdminNiptArtifactsPage.tsx`, *NIPT artefact list* onder *Variant configuration*, alleen voor een beheerder). Bovenaan kies je de assembly en de assay-scope: `nipt_cfdna`, of het capturepanel dat een cfDNA-sample in `assay_panel` noemt (`GET /api/admin/nipt/artifacts/scopes`). Elke scope zegt hoeveel cfDNA-samples ze heeft, over alle projecten heen, en hoeveel allelen ze lijst. De tabel toont per allel de bron (`curated` of `auto`), de terugkeer, het label en wanneer het toegevoegd en bijgewerkt werd, met een filter op variant of label. Elke analyse van de assay laat de gelijste allelen weg (hoofdstuk 8).
+- **Automatisch, met een voorbeeld** (`GET /api/admin/nipt/artifacts/auto-seed/preview`, `POST /api/admin/nipt/artifacts/auto-seed`): de varianten die in meerdere cfDNA-samples van dezelfde assay, over alle projecten heen, terugkomen als een onverklaarde call met lage allelfractie: onder 0,25, en de vader van die familie draagt het allel niet (*Minimum samples*, `min_unexplained_samples`, standaard drie). Dat aantal wordt de terugkeer van het allel op de lijst. Een maternale het of het vaderlijke allel van de foetus telt niet mee, hoe vaak het ook terugkomt: dat zijn de sites waarop de foetale fractie steunt. *Preview* toont zonder iets te schrijven welke allelen de aanvulling zou opnemen, en welke er al op staan: van die laatste ververst ze alleen de terugkeer, bron en label blijven. *Seed the list* vraagt een bevestiging; de aanvulling leest de samples dan opnieuw en toont wat ze schreef. Een zwangerschap zonder sample van de vader kan een vaderlijk allel niet verklaren; in een groot cohort van zulke zwangerschappen kan een polymorfisme dus toch op de lijst komen. Kijk de automatische regels na. Een aanvulling is één klinische auditgebeurtenis, `nipt_artifacts_auto_seeded`, met de grens en elke toegevoegde variant met zijn terugkeer.
+- **Uit de pipeline** (`POST /api/admin/nipt/artifacts/import`): de lijst van terugkerende artefacten van de NIPT-M-pipeline (`recurrent_cfdna_artifact_filter_*.tsv`), na een bevestiging. De pagina toont daarna hoeveel rijen ze las, hoeveel de tabel niet markeert of onleesbaar zijn, hoeveel allelen ze opnam en hoeveel ze weigerde als frequent of om ClinVar. Een import is één klinische auditgebeurtenis, `nipt_artifacts_imported`.
+- **Eén allel met de hand** (`POST /api/admin/nipt/artifacts`, *Add an entry*): als `curated`, met een label, na een bevestiging. De pagina leest een getypt allel (`7-1000-A-G` of `chr7:1000:A:G`) in de vorm waarin de lijst het bewaart. Staat het al op de lijst, dan zegt het venster dat, en houdt het allel zijn terugkeer. *Remove* haalt een regel weg na een bevestiging, zonder reden: de auditgebeurtenis `nipt_artifact_removed` bewaart de regel zoals hij was.
+
+De aanvulling en de import nemen geen frequente varianten op, en geen varianten met een ClinVar-melding pathogeen, waarschijnlijk pathogeen of conflicterend. Een allel dat nog geen familie draagt, of dat met de hand wordt toegevoegd, is bij het opnemen niet gecontroleerd. Daarom controleert elke familie-analyse de gelijste allelen opnieuw met haar eigen annotatie, en houdt ze een frequent of ClinVar-pathogeen allel over, gemarkeerd `artifact_list_protected`. Elke wijziging staat in de klinische audittrail, op de keten `system:nipt-artifacts` (hoofdstuk 11); een voorbeeld schrijft niets.
+
 ### Presets en tags
 
 Een overzicht van de bewaarde filterpresets voor small variants van alle gebruikers, elk met de gebruikersnaam waaronder hij laatst bewaard werd (de eigenaar is het account, hoofdstuk 10), en het beheer van de eigen varianttags (hoofdstuk 10). Beide zijn ook voor een superuser.
@@ -163,13 +172,6 @@ Een overzicht van de bewaarde filterpresets voor small variants van alle gebruik
 - **Integriteit:** de hash-keten van een familie nalopen, en integriteitsankers maken en controleren (hoofdstuk 11). Daarvoor bestaan alleen endpoints, geen scherm.
 
 ### Overige
-
-- **NIPT-artefacten:** de lijst terugkerende artefacten per assay (hoofdstuk 8 en `docs/data-import.md`). Een beheerder vult ze op twee manieren aan:
-
-    - **Automatisch, op aanvraag** (`POST /api/admin/nipt/artifacts/auto-seed`): de varianten die in meerdere cfDNA-samples van dezelfde assay, over alle projecten heen, terugkomen als een onverklaarde call met lage allelfractie: onder 0,25, en de vader van die familie draagt het allel niet (`min_unexplained_samples`, standaard minstens drie). Dat aantal wordt de terugkeer van het allel op de lijst. Een maternale het of het vaderlijke allel van de foetus telt niet mee, hoe vaak het ook terugkomt: dat zijn de sites waarop de foetale fractie steunt. Een zwangerschap zonder sample van de vader kan een vaderlijk allel niet verklaren; in een groot cohort van zulke zwangerschappen kan een polymorfisme dus toch op de lijst komen. Kijk de automatische regels na. Een aanvulling is één klinische auditgebeurtenis, `nipt_artifacts_auto_seeded`, met de grens en elke toegevoegde variant met zijn terugkeer.
-    - **Uit de pipeline** (`POST /api/admin/nipt/artifacts/import`): de lijst van terugkerende artefacten van de NIPT-M-pipeline. Een import is één klinische auditgebeurtenis, `nipt_artifacts_imported`.
-
-    Beide nemen geen frequente varianten op, en geen varianten met een ClinVar-melding pathogeen, waarschijnlijk pathogeen of conflicterend. Een allel dat nog geen familie draagt, is bij het opnemen niet te controleren. Daarom controleert elke familie-analyse de gelijste allelen opnieuw met haar eigen annotatie, en houdt ze een frequent of ClinVar-pathogeen allel over, gemarkeerd `artifact_list_protected`.
 
 - De synchronisatie van de genreferentie (hoofdstuk 13).
 - Het beheer van HPO en Monarch (hoofdstuk 12).
@@ -215,6 +217,7 @@ Naast de HTTP-auditlog legt CoGA **betekenisvolle interacties** in de interface 
 | `backend/app/routers/ancestry.py` · `backend/app/services/ancestry_service.py` | De verkennende ancestry-PCA |
 | `backend/app/services/admin_service.py` | Data-inventaris, verwijderen, bronbestanden verifiëren |
 | `backend/app/services/qc_threshold_service.py` | Grenzen voor sequencing-QC en hun geschiedenis |
+| `backend/app/services/nipt_artifact_pg.py` | De NIPT-artefactenlijst: scopes, voorbeeld, aanvulling, import |
 | `backend/app/services/family_structure_service.py` · `family_member_management_service.py` | Familiestructuur en ledenbeheer |
 | `backend/app/routers/ui_events.py` · `backend/app/services/ui_event_pg.py` | UI-telemetrie |
 | `frontend/src/pages/admin/` | De beheerschermen |

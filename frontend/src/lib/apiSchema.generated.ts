@@ -2330,9 +2330,25 @@ export interface NiptArtifactAutoSeed {
   min_unexplained_samples?: number;
 }
 
+/** What an auto-seed wrote: the ``seeded`` alleles, each in ``variants``. */
 export interface NiptArtifactAutoSeedOut {
-  seeded: number;
+  assay_key: string;
   min_unexplained_samples: number;
+  cfdna_samples: number;
+  variants: NiptArtifactSeedVariantOut[];
+  seeded: number;
+}
+
+/**
+ * What an auto-seed at ``min_unexplained_samples`` would write now, read as the seed
+ * reads it, without writing: the number of cfDNA samples of the assay whose calls it
+ * reads, and each allele it would list, most recurrent first.
+ */
+export interface NiptArtifactAutoSeedPreviewOut {
+  assay_key: string;
+  min_unexplained_samples: number;
+  cfdna_samples: number;
+  variants: NiptArtifactSeedVariantOut[];
 }
 
 /**
@@ -2389,6 +2405,32 @@ export interface NiptArtifactOut {
   label: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * An artifact-list scope (``assay_key``): the default ``nipt_cfdna``, a panel that a
+ * cfDNA sample's ``assay_panel`` names, or a scope the assembly's list holds entries for.
+ * ``cfdna_samples`` counts the samples tagged ``assay: nipt_cfdna`` whose panel resolves
+ * to the scope, in every project: the samples whose calls the auto-seed reads. ``listed``
+ * counts the scope's entries on the assembly's list.
+ */
+export interface NiptArtifactScopeOut {
+  assay_key: string;
+  cfdna_samples: number;
+  listed: number;
+}
+
+/**
+ * An allele the auto-seed lists, or would list: an unexplained low-VAF call in
+ * ``recurrence_count`` cfDNA samples of the assay, the count its entry takes.
+ * ``listed_source`` is the source of the allele's entry already on the list, whose
+ * recurrence count the seed refreshes and whose source and label it keeps; ``None`` for
+ * an allele the seed adds.
+ */
+export interface NiptArtifactSeedVariantOut {
+  variant_id: string;
+  recurrence_count: number;
+  listed_source: "curated" | "auto" | null;
 }
 
 /**

@@ -308,7 +308,10 @@ from .nipt import (
     NiptArtifactCreate,
     NiptArtifactAutoSeed,
     NiptArtifactAutoSeedOut,
+    NiptArtifactAutoSeedPreviewOut,
     NiptArtifactImportOut,
+    NiptArtifactScopeOut,
+    NiptArtifactSeedVariantOut,
     NiptVariantOut,
 )
 from .product import (
@@ -716,7 +719,10 @@ __all__ = [
     "NiptArtifactCreate",
     "NiptArtifactAutoSeed",
     "NiptArtifactAutoSeedOut",
+    "NiptArtifactAutoSeedPreviewOut",
     "NiptArtifactImportOut",
+    "NiptArtifactScopeOut",
+    "NiptArtifactSeedVariantOut",
     "NiptDeNovoTriageOut",
     "NiptDeNovoWindowOut",
     "NiptFetalSexOut",
