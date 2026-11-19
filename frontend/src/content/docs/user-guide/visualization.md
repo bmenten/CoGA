@@ -8,7 +8,8 @@ family page:
 - **Circos plot** — genome-wide structural relationships at a glance, drawn on chromosomes 1–22, X and
   Y of the family's assembly. For an assembly it cannot draw, the page says why and draws nothing.
 - **IGV viewer** — the reads at a locus, on the genome of the family's assembly. For an assembly it
-  has no genome for, the page says so and opens none, rather than another assembly's genome.
+  has no genome for, the page says so and opens none, rather than another assembly's genome. A sample
+  sequenced short-read and then long-read shows a track of each, named with its analysis.
 
 The **IGV** and **View** links on a variant row or card, and the **Genome** and **Circos** buttons above
 the structural-variant table, open in a new browser tab, so your filtered list stays as it was.

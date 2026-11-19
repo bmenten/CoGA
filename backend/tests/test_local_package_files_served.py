@@ -80,8 +80,14 @@ def _package(data: Path) -> str:
     return str(data / "share" / "PKG1")
 
 
+# The analysis whose import of PKG1 recorded the alignment (samples.metadata.alignments).
+ANALYSIS = "long_read_wgs"
+# Its query on the URLs the manifest hands out.
+QUERY = f"?analysis={ANALYSIS}"
+
+
 def _alignment(**overrides: Any) -> dict[str, Any]:
-    """``samples.metadata['alignment']`` as the import of PKG1 wrote it."""
+    """One of ``samples.metadata['alignments']``, as the import of PKG1 wrote it."""
     return {"path": "bams/S1.markdup.cram", "format": "cram", "index_path": "bams/S1.markdup.cram.crai", **overrides}
 
 
@@ -113,8 +119,10 @@ class _Session:
                     if sample_id in set(params["sample_ids"])
                 ]
                 return SimpleNamespace(all=lambda: rows)
+            # Each sample's alignment of the analysis whose import recorded it, with that
+            # analysis's package folder.
             rows = [
-                (sample_id, value, self.package_folder)
+                (sample_id, ANALYSIS, value, self.package_folder)
                 for sample_id, value in self.recorded.items()
                 if sample_id in set(params["sample_ids"])
             ]
@@ -134,27 +142,33 @@ def _members(monkeypatch: pytest.MonkeyPatch, family_id: str = "F1", *sample_ids
         monkeypatch.setattr(module, "get_family_record", family_record)
 
 
-async def _served(endpoint: Any, *args: Any, session: Any) -> str | int:
+async def _served(endpoint: Any, *args: Any, session: Any, **query: Any) -> str | int:
     """What a GET serves: the file's text, or the status it answers with."""
     try:
-        response = await endpoint(*args, session=session, user=object())
+        response = await endpoint(*args, session=session, user=object(), **query)
     except HTTPException as exc:
         return exc.status_code
     return Path(response.path).read_text()
 
 
-async def _cram_answers(session: Any, family_id: str = "F1", sample_id: str = "S1") -> dict[str, Any]:
+async def _cram_answers(
+    session: Any, family_id: str = "F1", sample_id: str = "S1", analysis: str | None = ANALYSIS
+) -> dict[str, Any]:
+    """The manifest's entries, and what the endpoints serve of the sample's alignment of
+    ``analysis`` (None: one found in the family's folders)."""
     manifest = await cram.get_alignment_manifest(family_id, sample_ids=[sample_id], session=session, user=object())
     try:
-        head = (await cram.head_cram(family_id, sample_id, session=session, user=object())).status_code
+        head = (
+            await cram.head_cram(family_id, sample_id, session=session, user=object(), analysis=analysis)
+        ).status_code
     except HTTPException as exc:
         head = exc.status_code
     return {
         "manifest": [(entry.format, entry.url, entry.index_url) for entry in manifest],
-        "cram": await _served(cram.get_cram, family_id, sample_id, session=session),
-        "crai": await _served(cram.get_crai, family_id, sample_id, session=session),
+        "cram": await _served(cram.get_cram, family_id, sample_id, session=session, analysis=analysis),
+        "crai": await _served(cram.get_crai, family_id, sample_id, session=session, analysis=analysis),
         "head": head,
-        "bam": await _served(cram.get_bam, family_id, sample_id, session=session),
+        "bam": await _served(cram.get_bam, family_id, sample_id, session=session, analysis=analysis),
     }
 
 
@@ -175,13 +189,54 @@ async def test_reads_recorded_in_a_package_on_a_second_import_root_are_served(
 
     assert await _cram_answers(session) == {
         # Served under the sample's name, whatever the pipeline called the file.
-        "manifest": [("cram", "/cram/F1/S1.cram", "/cram/F1/S1.cram.crai")],
+        "manifest": [("cram", f"/cram/F1/S1.cram{QUERY}", f"/cram/F1/S1.cram.crai{QUERY}")],
         "cram": "reads of S1",
         "crai": "index of S1",
         "head": 200,
         # The recorded CRAM answers for the sample: no BAM is looked for.
         "bam": 404,
     }
+
+
+class _TwoAnalyses(_Session):
+    """S1 sequenced short-read (PKG-SR) and then long-read (PKG1): one alignment of each, each
+    with its own analysis's package folder."""
+
+    def __init__(self, data: Path) -> None:
+        super().__init__({}, None)
+        self.rows = [
+            ("S1", "short_read_wgs", _alignment(path="S1/S1.cram", index_path="S1/S1.cram.crai"), str(data / "share" / "PKG-SR")),
+            ("S1", ANALYSIS, _alignment(), _package(data)),
+        ]
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        rows = [row for row in self.rows if row[0] in set((params or {}).get("sample_ids", []))]
+        return SimpleNamespace(all=lambda: rows)
+
+
+@pytest.mark.asyncio
+async def test_a_sample_sequenced_short_and_long_read_serves_each_alignment_from_its_own_package(
+    data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(data / "share" / "PKG-SR", {"S1/S1.cram": "short reads of S1", "S1/S1.cram.crai": "short index of S1"})
+    _members(monkeypatch, "F1", "S1")
+    session = _TwoAnalyses(data)
+
+    manifest = await cram.get_alignment_manifest("F1", sample_ids=["S1"], session=session, user=object())  # type: ignore[arg-type]
+    # One entry per analysis, in the analyses' order, each naming it.
+    assert [(entry.analysis_type, entry.url, entry.index_url) for entry in manifest] == [
+        ("long_read_wgs", "/cram/F1/S1.cram?analysis=long_read_wgs", "/cram/F1/S1.cram.crai?analysis=long_read_wgs"),
+        ("short_read_wgs", "/cram/F1/S1.cram?analysis=short_read_wgs", "/cram/F1/S1.cram.crai?analysis=short_read_wgs"),
+    ]
+    long_read = await _cram_answers(session, analysis="long_read_wgs")
+    short_read = await _cram_answers(session, analysis="short_read_wgs")
+    assert (long_read["cram"], long_read["crai"]) == ("reads of S1", "index of S1")
+    assert (short_read["cram"], short_read["crai"]) == ("short reads of S1", "short index of S1")
+    # An analysis that recorded no alignment of the sample serves none, nor one found elsewhere.
+    _write(data / "families" / "F1", {"bams/S1.cram": "copied reads of S1", "bams/S1.cram.crai": "copied index of S1"})
+    assert (await _cram_answers(session, analysis="monogenic_nipt"))["cram"] == 404
+    # Without an analysis, only the family's folders are read.
+    assert (await _cram_answers(session, analysis=None))["cram"] == "copied reads of S1"
 
 
 @pytest.mark.asyncio
@@ -204,7 +259,7 @@ async def test_a_recorded_index_named_otherwise_is_served(data: Path, monkeypatc
     _members(monkeypatch, "F1", "S1")
     session = _Session({"S1": _alignment(index_path="bams/S1.crai")}, _package(data))
 
-    assert await _served(cram.get_crai, "F1", "S1", session=session) == "short-named index of S1"
+    assert await _served(cram.get_crai, "F1", "S1", session=session, analysis=ANALYSIS) == "short-named index of S1"
 
 
 @pytest.mark.asyncio
@@ -218,7 +273,7 @@ async def test_without_a_recorded_index_the_one_beside_the_reads_is_served(
 
     answers = await _cram_answers(session)
 
-    assert (answers["manifest"], answers["crai"]) == ([("cram", "/cram/F1/S1.cram", "/cram/F1/S1.cram.crai")], "index of S1")
+    assert (answers["manifest"], answers["crai"]) == ([("cram", f"/cram/F1/S1.cram{QUERY}", f"/cram/F1/S1.cram.crai{QUERY}")], "index of S1")
 
 
 @pytest.mark.asyncio
@@ -249,7 +304,7 @@ async def test_the_layouts_serve_a_sample_whose_recorded_reads_are_gone(
     assert (answers["cram"], answers["crai"], answers["manifest"]) == (
         "copied reads of S1",
         "copied index of S1",
-        [("cram", "/cram/F1/S1.cram", "/cram/F1/S1.cram.crai")],
+        [("cram", f"/cram/F1/S1.cram{QUERY}", f"/cram/F1/S1.cram.crai{QUERY}")],
     )
 
 
@@ -272,7 +327,7 @@ async def test_the_header_is_read_from_the_recorded_reads(data: Path, monkeypatc
     _members(monkeypatch, "F1", "S1")
     session = _Session({"S1": _alignment()}, _package(data))
 
-    header = await cram.get_cram_header("F1", "S1", session=session, user=object())  # type: ignore[arg-type]
+    header = await cram.get_cram_header("F1", "S1", session=session, user=object(), analysis=ANALYSIS)  # type: ignore[arg-type]
 
     assert header == {"SQ": [{"SN": "chr1", "LN": 1000}]}
     assert opened == [(str(data / "share" / "PKG1" / "bams" / "S1.markdup.cram"), "rc")]
@@ -397,7 +452,7 @@ async def test_the_recorded_folder_is_resolved_off_the_event_loop(data: Path, mo
 
     recorded = await cram._recorded_alignments(session, ["S1"])  # type: ignore[arg-type]
 
-    assert recorded["S1"].location == str(data / "share" / "PKG1" / "bams" / "S1.markdup.cram")
+    assert recorded[("S1", ANALYSIS)].location == str(data / "share" / "PKG1" / "bams" / "S1.markdup.cram")
     assert seen and loop_thread not in seen
 
 

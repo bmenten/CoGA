@@ -25,7 +25,7 @@ async def test_get_alignment_manifest_dedups_preserves_order_and_filters(monkeyp
     resolved: list[str] = []
     resolved_lock = threading.Lock()
 
-    def fake_resolve(family_id, sample_id, recorded=None):
+    def fake_resolve(family_id, sample_id, recorded=None, analysis=None):
         with resolved_lock:
             resolved.append(sample_id)
         if sample_id == "S2":
@@ -80,6 +80,7 @@ async def test_get_cram_header_offloads_blocking_read(monkeypatch):
         sample_id="S1",
         session=object(),
         user=object(),
+        analysis=None,
     )
 
     assert header == {"SQ": [{"SN": "chr1", "LN": 1000}]}

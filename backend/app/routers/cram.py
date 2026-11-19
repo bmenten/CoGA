@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass
+from urllib.parse import urlencode
 import os
 from pathlib import Path
 from typing import Any, Literal
@@ -116,9 +117,9 @@ def _recorded_local_path(relative: object, extension: str, folder: str) -> str |
 
 
 def _recorded_local_alignment(value: object, package_folder: object) -> _RecordedAlignment | None:
-    """Parse ``samples.metadata['alignment']`` as the import wrote it (``path``,
-    ``index_path``: relative to the package); ``None`` unless it is usable, in the family's
-    package folder ``package_folder`` below a FAMILY_IMPORT_ROOTS entry
+    """Parse one of ``samples.metadata['alignments']`` as the import of its analysis wrote it
+    (``path``, ``index_path``: relative to the package); ``None`` unless it is usable, in that
+    analysis's package folder ``package_folder`` below a FAMILY_IMPORT_ROOTS entry
     (``local_family_package_folder``). Blocking."""
     if not isinstance(value, dict):
         return None
@@ -139,39 +140,44 @@ def _recorded_local_alignment(value: object, package_folder: object) -> _Recorde
     )
 
 
-def _recorded_local_alignments(rows: list[tuple[Any, ...]]) -> dict[str, _RecordedAlignment]:
-    """``_recorded_local_alignment`` of each ``(sample_id, alignment, package folder)`` row
-    that has a usable one. Blocking."""
-    recorded: dict[str, _RecordedAlignment] = {}
-    for sample_id, value, package_folder in rows:
+def _recorded_local_alignments(rows: list[tuple[Any, ...]]) -> dict[tuple[str, str], _RecordedAlignment]:
+    """``_recorded_local_alignment`` of each ``(sample_id, analysis, alignment, package
+    folder)`` row that has a usable one, by sample and analysis. Blocking."""
+    recorded: dict[tuple[str, str], _RecordedAlignment] = {}
+    for sample_id, analysis, value, package_folder in rows:
         alignment = _recorded_local_alignment(value, package_folder)
         if alignment is not None:
-            recorded[str(sample_id)] = alignment
+            recorded[(str(sample_id), str(analysis))] = alignment
     return recorded
 
 
 async def _recorded_alignments(
     session: AsyncSession, sample_ids: list[str]
-) -> dict[str, _RecordedAlignment]:
-    """Where the import recorded each sample's alignment: a file in the package folder the
-    family's import read, such as a package on a mounted share or bucket. Callers check first
-    that the samples belong to the family and the user may read it.
+) -> dict[tuple[str, str], _RecordedAlignment]:
+    """Where each analysis's import recorded each sample's alignment, by sample and analysis
+    (``samples.metadata.alignments``, keyed as the family's package records are): a file in
+    that analysis's package folder, such as a package on a mounted share or bucket. A sample
+    sequenced short-read and then long-read has one of each. Callers check first that the
+    samples belong to the family and the user may read it.
     """
     if not sample_ids:
         return {}
-    # The package folder of the analysis whose import recorded each sample's alignment (its
-    # ``package``, family_package_records): a recorded location is served only from there.
+    # The package folder of the analysis whose import recorded each alignment
+    # (family_package_records): a recorded location is served only from there.
     result = await session.execute(
         text(
             """
             SELECT s.sample_id,
-                   s.metadata -> 'alignment' AS alignment,
-                   f.metadata -> 'package_imports' -> (s.metadata -> 'alignment' ->> 'package')
-                       ->> 'folder_path' AS package_folder
+                   a.analysis,
+                   a.alignment,
+                   f.metadata -> 'package_imports' -> a.analysis ->> 'folder_path' AS package_folder
             FROM samples s
             JOIN families f ON f.id = s.family_id
+            CROSS JOIN LATERAL jsonb_each(
+                CASE WHEN jsonb_typeof(s.metadata -> 'alignments') = 'object'
+                     THEN s.metadata -> 'alignments' ELSE '{}'::jsonb END
+            ) AS a(analysis, alignment)
             WHERE s.sample_id = ANY(:sample_ids)
-              AND s.metadata ? 'alignment'
             """
         ),
         {"sample_ids": list(sample_ids)},
@@ -248,9 +254,13 @@ def _resolve_alignment_manifest_entry(
     family_id: str,
     sample_id: str,
     recorded: _RecordedAlignment | None = None,
+    analysis: str | None = None,
 ) -> AlignmentManifestEntryOut | None:
     """The URLs are backend-relative paths the frontend prefixes with the API base, with
-    each ID percent-encoded as one segment (it may hold `?`, `#`, `%` or `..`)."""
+    each ID percent-encoded as one segment (it may hold `?`, `#`, `%` or `..`), and the
+    analysis whose alignment they serve as their query (``analysis``; none for one found in
+    the family's folders)."""
+    query = f"?{urlencode({'analysis': analysis})}" if analysis is not None else ""
     formats: tuple[tuple[Literal["cram", "bam"], str, str], ...] = (
         ("cram", "cram", ".crai"),
         ("bam", "bam", ".bai"),
@@ -263,9 +273,10 @@ def _resolve_alignment_manifest_entry(
             continue
         return AlignmentManifestEntryOut(
             sample_id=sample_id,
+            analysis_type=analysis,
             format=fmt,
-            url=url_path("cram", family_id, f"{sample_id}.{ext}"),
-            index_url=url_path("cram", family_id, f"{sample_id}.{ext}{index_suffix}"),
+            url=url_path("cram", family_id, f"{sample_id}.{ext}") + query,
+            index_url=url_path("cram", family_id, f"{sample_id}.{ext}{index_suffix}") + query,
         )
     return None
 
@@ -295,12 +306,25 @@ async def _accessible_recorded_alignment(
     family_id: str,
     sample_id: str,
     user: CurrentUser,
+    analysis: str | None,
 ) -> _RecordedAlignment | None:
-    """Check the user may read the sample's reads, then look up where the import
-    recorded them. The check runs first, so nothing about a sample the user may not see
-    is read, and a failure answers before any file is looked up."""
+    """Check the user may read the sample's reads, then look up where the import of
+    ``analysis`` recorded them; None without an analysis, for an alignment found in the
+    family's folders. The check runs first, so nothing about a sample the user may not see
+    is read, and a failure answers before any file is looked up. An analysis that recorded
+    no alignment of the sample answers 404: its reads are never looked for elsewhere."""
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    return (await _recorded_alignments(session, [sample_id])).get(sample_id)
+    if analysis is None:
+        return None
+    recorded = (await _recorded_alignments(session, [sample_id])).get((sample_id, analysis))
+    if recorded is None:
+        raise HTTPException(status_code=404, detail="No alignment of this analysis is recorded for the sample")
+    return recorded
+
+
+# The analysis whose alignment of the sample a request reads (``samples.metadata.alignments``);
+# none for one found in the family's folders.
+_ANALYSIS = Query(default=None, max_length=64)
 
 
 @router.get("/{family_id}/manifest", response_model=list[AlignmentManifestEntryOut])
@@ -318,18 +342,31 @@ async def get_alignment_manifest(
             continue
         seen.add(sample_id)
         ordered_samples.append(sample_id)
-    # One query for where the import recorded every requested sample's reads.
+    # One query for where each analysis's import recorded every requested sample's reads.
     recorded = await _recorded_alignments(session, ordered_samples)
-    # Resolving each sample does several blocking file-system look-ups, on a share or a
+    # Each sample's alignment of each analysis that recorded one, in the analyses' order; a
+    # sample none recorded, the one found in the family's folders.
+    wanted: list[tuple[str, str | None]] = []
+    for sample_id in ordered_samples:
+        analyses = sorted(analysis for sample, analysis in recorded if sample == sample_id)
+        if analyses:
+            wanted.extend((sample_id, analysis) for analysis in analyses)
+        else:
+            wanted.append((sample_id, None))
+    # Resolving each alignment does several blocking file-system look-ups, on a share or a
     # mounted bucket too; run them in worker threads concurrently instead of serially
     # stalling the event loop. asyncio.gather preserves input order, so the manifest order is
     # unchanged.
     entries = await asyncio.gather(
         *(
             asyncio.to_thread(
-                _resolve_alignment_manifest_entry, family_id, sample_id, recorded.get(sample_id)
+                _resolve_alignment_manifest_entry,
+                family_id,
+                sample_id,
+                recorded.get((sample_id, analysis)) if analysis is not None else None,
+                analysis,
             )
-            for sample_id in ordered_samples
+            for sample_id, analysis in wanted
         )
     )
     return [entry for entry in entries if entry is not None]
@@ -339,10 +376,11 @@ async def get_alignment_manifest(
 async def get_cram(
     family_id: str,
     sample_id: str,
+    analysis: str | None = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user, analysis)
     return await asyncio.to_thread(
         _serve_alignment, family_id, sample_id, "cram", "", "CRAM file not found", recorded
     )
@@ -352,10 +390,11 @@ async def get_cram(
 async def head_cram(
     family_id: str,
     sample_id: str,
+    analysis: str | None = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user, analysis)
     return await asyncio.to_thread(
         _head_alignment, family_id, sample_id, "cram", "", "CRAM file not found", recorded
     )
@@ -365,10 +404,11 @@ async def head_cram(
 async def get_crai(
     family_id: str,
     sample_id: str,
+    analysis: str | None = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user, analysis)
     return await asyncio.to_thread(
         _serve_alignment, family_id, sample_id, "cram", ".crai", "CRAI file not found", recorded
     )
@@ -378,10 +418,11 @@ async def get_crai(
 async def head_crai(
     family_id: str,
     sample_id: str,
+    analysis: str | None = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user, analysis)
     return await asyncio.to_thread(
         _head_alignment, family_id, sample_id, "cram", ".crai", "CRAI file not found", recorded
     )
@@ -391,10 +432,11 @@ async def head_crai(
 async def get_bam(
     family_id: str,
     sample_id: str,
+    analysis: str | None = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user, analysis)
     return await asyncio.to_thread(
         _serve_alignment, family_id, sample_id, "bam", "", "BAM file not found", recorded
     )
@@ -404,10 +446,11 @@ async def get_bam(
 async def head_bam(
     family_id: str,
     sample_id: str,
+    analysis: str | None = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user, analysis)
     return await asyncio.to_thread(
         _head_alignment, family_id, sample_id, "bam", "", "BAM file not found", recorded
     )
@@ -417,10 +460,11 @@ async def head_bam(
 async def get_bai(
     family_id: str,
     sample_id: str,
+    analysis: str | None = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user, analysis)
     return await asyncio.to_thread(
         _serve_alignment, family_id, sample_id, "bam", ".bai", "BAI file not found", recorded
     )
@@ -430,10 +474,11 @@ async def get_bai(
 async def head_bai(
     family_id: str,
     sample_id: str,
+    analysis: str | None = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user, analysis)
     return await asyncio.to_thread(
         _head_alignment, family_id, sample_id, "bam", ".bai", "BAI file not found", recorded
     )
@@ -462,11 +507,12 @@ def _read_alignment_header(
 async def get_cram_header(
     family_id: str,
     sample_id: str,
+    analysis: str | None = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
     """Return alignment header for quick M5/SN/LN inspection."""
-    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user, analysis)
     # Offload the blocking pysam open + header parse so a slow read from a share or a
     # mounted bucket cannot stall the event loop (matches the manifest handler's pattern).
     return await asyncio.to_thread(_read_alignment_header, family_id, sample_id, recorded)

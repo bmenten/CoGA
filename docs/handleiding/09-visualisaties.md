@@ -141,7 +141,7 @@ Een klik op een chromosoom opent de weergave per chromosoom; een klik op een tra
 
 ## IGV: reads op basisniveau
 
-Voor de fijnste controle, de afzonderlijke reads, bedt CoGA de **IGV**-browser in. `IgvViewer.tsx` vraagt twee lijsten op: de alignmentbestanden van alle familieleden, de proband eerst (`GET /api/cram/{familyId}/manifest`), en apart de signaalbestanden van de CNV-caller (diepte, allelfractie en kopieaantal: `GET /api/signal-tracks/{familyId}/manifest`). Mislukt die tweede vraag, dan laden de reads toch en meldt de pagina dat de signaaltracks ontbreken.
+Voor de fijnste controle, de afzonderlijke reads, bedt CoGA de **IGV**-browser in. `IgvViewer.tsx` vraagt twee lijsten op: de alignmentbestanden van alle familieleden, de proband eerst (`GET /api/cram/{familyId}/manifest`), en apart de signaalbestanden van de CNV-caller (diepte, allelfractie en kopieaantal: `GET /api/signal-tracks/{familyId}/manifest`). Mislukt die tweede vraag, dan laden de reads toch en meldt de pagina dat de signaaltracks ontbreken. Een sample met een alignment van meer dan één analyse, zoals kortelees- en daarna langelees-WGS van hetzelfde DNA, krijgt er een track van elk: het manifest geeft elke alignment met zijn analyse (`analysis_type`, ook als `?analysis=` in de adressen), en de track draagt de naam van het sample met die analyse (`alignmentTrackName` in `lib/alignmentTracks.ts`).
 
 De backend serveert de bestanden met dezelfde toegangscontrole als de rest: elk endpoint van `cram.py` en `signal_tracks.py` controleert dat het sample tot een familie hoort die de gebruiker mag zien, en geeft anders `404`. IGV vraagt met *range requests* alleen de bytes die het nodig heeft. IGV krijgt nooit het adres van een bucket of share: elk byte komt via de backend.
 

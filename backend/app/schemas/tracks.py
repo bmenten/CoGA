@@ -13,6 +13,10 @@ from .reviews import FindingReviewOut
 
 class AlignmentManifestEntryOut(BaseModel):
     sample_id: str
+    # The analysis whose import recorded the alignment (its package record's key); None for one
+    # found in the family's folders. A sample sequenced short-read and then long-read has one
+    # entry of each.
+    analysis_type: Optional[str] = None
     format: Literal["bam", "cram"]
     url: str
     index_url: str

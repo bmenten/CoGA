@@ -520,16 +520,25 @@ async def record_sample_alignment_metadata(
     session: AsyncSession,
     *,
     sample_context: SampleMetadataContext,
+    analysis: str,
     alignment: dict[str, Any],
 ) -> None:
-    """Record where a sample's aligned reads lie, under ``samples.metadata["alignment"]``:
-    ``format`` (cram/bam) and the package-relative ``path``/``index_path``. The CRAM
-    endpoint serves them only after checking them (routers/cram.py): paths in the package
-    folder the family's import read."""
+    """Record where a sample's aligned reads of ``analysis`` lie, under
+    ``samples.metadata["alignments"][analysis]`` (the key of the analysis's package record,
+    family_package_records): ``format`` (cram/bam) and the package-relative
+    ``path``/``index_path``. The alignments of the sample's other analyses are kept: a sample
+    sequenced short-read and then long-read has one of each. The CRAM endpoint serves each
+    only after checking it (routers/cram.py): paths in that analysis's package folder."""
+    result = await session.execute(
+        text("SELECT metadata -> 'alignments' FROM samples WHERE id = CAST(:sample_id AS uuid)"),
+        {"sample_id": sample_context.sample_uuid},
+    )
+    alignments = _metadata_dict(result.scalar_one_or_none())
+    alignments[analysis] = alignment
     await _merge_sample_metadata(
         session,
         sample_uuid=sample_context.sample_uuid,
-        patch={"alignment": alignment},
+        patch={"alignments": alignments},
     )
 
 
