@@ -144,11 +144,33 @@ export interface SampleSequencingQc {
  * was imported without QC outputs. `sample_metadata` is typed but untyped-valued, so
  * narrow it here rather than casting at each use site.
  */
-export const sequencingQcForMember = (member: {
-  sample_metadata?: Record<string, unknown> | null;
-}): SampleSequencingQc | undefined => {
-  const qc = member.sample_metadata?.sequencing_qc;
+export const sequencingQcForMember = (
+  member: {
+    sample_metadata?: Record<string, unknown> | null;
+  },
+  analysis: string,
+): SampleSequencingQc | undefined => {
+  const byAnalysis = member.sample_metadata?.sequencing_qc;
+  const qc =
+    byAnalysis && typeof byAnalysis === 'object' ? (byAnalysis as Record<string, unknown>)[analysis] : undefined;
   return qc && typeof qc === 'object' ? (qc as SampleSequencingQc) : undefined;
+};
+
+/**
+ * The analyses of a member's sequencing QC, sorted: each that recorded the sample's QC
+ * (`samples.metadata.sequencing_qc`, keyed as the family's package records are) or that the
+ * server judged. A sample sequenced short-read and then long-read has two.
+ */
+export const sequencingQcAnalyses = (member: {
+  sample_metadata?: Record<string, unknown> | null;
+  sequencing_qc?: Record<string, unknown> | null;
+}): string[] => {
+  const recorded = member.sample_metadata?.sequencing_qc;
+  const keys = new Set<string>([
+    ...Object.keys(member.sequencing_qc ?? {}),
+    ...(recorded && typeof recorded === 'object' ? Object.keys(recorded) : []),
+  ]);
+  return [...keys].sort();
 };
 
 /** Read lengths in kb, which is how long-read N50s are normally quoted. */

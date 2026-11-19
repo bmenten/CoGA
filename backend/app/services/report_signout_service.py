@@ -1166,50 +1166,59 @@ async def _reported_structural_reviews(
 async def _canonical_sequencing_qc(
     session: AsyncSession,
     context: FamilyMetadataContext,
+    scope: SignoutScope,
 ) -> dict[str, Any]:
-    """The sequencing-QC verdicts and the cut-offs in force, for freezing.
+    """The sequencing-QC verdicts and the cut-offs in force, for freezing: per analysis that
+    recorded the family's QC (``samples.metadata.sequencing_qc``, keyed as the package records
+    are), of the analysis signed out (``scope``: its own, and that of a package that named
+    none), each judged against its analysis's cut-offs (``resolve_analysis_qc_thresholds``:
+    its own profile, else the family's named one, else the default, metric by metric).
 
-    Deterministic: profiles and metrics are sorted, and the values are the same numbers
-    the workspace showed. Best-effort — a family imported without QC outputs simply has
-    nothing here, and a QC display has never been allowed to break sign-out.
+    Deterministic: analyses, profiles and metrics are sorted, and the values are the same
+    numbers the workspace showed. Best-effort — a family imported without QC outputs simply
+    has nothing here, and a QC display has never been allowed to break sign-out.
     """
 
-    from .qc_threshold_service import evaluate_sequencing_qc, resolve_family_qc_thresholds
+    from .qc_threshold_service import evaluate_sequencing_qc, resolve_analysis_qc_thresholds
 
-    try:
-        resolved = await resolve_family_qc_thresholds(session, family_uuid=context.family_uuid)
-    except Exception:  # see the docstring
-        logger.exception("Could not resolve QC thresholds for the report snapshot")
-        # Frozen as explicitly unavailable, so the signed record does not read like a
-        # family imported without QC outputs. The marker appears only on failure,
-        # so the hash of an ordinary snapshot is unchanged.
-        return {
-            "profile_key": None,
-            "profile_label": None,
-            "thresholds": {},
-            "samples": {},
-            "unavailable": "QC thresholds could not be resolved",
-        }
-
-    thresholds = resolved.get("thresholds") or {}
-    samples: dict[str, Any] = {}
+    recorded: dict[str, dict[str, Any]] = {}
     for row in context.sample_rows:
-        sample_id = row.get("sample_id")
         # `sample_metadata`, not `metadata` — the context query aliases it, and reading
         # the wrong key yields an empty map with no error at all.
         metadata = row.get("sample_metadata") or {}
-        sequencing_qc = metadata.get("sequencing_qc") if isinstance(metadata, dict) else None
-        evaluation = evaluate_sequencing_qc(sequencing_qc, thresholds)
-        if sample_id and evaluation is not None:
-            samples[str(sample_id)] = evaluation
-    return {
-        "profile_key": resolved.get("profile_key"),
-        "profile_label": resolved.get("profile_label"),
-        # Only the metrics that actually had a cut-off: an unconfigured metric gated
-        # nothing, and listing it would imply otherwise.
-        "thresholds": {key: thresholds[key] for key in sorted(thresholds)},
-        "samples": {key: samples[key] for key in sorted(samples)},
-    }
+        by_analysis = metadata.get("sequencing_qc") if isinstance(metadata, dict) else None
+        if row.get("sample_id") and isinstance(by_analysis, dict):
+            recorded[str(row["sample_id"])] = by_analysis
+    analyses = sorted(
+        {str(analysis) for by_analysis in recorded.values() for analysis in by_analysis if scope.holds_record(analysis)}
+    )
+    frozen: dict[str, Any] = {}
+    for analysis in analyses:
+        try:
+            resolved = await resolve_analysis_qc_thresholds(
+                session, family_uuid=context.family_uuid, analysis=analysis
+            )
+        except Exception:  # see the docstring
+            logger.exception("Could not resolve QC thresholds for the report snapshot")
+            # Frozen as explicitly unavailable, so the signed record does not read like a
+            # family imported without QC outputs. The marker appears only on failure, so the
+            # hash of an ordinary snapshot is unchanged.
+            return {"analyses": {}, "unavailable": "QC thresholds could not be resolved"}
+        thresholds = resolved["thresholds"]
+        samples: dict[str, Any] = {}
+        for sample_id, by_analysis in recorded.items():
+            metrics = by_analysis.get(analysis)
+            evaluation = evaluate_sequencing_qc(metrics if isinstance(metrics, dict) else None, thresholds)
+            if evaluation is not None:
+                samples[sample_id] = evaluation
+        frozen[analysis] = {
+            "profiles": resolved["profiles"],
+            # Only the metrics that actually had a cut-off: an unconfigured metric gated
+            # nothing, and listing it would imply otherwise.
+            "thresholds": {key: thresholds[key] for key in sorted(thresholds)},
+            "samples": {key: samples[key] for key in sorted(samples)},
+        }
+    return {"analyses": frozen}
 
 
 def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
@@ -1349,7 +1358,7 @@ async def build_report_snapshot(
         for entry in await _reported_structural_reviews(session, context.family_uuid)
         if str(entry["variant_id"]) not in left_out.structural
     ]
-    sequencing_qc = await _canonical_sequencing_qc(session, context)
+    sequencing_qc = await _canonical_sequencing_qc(session, context, scope)
     import_incomplete = _scoped_import_incomplete(
         await _import_incomplete_state(session, context.family_uuid), scope
     )

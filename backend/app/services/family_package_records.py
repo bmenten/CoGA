@@ -8,9 +8,10 @@ replaces the record of its own analysis and keeps the others: each says the fold
 data came from, the delivery it was last imported from, its reference delivery
 (``package_changed_after_import``), its mode, its datasets and the members its package listed.
 
-A sample's files that CoGA serves from a package folder (its alignment, signal tracks and QC
-report) each name the analysis whose import recorded them (``PACKAGE_KEY``), so they are read in
-that analysis's folder, never in another's.
+A sample's files that CoGA serves from a package folder are each tied to the analysis whose import
+recorded them, so they are read in that analysis's folder, never in another's: its alignments and
+its sequencing QC (with the QC report) are keyed by analysis (``samples.metadata.alignments``,
+``samples.metadata.sequencing_qc``), and each signal track names its analysis (``PACKAGE_KEY``).
 
 SQL that reads every record of a family joins ``PACKAGE_RECORDS_OF_A_FAMILY``: one row per record,
 ``r.analysis`` its key and ``r.record`` the record.
@@ -25,8 +26,7 @@ from typing import Any
 PACKAGE_IMPORTS_KEY = "package_imports"
 # The key of the record of a package that names no analysis type.
 UNSPECIFIED_ANALYSIS = "unspecified"
-# The key, in a sample's file record (alignment, signal tracks, sequencing QC), of the analysis
-# whose import recorded it.
+# The key, in a sample's signal-track record, of the analysis whose import recorded it.
 PACKAGE_KEY = "package"
 
 # Each package record of the family ``f``: ``r.analysis`` its key, ``r.record`` the record.
@@ -129,8 +129,8 @@ def family_package_folders(metadata: Mapping[str, Any] | None) -> list[str]:
 
 
 def package_folder_of(package_records: Any, file_record: Mapping[str, Any] | None) -> str | None:
-    """The folder a sample's file record (``file_record``: its alignment, a signal track, its
-    sequencing QC) was imported from: that of the package record its ``PACKAGE_KEY`` names, in
+    """The folder a sample's signal-track record (``file_record``) was imported from: that of the
+    package record its ``PACKAGE_KEY`` names, in
     the family's ``package_records`` (``families.metadata.package_imports``). None when it names
     none, or a record the family does not hold."""
     if not isinstance(package_records, Mapping):

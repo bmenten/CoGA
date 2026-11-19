@@ -128,7 +128,9 @@ class _Session:
             ]
             return SimpleNamespace(all=lambda: rows)
         metadata = self.recorded.get(params.get("sample_id"))
-        row = None if metadata is None else (metadata, self.package_folder)
+        # The QC report's row: the sample's QC of the analysis asked, and its package folder.
+        qc = None if metadata is None else (metadata.get("sequencing_qc") or {}).get(params.get("analysis"))
+        row = None if metadata is None else (qc, self.package_folder)
         return SimpleNamespace(one_or_none=lambda: row)
 
 
@@ -519,11 +521,13 @@ async def test_the_families_folder_still_serves_a_track_the_package_folder_lacks
 async def _report(session: Any) -> str | int:
     """What following S1's QC-report link serves, or the status the link request answers."""
     try:
-        link = await family_qc_reports.get_family_qc_report_link("F1", "S1", session=session, user=object())  # type: ignore[arg-type]
+        link = await family_qc_reports.get_family_qc_report_link(
+            "F1", "S1", analysis=ANALYSIS, session=session, user=object()  # type: ignore[arg-type]
+        )
     except HTTPException as exc:
         return exc.status_code
     token = link.url.split("token=", 1)[1]
-    response = await family_qc_reports.get_family_qc_report("F1", "S1", token=token, session=session)
+    response = await family_qc_reports.get_family_qc_report("F1", "S1", token=token, analysis=ANALYSIS, session=session)
     return Path(response.path).read_text()
 
 
@@ -532,7 +536,7 @@ async def test_a_qc_report_recorded_in_a_package_on_the_share_is_served(
     data: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _members(monkeypatch, "F1", "S1")
-    session = _Session({"S1": {"sequencing_qc": {"report": "qc/S1.html"}}}, _package(data))
+    session = _Session({"S1": {"sequencing_qc": {ANALYSIS: {"report": "qc/S1.html"}}}}, _package(data))
 
     assert await _report(session) == "report of S1"
 
@@ -548,7 +552,7 @@ async def test_a_qc_report_out_of_the_package_is_not_served(
 ) -> None:
     _write(data.parent / "outside" / "PKG2", OTHER_PACKAGE_FILES)
     _members(monkeypatch, "F1", "S1")
-    session = _Session({"S1": {"sequencing_qc": {"report": relative}}}, os.path.normpath(data / folder))
+    session = _Session({"S1": {"sequencing_qc": {ANALYSIS: {"report": relative}}}}, os.path.normpath(data / folder))
 
     assert await _report(session) == 404
 
@@ -561,10 +565,13 @@ def test_the_qc_report_query_reads_the_familys_package_folder(data: Path) -> Non
             self.sql.append(" ".join(str(statement).split()))
             return await super().execute(statement, params)
 
-    session = _Recording({"S1": {"sequencing_qc": {"report": " qc/S1.html "}}}, _package(data))
+    session = _Recording({"S1": {"sequencing_qc": {ANALYSIS: {"report": " qc/S1.html "}}}}, _package(data))
 
-    report = asyncio.run(family_qc_reports._recorded_report(session, family_id="F1", sample_id="S1"))  # type: ignore[arg-type]
+    report = asyncio.run(
+        family_qc_reports._recorded_report(session, family_id="F1", sample_id="S1", analysis=ANALYSIS)  # type: ignore[arg-type]
+    )
 
     assert report == family_qc_reports._RecordedReport(" qc/S1.html ", _package(data))
-    # The folder of the analysis whose import recorded the sample's QC (family_package_records).
-    assert "f.metadata -> 'package_imports' -> (s.metadata -> 'sequencing_qc' ->> 'package') ->> 'folder_path'" in session.sql[0]
+    # The sample's QC of that analysis, read in that analysis's package folder (family_package_records).
+    assert "s.metadata -> 'sequencing_qc' -> CAST(:analysis AS text)" in session.sql[0]
+    assert "f.metadata -> 'package_imports' -> CAST(:analysis AS text) ->> 'folder_path'" in session.sql[0]

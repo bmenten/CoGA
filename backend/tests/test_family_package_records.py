@@ -193,3 +193,92 @@ def test_an_overwrite_keeps_the_other_analyses_members_active_with_their_links(m
         ("FATHER1", "FETUS1"),
     ]
     assert taken.relationships.relatives == []
+
+
+# --- A sample's records of each analysis: its alignment and its sequencing QC ----------------
+
+
+class _SampleMetadataSession:
+    """One sample's ``samples.metadata``, read and written as the QC writers read and write it."""
+
+    def __init__(self, metadata: dict[str, Any]) -> None:
+        self.metadata = metadata
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        import json
+
+        sql = str(statement)
+        if sql.lstrip().startswith("UPDATE"):
+            self.metadata = json.loads(params["metadata_json"])
+            return SimpleNamespace()
+        for key in ("alignments", "sequencing_qc"):
+            if f"metadata -> '{key}'" in sql:
+                return SimpleNamespace(scalar_one_or_none=lambda key=key: self.metadata.get(key))
+        return SimpleNamespace(scalar_one_or_none=lambda: self.metadata)
+
+    async def commit(self) -> None:
+        return None
+
+
+def test_a_samples_alignment_and_qc_of_each_analysis_are_kept_beside_each_other() -> None:
+    from backend.app.services import family_package_qc
+
+    sample = SimpleNamespace(sample_uuid="00000000-0000-4000-8000-000000000001", sample_id="S1")
+    session = _SampleMetadataSession(
+        {
+            "alignments": {"short_read_wgs": {"format": "cram", "path": "S1/S1.cram"}},
+            "sequencing_qc": {"short_read_wgs": {"depth": {"mean_depth": 35.0}}},
+        }
+    )
+    asyncio.run(
+        family_package_qc.record_sample_alignment_metadata(
+            session, sample_context=sample, analysis="long_read_wgs", alignment={"format": "bam", "path": "S1.bam"}  # type: ignore[arg-type]
+        )
+    )
+    asyncio.run(
+        family_package_qc.record_sample_qc_metadata(
+            session, sample_context=sample, analysis="long_read_wgs", metrics={"depth": {"mean_depth": 18.0}}  # type: ignore[arg-type]
+        )
+    )
+    assert session.metadata["alignments"] == {
+        "short_read_wgs": {"format": "cram", "path": "S1/S1.cram"},
+        "long_read_wgs": {"format": "bam", "path": "S1.bam"},
+    }
+    assert session.metadata["sequencing_qc"] == {
+        "short_read_wgs": {"depth": {"mean_depth": 35.0}},
+        "long_read_wgs": {"depth": {"mean_depth": 18.0}},
+    }
+
+
+def test_each_analysiss_qc_of_a_member_is_judged_by_its_own_cut_offs(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import datetime, timezone
+
+    from backend.app.schemas import FamilyMemberOut, FamilyOut
+    from backend.app.services import metadata_service, qc_threshold_service
+
+    async def resolve(_session: Any, *, family_uuid: str, analysis: str) -> dict[str, Any]:
+        warn = {"short_read_wgs": 30.0, "long_read_wgs": 15.0}[analysis]
+        return {
+            "profiles": [{"key": analysis, "label": analysis}],
+            "thresholds": {"depth.mean_depth": {"warn_value": warn, "error_value": None, "profile_key": analysis}},
+        }
+
+    monkeypatch.setattr(qc_threshold_service, "resolve_analysis_qc_thresholds", resolve)
+    member = FamilyMemberOut(
+        sample_id="S1",
+        role="proband",
+        affected=True,
+        sample_metadata={
+            "sequencing_qc": {
+                "short_read_wgs": {"depth": {"mean_depth": 25.0}},
+                "long_read_wgs": {"depth": {"mean_depth": 25.0}},
+            }
+        },
+    )
+    family = FamilyOut(id="u1", family_id="F1", created_at=datetime(2026, 1, 1, tzinfo=timezone.utc), members=[member])
+
+    asyncio.run(metadata_service._attach_sequencing_qc_verdicts(object(), family_uuid="u1", family=family))  # type: ignore[arg-type]
+
+    # The same depth warns against the short-read cut-off and passes the long-read one.
+    verdicts = {analysis: evaluation.verdict for analysis, evaluation in family.members[0].sequencing_qc.items()}
+    assert verdicts == {"long_read_wgs": "pass", "short_read_wgs": "warn"}

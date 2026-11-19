@@ -490,12 +490,25 @@ async def record_sample_qc_metadata(
     session: AsyncSession,
     *,
     sample_context: SampleMetadataContext,
+    analysis: str,
     metrics: dict[str, Any],
 ) -> None:
+    """Record a sample's sequencing QC of ``analysis`` under
+    ``samples.metadata["sequencing_qc"][analysis]`` (the key of the analysis's package record,
+    family_package_records), keeping its other analyses': a sample sequenced short-read and then
+    long-read has the metrics of each, each judged against its analysis's cut-offs
+    (qc_threshold_service.resolve_analysis_qc_thresholds), and its report read in that
+    analysis's package folder."""
+    result = await session.execute(
+        text("SELECT metadata -> 'sequencing_qc' FROM samples WHERE id = CAST(:sample_id AS uuid)"),
+        {"sample_id": sample_context.sample_uuid},
+    )
+    sequencing_qc = _metadata_dict(result.scalar_one_or_none())
+    sequencing_qc[analysis] = metrics
     await _merge_sample_metadata(
         session,
         sample_uuid=sample_context.sample_uuid,
-        patch={"sequencing_qc": metrics},
+        patch={"sequencing_qc": sequencing_qc},
     )
 
 
@@ -509,7 +522,7 @@ async def record_sample_ccnv_metadata(
     """Record a conventional NIPT's ccnv QC of the maternal plasma under
     ``samples.metadata["ccnv"]``: the QC file's object as ccnv wrote it (its read metrics, fetal
     fractions, fetal sex, sex-chromosome call, limits of detection and warnings) and the file
-    it was read from. Its own key: the ``qc`` dataset's ``sequencing_qc`` stays as it was."""
+    it was read from. Its own key: the ``qc`` datasets' ``sequencing_qc`` stays as it was."""
     await _merge_sample_metadata(
         session,
         sample_uuid=sample_context.sample_uuid,

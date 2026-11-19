@@ -113,14 +113,16 @@ async def test_the_qc_report_link_names_the_family_and_sample_it_was_issued_for(
     monkeypatch.setattr(family_qc_reports, "_recorded_report_path", recorded_report_path)
     monkeypatch.setattr(family_qc_reports, "_resolve_report_file", lambda family, relative, folder=None: Path("report.html"))
 
-    link = await family_qc_reports.get_family_qc_report_link(family_id, sample_id, session=None, user=None)
+    link = await family_qc_reports.get_family_qc_report_link(
+        family_id, sample_id, analysis="long_read_wgs", session=None, user=None
+    )
 
     segments, query = _requested(link.url)
     assert segments == ["api", "families", family_id, "qc-report", sample_id]
-    # The query holds the link token alone, and the token is the one for this sample.
+    # The query holds the analysis and the link token, which is the one for this sample's report.
     tokens = parse_qs(query, keep_blank_values=True)
-    assert list(tokens) == ["token"] and len(tokens["token"]) == 1
-    family_qc_reports._verify_qc_report_token(tokens["token"][0], family_id, sample_id)
+    assert list(tokens) == ["analysis", "token"] and tokens["analysis"] == ["long_read_wgs"]
+    family_qc_reports._verify_qc_report_token(tokens["token"][0], family_id, sample_id, "long_read_wgs")
 
 
 # --------------------------------------------------------------------------- #
@@ -173,7 +175,7 @@ def families(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Families:
     async def signal_track_rows(session: Any, sample_ids: list[str]) -> list[tuple[str, dict[str, Any]]]:
         return [(sample_id, store.signal_tracks[sample_id], None) for sample_id in sample_ids if sample_id in store.signal_tracks]
 
-    async def recorded_report(session: Any, *, family_id: str, sample_id: str) -> Any:
+    async def recorded_report(session: Any, *, family_id: str, sample_id: str, analysis: str) -> Any:
         if (family_id, sample_id) not in store.reports:
             raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
         return family_qc_reports._RecordedReport(store.reports[(family_id, sample_id)])
@@ -211,7 +213,10 @@ async def test_following_the_manifests_and_the_qc_link_reaches_the_samples_own_f
     async with asgi_client() as client:
         [alignment] = await _manifest(client, "cram", family_id, sample_id)
         [signal] = await _manifest(client, "signal-tracks", family_id, sample_id)
-        link = await client.get(f"/api/families/{quote(family_id, safe='')}/qc-report/{quote(sample_id, safe='')}/link")
+        link = await client.get(
+            f"/api/families/{quote(family_id, safe='')}/qc-report/{quote(sample_id, safe='')}/link",
+            params={"analysis": "long_read_wgs"},
+        )
         assert link.status_code == 200, link.text
         fetched = {
             "reads": await _follow(client, alignment["url"]),

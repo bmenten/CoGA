@@ -288,9 +288,10 @@ describe('FamilySampleQcPage', () => {
       verdict: 'skip',
       ...extra,
     });
+    // Each served under the analysis whose import recorded it (pgt).
     const embryoQc = (ado: Record<string, unknown>, verdict: string) => ({
       verdict,
-      profile_label: 'PGT',
+      profiles: [{ key: 'pgt', label: 'PGT' }],
       breached: verdict === 'skip' ? [] : ['pgt.allele_dropout_rate'],
       metrics: [
         metric('depth.mean_depth', 'Mean depth', 'x', 9.8),
@@ -323,22 +324,29 @@ describe('FamilySampleQcPage', () => {
             role: 'father',
             affected: false,
             sex: 'male',
-            sequencing_qc: { verdict: 'skip', profile_label: 'PGT', breached: [], metrics: [metric('depth.mean_depth', 'Mean depth', 'x', 0.9)] },
+            sequencing_qc: {
+              pgt: {
+                verdict: 'skip',
+                profiles: [{ key: 'pgt', label: 'PGT' }],
+                breached: [],
+                metrics: [metric('depth.mean_depth', 'Mean depth', 'x', 0.9)],
+              },
+            },
           },
-          { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female', sequencing_qc: null },
+          { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female', sequencing_qc: {} },
           {
             sample_id: 'EMB1',
             role: 'embryo',
             affected: false,
             sex: 'female',
-            sequencing_qc: embryoQc({ value: 17.5 }, 'skip'),
+            sequencing_qc: { pgt: embryoQc({ value: 17.5 }, 'skip') },
           },
           {
             sample_id: 'EMB2',
             role: 'embryo',
             affected: false,
             sex: 'male',
-            sequencing_qc: embryoQc({ value: 32.1, warn_value: 30, verdict: 'warn' }, 'warn'),
+            sequencing_qc: { pgt: embryoQc({ value: 32.1, warn_value: 30, verdict: 'warn' }, 'warn') },
           },
         ],
       },
@@ -381,7 +389,7 @@ describe('FamilySampleQcPage', () => {
     expect(within(memberRow('EMB2')).getByText('32.1% · Warning')).toBeInTheDocument();
     expect(sequencing('EMB2').at(-1)).toBe('Warning');
     // What the values were judged against, and which were shown without a cut-off.
-    expect(section).toHaveTextContent('Judged against the cut-offs of PGT.');
+    expect(section).toHaveTextContent('Judged against the cut-offs of PGT, metric by metric.');
     expect(section).toHaveTextContent(
       'No cut-off is set for Mean depth, ADI, Concordance before imputation, Concordance after imputation: those values are shown, not judged.',
     );

@@ -24,13 +24,22 @@ const mockedGet = vi.mocked(api.get);
  * read serves none when it has nothing to judge or the evaluation failed, so such a chip
  * reads "Not run".
  */
+// The analysis whose import recorded the sample's QC (samples.metadata.sequencing_qc).
+const ANALYSIS = 'long_read_wgs';
+
+/** ``sampleMetadata`` with its sequencing QC recorded under ``ANALYSIS``, as the import records it. */
+const underAnalysis = (sampleMetadata?: Record<string, unknown>): Record<string, unknown> | undefined =>
+  sampleMetadata?.sequencing_qc
+    ? { ...sampleMetadata, sequencing_qc: { [ANALYSIS]: sampleMetadata.sequencing_qc } }
+    : sampleMetadata;
+
 const member = (sampleMetadata?: Record<string, unknown>): ApiFamilyRecord['members'][number] =>
   ({
     sample_id: 'HG002',
     role: 'proband',
     affected: true,
     sex: 'male',
-    sample_metadata: sampleMetadata,
+    sample_metadata: underAnalysis(sampleMetadata),
   }) as ApiFamilyRecord['members'][number];
 
 const QC = {
@@ -51,6 +60,7 @@ const metric = (overrides: Partial<SampleSequencingQcMetricOut> = {}): SampleSeq
   warn_value: 20,
   error_value: 10,
   verdict: 'warn',
+  profile_key: 'default',
   ...overrides,
 });
 
@@ -71,20 +81,41 @@ const evaluation = (
   breached: metrics
     .filter((entry) => entry.verdict === 'warn' || entry.verdict === 'fail')
     .map((entry) => entry.metric_key),
-  profile_key: 'default',
-  profile_label: 'Default',
+  profiles: [{ key: 'default', label: 'Default' }],
 });
 
 const judged = (
   verdict: SampleSequencingQcEvaluationOut | null,
   sampleMetadata: Record<string, unknown> = QC,
-): ApiFamilyRecord['members'][number] => ({ ...member(sampleMetadata), sequencing_qc: verdict });
+): ApiFamilyRecord['members'][number] => ({
+  ...member(sampleMetadata),
+  sequencing_qc: verdict ? { [ANALYSIS]: verdict } : {},
+});
 
 /**
  * The breach sentence, or why the sample was not assessed, leads the tooltip; the metrics
  * and the profile follow after a dash.
  */
 const breachSentence = (tooltip: HTMLElement): string => (tooltip.textContent ?? '').split(' — ')[0];
+
+describe('a sample sequenced short-read and then long-read', () => {
+  it('shows a chip of each analysis, named, each judged by its own cut-offs', () => {
+    const both = {
+      ...member(),
+      sample_metadata: {
+        sequencing_qc: { long_read_wgs: { depth: { mean_depth: 18.57 } }, short_read_wgs: { depth: { mean_depth: 35 } } },
+      },
+      sequencing_qc: {
+        long_read_wgs: evaluation('warn', [metric()]),
+        short_read_wgs: evaluation('pass', [metric({ value: 35, verdict: 'pass', warn_value: 30 })]),
+      },
+    } as ApiFamilyRecord['members'][number];
+    render(<SampleQcCell familyId="F1" member={both} />);
+    expect(screen.getByText(/^Long-read WGS: Warning/)).toBeInTheDocument();
+    // A pass names no verdict: the number alone.
+    expect(screen.getByText('Short-read WGS: 35.0x')).toBeInTheDocument();
+  });
+});
 
 const NOT_RUN_NO_LIMIT =
   "Not run: not assessed, because no limit is configured for any of this sample's metrics";
@@ -131,7 +162,7 @@ describe('SampleQcCell', () => {
     await user.click(screen.getByRole('button', { name: /18.6x/ }));
 
     await waitFor(() =>
-      expect(mockedGet).toHaveBeenCalledWith('/families/pacbio/qc-report/HG002/link'),
+      expect(mockedGet).toHaveBeenCalledWith('/families/pacbio/qc-report/HG002/link?analysis=long_read_wgs'),
     );
     // The API base must be prefixed: opened bare, the browser resolves the path
     // against the SPA origin and the client router renders "page not found".
@@ -360,7 +391,7 @@ describe('SampleQcCell sequencing-QC verdict', () => {
     expect(breachSentence(tooltip)).toBe(
       'Failed: Mean depth 8.2x below 10x; Duplicate reads 14.5% above 12%',
     );
-    expect(tooltip).toHaveTextContent('Thresholds: Default profile');
+    expect(tooltip).toHaveTextContent('Cut-offs of the Default profile');
   });
 
   it('shows the worst state when a metric other than the depth on the chip breached', async () => {
@@ -771,7 +802,7 @@ describe('SampleQcCell with a verdict but no depth, N50 or report', () => {
     const chip = screen.getByRole('button', { name: 'Fail ADO 14.2%' });
     expect(chip).toHaveClass('table-chip', 'family-qc-chip', 'table-chip--critical');
     await user.click(chip);
-    await waitFor(() => expect(mockedGet).toHaveBeenCalledWith('/families/PGT01/qc-report/EMB1/link'));
+    await waitFor(() => expect(mockedGet).toHaveBeenCalledWith('/families/PGT01/qc-report/EMB1/link?analysis=long_read_wgs'));
     await waitFor(() =>
       expect(window.open).toHaveBeenCalledWith(
         '/api/families/PGT01/qc-report/EMB1?token=abc',

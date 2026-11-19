@@ -154,16 +154,22 @@ const SNAPSHOT = {
   acknowledged_qc: true,
   qc_acknowledgement_reason: 'Rate explained by low coverage.',
   sequencing_qc: {
-    profile_key: 'wgs',
-    profile_label: 'WGS default',
-    thresholds: {},
-    samples: {
-      P1: {
-        verdict: 'warn',
-        metrics: [
-          { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', direction: 'lower_is_worse' },
-          { metric_key: 'q30', label: 'Q30', unit: '%', value: 93, warn_value: 85, error_value: 80, verdict: 'pass' },
+    analyses: {
+      long_read_wgs: {
+        profiles: [
+          { key: 'long_read_wgs', label: 'Long-read WGS' },
+          { key: 'default', label: 'WGS default' },
         ],
+        thresholds: {},
+        samples: {
+          P1: {
+            verdict: 'warn',
+            metrics: [
+              { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', direction: 'lower_is_worse', profile_key: 'default' },
+              { metric_key: 'q30', label: 'Q30', unit: '%', value: 93, warn_value: 85, error_value: 80, verdict: 'pass', profile_key: 'long_read_wgs' },
+            ],
+          },
+        },
       },
     },
   },
@@ -263,28 +269,31 @@ describe('parseSignedReport', () => {
     ]);
     expect(record.sampleQc?.notes).toEqual(['Genotypes from the trio callset.']);
     expect(record.qcAcknowledgement).toEqual({ acknowledged: true, reason: 'Rate explained by low coverage.' });
-    expect(record.sequencingQc?.profileLabel).toBe('WGS default');
+    // Each analysis's QC, with the profiles its cut-offs came from.
+    const [longRead] = record.sequencingQc!.analyses;
+    expect(longRead.analysis).toBe('long_read_wgs');
+    expect(longRead.profileLabels).toEqual(['Long-read WGS', 'WGS default']);
     // Every metric the record holds, and apart the ones outside their cut-offs.
-    const coverage = { label: 'Mean coverage', value: 18, unit: '×', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse' };
-    expect(record.sequencingQc?.samples).toEqual([
+    const coverage = { label: 'Mean coverage', value: 18, unit: '×', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse', profileKey: 'default' };
+    expect(longRead.samples).toEqual([
       {
         sampleId: 'P1',
         verdict: 'warn',
         metrics: [
           coverage,
-          { label: 'Q30', value: 93, unit: '%', verdict: 'pass', warnValue: 85, errorValue: 80, direction: null },
+          { label: 'Q30', value: 93, unit: '%', verdict: 'pass', warnValue: 85, errorValue: 80, direction: null, profileKey: 'long_read_wgs' },
         ],
         breached: [coverage],
       },
     ]);
     // A breached value with its verdict and limits, one within them as its value alone.
-    expect(record.sequencingQc!.samples[0].metrics.map(describeSignedQcMetric)).toEqual([
+    expect(longRead.samples[0].metrics.map(describeSignedQcMetric)).toEqual([
       'Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)',
       'Q30 93.0%',
     ]);
     // One the record holds no value for is named, never written as a value.
     expect(
-      describeSignedQcMetric({ label: 'Allele drop-out (ADO)', value: null, unit: '%', verdict: 'pass', warnValue: null, errorValue: null, direction: null }),
+      describeSignedQcMetric({ label: 'Allele drop-out (ADO)', value: null, unit: '%', verdict: 'pass', warnValue: null, errorValue: null, direction: null, profileKey: null }),
     ).toBe('Allele drop-out (ADO)');
     expect(record.importIncomplete).toBeNull();
     expect(record.importUnfinished).toEqual([]);
@@ -740,7 +749,7 @@ describe('parseSignedReport', () => {
       },
       acknowledged_import_incomplete: true,
       import_incomplete_acknowledgement_reason: 'SVs not requested.',
-      sequencing_qc: { thresholds: {}, samples: {}, unavailable: 'QC thresholds could not be resolved' },
+      sequencing_qc: { analyses: {}, unavailable: 'QC thresholds could not be resolved' },
     })!;
 
     expect(record.importIncomplete).toEqual({
@@ -1127,6 +1136,7 @@ describe('the signed report’s wording', () => {
         warnValue: 20,
         errorValue: 10,
         direction: 'lower_is_worse',
+        profileKey: 'default',
       }),
     ).toBe('Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)');
   });
@@ -1134,7 +1144,7 @@ describe('the signed report’s wording', () => {
   // The signed version writes the value as the members table's QC chip does ("18.6x"), not
   // as measured ("18.57 x").
   it('writes the value and its limits as the QC chip writes them', () => {
-    const metric = { label: 'Mean depth', unit: 'x', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse' };
+    const metric = { label: 'Mean depth', unit: 'x', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse', profileKey: 'default' };
     expect(describeBreachedMetric({ ...metric, value: 18.57 })).toBe('Mean depth 18.6x (Warning; warning 20x, fail 10x)');
     // Rounded onto its limit it would not read as the breach it is: 19.96 is not "20.0x".
     expect(describeBreachedMetric({ ...metric, value: 19.96 })).toBe('Mean depth 19.96x (Warning; warning 20x, fail 10x)');
@@ -1151,6 +1161,7 @@ describe('the signed report’s wording', () => {
         warnValue: 20,
         errorValue: 30,
         direction: 'higher_is_worse',
+        profileKey: 'pgt',
       }),
     ).toBe('Allele drop-out (ADO) 32.1% (Fail; warning 20%, fail 30%)');
   });

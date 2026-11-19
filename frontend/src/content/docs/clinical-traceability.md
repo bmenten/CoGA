@@ -191,8 +191,9 @@ SHA-256 content hash), the version the clinical report in the EPD refers to. It 
   from the saved review at sign-out. The ACMG classification and the CNV scoring are kept beside it,
   so a class you chose over the ACMG score keeps that score in the record;
 - the drift state, the Sample QC verdict, and the sequencing-QC values and verdicts with the cut-offs
-  they were judged against. The signed version lists every value (a PGT embryo's ADO, ADI and
-  concordance included), not only those outside a cut-off;
+  they were judged against. Each analysis's QC is judged against its own cut-offs, and the record
+  names the profiles they came from. The signed version lists every value (a PGT embryo's ADO, ADI
+  and concordance included), not only those outside a cut-off;
 - whether the family's data imported completely, and if not, which datasets failed;
 - what the analysis looked at:
   - each reported variant's **description** as you reviewed it: gene, transcript, HGVS g. (VEP's,
@@ -267,12 +268,13 @@ is signed out on its own, and its signed version freezes and checks that analysi
 - its application's results: the NIPT results for the monogenic NIPT, the cNIPT results for the
   conventional NIPT, the embryo calls for PGT or the monogenic NIPT;
 - its Sample QC, on genotypes of its own (the conventional NIPT runs no check);
+- its sequencing QC, judged against its own cut-offs;
 - its package's delivery and package-folder changes, and what its imports left incomplete.
 
 Data that no analysis claims as its own (an upload, an analyst's addition, a package that named no
-analysis) count in every analysis's sign-out. The gene panels, the versions and the sequencing QC are
-frozen whole. Each sign-out check reads the analysis's own data, so a drifted classification, a Sample
-QC concern or a failed dataset of another analysis does not stop it.
+analysis) count in every analysis's sign-out. The gene panels and the versions are frozen whole.
+Each sign-out check reads the analysis's own data, so a drifted classification, a Sample QC concern
+or a failed dataset of another analysis does not stop it.
 
 Where you sign out:
 
@@ -506,7 +508,8 @@ It shows what the record holds (section 4):
   read as depth in its words (*Coverage tracks not read as depth: …*). Another family's record has no
   NIPT results, and the page says nothing of them;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
-  acknowledgement and its reason;
+  acknowledgement and its reason. The sequencing QC is listed per analysis, named when the record
+  holds several, with the profiles its cut-offs came from;
 - in the footer, with the report code: the versions it was signed with, the reference-data releases and
   the coverage tracks on one line (*Coverage tracks as signed: S1 coverage BED (package) — read depth;
   S1 WisecondorX (package) — log2 ratio; …*).

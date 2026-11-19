@@ -4,6 +4,7 @@ import InfoTip from '../../components/InfoTip';
 import type { ApiFamilyRecord, ApiSampleSequencingQcMetric } from '../../lib/apiTypes';
 import { crossedLimit, formatQcLimit, formatQcMetricValue } from '../../lib/qcMetricValue';
 import { QC_STATUS_CHIP, QC_STATUS_LABEL } from '../../lib/qcStatus';
+import { analysisLabel } from '../../lib/familyAnalyses';
 
 /**
  * Each member's sequencing QC as the pipeline reported it and the family record serves it,
@@ -35,11 +36,14 @@ export interface SequencingQcColumn {
   name: string;
 }
 
-/** Every metric any member has, once, in the order the server lists them (its catalogue's). */
+/**
+ * Every metric any member has, of any analysis, once, in the order the server lists them (its
+ * catalogue's).
+ */
 export const sequencingQcColumns = (members: ApiFamilyRecord['members']): SequencingQcColumn[] => {
   const columns = new Map<string, SequencingQcColumn>();
   for (const member of members) {
-    for (const metric of member.sequencing_qc?.metrics ?? []) {
+    for (const metric of Object.values(member.sequencing_qc ?? {}).flatMap((evaluation) => evaluation.metrics)) {
       if (!columns.has(metric.metric_key)) {
         columns.set(metric.metric_key, {
           key: metric.metric_key,
@@ -53,21 +57,36 @@ export const sequencingQcColumns = (members: ApiFamilyRecord['members']): Sequen
 };
 
 /**
- * What the sequencing QC was judged against, for the text above the table: the family's QC
- * profile, and the measures no member's value of was judged (no cut-off is set for them).
+ * What the sequencing QC was judged against, for the text above the table: each analysis's QC
+ * profiles (its own, else the family's named one, else the default, metric by metric), and the
+ * measures no member's value of was judged (no cut-off is set for them).
  */
 export const sequencingQcNote = (members: ApiFamilyRecord['members'], columns: SequencingQcColumn[]): string => {
-  const profile = members.map((member) => member.sequencing_qc?.profile_label).find(Boolean);
+  const profilesByAnalysis = new Map<string, string>();
+  for (const member of members) {
+    for (const [analysis, evaluation] of Object.entries(member.sequencing_qc ?? {})) {
+      const labels = (evaluation.profiles ?? []).map((profile) => profile.label);
+      if (labels.length && !profilesByAnalysis.has(analysis)) profilesByAnalysis.set(analysis, labels.join(', else '));
+    }
+  }
+  const several = profilesByAnalysis.size > 1;
+  const profiles = [...profilesByAnalysis.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([analysis, labels]) => (several ? `${analysisLabel(analysis) ?? analysis}: ${labels}` : labels));
   const unjudged = columns.filter((column) =>
-    members.every((member) => {
-      const metric = member.sequencing_qc?.metrics.find((entry) => entry.metric_key === column.key);
-      return !metric || metric.verdict === 'skip';
-    }),
+    members.every((member) =>
+      Object.values(member.sequencing_qc ?? {}).every((evaluation) => {
+        const metric = evaluation.metrics.find((entry) => entry.metric_key === column.key);
+        return !metric || metric.verdict === 'skip';
+      }),
+    ),
   );
   return [
     'Sequencing & embryo QC as the pipeline reported it: coverage and alignment, and for each embryo its allele ' +
       'drop-out (ADO) and drop-in (ADI) and its Mendelian concordance with its parents before and after imputation.',
-    profile ? `Judged against the cut-offs of ${profile}.` : 'No QC profile applies to this family.',
+    profiles.length
+      ? `Judged against the cut-offs of ${profiles.join('; ')}, metric by metric.`
+      : 'No QC profile applies to this family.',
     unjudged.length
       ? `No cut-off is set for ${unjudged.map((column) => column.name).join(', ')}: those values are shown, not judged.`
       : '',

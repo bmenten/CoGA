@@ -691,13 +691,19 @@ Paraphase results are replaced.
 
 - **Sequencing QC** appears per sample in the **Family members** table as a chip with the QC verdict
   and the mean depth.
-  - Hover it, or move the keyboard focus to it, for every metric and the cut-offs. Click it to open the
-    pipeline's QC report.
+  - A sample sequenced in more than one analysis (short-read and then long-read WGS of the same DNA)
+    has a chip of each, named by its analysis (*Short-read WGS: Pass 35.0x*). Each analysis's QC is
+    kept and judged on its own.
+  - Hover it, or move the keyboard focus to it, for every metric, the cut-offs and the profiles they
+    came from (*Cut-offs of the Short-read WGS profile, else the Default profile*). Click it to open
+    the pipeline's QC report of that analysis.
   - The chip reads *Warning* (amber) or *Fail* (red) when a metric crosses a warning or error cut-off.
     The tooltip names each such metric with its value (rounded as on the chip) and the cut-off it
     crossed, in the metric's unit (*Mean depth 18.6x below 20x*).
-  - Cut-offs are set per assay under **Admin → Sequencing QC thresholds**. None ship by default. A metric
-    without a cut-off reads as *not assessed*, not as a pass.
+  - Cut-offs are set per assay under **Admin → Sequencing QC thresholds**. None ship by default. Each
+    metric of an analysis is judged by the cut-off in the analysis's own profile, else in the profile
+    the family names, else in the default profile. A metric without a cut-off in any of them reads as
+    *not assessed*, not as a pass.
   - A sample with no cut-off for any of its metrics, or with no verdict from the server, reads *Not run*
     in grey, and the tooltip says which.
   - A sample with no mean depth or N50, such as an embryo that appears only in the PGT pipeline's family

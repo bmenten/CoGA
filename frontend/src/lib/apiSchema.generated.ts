@@ -1079,7 +1079,7 @@ export interface FamilyMemberOut {
   carrier_evidence: Record<string, unknown>;
   active: boolean;
   sample_metadata: Record<string, unknown>;
-  sequencing_qc: SampleSequencingQcEvaluationOut | null;
+  sequencing_qc: Record<string, SampleSequencingQcEvaluationOut>;
 }
 
 export interface FamilyMemberUpdate {
@@ -3602,6 +3602,12 @@ export interface QcMetricCatalogueOut {
   help_text: string;
 }
 
+/** A QC threshold profile, by its key and its label. */
+export interface QcProfileNameOut {
+  key: string;
+  label: string;
+}
+
 export interface QcThresholdCatalogueOut {
   metrics: QcMetricCatalogueOut[];
   profiles: QcThresholdProfileOut[];
@@ -4235,8 +4241,7 @@ export interface SampleSequencingQcEvaluationOut {
   verdict: "pass" | "warn" | "fail" | "skip";
   metrics: SampleSequencingQcMetricOut[];
   breached: string[];
-  profile_key: string | null;
-  profile_label: string | null;
+  profiles: QcProfileNameOut[];
 }
 
 /** One sequencing-QC metric measured against its configured cut-offs. */
@@ -4249,6 +4254,7 @@ export interface SampleSequencingQcMetricOut {
   warn_value: number | null;
   error_value: number | null;
   verdict: "pass" | "warn" | "fail" | "skip";
+  profile_key: string | null;
 }
 
 export interface SegmentalDuplicationOut {

@@ -213,7 +213,7 @@ def recorded(data: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str,
     path``."""
     families: dict[str, dict[str, str]] = {}
 
-    async def recorded_report(session: Any, *, family_id: str, sample_id: str) -> Any:
+    async def recorded_report(session: Any, *, family_id: str, sample_id: str, analysis: str) -> Any:
         report = families.get(family_id, {}).get(sample_id)
         if report is None:
             raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
@@ -227,10 +227,13 @@ def recorded(data: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str,
 async def _open(client: httpx.AsyncClient, family_id: str, sample_id: str) -> tuple[int, int, bytes]:
     """The link request's status, then the report's status and body, fetched with a link token
     minted for the family and sample (as the link request would hand it out)."""
-    link = await client.get(f"/api{url_path('families', family_id, 'qc-report', sample_id, 'link')}")
-    token = family_qc_reports._qc_report_token(family_id, sample_id)
+    link = await client.get(
+        f"/api{url_path('families', family_id, 'qc-report', sample_id, 'link')}", params={"analysis": "long_read_wgs"}
+    )
+    token = family_qc_reports._qc_report_token(family_id, sample_id, "long_read_wgs")
     report = await client.get(
-        f"/api{url_path('families', family_id, 'qc-report', sample_id)}", params={"token": token}
+        f"/api{url_path('families', family_id, 'qc-report', sample_id)}",
+        params={"analysis": "long_read_wgs", "token": token},
     )
     return link.status_code, report.status_code, report.content
 
@@ -251,7 +254,9 @@ async def test_the_link_and_the_report_reach_only_the_familys_own_report(
 
     async with asgi_client() as client:
         own = await _open(client, "F1", "S1")
-        link = await client.get(f"/api{url_path('families', 'F1', 'qc-report', 'S1', 'link')}")
+        link = await client.get(
+            f"/api{url_path('families', 'F1', 'qc-report', 'S1', 'link')}", params={"analysis": "long_read_wgs"}
+        )
         followed = await client.get(f"{ORIGIN}/api{link.json()['url']}")
         refused = {
             f"{family}/{sample}": await _open(client, family, sample)

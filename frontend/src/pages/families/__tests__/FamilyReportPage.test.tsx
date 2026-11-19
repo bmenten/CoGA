@@ -1516,18 +1516,21 @@ describe('FamilyReportPage', () => {
       notes: [],
     },
     sequencing_qc: {
-      profile_key: 'wgs',
-      profile_label: 'WGS default',
-      thresholds: {},
-      samples: {
-        PROBAND: {
-          verdict: 'warn',
-          metrics: [
-            { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn' },
-            // A value without a cut-off: shown as frozen, not judged.
-            { metric_key: 'pgt.allele_dropout_rate', label: 'Allele drop-out (ADO)', unit: '%', value: 17.46, warn_value: null, error_value: null, verdict: 'skip' },
-          ],
-          breached: ['mean_coverage'],
+      analyses: {
+        long_read_wgs: {
+          profiles: [{ key: 'default', label: 'WGS default' }],
+          thresholds: {},
+          samples: {
+            PROBAND: {
+              verdict: 'warn',
+              metrics: [
+                { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', profile_key: 'default' },
+                // A value without a cut-off: shown as frozen, not judged.
+                { metric_key: 'pgt.allele_dropout_rate', label: 'Allele drop-out (ADO)', unit: '%', value: 17.46, warn_value: null, error_value: null, verdict: 'skip', profile_key: null },
+              ],
+              breached: ['mean_coverage'],
+            },
+          },
         },
       },
     },

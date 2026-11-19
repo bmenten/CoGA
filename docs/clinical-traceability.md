@@ -410,7 +410,13 @@ item below (*One sign-out per analysis*).
   still freeze every call: a review marks a finding, it removes none.
 - **Drift and QC:** the drift state (`drift` for the small variants, `structural_drift` for the SVs
   and CNVs), the sample-integrity QC result, and the sequencing QC with the cut-offs it was judged
-  against.
+  against (`sequencing_qc`). The sequencing QC is kept per analysis (`analyses`, keyed as the
+  family's package records are), each judged against its own analysis's cut-offs. For each analysis
+  the record holds the profiles its cut-offs were read from, in order (`profiles`: key and label);
+  each metric that had a cut-off, with its warning and error value and the profile it came from
+  (`thresholds`: `warn_value`, `error_value`, `profile_key`); and each sample's values and verdicts
+  (`samples`). The record holds the QC of the analysis it closes and of a package that named no
+  analysis; a record of a family of one analysis or none holds every analysis's.
 - **Import state:**
   - `import_incomplete`: null when the family's data imported completely; otherwise the failed and
     the imported datasets, when, and the import job;
@@ -717,9 +723,10 @@ A sign-out of analysis X freezes and checks:
 | `repeat_expansions` and `paraphase`, with their reviews, `finding_review_drift` and `unreviewed_findings` (gate 7) | each section whole, only when X's record lists such sources or no other analysis's record does; otherwise the record holds neither the section nor its reviews |
 | `pgt_analysis`, `nipt`, `cnipt` | the PGT embryo calls for `pgt` or `monogenic_nipt`, the NIPT results for `monogenic_nipt`, the cNIPT results for `conventional_nipt`; a section of an application none of whose analyses the family holds goes to every analysis |
 | `sample_qc` | the QC of X's own application (the conventional NIPT runs no check), on genotypes from a callset of X's own |
+| `sequencing_qc` | the sequencing QC X's own import recorded, and that of a package that named no analysis, each judged against its analysis's cut-offs |
 | `package_intake`, `package_source_changes` (gate 6) | X's own package record, and that of a package that named no analysis |
 | `import_incomplete`, `import_unfinished` (gate 5) | the datasets of X's record, or of no other analysis's record; a failed overwrite whose restore did not finish (`whole_family`) stays whole |
-| `gene_panels`, `reference_data`, `modules`, `sequencing_qc` | whole (`reference_data` for the genes the record describes) |
+| `gene_panels`, `reference_data`, `modules` | whole (`reference_data` for the genes the record describes) |
 
 The gates read this snapshot, so each gate is the analysis's own: a drifted classification, a QC
 concern or a failed dataset of another analysis does not stop it. The sign-out check of X compares
@@ -1099,7 +1106,9 @@ nothing else (`frontend/src/pages/families/signedReportRecord.ts` reads it). It 
   package and its corrections (*Package intake*: the analysis, the run, the package file and the
   revision imported, and each correction with what it changed, a change the pipeline used marked,
   why, by whom and when); and the reference-data releases;
-- the drift, Sample QC, sequencing QC and import state, with the acknowledgements;
+- the drift, Sample QC, sequencing QC and import state, with the acknowledgements; the sequencing
+  QC per analysis the record holds, named when it holds several, with the profiles its cut-offs
+  came from (*judged against the cut-offs of Short-read WGS, else Default, metric by metric*);
 - in the footer, with the report code, the frozen modules and beside them the reference-data
   releases and the coverage tracks (*Coverage tracks as signed: S1 coverage BED (package) — read
   depth; S1 WisecondorX (package) — log2 ratio; …*);
@@ -1295,8 +1304,12 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   chromosomes a depth check read: the mtDNA coverage reads a track only where it has rows on chrM,
   the NIPT coverage check its targets' chromosomes, and a sample with two read-depth tracks is read
   from its coverage BED. The mtDNA coverage and its verdict are not frozen.
-- The sequencing QC is one per sample, so the record of each analysis of a family that holds several
-  freezes it whole, as it does the gene panels and the modules.
+- An analysis's sequencing QC is judged, metric by metric, against the cut-off QA set in the
+  analysis's own profile, else in the profile the family names, else in the default profile
+  ([database.md](database.md), *Sequencing-QC limits*). So a cut-off QA set on the family's or the
+  default profile still judges an analysis whose own profile sets none for that metric, and a
+  short-read and a long-read analysis of one family can be judged by the same cut-off. The record
+  names the profile each cut-off came from.
 
 **Sign-out and the EPD**
 

@@ -90,6 +90,7 @@ from .qc import (
     QcThresholdProfileCreate,
     QcThresholdUpdate,
     SampleSequencingQcMetricOut,
+    QcProfileNameOut,
     SampleSequencingQcEvaluationOut,
     FamilyQcReportLinkOut,
 )
@@ -542,6 +543,7 @@ __all__ = [
     "QcThresholdProfileCreate",
     "QcThresholdUpdate",
     "SampleSequencingQcMetricOut",
+    "QcProfileNameOut",
     "SampleSequencingQcEvaluationOut",
     "FamilyQcReportLinkOut",
     "FamilyMemberOut",

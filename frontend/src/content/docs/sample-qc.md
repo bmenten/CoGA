@@ -81,7 +81,8 @@ heterozygotes, a woman many.
 A PGT family's genotypes are imputed for the autosomes only, so its samples have no X genotypes. The PGT
 pipeline also runs ngs-bits *SampleGender*, which reads each sample's sex from the ratio of its reads on
 chromosome Y to those on chromosome X. CoGA stores that call with the sample's sequencing QC when the
-family is imported. For a sample without X genotypes, the sex check compares that call with the
+family is imported, under the analysis the package names. The check reads the call recorded for the
+analyses it checks, else that of a package that named no analysis. For a sample without X genotypes, the sex check compares that call with the
 recorded sex, graded as above: a match is a **pass**, a different sex a **fail**, and an indeterminate
 call or no recorded sex a **warn**. The message says the sex was read from the reads, not the genotypes,
 and quotes the ratio and the read counts. A sample with X genotypes is sexed from them, not from the
@@ -274,12 +275,17 @@ each sample's pipeline reported, one column per measure:
   its parents before and after imputation, from RTG Tools (`rtgtools/<family>_cohort_concordance.csv`
   and `_imputed_concordance.csv`). They are read when the package's `qc` dataset is imported.
 
-Each value is judged against the family's cut-offs (**Admin → Sequencing QC thresholds**). A value
-outside them shows its verdict beside it (*32.1% · Warning*). The last column (**Seq. QC**) holds the
-sample's worst verdict, as the **Seq. QC** chip of the family page does. A value without a cut-off is
-shown, not judged (*Not run*); the text above the table names those measures. These are not
-sample-integrity checks: they do not change the sample's ring, its status or the page's overall
-verdict, and do not stop sign-out. The signed report records every value with its verdict.
+Each analysis's values are judged against that analysis's cut-offs (**Admin → Sequencing QC
+thresholds**), metric by metric: the cut-off in the analysis's own profile, else in the profile the
+family names, else in the default profile. The text above the table names the profiles (*Judged
+against the cut-offs of Short-read WGS, else Default, metric by metric*). A value outside its cut-offs
+shows its verdict beside it (*32.1% · Warning*). The last column (**Seq. QC**) holds the sample's worst
+verdict, as the **Seq. QC** chip of the family page does. A sample sequenced in more than one analysis
+(short-read and then long-read WGS of the same DNA) shows each analysis's value and verdict, named by
+its analysis. A value without a cut-off is shown, not judged (*Not run*); the text above the table
+names those measures. These are not sample-integrity checks: they do not change the sample's ring,
+its status or the page's overall verdict, and do not stop sign-out. The signed report of an analysis
+records every value of that analysis with its verdict.
 
 ---
 

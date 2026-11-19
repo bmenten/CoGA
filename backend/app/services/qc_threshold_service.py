@@ -410,6 +410,9 @@ def evaluate_sequencing_qc(
         bounds = thresholds.get(metric.key) or {}
         warn_value = bounds.get("warn_value")
         error_value = bounds.get("error_value")
+        # The profile whose cut-off judged it (resolve_analysis_qc_thresholds); None for a
+        # profile's own thresholds.
+        profile_key = bounds.get("profile_key")
         verdict = evaluate_metric(
             value,
             direction=metric.direction,
@@ -426,6 +429,7 @@ def evaluate_sequencing_qc(
                 "warn_value": warn_value,
                 "error_value": error_value,
                 "verdict": verdict,
+                "profile_key": profile_key,
             }
         )
     if not metrics:
@@ -885,4 +889,74 @@ async def resolve_family_qc_thresholds(
             }
             for entry in threshold_rows
         },
+    }
+
+
+# The QC profile of each analysis a package may name: its seeded profile's key. An analysis
+# without one is judged by the family's named profile and the default.
+ANALYSIS_QC_PROFILES: dict[str, str] = {
+    "long_read_wgs": "long_read_wgs",
+    "short_read_wgs": "short_read_wgs",
+    "monogenic_nipt": "nipt_monogenic",
+    "conventional_nipt": "nipt_conventional",
+    "pgt": "pgt",
+}
+
+_PROFILE_BY_KEY = text("SELECT key, label, id::text AS id FROM qc_threshold_profiles WHERE key = :key")
+_DEFAULT_PROFILE = text("SELECT key, label, id::text AS id FROM qc_threshold_profiles WHERE is_default LIMIT 1")
+_FAMILY_PROFILE_KEY = text("SELECT metadata ->> 'qc_profile' FROM families WHERE id = CAST(:family_uuid AS uuid)")
+_PROFILE_THRESHOLDS = text(
+    """
+    SELECT metric_key, warn_value, error_value
+    FROM qc_thresholds
+    WHERE profile_id = CAST(:profile_id AS uuid)
+      AND (warn_value IS NOT NULL OR error_value IS NOT NULL)
+    """
+)
+
+
+async def resolve_analysis_qc_thresholds(
+    session: AsyncSession | None,
+    *,
+    family_uuid: str,
+    analysis: str,
+) -> dict[str, Any]:
+    """The cut-offs that judge a family's sequencing QC of one analysis (its package record's
+    key), metric by metric (the owner's decision of 2026-11-19): the cut-off QA set in the
+    analysis's own profile (``ANALYSIS_QC_PROFILES``), else in the profile the family names
+    (``qc_profile``), else in the default profile. So short-read and long-read WGS of one family
+    are each judged by their own cut-offs once QA enters them, and no cut-off QA set on the
+    family's or the default profile is lost meanwhile.
+
+    Returns ``{"profiles": [{"key", "label"}…], "thresholds": {metric_key: {"warn_value",
+    "error_value", "profile_key"}}}``: the profiles in the order they are read (each once), and
+    each metric's cut-off with the profile it came from. Without a session nothing is read and
+    nothing is gated, as ``resolve_family_qc_thresholds``.
+    """
+    if session is None:
+        return {"profiles": [], "thresholds": {}}
+    keys = [ANALYSIS_QC_PROFILES.get(analysis)]
+    keys.append(
+        (await session.execute(_FAMILY_PROFILE_KEY, {"family_uuid": family_uuid})).scalar_one_or_none()
+    )
+    profiles: list[dict[str, Any]] = []
+    for key in keys:
+        if isinstance(key, str) and key and key not in {profile["key"] for profile in profiles}:
+            row = (await session.execute(_PROFILE_BY_KEY, {"key": key})).mappings().first()
+            if row is not None:
+                profiles.append(dict(row))
+    default = (await session.execute(_DEFAULT_PROFILE)).mappings().first()
+    if default is not None and default["key"] not in {profile["key"] for profile in profiles}:
+        profiles.append(dict(default))
+    thresholds: dict[str, dict[str, Any]] = {}
+    for profile in profiles:
+        rows = (await session.execute(_PROFILE_THRESHOLDS, {"profile_id": profile["id"]})).mappings()
+        for row in rows:
+            thresholds.setdefault(
+                str(row["metric_key"]),
+                {"warn_value": row["warn_value"], "error_value": row["error_value"], "profile_key": profile["key"]},
+            )
+    return {
+        "profiles": [{"key": profile["key"], "label": profile["label"]} for profile in profiles],
+        "thresholds": thresholds,
     }

@@ -12,9 +12,11 @@ import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import {
   formatSequencingQcDetail,
   formatSequencingQcSummary,
+  sequencingQcAnalyses,
   sequencingQcForMember,
 } from './familyDetailHelpers';
-import { apiPath } from '../../lib/apiPath';
+import { apiPath, raw } from '../../lib/apiPath';
+import { analysisLabel } from '../../lib/familyAnalyses';
 import { crossedLimit, formatQcLimit, formatQcMetricValue } from '../../lib/qcMetricValue';
 import type { FamilyQcReportLinkOut } from '../../lib/apiSchema.generated';
 
@@ -22,6 +24,21 @@ interface SampleQcCellProps {
   familyId: string;
   member?: ApiFamilyRecord['members'][number];
 }
+
+interface SampleQcChipProps {
+  familyId: string;
+  member: ApiFamilyRecord['members'][number];
+  /** The analysis whose QC the chip shows (`samples.metadata.sequencing_qc`). */
+  analysis: string;
+  /** Named on the chip: the sample has the QC of more than one analysis. */
+  named: boolean;
+}
+
+/** The profiles a verdict's cut-offs came from, in the order they are read. */
+const describeProfiles = (evaluation: ApiSampleSequencingQcEvaluation | null | undefined): string | null => {
+  const labels = (evaluation?.profiles ?? []).map((profile) => profile.label);
+  return labels.length ? `Cut-offs of the ${labels.join(' profile, else the ')} profile` : null;
+};
 
 /**
  * Chip tone per verdict. `warn` is amber and `fail` red — the two the operator asked
@@ -147,11 +164,32 @@ const leadSentence = (evaluation: ApiSampleSequencingQcEvaluation | null | undef
  * pipeline HTML the backend serves sandboxed. `noopener` keeps it off this document.
  */
 const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
+  const analyses = member ? sequencingQcAnalyses(member) : [];
+  // "-" means no sequencing QC to show.
+  if (!member || !analyses.length) return <span className="dashboard-link-note">-</span>;
+  // A chip per analysis that recorded the sample's QC: a sample sequenced short-read and then
+  // long-read is judged on each, against each analysis's own cut-offs.
+  return (
+    <>
+      {analyses.map((analysis) => (
+        <SampleQcChip
+          key={analysis}
+          familyId={familyId}
+          member={member}
+          analysis={analysis}
+          named={analyses.length > 1}
+        />
+      ))}
+    </>
+  );
+};
+
+const SampleQcChip: React.FC<SampleQcChipProps> = ({ familyId, member, analysis, named }) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const qc = member ? sequencingQcForMember(member) : undefined;
-  const evaluation = member?.sequencing_qc;
+  const qc = sequencingQcForMember(member, analysis);
+  const evaluation = member.sequencing_qc?.[analysis];
   const summary = formatSequencingQcSummary(qc);
   const detail = formatSequencingQcDetail(qc);
 
@@ -162,12 +200,11 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
   }
 
   const openReport = async () => {
-    if (!member) return;
     setBusy(true);
     setError(null);
     try {
       const response = await api.get<FamilyQcReportLinkOut>(
-        apiPath`/families/${familyId}/qc-report/${member.sample_id}/link`,
+        apiPath`/families/${familyId}/qc-report/${member.sample_id}/link${raw(`?${new URLSearchParams({ analysis })}`)}`,
       );
       const url = response.data?.url;
       if (!url) {
@@ -194,13 +231,16 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
   // that decided the verdict ("Fail ADO 32.1%"). A sample that was not assessed has no such
   // metric and reads "Not run" alone, and a pass with no number reads "Pass".
   const number = summary ?? formatDecidingMetric(evaluation);
-  const label = [verdictWord, number].filter(Boolean).join(' ') || QC_STATUS_LABEL[verdict];
+  const unnamed = [verdictWord, number].filter(Boolean).join(' ') || QC_STATUS_LABEL[verdict];
+  // The analysis first when the sample has more than one: "Short-read WGS: Pass 35.0x".
+  const analysisName = analysisLabel(analysis) ?? analysis;
+  const label = named ? `${analysisName.charAt(0).toUpperCase()}${analysisName.slice(1)}: ${unnamed}` : unnamed;
   const report = qc?.report;
 
   const tooltip = [
     leadSentence(evaluation),
     detail,
-    evaluation?.profile_label ? `Thresholds: ${evaluation.profile_label} profile` : null,
+    describeProfiles(evaluation),
     report ? 'Click to open the pipeline QC report in a new tab' : null,
   ]
     .filter(Boolean)

@@ -2,7 +2,7 @@
 
 The CNV caller's signal files and the sequencing-QC report are served from
 the path the import recorded on the sample (``samples.metadata``: ``signal_tracks``,
-``sequencing_qc.report``), relative to the family's package folder ``<data>/families/<family>``.
+``sequencing_qc`` of an analysis, its ``report``), relative to the family's package folder ``<data>/families/<family>``.
 A check only that the path stays inside the data directory would let an edited row holding
 ``..`` or an absolute path serve another family's track, listed in the manifest; a lookup that
 follows a package folder linked to another family's package would serve that family's report.
@@ -74,15 +74,15 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
 
     # What the samples' rows record, as an edited row could hold it for S3, S4, S5 and S6.
     recorded: dict[str, dict[str, Any]] = {
-        s2: {"signal_tracks": {"hificnv": {KIND: f"cnv/{s2}.depth.bw"}}, "sequencing_qc": {"report": f"qc/{s2}.html"}},
-        s1: {"signal_tracks": {"hificnv": {KIND: f"cnv/{s1}.depth.bw"}}, "sequencing_qc": {"report": f"qc/{s1}.html"}},
+        s2: {"signal_tracks": {"hificnv": {KIND: f"cnv/{s2}.depth.bw"}}, "sequencing_qc": {"unspecified": {"report": f"qc/{s2}.html"}}},
+        s1: {"signal_tracks": {"hificnv": {KIND: f"cnv/{s1}.depth.bw"}}, "sequencing_qc": {"unspecified": {"report": f"qc/{s1}.html"}}},
         s3: {
             "signal_tracks": {"hificnv": {KIND: f"../{f2}/cnv/{s2}.depth.bw"}},
-            "sequencing_qc": {"report": f"../{f2}/qc/{s2}.html"},
+            "sequencing_qc": {"unspecified": {"report": f"../{f2}/qc/{s2}.html"}},
         },
         s4: {"signal_tracks": {"hificnv": {KIND: str(data / "families" / f2 / "cnv" / f"{s2}.depth.bw")}}},
         s5: {"signal_tracks": {"hificnv": {KIND: f"linked/{s2}.depth.bw"}}},
-        s6: {"sequencing_qc": {"report": f"qc/{s2}.html"}},
+        s6: {"sequencing_qc": {"unspecified": {"report": f"qc/{s2}.html"}}},
     }
 
     await ensure_postgres_schema()
@@ -139,7 +139,10 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
 
             async def report(family_id: str, sample_id: str) -> tuple[int, bytes | None]:
                 """The link request's status, and what following the link fetches."""
-                link = await admin.get(f"/api/families/{family_id}/qc-report/{sample_id}/link")
+                # The report of the analysis whose QC records it: these families name none.
+                link = await admin.get(
+                    f"/api/families/{family_id}/qc-report/{sample_id}/link", params={"analysis": "unspecified"}
+                )
                 if link.status_code != 200:
                     return link.status_code, None
                 return link.status_code, (await admin.get(f"/api{link.json()['url']}")).content

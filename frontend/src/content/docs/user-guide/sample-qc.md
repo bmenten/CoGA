@@ -45,8 +45,10 @@ of sites). A genotype with a quality (GQ) below 20 counts as a no-call.
   PGT embryo, its allele drop-out (ADO) and drop-in (ADI) and its Mendelian concordance with its parents
   before and after imputation: the numbers of the pipeline's dashboard. A value outside the lab's
   cut-off shows its verdict; a value without a cut-off is shown, not judged. **Seq. QC** is the
-  sample's worst. These values do not change the sample's status or the overall verdict, and do not
-  stop sign-out. The signed report records every value.
+  sample's worst. A sample sequenced in more than one analysis (short-read and then long-read WGS)
+  shows each analysis's value, named, each judged against that analysis's cut-offs. These values do
+  not change the sample's status or the overall verdict, and do not stop sign-out. The signed report
+  records every value.
 
 > **What to do with a warning or a fail.** A fail points to a real problem: re-check the sample sheet,
 > the pedigree and the genotypes before you interpret. A warning usually means too little data to decide

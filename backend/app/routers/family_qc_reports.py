@@ -57,8 +57,9 @@ _QC_REPORT_TOKEN_PURPOSE = "qc_report"
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 
 
-def _qc_report_token(family_id: str, sample_id: str) -> str:
-    """Sign a token that authorises exactly one report fetch.
+def _qc_report_token(family_id: str, sample_id: str, analysis: str) -> str:
+    """Sign a token that authorises exactly one report fetch: the sample's report of
+    ``analysis``.
 
     ``purpose`` pins it to this endpoint so a token minted here can never be replayed
     against the ordinary bearer-authenticated API.
@@ -68,6 +69,7 @@ def _qc_report_token(family_id: str, sample_id: str) -> str:
             "purpose": _QC_REPORT_TOKEN_PURPOSE,
             "family_id": family_id,
             "sample_id": sample_id,
+            "analysis": analysis,
             "exp": datetime.now(timezone.utc) + QC_REPORT_LINK_TTL,
         },
         settings.secret_key,
@@ -75,7 +77,7 @@ def _qc_report_token(family_id: str, sample_id: str) -> str:
     )
 
 
-def _verify_qc_report_token(token: str, family_id: str, sample_id: str) -> None:
+def _verify_qc_report_token(token: str, family_id: str, sample_id: str, analysis: str) -> None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[LOCAL_TOKEN_ALGORITHM])
     except jwt.PyJWTError as exc:
@@ -84,42 +86,44 @@ def _verify_qc_report_token(token: str, family_id: str, sample_id: str) -> None:
         payload.get("purpose") != _QC_REPORT_TOKEN_PURPOSE
         or payload.get("family_id") != family_id
         or payload.get("sample_id") != sample_id
+        or payload.get("analysis") != analysis
     ):
         raise HTTPException(status_code=403, detail="QC report link is invalid or expired")
 
 
 class _RecordedReport(NamedTuple):
-    """The report path recorded on a sample at import, relative to the package, and the
-    package folder of the analysis whose import recorded the sample's QC (its ``package``:
-    ``family_package_records``; ``None`` when none is recorded). Both are data from the
-    database, checked before use (``_resolve_report_file``)."""
+    """The report path an analysis's import recorded on a sample, relative to the package, and
+    that analysis's package folder (``family_package_records``; ``None`` when none is
+    recorded). Both are data from the database, checked before use (``_resolve_report_file``)."""
 
     path: str
     package_folder: str | None = None
 
 
-async def _recorded_report(session: AsyncSession, *, family_id: str, sample_id: str) -> _RecordedReport:
-    """The report path recorded in the sample's metadata at import, as stored (unstripped),
-    with the family's package folder; 404 when no path is recorded. No access check: the
-    callers make their own."""
+async def _recorded_report(
+    session: AsyncSession, *, family_id: str, sample_id: str, analysis: str
+) -> _RecordedReport:
+    """The report path the import of ``analysis`` recorded in the sample's sequencing QC
+    (``samples.metadata.sequencing_qc``, per analysis), as stored (unstripped), with that
+    analysis's package folder; 404 when no path is recorded. No access check: the callers
+    make their own."""
     result = await session.execute(
         text(
             """
-            SELECT s.metadata,
-                   f.metadata -> 'package_imports' -> (s.metadata -> 'sequencing_qc' ->> 'package')
-                       ->> 'folder_path' AS package_folder
+            SELECT s.metadata -> 'sequencing_qc' -> CAST(:analysis AS text),
+                   f.metadata -> 'package_imports' -> CAST(:analysis AS text) ->> 'folder_path' AS package_folder
             FROM samples s
             JOIN family_members fm ON fm.sample_id = s.id
             JOIN families f ON f.id = fm.family_id
             WHERE f.family_id = :family_id AND s.sample_id = :sample_id
             """
         ),
-        {"family_id": family_id, "sample_id": sample_id},
+        {"family_id": family_id, "sample_id": sample_id, "analysis": analysis},
     )
     row = result.one_or_none()
-    metadata = _metadata_dict(row[0] if row is not None else None)
+    sequencing_qc = _metadata_dict(row[0] if row is not None else None)
     package_folder = row[1] if row is not None and isinstance(row[1], str) else None
-    report = _metadata_dict(metadata.get("sequencing_qc")).get("report")
+    report = sequencing_qc.get("report")
     if not isinstance(report, str) or not report.strip():
         raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
     return _RecordedReport(report, package_folder)
@@ -130,6 +134,7 @@ async def _recorded_report_path(
     *,
     family_id: str,
     sample_id: str,
+    analysis: str,
     user: CurrentUser,
 ) -> _RecordedReport:
     """The package-relative report path recorded on the sample at import, stripped, with the
@@ -141,7 +146,7 @@ async def _recorded_report_path(
     family = await get_family_record(session, family_id, user)
     if sample_id not in {member.sample_id for member in family.members}:
         raise HTTPException(status_code=404, detail="Sample not found in family")
-    report = await _recorded_report(session, family_id=family_id, sample_id=sample_id)
+    report = await _recorded_report(session, family_id=family_id, sample_id=sample_id, analysis=analysis)
     return _RecordedReport(report.path.strip(), report.package_folder)
 
 
@@ -183,25 +188,34 @@ def _resolve_report_file(family_id: str, relative_path: str, package_folder: obj
     raise HTTPException(status_code=404, detail="QC report file is no longer available")
 
 
+# The analysis whose import recorded the report (samples.metadata.sequencing_qc): a sample
+# sequenced short-read and then long-read has a report of each.
+_ANALYSIS = Query(..., min_length=1, max_length=64)
+
+
 @router.get("/{family_id}/qc-report/{sample_id}/link", response_model=FamilyQcReportLinkOut)
 async def get_family_qc_report_link(
     family_id: str,
     sample_id: str,
+    analysis: str = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyQcReportLinkOut:
-    """Short-lived URL for the sample's QC report, for the client to open in a new tab."""
-    report = await _recorded_report_path(session, family_id=family_id, sample_id=sample_id, user=user)
+    """Short-lived URL for the sample's QC report of ``analysis``, for the client to open in a
+    new tab."""
+    report = await _recorded_report_path(
+        session, family_id=family_id, sample_id=sample_id, analysis=analysis, user=user
+    )
     relative_path = report.path
     expires_at = datetime.now(timezone.utc) + QC_REPORT_LINK_TTL
     # Confirm the file is there before handing out a link that would 404 on click; the file
     # system is read in a worker thread.
     await asyncio.to_thread(_resolve_report_file, family_id, relative_path, report.package_folder)
-    token = _qc_report_token(family_id, sample_id)
+    token = _qc_report_token(family_id, sample_id, analysis)
     # Each ID one encoded segment: an ID may hold `?`, `#`, `%` or `..`.
     path = url_path("families", family_id, "qc-report", sample_id)
     return FamilyQcReportLinkOut(
-        url=f"{path}?{urlencode({'token': token})}",
+        url=f"{path}?{urlencode({'analysis': analysis, 'token': token})}",
         expires_at=expires_at,
         filename=Path(relative_path).name,
     )
@@ -212,6 +226,7 @@ async def get_family_qc_report(
     family_id: str,
     sample_id: str,
     token: str = Query(...),
+    analysis: str = _ANALYSIS,
     session: AsyncSession = Depends(get_postgres_session),
 ):
     """Serve the QC report to a browser navigation carrying a link token.
@@ -220,8 +235,8 @@ async def get_family_qc_report(
     the authorisation, and it was only issued after the RBAC check in
     ``get_family_qc_report_link``.
     """
-    _verify_qc_report_token(token, family_id, sample_id)
-    report = await _recorded_report(session, family_id=family_id, sample_id=sample_id)
+    _verify_qc_report_token(token, family_id, sample_id, analysis)
+    report = await _recorded_report(session, family_id=family_id, sample_id=sample_id, analysis=analysis)
     relative_path = report.path.strip()
     path = await asyncio.to_thread(_resolve_report_file, family_id, relative_path, report.package_folder)
     return FileResponse(
