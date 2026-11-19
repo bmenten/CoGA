@@ -819,6 +819,9 @@ INSERT INTO qc_threshold_profiles (key, label, description, is_default, sort_ord
     -- inadequate. Seeded empty, like every other profile -- the values are the
     -- laboratory's to agree.
     ('nipt_monogenic', 'Monogenic NIPT', 'Cell-free DNA, monogenic (single-gene) NIPT.', false, 50),
+    -- The conventional NIPT's result rule reads its bounds here (cnipt_result.py); until QA
+    -- sets one, the rule applies its provisional value and says so in every result.
+    ('nipt_conventional', 'Conventional NIPT', 'Cell-free DNA, genome-wide copy number (ccnv): the bounds of the result rule.', false, 55),
     ('pgt', 'PGT', 'Preimplantation genetic testing on amplified embryo biopsies.', false, 60)
 ON CONFLICT (key) DO NOTHING;
 

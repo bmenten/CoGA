@@ -208,6 +208,24 @@ describe('FamilyCaseHeader', () => {
     );
   });
 
+  it("offers a conventional NIPT family's cNIPT result page with the project, before the variant summary", async () => {
+    const cnipt = { ...family, metadata: { analysis_type: 'conventional_nipt' } };
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter>
+          <FamilyCaseHeader kicker="cNIPT" familyId="F1" family={cnipt} projectId="p1" assemblyLabel="GRCh38" current="cnipt" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const nav = await screen.findByRole('navigation', { name: 'Variant analyses' });
+    await waitFor(() => expect(within(nav).getByRole('link', { name: 'Variant summary' })).toBeInTheDocument());
+    const link = within(nav).getByRole('link', { name: 'cNIPT' });
+    expect(link).toHaveAttribute('href', '/families/F1/cnipt?project_id=p1');
+    expect(link).toHaveAttribute('aria-current', 'page');
+    const labels = Array.from(nav.querySelectorAll('a')).map((anchor) => anchor.textContent);
+    expect(labels.indexOf('cNIPT')).toBe(labels.indexOf('Variant summary') - 1);
+  });
+
   it('keeps the page it is on in the row even when the check finds no data there', async () => {
     renderHeader('paraphase');
     const nav = await screen.findByRole('navigation', { name: 'Variant analyses' });

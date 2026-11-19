@@ -597,6 +597,127 @@ export interface ClinicalCnvOut {
   clinvar_pathogenic_accessions: string[] | null;
 }
 
+/**
+ * One bound of the rule as the result applied it: QA's, from the profile
+ * ``nipt_conventional``, or the provisional value QA has not replaced (``provisional``).
+ */
+export interface CniptBoundOut {
+  key: string;
+  label: string;
+  unit: string;
+  warn_value: number | null;
+  error_value: number | null;
+  provisional: boolean;
+}
+
+/**
+ * ccnv's fetal fractions of the plasma, from 0 to 1: the effective one the result and the
+ * expected lines use, the fused active one with its standard error and source, and each
+ * estimator's own.
+ */
+export interface CniptFetalFractionOut {
+  effective: number;
+  active: number;
+  active_se: number | null;
+  active_source: string | null;
+  ffy: number | null;
+  ffx: number | null;
+  ffa: number | null;
+  ff_size: number | null;
+}
+
+/**
+ * A segment the rule looked at: one ccnv called, or one whose |z-score| reaches the grey
+ * zone. ``kind`` says whether it is read as an aneuploidy of its chromosome (``chromosome``)
+ * or as a segmental CNV; ``implied_ff_ratio`` is its implied fetal fraction over the
+ * plasma's.
+ */
+export interface CniptFindingOut {
+  chrom: string;
+  start: number;
+  end: number;
+  size_mb: number;
+  direction: "gain" | "loss";
+  ratio: number;
+  zscore: number | null;
+  bin_count: number | null;
+  ccnv_call: "gain" | "loss" | null;
+  expected_ratio: number | null;
+  implied_ff: number | null;
+  implied_ff_ratio: number | null;
+  discordant: boolean;
+  discordance_reason: string | null;
+  origin_call: string | null;
+  kind: "chromosome" | "segmental";
+  verdict: "high_risk" | "inconclusive" | "low_risk" | "no_result" | "not_assessed";
+  reasons: string[];
+}
+
+/**
+ * ccnv's limits of detection (as fetal fractions) of arm-level and 3 Mb events, the size
+ * segmental CNVs are assessed from at this fetal fraction (none when they are not), and a
+ * sentence that says so.
+ */
+export interface CniptLimitsOut {
+  lod_ff_35mb: number | null;
+  lod_ff_3mb: number | null;
+  segmental_assessed_from_mb: number | null;
+  statement: string;
+}
+
+/**
+ * What of the rule is fixed in code: the profile its bounds are read from, the share of a
+ * chromosome a segment must span to be read as its aneuploidy, and ccnv's origins that make a
+ * finding inconclusive.
+ */
+export interface CniptRuleOut {
+  threshold_profile: string;
+  whole_chromosome_share: number;
+  maternal_or_mosaic_origins: string[];
+}
+
+/**
+ * The result for one maternal plasma (``status`` ``no_result`` with its reasons when there
+ * is none), with what it rests on.
+ */
+export interface CniptSampleResultOut {
+  sample_id: string;
+  qc_file: string;
+  status: "result" | "no_result";
+  no_result_reasons: string[];
+  fetal_fraction: CniptFetalFractionOut;
+  fetal_sex: string;
+  sca: CniptScaOut;
+  gestation: string | null;
+  limits_of_detection: CniptLimitsOut;
+  read_metrics: Record<string, number>;
+  warnings: string[];
+  targets: CniptTargetOut[];
+  findings: CniptFindingOut[];
+  bounds: CniptBoundOut[];
+  rule: CniptRuleOut;
+}
+
+/**
+ * ccnv's sex-chromosome call: its karyotype (XX, XY, XO, XXX, XXY, XYY, DISCORDANT_MIXED),
+ * whether it is an aneuploidy, and its confidence.
+ */
+export interface CniptScaOut {
+  call: string;
+  is_aneuploid: boolean;
+  confidence: number | null;
+}
+
+/**
+ * One target's result: an autosome (``1``…``22``), ``sex_chromosomes`` or ``segmental``,
+ * with the reasons for it.
+ */
+export interface CniptTargetOut {
+  target: string;
+  verdict: "high_risk" | "inconclusive" | "low_risk" | "no_result" | "not_assessed";
+  reasons: string[];
+}
+
 /** ClinGen 2019 copy-number classification (structural variants only). */
 export interface CnvAcmgClassificationPayload {
   kind?: "loss" | "gain";
@@ -784,6 +905,12 @@ export interface FamilyAncestryOut {
   notices: string[];
   choices: AncestrySampleChoiceOut[];
   can_choose: boolean;
+}
+
+/** A conventional NIPT family's result: one per maternal plasma with ccnv output. */
+export interface FamilyCniptOut {
+  family_id: string;
+  samples: CniptSampleResultOut[];
 }
 
 /**
@@ -2894,7 +3021,7 @@ export interface NiptVariantOut {
   filter_transcript: SmallVariantFilterTranscriptOut | null;
   genotypes: GenotypeOut[];
   hemizygous_in_males: boolean;
-  copy_change: "loss" | "gain" | null;
+  copy_change: "gain" | "loss" | null;
   review: SmallVariantReviewOut | null;
   internal_cohort: VariantInternalCohortOut | null;
   priority: VariantPriorityOut | null;
@@ -4780,7 +4907,7 @@ export interface VariantOut {
   filter_transcript: SmallVariantFilterTranscriptOut | null;
   genotypes: GenotypeOut[];
   hemizygous_in_males: boolean;
-  copy_change: "loss" | "gain" | null;
+  copy_change: "gain" | "loss" | null;
   review: SmallVariantReviewOut | null;
   internal_cohort: VariantInternalCohortOut | null;
   priority: VariantPriorityOut | null;

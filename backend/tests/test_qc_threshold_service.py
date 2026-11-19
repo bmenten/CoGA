@@ -165,7 +165,9 @@ def test_evaluate_sequencing_qc_returns_none_without_recorded_qc() -> None:
 
 def test_only_spread_duplicates_allele_errors_and_contamination_fail_on_the_high_side() -> None:
     # Everything else fails when it is too LOW. Pin the exceptions so a catalogue edit
-    # cannot silently invert a comparison.
+    # cannot silently invert a comparison. The conventional NIPT's segment |z-score| and its
+    # highest concordant implied fetal fraction are bounds of its result rule, read the same way:
+    # a higher value is the finding.
     higher_is_worse = [metric.key for metric in QC_METRICS if metric.direction == "higher_is_worse"]
     assert higher_is_worse == [
         "reads.stdev_read_length",
@@ -173,7 +175,29 @@ def test_only_spread_duplicates_allele_errors_and_contamination_fail_on_the_high
         "pgt.allele_dropout_rate",
         "pgt.allele_dropin_rate",
         "mtdna.contamination",
+        "cnipt.call_zscore",
+        "cnipt.implied_ff_ratio_max",
     ]
+
+
+def test_the_conventional_nipt_bounds_are_its_rules_and_never_a_sequencing_qc_verdict() -> None:
+    # The cNIPT result rule reads its bounds from its own profile and compares them itself
+    # (cnipt_result); the sequencing-QC evaluator never judges them.
+    cnipt = {metric.key for metric in QC_METRICS if metric.source == "cnipt"}
+    assert cnipt == {
+        "cnipt.fetal_fraction",
+        "cnipt.call_zscore",
+        "cnipt.implied_ff_ratio_min",
+        "cnipt.implied_ff_ratio_max",
+        "cnipt.sca_confidence",
+        "cnipt.min_cnv_size",
+    }
+    result = evaluate_sequencing_qc(
+        {"cnipt": {"fetal_fraction": 0.01}, "depth": {"mean_depth": 30.0}},
+        {"cnipt.fetal_fraction": {"warn_value": None, "error_value": 0.04}},
+    )
+    assert result is not None
+    assert [metric["metric_key"] for metric in result["metrics"]] == ["depth.mean_depth"]
 
 
 def test_mtdna_metrics_are_configured_here_but_evaluated_elsewhere() -> None:

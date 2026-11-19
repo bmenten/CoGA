@@ -54,6 +54,10 @@ MODULE_FLOORS: dict[str, float] = {
     # (100.0 measured locally: ClinVar's review status as stars, and its
     # conditions as a list)
     "backend/app/services/clinvar_review_status.py": 97.0,
+    # (97.6 measured locally: the conventional NIPT's result rule)
+    "backend/app/services/cnipt_result.py": 94.0,
+    # (96.9 measured locally: the conventional NIPT's result for a family)
+    "backend/app/services/cnipt_service.py": 93.0,
     "backend/app/services/cnv_acmg_points.py": 97.0,  # (100.0, 2026-11-03)
     # (100.0 measured locally: the package file coga-package.json)
     "backend/app/services/coga_package.py": 97.0,

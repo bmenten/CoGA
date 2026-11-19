@@ -16,7 +16,9 @@ import into real Postgres and ClickHouse, as a family of its own (a new id each 
   beside the active one), fetal sex and sex-chromosome call, which the views draw the plasma's
   track with;
 * a segments read serves each ccnv segment with ccnv's values (its call, expected ratio, implied
-  fetal fraction, discordance, origin), which the views colour it by and show on hover.
+  fetal fraction, discordance, origin), which the views colour it by and show on hover;
+* ``GET /families/{family_id}/cnipt`` reads the conventional NIPT's result from the stored QC and
+  segments: the chr21 gain a high risk, the bounds provisional in a new database.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -147,6 +149,8 @@ async def _exercise(base: Path, family_id: str) -> dict:
             f"/api/bed/{sample}/segments/batch", params={"chrom": ["21", "X"], "source": "ccnv"}
         )
         out["segments_read"] = {"status": segments.status_code, "json": segments.json()}
+        cnipt = await ac.get(f"/api/families/{family_id}/cnipt")
+        out["cnipt"] = {"status": cnipt.status_code, "json": cnipt.json()}
     return out
 
 
@@ -250,3 +254,26 @@ def test_each_ccnv_segment_is_read_with_ccnvs_values(run) -> None:
     }
     # A segment ccnv did not call has no call.
     assert "call" not in by_chrom["X"]["details"]
+
+
+def test_the_conventional_nipt_result_is_read_from_the_stored_qc_and_segments(run) -> None:
+    assert run["cnipt"]["status"] == 200, run["cnipt"]
+    (sample,) = run["cnipt"]["json"]["samples"]
+    assert (sample["sample_id"], sample["status"], sample["fetal_sex"]) == (run["sample"], "result", "F")
+    targets = {target["target"]: target["verdict"] for target in sample["targets"]}
+    # The chr21 gain spans the chromosome's segments, at |z| 5.6, its implied fetal fraction
+    # (11.8 %) concordant with the plasma's (12.1 %), of fetal origin: a high risk.
+    assert targets["21"] == "high_risk"
+    assert targets["1"] == "low_risk"
+    # ccnv gives no segment of chromosome 2 in this synthetic output.
+    assert targets["2"] == "no_result"
+    assert targets["sex_chromosomes"] == "low_risk"
+    # No bound is set by QA in a new database: each applies its provisional value, and says so.
+    assert {bound["key"]: bound["provisional"] for bound in sample["bounds"]} == {
+        "cnipt.fetal_fraction": True,
+        "cnipt.call_zscore": True,
+        "cnipt.implied_ff_ratio_min": True,
+        "cnipt.implied_ff_ratio_max": True,
+        "cnipt.sca_confidence": True,
+        "cnipt.min_cnv_size": True,
+    }
