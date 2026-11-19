@@ -49,13 +49,15 @@ export interface ReportSignOut {
 
 /**
  * The concerns a Sample-QC refusal names, each group as the 409 lists it: the checks
- * that failed, those that could not run, a NIPT family's NIPT quality checks that failed, and
+ * that failed, those that could not run, a NIPT family's NIPT quality checks that failed, a
+ * conventional NIPT family's plasmas without a result or with a result on provisional bounds, and
  * the warnings beside them. Each concern names its sample, pair or child.
  */
 interface QcConcerns {
   failed: string[];
   unverifiable: string[];
   niptFailed: string[];
+  cniptConcerns: string[];
   warnings: string[];
 }
 
@@ -64,6 +66,11 @@ const QC_CONCERN_GROUPS: ReadonlyArray<{ key: keyof QcConcerns; id: string; head
   { key: 'failed', id: 'qc-concerns-failed', heading: 'Sample QC checks that failed' },
   { key: 'unverifiable', id: 'qc-concerns-could-not-run', heading: 'Checks that could not run' },
   { key: 'niptFailed', id: 'qc-concerns-nipt-failed', heading: 'NIPT quality checks that failed' },
+  {
+    key: 'cniptConcerns',
+    id: 'qc-concerns-cnipt',
+    heading: 'Conventional NIPT: no result, or provisional bounds',
+  },
   {
     key: 'warnings',
     id: 'qc-concerns-warnings',
@@ -343,6 +350,7 @@ export const useReportSignOut = (
           failed_checks?: unknown;
           unverifiable_checks?: unknown;
           nipt_failed_checks?: unknown;
+          cnipt_concerns?: unknown;
           warning_checks?: unknown;
         };
         const shown = shownConcerns(detail);
@@ -353,6 +361,7 @@ export const useReportSignOut = (
             failed: stringList(qc.failed_checks),
             unverifiable: stringList(qc.unverifiable_checks),
             niptFailed: stringList(qc.nipt_failed_checks),
+            cniptConcerns: stringList(qc.cnipt_concerns),
             warnings: stringList(qc.warning_checks),
           },
           ...shown,

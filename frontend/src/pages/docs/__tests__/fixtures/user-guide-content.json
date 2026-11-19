@@ -4590,11 +4590,12 @@
   "title": "Conventional NIPT",
   "summary": "Screen a pregnancy for aneuploidies and copy-number changes from the maternal plasma (ccnv): read the automatic result, its findings and its bounds.",
   "quickLinks": [],
-  "text": "AconventionalNIPTscreensapregnancyforaneuploidiesandcopy-numberchangesfromthegenome-widecopynumberofthematernalplasma.Thelaboratory'stool,ccnv,measuresit;CoGAdrawsitandgivesanautomaticscreeningresultpertarget.Ahigh-riskresultcallsforconfirmatorydiagnostictesting.SettingupaconventionalNIPTfamilyApackageimportmakesthefamilywhenitspackagesaysanalysis_type:conventional_nipt(cNIPTinDeliveries),withccnv'sbins,segments,callsandQCfilefortheplasma.Afolderofccnvoutputaddedbyhandisreadthesameway:CoGAproposestheplasmaasthemotherofthepregnancy.ThefamilypagethenshowsacNIPTtab.ThecNIPTpageTheresultlistschromosomes21,18and13,thesexchromosomesandthesegmentalCNVsfirst,eachHighrisk,Inconclusive,Lowrisk,NoresultorNotassessed,withwhy.Anotherautosomeislistedwiththemwhenitisnotlowrisk;everyautosomeisunderEveryotherautosome.Thematernalplasmagivesthefetalfractiontheresultuses(ccnv'seffectiveone)andeveryotherestimate,thefetalsexandthesex-chromosomecall,theresolution(fromwhichsizesegmentalCNVsareassessedatthisfetalfraction),andccnv'swarnings.Thefindingslisteverysegmentccnvcalledandeverysegmentinthegreyzone,eachwithitssize,log2ratio,z-score,impliedfetalfraction,originandresult.Clickaregiontoopenitinthechromosomeview.Theboundsoftheruleshowthevaluestheresultapplied.AboundQAhasnotsetyetismarkedprovisional:provisionalvaluesarenotvalidated.Inthegenomeandchromosomeviewstheplasma'strackhasanaxisofitsown.Eachsegmenttakesthecolourofccnv'scall(purplewhereccnvcallsitdiscordantwiththefetalfraction),anddashedlinesmarkwhereafetaltrisomyandmonosomylieatthefetalfraction.In-depthreferenceConventionalNIPTreference(thefetalfraction,therule,thetargetsandthebounds)→",
+  "text": "AconventionalNIPTscreensapregnancyforaneuploidiesandcopy-numberchangesfromthegenome-widecopynumberofthematernalplasma.Thelaboratory'stool,ccnv,measuresit;CoGAdrawsitandgivesanautomaticscreeningresultpertarget.Ahigh-riskresultcallsforconfirmatorydiagnostictesting.SettingupaconventionalNIPTfamilyApackageimportmakesthefamilywhenitspackagesaysanalysis_type:conventional_nipt(cNIPTinDeliveries),withccnv'sbins,segments,callsandQCfilefortheplasma.Afolderofccnvoutputaddedbyhandisreadthesameway:CoGAproposestheplasmaasthemotherofthepregnancy.ThefamilypagethenshowsacNIPTtab.ThecNIPTpageTheresultlistschromosomes21,18and13,thesexchromosomesandthesegmentalCNVsfirst,eachHighrisk,Inconclusive,Lowrisk,NoresultorNotassessed,withwhy.Anotherautosomeislistedwiththemwhenitisnotlowrisk;everyautosomeisunderEveryotherautosome.Thematernalplasmagivesthefetalfractiontheresultuses(ccnv'seffectiveone)andeveryotherestimate,thefetalsexandthesex-chromosomecall,theresolution(fromwhichsizesegmentalCNVsareassessedatthisfetalfraction),andccnv'swarnings.Thefindingslisteverysegmentccnvcalledandeverysegmentinthegreyzone,eachwithitssize,log2ratio,z-score,impliedfetalfraction,originandresult.Clickaregiontoopenitinthechromosomeview.Theboundsoftheruleshowthevaluestheresultapplied.AboundQAhasnotsetyetismarkedprovisional:provisionalvaluesarenotvalidated.Inthegenomeandchromosomeviewstheplasma'strackhasanaxisofitsown.Eachsegmenttakesthecolourofccnv'scall(purplewhereccnvcallsitdiscordantwiththefetalfraction),anddashedlinesmarkwhereafetaltrisomyandmonosomylieatthefetalfraction.SigningoutSignthefamilyoutfromitsReportpage,whichshowstheresultabovethereportedfindings.ThesignedversionkeepstheresultasthecNIPTpageshowedit,withtheboundsandthefilesitwasreadfrom.Aplasmawithoutaresult,oraresultonprovisionalbounds,asksforanacknowledgementwithareason;sodoestheplasma'ssexcheck,whichcannotrunonccnv'soutput.In-depthreferenceConventionalNIPTreference(thefetalfraction,therule,thetargetsandthebounds)→",
   "paragraphs": [
    "A conventional NIPT screens a pregnancy for aneuploidies and copy-number changes from the genome-wide copy number of the maternal plasma. The laboratory's tool, ccnv, measures it; CoGA draws it and gives an automatic screening result per target. A high-risk result calls for confirmatory diagnostic testing.",
    "A package import makes the family when its package says analysis_type: conventional_nipt (cNIPT in Deliveries), with ccnv's bins, segments, calls and QC file for the plasma. A folder of ccnv output added by hand is read the same way: CoGA proposes the plasma as the mother of the pregnancy. The family page then shows a cNIPT tab.",
-   "In the genome and chromosome views the plasma's track has an axis of its own. Each segment takes the colour of ccnv's call (purple where ccnv calls it discordant with the fetal fraction), and dashed lines mark where a fetal trisomy and monosomy lie at the fetal fraction."
+   "In the genome and chromosome views the plasma's track has an axis of its own. Each segment takes the colour of ccnv's call (purple where ccnv calls it discordant with the fetal fraction), and dashed lines mark where a fetal trisomy and monosomy lie at the fetal fraction.",
+   "Sign the family out from its Report page, which shows the result above the reported findings. The signed version keeps the result as the cNIPT page showed it, with the bounds and the files it was read from. A plasma without a result, or a result on provisional bounds, asks for an acknowledgement with a reason; so does the plasma's sex check, which cannot run on ccnv's output."
   ],
   "blocks": [
    [
@@ -4620,6 +4621,10 @@
    [
     "li",
     "The bounds of the rule show the values the result applied. A bound QA has not set yet is marked provisional: provisional values are not validated."
+   ],
+   [
+    "h3",
+    "Signing out"
    ]
   ],
   "inline": [
@@ -4690,6 +4695,10 @@
    [
     "strong",
     "provisional"
+   ],
+   [
+    "strong",
+    "Report"
    ],
    [
     "a",

@@ -21,6 +21,7 @@ import { ClassificationMotivationSentence, ReportClassificationChip } from './Re
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import { CATEGORY_LABELS, depth, pct } from './niptClassification';
+import { boundValue, cniptTargetLabel, cniptVerdictLabel, HEADLINE_TARGETS, percent } from './cniptResult';
 import type { ReportedClass } from './reportNarrative';
 import { NIPT_QUALITY_FAILURE_LABELS } from './NiptQcPanel';
 import {
@@ -94,6 +95,8 @@ import {
   type SignedGenotype,
   type SignedIntakeChange,
   type SignedNipt,
+  type SignedCniptFinding,
+  type SignedCniptSample,
   type SignedRecordSection,
   type SignedReport,
   type SignedSmallVariant,
@@ -797,6 +800,162 @@ const NiptResults: React.FC<{ record: SignedReport; version: number }> = ({ reco
   record.nipt.state !== 'absent' ? (
     <RecordSectionBlock title="NIPT results" what="the NIPT results" section={record.nipt} version={version}>
       {(nipt) => <NiptResultsBody nipt={nipt} />}
+    </RecordSectionBlock>
+  ) : null;
+
+/** A finding as the record froze it: where, how large, ccnv's values and its verdict. */
+const describeCniptFinding = (finding: SignedCniptFinding): string => {
+  const where =
+    finding.chrom !== null && finding.start !== null && finding.end !== null
+      ? `chr${finding.chrom}:${formatCount(finding.start)}–${formatCount(finding.end)}`
+      : 'a segment';
+  const kind = finding.kind === 'chromosome' ? `aneuploidy (${finding.direction ?? '?'})` : `segmental ${finding.direction ?? ''}`.trim();
+  const values = [
+    finding.sizeMb !== null ? `${finding.sizeMb} Mb` : null,
+    kind,
+    finding.ratio !== null ? `log2 ratio ${Number(finding.ratio.toPrecision(3))}` : null,
+    finding.zscore !== null ? `z ${Number(finding.zscore.toPrecision(3))}` : null,
+    finding.impliedFf !== null
+      ? `implied FF ${percent(finding.impliedFf)}${finding.impliedFfRatio !== null ? ` (${finding.impliedFfRatio} × FF)` : ''}`
+      : null,
+    finding.discordant ? 'discordant by ccnv' : null,
+    finding.originCall ? `origin ${finding.originCall}` : null,
+  ].filter((part): part is string => Boolean(part));
+  return `${where} (${values.join(', ')}): ${cniptVerdictLabel(finding.verdict)}${
+    finding.reasons.length ? ` — ${finding.reasons.join('; ')}` : ''
+  }`;
+};
+
+const CniptSampleBody: React.FC<{ sample: SignedCniptSample }> = ({ sample }) => {
+  const headline = new Set<string>(HEADLINE_TARGETS);
+  const ordered = [
+    ...HEADLINE_TARGETS.map((key) => sample.targets.find((target) => target.target === key)).filter(
+      (target): target is SignedCniptSample['targets'][number] => target !== undefined,
+    ),
+    ...sample.targets.filter((target) => !headline.has(target.target) && target.verdict !== 'low_risk'),
+  ];
+  const otherLowRisk = sample.targets.filter((target) => !headline.has(target.target) && target.verdict === 'low_risk');
+  const ff = sample.fetalFraction;
+  const estimates = [
+    ff.active !== null
+      ? `active ${percent(ff.active)}${ff.activeSe !== null ? ` ± ${percent(ff.activeSe)}` : ''}${ff.activeSource ? ` (${ff.activeSource})` : ''}`
+      : null,
+    ff.ffy !== null ? `FFY ${percent(ff.ffy)}` : null,
+    ff.ffx !== null ? `FFX ${percent(ff.ffx)}` : null,
+    ff.ffa !== null ? `FFA ${percent(ff.ffa)}` : null,
+    ff.ffSize !== null ? `from fragment sizes ${percent(ff.ffSize)}` : null,
+  ].filter((part): part is string => Boolean(part));
+  const provisional = sample.bounds.filter((bound) => bound.provisional);
+  return (
+    <div className="report-section">
+      <h3 className="report-subheading">Maternal plasma {sample.sampleId}</h3>
+      {sample.status === 'no_result' ? (
+        <p className="report-paragraph">
+          No result: {sample.noResultReasons.length ? sample.noResultReasons.join('; ') : 'no reason in the record'}.
+        </p>
+      ) : null}
+      <ul className="report-signed-list" aria-label={`Result of ${sample.sampleId}`}>
+        {ordered.map((target) => (
+          <li key={target.target}>
+            {cniptTargetLabel(target.target)}: {cniptVerdictLabel(target.verdict)}
+            {target.reasons.length ? ` — ${target.reasons.join('; ')}` : ''}
+          </li>
+        ))}
+        {otherLowRisk.length ? (
+          <li>
+            {otherLowRisk.length === 1 ? cniptTargetLabel(otherLowRisk[0].target) : `The ${otherLowRisk.length} other autosomes`}:
+            {' '}Low risk
+          </li>
+        ) : null}
+      </ul>
+      <ul className="report-signed-list">
+        <li>
+          Fetal fraction: {percent(ff.effective)} (effective){estimates.length ? `; ${estimates.join(', ')}` : ''}
+        </li>
+        <li>
+          Fetal sex: {sample.fetalSex ?? 'not in the record'}; sex chromosomes {sample.sca.call ?? 'not called'}
+          {sample.sca.confidence !== null ? ` (confidence ${percent(sample.sca.confidence, 2)})` : ''}
+          {sample.gestation ? `; pregnancy ${sample.gestation}` : ''}
+        </li>
+        <li>Resolution: {sample.limitsStatement ?? 'not in the record'}</li>
+        {sample.warnings.length ? <li>Warnings: {sample.warnings.join('; ')}</li> : null}
+      </ul>
+      <h4 className="report-subheading">Findings ({sample.findings.length})</h4>
+      {sample.findings.length ? (
+        <ul className="report-signed-list" aria-label={`Findings of ${sample.sampleId}`}>
+          {sample.findings.map((finding, index) => (
+            <li key={`${finding.chrom}:${finding.start}:${index}`}>{describeCniptFinding(finding)}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="report-paragraph">No segment reached the grey zone, and ccnv called none.</p>
+      )}
+      <h4 className="report-subheading">Bounds of the rule</h4>
+      {provisional.length ? (
+        <p className="report-paragraph" role="note">
+          The result rests on provisional bounds, which QA had not set when this version was signed:{' '}
+          {provisional.map((bound) => bound.label.replace(/^cNIPT: /, '')).join('; ')}.
+        </p>
+      ) : null}
+      <ul className="report-signed-list">
+        {sample.bounds.map((bound) => (
+          <li key={bound.key}>
+            {bound.label}: {bound.warnValue !== null ? `warning ${boundValue(bound.warnValue, bound.unit)}, ` : ''}
+            error {boundValue(bound.errorValue, bound.unit)} ({bound.provisional ? 'provisional' : 'QA'})
+          </li>
+        ))}
+      </ul>
+      <h4 className="report-subheading">Inputs</h4>
+      <ul className="report-signed-list">
+        <li>
+          ccnv QC file: {sample.inputs.qcFile ?? 'not in the record'}
+          {sample.inputs.qcDigest ? ` (as kept, digest ${sample.inputs.qcDigest.slice(0, 12)})` : ''}
+        </li>
+        <li>
+          Segments read: {sample.inputs.segments ?? 'not in the record'}
+          {sample.inputs.segmentsDigest ? ` (digest ${sample.inputs.segmentsDigest.slice(0, 12)})` : ''}
+          {sample.inputs.segmentFiles.length
+            ? `, loaded from ${sample.inputs.segmentFiles
+                .map(
+                  (file) =>
+                    `${file.file ?? 'a file'} (${file.rows !== null ? `${formatCount(file.rows)} rows` : 'rows not recorded'}${
+                      file.loadedAt ? `, ${formatReportTime(file.loadedAt)}` : ''
+                    })`,
+                )
+                .join(', ')}`
+            : ''}
+        </li>
+      </ul>
+    </div>
+  );
+};
+
+/**
+ * A conventional NIPT family's results, as the record froze them: each maternal plasma's result
+ * per target, the findings, the fetal fractions, the bounds the rule applied and its inputs. The
+ * record of a family without ccnv output has no such section.
+ */
+const CniptResults: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) =>
+  record.cnipt.state !== 'absent' ? (
+    <RecordSectionBlock
+      title="Conventional NIPT results"
+      what="the conventional NIPT results"
+      section={record.cnipt}
+      version={version}
+    >
+      {(cnipt) => (
+        <>
+          <p className="report-paragraph">
+            The conventional NIPT screening result of each maternal plasma, by the rule of z-score and fetal-fraction
+            concordance, as CoGA computed it from ccnv&rsquo;s output when this version was signed.
+          </p>
+          {cnipt.samples.length ? (
+            cnipt.samples.map((sample) => <CniptSampleBody key={sample.sampleId} sample={sample} />)
+          ) : (
+            <p className="report-paragraph">The record holds no maternal plasma.</p>
+          )}
+        </>
+      )}
     </RecordSectionBlock>
   ) : null;
 
@@ -1686,6 +1845,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
           </section>
 
           <NiptResults record={record} version={version} />
+          <CniptResults record={record} version={version} />
 
           {smallVariants === null ? (
             <section className="surface-card report-empty">

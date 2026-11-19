@@ -100,6 +100,17 @@ a **provisional** value, and the page marks it so:
 The provisional values are not validated: QA and the laboratory director confirm or change them
 before clinical use.
 
+## Sign-out
+
+The family is signed out from its **Report** page, which shows the result above the reported
+findings. The signed version freezes each plasma's result as the cNIPT page showed it: the verdicts,
+the findings, the fetal fractions, the bounds (each QA's or provisional) and the files it was read
+from.
+
+The sign-out asks for an acknowledgement with a reason, in the Sample QC's dialog, when a plasma has
+no result or its result rests on provisional bounds. The plasma's sex check is listed there too:
+ccnv's output holds no genotypes, so the Sample QC cannot run it.
+
 ## Limits
 
 - CoGA judges ccnv's segments and calls: it does not segment the bins again, and it cannot see an

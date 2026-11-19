@@ -1316,6 +1316,131 @@ describe('FamilyReportPage', () => {
     });
   });
 
+  it('shows a conventional NIPT family’s live result where it is signed out', async () => {
+    const result = {
+      family_id: 'F1',
+      samples: [
+        {
+          sample_id: 'CFDNA1',
+          qc_file: 'CFDNA1_qc.json',
+          status: 'result',
+          no_result_reasons: [],
+          fetal_fraction: { effective: 0.1, active: 0.08 },
+          fetal_sex: 'F',
+          sca: { call: 'XX', is_aneuploid: false, confidence: 0.998 },
+          limits_of_detection: { statement: 'Segmental CNVs are assessed from 3 Mb.' },
+          read_metrics: {},
+          warnings: [],
+          targets: [
+            { target: '1', verdict: 'low_risk', reasons: [] },
+            { target: '8', verdict: 'inconclusive', reasons: ['its origin is MATERNAL_MOSAIC'] },
+            { target: '13', verdict: 'low_risk', reasons: [] },
+            { target: '18', verdict: 'low_risk', reasons: [] },
+            { target: '21', verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'] },
+            { target: 'sex_chromosomes', verdict: 'low_risk', reasons: [] },
+            { target: 'segmental', verdict: 'low_risk', reasons: [] },
+          ],
+          findings: [],
+          bounds: [
+            { key: 'cnipt.fetal_fraction', label: 'cNIPT: fetal fraction', unit: 'fraction', error_value: 0.04, provisional: true },
+          ],
+          rule: { threshold_profile: 'nipt_conventional', whole_chromosome_share: 0.5, maternal_or_mosaic_origins: [] },
+        },
+      ],
+    };
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: { family_id: 'F1', members: [], projects: [], can_sign_out: true, metadata: { analysis_type: 'conventional_nipt' } },
+        });
+      }
+      if (url === '/families/F1/cnipt') return Promise.resolve({ data: result });
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({ data: { family_id: 'F1', latest: null, signouts: [] } });
+      }
+      return Promise.resolve({ data: url.startsWith('/families/F1/small-variants') ? { variants: [], total: 0 } : [] });
+    });
+    renderPage();
+
+    const block = await screen.findByRole('region', { name: 'Conventional NIPT result' });
+    expect(
+      (await within(block).findAllByRole('listitem')).map((item) => item.textContent),
+    ).toEqual([
+      'Chromosome 21 (T21): High risk — |z| 9.0 at or above 3',
+      'Chromosome 18 (T18): Low risk',
+      'Chromosome 13 (T13): Low risk',
+      'Sex chromosomes: Low risk',
+      'Segmental CNVs: Low risk',
+      'Chromosome 8: Inconclusive — its origin is MATERNAL_MOSAIC',
+      'The other autosome: Low risk',
+    ]);
+    expect(block).toHaveTextContent('Maternal plasma CFDNA1 · fetal fraction 10.0% · fetal sex F');
+    expect(block).toHaveTextContent(
+      'The result rests on provisional bounds, which QA has not set: fetal fraction. Signing out asks for an acknowledgement.',
+    );
+    expect(within(block).getByRole('link', { name: 'Open the cNIPT page' })).toHaveAttribute('href', '/families/F1/cnipt');
+  });
+
+  it('shows no conventional NIPT result for another family', async () => {
+    mockUnsignedFamily();
+    renderPage();
+    await screen.findByRole('button', { name: /Sign out report/ });
+    expect(screen.queryByRole('region', { name: 'Conventional NIPT result' })).not.toBeInTheDocument();
+    expect(apiMock.get).not.toHaveBeenCalledWith('/families/F1/cnipt', expect.anything());
+  });
+
+  it('lists a conventional NIPT plasma without a result in a group of its own, before the reason', async () => {
+    const noResult =
+      'Sample CFDNA1 (cNIPT maternal plasma): no result — the fetal fraction (3.1%) is below 4.0%.';
+    const message =
+      'A conventional NIPT plasma has no result, or its result rests on provisional bounds. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.';
+    mockUnsignedFamily();
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      return posts.length === 1
+        ? Promise.reject({
+            response: {
+              status: 409,
+              data: {
+                detail: {
+                  gate: 'sample_qc',
+                  message,
+                  qc_summary: { overall_status: 'pass', messages: [noResult] },
+                  failed_checks: [],
+                  unverifiable_checks: [],
+                  nipt_failed_checks: [],
+                  cnipt_concerns: [noResult],
+                  warning_checks: [],
+                },
+              },
+            },
+          })
+        : Promise.resolve({ data: { version: 1 } });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Sample-integrity QC acknowledgement required',
+    });
+    expect(within(dialog).getByText(message)).toBeInTheDocument();
+    expect(
+      within(within(dialog).getByRole('list', { name: 'Conventional NIPT: no result, or provisional bounds' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([noResult]);
+    expect(within(dialog).getAllByRole('listitem')).toHaveLength(1);
+
+    fireEvent.change(
+      within(dialog).getByLabelText('Reason for signing out despite the QC concerns listed (required)'),
+      { target: { value: 'No result reported; a new sample is requested.' } },
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts[1]).toMatchObject({ acknowledge_qc: true });
+  });
+
   const checkResult = (overrides: Record<string, unknown>) =>
     Promise.resolve({
       data: {
@@ -2128,6 +2253,106 @@ describe('FamilyReportPage', () => {
       expect(nipt).toHaveTextContent(
         'Not captured: the NIPT results could not be read when version 2 was signed (The NIPT results could not be read.).',
       );
+    });
+
+    // A family that holds a ccnv output: its record holds the conventional NIPT results
+    // (signed_record_cnipt), shown as frozen.
+    const SIGNED_CNIPT = {
+      samples: [
+        {
+          sample_id: 'CFDNA1',
+          qc_file: 'CFDNA1_qc.json',
+          status: 'result',
+          no_result_reasons: [],
+          fetal_fraction: { effective: 0.1, active: 0.08, active_se: 0.005, active_source: 'FUSED', ffy: 0, ffx: 0.09, ffa: null, ff_size: null },
+          fetal_sex: 'F',
+          sca: { call: 'XX', is_aneuploid: false, confidence: 0.998 },
+          gestation: null,
+          limits_of_detection: { statement: 'Segmental CNVs are assessed from 3 Mb.' },
+          read_metrics: {},
+          warnings: ['ccnv warns of a low fetal fraction'],
+          targets: [
+            { target: '1', verdict: 'low_risk', reasons: [] },
+            { target: '2', verdict: 'low_risk', reasons: [] },
+            { target: '13', verdict: 'low_risk', reasons: [] },
+            { target: '18', verdict: 'low_risk', reasons: [] },
+            { target: '21', verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'] },
+            { target: 'sex_chromosomes', verdict: 'low_risk', reasons: [] },
+            { target: 'segmental', verdict: 'low_risk', reasons: [] },
+          ],
+          findings: [
+            {
+              chrom: '21', start: 0, end: 46000000, size_mb: 46, direction: 'gain', ratio: 0.07, zscore: 9,
+              implied_ff: 0.1, implied_ff_ratio: 1, discordant: false, origin_call: 'FETAL_CONSTITUTIONAL',
+              kind: 'chromosome', verdict: 'high_risk', reasons: ['concordant with the fetal fraction'],
+            },
+          ],
+          bounds: [
+            { key: 'cnipt.fetal_fraction', label: 'cNIPT: fetal fraction', unit: 'fraction', warn_value: null, error_value: 0.04, provisional: true },
+            { key: 'cnipt.call_zscore', label: 'cNIPT: segment |z-score|', unit: 'z', warn_value: 2.5, error_value: 3, provisional: false },
+          ],
+          inputs: {
+            qc_digest: 'a'.repeat(64),
+            segments: 2,
+            segments_digest: 'b'.repeat(64),
+            segment_files: [{ file: 'CFDNA1_segments.bed.gz', rows: 2, loaded_at: '2026-11-19T09:30:00+00:00' }],
+          },
+        },
+      ],
+    };
+
+    it('shows a conventional NIPT family’s results as the record froze them', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, cnipt: SIGNED_CNIPT } });
+      renderPage();
+
+      const cnipt = (await screen.findByRole('heading', { name: 'Conventional NIPT results' })).closest('section')!;
+      expect(cnipt.closest('.no-print')).toBeNull();
+      expect(
+        within(within(cnipt).getByRole('list', { name: 'Result of CFDNA1' }))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([
+        'Chromosome 21 (T21): High risk — |z| 9.0 at or above 3',
+        'Chromosome 18 (T18): Low risk',
+        'Chromosome 13 (T13): Low risk',
+        'Sex chromosomes: Low risk',
+        'Segmental CNVs: Low risk',
+        'The 2 other autosomes: Low risk',
+      ]);
+      expect(cnipt).toHaveTextContent(
+        'Fetal fraction: 10.0% (effective); active 8.0% ± 0.5% (FUSED), FFY 0.0%, FFX 9.0%',
+      );
+      expect(cnipt).toHaveTextContent('Fetal sex: F; sex chromosomes XX (confidence 99.80%)');
+      expect(cnipt).toHaveTextContent('Warnings: ccnv warns of a low fetal fraction');
+      expect(cnipt).toHaveTextContent(
+        'chr21:0–46,000,000 (46 Mb, aneuploidy (gain), log2 ratio 0.07, z 9, implied FF 10.0% (1 × FF), origin FETAL_CONSTITUTIONAL): High risk — concordant with the fetal fraction',
+      );
+      expect(cnipt).toHaveTextContent(
+        'The result rests on provisional bounds, which QA had not set when this version was signed: fetal fraction.',
+      );
+      expect(cnipt).toHaveTextContent('cNIPT: fetal fraction: error 4.0% (provisional)');
+      expect(cnipt).toHaveTextContent('cNIPT: segment |z-score|: warning 2.5, error 3 (QA)');
+      expect(cnipt).toHaveTextContent(`ccnv QC file: CFDNA1_qc.json (as kept, digest ${'a'.repeat(12)})`);
+      expect(cnipt).toHaveTextContent(
+        `Segments read: 2 (digest ${'b'.repeat(12)}), loaded from CFDNA1_segments.bed.gz (2 rows, 2026-11-19 09:30 UTC)`,
+      );
+    });
+
+    it('says when a conventional NIPT family’s results could not be captured, and nothing of them for another family', async () => {
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, cnipt: { unavailable: 'The conventional NIPT results could not be read.' } },
+      });
+      const { unmount } = renderPage();
+      const cnipt = (await screen.findByRole('heading', { name: 'Conventional NIPT results' })).closest('section')!;
+      expect(cnipt).toHaveTextContent(
+        'Not captured: the conventional NIPT results could not be read when version 2 was signed (The conventional NIPT results could not be read.).',
+      );
+      unmount();
+
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
+      renderPage();
+      await screen.findByRole('heading', { name: 'Gene panels applied' });
+      expect(screen.queryByRole('heading', { name: 'Conventional NIPT results' })).not.toBeInTheDocument();
     });
 
     it('says nothing of NIPT results in the record of a family that is no NIPT family', async () => {

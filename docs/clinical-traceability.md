@@ -569,6 +569,27 @@ no note), as `target_coverage` holds the check of every capture target. A family
 monogenic NIPT family holds no `nipt` key. A trio that cannot be resolved (no active father, or no
 maternal plasma sample) is frozen as unavailable, with a sentence of its own.
 
+**`cnipt`** (a family that holds a ccnv output only: a conventional NIPT;
+`services/signed_record_cnipt.py`). Each maternal plasma's result as the cNIPT page shows it, the
+same object from the same code (`cnipt_service.family_cnipt_results`, `cnipt_result`), in sample
+order (`samples`):
+
+- the status (`result`, or `no_result` with its reasons) and each target's verdict with its reasons
+  (each autosome, `sex_chromosomes`, `segmental`);
+- the findings the rule looked at, each with ccnv's values (log2 ratio, z-score, implied fetal
+  fraction, discordance, origin), whether it is read as an aneuploidy or a segmental CNV, and its
+  verdict;
+- the fetal fractions (the effective one the rule reads and every other estimate), the fetal sex,
+  the sex-chromosome call, the pregnancy, the limits of detection, ccnv's read metrics and warnings;
+- the bounds the rule applied, each QA's or provisional (`bounds`), and what of the rule is fixed in
+  code (`rule`);
+- what it was computed from (`inputs`): the SHA-256 digest of the QC object as the import kept it
+  (`qc_digest`; the file's name is `qc_file`), the number of segments read and a digest of them
+  (`segments_digest`), and the segments files the track was loaded from, with their rows and load
+  time (`segment_files`). The plasma's bins are in `coverage_tracks`.
+
+A family without a ccnv output holds no `cnipt` key.
+
 **`coverage_tracks`** (owner decision of 2026-10-20). Every coverage track of the family's members,
 one per sample and caller (`source`: `web` for a coverage BED, an upload's or a package's;
 `wisecondorx`, `qdnaseq`, `hificnv`, `ccnv`). For each:
@@ -628,6 +649,21 @@ above). Where it is signed out from does not change what is frozen.
   family and the artifact list from Postgres; a database error there is rolled back to the
   savepoint and reads like any other failure of the analysis. The gate then lists the NIPT checks
   among those that could not run, and the sign-out goes on in a clean transaction.
+
+### A conventional NIPT family's record
+
+A family that holds a ccnv output is signed out through the same sign-out, from its report page,
+which shows the live cNIPT result above the reported findings (*Conventional NIPT result*): one
+signed record per analysis, with the same gates, version and report code, which also holds the
+cNIPT results (`cnipt`, above).
+
+- The ccnv calls a reviewer tags `report` are frozen in `reported_structural_variants` and
+  `variant_descriptions`, like any reported CNV.
+- A plasma without a result, and a result that rests on provisional bounds, gate the sign-out under
+  the Sample QC's acknowledgement (gate 4 below): signing out such a result is a choice the signer
+  makes with a reason, which the record and the audit event keep.
+- The bounds are read at sign-out. A bound QA sets afterwards changes the section (the bound's value
+  or its provisional mark), so the sign-out check names `cnipt` as changed.
 
 ### Versions and the sign-out check
 
@@ -736,6 +772,13 @@ changed, without the review's time), and the message says how many.
 - a check that could not run for lack of data where it is what confirms the pedigree or a sample's
   identity: a relationship or Mendelian check the pedigree asserts, NIPT paternity or maternal
   lineage, or the sex of a sample no relatedness check covers, such as a NIPT parent;
+- in a conventional NIPT family, from the record's `cnipt` section under the same acknowledgement: a
+  maternal plasma without a result, with its reasons ("Sample X (cNIPT maternal plasma): no result
+  — the fetal fraction (3.1%) is below 4.0%."), and a result that rests on bounds QA has not set,
+  naming them. The 409 lists each in `cnipt_concerns` and in `qc_summary.messages`; the audit event
+  records them (`cnipt_concerns`). A ccnv delivery holds no SNV genotypes, so the Sample QC cannot
+  check the plasma's sex: the gate lists that check among those that could not run. cNIPT results
+  that could not be read are not captured (named in `not_captured`), not a QC concern;
 - in a monogenic NIPT family, a NIPT quality check that failed in the record's `nipt` section, under
   the same acknowledgement: no fetal-fraction estimate, a fetal sex whose paternal-X and chrY
   signals disagree, or male DNA given as the maternal plasma (REQ-NIPT-015; TF-06 H4). The 409
@@ -746,10 +789,11 @@ changed, without the review's time), and the message says how many.
   concern.
 
 The 409 lists every concern in its group: checks that failed (`failed_checks`), could not run
-(`unverifiable_checks`), NIPT quality checks that failed (`nipt_failed_checks`), and checks that
-warn (`warning_checks`), which do not gate on their own. A check that warns because it could not
+(`unverifiable_checks`), NIPT quality checks that failed (`nipt_failed_checks`), the conventional
+NIPT's concerns (`cnipt_concerns`), and checks that warn (`warning_checks`), which do not gate on
+their own. A check that warns because it could not
 run is listed only with those that could not run, so each concern is listed once.
-`qc_summary.messages` lists the warnings, failures and failed NIPT checks together. The message
+`qc_summary.messages` lists the warnings, failures, failed NIPT checks and cNIPT concerns together. The message
 names each kind of concern the gate holds, so a failure does not hide a check that could not run,
 and leaves the concerns to the groups.
 
@@ -760,7 +804,8 @@ and leaves the concerns to the groups.
   their own messages beside their sample fields.
 - The sign-out dialog of the report page and of the NIPT report shows each group under its heading,
   before the reason. The acknowledged sign-out's audit event records the same groups (`qc_failed`,
-  `qc_unverifiable`, `nipt_failed_checks`, `qc_warnings`): what the acknowledgement covered.
+  `qc_unverifiable`, `nipt_failed_checks`, `cnipt_concerns`, `qc_warnings`): what the
+  acknowledgement covered.
 
 **5. Incomplete import.** Refused, naming the failed datasets and the import job, while any of the
 marks below is set. Every mark gates in this one 409, under the one acknowledgement, and every
@@ -963,6 +1008,12 @@ nothing else (`frontend/src/pages/families/signedReportRecord.ts` reads it). It 
   family’s region of interest …*); the funnel and the categories; each reported variant as the NIPT
   analysis classified it; the recessive fetal risk; and what the analysis ran with. No other
   family's record shows or mentions PGT or NIPT results;
+- in a conventional NIPT family, its results (*Conventional NIPT results*): per maternal plasma the
+  verdict of chromosomes 21, 18 and 13, the sex chromosomes and the segmental CNVs, then every other
+  autosome that is not low risk and a line for the rest; the fetal fractions, fetal sex and
+  sex-chromosome call; the findings; the bounds, each QA's or provisional, with a note when any was
+  provisional; and the inputs (the QC file and its digest, the segments read and their digest, and
+  the files they were loaded from);
 - the gene panels applied; the repeat expansions; the Paraphase results; the coverage tracks
   (*Coverage tracks*: per sample and caller, what the track held, read depth, a log2 ratio or
   unknown, and the file it was loaded from, from where and when); the delivered package and its
@@ -1015,8 +1066,8 @@ missense Z.*). A group the snapshot did not freeze is left out.
   (*A phase correction the record holds cannot be read here; …*), never dropped unsaid.
 - A reported variant without a description it can read, in a record holding descriptions it cannot
   read, names both causes.
-- A record without `pgt_analysis` or `nipt` is another application's family's: it shows no PGT or
-  NIPT section.
+- A record without `pgt_analysis`, `nipt` or `cnipt` is another application's family's: it shows no
+  PGT, NIPT or conventional NIPT section.
 - What no snapshot holds is said on the page: the population frequencies and in silico predictions
   the live report shows, the segregation, the gene and phenotype context, the audit trail and the
   pipeline settings.
@@ -1065,15 +1116,15 @@ report's notice ("Draft …", "Not the signed report …", "Not verified …").
 ### Adding a section to the signed record
 
 A new section of what the analysis looked at (as the PGT embryo calls, `pgt_analysis`, and the NIPT
-results, `nipt`, are) is added in the four places below; one left out is missing from the signed
+and conventional NIPT results, `nipt` and `cnipt`, are) is added in the four places below; one left out is missing from the signed
 view without a trace.
 
 A section only one application's families hold names that application in its `RecordSection`
-(`application="pgt"`, `application="nipt"`). `build_record_sections` builds it for those families
-alone, so another family's record holds no such key. The sign-out check compares it where the
-record or the family's current data holds it (one side alone is a change), and skips it where
-neither does. The signed view renders it only for a record that holds it (`PgtAnalysisSection`,
-`isNiptRecord`).
+(`application="pgt"`, `application="nipt"`, `application="cnipt"`). `build_record_sections` builds
+it for those families alone, so another family's record holds no such key. The sign-out check
+compares it where the record or the family's current data holds it (one side alone is a change),
+and skips it where neither does. The signed view renders it only for a record that holds it
+(`PgtAnalysisSection`, `isNiptRecord`, `CniptResults`).
 
 1. **Its builder** in `backend/app/services/signed_record_sections.py`: an async function that
    reads what the analysis showed the analyst and returns a JSON-safe, deterministic dict (lists

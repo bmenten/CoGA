@@ -107,12 +107,29 @@ before the release candidate.
 - The page `/families/{id}/cnipt` (`FamilyCniptPage.tsx`, `cniptResult.ts`) and its tab *cNIPT* in
   the family's module row, shown for a conventional NIPT family.
 
+## Sign-out
+
+A conventional NIPT family is signed out like every family, from its report page, which shows the
+live result above the reported findings (`CniptReportSummary.tsx`). The signed record holds the
+section `cnipt` (`signed_record_cnipt.py`): each plasma's result, the same object the page shows,
+with the bounds it applied and its inputs (a digest of the kept QC object, the number and a digest of
+the segments read, the segments files). The signed view renders it (`CniptResults` in
+`SignedFamilyReport.tsx`, parsed in `signedReportRecord.ts`).
+
+Under the Sample QC's acknowledgement (`cnipt_concerns` in the gate's 409 and in the audit event),
+the sign-out is held back by a plasma without a result and by a result that rests on provisional
+bounds. A ccnv delivery holds no SNV genotypes, so the Sample QC's sex check of the plasma cannot
+run, and the gate lists it among the checks that could not run. The full description is in
+[clinical-traceability.md](clinical-traceability.md), *A conventional NIPT family's record*.
+
 ## Where the code lives
 
 - Backend: `ccnv_output.py` (ccnv's files, the stored QC, the track summary), `family_package_ccnv.py`
   (the dataset, Discover), `cnipt_result.py` (the rule, pure), `cnipt_service.py`,
-  `routers/families_cnipt.py`, `schemas/cnipt.py`; the import in `family_package_datasets.py`
+  `routers/families_cnipt.py`, `schemas/cnipt.py`, `signed_record_cnipt.py` (the record's section and
+  the gate's concerns); the import in `family_package_datasets.py`
   (`_import_ccnv_dataset`) and `family_package_tracks.py` (`_import_ccnv_track`).
-- Frontend: `FamilyCniptPage.tsx`, `cniptResult.ts`; the views' ccnv mode in
+- Frontend: `FamilyCniptPage.tsx`, `cniptResult.ts`, `CniptReportSummary.tsx`; the signed view's
+  `CniptResults` (`SignedFamilyReport.tsx`, `signedReportRecord.ts`); the views' ccnv mode in
   `CoverageSegmentsChart.tsx`, `ccnvTracks.ts`, `CcnvTrackNote.tsx`.
 - Tests: listed in [testing.md](testing.md).

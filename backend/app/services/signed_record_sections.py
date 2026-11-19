@@ -41,6 +41,9 @@ of its own:
 * ``nipt`` — in a monogenic NIPT family only: its NIPT analysis as the NIPT page shows it, the
   reported variants' classification among it, and the inputs it ran with
   (``signed_record_nipt``). Another family has no such key.
+* ``cnipt`` — in a family that holds a ccnv output only (a conventional NIPT): each maternal
+  plasma's result as the cNIPT page shows it, with the bounds it applied and the inputs it
+  read (``signed_record_cnipt``). Another family has no such key.
 
 A section with an ``application`` is held by that application's families alone. Every
 section is built inside a savepoint. A section that cannot be read is frozen as
@@ -55,7 +58,7 @@ Adding a section (as the PGT and NIPT results were added):
 2. add it to ``RECORD_SECTIONS`` and to ``build_record_sections``. It is then hashed with
    the record, compared whole by the sign-out check (``REPORT_CONTENT_SECTIONS`` includes
    every key here) and named in ``not_captured`` when it could not be read. A section of one
-   application (``pgt_analysis``, ``nipt``) is added only for a family of it: the check
+   application (``pgt_analysis``, ``nipt``, ``cnipt``) is added only for a family of it: the check
    compares it where the record or the family's current data holds it, and skips it where
    neither does;
 3. read it in ``frontend/src/pages/families/signedReportRecord.ts`` (``parseRecordSection``
@@ -104,6 +107,7 @@ from .paraphase_pg import (
 )
 from .repeat_count_units import COUNT_UNIT_MARGIN
 from .repeat_expansion_pg import get_family_repeat_expansion_table_response
+from .signed_record_cnipt import cnipt_results, holds_ccnv_output
 from .signed_record_nipt import is_nipt_family, nipt_results
 
 logger = logging.getLogger(__name__)
@@ -120,7 +124,7 @@ class RecordSection:
     key: str
     label: str
     unavailable: str
-    # The application whose families alone hold the section ("pgt", "nipt"); None: every
+    # The application whose families alone hold the section ("pgt", "nipt", "cnipt"); None: every
     # family. A family of another application holds no such key.
     application: str | None = None
 
@@ -171,6 +175,13 @@ PGT_ANALYSIS = RecordSection(
 NIPT_RESULTS = RecordSection(
     "nipt", "NIPT results", "The NIPT results could not be read.", application="nipt"
 )
+# In a family that holds a ccnv output only (``holds_ccnv_output``): a conventional NIPT.
+CNIPT_RESULTS = RecordSection(
+    "cnipt",
+    "Conventional NIPT results",
+    "The conventional NIPT results could not be read.",
+    application="cnipt",
+)
 
 RECORD_SECTIONS: tuple[RecordSection, ...] = (
     VARIANT_DESCRIPTIONS,
@@ -182,6 +193,7 @@ RECORD_SECTIONS: tuple[RecordSection, ...] = (
     PACKAGE_INTAKE,
     PGT_ANALYSIS,
     NIPT_RESULTS,
+    CNIPT_RESULTS,
 )
 
 # The parts of ``reference_data``, each frozen as unavailable on its own.
@@ -883,9 +895,9 @@ async def build_record_sections(
 ) -> dict[str, Any]:
     """Every section of ``RECORD_SECTIONS`` the family's record holds, keyed by its snapshot
     key: each one without an application, the PGT section of a PGT family (of a monogenic
-    NIPT family, only where an embryo has haplotype blocks of its own) and the NIPT section of
+    NIPT family, only where an embryo has haplotype blocks of its own), the NIPT section of
     a monogenic NIPT family (from ``shared_nipt``'s analysis, when the sign-out's Sample QC has
-    read it). ``reported`` holds every small variant the report tag selects, by the variant's
+    read it) and the conventional NIPT section of a family that holds a ccnv output. ``reported`` holds every small variant the report tag selects, by the variant's
     own review or its compound-het pair's (``report_signout_service._reported_reviews``)."""
     descriptions = await _guarded(
         session,
@@ -940,6 +952,10 @@ async def build_record_sections(
                 reported_ids=[str(entry.get("variant_id") or "") for entry in reported],
                 shared_nipt=shared_nipt,
             ),
+        )
+    if holds_ccnv_output(context):
+        sections[CNIPT_RESULTS.key] = await _guarded(
+            session, CNIPT_RESULTS.unavailable, lambda: cnipt_results(session, context)
         )
     return sections
 

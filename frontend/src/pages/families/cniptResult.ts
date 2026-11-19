@@ -21,6 +21,10 @@ export const CNIPT_VERDICT_LABEL: Record<CniptVerdict, string> = {
   not_assessed: 'Not assessed',
 };
 
+/** A verdict as a signed record holds it, in the page's words; one this view does not know as it is. */
+export const cniptVerdictLabel = (verdict: string | null): string =>
+  verdict === null ? 'not in the record' : (CNIPT_VERDICT_LABEL[verdict as CniptVerdict] ?? verdict);
+
 /** One verdict looks the same wherever it is shown: the shared chip tones. */
 export const CNIPT_VERDICT_CHIP: Record<CniptVerdict, string> = {
   high_risk: 'table-chip table-chip--critical',

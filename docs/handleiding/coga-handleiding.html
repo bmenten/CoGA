@@ -3687,6 +3687,11 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>Het NIPT-rapport noemt de laatste ondertekende versie met haar rapportcode, en zegt of de data er nog mee overeenkomen.</li>
 <li>De knop, de poortdialogen (<code>reportSignOut.tsx</code>) en de regel die zegt wanneer de knop niet aangeboden wordt (<code>signOutRefusal</code>), deelt het met het familierapport. Wie niet mag ondertekenen, ziet op beide pagina's de knop uitgeschakeld met de reden (zie <em>Wie mag ondertekenen</em>).</li>
 </ul>
+<p>Een familie met ccnv-output (conventionele NIPT) gebruikt dezelfde ondertekening:</p>
+<ul>
+<li>Ze wordt ondertekend vanaf het familierapport, dat boven de gerapporteerde bevindingen het live cNIPT-resultaat toont (<em>Conventional NIPT result</em>).</li>
+<li>Haar record bevat ook de sectie <code>cnipt</code> (<code>signed_record_cnipt.py</code>): het resultaat per maternaal plasma zoals de cNIPT-pagina het toont, met de grenzen die het toepaste en de invoer die het las.</li>
+</ul>
 <p>Wat elke variantsectie bevat, beschrijft <code>docs/report-template.md</code>. Exporteren gebeurt via de printfunctie van de browser.</p>
 <p><strong>Beide pagina's dragen een disclaimer:</strong> het rapport is beslissingsondersteuning die een gekwalificeerd klinisch wetenschapper moet bevestigen. Het NIPT-rapport vraagt ook bevestiging met een invasieve diagnostische test.</p>
 <p><strong>Beide pagina's dragen in hun kop de waarschuwingen van elke familiepagina</strong>, ook op de afdruk:</p>
@@ -3803,15 +3808,22 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>mannelijk DNA als plasma van de moeder (REQ-NIPT-015).</li>
 </ul>
 <p>De <code>409</code> noemt ze in <code>nipt_failed_checks</code> en in <code>qc_summary.messages</code> (dat van het plasma met zijn sample); het auditevent legt ze vast (<code>nipt_failed_checks</code>). Het vaderschap hoort er niet bij: de sample-QC leest het uit dezelfde analyse en blokkeert er al op. NIPT-resultaten die niet gelezen konden worden, staan in <code>not_captured</code>; ze blokkeren niet.</p>
+<p>Bij een familie met ccnv-output telt, onder dezelfde erkenning, uit de sectie <code>cnipt</code>:</p>
+<ul>
+<li>een maternaal plasma zonder resultaat, met de redenen;</li>
+<li>een resultaat dat op voorlopige grenzen steunt, die QA nog niet zette, met die grenzen.</li>
+</ul>
+<p>De <code>409</code> noemt ze in <code>cnipt_concerns</code> en in <code>qc_summary.messages</code>; het auditevent legt ze vast (<code>cnipt_concerns</code>). Een ccnv-levering heeft geen SNV-genotypes, dus de sample-QC kan het geslacht van het plasma niet controleren: de poort noemt die controle bij de controles die niet konden draaien.</p>
 <p>Elke bevinding noemt vooraan het sample, het paar, het kind met zijn ouders of de NIPT-vader van haar controle, bv. <em>Sample X: no chrX genotypes available for sex inference.</em> Zo leest de melding voor twee samples zonder chrX-calls niet twee keer dezelfde zin. Dat geldt in de <code>409</code> (<code>qc_summary.messages</code> en elke groep hieronder) en in de groepen van het auditevent. Het foetale geslacht en de NIPT-moederlijn worden uit het cfDNA als geheel gelezen en noemen geen sample. De controles in het snapshot (<code>sample_qc</code>) houden hun eigen melding, naast hun samplevelden.</p>
 <p><strong>Elke groep bevindingen apart.</strong> De <code>409</code> zet elke bevinding in haar groep:</p>
 <ul>
 <li><code>failed_checks</code>: de controles die faalden;</li>
 <li><code>unverifiable_checks</code>: de controles die niet konden draaien;</li>
 <li><code>nipt_failed_checks</code>: de NIPT-kwaliteitscontroles die faalden;</li>
+<li><code>cnipt_concerns</code>: wat van de conventionele NIPT de ondertekening tegenhoudt;</li>
 <li><code>warning_checks</code>: de controles die waarschuwen; die blokkeren op zich niet.</li>
 </ul>
-<p>Een controle die waarschuwt omdat ze niet kon draaien, staat alleen bij <code>unverifiable_checks</code>: elke bevinding staat er één keer. De melding noemt elke soort bevinding die de poort tegenhoudt, zodat een fout geen controle verbergt die niet kon draaien. De dialoog van het familie- en het NIPT-rapport (<code>reportSignOut.tsx</code>) toont elke groep onder een eigen kop, vóór het veld voor de reden. Het auditevent van de erkende ondertekening legt dezelfde groepen vast (<code>qc_failed</code>, <code>qc_unverifiable</code>, <code>nipt_failed_checks</code>, <code>qc_warnings</code>): wat de erkenning dekte.</p>
+<p>Een controle die waarschuwt omdat ze niet kon draaien, staat alleen bij <code>unverifiable_checks</code>: elke bevinding staat er één keer. De melding noemt elke soort bevinding die de poort tegenhoudt, zodat een fout geen controle verbergt die niet kon draaien. De dialoog van het familie- en het NIPT-rapport (<code>reportSignOut.tsx</code>) toont elke groep onder een eigen kop, vóór het veld voor de reden. Het auditevent van de erkende ondertekening legt dezelfde groepen vast (<code>qc_failed</code>, <code>qc_unverifiable</code>, <code>nipt_failed_checks</code>, <code>cnipt_concerns</code>, <code>qc_warnings</code>): wat de erkenning dekte.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>sign_out_report</code>, <code>_qc_failure_summary</code>, <code>_failed_qc_checks</code>, <code>_warning_qc_checks</code>, <code>_unverifiable_swap_checks</code> en <code>_named</code> in <code>report_signout_service.py</code>; de dialoog in <code>frontend/src/pages/families/reportSignOut.tsx</code>.</p>
 <h3>Poort 3 — geen onverklaarde onvolledige import</h3>
 <p>Faalt een pakketimport voor een deel van de datasets, dan zet hij de vlag <code>import_incomplete</code> in de familiemetadata (hoofdstuk 6). De vlag noemt de mislukte en de gelukte datasets, het tijdstip en de importjob met de fout per dataset. Zo'n familie kan hele datasets missen, bv. alle structurele varianten (<code>TF-06</code>, gevaar H16). Een losse upload van small variants die mislukt nadat hij de callset die hij vervangt al wiste, zet dezelfde vlag voor die callset, zonder importjob (hoofdstuk 6).</p>
@@ -3863,7 +3875,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <p>Een erkenning dekt precies de bevindingen die haar dialoog toonde. Elke <code>409</code> van poort 1, 2, 3, 3b en 4 geeft daarvoor <code>concerns_fingerprint</code> mee: een SHA-256 over de canonieke JSON (gesorteerde sleutels) van de poort en haar bevindingen zoals de <code>409</code> ze opsomt, elke lijst gesorteerd. De bevindingen per poort:</p>
 <ul>
 <li>drift: <code>drifted</code>, <code>structural_drifted</code> en <code>finding_drifted</code>;</li>
-<li>sample-QC: de vier groepen (<code>failed_checks</code>, <code>unverifiable_checks</code>, <code>nipt_failed_checks</code>, <code>warning_checks</code>);</li>
+<li>sample-QC: de vijf groepen (<code>failed_checks</code>, <code>unverifiable_checks</code>, <code>nipt_failed_checks</code>, <code>cnipt_concerns</code>, <code>warning_checks</code>);</li>
 <li>onvolledige import: <code>import_incomplete</code> en <code>import_unfinished</code>, elk zonder zijn <code>at</code> (de melding noemt het tijdstip; de jobs en de datasets zeggen welke mislukking het is);</li>
 <li>een pakketmap die na de import wijzigde: <code>package_source_change</code>, zonder <code>detected_at</code> (dezelfde wijziging later opnieuw gevonden is dezelfde bevinding);</li>
 <li>afwijkende calls zonder review: <code>unreviewed_findings</code>.</li>
@@ -3976,6 +3988,10 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <td>Alleen bij een monogene NIPT-familie (<code>signed_record_nipt.py</code>): de trio; de foetale fractie met interval, aantal sites, mediaan per site en oordeel; het de-novovenster; de categorieën; de filtertrechter en waarom cfDNA-calls de kwaliteitsfilter niet haalden; de kwaliteitscontroles met hun oordeel en de zin die het uitlegt (vaderschap, het foetale geslacht uit beide signalen, het plasmasample; <code>nipt_quality_checks.py</code>, dezelfde oordelen als op de NIPT-pagina); de dekking van elke capture-target en elk gen met een zwak target; zonder dekkingstabel per target de notities van de dekkingscontrole (<code>coverage_notes</code>, zie <em>De notities van de NIPT-dekkingscontrole</em>); elke variant met de tag <code>report</code> (op haar eigen review of op die van haar paar) zoals de NIPT-variantlijst hem classificeert (categorie, reads, kansen, vlaggen, zijn terugkeer in de andere cfDNA-samples van de assay, en voor een de-novokandidaat in het foetale venster zijn triage); elke gerapporteerde variant die de analyse niet classificeert, met de reden; het recessieve foetale risico van hun genen, zoals de recessieve weergave het over <em>Show reported</em> berekent; en waarmee de analyse liep (de dekkingstabellen, de artefactenlijst met een digest van haar allelen, en het model)</td>
 </tr>
 <tr>
+<td><code>cnipt</code></td>
+<td>Alleen bij een familie met ccnv-output (<code>signed_record_cnipt.py</code>): per maternaal plasma het resultaat zoals de cNIPT-pagina het toont. Het bevat de status (zonder resultaat met de redenen), het oordeel per doel met de redenen, de bevindingen met de waarden van ccnv, de foetale fracties, het foetale geslacht, de call van de geslachtschromosomen, de detectiegrenzen en de waarschuwingen. Daarnaast de grenzen die de regel toepaste, elk van QA of voorlopig, en de invoer: een digest van het QC-object zoals de import het bewaarde, het aantal gelezen segmenten met hun digest, en de segmentbestanden met hun rijen en laadtijd</td>
+</tr>
+<tr>
 <td><code>coverage_tracks</code></td>
 <td>Elk dekkingsspoor van de leden, per sample en caller (<code>web</code> voor een dekkings-BED, uit een upload of een pakket; <code>wisecondorx</code>, <code>qdnaseq</code>, <code>hificnv</code>), met wat het bevat: <code>read_depth</code>, <code>log2_ratio</code> of <code>unknown</code>, volgens de ene regel van de dieptelezers (<code>coverage_read_depth.coverage_track_content</code>): bij een dekkings-BED wat ze bij het laden verklaarde, bij een andere caller wat de transformatie van zijn import ervan maakte. Per bestand de naam, het aantal rijen, wanneer en waarvandaan het geladen werd (<code>upload</code> voor een losse upload, <code>package</code> voor een pakketimport; leeg als het record het niet zegt), met die verklaring of transformatie (beslissing van de eigenaar van 2026-10-20). Alleen een spoor met leesdiepte wordt als diepte gelezen (de mtDNA-dekking en haar oordeel <code>mtdna.mean_depth</code>, de NIPT-dekkingscontrole zonder tabel per target); het record zegt dus op welk soort dekking een dieptecontrole steunde. Elke familie heeft deze sleutel, zonder dekkingsspoor als <code>{"tracks": []}</code>, zodat een spoor dat na het ondertekenen geladen wordt als wijziging telt. De dekkingstabellen per target van een NIPT-familie zijn een ander spoortype en staan in <code>nipt</code>, net als de notities van de NIPT-dekkingscontrole over deze sporen (<code>nipt.coverage_notes</code>)</td>
 </tr>
@@ -4011,7 +4027,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </table></div>
 <p>De negen van <code>variant_descriptions</code> tot <code>package_intake</code> leest <code>signed_record_sections.py</code>, elk in een eigen savepoint (een deel van de transactie dat apart kan mislukken).</p>
 <ul>
-<li>Een sectie van één toepassing (<code>pgt_analysis</code> bij een PGT-familie, <code>nipt</code> bij een monogene NIPT-familie) noemt die toepassing in haar <code>RecordSection</code> (<code>application="pgt"</code>, <code>application="nipt"</code>). Ze wordt alleen voor zo'n familie gebouwd: een andere familie heeft die sleutel niet.</li>
+<li>Een sectie van één toepassing (<code>pgt_analysis</code> bij een PGT-familie, <code>nipt</code> bij een monogene NIPT-familie, <code>cnipt</code> bij een familie met ccnv-output) noemt die toepassing in haar <code>RecordSection</code> (<code>application="pgt"</code>, <code>application="nipt"</code>, <code>application="cnipt"</code>). Ze wordt alleen voor zo'n familie gebouwd: een andere familie heeft die sleutel niet.</li>
 <li>De controle (<code>sign-out-check</code>) vergelijkt zo'n sectie als het record of de huidige data van de familie ze heeft (heeft maar één van beide ze, dan is dat een wijziging); hebben geen van beide ze, dan niet.</li>
 <li>Een sectie die niet gelezen kan worden, wordt bevroren als <code>{"unavailable": "…"}</code> met een vaste zin, nooit als lege sectie, en staat in <code>not_captured</code>. De tekst van de fout zelf, die waarden kan citeren, wordt niet bevroren.</li>
 </ul>
@@ -4179,8 +4195,8 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <td>Ondertekenen, snapshot, poorten, hashes en keten</td>
 </tr>
 <tr>
-<td><code>backend/app/services/signed_record_sections.py</code> · <code>signed_record_nipt.py</code></td>
-<td>De secties van het record (beschrijvingen, panels, referentiedata, repeats, Paraphase, dekking, intake, PGT, NIPT)</td>
+<td><code>backend/app/services/signed_record_sections.py</code> · <code>signed_record_nipt.py</code> · <code>signed_record_cnipt.py</code></td>
+<td>De secties van het record (beschrijvingen, panels, referentiedata, repeats, Paraphase, dekking, intake, PGT, NIPT, conventionele NIPT)</td>
 </tr>
 <tr>
 <td><code>backend/app/services/package_changed_after_import.py</code></td>
@@ -8568,6 +8584,11 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>The NIPT report names the latest signed version with its report code, and says whether the data still match it.</li>
 <li>It shares the button, the gate dialogs (<code>reportSignOut.tsx</code>) and the rule that says when the button is not offered (<code>signOutRefusal</code>) with the family report. Anyone who may not sign out sees the button disabled on both pages, with the reason (see <em>Who may sign out</em>).</li>
 </ul>
+<p>A family with ccnv output (conventional NIPT) uses the same sign-out:</p>
+<ul>
+<li>It is signed out from the family report, which shows the live cNIPT result above the reported findings (<em>Conventional NIPT result</em>).</li>
+<li>Its record also contains the section <code>cnipt</code> (<code>signed_record_cnipt.py</code>): the result per maternal plasma as the cNIPT page shows it, with the bounds it applied and the inputs it read.</li>
+</ul>
 <p>What each variant section contains is described in <code>docs/report-template.md</code>. Exporting is done with the browser's print function.</p>
 <p><strong>Both pages carry a disclaimer:</strong> the report is decision support that a qualified clinical scientist must confirm. The NIPT report also asks for confirmation with an invasive diagnostic test.</p>
 <p><strong>Both pages carry the warnings of every family page in their header</strong>, on the printout too:</p>
@@ -8684,15 +8705,22 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>male DNA as the mother's plasma (REQ-NIPT-015).</li>
 </ul>
 <p>The <code>409</code> names them in <code>nipt_failed_checks</code> and in <code>qc_summary.messages</code> (the plasma one with its sample); the audit event records them (<code>nipt_failed_checks</code>). Paternity is not among them: the sample QC reads it from the same analysis and already blocks on it. NIPT results that could not be read are in <code>not_captured</code>; they do not block.</p>
+<p>For a family with ccnv output, the section <code>cnipt</code> also counts, under the same acknowledgement:</p>
+<ul>
+<li>a maternal plasma without a result, with the reasons;</li>
+<li>a result that rests on provisional bounds, which QA has not set yet, with those bounds.</li>
+</ul>
+<p>The <code>409</code> names them in <code>cnipt_concerns</code> and in <code>qc_summary.messages</code>; the audit event records them (<code>cnipt_concerns</code>). A ccnv delivery has no SNV genotypes, so the sample QC cannot check the plasma's sex: the gate names that check among the checks that could not run.</p>
 <p>Every finding names, at the start, the sample, the pair, the child with its parents or the NIPT father of its check, e.g. <em>Sample X: no chrX genotypes available for sex inference.</em> That way the message for two samples without chrX calls does not read the same sentence twice. This holds in the <code>409</code> (<code>qc_summary.messages</code> and each group below) and in the groups of the audit event. The fetal sex and the NIPT maternal line are read from the cfDNA as a whole and name no sample. The checks in the snapshot (<code>sample_qc</code>) keep their own message, next to their sample fields.</p>
 <p><strong>Each group of findings separately.</strong> The <code>409</code> puts each finding in its group:</p>
 <ul>
 <li><code>failed_checks</code>: the checks that failed;</li>
 <li><code>unverifiable_checks</code>: the checks that could not run;</li>
 <li><code>nipt_failed_checks</code>: the NIPT quality checks that failed;</li>
+<li><code>cnipt_concerns</code>: what of the conventional NIPT holds the sign-out back;</li>
 <li><code>warning_checks</code>: the checks that warn; these do not block on their own.</li>
 </ul>
-<p>A check that warns because it could not run is only in <code>unverifiable_checks</code>: every finding appears once. The message names every kind of finding that keeps the gate closed, so that a failure does not hide a check that could not run. The dialog of the family report and the NIPT report (<code>reportSignOut.tsx</code>) shows each group under its own heading, before the field for the reason. The audit event of the acknowledged sign-out records the same groups (<code>qc_failed</code>, <code>qc_unverifiable</code>, <code>nipt_failed_checks</code>, <code>qc_warnings</code>): what the acknowledgement covered.</p>
+<p>A check that warns because it could not run is only in <code>unverifiable_checks</code>: every finding appears once. The message names every kind of finding that keeps the gate closed, so that a failure does not hide a check that could not run. The dialog of the family report and the NIPT report (<code>reportSignOut.tsx</code>) shows each group under its own heading, before the field for the reason. The audit event of the acknowledged sign-out records the same groups (<code>qc_failed</code>, <code>qc_unverifiable</code>, <code>nipt_failed_checks</code>, <code>cnipt_concerns</code>, <code>qc_warnings</code>): what the acknowledgement covered.</p>
 <p class="waar"><strong>Where in the code:</strong> <code>sign_out_report</code>, <code>_qc_failure_summary</code>, <code>_failed_qc_checks</code>, <code>_warning_qc_checks</code>, <code>_unverifiable_swap_checks</code> and <code>_named</code> in <code>report_signout_service.py</code>; the dialog in <code>frontend/src/pages/families/reportSignOut.tsx</code>.</p>
 <h3>Gate 3 — no unexplained incomplete import</h3>
 <p>If a package import fails for part of the datasets, it sets the flag <code>import_incomplete</code> in the family metadata (chapter 6). The flag names the failed and the successful datasets, the time and the import job, with the error per dataset. Such a family can be missing whole datasets, e.g. all structural variants (<code>TF-06</code>, hazard H16). A single-file upload of small variants that fails after it has already deleted the callset it replaces sets the same flag for that callset, without an import job (chapter 6).</p>
@@ -8744,7 +8772,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <p>An acknowledgement covers exactly the findings its dialog showed. For that, every <code>409</code> of gates 1, 2, 3, 3b and 4 includes <code>concerns_fingerprint</code>: a SHA-256 over the canonical JSON (sorted keys) of the gate and its findings as the <code>409</code> lists them, each list sorted. The findings per gate:</p>
 <ul>
 <li>drift: <code>drifted</code>, <code>structural_drifted</code> and <code>finding_drifted</code>;</li>
-<li>sample QC: the four groups (<code>failed_checks</code>, <code>unverifiable_checks</code>, <code>nipt_failed_checks</code>, <code>warning_checks</code>);</li>
+<li>sample QC: the five groups (<code>failed_checks</code>, <code>unverifiable_checks</code>, <code>nipt_failed_checks</code>, <code>cnipt_concerns</code>, <code>warning_checks</code>);</li>
 <li>incomplete import: <code>import_incomplete</code> and <code>import_unfinished</code>, each without its <code>at</code> (the message names the time; the jobs and the datasets say which failure it is);</li>
 <li>a package folder that changed after the import: <code>package_source_change</code>, without <code>detected_at</code> (the same change found again later is the same finding);</li>
 <li>abnormal calls without a review: <code>unreviewed_findings</code>.</li>
@@ -8857,6 +8885,10 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <td>Only for a monogenic NIPT family (<code>signed_record_nipt.py</code>): the trio; the fetal fraction with interval, number of sites, median per site and verdict; the de novo window; the categories; the filter funnel and why cfDNA calls did not pass the quality filter; the quality checks with their verdict and the sentence that explains it (paternity, the fetal sex from both signals, the plasma sample; <code>nipt_quality_checks.py</code>, the same verdicts as on the NIPT page); the coverage of every capture target and every gene with a weak target; without a per-target coverage table, the notes of the coverage check (<code>coverage_notes</code>, see <em>The notes of the NIPT coverage check</em>); every variant with the tag <code>report</code> (on its own review or on that of its pair) as the NIPT variant list classifies it (category, reads, probabilities, flags, its recurrence in the assay's other cfDNA samples, and for a de novo candidate in the fetal window its triage); every reported variant that the analysis does not classify, with the reason; the recessive fetal risk of their genes, as the recessive view computes it over <em>Show reported</em>; and what the analysis ran with (the coverage tables, the artefact list with a digest of its alleles, and the model)</td>
 </tr>
 <tr>
+<td><code>cnipt</code></td>
+<td>Only for a family with ccnv output (<code>signed_record_cnipt.py</code>): per maternal plasma the result as the cNIPT page shows it. It contains the status (without a result, with the reasons), the verdict per target with the reasons, the findings with ccnv's values, the fetal fractions, the fetal sex, the call of the sex chromosomes, the limits of detection and the warnings. Besides these, the bounds the rule applied, each QA's or provisional, and the inputs: a digest of the QC object as the import kept it, the number of segments read with their digest, and the segment files with their rows and load time</td>
+</tr>
+<tr>
 <td><code>coverage_tracks</code></td>
 <td>Every coverage track of the members, per sample and caller (<code>web</code> for a coverage BED, from an upload or a package; <code>wisecondorx</code>, <code>qdnaseq</code>, <code>hificnv</code>), with what it contains: <code>read_depth</code>, <code>log2_ratio</code> or <code>unknown</code>, by the one rule of the depth readers (<code>coverage_read_depth.coverage_track_content</code>): for a coverage BED what it declared at loading, for another caller what the transformation of its import made of it. Per file the name, the number of rows, when and from where it was loaded (<code>upload</code> for a single-file upload, <code>package</code> for a package import; empty if the record does not say), with that declaration or transformation (the owner's decision of 2026-10-20). Only a track with read depth is read as depth (the mtDNA coverage and its verdict <code>mtdna.mean_depth</code>, the NIPT coverage check without a per-target table); the record therefore says what kind of coverage a depth check relied on. Every family has this key, without a coverage track as <code>{"tracks": []}</code>, so that a track loaded after sign-out counts as a change. A NIPT family's per-target coverage tables are a different track type and are in <code>nipt</code>, as are the notes of the NIPT coverage check about these tracks (<code>nipt.coverage_notes</code>)</td>
 </tr>
@@ -8892,7 +8924,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </table></div>
 <p>The nine from <code>variant_descriptions</code> to <code>package_intake</code> are read by <code>signed_record_sections.py</code>, each in its own savepoint (a part of the transaction that can fail on its own).</p>
 <ul>
-<li>A section of a single application (<code>pgt_analysis</code> for a PGT family, <code>nipt</code> for a monogenic NIPT family) names that application in its <code>RecordSection</code> (<code>application="pgt"</code>, <code>application="nipt"</code>). It is built only for such a family: another family does not have that key.</li>
+<li>A section of a single application (<code>pgt_analysis</code> for a PGT family, <code>nipt</code> for a monogenic NIPT family, <code>cnipt</code> for a family with ccnv output) names that application in its <code>RecordSection</code> (<code>application="pgt"</code>, <code>application="nipt"</code>, <code>application="cnipt"</code>). It is built only for such a family: another family does not have that key.</li>
 <li>The check (<code>sign-out-check</code>) compares such a section if the record or the family's current data has it (if only one of the two has it, that is a change); if neither has it, it does not.</li>
 <li>A section that cannot be read is frozen as <code>{"unavailable": "…"}</code> holding a fixed sentence, never as an empty section, and is listed in <code>not_captured</code>. The text of the error itself, which can quote values, is not frozen.</li>
 </ul>
@@ -9060,8 +9092,8 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <td>Signing out, snapshot, gates, hashes and chain</td>
 </tr>
 <tr>
-<td><code>backend/app/services/signed_record_sections.py</code> · <code>signed_record_nipt.py</code></td>
-<td>The sections of the record (descriptions, panels, reference data, repeats, Paraphase, coverage, intake, PGT, NIPT)</td>
+<td><code>backend/app/services/signed_record_sections.py</code> · <code>signed_record_nipt.py</code> · <code>signed_record_cnipt.py</code></td>
+<td>The sections of the record (descriptions, panels, reference data, repeats, Paraphase, coverage, intake, PGT, NIPT, conventional NIPT)</td>
 </tr>
 <tr>
 <td><code>backend/app/services/package_changed_after_import.py</code></td>
