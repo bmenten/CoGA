@@ -33,6 +33,6 @@ mark where a fetal trisomy and monosomy lie at the fetal fraction.
 Sign the family out from its **Report** page, which shows the result above the reported findings. The
 signed version keeps the result as the cNIPT page showed it, with the bounds and the files it was read
 from. A plasma without a result, or a result on provisional bounds, asks for an acknowledgement with a
-reason; so does the plasma's sex check, which cannot run on ccnv's output.
+reason.
 
 [Conventional NIPT reference (the fetal fraction, the rule, the targets and the bounds)](/docs/reference/conventional-nipt "further-reading")

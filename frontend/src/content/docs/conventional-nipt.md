@@ -108,8 +108,9 @@ the findings, the fetal fractions, the bounds (each QA's or provisional) and the
 from.
 
 The sign-out asks for an acknowledgement with a reason, in the Sample QC's dialog, when a plasma has
-no result or its result rests on provisional bounds. The plasma's sex check is listed there too:
-ccnv's output holds no genotypes, so the Sample QC cannot run it.
+no result or its result rests on provisional bounds. The Sample QC runs no check of its own here:
+ccnv's output holds no genotypes, and, as for a PGT embryo, the fetal sex is known only from the
+analysis (ccnv's call, in the result).
 
 ## Limits
 

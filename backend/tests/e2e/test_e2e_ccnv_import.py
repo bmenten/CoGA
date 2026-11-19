@@ -20,7 +20,8 @@ import into real Postgres and ClickHouse, as a family of its own (a new id each 
 * ``GET /families/{family_id}/cnipt`` reads the conventional NIPT's result from the stored QC and
   segments: the chr21 gain a high risk, the bounds provisional in a new database;
 * the sign-out (``POST /families/{family_id}/report/sign-out``) is refused under the Sample QC
-  until acknowledged, naming the result on provisional bounds; acknowledged, the signed record
+  until acknowledged, naming the result on provisional bounds and nothing else (the cNIPT Sample
+  QC runs no check); acknowledged, the signed record
   holds the result as the page served it, with its inputs, and the sign-out check finds it
   unchanged.
 
@@ -297,14 +298,16 @@ def test_the_sign_out_holds_a_result_on_provisional_bounds_until_acknowledged(ru
     assert detail["gate"] == "sample_qc"
     (concern,) = detail["cnipt_concerns"]
     assert concern.startswith(f"Sample {run['sample']} (cNIPT maternal plasma): the result rests on provisional bounds")
-    # ccnv's output holds no genotypes: the plasma's sex check cannot run.
-    assert any(run["sample"] in check for check in detail["unverifiable_checks"]), detail
+    # The cNIPT Sample QC runs no check (no genotypes; the fetal sex is the analysis's own
+    # result): only the provisional bounds hold the sign-out back.
+    assert (detail["failed_checks"], detail["unverifiable_checks"], detail["warning_checks"]) == ([], [], []), detail
 
 
 def test_the_signed_record_holds_the_cnipt_result_as_the_page_served_it(run) -> None:
     assert run["signout"]["status"] == 200, run["signout"]
     snapshot = run["signout"]["json"]["snapshot"]
     assert snapshot["acknowledged_qc"] is True
+    assert (snapshot["sample_qc"]["application"], snapshot["sample_qc"]["overall_status"]) == ("cnipt", "skip")
     (frozen,) = snapshot["cnipt"]["samples"]
     inputs = frozen.pop("inputs")
     (served,) = run["cnipt"]["json"]["samples"]

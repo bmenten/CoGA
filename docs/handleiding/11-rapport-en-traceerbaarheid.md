@@ -161,7 +161,7 @@ Bij een familie met ccnv-output telt, onder dezelfde erkenning, uit de sectie `c
 - een maternaal plasma zonder resultaat, met de redenen;
 - een resultaat dat op voorlopige grenzen steunt, die QA nog niet zette, met die grenzen.
 
-De `409` noemt ze in `cnipt_concerns` en in `qc_summary.messages`; het auditevent legt ze vast (`cnipt_concerns`). Een ccnv-levering heeft geen SNV-genotypes, dus de sample-QC kan het geslacht van het plasma niet controleren: de poort noemt die controle bij de controles die niet konden draaien.
+De `409` noemt ze in `cnipt_concerns` en in `qc_summary.messages`; het auditevent legt ze vast (`cnipt_concerns`). De sample-QC van een conventionele NIPT draait geen controle (toepassing `cnipt`, oordeel *skip*), dus niets anders houdt de ondertekening tegen: de output van ccnv heeft geen genotypes, en het foetale geslacht is, zoals bij een PGT-embryo, alleen uit de analyse bekend.
 
 Elke bevinding noemt vooraan het sample, het paar, het kind met zijn ouders of de NIPT-vader van haar controle, bv. *Sample X: no chrX genotypes available for sex inference.* Zo leest de melding voor twee samples zonder chrX-calls niet twee keer dezelfde zin. Dat geldt in de `409` (`qc_summary.messages` en elke groep hieronder) en in de groepen van het auditevent. Het foetale geslacht en de NIPT-moederlijn worden uit het cfDNA als geheel gelezen en noemen geen sample. De controles in het snapshot (`sample_qc`) houden hun eigen melding, naast hun samplevelden.
 

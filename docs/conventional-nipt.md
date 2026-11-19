@@ -118,8 +118,10 @@ the segments read, the segments files). The signed view renders it (`CniptResult
 
 Under the Sample QC's acknowledgement (`cnipt_concerns` in the gate's 409 and in the audit event),
 the sign-out is held back by a plasma without a result and by a result that rests on provisional
-bounds. A ccnv delivery holds no SNV genotypes, so the Sample QC's sex check of the plasma cannot
-run, and the gate lists it among the checks that could not run. The full description is in
+bounds. The Sample QC runs no check for a conventional NIPT (application `cnipt` in
+`sample_integrity_qc.py`, verdict `skip`, owner decision of 2026-11-19): ccnv's output holds no
+genotypes, and as for a PGT embryo the fetal sex is known only from the analysis, ccnv's call in
+the result. The full description is in
 [clinical-traceability.md](clinical-traceability.md), *A conventional NIPT family's record*.
 
 ## Where the code lives

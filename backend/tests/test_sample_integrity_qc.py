@@ -428,6 +428,30 @@ def test_single_profile_runs_sex_only() -> None:
     assert report.relatedness_checks == [] and report.mendelian_checks == []
 
 
+def test_a_conventional_nipt_plasma_gets_no_genotype_check() -> None:
+    # Owner decision of 2026-11-19: ccnv's output holds no genotypes, and as for a PGT embryo
+    # the fetal sex is known only from the analysis (ccnv's call, in the cNIPT result). One
+    # maternal plasma, recorded female, is no "single sample" whose sex is checked.
+    application = resolve_application(
+        analysis_type="conventional_nipt", roles={"CFDNA1": "mother"}, parents_of={}, sample_count=1
+    )
+    assert application == "cnipt"
+    profile = profile_for(application)
+    assert (profile.run_sex, profile.run_relatedness, profile.run_mendelian, profile.run_paternity) == (
+        False,
+        False,
+        False,
+        False,
+    )
+    spec = PedigreeSpec(recorded_sex={"CFDNA1": "female"}, parents_of={})
+    report = evaluate_sample_integrity({"CFDNA1": []}, {"CFDNA1": []}, spec, profile=profile)
+    assert (report.application, report.application_label) == ("cnipt", "Conventional NIPT (maternal plasma)")
+    # Nothing ran: no check could not run, and the verdict says so without a warning.
+    assert report.sex_checks == [] and report.relatedness_checks == [] and report.mendelian_checks == []
+    assert report.overall_status == "skip"
+    assert report.notes == []
+
+
 def test_couple_profile_keeps_unrelated_confirmation_and_flags_relatedness() -> None:
     rng = random.Random(21)
     a = _founder(rng)

@@ -21,6 +21,7 @@ application, then runs only the checks that fit it:
 | **Family with parents** | a pedigree with parent–child links | sex · relatedness · Mendelian errors |
 | **Shallow-WGS PGT** | a member with the embryo role (imputed genotypes) | sex · **parentage** (embryos ↔ parents) · Mendelian errors |
 | **Monogenic NIPT (cfDNA)** | the family was created as a Monogenic NIPT family | **paternity** · **fetal sex** · **parent sex** · **cfDNA category check** |
+| **Conventional NIPT** | the family was created as a conventional NIPT family | none: ccnv's output holds no genotypes, and the fetal sex is known only from the analysis (ccnv's call, in the cNIPT result), as an embryo's is in PGT |
 | **Carrier couple** | two members, no parent–child link | sex · confirmation that the two are unrelated |
 | **Single targeted sample** | one sample | sex only |
 

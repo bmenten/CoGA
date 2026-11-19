@@ -776,9 +776,11 @@ changed, without the review's time), and the message says how many.
   maternal plasma without a result, with its reasons ("Sample X (cNIPT maternal plasma): no result
   — the fetal fraction (3.1%) is below 4.0%."), and a result that rests on bounds QA has not set,
   naming them. The 409 lists each in `cnipt_concerns` and in `qc_summary.messages`; the audit event
-  records them (`cnipt_concerns`). A ccnv delivery holds no SNV genotypes, so the Sample QC cannot
-  check the plasma's sex: the gate lists that check among those that could not run. cNIPT results
-  that could not be read are not captured (named in `not_captured`), not a QC concern;
+  records them (`cnipt_concerns`). The Sample QC of a conventional NIPT runs no check
+  (application `cnipt`, verdict `skip`; owner decision of 2026-11-19): ccnv's output holds no
+  genotypes, and as for a PGT embryo the fetal sex is known only from the analysis, ccnv's call in
+  `cnipt`. cNIPT results that could not be read are not captured (named in `not_captured`), not a
+  QC concern;
 - in a monogenic NIPT family, a NIPT quality check that failed in the record's `nipt` section, under
   the same acknowledgement: no fetal-fraction estimate, a fetal sex whose paternal-X and chrY
   signals disagree, or male DNA given as the maternal plasma (REQ-NIPT-015; TF-06 H4). The 409

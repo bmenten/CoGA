@@ -161,7 +161,7 @@ For a family with ccnv output, the section `cnipt` also counts, under the same a
 - a maternal plasma without a result, with the reasons;
 - a result that rests on provisional bounds, which QA has not set yet, with those bounds.
 
-The `409` names them in `cnipt_concerns` and in `qc_summary.messages`; the audit event records them (`cnipt_concerns`). A ccnv delivery has no SNV genotypes, so the sample QC cannot check the plasma's sex: the gate names that check among the checks that could not run.
+The `409` names them in `cnipt_concerns` and in `qc_summary.messages`; the audit event records them (`cnipt_concerns`). The sample QC of a conventional NIPT runs no check (application `cnipt`, verdict *skip*), so nothing else holds the sign-out back: ccnv's output has no genotypes, and the fetal sex is, as for a PGT embryo, known only from the analysis.
 
 Every finding names, at the start, the sample, the pair, the child with its parents or the NIPT father of its check, e.g. *Sample X: no chrX genotypes available for sex inference.* That way the message for two samples without chrX calls does not read the same sentence twice. This holds in the `409` (`qc_summary.messages` and each group below) and in the groups of the audit event. The fetal sex and the NIPT maternal line are read from the cfDNA as a whole and name no sample. The checks in the snapshot (`sample_qc`) keep their own message, next to their sample fields.
 

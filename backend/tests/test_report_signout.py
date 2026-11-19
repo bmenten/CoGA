@@ -4096,6 +4096,21 @@ def test_a_cnipt_result_on_qa_bounds_does_not_gate(monkeypatch) -> None:
     assert captured["after"]["cnipt_concerns"] == []
 
 
+def test_a_cnipt_plasma_on_qa_bounds_signs_out_without_a_sample_qc_acknowledgement(monkeypatch) -> None:
+    # The cNIPT Sample QC runs no check (owner decision of 2026-11-19: no genotypes, and the
+    # fetal sex is known only from the analysis): its "skip" is no concern, so a result on
+    # QA's bounds signs out without an acknowledgement.
+    report = SampleIntegrityReport(overall_status="skip", application="cnipt")
+    _patch_common(monkeypatch, drifted_count=0, qc_status="skip")
+    _patch_qc_report(monkeypatch, report)
+    _with_sections(monkeypatch, cnipt=_cnipt_section())
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["acknowledged_qc"] is False
+    assert out["snapshot"]["sample_qc"]["application"] == "cnipt"
+    assert captured["after"]["qc_unverifiable"] == [] and captured["after"]["cnipt_concerns"] == []
+
+
 def test_a_family_without_ccnv_output_holds_no_cnipt_section(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0)
     captured = _capture_audit(monkeypatch)
