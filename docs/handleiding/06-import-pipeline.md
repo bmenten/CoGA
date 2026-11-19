@@ -388,7 +388,7 @@ Elke datasetsoort heeft een eigen importfunctie in een register. Een soort zonde
 - In `update`-modus slaat de import het paar over als de familie al NIPT-calls heeft.
 - Een dekkingstabel wordt de track `target_coverage` van het sample, in de plaats van de vorige.
 
-De **runparameters** van de pipeline (genoombuild, welke caller welke variantklasse maakte, welke stappen liepen) staan in de inklapbare sectie *Analysis pipeline settings* op de familiewerkruimte en in dezelfde sectie van het rapport. De **toolversies** verschijnen in de herkomstvoettekst en in de regel *Modules & versions* van het rapport.
+De **runparameters** van de pipeline (genoombuild, welke caller welke variantklasse maakte, welke stappen liepen) staan in de inklapbare sectie *Analysis pipeline settings* op de familiewerkruimte en in dezelfde sectie van het rapport, per analyse: een familie met kortelees- en daarna langelees-WGS heeft een sectie van elke run, met de analyse in de titel (`families.metadata.pipeline`, per analyse). De **toolversies** verschijnen in de herkomstvoettekst en in de regel *Modules & versions* van het rapport.
 
 **Waar in de code:** `backend/app/services/family_package_datasets.py` (de importfuncties per dataset) en `family_package_registration.py` (familie, samples en herkomst registreren); de weergave in `frontend/src/pages/families/PipelineSettingsPanel.tsx`.
 

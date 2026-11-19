@@ -598,10 +598,35 @@ async def record_family_pipeline_metadata(
     session: AsyncSession,
     *,
     family_uuid: str,
+    analysis: str,
     parameters: dict[str, Any],
 ) -> None:
-    """Store the pipeline run parameters under ``families.metadata["pipeline"]``."""
-    await _set_family_metadata_key(session, family_uuid=family_uuid, key="pipeline", value=parameters)
+    """Store the pipeline run parameters of ``analysis`` under
+    ``families.metadata["pipeline"][analysis]`` (the key of the analysis's package record,
+    family_package_records), keeping the family's other analyses': a family sequenced
+    short-read and then long-read keeps the run record of each pipeline."""
+    await session.execute(
+        text(
+            """
+            UPDATE families
+            SET metadata = jsonb_set(
+                jsonb_set(
+                    COALESCE(metadata, '{}'::jsonb),
+                    '{pipeline}',
+                    CASE WHEN jsonb_typeof(metadata -> 'pipeline') = 'object'
+                         THEN metadata -> 'pipeline' ELSE '{}'::jsonb END,
+                    true
+                ),
+                ARRAY['pipeline', CAST(:analysis AS text)],
+                CAST(:value_json AS jsonb),
+                true
+            )
+            WHERE id = CAST(:family_id AS uuid)
+            """
+        ),
+        {"family_id": family_uuid, "analysis": analysis, "value_json": json.dumps(_jsonb_safe(parameters))},
+    )
+    await session.commit()
 
 
 async def record_family_pipeline_qc(

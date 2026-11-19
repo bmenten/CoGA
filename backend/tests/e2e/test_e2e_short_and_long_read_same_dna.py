@@ -16,6 +16,7 @@ Then:
   variant both called once per callset: the update does not skip the long-read callset because
   the family holds the short-read one;
 * each package record lists its own callset among its sources;
+* the family keeps the run record (pipeline parameters) of each analysis's pipeline;
 * the proband keeps an alignment of each analysis: the genome browser's manifest lists both,
   each naming its analysis, and each is served from its own package folder;
 * a variant only the long-read callset holds, tagged for the report, is in the long-read
@@ -72,6 +73,11 @@ def _package(root: Path, family_id: str, analysis: str, trio: tuple[str, str, st
     lines = ["##fileformat=VCFv4.2\n", "##contig=<ID=chr1>\n", _HEADERS[analysis], _COLUMNS.format(proband, mother, father)]
     lines += [f"chr1\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\t.\tGT:DP\t0/1:30\t0/1:30\t0/0:30\n" for pos, ref, alt in _RECORDS[analysis]]
     (root / "family.vcf").write_text("".join(lines), encoding="utf-8")
+    # The run's parameters (params_*.json), as Nextflow writes them.
+    (root / "params.json").write_text(
+        '{"genome": "GRCh38", "snv_caller": "%s"}' % ("haplotypecaller" if analysis == "short_read_wgs" else "deepvariant"),
+        encoding="utf-8",
+    )
     (root / "bams").mkdir()
     (root / "bams" / f"{proband}.cram").write_text(f"{analysis} reads of the proband", encoding="utf-8")
     (root / "bams" / f"{proband}.cram.crai").write_text(f"{analysis} index of the proband", encoding="utf-8")
@@ -83,6 +89,7 @@ def _package(root: Path, family_id: str, analysis: str, trio: tuple[str, str, st
         "datasets": {
             "snv": {"family_vcf": "family.vcf"},
             "alignments": {"per_sample": {proband: {"file": f"bams/{proband}.cram", "index": f"bams/{proband}.cram.crai"}}},
+            "pipeline_info": {"params": "params.json"},
         },
     }
     (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
@@ -139,6 +146,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             )
         ).mappings().one()
     out["records"] = family["metadata"]["package_imports"]
+    out["family_pipeline"] = family["metadata"].get("pipeline")
     rows = await execute_clickhouse(
         f"SELECT variantId, source FROM {_small_table_name(_harness.ASSEMBLY, 'entries')} "
         "WHERE family_guid = %(family)s AND sign = 1",
@@ -218,3 +226,10 @@ def test_the_proband_keeps_an_alignment_of_each_analysis(run) -> None:
         ("long_read_wgs", "long_read_wgs reads of the proband", "long_read_wgs index of the proband"),
         ("short_read_wgs", "short_read_wgs reads of the proband", "short_read_wgs index of the proband"),
     ]
+
+
+def test_the_family_keeps_the_run_record_of_each_analysis(run) -> None:
+    assert run["family_pipeline"] == {
+        "long_read_wgs": {"genome": "GRCh38", "snv_caller": "deepvariant"},
+        "short_read_wgs": {"genome": "GRCh38", "snv_caller": "haplotypecaller"},
+    }

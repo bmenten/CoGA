@@ -1,9 +1,7 @@
 import { fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
-import PipelineSettingsPanel, {
-  pipelineSettingsFromMetadata,
-} from '../PipelineSettingsPanel';
+import PipelineSettingsPanel, { PipelineRunsPanels, pipelineRunsFromMetadata } from '../PipelineSettingsPanel';
 
 vi.mock('../../../lib/api', () => ({
   default: { get: vi.fn().mockResolvedValue({ data: { modules: [] } }) },
@@ -39,19 +37,47 @@ const PACBIO_SETTINGS = {
   assembly: false,
 };
 
-describe('pipelineSettingsFromMetadata', () => {
-  it('returns the pipeline block from family metadata', () => {
-    expect(pipelineSettingsFromMetadata({ pipeline: { genome: 'GRCh38' } })).toEqual({
-      genome: 'GRCh38',
-    });
+describe('pipelineRunsFromMetadata', () => {
+  it('returns the run record of each analysis, sorted', () => {
+    // Keyed as the family's package records are: short-read and then long-read WGS of one family.
+    expect(
+      pipelineRunsFromMetadata({
+        pipeline: { short_read_wgs: { genome: 'GRCh38' }, long_read_wgs: { snv_caller: 'deepvariant' } },
+      }),
+    ).toEqual([
+      ['long_read_wgs', { snv_caller: 'deepvariant' }],
+      ['short_read_wgs', { genome: 'GRCh38' }],
+    ]);
   });
 
-  it('returns undefined when the family carries no run record', () => {
-    expect(pipelineSettingsFromMetadata(undefined)).toBeUndefined();
-    expect(pipelineSettingsFromMetadata({})).toBeUndefined();
+  it('returns none when the family carries no run record', () => {
+    expect(pipelineRunsFromMetadata(undefined)).toEqual([]);
+    expect(pipelineRunsFromMetadata({})).toEqual([]);
     // A non-object value must not be handed on as settings.
-    expect(pipelineSettingsFromMetadata({ pipeline: 'GRCh38' })).toBeUndefined();
-    expect(pipelineSettingsFromMetadata({ pipeline: ['GRCh38'] })).toBeUndefined();
+    expect(pipelineRunsFromMetadata({ pipeline: 'GRCh38' })).toEqual([]);
+    expect(pipelineRunsFromMetadata({ pipeline: ['GRCh38'] })).toEqual([]);
+    expect(pipelineRunsFromMetadata({ pipeline: { long_read_wgs: 'GRCh38' } })).toEqual([]);
+  });
+});
+
+describe('PipelineRunsPanels', () => {
+  it('shows a panel per analysis, named, when the family holds the run record of several', async () => {
+    render(
+      <PipelineRunsPanels
+        metadata={{ pipeline: { short_read_wgs: { genome: 'GRCh38' }, long_read_wgs: PACBIO_SETTINGS } }}
+        variant="report"
+      />,
+    );
+    expect(
+      (await screen.findAllByRole('heading')).map((heading) => heading.textContent),
+    ).toEqual(['Analysis pipeline settings — long-read WGS', 'Analysis pipeline settings — short-read WGS']);
+  });
+
+  it('shows one unnamed panel for a family of one run record', async () => {
+    render(<PipelineRunsPanels metadata={{ pipeline: { long_read_wgs: PACBIO_SETTINGS } }} variant="report" />);
+    expect((await screen.findAllByRole('heading')).map((heading) => heading.textContent)).toEqual([
+      'Analysis pipeline settings',
+    ]);
   });
 });
 

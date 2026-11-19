@@ -2,6 +2,7 @@ import React from 'react';
 
 import type { ApiAnnotationModule } from '../../lib/apiTypes';
 import { useAnnotationManifest } from './AnnotationProvenanceSummary';
+import { analysisLabel } from '../../lib/familyAnalyses';
 
 /**
  * Settings of the upstream analysis pipeline, recorded per family at package import
@@ -139,16 +140,21 @@ export interface PipelineSettings {
 }
 
 /**
- * The pipeline block from a family's metadata, or undefined when the family was not
- * imported from a package that carried a run record.
+ * The run parameters of each analysis the family was imported for from a package that carried a
+ * run record (`families.metadata.pipeline`, keyed as the family's package records are), sorted by
+ * analysis; empty when none did. A family sequenced short-read and then long-read has two.
  */
-export const pipelineSettingsFromMetadata = (
+export const pipelineRunsFromMetadata = (
   metadata: Record<string, unknown> | undefined,
-): PipelineSettings | undefined => {
+): [string, PipelineSettings][] => {
   const pipeline = metadata?.pipeline;
-  return pipeline && typeof pipeline === 'object' && !Array.isArray(pipeline)
-    ? (pipeline as PipelineSettings)
-    : undefined;
+  if (!pipeline || typeof pipeline !== 'object' || Array.isArray(pipeline)) return [];
+  return Object.entries(pipeline as Record<string, unknown>)
+    .filter((entry): entry is [string, PipelineSettings] => {
+      const settings = entry[1];
+      return Boolean(settings) && typeof settings === 'object' && !Array.isArray(settings);
+    })
+    .sort(([left], [right]) => left.localeCompare(right));
 };
 
 const scalarText = (value: unknown): string | null => {
@@ -176,12 +182,48 @@ interface PipelineSettingsPanelProps {
    * workspace has to say where versions live instead.
    */
   variant?: 'workspace' | 'report';
+  /** The analysis whose run record this is, named in the heading; unset for a family of one. */
+  analysis?: string;
+  /** Lists the tools and utilities no run parameter names (default): one panel of several does. */
+  listOtherTools?: boolean;
 }
+
+/**
+ * The family's pipeline settings: one panel per analysis whose package carried a run record,
+ * each named with its analysis when there are several, the tool versions no parameter names
+ * listed once (in the last); one unnamed panel otherwise.
+ */
+export const PipelineRunsPanels: React.FC<{
+  familyId?: string;
+  metadata: Record<string, unknown> | undefined;
+  variant?: 'workspace' | 'report';
+}> = ({ familyId, metadata, variant }) => {
+  const runs = pipelineRunsFromMetadata(metadata);
+  if (runs.length <= 1) {
+    return <PipelineSettingsPanel familyId={familyId} settings={runs[0]?.[1]} variant={variant} />;
+  }
+  return (
+    <>
+      {runs.map(([analysis, settings], index) => (
+        <PipelineSettingsPanel
+          key={analysis}
+          familyId={familyId}
+          settings={settings}
+          variant={variant}
+          analysis={analysis}
+          listOtherTools={index === runs.length - 1}
+        />
+      ))}
+    </>
+  );
+};
 
 const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
   familyId,
   settings,
   variant = 'workspace',
+  analysis,
+  listOtherTools = true,
 }) => {
   // Tool versions live in the family's annotation manifest, separately from the run
   // parameters — a run is only traceable with both, so show them together.
@@ -262,7 +304,10 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
   const stages = STAGE_LABELS.filter(([key]) => resolved[key] === true).map(([, label]) => label);
   const stageKeys = new Set(STAGE_LABELS.map(([key]) => key));
 
+  // The family's tool versions are one record (its annotation manifest): of several analyses'
+  // panels, only one lists the utilities and the tools no run parameter names.
   const utilities = versioned
+    .filter(() => listOtherTools)
     .filter((module) => UTILITY_TOOLS.has(normalizeToolKey(module.key)))
     .sort((left, right) => left.label.localeCompare(right.label));
   utilities.forEach((module) => claimedTools.add(normalizeToolKey(module.key)));
@@ -270,6 +315,7 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
   // Anything the pipeline reported that this file does not know about, shown rather than
   // dropped: a tool or parameter added upstream still belongs on the record.
   const otherTools = versioned
+    .filter(() => listOtherTools)
     .filter((module) => !claimedTools.has(normalizeToolKey(module.key)))
     .sort((left, right) => left.label.localeCompare(right.label))
     .map((module) => ({ label: module.label, value: module.version as string }));
@@ -326,13 +372,18 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
     </>
   );
 
+  // Named with its analysis when the family holds the run record of more than one.
+  const heading = analysis
+    ? `Analysis pipeline settings — ${analysisLabel(analysis) ?? analysis}`
+    : 'Analysis pipeline settings';
+
   // On the report the section is printed, and a closed <details> prints nothing — so
   // only the workspace collapses it. There it is reference material a reader consults
   // occasionally, not something to scroll past on every visit, so it starts closed.
   if (variant === 'report') {
     return (
       <section className="surface-card report-pipeline report-pipeline--report" data-testid="pipeline-settings">
-        <h2 className="report-audit-heading">Analysis pipeline settings</h2>
+        <h2 className="report-audit-heading">{heading}</h2>
         {body}
       </section>
     );
@@ -341,7 +392,7 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
   return (
     <details className="surface-card report-pipeline pipeline-settings-details" data-testid="pipeline-settings">
       <summary className="pipeline-settings-summary">
-        <h2 className="report-audit-heading">Analysis pipeline settings</h2>
+        <h2 className="report-audit-heading">{heading}</h2>
       </summary>
       {body}
     </details>

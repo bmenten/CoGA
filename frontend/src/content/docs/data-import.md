@@ -717,9 +717,10 @@ Paraphase results are replaced.
   Importing the same phenotypes again adds no entry. A failed overwrite that puts the family back adds
   one for the phenotypes it put back.
 - **Analysis pipeline settings**: the pipeline's configuration (genome build, which caller produced
-  what, VEP cache, repeat catalogue, stages run) is recorded at import. It shows in a panel on the family
-  page and in the same section of the family report. Tool versions are in the report's provenance
-  footer.
+  what, VEP cache, repeat catalogue, stages run) is recorded at import, per analysis. It shows in a panel
+  on the family page and in the same section of the family report: a family sequenced short-read and
+  then long-read has a panel of each run, named with its analysis. Tool versions are in the report's
+  provenance footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete*, and its report can be signed out only with an acknowledgement
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). The warning stays until an

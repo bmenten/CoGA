@@ -3369,9 +3369,11 @@ async def _import_pipeline_info_dataset(job: DatasetImportJob) -> FamilyImportDa
             source="manifest",
         )
     if parameters:
+        # Under the analysis whose import read it, beside the family's other analyses' run records.
         await _record_family_pipeline_metadata(
             session,
             family_uuid=family_context.family_uuid,
+            analysis=package_record_key(bundle.manifest.analysis_type),
             parameters=parameters,
         )
     return summary.model_copy(
