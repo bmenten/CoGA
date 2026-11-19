@@ -184,13 +184,14 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
                     session, assembly_id=assembly_id, assay_key="PANEL_X"
                 )
 
-            assert default == {"seeded": 2, "min_unexplained_samples": 5}
+            assert (default["seeded"], default["min_unexplained_samples"]) == (2, 5)
+            assert [variant["variant_id"] for variant in default["variants"]] == ["1-100-A-G", "1-900-A-G"]
             assert [(r["variant_id"], r["recurrence_count"], r["source"]) for r in default_rows] == [
                 ("1-100-A-G", 5, "auto"),
                 ("1-900-A-G", 5, "auto"),
             ]
             # The other panel's own recurrence is its artifact; the WGS carriers never count.
-            assert panel == {"seeded": 1, "min_unexplained_samples": 5}
+            assert (panel["seeded"], panel["min_unexplained_samples"]) == (1, 5)
             assert [(r["variant_id"], r["recurrence_count"]) for r in panel_rows] == [("1-300-A-G", 5)]
         finally:
             await close_postgres_engine()

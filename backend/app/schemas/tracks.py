@@ -152,6 +152,27 @@ class SignalTrackManifestEntryOut(BaseModel):
     max: Optional[float] = None
 
 
+class CcnvTrackSummaryOut(BaseModel):
+    """A conventional NIPT plasma's ccnv results its tracks are drawn with
+    (``ccnv_output.ccnv_track_summary``): the fetal fraction the expected trisomy and monosomy
+    lines are drawn at (ccnv's Fisher-weighted ``effective_ff``), the fused ``active_ff`` with its
+    standard error and source, each estimator's own fraction, the fetal sex, the sex-chromosome
+    call with its confidence, and ccnv's low-fetal-fraction warning. Fractions from 0 to 1."""
+
+    fetal_fraction: float
+    active_ff: float
+    active_ff_se: Optional[float] = None
+    active_ff_source: Optional[str] = None
+    ffy: Optional[float] = None
+    ffx: Optional[float] = None
+    ffa: Optional[float] = None
+    ff_size: Optional[float] = None
+    fetal_sex: str
+    sca_call: str
+    sca_confidence: Optional[float] = None
+    low_ff_warning: Optional[bool] = None
+
+
 class TrackAvailabilityOut(BaseModel):
     coverage: bool = False
     segments: bool = False
@@ -186,6 +207,9 @@ class TrackAvailabilityOut(BaseModel):
     small_variants: bool = False
     haplotypes: bool = False
     repeat_expansions: bool = False
+    # A conventional NIPT's plasma: ccnv's results its ccnv tracks are drawn with. None for
+    # every other sample.
+    ccnv: Optional[CcnvTrackSummaryOut] = None
 
 
 class FamilyTrackAvailabilityOut(BaseModel):
@@ -201,6 +225,15 @@ class BedRecordOut(BaseModel):
     start: int
     end: int
     value: Optional[float]
+
+
+class BedSegmentRecordOut(BedRecordOut):
+    """One segment: the row with the values its caller gives beside it (``details``): a
+    WisecondorX segment's z-score; a ccnv segment's z-score, bin count, call, expected ratio,
+    implied fetal fraction, discordance and its reason, fragment statistics and origin call.
+    Null for a segment whose caller gives none."""
+
+    details: Optional[Dict[str, Union[bool, int, float, str]]]
 
 
 class BedApcadRecordOut(BedRecordOut):
@@ -222,10 +255,17 @@ class BedSegregationRecordOut(BedApcadRecordOut):
 
 
 class BedTrackOut(BaseModel):
-    """A BED read of a coverage or segments track."""
+    """A BED read of a coverage track."""
 
-    bed_type: Literal["coverage", "segments"]
+    bed_type: Literal["coverage"]
     items: List[BedRecordOut]
+
+
+class BedSegmentsTrackOut(BaseModel):
+    """A BED read of a segments track: each segment with its caller's values."""
+
+    bed_type: Literal["segments"]
+    items: List[BedSegmentRecordOut]
 
 
 class BedApcadTrackOut(BaseModel):
@@ -244,7 +284,8 @@ class BedSegregationTrackOut(BaseModel):
 
 # What a BED read answers: the track type it read decides the shape of its rows.
 BedReadOut = Annotated[
-    Union[BedTrackOut, BedApcadTrackOut, BedSegregationTrackOut], Field(discriminator="bed_type")
+    Union[BedTrackOut, BedSegmentsTrackOut, BedApcadTrackOut, BedSegregationTrackOut],
+    Field(discriminator="bed_type"),
 ]
 
 

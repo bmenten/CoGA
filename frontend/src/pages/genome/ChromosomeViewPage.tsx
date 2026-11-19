@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { phaseCorrectionsFromMetadata } from '../../lib/haplotypePhaseCorrections';
 import type { ApiFamilyRecord, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
-import type { ChromosomeOut, FamilyTrackAvailabilityOut } from '../../lib/apiSchema.generated';
+import type { CcnvTrackSummaryOut, ChromosomeOut, FamilyTrackAvailabilityOut } from '../../lib/apiSchema.generated';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -302,6 +302,7 @@ const ChromosomeViewPage: React.FC = () => {
             coverageSources: entry.coverage_sources ?? [],
             coverageNormalizations: entry.coverage_normalizations ?? {},
             coverageContents: entry.coverage_contents ?? {},
+            ccnv: entry.ccnv ?? null,
             apcad: entry.apcad,
             apcadSources: entry.apcad_sources ?? [],
             apcadPcf: !!entry.apcad_pcf,
@@ -319,6 +320,7 @@ const ChromosomeViewPage: React.FC = () => {
           coverageSources: string[];
           coverageNormalizations: Record<string, string[]>;
           coverageContents: Record<string, string>;
+          ccnv: CcnvTrackSummaryOut | null;
           apcad: boolean;
           apcadSources: string[];
           apcadPcf: boolean;

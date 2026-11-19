@@ -100,11 +100,16 @@ def _paternal_x_sites() -> list[SmallVariantRecord]:
 
 def _targets(*, y_mean: float = 108.0, x_mean: float = 1300.0) -> list[TargetCoverageRow]:
     return [
-        TargetCoverageRow(chrom="1", start=4900, end=5200, gene="GENEZ", attribute="GENEZ", mean=1500.0, median=1500.0),
+        # Over every chr1 site of _ff_sites, called by the plasma or not.
+        TargetCoverageRow(chrom="1", start=900, end=8100, gene="GENEZ", attribute="GENEZ", mean=1500.0, median=1500.0),
         TargetCoverageRow(chrom="7", start=350, end=450, gene="GENEB", attribute="GENEB", mean=1500.0, median=1500.0),
         TargetCoverageRow(chrom="7", start=0, end=120, gene="GENEA", attribute="GENEA;NM_1", mean=250.0, median=240.0,
                           proportion_covered=100.0),
         TargetCoverageRow(chrom="X", start=0, end=100, gene="GENEX", attribute="GENEX", mean=x_mean, median=x_mean),
+        # Over the father's X alleles of _paternal_x_sites: the fetal sex counts a site only
+        # where the plasma's depth is known, called or not.
+        TargetCoverageRow(chrom="X", start=2_999_900, end=3_000_100, gene="GENEX", attribute="GENEX",
+                          mean=x_mean, median=x_mean),
         TargetCoverageRow(chrom="Y", start=0, end=100, gene="GENEY", attribute="GENEY", mean=y_mean, median=y_mean),
     ]
 
@@ -322,7 +327,8 @@ async def test_the_section_says_what_the_nipt_page_showed(monkeypatch: pytest.Mo
 
     checks = section["checks"]
     assert (checks["paternity"]["status"], checks["paternity"]["message"]) == (qc.paternity.status, qc.paternity.message)
-    assert (checks["paternity"]["het_transmitted"], checks["paternity"]["het_not_transmitted"]) == (61, 61)
+    # GENEA's paternal allele lies outside every target: no depth to judge it at either way.
+    assert (checks["paternity"]["het_transmitted"], checks["paternity"]["het_not_transmitted"]) == (60, 61)
     # No paternal-X site; a male fetal chrY signal: male, read from the chrY coverage.
     assert (checks["fetal_sex"]["call"], checks["fetal_sex"]["status"]) == (qc.fetal_sex.call, qc.fetal_sex.status)
     assert (checks["fetal_sex"]["call"], checks["fetal_sex"]["chry"]) == ("male", "male")
@@ -962,7 +968,7 @@ async def test_a_sign_out_reads_one_nipt_analysis_for_its_sample_qc_and_its_reco
         **{key: paternity[key] for key in (*counts, "status", "message")},
     }
     # The allele the list held when the analysis read it is left out of both.
-    assert (paternity["het_transmitted"], section["inputs"]["artifact_list"]["entries"]) == (60, 1)
+    assert (paternity["het_transmitted"], section["inputs"]["artifact_list"]["entries"]) == (59, 1)
     fetal_sex = section["checks"]["fetal_sex"]
     assert (
         qc["fetal_sex_check"]["inferred_sex"],

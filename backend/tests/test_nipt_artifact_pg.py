@@ -203,10 +203,13 @@ _DEFAULT_CFDNA_SAMPLES = [("CF1", None), ("CF2", None)]
 
 
 class _AutoSeedSession:
-    def __init__(self, assembly_name, cfdna_samples=None):
+    def __init__(self, assembly_name, cfdna_samples=None, listed=None):
         self._assembly_name = assembly_name
         self._cfdna_samples = _DEFAULT_CFDNA_SAMPLES if cfdna_samples is None else cfdna_samples
+        # (variant ID, source) of the entries the scope's list holds already.
+        self._listed = listed or []
         self.sample_queries: list = []
+        self.listed_queries: list = []
         self.bulk_rows = None
         self.commits = 0
 
@@ -216,6 +219,9 @@ class _AutoSeedSession:
         if "FROM samples" in str(statement):
             self.sample_queries.append(params)
             return _FakeResult(self._cfdna_samples)
+        if "SELECT variant_id, source" in str(statement):
+            self.listed_queries.append(params)
+            return _FakeResult(self._listed)
         self.bulk_rows = params
         return _AutoSeedResult(None)
 
@@ -233,7 +239,8 @@ async def test_auto_seed_nipt_artifacts_upserts_the_unexplained_recurrent_allele
         return [("1-100-A-G", 12), ("2-200-C-T", 7)]
 
     monkeypatch.setattr(nipt_artifact_pg, "fetch_recurrent_artifact_candidates", fake_candidates)
-    session = _AutoSeedSession("GRCh38")
+    # The second allele is curated on the list already: the seed refreshes its count only.
+    session = _AutoSeedSession("GRCh38", listed=[("2-200-C-T", "curated"), ("3-300-G-A", "auto")])
 
     result = await auto_seed_nipt_artifacts(
         session,  # type: ignore[arg-type]
@@ -243,7 +250,21 @@ async def test_auto_seed_nipt_artifacts_upserts_the_unexplained_recurrent_allele
         actor="curator",
     )
 
-    assert result == {"seeded": 2, "min_unexplained_samples": 4}
+    # What it wrote: the samples it read and each seeded allele, with the source of the entry
+    # it was on the list with already.
+    assert result == {
+        "assay_key": "nipt_cfdna",
+        "min_unexplained_samples": 4,
+        "cfdna_samples": 2,
+        "variants": [
+            {"variant_id": "1-100-A-G", "recurrence_count": 12, "listed_source": None},
+            {"variant_id": "2-200-C-T", "recurrence_count": 7, "listed_source": "curated"},
+        ],
+        "seeded": 2,
+    }
+    assert session.listed_queries == [
+        {"assembly_id": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "assay_key": "nipt_cfdna"}
+    ]
     assert session.bulk_rows is not None and len(session.bulk_rows) == 2
     # Each entry keeps its unexplained count as its recurrence.
     assert [(row["variant_id"], row["recurrence_count"], row["source"]) for row in session.bulk_rows] == [
@@ -304,7 +325,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
     )
     assert session.sample_queries == [{"assay": "nipt_cfdna"}]
     assert seen["carrier_samples"] == ["CF1", "CF3"]
-    assert result == {"seeded": 1, "min_unexplained_samples": 3}
+    assert (result["seeded"], result["cfdna_samples"]) == (1, 2)
 
     await auto_seed_nipt_artifacts(
         _AutoSeedSession("GRCh38", cfdna),  # type: ignore[arg-type]
@@ -333,8 +354,15 @@ async def test_auto_seed_without_cfdna_samples_for_the_assay_seeds_nothing(
         min_unexplained_samples=3,
     )
 
-    assert result == {"seeded": 0, "min_unexplained_samples": 3}
+    assert result == {
+        "assay_key": "nipt_cfdna",
+        "min_unexplained_samples": 3,
+        "cfdna_samples": 0,
+        "variants": [],
+        "seeded": 0,
+    }
     assert session.bulk_rows is None
+    assert session.listed_queries == []  # no candidate: the list is not read
     assert audit_events == []  # nothing changed, nothing to audit
 
 

@@ -15,8 +15,20 @@ import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import { NUCLEAR_CHROMOSOMES, normalizeChrom } from '../../lib/chromosomes';
 import type { CoverageContent } from '../../lib/apiTypes';
-import type { BedTrackOut } from '../../lib/apiSchema.generated';
+import type { BedSegmentsTrackOut, BedTrackOut } from '../../lib/apiSchema.generated';
+import {
+  NIPT_AXIS_RANGE,
+  NIPT_AXIS_STEP,
+  ccnvSegmentCall,
+  ccnvSegmentDiscordant,
+  drawsFetalFractionLines,
+  fetalMonosomyLog2,
+  fetalTrisomyLog2,
+  formatPercent,
+  segmentDetailLines,
+} from '../../lib/ccnvTracks';
 import { deriveLayoutFromBins, splitKey, type GenomeLayout } from './genomeBinLayout';
+import VizTooltip from './VizTooltip';
 
 interface CoverageBin {
   chr: string;
@@ -25,11 +37,24 @@ interface CoverageBin {
   value: number;
 }
 
+/** A segment's values as its caller gives them beside it (the BED read's `details`). */
+type SegmentDetails = Record<string, boolean | number | string> | null;
+
 interface Segment {
   chr: string;
   start: number;
   end: number;
   value: number;
+  details: SegmentDetails;
+}
+
+/**
+ * A conventional NIPT's maternal plasma (ccnv): drawn on the NIPT axis, each segment coloured
+ * by ccnv's call, with the expected log2 ratio of a fetal trisomy and monosomy at
+ * `fetalFraction` (0–1; none drawn without one) dashed on every chromosome but Y.
+ */
+export interface NiptCoverageOptions {
+  fetalFraction: number | null;
 }
 
 interface SegmentPointerState {
@@ -109,6 +134,23 @@ const ownRangeAxis = (values: number[]): CoverageAxis => {
   return { min: low - pad, max: high + pad, ticks: [], tickLabel: formatAxisValue, low, high, count: values.length };
 };
 
+/** The NIPT axis of a maternal plasma's log2 ratios: ± NIPT_AXIS_RANGE, a gridline every step. */
+const niptAxis = (): CoverageAxis => {
+  const ticks: number[] = [];
+  for (let tick = -NIPT_AXIS_RANGE; tick <= NIPT_AXIS_RANGE + 1e-6; tick += NIPT_AXIS_STEP) {
+    ticks.push(Number(tick.toFixed(2)));
+  }
+  return {
+    min: -NIPT_AXIS_RANGE,
+    max: NIPT_AXIS_RANGE,
+    ticks,
+    tickLabel: (value) => String(value),
+    low: -NIPT_AXIS_RANGE,
+    high: NIPT_AXIS_RANGE,
+    count: 0,
+  };
+};
+
 /** The log2-ratio axis: ± the configured range, a gridline every 0.5. */
 const log2Axis = (): CoverageAxis => {
   // Guard against a zero/non-finite range: a 0-width domain makes every point
@@ -144,7 +186,17 @@ interface Props {
   onChromosomeClick?: (chrom: string) => void;
   onLayout?: (layout: GenomeLayout & { chroms: string[] }) => void;
   layout?: GenomeLayout;
+  /** A conventional NIPT's maternal plasma (ccnv): see `NiptCoverageOptions`. */
+  nipt?: NiptCoverageOptions;
 }
+
+/** The size of a genomic span, in the unit that reads best. */
+const formatSpan = (bases: number): string =>
+  bases >= 1_000_000
+    ? `${Number((bases / 1_000_000).toPrecision(3))} Mb`
+    : bases >= 1_000
+      ? `${Number((bases / 1_000).toPrecision(3))} kb`
+      : `${bases} bp`;
 
 const CoverageSegmentsChart: React.FC<Props> = ({
   coverageUrls,
@@ -159,8 +211,10 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   onChromosomeClick,
   onLayout,
   layout,
+  nipt,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [hover, setHover] = useState<{ x: number; y: number; segment: Segment } | null>(null);
   const dragStart = useRef<number | null>(null);
   const [dragCurrent, setDragCurrent] = useState<number | null>(null);
   const layoutRef = useRef<GenomeLayout>({ offsets: {}, lengths: {}, total: 0 });
@@ -197,7 +251,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
         ),
         Promise.all(
           stableSegmentsUrls.map((url) =>
-            fetchTrackJson<BedTrackOut>(url, { signal, emptyOn404: true }),
+            fetchTrackJson<BedSegmentsTrackOut>(url, { signal, emptyOn404: true }),
           ),
         ),
       ]);
@@ -216,7 +270,13 @@ const CoverageSegmentsChart: React.FC<Props> = ({
         payload?.items.forEach((item) => {
           const chromName = normalizeChrom(item.chr);
           if (allowedChroms.has(chromName) && item.value !== null) {
-            segments.push({ chr: chromName, start: item.start, end: item.end, value: item.value });
+            segments.push({
+              chr: chromName,
+              start: item.start,
+              end: item.end,
+              value: item.value,
+              details: item.details ?? null,
+            });
           }
         });
       });
@@ -233,6 +293,18 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   );
   const loading = isLoading && stableCoverageUrls.length > 0 && displayData === null;
   const log2Scale = scale === 'log2_ratio';
+  // A maternal plasma's log2 ratios: on the NIPT axis, coloured by ccnv's call.
+  const niptScale = log2Scale && nipt !== undefined;
+  const fetalFraction = niptScale ? (nipt?.fetalFraction ?? null) : null;
+  // Each chromosome's segments in order, for the drawing and for the tooltip's lookup.
+  const segmentsByChr = useMemo(() => {
+    const grouped: Record<string, Segment[]> = {};
+    (log2Scale ? (displayData?.segments ?? []) : []).forEach((segment) => {
+      (grouped[segment.chr] ??= []).push(segment);
+    });
+    Object.values(grouped).forEach((chrSegments) => chrSegments.sort((left, right) => left.start - right.start));
+    return grouped;
+  }, [displayData, log2Scale]);
   // null while loading (don't blank the chart), false when there are no URLs or the
   // payloads are empty, true when either track has data. Segments are drawn on the
   // log2-ratio axis only.
@@ -270,7 +342,6 @@ const CoverageSegmentsChart: React.FC<Props> = ({
     }
 
     const { bins } = displayData;
-    const segments = log2Scale ? displayData.segments : [];
     let chromLengths: Record<string, number>;
     let offsets: Record<string, number>;
     let totalLength: number;
@@ -310,7 +381,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       return;
     }
 
-    const axis = valueAxis ?? log2Axis();
+    const axis = valueAxis ?? (niptScale ? niptAxis() : log2Axis());
     const minVal = axis.min;
     const maxVal = axis.max;
     const yScale = (value: number) =>
@@ -346,27 +417,27 @@ const CoverageSegmentsChart: React.FC<Props> = ({
     const gainColor = cssVar('--color-coverage-gain');
     const lossColor = cssVar('--color-coverage-loss');
     const neutralColor = cssVar('--color-coverage-neutral');
+    const discordantColor = cssVar('--color-coverage-discordant');
     // The gain/loss thresholds are log2 ratios: read depth and values of unknown kind are
-    // drawn in the neutral colour.
+    // drawn in the neutral colour. A maternal plasma's are not coloured by them: they would
+    // never colour a fetal trisomy.
     const colorForValue = (value: number) =>
-      !log2Scale
+      !log2Scale || niptScale
         ? neutralColor
         : value > upperThreshold
           ? gainColor
           : value < lowerThreshold
             ? lossColor
             : neutralColor;
-
-    const segmentsByChr: Record<string, Segment[]> = {};
-    segments.forEach((segment) => {
-      if (!segmentsByChr[segment.chr]) {
-        segmentsByChr[segment.chr] = [];
-      }
-      segmentsByChr[segment.chr].push(segment);
-    });
-    Object.values(segmentsByChr).forEach((chrSegments) => {
-      chrSegments.sort((left, right) => left.start - right.start);
-    });
+    // A maternal plasma's segment in the colour of ccnv's call; a call ccnv flagged as
+    // discordant with the fetal fraction in its own colour.
+    const colorForSegment = (segment: Segment) => {
+      if (!niptScale) return colorForValue(segment.value);
+      const call = ccnvSegmentCall(segment.details);
+      if (call === null) return neutralColor;
+      if (ccnvSegmentDiscordant(segment.details)) return discordantColor;
+      return call === 'gain' ? gainColor : lossColor;
+    };
 
     const segmentPointers: Record<string, SegmentPointerState> = {};
 
@@ -400,7 +471,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
         candidate && candidate.start <= center && candidate.end >= center
           ? candidate
           : undefined;
-      const color = segment ? colorForValue(segment.value) : colorForValue(bin.value);
+      const color = segment ? colorForSegment(segment) : colorForValue(bin.value);
 
       ctx.beginPath();
       ctx.fillStyle = color;
@@ -408,14 +479,15 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       ctx.fill();
     });
 
-    ctx.lineWidth = 1;
-    segments.forEach((segment) => {
+    Object.values(segmentsByChr).flat().forEach((segment) => {
       if (
         isFocusedRegion &&
         (segment.end < regionStart || segment.start > regionEnd)
       ) {
         return;
       }
+      // A segment ccnv called is drawn thicker than one it did not.
+      ctx.lineWidth = niptScale && ccnvSegmentCall(segment.details) !== null ? 2.5 : 1;
 
       const offset = offsets[segment.chr] ?? 0;
       const x1 = isFocusedRegion
@@ -427,11 +499,42 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       const y = clampY(segment.value);
 
       ctx.beginPath();
-      ctx.strokeStyle = colorForValue(segment.value);
+      ctx.strokeStyle = colorForSegment(segment);
       ctx.moveTo(x1, y);
       ctx.lineTo(x2, y);
       ctx.stroke();
     });
+    ctx.lineWidth = 1;
+
+    // The expected log2 ratio of a fetal trisomy (above) and monosomy (below) at the plasma's
+    // fetal fraction, dashed, on every chromosome in view but Y.
+    if (fetalFraction !== null) {
+      const spans: [number, number][] = isFocusedRegion
+        ? drawsFetalFractionLines(stableChroms[0]) ? [[0, width]] : []
+        : stableChroms
+            .filter((chrom) => drawsFetalFractionLines(chrom) && chromLengths[chrom])
+            .map((chrom) => [
+              ((offsets[chrom] ?? 0) / totalLength) * width,
+              (((offsets[chrom] ?? 0) + chromLengths[chrom]) / totalLength) * width,
+            ]);
+      ctx.setLineDash?.([4, 3]);
+      (
+        [
+          [fetalTrisomyLog2(fetalFraction), gainColor],
+          [fetalMonosomyLog2(fetalFraction), lossColor],
+        ] as const
+      ).forEach(([value, color]) => {
+        const y = clampY(value);
+        ctx.strokeStyle = color;
+        spans.forEach(([x1, x2]) => {
+          ctx.beginPath();
+          ctx.moveTo(x1, y);
+          ctx.lineTo(x2, y);
+          ctx.stroke();
+        });
+      });
+      ctx.setLineDash?.([]);
+    }
 
     if (stableChroms.length > 1) {
       ctx.strokeStyle = cssVar('--color-grid');
@@ -446,10 +549,13 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       });
     }
   }, [
+    fetalFraction,
     height,
     layout,
     log2Scale,
+    niptScale,
     onLayout,
+    segmentsByChr,
     regionEnd,
     regionStart,
     stableChroms,
@@ -466,8 +572,35 @@ const CoverageSegmentsChart: React.FC<Props> = ({
     setDragCurrent(event.nativeEvent.offsetX);
   };
 
+  // The segment under the pointer: the one of its chromosome that spans its position.
+  const segmentAt = (offsetX: number): Segment | null => {
+    const { offsets, lengths, total } = layoutRef.current;
+    let chrom: string | undefined;
+    let position: number;
+    if (regionStart !== undefined && regionEnd !== undefined && stableChroms.length === 1) {
+      chrom = stableChroms[0];
+      position = regionStart + (offsetX / width) * (regionEnd - regionStart);
+    } else {
+      if (total <= 0) return null;
+      const genomePos = (offsetX / width) * total;
+      chrom = stableChroms.find((name) => {
+        const start = offsets[name] ?? 0;
+        return genomePos >= start && genomePos < start + (lengths[name] ?? 0);
+      });
+      if (chrom === undefined) return null;
+      position = genomePos - (offsets[chrom] ?? 0);
+    }
+    return (
+      (segmentsByChr[normalizeChrom(chrom)] ?? []).find(
+        (segment) => segment.start <= position && segment.end >= position,
+      ) ?? null
+    );
+  };
+
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
     if (dragStart.current === null) {
+      const segment = segmentAt(event.nativeEvent.offsetX);
+      setHover(segment ? { x: event.clientX, y: event.clientY, segment } : null);
       return;
     }
     setDragCurrent(event.nativeEvent.offsetX);
@@ -570,8 +703,16 @@ const CoverageSegmentsChart: React.FC<Props> = ({
           ? `values of unknown kind (${formatAxisValue(valueAxis.low)}–${formatAxisValue(valueAxis.high)}) · no axis`
           : 'values of unknown kind · no axis';
   const stateSuffix = coverageState ? `: ${coverageState}` : '';
+  const niptLegend = niptScale
+    ? `NIPT axis ±${NIPT_AXIS_RANGE} · segments by ccnv's call` +
+      (fetalFraction !== null
+        ? ` · dashed: fetal trisomy / monosomy at FF ${formatPercent(fetalFraction)}`
+        : ' · no fetal fraction to draw the expected lines at')
+    : null;
   const chartLabel =
-    valueAxis === null
+    niptLegend !== null
+      ? `Maternal plasma log2 ratio${stateSuffix}; ${niptLegend}`
+      : valueAxis === null
       ? `Coverage log2 ratio${stateSuffix}; ${thresholdLegend}` +
         `${customThresholds ? ', custom thresholds set in this browser' : ''}`
       : scale === 'read_depth'
@@ -591,14 +732,36 @@ const CoverageSegmentsChart: React.FC<Props> = ({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onMouseLeave={() => setHover(null)}
         onClick={handleClick}
       />
+      {hover && (
+        <VizTooltip x={hover.x} y={hover.y}>
+          <div>
+            {`chr${hover.segment.chr}:${hover.segment.start.toLocaleString('en-US')}–${hover.segment.end.toLocaleString('en-US')}`}
+            {` (${formatSpan(hover.segment.end - hover.segment.start)})`}
+          </div>
+          <div>{`log2 ratio ${Number(hover.segment.value.toPrecision(3))}`}</div>
+          {segmentDetailLines(hover.segment.details).map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+        </VizTooltip>
+      )}
       {loading && <VizLoadingOverlay message="Loading coverage" />}
       {isError && <VizErrorOverlay what="coverage" onRetry={() => void refetch()} />}
       {!loading && !isError && hasData === false && (
         <div className="viz-empty-overlay">No coverage data in this region</div>
       )}
-      {scaleLegend === null ? (
+      {niptLegend !== null ? (
+        <div
+          className="viz-threshold-legend"
+          title={
+            "A maternal plasma's log2 ratios on an axis of their own, each segment in the colour of ccnv's call (gain, loss, or discordant with the fetal fraction); the dashed lines are where a fetal trisomy and monosomy lie at the plasma's fetal fraction."
+          }
+        >
+          {niptLegend}
+        </div>
+      ) : scaleLegend === null ? (
         <div
           className={`viz-threshold-legend${customThresholds ? ' viz-threshold-legend--custom' : ''}`}
           title={

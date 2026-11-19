@@ -39,6 +39,9 @@ SUPPORTED_DATASETS = (
     "repeats_trgt",
     "wisecondorx",
     "qdnaseq",
+    # ccnv, the copy number of a conventional NIPT's maternal plasma: per sample its bins,
+    # segments, calls and QC (ccnv_output.py).
+    "ccnv",
     "apcad",
     "pcf",
     "haplotypes",

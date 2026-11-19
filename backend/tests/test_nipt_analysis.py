@@ -53,6 +53,27 @@ def test_the_fetal_sex_needs_most_or_hardly_any_paternal_x_alleles(seen: int, ab
     assert (result.inferred, result.x_transmitted, result.x_not_transmitted) == (expected, seen, absent)
 
 
+def test_the_fetal_sex_counts_a_site_only_where_a_missed_allele_would_count() -> None:
+    # Without the plasma's coverage at a site, a son's missing paternal-X allele has no depth
+    # to be judged at. A daughter's shown one must not count there either, or the check
+    # could read female but never male.
+    qc = NiptQualityThresholds()
+    seen = _x_sites(present=True, vaf=0.05, n=9)
+    missed = _x_sites(present=False, vaf=None, pos0=5_000_000, n=9)
+    for site in [*seen, *missed]:
+        site.cf_coverage_dp = None
+    result = infer_fetal_sex([*seen, *missed], _ff(0.10), qc)
+    assert (result.inferred, result.x_transmitted, result.x_not_transmitted) == ("indeterminate", 0, 0)
+    # The coverage depth decides, not the call's: a deep call over a thin target (expected
+    # 2.5 reads at FF/2) is too shallow to have shown a missed allele.
+    for site in seen:
+        site.cf_coverage_dp = 50
+    assert infer_fetal_sex(seen, _ff(0.10), qc).informative_sites == 0
+    for site in seen:
+        site.cf_coverage_dp = 200
+    assert infer_fetal_sex(seen, _ff(0.10), qc).inferred == "female"
+
+
 def test_the_fetal_sex_leaves_out_a_plasma_call_read_off_another_record() -> None:
     # The father's allele whose plasma reads are another record's: that record is a site
     # of its own, so this one is no second piece of evidence.
@@ -128,6 +149,7 @@ def _site(
         cf_alt_reads=alt,
         cf_vaf=vaf,
         cf_qual=qual,
+        cf_coverage_dp=dp,
         father_state=father_state,
         father_dp=father_dp,
         father_qual=father_qual,
@@ -764,6 +786,44 @@ def test_paternity_evidence_reads_the_obligate_and_the_half_transmissions() -> N
     assert evidence.hom_alt_rate == pytest.approx(0.95)
     assert evidence.het_rate == pytest.approx(0.5)
     assert paternal_transmission_evidence(sites, _ff(0.0), qc) == PaternalTransmissionEvidence()
+
+
+def test_paternity_counts_a_site_only_where_an_unseen_allele_would_count() -> None:
+    # A site is judged at the plasma's depth there whether or not it called the allele
+    # (cf_coverage_dp). The depth of its call is known only where the allele shows, so
+    # admitting sites on it would count every allele seen and none missed.
+    qc = NiptQualityThresholds()
+    ff = _ff(0.20)
+
+    def site(variant_id: str, father_state: str, *, seen: bool, coverage: int | None) -> NiptSiteObservation:
+        observed = _site(variant_id, father_state=father_state, dp=1000 if seen else coverage,
+                         alt=100 if seen else 0, father_dp=300, present=seen)
+        observed.cf_depth_estimated = not seen
+        observed.cf_coverage_dp = coverage
+        return observed
+
+    # Outside the plasma's coverage, its calls are the only alleles that could count: 100%.
+    uncovered = [site(f"hom-{i}", "hom_alt", seen=True, coverage=None) for i in range(30)]
+    uncovered += [site(f"het-{i}", "het", seen=True, coverage=None) for i in range(60)]
+    uncovered += [site(f"het-missed-{i}", "het", seen=False, coverage=None) for i in range(60)]
+    evidence = paternal_transmission_evidence(uncovered, ff, qc)
+    assert evidence == PaternalTransmissionEvidence(without_plasma_depth=150)
+
+    # Covered, the seen and the missed alike count.
+    covered = [site(f"hom-{i}", "hom_alt", seen=True, coverage=1500) for i in range(30)]
+    covered += [site(f"het-{i}", "het", seen=True, coverage=1500) for i in range(60)]
+    covered += [site(f"het-missed-{i}", "het", seen=False, coverage=1500) for i in range(60)]
+    assert paternal_transmission_evidence(covered, ff, qc) == PaternalTransmissionEvidence(
+        hom_alt_transmitted=30, het_transmitted=60, het_not_transmitted=60
+    )
+    # The coverage depth decides, not the call's: a deep call over a thin target is too
+    # shallow to have shown a missed allele (expected 5 reads), so it does not count.
+    thin = site("thin", "het", seen=True, coverage=50)
+    assert paternal_transmission_evidence([thin], ff, qc) == PaternalTransmissionEvidence()
+    # An allele the mother carries is no paternity evidence, depth known or not.
+    shared = site("shared", "het", seen=True, coverage=None)
+    shared.cf_alt_reads, shared.cf_vaf = 500, 0.5
+    assert paternal_transmission_evidence([shared], ff, qc) == PaternalTransmissionEvidence()
 
 
 def test_a_site_read_off_another_representation_is_no_second_piece_of_evidence() -> None:

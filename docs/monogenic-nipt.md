@@ -68,8 +68,9 @@ allele:
   call are `missing`.
 - A per-sample record with only the father's call is kept. The plasma's depth there comes from its
   per-target coverage (`TargetDepthLookup`: the lower of the target's mean and median), marked
-  `cf_depth_estimated`. A record with only the plasma's call takes the father's depth from his
-  table.
+  `cf_depth_estimated`. Every per-sample site, called by the plasma or not, carries that coverage
+  depth as `cf_coverage_dp`; a joint VCF's site carries its plasma call's depth. A record with only
+  the plasma's call takes the father's depth from his table.
 - **Representations.** Mutect2 writes adjacent phased SNVs as one MNV, so the two VCFs can hold one
   allele differently. A per-sample record missing the other sample's call looks it up base by base
   (`_BaseCallIndex`) among that sample's calls of every record of the family (`counterpart_records`;
@@ -118,12 +119,17 @@ it.
   the probabilities: `paternal_transmission_probability` (category 7 and absent paternal alleles),
   and `_maternal_probabilities` for the maternal bands (maternal allele inherited, fetus hom-alt,
   the fetal genotype posterior).
-- **Fetal sex** — `infer_fetal_sex` (non-PAR chrX sites where the father is hom-alt: ≥ 8
-  informative; a transmitted share ≥ 0.80 is female, ≤ 0.10 male), `sex_chromosome_coverage` (the
+- **Fetal sex** — `infer_fetal_sex` (non-PAR chrX sites where the father is hom-alt and
+  `cf_coverage_dp × FF/2 ≥ 3`, admitted like paternity's: ≥ 8 informative; a transmitted share ≥ 0.80
+  is female, ≤ 0.10 male), `sex_chromosome_coverage` (the
   plasma's chrX and chrY depth over the autosomes, from the target table) and `combined_fetal_sex`.
 - **Paternity** — `paternal_transmission_evidence` counts his hom-alt and het alleles seen and not
-  seen, where the mother does not carry them and `n × FF/2 ≥ 10`.
-  `sample_integrity_qc.evaluate_paternity` turns the rates into a verdict.
+  seen, where the mother does not carry them and `cf_coverage_dp × FF/2 ≥ 10`. That depth does not
+  depend on whether the plasma called the allele, so a seen and a missed allele are admitted alike;
+  on the call's own depth only the seen ones would be, and every rate would read near 100%. A site
+  without it counts in `without_plasma_depth`, which an unverifiable verdict names.
+  `sample_integrity_qc.evaluate_paternity` turns the rates into a verdict, worded by the side they
+  miss on: too few seen (another father) or too many het ones (his own DNA in the plasma).
 - **The verdicts** — `nipt_quality_checks.py` makes every verdict of the page's quality checks,
   once: the fetal fraction (`fail` without an estimate, `warn` low-confidence), the fetal sex (`fail`
   when the two signals disagree, `warn` when neither tells), paternity and the plasma sample's sex
@@ -238,10 +244,22 @@ The fetal fraction is always CoGA's own estimate; it takes no external value.
 
 ## The artifact list
 
-Admin-only endpoints in `routers/admin.py`, no screen: `GET` / `POST /admin/nipt/artifacts`,
-`DELETE /admin/nipt/artifacts/{id}`, `POST /admin/nipt/artifacts/auto-seed` and
-`POST /admin/nipt/artifacts/import` (the R pipeline's recurrent table: `parse_artifact_table`,
-`import_nipt_artifact_table`). The table is `nipt_artifact_variants` (see
+The admin page *NIPT artefact list* (`AdminNiptArtifactsPage.tsx`, `/admin/variants/nipt-artifacts`,
+an admin's alone) manages it through admin-only endpoints in `routers/admin.py`:
+
+- `GET /admin/nipt/artifacts/scopes?assembly_id=` (`list_nipt_artifact_scopes`): the scopes to choose
+  from, the default `nipt_cfdna`, each scope a cfDNA sample's `assay_panel` resolves to and each scope
+  the assembly's list holds entries for, each with its cfDNA samples (in every project) and entries;
+- `GET` / `POST /admin/nipt/artifacts` and `DELETE /admin/nipt/artifacts/{id}`: the entries, an entry
+  added or updated, an entry removed (no reason: the audit event holds the entry as it was);
+- `GET /admin/nipt/artifacts/auto-seed/preview` and `POST /admin/nipt/artifacts/auto-seed` (below);
+- `POST /admin/nipt/artifacts/import`: the R pipeline's recurrent table (`parse_artifact_table`,
+  `import_nipt_artifact_table`).
+
+The page asks a confirmation before each write. It reads a typed allele (`7-1000-A-G`,
+`chr7:1000:A:G`, `chr7:1000 A>G`) into the stored form (`build_small_variant_id`:
+`parseArtifactVariant`); the endpoint stores `variant_id` as given. An allele already listed keeps its
+recurrence count when it is added again as curated. The table is `nipt_artifact_variants` (see
 [database.md](database.md)). Each add, update, removal, auto-seed and import is a clinical audit
 event, with the actor and the variants, on a chain of its own
 (`family_identifier = system:nipt-artifacts`);
@@ -269,8 +287,14 @@ It drops:
   (`variant_prioritization.py`: a whole-word "pathogenic", or any conflicting record, because the
   per-submission `CLNSIGCONF` breakdown is not imported).
 
-The audit event `nipt_artifacts_auto_seeded` names each seeded allele with its count, the threshold
-and the rules the calls were read by. A family without a father's sample, or whose father's call
+The preview (`preview_auto_seed_nipt_artifacts`) reads what the seed would write now, by the same
+reading (`_auto_seed_candidates`: the same samples, rules, threshold and protections), and writes
+nothing: no entry, no audit event. Each allele carries `listed_source`, the source of its entry already
+on the list (the seed refreshes that entry's count and keeps its source and label), or `null` for an
+allele the seed adds. The seed answers the same reading with the number it wrote (`seeded`), so the
+page shows what it wrote; it reads the samples again, so an import between the preview and the seed
+shows in its answer. The audit event `nipt_artifacts_auto_seeded` names each seeded allele with its
+count, the threshold and the rules the calls were read by. A family without a father's sample, or whose father's call
 fails the quality floors, cannot explain its paternal alleles, so in a large cohort of such families
 a polymorphism can still reach the threshold: review the auto entries.
 

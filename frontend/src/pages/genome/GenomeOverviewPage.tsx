@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMixedHomologEmbryos } from '../../lib/useMixedHomologEmbryos';
 import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
-import type { ChromosomeSizeOut, FamilyTrackAvailabilityOut } from '../../lib/apiSchema.generated';
+import type { CcnvTrackSummaryOut, ChromosomeSizeOut, FamilyTrackAvailabilityOut } from '../../lib/apiSchema.generated';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -350,6 +350,7 @@ const GenomeOverviewPage: React.FC = () => {
             coverageSources: entry.coverage_sources ?? [],
             coverageNormalizations: entry.coverage_normalizations ?? {},
             coverageContents: entry.coverage_contents ?? {},
+            ccnv: entry.ccnv ?? null,
             segmentsSources: entry.segments_sources ?? [],
             segments: entry.segments,
             apcad: entry.apcad,
@@ -368,6 +369,7 @@ const GenomeOverviewPage: React.FC = () => {
           coverageSources: string[];
           coverageNormalizations: Record<string, string[]>;
           coverageContents: Record<string, string>;
+          ccnv: CcnvTrackSummaryOut | null;
           segmentsSources: string[];
           segments: boolean;
           apcad: boolean;

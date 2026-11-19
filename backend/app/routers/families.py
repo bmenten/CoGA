@@ -472,6 +472,7 @@ async def delete_family_hpo(
 # extracted into sibling modules for maintainability. They mount here under the
 # same prefix ("/families") so every route path is unchanged.
 from . import (  # noqa: E402
+    families_cnipt,
     families_nipt,
     families_reports,
     families_small_variants,
@@ -483,6 +484,7 @@ for _sub_router in (
     families_small_variants.router,
     families_structural_variants.router,
     families_nipt.router,
+    families_cnipt.router,
     families_reports.router,
     families_tracks.router,
 ):

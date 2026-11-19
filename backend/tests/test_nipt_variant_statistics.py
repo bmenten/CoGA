@@ -53,6 +53,7 @@ def _site(
         cf_alt_reads=round(dp * vaf) if present else 0,
         cf_vaf=vaf,
         cf_qual=30.0 if present else None,
+        cf_coverage_dp=dp,
         father_state=father_state,
         father_dp=60,
         father_qual=40.0,

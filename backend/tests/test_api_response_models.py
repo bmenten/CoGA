@@ -32,8 +32,8 @@ from backend.tests._bed_route_client import bed_route_client
 
 # Each operation that had no model, the status of its answer and the models it names.
 MODELS: dict[tuple[str, str], tuple[str, set[str]]] = {
-    ("get", "/api/bed/{sample_id}/{bed_type}"): ("200", {"BedTrackOut", "BedApcadTrackOut", "BedSegregationTrackOut"}),
-    ("get", "/api/bed/{sample_id}/{bed_type}/batch"): ("200", {"BedTrackOut", "BedApcadTrackOut", "BedSegregationTrackOut"}),
+    ("get", "/api/bed/{sample_id}/{bed_type}"): ("200", {"BedTrackOut", "BedSegmentsTrackOut", "BedApcadTrackOut", "BedSegregationTrackOut"}),
+    ("get", "/api/bed/{sample_id}/{bed_type}/batch"): ("200", {"BedTrackOut", "BedSegmentsTrackOut", "BedApcadTrackOut", "BedSegregationTrackOut"}),
     ("post", "/api/bed/upload/{sample_id}/{bed_type}"): ("200", {"BedUploadResult"}),
     ("post", "/api/structural-variants/upload/{sample_id}"): ("200", {"StructuralVariantUploadResult"}),
     ("get", "/api/families/{family_id}/shared-structural-variant-counts"): (
@@ -158,11 +158,12 @@ def client(monkeypatch: pytest.MonkeyPatch):
         yield test_client
 
 
-def _item(chrom: str, start: int, end: int, value: float | None, **origin: str) -> dict[str, Any]:
-    return {"chr": chrom, "start": start, "end": end, "value": value, **origin}
+def _item(chrom: str, start: int, end: int, value: float | None, **extra: Any) -> dict[str, Any]:
+    return {"chr": chrom, "start": start, "end": end, "value": value, **extra}
 
 
-# Each read and what it answers: no `origin` on a coverage or segments row.
+# Each read and what it answers: no `origin` on a coverage or segments row, and a segment's
+# caller's values (`details`) on a segments row only, null where its caller gives none.
 READS = {
     "coverage": (
         "/api/bed/PROBAND/coverage",
@@ -182,7 +183,10 @@ READS = {
     "segments": (
         "/api/bed/PROBAND/segments",
         {"chrom": "1"},
-        {"bed_type": "segments", "items": [_item("1", 0, 5000, -0.4), _item("1", 5000, 9000, None)]},
+        {
+            "bed_type": "segments",
+            "items": [_item("1", 0, 5000, -0.4, details=None), _item("1", 5000, 9000, None, details=None)],
+        },
     ),
     "apcad": (
         "/api/bed/PROBAND/apcad",
@@ -231,7 +235,13 @@ def test_a_bed_read_answers_the_json_it_answered(client, read: str) -> None:
 def test_a_bed_reads_answer_is_what_its_model_describes(client, read: str) -> None:
     from pydantic import TypeAdapter
 
-    from backend.app.schemas import BedApcadTrackOut, BedReadOut, BedSegregationTrackOut, BedTrackOut
+    from backend.app.schemas import (
+        BedApcadTrackOut,
+        BedReadOut,
+        BedSegmentsTrackOut,
+        BedSegregationTrackOut,
+        BedTrackOut,
+    )
 
     path, params, _expected = READS[read]
     body = client.get(path, params=params).json()
@@ -244,6 +254,8 @@ def test_a_bed_reads_answer_is_what_its_model_describes(client, read: str) -> No
         if body["bed_type"] == "apcad_segregation"
         else BedApcadTrackOut
         if body["bed_type"].startswith("apcad")
+        else BedSegmentsTrackOut
+        if body["bed_type"] == "segments"
         else BedTrackOut
     )
     assert isinstance(parsed, expected_model)

@@ -11,6 +11,7 @@ export const ANALYSIS_TYPES: readonly (readonly [AnalysisType, string])[] = [
   ['pgt', 'PGT'],
   ['expanded_carrier_screening', 'Expanded Carrier Screening'],
   ['monogenic_nipt', 'mNIPT'],
+  ['conventional_nipt', 'cNIPT'],
 ];
 
 const LABELS: Record<string, string> = Object.fromEntries(ANALYSIS_TYPES);
