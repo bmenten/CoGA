@@ -100,7 +100,11 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
                 ((await admin.get(f"/api{entry['url']}")).content, (await admin.get(f"/api{entry['index_url']}")).content)
                 for entry in entries
             ]
-            out["head"] = (await admin.head(f"/api/cram/{family}/{sample}.cram")).status_code
+            # The alignment of the analysis whose import recorded it: a package that names none
+            # (unspecified).
+            out["head"] = (
+                await admin.head(f"/api/cram/{family}/{sample}.cram", params={"analysis": "unspecified"})
+            ).status_code
 
             link = await admin.get(f"/api/families/{family}/qc-report/{sample}/link")
             report = (await admin.get(f"/api{link.json()['url']}")).content if link.status_code == 200 else None
@@ -131,7 +135,14 @@ def test_igv_reads_the_reads_where_the_package_lies(served: dict[str, Any]) -> N
     family, sample, files = served["family"], served["sample"], served["files"]
     assert served["manifest"] == (
         200,
-        [(sample, "cram", f"/cram/{family}/{sample}.cram", f"/cram/{family}/{sample}.cram.crai")],
+        [
+            (
+                sample,
+                "cram",
+                f"/cram/{family}/{sample}.cram?analysis=unspecified",
+                f"/cram/{family}/{sample}.cram.crai?analysis=unspecified",
+            )
+        ],
     )
     assert served["fetched"] == [
         (files[f"bams/{sample}.markdup.cram"], files[f"bams/{sample}.markdup.cram.crai"])

@@ -33,6 +33,7 @@ export interface AcmgCriterionSelection {
 
 export interface AlignmentManifestEntryOut {
   sample_id: string;
+  analysis_type: string | null;
   format: "bam" | "cram";
   url: string;
   index_url: string;

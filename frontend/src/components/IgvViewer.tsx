@@ -7,6 +7,7 @@ import PageState from './PageState';
 import QueryFailure from './QueryFailure';
 import { getErrorMessage } from '../lib/errorMessage';
 import { loadIgv } from '../lib/igvLoader';
+import { alignmentTrackName } from '../lib/alignmentTracks';
 
 type DestroyableIgvBrowser = IgvBrowser & {
   destroy?: () => void;
@@ -144,8 +145,9 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
         ]);
         // The manifests hand out backend-relative URLs, which need the API base and the
         // session's token. An absolute URL is fetched as given, and never gets the token.
-        const alignmentTracks = (manifestResponse.data as AlignmentManifestEntryOut[]).map((entry) => ({
-          name: entry.sample_id,
+        const alignments = manifestResponse.data as AlignmentManifestEntryOut[];
+        const alignmentTracks = alignments.map((entry) => ({
+          name: alignmentTrackName(entry, alignments),
           type: 'alignment',
           format: entry.format,
           url: resolveApiUrl(entry.url, base),

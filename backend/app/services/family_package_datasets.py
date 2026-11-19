@@ -3303,12 +3303,12 @@ async def _import_alignments_dataset(job: DatasetImportJob) -> FamilyImportDatas
         entry = _local_alignment_entry(bundle.root, alignment_path, index_path)
         if entry is None:
             continue
-        # The analysis whose import recorded it: it is read in that analysis's package folder
-        # (family_package_records).
-        entry[PACKAGE_KEY] = package_record_key(bundle.manifest.analysis_type)
+        # Recorded under the analysis whose import read it: it is read in that analysis's package
+        # folder (family_package_records), beside the alignments of the sample's other analyses.
         await _record_sample_alignment_metadata(
             session,
             sample_context=sample_context,
+            analysis=package_record_key(bundle.manifest.analysis_type),
             alignment=entry,
         )
         sample_results[sample_id] = entry

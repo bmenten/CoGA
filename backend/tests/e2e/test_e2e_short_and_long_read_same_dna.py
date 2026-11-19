@@ -6,9 +6,9 @@ each small-variant callset is named by the caller that made it. Over real Postgr
 ClickHouse, a new family each run:
 
 1. a short-read WGS package (``analysis_type: short_read_wgs``): the trio's joint GATK
-   HaplotypeCaller callset, whose header names its caller;
+   HaplotypeCaller callset, whose header names its caller, and the proband's CRAM;
 2. a long-read WGS package (``analysis_type: long_read_wgs``) of the same three samples, a joint
-   DeepVariant callset, imported with update.
+   DeepVariant callset and the proband's CRAM, imported with update.
 
 Then:
 
@@ -16,6 +16,8 @@ Then:
   variant both called once per callset: the update does not skip the long-read callset because
   the family holds the short-read one;
 * each package record lists its own callset among its sources;
+* the proband keeps an alignment of each analysis: the genome browser's manifest lists both,
+  each naming its analysis, and each is served from its own package folder;
 * a variant only the long-read callset holds, tagged for the report, is in the long-read
   analysis's signed record and not in the short-read one's, and each record's Sample QC reads its
   own callset.
@@ -70,12 +72,18 @@ def _package(root: Path, family_id: str, analysis: str, trio: tuple[str, str, st
     lines = ["##fileformat=VCFv4.2\n", "##contig=<ID=chr1>\n", _HEADERS[analysis], _COLUMNS.format(proband, mother, father)]
     lines += [f"chr1\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\t.\tGT:DP\t0/1:30\t0/1:30\t0/0:30\n" for pos, ref, alt in _RECORDS[analysis]]
     (root / "family.vcf").write_text("".join(lines), encoding="utf-8")
+    (root / "bams").mkdir()
+    (root / "bams" / f"{proband}.cram").write_text(f"{analysis} reads of the proband", encoding="utf-8")
+    (root / "bams" / f"{proband}.cram.crai").write_text(f"{analysis} index of the proband", encoding="utf-8")
     manifest = {
         "schema_version": 1,
         "family_id": family_id,
         "analysis_type": analysis,
         "ped": "family.ped",
-        "datasets": {"snv": {"family_vcf": "family.vcf"}},
+        "datasets": {
+            "snv": {"family_vcf": "family.vcf"},
+            "alignments": {"per_sample": {proband: {"file": f"bams/{proband}.cram", "index": f"bams/{proband}.cram.crai"}}},
+        },
     }
     (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
     return root
@@ -142,6 +150,11 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         api = f"/api/families/{family_id}"
+        manifest = await ac.get(f"/api/cram/{family_id}/manifest", params={"sample": trio[0]})
+        out["alignments"] = [
+            (entry["analysis_type"], (await ac.get(f"/api{entry['url']}")).text, (await ac.get(f"/api{entry['index_url']}")).text)
+            for entry in manifest.json()
+        ]
         tagged = await ac.put(f"{api}/small-variants/{LONG_READ_ONLY}/review", json={"tags": ["report"]})
         out["tagged"] = tagged.status_code
         for analysis in ("short_read_wgs", "long_read_wgs"):
@@ -198,3 +211,10 @@ def test_each_analysiss_record_holds_its_own_variants_and_qc(run) -> None:
     assert [entry["variant_id"] for entry in long_read["snapshot"]["reported_variants"]] == [LONG_READ_ONLY]
     assert short_read["snapshot"]["sample_qc"]["genotype_source"] == "haplotypecaller"
     assert long_read["snapshot"]["sample_qc"]["genotype_source"] == "deepvariant"
+
+
+def test_the_proband_keeps_an_alignment_of_each_analysis(run) -> None:
+    assert run["alignments"] == [
+        ("long_read_wgs", "long_read_wgs reads of the proband", "long_read_wgs index of the proband"),
+        ("short_read_wgs", "short_read_wgs reads of the proband", "short_read_wgs index of the proband"),
+    ]
