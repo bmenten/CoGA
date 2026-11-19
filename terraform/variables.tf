@@ -289,7 +289,7 @@ variable "metrics_collection_enabled" {
 variable "metrics_collector_image" {
   description = "The Google-Built OpenTelemetry Collector, pinned by digest (the tag is for reading). Updated by hand, like the ClickHouse image."
   type        = string
-  default     = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.164.0@sha256:871b9e716d8749660c0e5fd7e7fd5a21b04d412919ab86792528ee4cfa258f89"
+  default     = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.165.1@sha256:8cdd5c85128a7f0b73710761487ee747ff9eadc7d7c090d91873aa3fdc1663cd"
 
   validation {
     condition     = can(regex("@sha256:[0-9a-f]{64}$", var.metrics_collector_image))
