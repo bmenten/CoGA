@@ -538,7 +538,7 @@ async def import_structural_variants(
                 sample_context=sample_context,
                 file=upload,
                 overwrite=overwrite,
-                format_hint=source,  # type: ignore[arg-type]
+                format_hint=source,
                 # What it brings recorded for the family, as the single-file upload does.
                 record_upload=True,
             )
@@ -562,7 +562,7 @@ async def import_small_variants(
             sample_contexts=sample_contexts,
             file=upload,
             overwrite=overwrite,
-            format_hint=source,  # type: ignore[arg-type]
+            format_hint=source,
             # What it brings recorded for the family, as the single-file upload does.
             record_upload=True,
         )

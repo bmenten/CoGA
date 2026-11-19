@@ -62,6 +62,7 @@ def _write_package(root: Path, family_id: str) -> Path:
     (root / "snv").mkdir()
     (root / "snv" / "family.vcf").write_text(
         "##fileformat=VCFv4.2\n"
+        "##source=Clair3\n"
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
         f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
         + "".join(f"1\t{100 * (i + 1)}\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n" for i in range(_VARIANTS)),

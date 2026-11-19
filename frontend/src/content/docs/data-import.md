@@ -220,7 +220,8 @@ folder. Added by hand, CoGA:
 - names them as the package's members, so no PED is needed.
 
 The delivery says what CoGA proposed: check both partners, and their sex, before you approve it
-(**Correct…** changes them). The two SNV files become one call set. A site both partners
+(**Correct…** changes them). The two SNV files become one call set, stored under the name of the
+caller that made them (`deepvariant`). A site both partners
 carry is one variant with both calls. A partner whose file has no record at the other's variant is read
 as reference, as a joint VCF would call a covered site. DeepVariant's reference and no-call records are
 kept only where the other partner has a variant.
@@ -239,8 +240,8 @@ FAM001/
   pipeline_info/  software_versions.yaml, params_*.json, execution_report_*.html
 ```
 
-CoGA reads the family call set as DeepVariant's own calls: not as imputed genotypes, and
-without DeepVariant's reference and no-call records. It takes only `bams/<sample>/<sample>.cram` as a
+CoGA reads the family call set as DeepVariant's own calls, stored under the caller's name
+(`deepvariant`): not as imputed genotypes, and without DeepVariant's reference and no-call records. It takes only `bams/<sample>/<sample>.cram` as a
 sample's alignment, not a `<sample>_phased.bam` beside it. When the run was started several times, it names
 the pipeline records of the last run that completed.
 
@@ -255,10 +256,18 @@ FAM001/
   PROBAND/    PROBAND.cram (+ .crai)        alignments, one folder per sample; optional
 ```
 
-CoGA reads the annotated call set as GATK's own calls, never as imputed genotypes (its header speaks of
-phasing, and some of its genotypes are phased). A sample without a CRAM has calls but no reads in the genome
-browser. Such a family goes into the folder of its project like any delivery; without a `coga-package.json`
-it is added by hand (below).
+CoGA reads the annotated call set as GATK HaplotypeCaller's own calls, stored under the caller's name
+(`haplotypecaller`), never as imputed genotypes (its header speaks of phasing, and some of its genotypes
+are phased). A sample without a CRAM has calls but no reads in the genome browser. Such a family goes
+into the folder of its project like any delivery; without a `coga-package.json` it is added by hand
+(below).
+
+Each small-variant call set is named by the caller that made it, as its header names it (GATK
+HaplotypeCaller, GATK Mutect2, DeepVariant, Clair3) or as the package declares it (`source_format`).
+So a family sequenced short-read and later long-read on the same DNA keeps both call sets apart: each
+analysis comes in its own package (the second imported with update) and is signed out on its own. A
+VCF whose header names no caller CoGA knows, and that holds no imputed genotypes, is refused until the
+delivery names its caller (**Correct…**).
 
 PGT packages from the PGT pipeline (nf-cmgg/copgtm) are laid out per tool:
 
@@ -742,6 +751,12 @@ Paraphase results are replaced.
 Outside the package flow, an administrator can upload one layer at a time on the **Upload family and
 sample data** page: family small variants (including GLIMPSE2 haplotype VCFs), structural variants,
 repeat expansions, and interval tracks (coverage, APCAD, APCAD PCF segments, segments).
+
+A family small-variant upload names its **Callset**: *The caller the VCF header names* (the default),
+Clair3, DeepVariant, GATK HaplotypeCaller, GATK Mutect2, or GLIMPSE2 imputed genotypes (a haplotype
+VCF). With the default, a file whose header names no caller CoGA knows, and that holds no imputed
+genotypes, is refused: choose the caller that made it. An upload replaces only the calls of its own
+callset.
 
 A family small-variant upload that replaces stored calls (**overwrite**) reads the whole file before it
 replaces anything. A file it refuses leaves the stored calls, and for imputed genotypes the haplotype

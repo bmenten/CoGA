@@ -4526,7 +4526,7 @@ export interface SmallVariantUploadResult {
   skipped_filtered: number;
   excluded_filters: string[];
   haplotypes_inserted: number;
-  source_format: "clair3" | "glimpse2" | "mito";
+  source_format: string;
   annotation_rows: number;
   annotation_source: string | null;
   annotation_version: string;

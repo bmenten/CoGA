@@ -32,6 +32,7 @@ from .family_package_nipt import nipt_vcf_column_issue
 from .ccnv_output import CcnvOutputError, ccnv_vcf_header_problems
 from .family_package_ccnv import CCNV_DATASET, ccnv_entry_paths, ccnv_sample_issues, check_ccnv_track_header, read_ccnv_qc_file, read_ccnv_vcf_header
 from .nipt import CONVENTIONAL_NIPT_ANALYSIS_TYPE, MONOGENIC_NIPT_ANALYSIS_TYPE
+from .small_variant_callsets import UNNAMED_CALLER_MESSAGE, is_callset_name, is_direct_callset
 from .nipt_target_coverage import target_table_missing_columns
 from .coverage_content import COVERAGE_CONTENT_KEY, DECLARED_COVERAGE_CONTENTS
 
@@ -250,12 +251,50 @@ def _validate_family_vcf_dataset(
             errors=errors,
             files=files,
         )
+    if dataset_type == "snv":
+        _check_snv_callset_named(dataset, vcf_path, errors)
     return FamilyImportDatasetSummary(
         dataset_type=dataset_type,
         enabled=True,
         status="error" if len(errors) > before else "valid",
         files=list(dict.fromkeys(files)),
     )
+
+
+def _check_snv_callset_named(
+    dataset: ManifestDataset, vcf_path: Path | None, errors: list[FamilyImportValidationIssue]
+) -> None:
+    """A family VCF of small variants is stored under its caller's name
+    (small_variant_callsets.py): the dataset's ``source_format``, a callset's name, or with
+    ``auto`` the caller the VCF header names, or imputed genotypes. One whose caller neither
+    names is refused before anything is written; a file that cannot be read is said by the
+    checks of its own."""
+    source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
+    if source_format != "auto":
+        if not is_callset_name(source_format):
+            errors.append(
+                _issue(
+                    "dataset_callset_invalid",
+                    "The SNV dataset's source_format names its caller in lower-case letters, digits "
+                    "and underscores (haplotypecaller, deepvariant, clair3, glimpse2…)",
+                    dataset="snv",
+                )
+            )
+        return
+    if vcf_path is None:
+        return
+    # Imported here: the loader imports the package modules this one is read by.
+    from fastapi import UploadFile
+
+    from .variant_upload_service import UnnamedCallerHTTPError, _detect_small_variant_format_from_upload
+
+    try:
+        with vcf_path.open("rb") as handle:
+            _detect_small_variant_format_from_upload(UploadFile(file=handle, filename=vcf_path.name), "auto")
+    except UnnamedCallerHTTPError:
+        errors.append(_issue("dataset_callset_unnamed", UNNAMED_CALLER_MESSAGE, dataset="snv"))
+    except Exception:  # noqa: BLE001 - a file that cannot be read is said by its own checks
+        return
 
 
 def _vcf_columns_or_refusal(
@@ -497,12 +536,6 @@ def _validate_ccnv_dataset(
         samples=samples,
     )
 
-# The ``source_format`` a per-sample SNV callset outside monogenic NIPT declares: the
-# family's primary callset of germline calls, one file per sample (the long-read
-# pipeline's), which the import reads side by side as one callset.
-PER_SAMPLE_PRIMARY_SOURCE_FORMAT = "clair3"
-
-
 def _validate_per_sample_snv_dataset(
     *,
     root: Path,
@@ -515,24 +548,25 @@ def _validate_per_sample_snv_dataset(
     """Validate ``snv.per_sample``: an SNV callset of one file per sample.
 
     Two kinds are read. A monogenic NIPT's files (the plasma and the father, Mutect2
-    tumour-only calls whose GT says nothing of the genotype), and a primary callset of
-    germline calls made one sample at a time (the long-read pipeline's), which the
-    dataset declares with ``source_format: clair3``. Anything else is refused: a NIPT
-    pair's files read as germline calls would give every call the genotype Mutect2 wrote.
+    tumour-only calls whose GT says nothing of the genotype), and a callset of germline calls
+    made one sample at a time (the long-read pipeline's), which the dataset declares by its
+    caller (``source_format: deepvariant``, ``clair3``…: a direct callset's name,
+    small_variant_callsets.py). Anything else is refused: a NIPT pair's files read as germline
+    calls would give every call the genotype Mutect2 wrote.
     Each file must hold exactly one sample (it is bound to its entry's sample).
     """
     files: list[str] = []
     samples: list[str] = []
     before = len(errors)
     source_format = str((dataset.model_extra or {}).get("source_format") or "").strip()
-    if analysis_type != MONOGENIC_NIPT_ANALYSIS_TYPE and source_format != PER_SAMPLE_PRIMARY_SOURCE_FORMAT:
+    if analysis_type != MONOGENIC_NIPT_ANALYSIS_TYPE and not is_direct_callset(source_format):
         errors.append(
             _issue(
                 "dataset_per_sample_unsupported",
                 "A per-sample SNV callset (snv.per_sample) is read for a monogenic NIPT family "
-                "(analysis_type: monogenic_nipt), or as the family's callset of germline calls "
-                "made one sample at a time when the dataset says source_format: clair3; "
-                "otherwise give a joint VCF as snv.family_vcf",
+                "(analysis_type: monogenic_nipt), or as a callset of germline calls made one "
+                "sample at a time when the dataset names the caller that made it (source_format: "
+                "deepvariant, clair3, haplotypecaller…); otherwise give a joint VCF as snv.family_vcf",
                 dataset="snv",
             )
         )

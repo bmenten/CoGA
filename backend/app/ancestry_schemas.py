@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 
 # The callsets a choice can name: the stored ones.
-CALLSET_PATTERN = r"^(clair3|nipt|glimpse2)$"
+# A stored callset's name (small_variant_callsets.CALLSET_NAME).
+CALLSET_PATTERN = r"^[a-z][a-z0-9_]{1,31}$"
 
 
 class AncestryReferencePoint(BaseModel):

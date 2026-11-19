@@ -17,8 +17,10 @@ individuals, with axis choice, population toggles, centring on an individual and
 
 A projection reads the family's **stored small variants** in ClickHouse at the reference markers
 (`ancestry_callsets.read_marker_rows`): the rows of the family's project in `entries` whose
-`xpos` is a marker's, of the callsets `clair3` (direct calls), `nipt` (a NIPT family's per-sample
-calls) and `glimpse2` (imputed genotypes); never `mito`. About ten thousand positions, asked in
+`xpos` is a marker's, of every callset but `mito`: each caller's direct calls, named by the caller
+(`haplotypecaller`, `deepvariant`, `clair3`, `mutect2` or any other,
+[data-import.md](data-import.md#small-variant-callsets)), `nipt` (a NIPT family's per-sample calls)
+and the imputed genotypes (`glimpse2`, `shapeit`). About ten thousand positions, asked in
 bound chunks of 5,000; it takes well under a second. Nothing
 is registered: there is no file to point at, no checksum to keep and no declaration to make.
 
@@ -55,8 +57,11 @@ expectation, counted over all markers, inside the **exome mask** and outside it
 A model without an exome mask reads no callset as an exome (`genome` on the overall ratio, else
 `partial`). An individual is projectable from a callset of the first three kinds with at least
 `MIN_MARKERS` (1,000) usable markers and `MIN_CALL_RATE` (95 %) of its covered markers usable.
-Of the callsets it can be projected from, `project_family` takes direct calls, then NIPT per-sample
-calls, then imputed genotypes (`CALLSET_PREFERENCE`). Every callset's scan is kept with the result
+Of the callsets it can be projected from, `project_family` takes direct calls (`clair3`,
+`deepvariant`, `haplotypecaller`, `mutect2`, then any other by name), then NIPT per-sample calls,
+then imputed genotypes (`small_variant_callsets.callset_preference`). The section names a callset
+by its kind and caller: *Direct calls (GATK HaplotypeCaller)*, *NIPT per-sample calls*, *Imputed
+genotypes*. Every callset's scan is kept with the result
 (`candidates`), so the section shows what each held and why it was or was not used.
 
 A sample whose metadata marks a maternal-plasma cfDNA sample, and an embryo, are left out

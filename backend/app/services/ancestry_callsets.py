@@ -3,8 +3,8 @@
 Exploratory and outside CoGA's intended purpose (TF-01 §4). The PCA reads the family's small
 variants from ClickHouse at the reference markers only: a few thousand rows, read in well under
 a second, never the VCF file again. Each individual is read from each callset that holds it
-(``clair3`` direct calls, ``nipt`` per-sample calls, ``glimpse2`` imputed genotypes), and what
-the callset covers is measured, not declared:
+(a caller's direct calls, named by the caller; ``nipt`` per-sample calls; ``glimpse2`` imputed
+genotypes; small_variant_callsets.py), and what the callset covers is measured, not declared:
 
 - At a marker a fully sequenced genome carries the ALT allele with the share the reference
   frequency predicts (about two in five markers). A callset's *coverage ratio* is the markers
@@ -45,14 +45,26 @@ from .ancestry_projection import (
 )
 from .clickhouse_variant_storage import _execute as storage_execute, _small_table_name
 from .nipt import is_cfdna_sample_metadata
+from .small_variant_callsets import IMPUTED_CALLSETS as IMPUTED_SMALL_VARIANT_CALLSETS
+from .small_variant_callsets import MITO_CALLSET, NIPT_CALLSET, callset_preference
+from .small_variant_callsets import callset_label as caller_label
 
-CALLSET_LABELS = {"clair3": "Direct calls", "nipt": "NIPT per-sample calls", "glimpse2": "Imputed genotypes"}
-# The stored callsets read, in the order that picks the one an individual is projected from
-# when more than one can.
-CALLSET_PREFERENCE = ("clair3", "nipt", "glimpse2")
-_PREFERENCE_RANK = {callset: rank for rank, callset in enumerate(CALLSET_PREFERENCE)}
+# The kinds of callset read, in words.
+CALLSET_KIND_LABELS = ("direct calls", "NIPT per-sample calls", "imputed genotypes")
+# The callsets not read: the mtDNA calls hold no nuclear marker.
+_NOT_READ = (MITO_CALLSET,)
 # Imputation has no FILTER of its own: its calls are read whatever the column holds.
-IMPUTED_CALLSETS = frozenset({"glimpse2"})
+IMPUTED_CALLSETS = frozenset(IMPUTED_SMALL_VARIANT_CALLSETS)
+
+
+def callset_label(callset: str) -> str:
+    """A callset in words: a caller's direct calls by the caller's name ("Direct calls (GATK
+    HaplotypeCaller)"), the NIPT per-sample calls, or the imputed genotypes."""
+    if callset == NIPT_CALLSET:
+        return "NIPT per-sample calls"
+    if callset in IMPUTED_CALLSETS:
+        return "Imputed genotypes"
+    return f"Direct calls ({caller_label(callset)})"
 # A callset counts as covering a set of markers when it carries at least this share of the
 # non-reference calls a sequenced genome has there.
 MIN_COVERAGE_RATIO = 0.75
@@ -114,8 +126,8 @@ async def read_marker_rows(family_uuid: str, project: str, reference: AncestryRe
             SELECT source, chrom, pos, ref, alt, filters, `calls.sampleId`, `calls.gt`, `calls.filters`
             FROM {table}
             WHERE family_guid = %(family)s AND project_guid = %(project)s AND sign = 1
-              AND source IN %(callsets)s AND xpos IN %(xpos)s
-        """, {"family": family_uuid, "project": project, "callsets": tuple(CALLSET_PREFERENCE),
+              AND source NOT IN %(not_read)s AND xpos IN %(xpos)s
+        """, {"family": family_uuid, "project": project, "not_read": _NOT_READ,
               "xpos": tuple(positions[start:start + _QUERY_CHUNK])})
         for source, chrom, pos, ref, alt, filters, samples, gts, call_filters in result or []:
             rows.append(MarkerRow(
@@ -258,7 +270,7 @@ def read_callsets(rows: list[MarkerRow], reference: AncestryReference, samples: 
             reason = (f"Too few of the markers the callset covers have a usable genotype: "
                       f"{call_rate:.0%}, at least {MIN_CALL_RATE:.0%}.")
         scan = AncestryCallsetScanOut(
-            callset=callset, label=CALLSET_LABELS.get(callset, callset), kind=kind,
+            callset=callset, label=callset_label(callset), kind=kind,
             carriers=int(carrier[(callset, sample)].sum()),
             expected_carriers=round(float(reference.expected_carrier.sum()), 1),
             coverage_ratio=round(float(ratios["coverage_ratio"] or 0.0), 3),
@@ -273,8 +285,10 @@ def read_callsets(rows: list[MarkerRow], reference: AncestryReference, samples: 
     return readings
 
 
-def _preference(callset: str) -> int:
-    return _PREFERENCE_RANK.get(callset, len(_PREFERENCE_RANK))
+def _preference(callset: str) -> tuple[int, int, str]:
+    """Direct calls (the known callers first), then NIPT per-sample calls, then imputed
+    genotypes (``callset_preference``)."""
+    return callset_preference(callset)
 
 
 def _choice_out(sample: str, choice: dict[str, Any]) -> AncestrySampleChoiceOut:

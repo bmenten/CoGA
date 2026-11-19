@@ -39,7 +39,8 @@ const vcf = (name: string) => new File(['##fileformat=VCFv4.2\n'], name, { type:
 const submitFamilyUpload = (format?: string) => {
   fireEvent.change(screen.getByLabelText(/family id/i), { target: { value: 'FAM1' } });
   if (format) {
-    fireEvent.change(screen.getAllByDisplayValue(/auto detect/i)[0], { target: { value: format } });
+    // The family callset: each is stored under the name of the caller that made it.
+    fireEvent.change(screen.getByLabelText(/^callset/i), { target: { value: format } });
   }
   fireEvent.change(screen.getAllByLabelText(/variant file/i)[0], { target: { files: [vcf('family.vcf')] } });
   fireEvent.click(screen.getByRole('button', { name: /upload family variants/i }));
@@ -104,6 +105,21 @@ describe('SampleUpload', () => {
     ).toBeInTheDocument();
   });
 
+  it('offers each caller a callset is named by', async () => {
+    renderPage();
+    const options = Array.from((screen.getByLabelText(/^callset/i) as HTMLSelectElement).options).map(
+      (option) => [option.value, option.textContent],
+    );
+    expect(options).toEqual([
+      ['auto', 'The caller the VCF header names'],
+      ['clair3', 'Clair3'],
+      ['deepvariant', 'DeepVariant'],
+      ['haplotypecaller', 'GATK HaplotypeCaller'],
+      ['mutect2', 'GATK Mutect2'],
+      ['glimpse2', 'GLIMPSE2 imputed genotypes (haplotype VCF)'],
+    ]);
+  });
+
   it('reports the served result of a family small-variant upload', async () => {
     mockedPost.mockResolvedValue({ data: servedFamilyUpload });
 
@@ -145,7 +161,7 @@ describe('SampleUpload', () => {
     renderPage();
 
     fireEvent.change(screen.getAllByLabelText(/sample id/i)[0], { target: { value: 'S1' } });
-    fireEvent.change(screen.getAllByDisplayValue(/auto detect/i)[1], {
+    fireEvent.change(screen.getByDisplayValue(/auto detect/i), {
       target: { value: 'sniffles' },
     });
     fireEvent.change(screen.getAllByLabelText(/variant file/i)[1], {

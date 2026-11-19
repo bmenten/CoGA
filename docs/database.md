@@ -1396,7 +1396,7 @@ Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
 | `…/SNV_INDEL/entries` | `calls.dp`, `calls.ad` | The call's read depth and allele depths, `UInt32` (up to 4,294,967,295 reads). A mitochondrial or amplicon call reads far more than the 65,535 a `UInt16` holds. `calls.gq`, a phred score, is `UInt16`. |
 | `…/SNV_INDEL/entries` | `calls.ps` | Phase set, for read-based cis/trans against a phased SV |
 | `…/SNV_INDEL/entries` | `calls.af` | Per-allele fraction; on chrM this *is* the heteroplasmy level the mtDNA workspace reads |
-| `…/SNV_INDEL/entries` | `calls.filters` | The call's own FILTER values (`PASS` kept as is). Filled only when the VCF holds one sample, as each file of a monogenic NIPT pair, or of a primary callset read one file per sample, does: the record's FILTER then describes that one call. A DeepVariant `RefCall` kept as a partner's call says the caller read that partner as reference there. A call from a multi-sample VCF has none, since its record's FILTER describes the site. |
+| `…/SNV_INDEL/entries` | `calls.filters` | The call's own FILTER values (`PASS` kept as is). Filled only when the VCF holds one sample, as each file of a monogenic NIPT pair, or of a callset of germline calls read one file per sample, does: the record's FILTER then describes that one call. A DeepVariant `RefCall` kept as a partner's call says the caller read that partner as reference there. A call from a multi-sample VCF has none, since its record's FILTER describes the site. |
 | `…/SNV_INDEL/entries` | `calls.metrics` | The caller's metrics of the call, a map from the INFO key to a number, filled the same way ([vcf_call_metrics.py](../backend/app/services/vcf_call_metrics.py)): Mutect2's `TLOD`, `FS`, `SOR`, `MQ`, `ECNT` and others, and VarDict's `SBF`, `NM`, `MSI` and others; for a key with one value per allele (`MMQ`, `MBQ`, `MFRL`, `RPA`) the first ALT's value under the key and the reference's under `<key>_REF`; `QUAL` when the record has one; `STR` = 1 for Mutect2's short-tandem-repeat flag, and `RU_LEN`, the length of the repeat unit. A Mutect2 tumour-only call has no QUAL: its quality is `TLOD`. The NIPT quality filter, the father's genotype class and the de novo triage read them. |
 | `…/SV/entries` | `calls.ps` | Phase set for a structural call |
 | `…/SV/entries` | `calls.cn` | Copy number from a call's `FORMAT/CN`: a depth-based CNV caller's (HiFiCNV), and an uploaded Sniffles or Spectre call's. `GT=1/1` on a duplication cannot tell CN=3 from CN=6; the ClinGen CNV dosage scoring needs the actual number, and a CNV's gain or loss is read from it (`sv_copy_change`). Null for callers that report none. |
@@ -1428,13 +1428,19 @@ copy number above 65,535, a gnomAD count outside `UInt32`.
 The `source` column on both `entries` tables scopes deletes and re-imports, so one family can
 hold several callsets side by side:
 
-- Small variants: `clair3` (the primary callset, whatever caller made it: one joint VCF, or the
-  long-read pipeline's one VCF per sample read side by side, a site being one row holding the
-  call of each sample whose file has a record there; see
-  [data-import.md](data-import.md#per-sample-callsets-of-a-long-read-couple)), `glimpse2`
-  (imputed; hidden from the diagnostic lists by default), `mito` (chrM) and `nipt` (a monogenic
-  NIPT pair: the plasma's and the father's single-sample VCFs, each merged into the callset for
-  its own sample, so a variant is one row holding each sample's call where its file has one).
+- Small variants: a callset of direct calls is named by the caller that made it
+  (`small_variant_callsets.py`, [data-import.md](data-import.md#small-variant-callsets)):
+  `haplotypecaller` (GATK HaplotypeCaller, short-read WGS), `mutect2` (GATK Mutect2, a NIPT
+  plasma's calls), `clair3` and `deepvariant` (long-read WGS), or any other caller's name a
+  package or an upload gives (lower-case letters, digits and underscores, starting with a letter).
+  Such a callset is one joint VCF, or the long-read pipeline's one VCF per sample read side by
+  side, a site being one row holding the call of each sample whose file has a record there (see
+  [data-import.md](data-import.md#per-sample-callsets-of-a-long-read-couple)). So short-read and
+  long-read WGS of the same DNA are two callsets of one family. Beside them: `glimpse2` and
+  `shapeit` (imputed; hidden from the diagnostic lists by default), `mito` (chrM) and `nipt` (a
+  monogenic NIPT pair: the plasma's and the father's single-sample VCFs, each merged into the
+  callset for its own sample, so a variant is one row holding each sample's call where its file
+  has one).
 - Structural variants: `needlr`, `hificnv`, `ccnv` (a conventional NIPT's gains and losses, ccnv's
   values in the record's annotations) and `mito_sv` (chrM deletions and duplications, each
   sample's heteroplasmy in the record's annotations) from packages, and `manual_upload`,
@@ -1677,8 +1683,9 @@ these tables ends with the callset (`source`):
 
 - A small variant's `key` is a hash of the assembly and the variant id. It is the same for
   every family and callset, so the shared annotation tables (`variants/details`,
-  `annotations`, `annotation_index`, `gene_index`) serve them all. A clair3 call and a GLIMPSE2
-  imputation of one variant are two `entries` rows with one key.
+  `annotations`, `annotation_index`, `gene_index`) serve them all. A caller's direct call and a
+  GLIMPSE2 imputation of one variant, or a short-read (`haplotypecaller`) and a long-read
+  (`deepvariant`) call of it, are two `entries` rows with one key.
 - An SV's `key` is a hash of the assembly, the family, the variant id and the source. A
   per-sample upload names an SV `chrom-start-end-type---`, a breakend's with its mate
   (`…-BND-5-3000000-3000000`), without its caller, and a package's NeedlR import names its calls

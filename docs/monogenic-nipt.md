@@ -53,7 +53,9 @@ Two inputs, one model:
     owner's decision of 2026-10-28). The dataset's summary records each sample's column
     (`vcf_column`).
 - **One combined VCF** with a father and a cfDNA column, through the family small-variant upload or a
-  package import. Its quality is the site's QUAL (`entries.qual`).
+  package import, stored as the callset of its caller (`mutect2`, as the header or the package's
+  `source_format` names it; [data-import.md](data-import.md#small-variant-callsets)). Its quality is
+  the site's QUAL (`entries.qual`).
 
 `build_nipt_observations` (`nipt_service.py`) turns the records into one `NiptSiteObservation` per
 allele:

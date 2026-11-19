@@ -129,7 +129,7 @@ _EXPECTED_BODY = {
     "skipped_filtered": 0,
     "excluded_filters": [],
     "haplotypes_inserted": 0,
-    "source_format": "clair3",
+    "source_format": "deepvariant",
     "annotation_rows": 0,
     "annotation_source": None,
     "annotation_version": "vcf_info",

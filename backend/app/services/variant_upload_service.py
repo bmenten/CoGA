@@ -93,6 +93,7 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 from .clickhouse_variant_queries import NIPT_SMALL_VARIANT_SOURCE as _NIPT_SOURCE
+from .small_variant_callsets import UNNAMED_CALLER_MESSAGE, caller_from_vcf_header, is_callset_name
 from .vcf_call_metrics import record_filter_values, single_sample_call_metrics
 # Under the names this module's readers, per_sample_small_variants and the tests use.
 from .vcf_fields import field_int, parse_format as _parse_format, parse_info as _parse_info
@@ -116,20 +117,19 @@ _PROVENANCE_SKIP_PREFIXES = (
 )
 _PROVENANCE_HEADER_CAP = 200
 
-# The value doubles as the ClickHouse ``source`` tag, which scopes deletes and
-# re-imports. "clair3" is the label for *the family's primary, directly
-# called nuclear callset* whatever produced it (DeepVariant on the long-read
-# pipeline) -- the actual caller and its version are recorded per family in the
-# annotation manifest from the VCF header, which is the traceable record. "mito" is a
-# separate source so re-importing the nuclear callset never deletes the chrM calls
-# (they come from a different file and a different caller run).
-SmallVariantFormat = Literal["auto", "clair3", "glimpse2", "mito"]
-# "nipt" is the callset of a monogenic NIPT stored one file per sample (the cfDNA and the
-# paternal VCF): only the package import writes it, per sample (``overwrite_scope="samples"``),
-# so the REST upload, which replaces a whole callset with one file, does not offer it.
+# The callset an upload stores its rows as, which doubles as the ClickHouse ``source`` tag
+# that scopes deletes and re-imports: a callset of direct calls named by its caller
+# (``haplotypecaller``, ``clair3``, ``deepvariant``…: small_variant_callsets.py), the imputed
+# genotypes (``glimpse2``) or the mtDNA calls (``mito``, a separate source so re-importing the
+# nuclear callset never deletes the chrM calls), or ``auto``: the caller the VCF header names,
+# or imputed genotypes. The caller's version is recorded in the family's annotation manifest
+# from the header. "nipt" is the callset of a monogenic NIPT stored one file per sample (the
+# cfDNA and the paternal VCF): only the package import writes it, per sample
+# (``overwrite_scope="samples"``), so the REST upload, which replaces a whole callset with one
+# file, does not offer it.
 NIPT_SMALL_VARIANT_SOURCE: Final = _NIPT_SOURCE
-SmallVariantUploadFormat = Literal["auto", "clair3", "glimpse2", "mito", "nipt"]
-ResolvedSmallVariantFormat = Literal["clair3", "glimpse2", "mito", "nipt"]
+SmallVariantUploadFormat = str
+ResolvedSmallVariantFormat = str
 # Decides whether a parsed record is stored: (chromosome, start, end of REF, the record's
 # calls).
 SmallVariantRecordFilter = Callable[[str, int, int, Sequence[SmallVariantCall]], bool]
@@ -315,7 +315,15 @@ def _detect_small_variant_format_from_upload(
     file: UploadFile,
     format_hint: SmallVariantUploadFormat,
 ) -> ResolvedSmallVariantFormat:
+    """The callset the upload's rows are stored as: ``format_hint`` as named, else
+    (``auto``) the caller the VCF header names (``caller_from_vcf_header``), else imputed
+    genotypes (``glimpse2``) when the first record carries genotype posteriors, or phased
+    genotypes in a file whose header or name says it was phased. A file that is neither is
+    refused (``UnnamedCallerError``, a 400): its callset is named by its caller, which CoGA
+    does not guess."""
     if format_hint != "auto":
+        if not is_callset_name(format_hint):
+            raise HTTPException(status_code=400, detail="A callset is named in lower-case letters, digits and underscores")
         return format_hint
     header_lines: list[str] = []
     for line in _iter_upload_text_lines(file, kind="VCF"):
@@ -327,14 +335,25 @@ def _detect_small_variant_format_from_upload(
         parts = line.rstrip("\n\r").split("\t")
         if len(parts) < 9:
             break
+        caller = caller_from_vcf_header(header_lines)
+        if caller is not None:
+            return caller
         fmt = parts[8].split(":")
         if "GP" in fmt or (
             _has_phasing_source_hint(header_lines, file.filename)
             and _format_has_phased_gt(fmt, parts[9:])
         ):
             return "glimpse2"
-        return "clair3"
+        raise UnnamedCallerHTTPError()
     raise HTTPException(status_code=400, detail="No valid VCF records found")
+
+
+class UnnamedCallerHTTPError(HTTPException):
+    """A small-variant VCF whose caller neither the request nor its header names: refused
+    (400) with ``UNNAMED_CALLER_MESSAGE``."""
+
+    def __init__(self) -> None:
+        super().__init__(status_code=400, detail=UNNAMED_CALLER_MESSAGE)
 
 
 def _detect_structural_variant_format(

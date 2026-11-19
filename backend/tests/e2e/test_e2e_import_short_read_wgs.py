@@ -6,9 +6,10 @@ VEP-annotated (``<family>.GRCh38.annotated.vcf.gz``) and a folder per sample wit
 administrator, in the e2e project's folder of a watched import folder:
 
 - added by hand as an SR-WGS analysis, CoGA's package takes the annotated callset as the family's
-  SNV callset, declared the primary callset of direct calls (its first record is physically
-  phased, which the loader alone reads as imputed genotypes), and each sample's CRAM;
-- approved, its import stores the three records as the primary callset with every sample's call,
+  SNV callset, declared by its caller (``haplotypecaller``, which its header names, although its
+  first record is physically phased), and each sample's CRAM;
+- approved, its import stores the three records as the ``haplotypecaller`` callset with every
+  sample's call,
   the stored popmax read from VEP's frequency under the annotation's own name for it
   (``MAX_AF_VEP_ALL_POPULATIONS``), ClinVar's classification from the ClinVar file, not VEP's
   cache, and records each sample's CRAM for the genome browser;
@@ -137,7 +138,7 @@ def ran(tmp_path_factory, request) -> dict[str, Any]:
 def _expected_datasets(family: str) -> dict[str, Any]:
     return {
         "snv": {
-            "source_format": "clair3",
+            "source_format": "haplotypecaller",
             "family_vcf": f"{family}.GRCh38.annotated.vcf.gz",
             "index": f"{family}.GRCh38.annotated.vcf.gz.tbi",
         },
@@ -170,11 +171,11 @@ def test_added_by_hand_its_package_takes_the_annotated_callset_and_the_crams(ran
     assert set(package["datasets"]) == {"snv", "alignments"}
 
 
-def test_its_import_stores_the_callset_as_the_primary_one_with_its_annotation(ran) -> None:
+def test_its_import_stores_the_callset_under_its_callers_name_with_its_annotation(ran) -> None:
     assert ran["job"]["status"] == "completed", ran["job"]
     entries = ran["entries"]
     assert [variant_id for variant_id, *_rest in entries] == ["1-2000200-C-T", MISSENSE, "Y-2800415-T-C"]
-    assert {source for _variant, source, *_rest in entries} == {"clair3"}
+    assert {source for _variant, source, *_rest in entries} == {"haplotypecaller"}
     proband, mother, father = members(ran["family"])
     calls = {variant_id: dict(zip(samples, gts)) for variant_id, _source, samples, gts in entries}
     assert calls[MISSENSE] == {proband: "0|1", mother: "0|1", father: "0/0"}

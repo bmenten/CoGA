@@ -111,7 +111,8 @@ def _decoy_records() -> list[SmallVariantRecord]:
         _record("chrY", 7_000_000, _SAMPLES, het, source="glimpse2"),
         _record("chrY", 15_000_000, _SAMPLES, het, source="glimpse2"),
         _record("chr1_KI270706v1_random", 1_000, _SAMPLES, het, source="glimpse2"),
-        *[_record("chr1", 200_000_000 + 1_000 * i, _SAMPLES, het, source="deepvariant") for i in range(50)],
+        # Another imputation's genotypes, which the QC takes after GLIMPSE2's.
+        *[_record("chr1", 200_000_000 + 1_000 * i, _SAMPLES, het, source="shapeit") for i in range(50)],
     ]
 
 

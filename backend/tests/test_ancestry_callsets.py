@@ -212,6 +212,6 @@ def test_the_marker_rows_are_read_in_bound_chunks_of_the_familys_own_callsets(mo
     read = asyncio.run(callsets.read_marker_rows("family-uuid", "project-uuid", model))
     assert len(queries) == 3 and [len(p["xpos"]) for _, p in queries] == [40, 40, 20]
     assert all(p["family"] == "family-uuid" and p["project"] == "project-uuid"
-               and p["callsets"] == ("clair3", "nipt", "glimpse2") for _, p in queries)
+               and p["not_read"] == ("mito",) for _, p in queries)
     assert all("%(xpos)s" in q and "family-uuid" not in q for q, _ in queries)
     assert [r.pos for r in read] == [1, 41, 81] and read[0].filters == ("PASS",) and read[0].call_filters == ((),)

@@ -110,7 +110,6 @@ from .ccnv_output import CCNV_CALL_GENOTYPE, CCNV_SOURCE, CcnvOutputError, ccnv_
 from .family_package_ccnv import ccnv_entry_paths, read_ccnv_qc_file
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .per_sample_small_variants import (
-    PER_SAMPLE_CALLSET_SOURCE,
     PerSampleVcf,
     upload_family_per_sample_small_variant_files,
 )
@@ -302,32 +301,34 @@ def _exclude_filters(dataset: ManifestDataset) -> Sequence[Any] | None:
 
 def _small_variant_callset(upload: UploadFile) -> str:
     """The callset the small-variant loader stores the family VCF in ``upload`` as when
-    its format is ``auto``: ``glimpse2`` (imputed genotypes) when the first record's FORMAT
-    has genotype posteriors, or phased genotypes in a file whose header or name says it was
-    phased; else ``clair3``. The loader's own reading of the file, from its start; raises as
-    the loader does on a file it cannot read, or one without a record."""
+    its format is ``auto``: the caller its header names, else ``glimpse2`` (imputed
+    genotypes) when the first record's FORMAT has genotype posteriors, or phased genotypes in
+    a file whose header or name says it was phased. The loader's own reading of the file,
+    from its start; raises as the loader does on a file it cannot read, one without a
+    record, or one whose caller it cannot tell (``UnnamedCallerHTTPError``)."""
     return _detect_small_variant_format_from_upload(upload, "auto")
 
 
 def snv_dataset_callset(bundle: FamilyPackageBundle) -> str:
     """The callset a package's ``snv`` dataset is stored as, as ``_import_snv_dataset``
     stores it: a monogenic NIPT's per-sample files as ``nipt``, a per-sample germline
-    callset as the family's primary callset (``clair3``), and a family VCF as the
+    callset as the caller its dataset declares (``source_format``), and a family VCF as the
     ``source_format`` its dataset declares or, with ``auto`` (the default), as the callset
-    the small-variant loader works out from the file (``_small_variant_callset``):
-    ``glimpse2`` for imputed genotypes, else ``clair3``. The import's bookkeeping names it
-    before anything is written (``dataset_scopes``), so it is read from the file here, as
+    the small-variant loader works out from the file (``_small_variant_callset``): the caller
+    its header names, or ``glimpse2`` for imputed genotypes. The import's bookkeeping names
+    it before anything is written (``dataset_scopes``), so it is read from the file here, as
     the loader reads it. ``auto`` (``UNRESOLVED_SNV_SOURCE``) when it cannot be
-    told: no family VCF, or one that cannot be read, which the import then registers only,
-    or fails on before writing any of it."""
+    told: no family VCF, one that cannot be read, or one whose caller neither the package nor
+    the header names (which validation refuses)."""
     dataset = bundle.manifest.datasets.get("snv")
     if dataset is None:
         return UNRESOLVED_SNV_SOURCE
+    source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
     if dataset.per_sample and not dataset.family_vcf:
         if (bundle.manifest.analysis_type or "").strip() == MONOGENIC_NIPT_ANALYSIS_TYPE:
             return NIPT_SMALL_VARIANT_SOURCE
-        return PER_SAMPLE_CALLSET_SOURCE
-    source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
+        # The caller its package declares, which validation requires.
+        return source_format
     if source_format != "auto":
         return source_format
     try:
@@ -1622,22 +1623,24 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
 
 async def _import_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Import ``datasets.snv.per_sample`` of a family that is not a monogenic NIPT: the
-    long-read pipeline's per-sample callsets, read side by side as the family's primary
-    callset (see per_sample_small_variants).
+    long-read pipeline's per-sample callsets, read side by side as one callset named by the
+    caller the dataset declares (see per_sample_small_variants).
 
     Every file is checked to hold its entry's sample (``per_sample_vcf_column``) before
     anything is written. With ``update`` the dataset is skipped when the family holds a
-    primary callset; with ``overwrite`` the files replace it.
+    callset of the caller the dataset declares; with ``overwrite`` the files replace it.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
     assembly_name = family_context.assembly_name or ""
+    # The caller the dataset declares, which validation requires (a direct callset's name).
+    callset = str((dataset.model_extra or {}).get("source_format") or "")
     if job.conflict_mode == "update":
         existing_count = await count_family_small_variants(
             assembly_name,
             family_context.family_uuid,
             project_ids=family_context.project_ids,
-            source=PER_SAMPLE_CALLSET_SOURCE,
+            source=callset,
         )
         if existing_count:
             return summary.model_copy(
@@ -1699,6 +1702,7 @@ async def _import_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSu
             sample_contexts=sample_contexts,
             files=files,
             overwrite=True,
+            source=callset,
             exclude_filters=exclude_filters,
             progress=report_progress if job.progress is not None else None,
         ),

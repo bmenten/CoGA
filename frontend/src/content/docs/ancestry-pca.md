@@ -33,7 +33,10 @@ about 88 % of the markers) and outside it:
 | covers less, even inside the exome: a gene panel, a subset of sites, a filtered imputation | **part of the markers** | nothing: the callset is not projected |
 
 When an individual has more than one callset that can be projected, CoGA reads its **direct
-calls** first, then NIPT per-sample calls, then imputed genotypes. A maternal-plasma cfDNA sample
+calls** first, then NIPT per-sample calls, then imputed genotypes. Each caller's direct calls are a
+callset of their own, shown by the caller's name, such as *Direct calls (GATK HaplotypeCaller)*;
+among them CoGA takes Clair3's, DeepVariant's, GATK HaplotypeCaller's and GATK Mutect2's in that
+order, then any other caller's by name. A maternal-plasma cfDNA sample
 (a mixture of mother and fetus) and an embryo are left out.
 
 ## Choosing how an individual is read

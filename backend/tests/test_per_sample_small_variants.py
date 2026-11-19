@@ -79,7 +79,7 @@ def _readers(files: list[tuple[str, Path]], *, excluded: set[str] = frozenset({"
 
 def _merged(readers: list[_PerSampleVcfReader]) -> list[Any]:
     return [
-        merged_site_record(group, readers)
+        merged_site_record(group, readers, source="deepvariant")
         for group in iter_merged_sites(readers)
         if not all(record.excluded for record in group)
     ]
@@ -109,7 +109,7 @@ def test_a_site_both_partners_carry_is_one_row_holding_both_calls(tmp_path: Path
     # A private variant holds its own sample's call only: the other file has no record.
     assert _calls(records[1]) == {"MOTHER1": ("1/1", ["PASS"])}
     assert _calls(records[2]) == {"FATHER1": ("0/1", ["PASS"])}
-    assert all(record.source == "clair3" for record in records)
+    assert all(record.source == "deepvariant" for record in records)
     assert records[0].annotations and records[0].annotations[0].get("gene") == "GENE1"
 
 
@@ -295,7 +295,7 @@ async def _upload(files: list[PerSampleVcf], **kwargs: Any) -> dict[str, Any]:
         sample_contexts=_sample_contexts(),
         files=files,
         overwrite=True,
-        **kwargs,
+        **{"source": "deepvariant", **kwargs},
     )
 
 
@@ -323,7 +323,7 @@ async def test_the_upload_stores_the_merged_sites_as_the_primary_callset(storage
     assert result["inserted"] == 2
     assert result["processed"] == 5
     assert result["skipped_filtered"] == 2
-    assert result["source_format"] == "clair3"
+    assert result["source_format"] == "deepvariant"
     assert result["calls_per_sample"] == {"MOTHER1": 2, "FATHER1": 1}
     # Nothing was stored before: nothing to delete.
     assert storage["deleted"] == []
@@ -334,7 +334,7 @@ async def test_the_upload_replaces_the_stored_callset_of_the_same_samples(storag
     storage["existing"] = 10
     storage["stored_samples"] = {"MOTHER1", "FATHER1"}
     await _upload(_couple_files(tmp_path), exclude_filters=["RefCall", "NoCall"])
-    assert storage["deleted"] == ["clair3"]
+    assert storage["deleted"] == ["deepvariant"]
     assert storage["events"].index("delete") < storage["events"].index("insert")
 
 
@@ -408,7 +408,7 @@ async def test_a_failure_after_the_first_rows_removes_the_callset_again(storage,
     monkeypatch.setattr(per_sample, "refresh_family_small_variant_summaries", failing_refresh)
     with pytest.raises(RuntimeError, match="went away"):
         await _upload(_couple_files(tmp_path))
-    assert storage["deleted"] == ["clair3"]
+    assert storage["deleted"] == ["deepvariant"]
 
 
 @pytest.mark.asyncio

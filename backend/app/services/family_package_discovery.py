@@ -27,6 +27,7 @@ from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files, 
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_ped_indexes, pgt_roi_phasing_issue, pgt_run_context
 from .family_package_source import _ensure_authorized_package_path, package_folder_link_issues, package_folder_path
+from .small_variant_callsets import caller_from_vcf_header
 
 
 # The file names Discover looks for, by dataset.
@@ -1100,31 +1101,21 @@ _FIELD_DECLARATION = re.compile(r"##(INFO|FORMAT|FILTER|ALT|contig)=", re.IGNORE
 _IMPUTATION_TOOL = re.compile(r"glimpse|beagle|impute|minimac|shapeit", re.IGNORECASE)
 
 
-# The header lines a variant caller that calls genotypes from the reads writes: DeepVariant's,
-# and GATK HaplotypeCaller's (its command line, in the current and the older notation).
-_DIRECT_CALLER_LINES = (
-    "##DeepVariant_version=",
-    "##GATKCommandLine=<ID=HaplotypeCaller,",
-    "##GATKCommandLine.HaplotypeCaller=",
-)
-
-
-def _is_direct_callset(path: Path) -> bool:
-    """Whether a family VCF holds a caller's own calls, not imputed genotypes: DeepVariant's
-    (``##DeepVariant_version``, also once merged and phased by read-based phasing, as
-    nf-LRSvar's trio callset is) or GATK HaplotypeCaller's (a short-read WGS family's joint
-    callset, whose header describes its physical phasing and so reads as phased to the
-    loader); its header declares no genotype posteriors (FORMAT ``GP``, which the loader
-    reads as imputed) and names no imputation or statistical phasing tool. Only such a file
-    is declared the primary callset without the loader's own reading of it."""
+def _direct_caller(path: Path) -> str | None:
+    """The caller of a VCF of a caller's own calls, not imputed genotypes: the one its header
+    names (``caller_from_vcf_header``: DeepVariant's, also once merged and phased by
+    read-based phasing, as nf-LRSvar's trio callset is; GATK HaplotypeCaller's, a short-read
+    WGS family's joint callset, whose header describes its physical phasing; Clair3's;
+    Mutect2's), when its header declares no genotype posteriors (FORMAT ``GP``, which the
+    loader reads as imputed) and names no imputation or statistical phasing tool. None for any
+    other file, whose callset the delivery is asked to name."""
     lines = _vcf_meta_lines(path)
-    if not any(line.startswith(_DIRECT_CALLER_LINES) for line in lines):
-        return False
-    if any(line.startswith("##FORMAT=<ID=GP,") for line in lines):
-        return False
-    return not any(
-        _IMPUTATION_TOOL.search(line) for line in lines if not _FIELD_DECLARATION.match(line)
-    )
+    caller = caller_from_vcf_header(lines)
+    if caller is None or any(line.startswith("##FORMAT=<ID=GP,") for line in lines):
+        return None
+    if any(_IMPUTATION_TOOL.search(line) for line in lines if not _FIELD_DECLARATION.match(line)):
+        return None
+    return caller
 
 
 def _with_direct_callset_snv_settings(
@@ -1134,14 +1125,15 @@ def _with_direct_callset_snv_settings(
     sample_ids: list[str],
     patterns: dict[str, list[str]],
 ) -> dict[str, Any]:
-    """The ``snv`` block with what a callset of direct calls needs: ``source_format: clair3``
-    (a phased primary callset would otherwise be guessed imputed and hidden from the
-    diagnostic views, and a per-sample callset is read only so declared) and
-    ``exclude_filters`` for the DeepVariant records without a variant. It applies to the
-    long-read pipeline's per-sample annotated callsets, and to a family VCF of a caller's own
-    calls (``_is_direct_callset``: nf-LRSvar's merged, phased trio callset, a short-read WGS
-    family's GATK callset). Any other callset's block, imputed genotypes among them, is
-    returned as it is; what the block already says wins."""
+    """The ``snv`` block with what a callset of direct calls needs: its caller as its
+    ``source_format`` (``_direct_caller``: the callset is stored under its caller's name, and a
+    per-sample callset is read only so declared) and ``exclude_filters`` for the DeepVariant
+    records without a variant. It applies to the long-read pipeline's per-sample annotated
+    callsets and to a family VCF of a caller's own calls (nf-LRSvar's merged, phased trio
+    callset, a short-read WGS family's GATK callset), when every file's header names one
+    caller. Any other callset's block, imputed genotypes and files whose caller is not named
+    among them, is returned as it is, for the delivery to name; what the block already says
+    wins."""
     per_sample = block.get("per_sample")
     if isinstance(per_sample, dict) and per_sample and not block.get("family_vcf"):
         paths = [entry.get("vcf") for entry in per_sample.values() if isinstance(entry, dict)]
@@ -1154,16 +1146,17 @@ def _with_direct_callset_snv_settings(
         family_vcf = block.get("family_vcf")
         family_path = package_path_within(root, family_vcf) if isinstance(family_vcf, str) else None
         if family_vcf in long_read_paths or (
-            family_path is not None and family_path.is_file() and _is_direct_callset(family_path)
+            family_path is not None and family_path.is_file() and _direct_caller(family_path) is not None
         ):
             paths = [family_vcf]
         else:
             paths = []
     resolved = [package_path_within(root, value) for value in paths if isinstance(value, str)]
     files = [path for path in resolved if path is not None and path.is_file()]
-    if not files:
+    callers = {_direct_caller(path) for path in files}
+    if not files or len(callers) != 1 or None in callers:
         return block
-    settings: dict[str, Any] = {"enabled": block.get("enabled", True), "source_format": "clair3"}
+    settings: dict[str, Any] = {"enabled": block.get("enabled", True), "source_format": callers.pop()}
     declared = set.intersection(*(_declared_filters(path) for path in files))
     excluded = [value for value in _NON_VARIANT_FILTERS if value in declared]
     if excluded:

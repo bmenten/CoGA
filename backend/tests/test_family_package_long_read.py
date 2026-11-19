@@ -131,7 +131,11 @@ def test_multi_sample_family_does_not_present_one_sample_as_the_family_callset(
     # Two samples: the per-sample annotated VCFs must NOT be picked as the family
     # callset, which would silently present one member's genotypes as the family's. They
     # are proposed as one VCF per sample instead, and a sample without one is named.
-    _touch(tmp_path / "snv/S1/annotation/S1_annot.vcf.gz")
+    # The long-read pipeline's DeepVariant callset: its header names the caller.
+    _gz_text(
+        tmp_path / "snv/S1/annotation/S1_annot.vcf.gz",
+        "##fileformat=VCFv4.2\n##DeepVariant_version=1.6.1\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n",
+    )
     _touch(tmp_path / "snv/S1/annotation/S1_annot.vcf.gz.tbi")
 
     payload, availability = _build_manifest_payload(
@@ -149,7 +153,8 @@ def test_multi_sample_family_does_not_present_one_sample_as_the_family_callset(
             "index": "snv/S1/annotation/S1_annot.vcf.gz.tbi",
         }
     }
-    assert block["source_format"] == "clair3"
+    # Declared by its caller, which the header names.
+    assert block["source_format"] == "deepvariant"
     assert snv.samples == ["S1"]
     assert snv.message is not None and "none for S2, which would have no calls" in snv.message
 
@@ -1076,7 +1081,7 @@ def test_alignments_are_found_in_a_folder_per_sample(tmp_path: Path) -> None:
     assert "FATHER1" not in item.samples
 
 
-def test_a_family_vcf_of_deepvariant_calls_is_the_primary_callset_without_its_non_variant_records(
+def test_a_family_vcf_of_deepvariant_calls_is_named_by_its_caller_without_its_non_variant_records(
     tmp_path: Path,
 ) -> None:
     _gz_text(tmp_path / f"snv/{TRIO_FAMILY}_phased.vcf.gz", _trio_snv_vcf())
@@ -1086,7 +1091,7 @@ def test_a_family_vcf_of_deepvariant_calls_is_the_primary_callset_without_its_no
 
     snv = payload["datasets"]["snv"]
     assert snv["family_vcf"] == f"snv/{TRIO_FAMILY}_phased.vcf.gz"
-    assert snv["source_format"] == "clair3"
+    assert snv["source_format"] == "deepvariant"
     assert snv["exclude_filters"] == ["RefCall", "NoCall"]
 
 

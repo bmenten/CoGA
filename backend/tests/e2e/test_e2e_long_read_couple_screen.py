@@ -304,7 +304,7 @@ def test_the_two_files_are_one_callset(run) -> None:
         "7-117600200-C-T": {father: ("0/1", ["PASS"])},
     }
     snv = run["import"]["datasets"]["snv"]["summary"]
-    assert snv["source_format"] == "clair3"
+    assert snv["source_format"] == "deepvariant"
     # chr3:60000000 is reference in one file and uncalled in the other: left out.
     assert snv["skipped_filtered"] == 2
     assert snv["excluded_calls_kept"] == 1
