@@ -736,8 +736,9 @@ JSON keys that package import writes into the `metadata` columns:
 | `samples.metadata` | `alignment` | the CRAM/BAM path and index, package-relative (`path`, `index_path`), which IGV reads in the family's `package_import` folder |
 | `samples.metadata` | `signal_tracks` | the package-relative paths of the HiFiCNV depth, MAF and copy-number files, served to IGV from the family's `package_import` folder |
 | `samples.metadata` | `mtdna` | the mtDNA haplogroup from the mutserve annotation |
+| `samples.metadata` | `ccnv` | a conventional NIPT's maternal plasma: its ccnv QC file as ccnv wrote it (`qc`: read metrics, fetal-fraction estimates, fetal sex, sex-chromosome call, limits of detection, warnings) and the file's path in the package (`qc_file`) |
 | `samples.metadata` | `sv_files` | the file name per structural-variant source |
-| `samples.metadata` | `assay`, `assay_panel` | copied from the manifest's `samples` entry (kept whole under `package_sample_metadata`): `assay: nipt_cfdna` marks the maternal-plasma cfDNA sample of a monogenic NIPT family, and `assay_panel` names its capture panel, which scopes the NIPT artifact list |
+| `samples.metadata` | `assay`, `assay_panel` | copied from the manifest's `samples` entry (kept whole under `package_sample_metadata`): `assay: nipt_cfdna` marks the maternal-plasma cfDNA sample of a monogenic NIPT family, `assay: cnipt_cfdna` that of a conventional NIPT, and `assay_panel` names its capture panel, which scopes the NIPT artifact list |
 | `sample_interval_track_sources.metadata` | `normalization` | the transform the import applied to a track's values before storing them: `log2_ratio_to_diploid` on a HiFiCNV copy-number track (`segments`: log2 of the copy number over 2); `log2_ratio_to_autosomal_median` on a HiFiCNV depth track (`coverage`: log2 of the depth over the sample's autosomal median, held in `autosomal_median_depth`); or `none` on a depth track whose file gave no usable autosomal median (`autosomal_median_depth` null, or at or below zero), whose depths are stored as read. A track without the key holds its file's values. The track availability serves each coverage track's normalization (`coverage_normalizations`) |
 | `sample_interval_track_sources.metadata` | `content` | what a coverage BED (source `web`) declared it holds when it was loaded: `read_depth` or `log2_ratio`, from the BED upload's `content` or the package manifest's coverage entry, or `unknown` for a manifest entry without it. Other tracks' records have none. With `normalization` it decides what each coverage track holds (`coverage_read_depth.py::coverage_track_content`): for a coverage BED, what it declared; for another track, what its transform made of its file (read depth after `none` alone, a log2 ratio after a log2-ratio transform, else unknown; without the key, a WisecondorX or QDNAseq file's log2 ratios, any other caller's unknown). The track availability serves it (`coverage_contents`). The viewers draw read depth on a depth axis, a log2 ratio on their log2-ratio axis, and an unknown track on its own range without an axis. The readers that take coverage values as read depth (the mtDNA coverage and its `mtdna.mean_depth` verdict; the NIPT coverage check without a per-target table) read one `coverage` track per sample that holds read depth: a coverage BED declared as read depth, or a track whose records all name `none`; never a log2 ratio, nor a track of unknown kind. Each track they leave out is named with the reason (the mtDNA QC notes, the NIPT check's `coverage_notes`). A sample with two read-depth tracks is read from its BED |
 | `sample_interval_track_sources.metadata` | `uploaded_from` | where the track's file came from: `web` for a single-file upload (the BED upload, the imputed-genotype upload's haplotype blocks), `family_package` for a package import's dataset (its WisecondorX, QDNAseq and HiFiCNV tracks, the APCAD tracks of a VCF or of a BED, the PCF tracks, its coverage BEDs and its per-target coverage tables), `demo-script` for the demo quartet loader. The single-file BED upload and a package's coverage BED share the source `web`, so without this key no record says which of the two loaded a sample's coverage BED. The signed record names it for each coverage track (`coverage_tracks` in `report_signouts.snapshot`: `upload`, `package`, or null when the record says nothing) |
@@ -760,7 +761,10 @@ whether a structure update kept the imported data; see
 - A family uses the profile named in `families.metadata->>'qc_profile'`, or the `is_default`
   one; a partial unique index allows only one default.
 - The seeded profiles (`default`, `long_read_wgs`, `short_read_wgs`, `short_read_panel`,
-  `nipt_monogenic`, `pgt`) are empty, because the laboratory agrees the cut-offs. A new profile
+  `nipt_monogenic`, `nipt_conventional`, `pgt`) are empty, because the laboratory agrees the
+  cut-offs. The conventional NIPT's result rule reads the bounds `cnipt.*` from
+  `nipt_conventional` and applies a provisional value of its own, marked so in the result, to a
+  bound QA has not set ([conventional-nipt.md](conventional-nipt.md#the-result)). A new profile
   (`POST /admin/qc-thresholds/profiles`) inherits none. Its key comes from the label and never
   changes, since families refer to it.
 - Code defines which metrics exist and whether a low or a high value fails
@@ -1429,7 +1433,8 @@ hold several callsets side by side:
   (imputed; hidden from the diagnostic lists by default), `mito` (chrM) and `nipt` (a monogenic
   NIPT pair: the plasma's and the father's single-sample VCFs, each merged into the callset for
   its own sample, so a variant is one row holding each sample's call where its file has one).
-- Structural variants: `needlr`, `hificnv` and `mito_sv` (chrM deletions and duplications, each
+- Structural variants: `needlr`, `hificnv`, `ccnv` (a conventional NIPT's gains and losses, ccnv's
+  values in the record's annotations) and `mito_sv` (chrM deletions and duplications, each
   sample's heteroplasmy in the record's annotations) from packages, and `manual_upload`,
   `sniffles` or `spectre` from a direct upload.
 
@@ -1438,8 +1443,8 @@ The `source` of an interval track (on its `INTERVAL/entries` rows and its
 several callers' tracks of one type, and each loader deletes and replaces only its own source's
 track, rows and record. Sources per track type:
 
-- `coverage`: `web` (a BED upload, and a package's coverage BED), `wisecondorx`, `qdnaseq` and
-  `hificnv`;
+- `coverage`: `web` (a BED upload, and a package's coverage BED), `wisecondorx`, `qdnaseq`,
+  `hificnv` and `ccnv` (a conventional NIPT's maternal plasma);
 - `segments`: the same;
 - `apcad`: `apcad` (the package's APCAD dataset), `hificnv` (the minor allele fraction) and
   `web`;

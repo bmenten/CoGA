@@ -499,6 +499,23 @@ async def record_sample_qc_metadata(
     )
 
 
+
+async def record_sample_ccnv_metadata(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    ccnv: dict[str, Any],
+) -> None:
+    """Record a conventional NIPT's ccnv QC of the maternal plasma under
+    ``samples.metadata["ccnv"]``: the QC file's object as ccnv wrote it (its read metrics, fetal
+    fractions, fetal sex, sex-chromosome call, limits of detection and warnings) and the file
+    it was read from. Its own key: the ``qc`` dataset's ``sequencing_qc`` stays as it was."""
+    await _merge_sample_metadata(
+        session,
+        sample_uuid=sample_context.sample_uuid,
+        patch={"ccnv": ccnv},
+    )
+
 async def record_sample_alignment_metadata(
     session: AsyncSession,
     *,

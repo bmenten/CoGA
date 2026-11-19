@@ -24,6 +24,7 @@ from ..schemas import (
     FamilyImportValidationIssue,
     FamilyPackageValidationOut,
 )
+from .ccnv_output import CCNV_ROLES
 from .coverage_content import COVERAGE_CONTENT_KEY, declared_coverage_content
 from .clickhouse_interval_tracks import (
     count_interval_track_source_rows,
@@ -159,6 +160,8 @@ _PROVENANCE_PATH_KEYS = frozenset(
         *(key for keys in PCF_ROLE_KEYS.values() for key in keys),
         # The Paraphase BAM Discover lists beside the JSON.
         "bam",
+        # A conventional NIPT's ccnv output: its bins, segments, calls VCF and QC file.
+        *CCNV_ROLES,
         # The long-read datasets' files, and each sample's QC files of either pipeline.
         *(role for required, optional in LONG_READ_DATASET_ROLES.values() for role in (*required, *optional)),
         # The mtDNA-Server table a mito entry reads its sample's rows from, without a chrM VCF.
@@ -2653,6 +2656,8 @@ _DATASET_CLICKHOUSE_STORES: dict[str, frozenset[str]] = {
     "cnv": frozenset({STRUCTURAL_VARIANT_DATA, INTERVAL_TRACK_DATA}),
     "wisecondorx": frozenset({INTERVAL_TRACK_DATA}),
     "qdnaseq": frozenset({INTERVAL_TRACK_DATA}),
+    # ccnv's bins and segments, and its gain and loss calls.
+    "ccnv": frozenset({INTERVAL_TRACK_DATA, STRUCTURAL_VARIANT_DATA}),
     "apcad": frozenset({INTERVAL_TRACK_DATA}),
     "pcf": frozenset({INTERVAL_TRACK_DATA}),
     "coverage": frozenset({INTERVAL_TRACK_DATA}),

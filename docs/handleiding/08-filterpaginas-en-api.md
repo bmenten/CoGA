@@ -1,6 +1,6 @@
 # 8. Filterpagina's ↔ API
 
-Na een correcte import (hoofdstuk 6) *filtert* en *toont* CoGA de varianten van een familie. Deel A volgt die keten voor de twee grootste datatypes: de *small variants* (SNV's en indels: puntmutaties en kleine inserties of deleties) en de *structurele varianten* (SV's: grote deleties, duplicaties, …). Deel B vat ze samen voor de gespecialiseerde analyses: mitochondriaal DNA en sample-QC, Paraphase, repeat-expansies, monogene NIPT en PGT. De klinische regels voor het labo staan in de app, onder *Docs*; dit hoofdstuk wijst aan waar ze in de code zitten.
+Na een correcte import (hoofdstuk 6) *filtert* en *toont* CoGA de varianten van een familie. Deel A volgt die keten voor de twee grootste datatypes: de *small variants* (SNV's en indels: puntmutaties en kleine inserties of deleties) en de *structurele varianten* (SV's: grote deleties, duplicaties, …). Deel B vat ze samen voor de gespecialiseerde analyses: mitochondriaal DNA en sample-QC, Paraphase, repeat-expansies, monogene NIPT, conventionele NIPT en PGT. De klinische regels voor het labo staan in de app, onder *Docs*; dit hoofdstuk wijst aan waar ze in de code zitten.
 
 Een **endpoint** is een URL waarop de backend luistert; een **queryparameter** is een `?key=value`-paar in die URL, waarmee de frontend de filterkeuzes doorgeeft. Een **geparametriseerde query** geeft gebruikerswaarden apart mee in plaats van ze in de SQL-tekst te plakken (hoofdstuk 7).
 
@@ -240,7 +240,7 @@ Classificeren gebruikt dezelfde ACMG-dialoog als small variants, met een eigen m
 
 Per sample toont de pagina dekking en een QC-status; de grenzen komen uit het QC-profiel van de familie (*Admin → Sequencing QC thresholds*, hoofdstuk 15). Zonder ingestelde grens telt een metriek niet mee: de status is dan *Not run* (`skip`), geen *Pass*. De dekking komt uit één dekkingstrack per sample met leesdiepte (`coverage_read_depth.py`): de dekkings-BED van het sample als die als leesdiepte verklaard is (`content: read_depth`, hoofdstuk 6), anders de diepte van HiFiCNV als de import die zoals gelezen bewaarde (`normalization: none`, hoofdstuk 9).
 
-- De bins van WisecondorX en QDNAseq, de genormaliseerde diepte van HiFiCNV en een BED die als log2-ratio verklaard is, zijn log2-ratio's en tellen nooit als diepte: samen met de diepten van een BED zouden ze een gemiddelde geven dat geen van beide is. Een dekkings-BED die niet verklaart wat hij bevat (`unknown`), telt evenmin. De QC-notities van de pagina noemen elke track die niet als diepte gelezen werd, met de reden.
+- De bins van WisecondorX, QDNAseq en ccnv, de genormaliseerde diepte van HiFiCNV en een BED die als log2-ratio verklaard is, zijn log2-ratio's en tellen nooit als diepte: samen met de diepten van een BED zouden ze een gemiddelde geven dat geen van beide is. Een dekkings-BED die niet verklaart wat hij bevat (`unknown`), telt evenmin. De QC-notities van de pagina noemen elke track die niet als diepte gelezen werd, met de reden.
 - Een sample zonder track met leesdiepte krijgt de diepte van zijn chrM-calls, zoals een sample zonder dekkingstrack. Een moeder met op chrM alleen een log2-ratio-track en zonder calls telt dus niet als bekeken (*Mother not assessed*).
 
 **Sample-QC.** Deze pagina controleert of de juiste data aan de juiste persoon hangt. Een verwisseld sample of een verkeerde stamboom geeft anders ongemerkt een foute overervingsredenering. Drie controles rekenen op de genotypes zelf:
@@ -268,7 +268,7 @@ Elke controle geeft *Pass*, *Warning*, *Fail* of *Not run* (in de API `pass`, `w
 
 Het bevroren snapshot draagt de bron alleen in de melding, niet in een eigen veld van `SexCheck`. In de kolom *Genetic sex* staat ✓ alleen bij *Pass* (het geregistreerde geslacht bevestigd, of bij een embryo zonder geregistreerd geslacht het geslacht dat zijn data aangeven), ! bij *Warning* (niet bevestigd: het geslacht bleef onbepaald of er was geen geregistreerd geslacht), ✗ bij *Fail* en ? bij *Not run* (geen chrX-genotypes en geen geslacht uit de reads). De tooltip van de ring in de stamboom zegt "(matches record)" alleen bij *Pass* tegen een geregistreerd geslacht; bij elk ander oordeel, en bij een embryo zonder geregistreerd geslacht, geeft hij de melding van de controle.
 
-Welke controles draaien, hangt af van de toepassing (familie met ouders, PGT, NIPT, koppel, één sample). Bij NIPT komt het vaderschap uit de cfDNA-analyse, en tellen alleen sites met een bruikbare call van de vader. Die analyse leest twee aandelen apart: de allelen waarvoor de vader homozygoot is, moeten (bijna) allemaal in het cfDNA te zien zijn, zijn heterozygote allelen ongeveer de helft. Bij een NIPT-callset per sample leest de sample-QC de genotypes uit de allel-diepten, want Mutect2 schrijft bij elke call `0/1`.
+Welke controles draaien, hangt af van de toepassing (familie met ouders, PGT, NIPT, koppel, één sample). Bij NIPT komt het vaderschap uit de cfDNA-analyse, en tellen alleen sites met een bruikbare call van de vader. Die analyse leest twee aandelen apart: de allelen waarvoor de vader homozygoot is, moeten (bijna) allemaal in het cfDNA te zien zijn, zijn heterozygote allelen ongeveer de helft. Een site telt alleen waar de diepte van het plasma er bekend is, of het het allel nu toont of niet (bij een callset per sample: de dekking per target); anders zou alleen tellen wat het plasma toont, en lag elk aandeel bij 100%. Bij een NIPT-callset per sample leest de sample-QC de genotypes uit de allel-diepten, want Mutect2 schrijft bij elke call `0/1`.
 
 **Een mislukte stap.** Mislukt het laden van de genotypes of de cfDNA-analyse, dan zegt een vaste notitie dat (*Genotypes could not be loaded.*, *NIPT cfDNA analysis could not run.*, *The NIPT parents' sex could not be checked.*), nooit met de tekst van de fout. De notities worden immers mee in het ondertekende snapshot bevroren, en de tekst van een mislukte query citeert de SQL en de parameters. De waarschuwing die de backend ernaast logt, noemt het soort fout (hoofdstuk 7). Kunnen de genotypes van de NIPT-ouders niet geladen worden, dan leest hun geslacht *indeterminate*, zoals bij een ouder zonder chrX-calls. Geen verwantschapscontrole dekt die samples, dus het ondertekenen wacht op een reden (hoofdstuk 11). Een *Fail* blokkeert het ondertekenen tot hij erkend is (hoofdstuk 11). De regels voor het labo staan in de app (*Docs → Sample-integrity QC*, `frontend/src/content/docs/sample-qc.md`).
 
@@ -378,6 +378,23 @@ De auto-seed van de artefactlijst leest de calls op dezelfde manier en telt alle
 De klinische uitleg staat in de app (*Docs → Monogenic NIPT (cfDNA)*, `frontend/src/content/docs/monogenic-nipt.md`), het ontwerp in `docs/monogenic-nipt.md`.
 
 **Waar in de code:** `backend/app/services/nipt.py` (het trio), `nipt_analysis.py` (de rekenkern), `nipt_triage.py` (de-novotriage en recessief risico), `nipt_target_coverage.py` (de dekkingstabellen), `nipt_service.py` (koppeling met de data en de weergaven), `nipt_coverage.py` en `nipt_artifact_pg.py`; `backend/app/routers/families_nipt.py`; de pagina's `FamilyNiptPage.tsx`, `FamilyNiptReportPage.tsx` en `FamilyNiptCoveragePage.tsx` (de dekking), met `NiptQcPanel.tsx`, `NiptRecessiveGenes.tsx` en `NiptTargetCoverage.tsx`.
+
+### Conventionele NIPT
+
+Conventionele NIPT onderzoekt een zwangerschap op aneuploïdieën en kopieaantalveranderingen via het genoombrede kopieaantal van het **maternale plasma**. ccnv, het programma van het labo, meet het kopieaantal en de foetale fractie; CoGA importeert zijn uitvoer (hoofdstuk 6), tekent ze in de weergaven (hoofdstuk 9) en geeft per doel een **automatische uitslag** (`GET /api/families/{family_id}/cnipt`, de pagina *cNIPT*).
+
+**De regel.** De keuze van de eigenaar van 2026-11-19, *z-score en concordantie met de foetale fractie* (`cnipt_result.py`, zuiver):
+
+- De foetale fractie is de effectieve van ccnv; de andere schattingen staan ernaast. Onder de grens `cnipt.fetal_fraction` is er voor geen enkel doel een uitslag.
+- Een segment dat minstens de helft van zijn chromosoom beslaat, is een aneuploïdie van dat chromosoom; een korter segment een segmentale CNV, beoordeeld vanaf een grootte die de detectielimieten van ccnv bij deze foetale fractie verhogen.
+- Een segment met een |z-score| vanaf de foutgrens van `cnipt.call_zscore` is **hoog risico** als het concordant is met de foetale fractie: de impliciete foetale fractie binnen de band, ccnv noemt het niet discordant, en de oorsprong is niet maternaal of mozaïek. Anders, of in de grijze zone onder de foutgrens, is het **onbeslist**.
+- De geslachtschromosomen volgen de geslachtschromosoomcall van ccnv en haar betrouwbaarheid (`cnipt.sca_confidence`).
+
+**De grenzen.** QA zet ze in het profiel *Conventional NIPT* van de QC-grenzen (hoofdstuk 15), elke wijziging met een reden. Zolang QA een grens niet zette, past de regel een voorlopige waarde toe (`PROVISIONAL_BOUNDS`), en de uitslag markeert die als voorlopig.
+
+De klinische uitleg staat in de app (*Docs → Conventional NIPT (cell-free DNA)*, `frontend/src/content/docs/conventional-nipt.md`), het ontwerp in `docs/conventional-nipt.md`.
+
+**Waar in de code:** `backend/app/services/cnipt_result.py` (de regel), `cnipt_service.py` (koppeling met de data), `ccnv_output.py` (de uitvoer van ccnv), `routers/families_cnipt.py`; de pagina `FamilyCniptPage.tsx` met `cniptResult.ts`.
 
 ### PGT: haplotype-segregatie
 

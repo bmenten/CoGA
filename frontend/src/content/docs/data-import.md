@@ -118,6 +118,7 @@ Each layer is optional and switches on part of CoGA.
 | **Paraphase** | resolution of paralogous genes and segmental duplications |
 | **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
+| **ccnv output (conventional NIPT)** | the maternal plasma's copy-number tracks (bins and segments) in the genome overview and chromosome view, its gain and loss calls on the structural-variant page, and its QC kept with the sample |
 
 Any variant data (small or structural variants, repeat expansions, Paraphase or mitochondrial calls)
 also switches on the family's **Variant summary**, with a tab for each kind the family holds.
@@ -198,6 +199,15 @@ pacbio/
   paraphase/  HG002/HG002.paraphase.json
   qc/         nanoplot/HG002/*NanoPlot-report.html + *NanoStats.txt, depth/HG002/*.mosdepth.summary.txt
   pipeline_info/  software_versions.yaml, params_*.json
+```
+
+A conventional NIPT package holds ccnv's prenatal output for the maternal plasma (analysis cNIPT):
+
+```text
+CNIPTFAM1/
+  CFDNA1_bins.bed.gz, CFDNA1_segments.bed.gz   log2 ratios of each 100 kb bin, and the segments
+  CFDNA1_calls.vcf.gz                          the gain and loss calls
+  CFDNA1_qc.json                               read metrics, fetal fractions, fetal sex, sex-chromosome call
 ```
 
 A couple screened for carriership on the long-read pipeline has **no PED** and no joint call set. Each
@@ -463,7 +473,7 @@ with the delivery.
   - Someone else may have corrected the delivery since you opened it: the save is refused, and you
     open it again.
 - **Add a folder by hand** (above the list) adds a folder no pipeline delivered: choose it (or type
-  its path), its project and its analysis (LR-WGS, LR-AS, SR-WGS, PGT, Expanded Carrier Screening or mNIPT),
+  its path), its project and its analysis (LR-WGS, LR-AS, SR-WGS, PGT, Expanded Carrier Screening, mNIPT or cNIPT),
   and, when it is not the folder's name, its family ID: left empty, the family ID is the folder's
   name, and it cannot be changed once the folder is added. CoGA
   makes its package from the folder, with the members and datasets it proposes from the folder's PED
@@ -550,8 +560,8 @@ variant is a failed analysis, not a sample without mitochondrial variants (see b
 structural-variant files (large deletions and duplications) are replaced per sample the same way; the
 mtDNA analysis lists them with each member's heteroplasmy.
 
-**Each caller's tracks are its own.** A sample can carry coverage from a BED, WisecondorX, QDNAseq and
-HiFiCNV at once, segments from the same callers, and on the APCAD track a package's APCAD beside
+**Each caller's tracks are its own.** A sample can carry coverage from a BED, WisecondorX, QDNAseq,
+HiFiCNV and ccnv at once, segments from the same callers, and on the APCAD track a package's APCAD beside
 HiFiCNV's minor allele fraction. The viewers draw each caller's coverage as its own track. An import or
 an upload replaces only its own caller's tracks: a coverage BED leaves the WisecondorX and QDNAseq bins
 and HiFiCNV's depth, and an APCAD import leaves HiFiCNV's minor allele fraction.
@@ -567,8 +577,8 @@ upload form (*Coverage BED holds*), and in the manifest with `content: read_dept
 
 - The viewers draw read depth on a depth axis and a log2 ratio on the log2-ratio axis.
 - The mtDNA analysis, and the NIPT coverage check without a per-target table, read as depth only a BED
-  declared as read depth, or HiFiCNV's depth where the import stored it as read. Never the WisecondorX
-  or QDNAseq bins or HiFiCNV's normalised depth, which are log2 ratios, nor a BED declared as a log2
+  declared as read depth, or HiFiCNV's depth where the import stored it as read. Never the WisecondorX,
+  QDNAseq or ccnv bins or HiFiCNV's normalised depth, which are log2 ratios, nor a BED declared as a log2
   ratio. Each track these checks leave out is named, with the reason, on the mtDNA page and with the
   NIPT coverage.
 - A manifest entry without `content` imports as *unknown*, and validation warns. Such a track is drawn
@@ -579,7 +589,7 @@ upload form (*Coverage BED holds*), and in the manifest with `content: read_dept
 **A file without a record fails its dataset, and nothing is replaced.** A file that holds nothing CoGA
 can store (a header alone, a file cut short before its first record, an empty file) fails its dataset
 before anything is deleted. The job's log names the file (for a Paraphase result, the sample). This
-holds for a TRGT file, WisecondorX or QDNAseq bins or segments, HiFiCNV's copy-number and signal files,
+holds for a TRGT file, WisecondorX, QDNAseq or ccnv bins or segments, HiFiCNV's copy-number and signal files,
 an APCAD file, a PCF table, a Paraphase result, a sample's NeedlR file, a long-read sample's SNV file or
 a sample's mitochondrial SNV file.
 
@@ -600,7 +610,7 @@ the pipeline's output. A gzip file that bgzip did not write has no such block an
 
 **Every sample's file is checked before any sample's data is replaced.** A dataset of one file per
 sample reads or checks every sample's file first: the TRGT files, HiFiCNV's VCFs and signal files, the
-WisecondorX and QDNAseq bins and segments, the PCF tables, the Paraphase results, the APCAD file of each
+WisecondorX, QDNAseq and ccnv bins and segments (and ccnv's QC file and calls), the PCF tables, the Paraphase results, the APCAD file of each
 embryo, the coverage BEDs and per-target coverage tables, a monogenic NIPT's SNV files and the
 mitochondrial structural-variant files. A later sample's refused file then fails the dataset with every
 sample's data as it was.
@@ -640,6 +650,11 @@ Paraphase results are replaced.
   entry's `vcf_sample`, the delivery, the dry run and the import warn (`nipt_vcf_column_named_otherwise`),
   naming the sample, the file and the column. Check that the file holds that sample's tube: if it does,
   record the column as the entry's `vcf_sample`, which ends the warning; if not, correct the manifest.
+- A conventional NIPT's ccnv output is one run's result: its calls VCF must state the fetal sex, fetal
+  fraction and sex-chromosome call its QC file states, and name the same sample, or the delivery is
+  refused (`ccnv_results_disagree`, `ccnv_samples_disagree`). A QC file that is not ccnv's prenatal
+  output of format version 2 is refused (`ccnv_qc_invalid`). A sample named otherwise than its member is
+  read as the member's, with a warning (`ccnv_sample_named_otherwise`), as a NIPT pair's file is.
 - A sample's SNV file that cannot be read (a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF
   named `.gz`) is an error that names the sample and the file (`dataset_vcf_unreadable`), as CoGA proposes members too
   for a NIPT pair's parent file. Copy the file again from where the pipeline wrote it.

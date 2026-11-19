@@ -41,6 +41,26 @@
   white-space: nowrap;
 }
 
+/* A row of fields with its button: wraps on a narrow screen, the button on the fields' baseline. */
+.admin-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.625rem;
+}
+
+.admin-inline-form .field-label {
+  flex: 0 1 26rem;
+}
+
+.admin-inline-form .admin-inline-form__narrow {
+  flex: 0 0 9rem;
+}
+
+.admin-inline-form__filter {
+  max-width: 18rem;
+}
+
 .admin-variant-ops-grid {
   display: grid;
   gap: 0.625rem;

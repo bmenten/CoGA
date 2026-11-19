@@ -53,7 +53,9 @@ _VERDICT_RANK: dict[QcVerdict, int] = {"skip": 0, "pass": 1, "warn": 2, "fail": 
 #: are computed by the mitochondrial analysis from its own coverage/contamination inputs,
 #: so that service evaluates them itself — but their cut-offs are configured here, in the
 #: one place, rather than hard-coded in the analysis.
-MetricSource = Literal["sequencing_qc", "mtdna"]
+#: ``cnipt`` bounds are the conventional NIPT's result rule (``cnipt_result``), which reads them
+#: from its own profile (``nipt_conventional``) and applies its own comparisons.
+MetricSource = Literal["sequencing_qc", "mtdna", "cnipt"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +265,67 @@ QC_METRICS: tuple[QcMetric, ...] = (
         "higher_is_worse",
         "Haplocheck-style contamination estimate. A raised value makes apparent heteroplasmy unreliable.",
         source="mtdna",
+    ),
+    # The conventional NIPT's result rule (``cnipt_result``), set in the profile
+    # ``nipt_conventional``. Until QA sets a bound, the rule applies its provisional value and
+    # says so in the result. The rule compares with "at or above" and "below" as each text says.
+    _metric(
+        "cnipt.fetal_fraction",
+        "cNIPT: fetal fraction",
+        "fraction",
+        "lower_is_worse",
+        "ccnv's effective fetal fraction of the maternal plasma. Below the error bound the plasma "
+        "gets no result; below the warning bound its result carries a warning. Provisional: "
+        "error 0.04.",
+        source="cnipt",
+    ),
+    _metric(
+        "cnipt.call_zscore",
+        "cNIPT: segment |z-score|",
+        "z",
+        "higher_is_worse",
+        "A segment's |z-score| at or above the error bound is a finding: high risk where it is "
+        "concordant with the fetal fraction, inconclusive where not. At or above the warning "
+        "bound and below the error bound it is inconclusive (the grey zone). Provisional: "
+        "warning 2.5, error 3.",
+        source="cnipt",
+    ),
+    _metric(
+        "cnipt.implied_ff_ratio_min",
+        "cNIPT: implied fetal fraction, lowest concordant share",
+        "× FF",
+        "lower_is_worse",
+        "A finding whose implied fetal fraction is below the error bound times the fetal "
+        "fraction is sub-fetal (a mosaic or a maternal event): inconclusive. Provisional: "
+        "error 0.5.",
+        source="cnipt",
+    ),
+    _metric(
+        "cnipt.implied_ff_ratio_max",
+        "cNIPT: implied fetal fraction, highest concordant share",
+        "× FF",
+        "higher_is_worse",
+        "A finding whose implied fetal fraction is above the error bound times the fetal "
+        "fraction is super-fetal (a maternal event): inconclusive. Provisional: error 1.5.",
+        source="cnipt",
+    ),
+    _metric(
+        "cnipt.sca_confidence",
+        "cNIPT: sex-chromosome call confidence",
+        "fraction",
+        "lower_is_worse",
+        "ccnv's sex-chromosome call below the error bound is inconclusive. Provisional: "
+        "error 0.99.",
+        source="cnipt",
+    ),
+    _metric(
+        "cnipt.min_cnv_size",
+        "cNIPT: smallest segmental CNV assessed",
+        "Mb",
+        "lower_is_worse",
+        "A segmental CNV shorter than the error bound is not assessed (listed only). ccnv's "
+        "limits of detection raise it at a low fetal fraction. Provisional: error 3.",
+        source="cnipt",
     ),
 )
 
@@ -731,6 +794,28 @@ async def set_qc_threshold(
         "metric_key": metric_key,
         "warn_value": warn_value,
         "error_value": error_value,
+    }
+
+
+async def resolve_profile_thresholds(session: AsyncSession, profile_key: str) -> dict[str, dict[str, float | None]]:
+    """The bounds set in the profile ``profile_key``: metric key → ``{"warn_value",
+    "error_value"}``; empty for a profile with none set, or none of that key."""
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT t.metric_key, t.warn_value, t.error_value
+                FROM qc_thresholds t
+                JOIN qc_threshold_profiles p ON p.id = t.profile_id
+                WHERE p.key = :profile_key
+                """
+            ),
+            {"profile_key": profile_key},
+        )
+    ).mappings()
+    return {
+        row["metric_key"]: {"warn_value": row["warn_value"], "error_value": row["error_value"]}
+        for row in rows
     }
 
 

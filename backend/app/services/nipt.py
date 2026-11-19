@@ -23,11 +23,18 @@ from ..schemas import FamilyOut
 # what surfaces the NIPT analysis section in the UI.
 FAMILY_ANALYSIS_TYPE_KEY = "analysis_type"
 MONOGENIC_NIPT_ANALYSIS_TYPE = "monogenic_nipt"
+# Family.metadata["analysis_type"] == this marks a conventional NIPT family: the genome-wide
+# copy number of a maternal plasma, from the laboratory's ccnv tool (ccnv_output.py).
+CONVENTIONAL_NIPT_ANALYSIS_TYPE = "conventional_nipt"
 
 # Sample.metadata["assay"] == this marks the maternal-plasma cfDNA sample (the
 # maternal + fetal mixture), uploaded as the mother member's sample.
 SAMPLE_ASSAY_KEY = "assay"
 NIPT_CFDNA_ASSAY = "nipt_cfdna"
+# Sample.metadata["assay"] == this marks the maternal plasma of a conventional NIPT (shallow
+# whole-genome sequencing). The monogenic NIPT's artefact list and recurrence counts, which read
+# the samples tagged ``nipt_cfdna``, do not count it.
+CNIPT_CFDNA_ASSAY = "cnipt_cfdna"
 
 # Sample.metadata["assay_panel"] (optional) names the capture panel/chemistry,
 # which scopes the recurrent-artifact list. Absent -> the default scope.

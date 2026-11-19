@@ -65,7 +65,7 @@ median and covered share) belong with the VCFs.
 
 Without the tables, CoGA falls back on the plasma's coverage BED declared as read depth, or another
 coverage track of read depth (see *Coverage*), over the family's region of interest; and an allele the
-plasma does not show cannot be read.
+plasma does not show cannot be read, so paternity cannot be checked.
 
 ### The father's genotype
 
@@ -373,17 +373,21 @@ check that could not run included). A click shows each check.
 - **Fetal sex**, from two independent signals:
   - *Paternal X*: at the father's X alleles (outside the pseudo-autosomal regions, where he is hom-alt
     and the plasma's allele fraction is below 30%), a daughter shows the allele and a son does not.
-    From at least 8 informative sites, 80% or more seen is female and 10% or less male. A share in
+    As for paternity, a site counts only where the target coverage gives the plasma's depth, shown or
+    not. From at least 8 informative sites, 80% or more seen is female and 10% or less male. A share in
     between is indeterminate: the alleles are not this fetus's father's, or the calls are noisy.
   - *chrY coverage*: a chrY signal above the noise (2% of the autosomal depth) means a male fetus; none,
     at an FF of 4% or more, a female one.
 
   The call is the signal(s) that tell, and *discordant* when they disagree.
 - **Paternity.** The father's alleles that the fetus must or may carry, at sites where the mother does
-  not carry them and the plasma depth leaves at least 10 expected alt reads. Every allele of a hom-alt
-  father must show: 90% or more seen passes, below 80% fails. Half of a het father's alleles show:
-  35–65% seen passes, outside 25–75% fails. A check needs 20 hom-alt or 50 het sites. A fail means
-  another father, or a sample or file mix-up: do not read the variants.
+  not carry them and the plasma depth there leaves at least 10 expected alt reads. That depth is the
+  target coverage's, known whether or not the plasma shows the allele, so a site outside every target
+  does not count. Every allele of a hom-alt father must show: 90% or more seen passes, below 80% fails.
+  Half of a het father's alleles show: 35–65% seen passes, outside 25–75% fails. A check needs 20
+  hom-alt or 50 het sites. Too few of his alleles seen means another father, or a sample or file
+  mix-up; too many of his het ones, his own DNA in the plasma or more than one fetus. On a fail, do not
+  read the variants.
 - **Maternal plasma sample**, from the chrX and chrY depth: female plasma passes; a chrY near the
   autosomal level with a low chrX is male DNA, which cannot be maternal plasma (fail).
 - **Target coverage** and the **cfDNA quality filter** (see *Coverage*, and above).
@@ -480,17 +484,23 @@ Recurrent artifacts are capture-specific, so each cfDNA assay has its own artifa
 recorded on the cfDNA sample, otherwise one shared list). Listed sites are removed from the Summary and
 the variant list, and counted as *Artifact-filtered* in the funnel.
 
-An administrator maintains the list through the API; there is no screen for it. Two ways fill it:
+An administrator maintains the list on *Admin → NIPT artefact list*: choose the assembly and the assay
+(the default list, or a capture panel recorded on a cfDNA sample), see its entries with their source,
+recurrence and label, and change it. Each change asks for a confirmation first. Three ways fill it:
 
 - **Import the R pipeline's recurrent list** (`recurrent_cfdna_artifact_filter_*.tsv`): the rows it marks
-  `filter_as_recurrent_artifact`, each with the number of cfDNA families that carry it.
+  `filter_as_recurrent_artifact`, each with the number of cfDNA families that carry it. The page then
+  shows how many rows were read, imported and refused.
 - **Seed it from CoGA's own cfDNA samples:** the variants that are an *unexplained low-VAF* call (see
   *Recurrence in other cfDNA samples*) in at least 3 cfDNA samples of the same assay, in every project
-  (samples marked as maternal-plasma cfDNA; the administrator can ask for another number). Each is
+  (samples marked as maternal-plasma cfDNA; the administrator can set another number). Each is
   listed with that number. A maternal het or the fetus's allele from the father does not count,
-  however many pregnancies carry it: those are the sites the FF estimate relies on.
+  however many pregnancies carry it: those are the sites the FF estimate relies on. *Preview* shows
+  what the seed would list, and which of those alleles are on the list already, without changing the
+  list; the seed then shows what it listed.
+- **Add one allele by hand**, with a label (a curated entry). *Remove* takes an entry off the list.
 
-Neither ever lists:
+Neither the import nor the seed ever lists:
 
 - a common variant (a population frequency above 5% recorded at import): the FF estimate relies on
   these sites;
@@ -498,8 +508,8 @@ Neither ever lists:
   may hold a pathogenic submission. A familial founder variant recurs in a disease-focused panel, and a
   listed variant is left out of every analysis of the assay.
 
-The protections are checked when an allele is listed, on the annotation of the families on the
-assembly; an allele no family carried then is listed unchecked. So each family's analysis checks its
+The protections are checked when an allele is imported or seeded, on the annotation of the families
+on the assembly; an allele no family carried then, or one added by hand, is listed unchecked. So each family's analysis checks its
 listed alleles again with its own annotation: one it marks common or ClinVar-pathogenic stays in,
 flagged `artifact_list_protected`.
 

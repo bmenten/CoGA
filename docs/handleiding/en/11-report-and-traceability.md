@@ -175,7 +175,9 @@ An import whose process stopped halfway (a restart, a crash, out of memory) does
 
 Those entries also count as the flag. The message with the `409` then names “a single-file upload” or “a deletion of this family's data” that “did not finish”, and what may be half written or missing. The signed record names the upload or the deletion, from the key that it freezes along with it.
 
-If there is a flag or an entry that the signer did not acknowledge, `409` follows (`gate = "import_incomplete"`) with the failed datasets, the import job and each entry (`import_unfinished`). One acknowledgement covers both; the report page asks for the reason in a separate dialog. The flag and the entries are frozen along with the record. Every flag set and every entry counts, also in an unexpected form. As long as one is present, every family page shows *Import incomplete*.
+If there is a flag or an entry that the signer did not acknowledge, `409` follows (`gate = "import_incomplete"`) with the failed datasets, the import job and each entry (`import_unfinished`). One acknowledgement covers both; the report page asks for the reason in a separate dialog. The flag and the entries are frozen along with the record. As long as one is present, every family page shows *Import incomplete*.
+
+The flag and the entries each have one form, and CoGA reads them only in that form (chapter 6). It never reads a flag or entry in another form as no flag, nor as something it does not say. The sign-out fails on it, so the gate stays closed. Every family page then shows *Import incomplete* and names nothing: the marks do not have the form CoGA writes, the family's data may be missing or half written, and signing out fails until they are put right. The frontend reads only the keys it shows (`importMarksFromMetadata` in `ImportIncompleteBanner.tsx`). If a refusal or a signed record comes with marks in another form, the dialog and the signed version say so too, instead of naming anything.
 
 This is how they disappear again:
 

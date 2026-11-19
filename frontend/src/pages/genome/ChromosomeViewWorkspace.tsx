@@ -33,12 +33,14 @@ import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansio
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
 import QueryFailure from '../../components/QueryFailure';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
-import type { FamilyPackageSourceChangeOut } from '../../lib/apiSchema.generated';
+import type { CcnvTrackSummaryOut, FamilyPackageSourceChangeOut } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { normalizeHaplotypeChrom, resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import CoverageScaleNote from './CoverageScaleNote';
+import CcnvTrackNote from './CcnvTrackNote';
+import { CCNV_SOURCE } from '../../lib/ccnvTracks';
 import ViewerMemberSection from './ViewerMemberSection';
 import ViewerTrackBlock, { TrackMeta, type ViewerRoiRange } from './ViewerTrackBlock';
 import ViewerInteractionSurface from './ViewerInteractionSurface';
@@ -76,6 +78,8 @@ interface ChromosomeTrackAvailability {
   coverageNormalizations: Record<string, string[]>;
   /** What each caller's coverage track holds; decides the axis it is drawn on. */
   coverageContents: Record<string, string>;
+  /** A conventional NIPT's plasma: ccnv's results its ccnv track is drawn with. */
+  ccnv?: CcnvTrackSummaryOut | null;
   /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
   apcadSources: string[];
   apcad: boolean;
@@ -550,18 +554,25 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       const label = coverageTrackLabel(coverageSource, allSources.length);
                       const content = availability[member.sample_id]?.coverageContents[coverageSource];
                       const scale = coverageScale(content);
+                      // A conventional NIPT's plasma: ccnv's track on the NIPT axis.
+                      const ccnv =
+                        coverageSource === CCNV_SOURCE ? (availability[member.sample_id]?.ccnv ?? null) : null;
                       return (
                         <ViewerTrackBlock
                           key={`coverage-${coverageSource}`}
                           label={label}
                           meta={
-                            <CoverageScaleNote
-                              note={coverageScaleNote(
-                                coverageSource,
-                                content,
-                                availability[member.sample_id]?.coverageNormalizations[coverageSource],
-                              )}
-                            />
+                            ccnv ? (
+                              <CcnvTrackNote summary={ccnv} />
+                            ) : (
+                              <CoverageScaleNote
+                                note={coverageScaleNote(
+                                  coverageSource,
+                                  content,
+                                  availability[member.sample_id]?.coverageNormalizations[coverageSource],
+                                )}
+                              />
+                            )
                           }
                           width={trackWidth}
                           frameClassName="h-[120px]"
@@ -580,6 +591,11 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                                 ? [
                                     `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${encodeURIComponent(coverageSource)}`,
                                   ]
+                                : undefined
+                            }
+                            nipt={
+                              coverageSource === CCNV_SOURCE
+                                ? { fetalFraction: ccnv?.fetal_fraction ?? null }
                                 : undefined
                             }
                             width={trackWidth}

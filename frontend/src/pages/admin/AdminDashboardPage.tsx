@@ -122,6 +122,12 @@ const adminGroups: AdminGroup[] = [
         to: '/admin/variants/presets',
         description: 'Saved small-variant filter presets for consistent review.',
       },
+      {
+        label: 'NIPT artefact list',
+        to: '/admin/variants/nipt-artifacts',
+        description:
+          'Recurrent cfDNA artefacts every monogenic NIPT analysis of an assay removes: entries, auto-seed with a preview, the pipeline’s table.',
+      },
     ],
   },
   {

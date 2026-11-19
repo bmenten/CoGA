@@ -1401,3 +1401,52 @@ span.nipt-coverage-gene {
   border-radius: var(--radius-card);
   background: var(--color-surface);
 }
+
+/* The conventional NIPT page (FamilyCniptPage): its result per target, the plasma's facts,
+   its findings and the bounds of the rule. */
+.cnipt-reasons {
+  margin: 0.15rem 0 0;
+  padding-left: 1rem;
+  list-style: disc;
+  font-size: var(--fs-sm);
+}
+
+.cnipt-no-result {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.cnipt-other-autosomes > summary {
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+
+.cnipt-facts {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.cnipt-facts > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+  gap: 0.75rem;
+}
+
+.cnipt-facts dt {
+  font-weight: 600;
+}
+
+.cnipt-facts dd {
+  margin: 0;
+}
+
+.cnipt-warnings {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
