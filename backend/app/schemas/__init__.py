@@ -3,6 +3,17 @@
 Import from ``backend.app.schemas``; the submodules are an implementation detail.
 """
 
+from .cnipt import (
+    CniptBoundOut,
+    CniptFetalFractionOut,
+    CniptFindingOut,
+    CniptLimitsOut,
+    CniptRuleOut,
+    CniptSampleResultOut,
+    CniptScaOut,
+    CniptTargetOut,
+    FamilyCniptOut,
+)
 from .admin import (
     SampleInventoryOut,
     FamilyInventorySummaryOut,
@@ -455,6 +466,15 @@ from .tracks import (
 )
 
 __all__ = [
+    "CniptBoundOut",
+    "CniptFetalFractionOut",
+    "CniptFindingOut",
+    "CniptLimitsOut",
+    "CniptRuleOut",
+    "CniptSampleResultOut",
+    "CniptScaOut",
+    "CniptTargetOut",
+    "FamilyCniptOut",
     "SampleInventoryOut",
     "FamilyInventorySummaryOut",
     "FamilyInventoryDetailOut",

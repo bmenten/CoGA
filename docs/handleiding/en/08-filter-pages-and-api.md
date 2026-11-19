@@ -1,6 +1,6 @@
 # 8. Filter pages ↔ API
 
-After a correct import (chapter 6), CoGA *filters* and *shows* a family's variants. Part A follows that chain for the two largest data types: the *small variants* (SNVs and indels: point mutations and small insertions or deletions) and the *structural variants* (SVs: large deletions, duplications, …). Part B summarises it for the specialised analyses: mitochondrial DNA and sample QC, Paraphase, repeat expansions, monogenic NIPT and PGT. The clinical rules for the laboratory are in the app, under *Docs*; this chapter points to where they sit in the code.
+After a correct import (chapter 6), CoGA *filters* and *shows* a family's variants. Part A follows that chain for the two largest data types: the *small variants* (SNVs and indels: point mutations and small insertions or deletions) and the *structural variants* (SVs: large deletions, duplications, …). Part B summarises it for the specialised analyses: mitochondrial DNA and sample QC, Paraphase, repeat expansions, monogenic NIPT, conventional NIPT and PGT. The clinical rules for the laboratory are in the app, under *Docs*; this chapter points to where they sit in the code.
 
 An **endpoint** is a URL the backend listens on; a **query parameter** is a `?key=value` pair in that URL, through which the frontend passes on the filter choices. A **parameterised query** passes user values separately instead of pasting them into the SQL text (chapter 7).
 
@@ -378,6 +378,23 @@ The auto-seed of the artefact list reads the calls in the same way and counts on
 The clinical explanation is in the app (*Docs → Monogenic NIPT (cfDNA)*, `frontend/src/content/docs/monogenic-nipt.md`), the design in `docs/monogenic-nipt.md`.
 
 **Where in the code:** `backend/app/services/nipt.py` (the trio), `nipt_analysis.py` (the computing core), `nipt_triage.py` (de novo triage and recessive risk), `nipt_target_coverage.py` (the coverage tables), `nipt_service.py` (link with the data and the views), `nipt_coverage.py` and `nipt_artifact_pg.py`; `backend/app/routers/families_nipt.py`; the pages `FamilyNiptPage.tsx`, `FamilyNiptReportPage.tsx` and `FamilyNiptCoveragePage.tsx` (the coverage), with `NiptQcPanel.tsx`, `NiptRecessiveGenes.tsx` and `NiptTargetCoverage.tsx`.
+
+### Conventional NIPT
+
+Conventional NIPT screens a pregnancy for aneuploidies and copy-number changes through the genome-wide copy number of the **maternal plasma**. ccnv, the laboratory's program, measures the copy number and the fetal fraction; CoGA imports its output (chapter 6), draws it in the views (chapter 9) and gives an **automatic result** per target (`GET /api/families/{family_id}/cnipt`, the page *cNIPT*).
+
+**The rule.** The owner's choice of 2026-11-19, *z-score and concordance with the fetal fraction* (`cnipt_result.py`, pure):
+
+- The fetal fraction is ccnv's effective one; the other estimates are shown beside it. Below the bound `cnipt.fetal_fraction` there is no result for any target.
+- A segment spanning at least half of its chromosome is an aneuploidy of that chromosome; a shorter segment a segmental CNV, assessed from a size that ccnv's limits of detection raise at this fetal fraction.
+- A segment with a |z-score| from the error bound of `cnipt.call_zscore` is **high risk** when it is concordant with the fetal fraction: the implied fetal fraction within the band, ccnv does not call it discordant, and the origin is not maternal or mosaic. Otherwise, or in the grey zone below the error bound, it is **inconclusive**.
+- The sex chromosomes follow ccnv's sex-chromosome call and its confidence (`cnipt.sca_confidence`).
+
+**The bounds.** QA sets them in the profile *Conventional NIPT* of the QC thresholds (chapter 15), each change with a reason. As long as QA has not set a bound, the rule applies a provisional value (`PROVISIONAL_BOUNDS`), and the result marks it as provisional.
+
+The clinical explanation is in the app (*Docs → Conventional NIPT (cell-free DNA)*, `frontend/src/content/docs/conventional-nipt.md`), the design in `docs/conventional-nipt.md`.
+
+**Where in the code:** `backend/app/services/cnipt_result.py` (the rule), `cnipt_service.py` (link with the data), `ccnv_output.py` (ccnv's output), `routers/families_cnipt.py`; the page `FamilyCniptPage.tsx` with `cniptResult.ts`.
 
 ### PGT: haplotype segregation
 

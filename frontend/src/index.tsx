@@ -68,6 +68,9 @@ const FamilyMitoDNAAnalysisPage = lazyPage(
 const FamilyNiptPage = lazyPage(
   () => import('./pages/families/FamilyNiptPage')
 );
+const FamilyCniptPage = lazyPage(
+  () => import('./pages/families/FamilyCniptPage')
+);
 const FamilyNiptReportPage = lazyPage(
   () => import('./pages/families/FamilyNiptReportPage')
 );
@@ -229,6 +232,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               <Route
                 path="/families/:familyId/nipt"
                 element={routeElement(<FamilyNiptPage />)}
+              />
+              <Route
+                path="/families/:familyId/cnipt"
+                element={routeElement(<FamilyCniptPage />)}
               />
               <Route
                 path="/families/:familyId/nipt/report"

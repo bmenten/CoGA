@@ -8,6 +8,7 @@ import { useProjectCatalog } from '../lib/reference';
 const ROUTE_WORDS: Record<string, string> = {
   acmg: 'ACMG',
   clickhouse: 'ClickHouse',
+  cnipt: 'cNIPT',
   cnv: 'CNV',
   dna: 'DNA',
   hpo: 'HPO',
@@ -21,11 +22,13 @@ const ROUTE_WORDS: Record<string, string> = {
 /** The segments whose next segment is an identifier (a family, chromosome, panel or CNV). */
 const ID_PARENTS = new Set(['families', 'chromosome', 'panels', 'cnv-details']);
 
-/** A route word in sentence case: `small-variants` reads "Small variants". */
+/** A route word in sentence case: `small-variants` reads "Small variants". A word the table
+ *  spells keeps its own case first too: `cnipt` reads "cNIPT". */
 const routeLabel = (segment: string): string => {
   const words = segment.split('-').map((word) => ROUTE_WORDS[word] ?? word);
   const label = words.join(' ');
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  const first = segment.split('-')[0];
+  return ROUTE_WORDS[first] !== undefined ? label : label.charAt(0).toUpperCase() + label.slice(1);
 };
 
 /** An identifier as it is stored: case is part of it ("1q21.1", "demo_family"). */

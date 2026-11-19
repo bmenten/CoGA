@@ -761,7 +761,10 @@ whether a structure update kept the imported data; see
 - A family uses the profile named in `families.metadata->>'qc_profile'`, or the `is_default`
   one; a partial unique index allows only one default.
 - The seeded profiles (`default`, `long_read_wgs`, `short_read_wgs`, `short_read_panel`,
-  `nipt_monogenic`, `pgt`) are empty, because the laboratory agrees the cut-offs. A new profile
+  `nipt_monogenic`, `nipt_conventional`, `pgt`) are empty, because the laboratory agrees the
+  cut-offs. The conventional NIPT's result rule reads the bounds `cnipt.*` from
+  `nipt_conventional` and applies a provisional value of its own, marked so in the result, to a
+  bound QA has not set ([conventional-nipt.md](conventional-nipt.md#the-result)). A new profile
   (`POST /admin/qc-thresholds/profiles`) inherits none. Its key comes from the label and never
   changes, since families refer to it.
 - Code defines which metrics exist and whether a low or a high value fails

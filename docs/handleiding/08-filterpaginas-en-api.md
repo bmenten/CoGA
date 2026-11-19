@@ -1,6 +1,6 @@
 # 8. Filterpagina's ↔ API
 
-Na een correcte import (hoofdstuk 6) *filtert* en *toont* CoGA de varianten van een familie. Deel A volgt die keten voor de twee grootste datatypes: de *small variants* (SNV's en indels: puntmutaties en kleine inserties of deleties) en de *structurele varianten* (SV's: grote deleties, duplicaties, …). Deel B vat ze samen voor de gespecialiseerde analyses: mitochondriaal DNA en sample-QC, Paraphase, repeat-expansies, monogene NIPT en PGT. De klinische regels voor het labo staan in de app, onder *Docs*; dit hoofdstuk wijst aan waar ze in de code zitten.
+Na een correcte import (hoofdstuk 6) *filtert* en *toont* CoGA de varianten van een familie. Deel A volgt die keten voor de twee grootste datatypes: de *small variants* (SNV's en indels: puntmutaties en kleine inserties of deleties) en de *structurele varianten* (SV's: grote deleties, duplicaties, …). Deel B vat ze samen voor de gespecialiseerde analyses: mitochondriaal DNA en sample-QC, Paraphase, repeat-expansies, monogene NIPT, conventionele NIPT en PGT. De klinische regels voor het labo staan in de app, onder *Docs*; dit hoofdstuk wijst aan waar ze in de code zitten.
 
 Een **endpoint** is een URL waarop de backend luistert; een **queryparameter** is een `?key=value`-paar in die URL, waarmee de frontend de filterkeuzes doorgeeft. Een **geparametriseerde query** geeft gebruikerswaarden apart mee in plaats van ze in de SQL-tekst te plakken (hoofdstuk 7).
 
@@ -378,6 +378,23 @@ De auto-seed van de artefactlijst leest de calls op dezelfde manier en telt alle
 De klinische uitleg staat in de app (*Docs → Monogenic NIPT (cfDNA)*, `frontend/src/content/docs/monogenic-nipt.md`), het ontwerp in `docs/monogenic-nipt.md`.
 
 **Waar in de code:** `backend/app/services/nipt.py` (het trio), `nipt_analysis.py` (de rekenkern), `nipt_triage.py` (de-novotriage en recessief risico), `nipt_target_coverage.py` (de dekkingstabellen), `nipt_service.py` (koppeling met de data en de weergaven), `nipt_coverage.py` en `nipt_artifact_pg.py`; `backend/app/routers/families_nipt.py`; de pagina's `FamilyNiptPage.tsx`, `FamilyNiptReportPage.tsx` en `FamilyNiptCoveragePage.tsx` (de dekking), met `NiptQcPanel.tsx`, `NiptRecessiveGenes.tsx` en `NiptTargetCoverage.tsx`.
+
+### Conventionele NIPT
+
+Conventionele NIPT onderzoekt een zwangerschap op aneuploïdieën en kopieaantalveranderingen via het genoombrede kopieaantal van het **maternale plasma**. ccnv, het programma van het labo, meet het kopieaantal en de foetale fractie; CoGA importeert zijn uitvoer (hoofdstuk 6), tekent ze in de weergaven (hoofdstuk 9) en geeft per doel een **automatische uitslag** (`GET /api/families/{family_id}/cnipt`, de pagina *cNIPT*).
+
+**De regel.** De keuze van de eigenaar van 2026-11-19, *z-score en concordantie met de foetale fractie* (`cnipt_result.py`, zuiver):
+
+- De foetale fractie is de effectieve van ccnv; de andere schattingen staan ernaast. Onder de grens `cnipt.fetal_fraction` is er voor geen enkel doel een uitslag.
+- Een segment dat minstens de helft van zijn chromosoom beslaat, is een aneuploïdie van dat chromosoom; een korter segment een segmentale CNV, beoordeeld vanaf een grootte die de detectielimieten van ccnv bij deze foetale fractie verhogen.
+- Een segment met een |z-score| vanaf de foutgrens van `cnipt.call_zscore` is **hoog risico** als het concordant is met de foetale fractie: de impliciete foetale fractie binnen de band, ccnv noemt het niet discordant, en de oorsprong is niet maternaal of mozaïek. Anders, of in de grijze zone onder de foutgrens, is het **onbeslist**.
+- De geslachtschromosomen volgen de geslachtschromosoomcall van ccnv en haar betrouwbaarheid (`cnipt.sca_confidence`).
+
+**De grenzen.** QA zet ze in het profiel *Conventional NIPT* van de QC-grenzen (hoofdstuk 15), elke wijziging met een reden. Zolang QA een grens niet zette, past de regel een voorlopige waarde toe (`PROVISIONAL_BOUNDS`), en de uitslag markeert die als voorlopig.
+
+De klinische uitleg staat in de app (*Docs → Conventional NIPT (cell-free DNA)*, `frontend/src/content/docs/conventional-nipt.md`), het ontwerp in `docs/conventional-nipt.md`.
+
+**Waar in de code:** `backend/app/services/cnipt_result.py` (de regel), `cnipt_service.py` (koppeling met de data), `ccnv_output.py` (de uitvoer van ccnv), `routers/families_cnipt.py`; de pagina `FamilyCniptPage.tsx` met `cniptResult.ts`.
 
 ### PGT: haplotype-segregatie
 

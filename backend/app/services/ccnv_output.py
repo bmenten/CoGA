@@ -367,6 +367,17 @@ def _track_row(line: str, *, header: Mapping[str, int], track_type: str, line_no
 _FF_ESTIMATES = ("active_ff_se", "ffy", "ffx", "ffa", "ff_size")
 
 
+def stored_ccnv_qc(stored: Mapping[str, Any]) -> CcnvQc:
+    """A plasma's ccnv QC file as the import kept it (``samples.metadata["ccnv"]``, ``{"qc": …,
+    "qc_file": …}``), read again as ``read_ccnv_qc`` read it at import. A record the import did
+    not write raises ``CcnvOutputError``."""
+    payload = stored.get("qc")
+    file = str(stored.get("qc_file") or "of the sample")
+    if not isinstance(payload, dict):
+        raise CcnvOutputError(f"The ccnv QC file {file} is not kept with the sample")
+    return read_ccnv_qc(json.dumps(payload).encode(), file=file)
+
+
 def ccnv_track_summary(stored: Mapping[str, Any]) -> dict[str, Any]:
     """What a plasma's ccnv tracks are drawn with: its QC file as the import kept it
     (``samples.metadata["ccnv"]``, ``{"qc": …, "qc_file": …}``) read again as ``read_ccnv_qc``
@@ -374,12 +385,8 @@ def ccnv_track_summary(stored: Mapping[str, Any]) -> dict[str, Any]:
     Fisher-weighted fraction ccnv's own lines use), every other estimate, the fetal sex, the
     sex-chromosome call and ccnv's low-fetal-fraction warning. A record the import did not write
     raises ``CcnvOutputError``."""
-    payload = stored.get("qc")
-    file = str(stored.get("qc_file") or "of the sample")
-    if not isinstance(payload, dict):
-        raise CcnvOutputError(f"The ccnv QC file {file} is not kept with the sample")
-    qc = read_ccnv_qc(json.dumps(payload).encode(), file=file)
-    prenatal = payload["prenatal"]
+    qc = stored_ccnv_qc(stored)
+    prenatal = qc.payload["prenatal"]
     sca = prenatal["sca"]
     source = prenatal.get("active_ff_source")
     low_ff_warning = prenatal.get("low_ff_warning")
