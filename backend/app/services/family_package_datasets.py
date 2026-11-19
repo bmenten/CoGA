@@ -3142,13 +3142,12 @@ async def _import_qc_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummar
             metrics["pgt"] = pgt_metrics[sample_id]
         if not metrics:
             continue
-        if "report" in metrics:
-            # The analysis whose import recorded it: its report is read in that analysis's
-            # package folder (family_package_records).
-            metrics[PACKAGE_KEY] = package_record_key(bundle.manifest.analysis_type)
+        # Recorded under the analysis whose import read it, beside the sample's other analyses'
+        # QC: its report is read in that analysis's package folder (family_package_records).
         await _record_sample_qc_metadata(
             session,
             sample_context=sample_context,
+            analysis=package_record_key(bundle.manifest.analysis_type),
             metrics=metrics,
         )
         sample_results[sample_id] = metrics

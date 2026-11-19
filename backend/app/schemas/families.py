@@ -33,11 +33,11 @@ class FamilyMemberOut(BaseModel):
     carrier_evidence: Dict[str, Any] = Field(default_factory=dict)
     active: bool = True
     sample_metadata: Dict[str, Any] = Field(default_factory=dict)
-    # Sequencing QC judged against the family's threshold profile. Absent when the
-    # sample carries no recorded QC. Evaluated server-side so the workspace, the
-    # sample-QC page and a report all read the same verdict rather than each
-    # re-deriving it from the raw numbers.
-    sequencing_qc: Optional["SampleSequencingQcEvaluationOut"] = None
+    # Sequencing QC of each analysis that recorded the sample's (keyed as the family's package
+    # records are), each judged against its analysis's cut-offs. Empty when the sample carries
+    # no recorded QC. Evaluated server-side so the workspace, the sample-QC page and a report
+    # all read the same verdict rather than each re-deriving it from the raw numbers.
+    sequencing_qc: Dict[str, "SampleSequencingQcEvaluationOut"] = Field(default_factory=dict)
 
 
 class FamilyRelationshipOut(BaseModel):

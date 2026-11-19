@@ -893,8 +893,8 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     async def nothing_reported(_session, _family_uuid):
         return []
 
-    async def sequencing_qc(_session, _context):
-        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+    async def sequencing_qc(_session, _context, _scope=None):
+        return {"analyses": {}}
 
     async def complete(_session, _family_uuid):
         return None

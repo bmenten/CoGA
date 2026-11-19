@@ -159,8 +159,8 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
     ):
         return SampleIntegrityReport(overall_status="pass")
 
-    async def _sequencing_qc(session, context):
-        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+    async def _sequencing_qc(session, context, scope=None):
+        return {"analyses": {}}
 
     async def _no_hydration(session, *, context, variants):
         return None
@@ -449,8 +449,8 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
     ):
         return SampleIntegrityReport(overall_status="pass")
 
-    async def _sequencing_qc(session, context):
-        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+    async def _sequencing_qc(session, context, scope=None):
+        return {"analyses": {}}
 
     async def _no_hydration(session, *, context, variants):
         return None

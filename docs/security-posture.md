@@ -235,9 +235,11 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   and sample access before they serve a byte, and the backend serves every file itself: no
   browser gets a bucket's or a share's address. They look a file up first at the path the
   import recorded on the sample, in the package folder of the analysis whose import recorded it
-  (the record's `package`: a family holds one package record per analysis it was imported for,
-  and a file is never looked up in another analysis's folder), then in the family's own folders,
-  `data/<family>/` and `data/families/<family>/` (`core/family_folders.py`): a sample's reads by
+  (a family holds one package record per analysis it was imported for; a sample's alignments and
+  sequencing QC, with its QC report, are kept under that analysis's key, and a signal track names
+  it in `package`; a file is never looked up in another analysis's folder), then in the family's
+  own folders, `data/<family>/` and `data/families/<family>/` (`core/family_folders.py`): a
+  sample's reads by
   the layouts, its signal files and QC report at the recorded path. Nothing outside the recorded
   path and the layouts is tried.
   - The package folder (`families.metadata.package_imports[<analysis>].folder_path`) is used
@@ -360,8 +362,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   reference download is read up to 1 GiB and unpacked up to 4 GiB
   (`services/bounded_download.py`). The paths a request or a package may read are bounded as
   above.
-- 🟡 **QC-report links** carry a 5-minute token, scoped to the family and sample, in the query
-  string, because a browser navigation cannot send a bearer token. The report is served with
+- 🟡 **QC-report links** carry a 5-minute token, scoped to the family, the sample and the analysis
+  whose report it opens, in the query string, because a browser navigation cannot send a bearer
+  token. The report is served with
   `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and a sandbox CSP. The token is
   masked in the access log, and the request audit keeps query keys only. It can still sit in
   the browser history until it expires.

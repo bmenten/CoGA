@@ -29,8 +29,10 @@ const boundText = (value: number | null | undefined): string =>
  * named profiles.
  *
  * Profiles exist because one cut-off cannot serve two assays — ~18x mean depth is normal
- * for PacBio HiFi WGS and a hard failure on a 100x panel. A family uses the profile
- * named in its `qc_profile` metadata, and the default profile otherwise.
+ * for PacBio HiFi WGS and a hard failure on a 100x panel. Each analysis's sequencing QC is
+ * judged metric by metric: by the cut-off in the analysis's own profile (short-read WGS,
+ * long-read WGS…), else in the profile the family names (`qc_profile`), else in the default
+ * profile (backend `resolve_analysis_qc_thresholds`).
  *
  * Which metrics exist and whether a low or a high value is the failing side come from
  * the backend catalogue, not from this form: they follow what the QC parsers emit, and
@@ -239,9 +241,10 @@ const AdminQcThresholdsPage: React.FC = () => {
             </button>
           )}
           <p className="dashboard-link-note">
-            A family uses the profile named in its <code>qc_profile</code> metadata, and the default
-            otherwise. A new profile starts with no cut-offs, so it gates nothing until values are
-            entered.
+            Each analysis’s sequencing QC is judged metric by metric: by the cut-off in the analysis’s
+            own profile, else in the profile the family names in its <code>qc_profile</code> metadata,
+            else in the default profile. A new profile starts with no cut-offs, so it gates nothing
+            until values are entered.
           </p>
         </aside>
 

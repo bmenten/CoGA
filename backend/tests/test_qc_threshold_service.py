@@ -879,3 +879,89 @@ async def test_without_any_profile_or_a_session_no_cut_off_applies() -> None:
     assert len(session.statements) == 2
     assert await resolve_family_qc_thresholds(None, family_uuid="family-uuid") == nothing
     assert evaluate_sequencing_qc(HG002_QC, nothing["thresholds"])["verdict"] == "skip"
+
+
+# --- The cut-offs of one analysis, metric by metric (the owner's decision of 2026-11-19) -----
+
+
+class _ProfilesSession:
+    """Answers resolve_analysis_qc_thresholds' reads: the family's named profile, the profiles
+    by key, the default, and each profile's cut-offs."""
+
+    def __init__(self, family_profile: str | None, cut_offs: dict[str, dict[str, tuple]]) -> None:
+        self.family_profile = family_profile
+        self.cut_offs = cut_offs
+        self.profiles = {
+            key: {"key": key, "label": key.replace("_", " ").title(), "id": f"id-{key}"} for key in cut_offs
+        }
+
+    async def execute(self, statement, params=None):
+        from types import SimpleNamespace
+
+        sql, params = str(statement), params or {}
+        if "metadata ->> 'qc_profile'" in sql:
+            return SimpleNamespace(scalar_one_or_none=lambda: self.family_profile)
+        if "WHERE key = :key" in sql:
+            row = self.profiles.get(params["key"])
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
+        if "WHERE is_default" in sql:
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: self.profiles["default"]))
+        key = params["profile_id"].removeprefix("id-")
+        rows = [
+            {"metric_key": metric, "warn_value": warn, "error_value": error}
+            for metric, (warn, error) in self.cut_offs[key].items()
+        ]
+        return SimpleNamespace(mappings=lambda: rows)
+
+
+@pytest.mark.asyncio
+async def test_each_metric_takes_the_analysis_cut_off_else_the_familys_else_the_default() -> None:
+    from app.services.qc_threshold_service import resolve_analysis_qc_thresholds
+
+    session = _ProfilesSession(
+        "lab_trio",
+        {
+            "short_read_wgs": {"depth.mean_depth": (30.0, 20.0)},
+            "lab_trio": {"depth.mean_depth": (12.0, 8.0), "reads.read_length_n50": (10_000.0, None)},
+            "default": {"depth.mean_depth": (15.0, 10.0), "reads.median_read_quality": (20.0, 15.0)},
+        },
+    )
+    resolved = await resolve_analysis_qc_thresholds(session, family_uuid="u1", analysis="short_read_wgs")
+
+    assert [profile["key"] for profile in resolved["profiles"]] == ["short_read_wgs", "lab_trio", "default"]
+    assert resolved["thresholds"] == {
+        # QA set short-read cut-offs for depth: they judge the short-read analysis.
+        "depth.mean_depth": {"warn_value": 30.0, "error_value": 20.0, "profile_key": "short_read_wgs"},
+        # None there for N50: the family's named profile's.
+        "reads.read_length_n50": {"warn_value": 10_000.0, "error_value": None, "profile_key": "lab_trio"},
+        # Nor there for read quality: the default's.
+        "reads.median_read_quality": {"warn_value": 20.0, "error_value": 15.0, "profile_key": "default"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_analysis_without_a_profile_of_its_own_reads_the_familys_and_the_default() -> None:
+    from app.services.qc_threshold_service import ANALYSIS_QC_PROFILES, resolve_analysis_qc_thresholds
+
+    assert ANALYSIS_QC_PROFILES["monogenic_nipt"] == "nipt_monogenic"
+    session = _ProfilesSession(None, {"default": {"depth.mean_depth": (15.0, 10.0)}, "long_read_wgs": {}})
+    for analysis in ("unspecified", "long_read_wgs"):
+        resolved = await resolve_analysis_qc_thresholds(session, family_uuid="u1", analysis=analysis)
+        # An empty profile of its own adds nothing: the default's cut-off stands.
+        assert resolved["thresholds"] == {
+            "depth.mean_depth": {"warn_value": 15.0, "error_value": 10.0, "profile_key": "default"}
+        }
+    assert await resolve_analysis_qc_thresholds(None, family_uuid="u1", analysis="pgt") == {
+        "profiles": [],
+        "thresholds": {},
+    }
+
+
+def test_a_verdict_names_the_profile_whose_cut_off_judged_each_metric() -> None:
+    evaluation = evaluate_sequencing_qc(
+        HG002_QC, {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0, "profile_key": "long_read_wgs"}}
+    )
+    by_key = {metric["metric_key"]: metric for metric in evaluation["metrics"]}
+    assert (by_key["depth.mean_depth"]["verdict"], by_key["depth.mean_depth"]["profile_key"]) == ("warn", "long_read_wgs")
+    # A metric no profile sets a cut-off for names none.
+    assert by_key["reads.read_length_n50"]["profile_key"] is None

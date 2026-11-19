@@ -106,7 +106,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
                 await admin.head(f"/api/cram/{family}/{sample}.cram", params={"analysis": "unspecified"})
             ).status_code
 
-            link = await admin.get(f"/api/families/{family}/qc-report/{sample}/link")
+            link = await admin.get(f"/api/families/{family}/qc-report/{sample}/link", params={"analysis": "unspecified"})
             report = (await admin.get(f"/api{link.json()['url']}")).content if link.status_code == 200 else None
             out["report"] = (link.status_code, report)
     finally:

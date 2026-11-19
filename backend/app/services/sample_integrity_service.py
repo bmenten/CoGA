@@ -36,6 +36,7 @@ from .haplotype_lineage_service import build_pedigree
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
 from .nipt import resolve_nipt_trio
+from .family_package_records import UNSPECIFIED_ANALYSIS
 from .small_variant_callsets import callset_preference
 from .sample_integrity_qc import (
     FetalSexCheck,
@@ -211,12 +212,19 @@ def _stored_ratio(value: object) -> float | None:
     return float(value) if math.isfinite(value) and value >= 0 else None
 
 
-def _read_sex_call(sample_metadata: object) -> ReadSexCall | None:
+def _read_sex_call(sample_metadata: object, analyses: Sequence[str]) -> ReadSexCall | None:
     """The sex the pipeline's ngs-bits read off a sample's chrY/chrX read ratio, from what
-    its ``qc`` dataset stored on the sample; None without one, or when what is stored is not
-    an ngs-bits call (the message the check gives names ngs-bits)."""
-    sequencing_qc = sample_metadata.get("sequencing_qc") if isinstance(sample_metadata, dict) else None
-    stored = sequencing_qc.get("sex_check") if isinstance(sequencing_qc, dict) else None
+    the ``qc`` dataset of one of ``analyses`` (the analyses the QC is run for, in order)
+    stored on the sample (``samples.metadata.sequencing_qc``, per analysis); None without one,
+    or when what is stored is not an ngs-bits call (the message the check gives names
+    ngs-bits)."""
+    by_analysis = sample_metadata.get("sequencing_qc") if isinstance(sample_metadata, dict) else None
+    if not isinstance(by_analysis, dict):
+        return None
+    recorded = [by_analysis.get(analysis) for analysis in analyses]
+    stored = next(
+        (qc["sex_check"] for qc in recorded if isinstance(qc, dict) and isinstance(qc.get("sex_check"), dict)), None
+    )
     if not isinstance(stored, dict) or stored.get("method") != _NGSBITS_SEX_METHOD:
         return None
     inferred = stored.get("inferred_sex")
@@ -230,11 +238,12 @@ def _read_sex_call(sample_metadata: object) -> ReadSexCall | None:
     )
 
 
-def _read_sex_calls(context: FamilyMetadataContext) -> dict[str, ReadSexCall]:
-    """Each member's ngs-bits sex, for the sex check of a sample without chrX genotypes."""
+def _read_sex_calls(context: FamilyMetadataContext, analyses: Sequence[str]) -> dict[str, ReadSexCall]:
+    """Each member's ngs-bits sex, for the sex check of a sample without chrX genotypes, as
+    the QC of ``analyses`` recorded it."""
     calls: dict[str, ReadSexCall] = {}
     for row in context.sample_rows:
-        call = _read_sex_call(row.get("sample_metadata"))
+        call = _read_sex_call(row.get("sample_metadata"), analyses)
         if row.get("sample_id") and call is not None:
             calls[str(row["sample_id"])] = call
     return calls
@@ -365,6 +374,9 @@ async def get_family_sample_integrity_qc(
     types = (
         family_analysis_types(getattr(family, "metadata", None)) if analysis_types is None else analysis_types
     )
+    # The analyses whose sequencing QC the checks read (the ngs-bits sex call): those QC'd, then
+    # a package's that named none (family_package_records).
+    qc_analyses = [*types, UNSPECIFIED_ANALYSIS]
 
     spec = _build_pedigree_spec(context)
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
@@ -470,5 +482,5 @@ async def get_family_sample_integrity_qc(
         extra_notes=service_notes,
         # A sample without chrX genotypes (an imputed PGT callset holds the autosomes alone)
         # is sexed from the sex the pipeline's ngs-bits read off its reads.
-        read_sex=_read_sex_calls(context),
+        read_sex=_read_sex_calls(context, qc_analyses),
     )

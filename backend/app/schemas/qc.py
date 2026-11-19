@@ -126,6 +126,10 @@ class SampleSequencingQcMetricOut(BaseModel):
     # deliberately distinct from `pass`, which means measured and within bounds.
     # Vocabulary shared with sample-integrity QC (`QcStatus`) rather than a new one.
     verdict: Literal["pass", "warn", "fail", "skip"]
+    # The profile whose cut-off judged the metric: the analysis's own, else the family's named
+    # one, else the default (qc_threshold_service.resolve_analysis_qc_thresholds); None
+    # when no profile sets one.
+    profile_key: Optional[str] = None
 
 
 class SampleSequencingQcEvaluationOut(BaseModel):
@@ -134,8 +138,15 @@ class SampleSequencingQcEvaluationOut(BaseModel):
     verdict: Literal["pass", "warn", "fail", "skip"]
     metrics: List[SampleSequencingQcMetricOut] = Field(default_factory=list)
     breached: List[str] = Field(default_factory=list)
-    profile_key: Optional[str] = None
-    profile_label: Optional[str] = None
+    # The profiles read, in order: the analysis's own, the family's named one, the default.
+    profiles: List["QcProfileNameOut"] = Field(default_factory=list)
+
+
+class QcProfileNameOut(BaseModel):
+    """A QC threshold profile, by its key and its label."""
+
+    key: str
+    label: str
 
 
 class FamilyQcReportLinkOut(BaseModel):

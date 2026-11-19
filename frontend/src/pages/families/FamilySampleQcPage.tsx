@@ -24,6 +24,14 @@ import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/refe
 import { parsePedigree } from '../../lib/pedigree';
 import { routePath } from '../../lib/routePath';
 import { SequencingQcCell, sequencingQcColumns, sequencingQcNote } from './sequencingQcColumns';
+import { analysisLabel } from '../../lib/familyAnalyses';
+import type { ApiSampleSequencingQcEvaluation } from '../../lib/apiTypes';
+
+/** A member's sequencing QC verdicts, one per analysis, in the analyses' order. */
+const sequencingEntries = (
+  member: ApiFamilyRecord['members'][number],
+): [string, ApiSampleSequencingQcEvaluation][] =>
+  Object.entries(member.sequencing_qc ?? {}).sort(([left], [right]) => left.localeCompare(right));
 
 // A check that could not run makes the overall a warning, so "skip" means no check ran.
 const OVERALL_COPY: Record<QcStatus, string> = {
@@ -270,15 +278,34 @@ const SampleQcTable: React.FC<{
                 </td>
                 {sequencingColumns.map((column) => (
                   <td key={column.key}>
-                    <SequencingQcCell
-                      metric={member.sequencing_qc?.metrics.find((metric) => metric.metric_key === column.key)}
-                    />
+                    {/* Each analysis's value, named when the sample has the QC of more than one. */}
+                    {sequencingEntries(member).length > 1 ? (
+                      sequencingEntries(member).map(([analysis, evaluation]) => (
+                        <div key={analysis}>
+                          <span className="dashboard-link-note">{analysisLabel(analysis) ?? analysis}: </span>
+                          <SequencingQcCell
+                            metric={evaluation.metrics.find((metric) => metric.metric_key === column.key)}
+                          />
+                        </div>
+                      ))
+                    ) : (
+                      <SequencingQcCell
+                        metric={sequencingEntries(member)[0]?.[1].metrics.find((metric) => metric.metric_key === column.key)}
+                      />
+                    )}
                   </td>
                 ))}
                 {sequencingColumns.length ? (
                   <td>
-                    {member.sequencing_qc ? (
-                      <StatusChip status={member.sequencing_qc.verdict} />
+                    {sequencingEntries(member).length ? (
+                      sequencingEntries(member).map(([analysis, evaluation]) => (
+                        <div key={analysis}>
+                          {sequencingEntries(member).length > 1 ? (
+                            <span className="dashboard-link-note">{analysisLabel(analysis) ?? analysis}: </span>
+                          ) : null}
+                          <StatusChip status={evaluation.verdict} />
+                        </div>
+                      ))
                     ) : (
                       <span className="dashboard-link-note">-</span>
                     )}

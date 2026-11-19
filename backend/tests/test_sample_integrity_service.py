@@ -682,14 +682,15 @@ _COPGTM_SEXES = {"FATHER1": "male", "MOTHER1": "female", "EMB1": "female", "INDE
 
 def _ngsbits_metadata(sex: str, reads_chry: int, reads_chrx: int, ratio: str) -> dict:
     """A sample's metadata as a PGT package's qc dataset stores its ngs-bits SampleGender
-    file: read through the import's own parser, so the two stay in step."""
+    file, under the analysis whose import recorded it (pgt): read through the import's own
+    parser, so the two stay in step."""
     from backend.app.services.family_package_qc import parse_ngsbits_sample_gender_text
 
     text = (
         "#file\tgender\treads_chry\treads_chrx\tratio_chry_chrx\n"
         f"sample.bam\t{sex}\t{reads_chry}\t{reads_chrx}\t{ratio}\n"
     )
-    return {"sequencing_qc": {"sex_check": parse_ngsbits_sample_gender_text(text)}}
+    return {"sequencing_qc": {"pgt": {"sex_check": parse_ngsbits_sample_gender_text(text)}}}
 
 
 _NGSBITS = {
@@ -749,6 +750,7 @@ def _copgtm_qc(monkeypatch, context: FamilyMetadataContext):
         context=context,
         sources=["glimpse2"],
         sample=lambda scope, limit, source: [] if scope == "chrX" else _imputed_autosome_rows(2_400),
+        metadata={"analysis_types": ["pgt"]},
     )
     return asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="PGT2", user=None)
@@ -843,21 +845,26 @@ def test_only_a_stored_ngsbits_call_of_a_known_sex_is_read() -> None:
     from backend.app.services.sample_integrity_qc import ReadSexCall
 
     def stored(**fields) -> dict:
-        return {"sequencing_qc": {"sex_check": {"method": "ngs-bits SampleGender", **fields}}}
+        return {"sequencing_qc": {"pgt": {"sex_check": {"method": "ngs-bits SampleGender", **fields}}}}
 
-    assert sample_integrity_service._read_sex_call(
+    def read(metadata, analyses=("pgt", "unspecified")):
+        return sample_integrity_service._read_sex_call(metadata, list(analyses))
+
+    assert read(
         stored(inferred_sex=" Male ", reads_chry=10_500, reads_chrx=100_000, ratio_chry_chrx=0.105)
     ) == ReadSexCall("male", reads_chry=10_500, reads_chrx=100_000, ratio_chry_chrx=0.105)
     # A sex ngs-bits does not write, or none, is no call.
-    assert sample_integrity_service._read_sex_call(stored(inferred_sex="other")) is None
-    assert sample_integrity_service._read_sex_call(stored(inferred_sex=None)) is None
-    assert sample_integrity_service._read_sex_call(None) is None
+    assert read(stored(inferred_sex="other")) is None
+    assert read(stored(inferred_sex=None)) is None
+    assert read(None) is None
+    # Read from the QC of the analyses checked only: another analysis's is not this QC's.
+    assert read(stored(inferred_sex="male"), analyses=("long_read_wgs", "unspecified")) is None
     # A count or a ratio that is no number, negative, a boolean or not finite is left out;
     # the call stands.
-    assert sample_integrity_service._read_sex_call(
+    assert read(
         stored(inferred_sex="female", reads_chry=True, reads_chrx=-1, ratio_chry_chrx="0.1")
     ) == ReadSexCall("female")
-    assert sample_integrity_service._read_sex_call(stored(inferred_sex="female", ratio_chry_chrx=float("nan"))) == (
+    assert read(stored(inferred_sex="female", ratio_chry_chrx=float("nan"))) == (
         ReadSexCall("female")
     )
 

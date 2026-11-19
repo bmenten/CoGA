@@ -233,8 +233,8 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
     ):
         return SampleIntegrityReport(overall_status="pass")
 
-    async def _sequencing_qc(session, context):
-        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+    async def _sequencing_qc(session, context, scope=None):
+        return {"analyses": {}}
 
     # One authorised view of the family, wherever a service builds it.
     for module in (rss, cds, ams):

@@ -118,7 +118,7 @@ def family(monkeypatch) -> _Family:
     state = _Family()
 
     async def _ctx(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
     async def _manifest(session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
@@ -143,8 +143,8 @@ def family(monkeypatch) -> _Family:
     async def _nothing_reported(session, family_uuid):
         return []
 
-    async def _sequencing_qc(session, context):
-        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+    async def _sequencing_qc(session, context, scope=None):
+        return {"analyses": {}}
 
     async def _import_incomplete(session, family_uuid):
         return copy.deepcopy(state.import_incomplete)

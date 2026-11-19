@@ -409,6 +409,8 @@ export interface SignedSequencingQcMetric {
   errorValue: number | null;
   /** `lower_is_worse` or `higher_is_worse`, as the evaluation served it. */
   direction: string | null;
+  /** The profile whose cut-off judged it (the analysis's own, the family's named one, the default). */
+  profileKey: string | null;
 }
 
 export interface SignedSequencingQcSample {
@@ -420,11 +422,19 @@ export interface SignedSequencingQcSample {
   breached: SignedSequencingQcMetric[];
 }
 
+/** The sequencing QC of one analysis, judged against that analysis's cut-offs. */
+export interface SignedSequencingQcAnalysis {
+  analysis: string;
+  /** The profiles its cut-offs came from, in the order read: its own, the family's, the default. */
+  profileLabels: string[];
+  samples: SignedSequencingQcSample[];
+}
+
 export interface SignedSequencingQc {
-  profileLabel: string | null;
   /** Why the cut-offs could not be resolved at sign-out, when they could not. */
   unavailable: string | null;
-  samples: SignedSequencingQcSample[];
+  /** Each analysis's sequencing QC the record holds: the analysis it closes (and one of a package that named none). */
+  analyses: SignedSequencingQcAnalysis[];
 }
 
 /** One annotation or reference module, as the manifest frozen into the record lists it. */
@@ -1516,11 +1526,26 @@ const parseSampleQc = (value: unknown): SignedSampleQc | null => {
 
 const parseSequencingQc = (value: unknown): SignedSequencingQc | null => {
   if (!isObject(value)) return null;
-  const samples = isObject(value.samples) ? value.samples : {};
+  const analyses = isObject(value.analyses) ? value.analyses : {};
   return {
-    profileLabel: text(value.profile_label) ?? text(value.profile_key),
     unavailable: text(value.unavailable),
-    samples: Object.keys(samples)
+    analyses: Object.keys(analyses)
+      .sort()
+      .map((analysis) => {
+        const frozen = isObject(analyses[analysis]) ? (analyses[analysis] as Json) : {};
+        const profiles = Array.isArray(frozen.profiles) ? frozen.profiles.filter(isObject) : [];
+        return {
+          analysis,
+          profileLabels: profiles.map((profile) => text(profile.label) ?? text(profile.key) ?? 'an unnamed profile'),
+          samples: parseSequencingQcSamples(frozen.samples),
+        };
+      }),
+  };
+};
+
+const parseSequencingQcSamples = (value: unknown): SignedSequencingQcSample[] => {
+  const samples = isObject(value) ? value : {};
+  return Object.keys(samples)
       .sort()
       .map((sampleId): SignedSequencingQcSample => {
         const evaluation = isObject(samples[sampleId]) ? (samples[sampleId] as Json) : {};
@@ -1534,6 +1559,7 @@ const parseSequencingQc = (value: unknown): SignedSequencingQc | null => {
             warnValue: number(metric.warn_value),
             errorValue: number(metric.error_value),
             direction: text(metric.direction),
+            profileKey: text(metric.profile_key),
           }),
         );
         return {
@@ -1542,8 +1568,7 @@ const parseSequencingQc = (value: unknown): SignedSequencingQc | null => {
           metrics,
           breached: metrics.filter((metric) => metric.verdict === 'warn' || metric.verdict === 'fail'),
         };
-      }),
-  };
+      });
 };
 
 const parseModules = (value: unknown): SignedModule[] | null => {

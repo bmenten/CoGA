@@ -30,11 +30,11 @@ def recorded_report(monkeypatch: pytest.MonkeyPatch) -> set[int]:
     """The report path the sample records, read on the request's own thread, which it notes."""
     loop_threads: set[int] = set()
 
-    async def recorded_path(_session: Any, *, family_id: str, sample_id: str, user: Any) -> Any:
+    async def recorded_path(_session: Any, *, family_id: str, sample_id: str, analysis: str, user: Any) -> Any:
         loop_threads.add(threading.get_ident())
         return family_qc_reports._RecordedReport(_REPORT)
 
-    async def recorded(_session: Any, *, family_id: str, sample_id: str) -> Any:
+    async def recorded(_session: Any, *, family_id: str, sample_id: str, analysis: str) -> Any:
         loop_threads.add(threading.get_ident())
         return family_qc_reports._RecordedReport(_REPORT)
 
@@ -45,9 +45,13 @@ def recorded_report(monkeypatch: pytest.MonkeyPatch) -> set[int]:
 
 
 async def _link_and_report() -> tuple[Any, Any]:
-    link = await family_qc_reports.get_family_qc_report_link("F1", "S1", session=None, user=None)  # type: ignore[arg-type]
-    token = family_qc_reports._qc_report_token("F1", "S1")
-    report = await family_qc_reports.get_family_qc_report("F1", "S1", token=token, session=None)  # type: ignore[arg-type]
+    link = await family_qc_reports.get_family_qc_report_link(
+        "F1", "S1", analysis="long_read_wgs", session=None, user=None  # type: ignore[arg-type]
+    )
+    token = family_qc_reports._qc_report_token("F1", "S1", "long_read_wgs")
+    report = await family_qc_reports.get_family_qc_report(
+        "F1", "S1", token=token, analysis="long_read_wgs", session=None  # type: ignore[arg-type]
+    )
     return link, report
 
 

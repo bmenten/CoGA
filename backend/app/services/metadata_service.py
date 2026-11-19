@@ -1685,38 +1685,47 @@ async def _attach_package_source_changes(session: AsyncSession, *, family_uuid: 
     ]
 
 
+def _metadata_map(value: Any) -> dict[str, Any]:
+    """``value`` when it is a mapping (a recorded JSON object), else empty."""
+    return value if isinstance(value, dict) else {}
+
+
 async def _attach_sequencing_qc_verdicts(
     session: AsyncSession,
     *,
     family_uuid: str,
     family: FamilyOut,
 ) -> None:
-    """Judge each member's recorded sequencing QC against the family's threshold profile.
+    """Judge each member's recorded sequencing QC of each analysis against that analysis's
+    cut-offs (``resolve_analysis_qc_thresholds``: the analysis's own profile, else the
+    family's named one, else the default, metric by metric).
 
     Only the single-family read does this: the family *list* does not show QC, and
-    resolving a profile per family there would add a query per row for nothing.
+    resolving profiles per family there would add queries per row for nothing.
 
     Best-effort — a failure here must not take down the family workspace, which is
     readable and useful without a QC verdict.
     """
-    if not any(member.sample_metadata.get("sequencing_qc") for member in family.members):
+    recorded = {
+        member.sample_id: _metadata_map(member.sample_metadata.get("sequencing_qc")) for member in family.members
+    }
+    analyses = sorted({analysis for by_analysis in recorded.values() for analysis in by_analysis})
+    if not analyses:
         return
     try:
-        from .qc_threshold_service import evaluate_sequencing_qc, resolve_family_qc_thresholds
+        from .qc_threshold_service import evaluate_sequencing_qc, resolve_analysis_qc_thresholds
 
-        resolved = await resolve_family_qc_thresholds(session, family_uuid=family_uuid)
-        for member in family.members:
-            evaluation = evaluate_sequencing_qc(
-                member.sample_metadata.get("sequencing_qc"),
-                resolved["thresholds"],
-            )
-            if evaluation is None:
-                continue
-            member.sequencing_qc = SampleSequencingQcEvaluationOut(
-                **evaluation,
-                profile_key=resolved["profile_key"],
-                profile_label=resolved["profile_label"],
-            )
+        for analysis in analyses:
+            resolved = await resolve_analysis_qc_thresholds(session, family_uuid=family_uuid, analysis=analysis)
+            for member in family.members:
+                evaluation = evaluate_sequencing_qc(
+                    _metadata_map(recorded[member.sample_id].get(analysis)), resolved["thresholds"]
+                )
+                if evaluation is None:
+                    continue
+                member.sequencing_qc[analysis] = SampleSequencingQcEvaluationOut(
+                    **evaluation, profiles=resolved["profiles"]
+                )
     except Exception:  # a QC verdict must never break the workspace
         logger.warning("Sequencing-QC threshold evaluation failed for family %s", family_uuid, exc_info=True)
 

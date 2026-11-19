@@ -1378,26 +1378,28 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
             The QC cut-offs could not be resolved when this version was signed (
             {sequencingQc.unavailable}), so the record holds no sequencing-QC verdicts.
           </p>
+        ) : !sequencingQc.analyses.some((entry) => entry.samples.length) ? (
+          <p className="report-paragraph">No sequencing-QC values were recorded for the family’s samples.</p>
         ) : (
-          <>
-            <p className="report-paragraph">
-              Judged against the cut-offs of {sequencingQc.profileLabel ?? 'an unnamed profile'}.
-            </p>
-            {sequencingQc.samples.length ? (
+          // Each analysis's QC, judged against its own cut-offs: named when there are several.
+          sequencingQc.analyses.map((entry) => (
+            <React.Fragment key={entry.analysis}>
+              <p className="report-paragraph">
+                {sequencingQc.analyses.length > 1 ? `${analysisLabel(entry.analysis) ?? entry.analysis}: ` : ''}
+                {entry.profileLabels.length
+                  ? `judged against the cut-offs of ${entry.profileLabels.join(', else ')}, metric by metric.`
+                  : 'no QC profile applied.'}
+              </p>
               <ul className="report-signed-list">
-                {sequencingQc.samples.map((sample) => (
+                {entry.samples.map((sample) => (
                   <li key={sample.sampleId}>
                     {sample.sampleId}: {qcStatusLabel(sample.verdict)}
                     {sample.metrics.length ? ` — ${sample.metrics.map(describeSignedQcMetric).join('; ')}` : ''}
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p className="report-paragraph">
-                No sequencing-QC values were recorded for the family’s samples.
-              </p>
-            )}
-          </>
+            </React.Fragment>
+          ))
         )}
       </div>
       <div className="report-section">

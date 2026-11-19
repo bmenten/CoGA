@@ -84,8 +84,8 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
     ):
         return SampleIntegrityReport(overall_status="pass")
 
-    async def _sequencing_qc(session, context):
-        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+    async def _sequencing_qc(session, context, scope=None):
+        return {"analyses": {}}
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
     # No repeat or Paraphase call, and no review of one (finding_review_pg).

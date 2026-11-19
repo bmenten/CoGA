@@ -41,8 +41,9 @@ export interface ApiFamilyMember {
   carrier_evidence?: Record<string, unknown>;
   active?: boolean;
   sample_metadata?: Record<string, unknown>;
-  // Null when the sample has no sequencing QC to judge (the backend sends null).
-  sequencing_qc?: ApiSampleSequencingQcEvaluation | null;
+  // The sequencing QC of each analysis that recorded the sample's (keyed as the family's
+  // package records are), each judged against its analysis's cut-offs; empty without any.
+  sequencing_qc?: Record<string, ApiSampleSequencingQcEvaluation>;
 }
 
 /** A sequencing-QC metric judged against its configured cut-offs. */
@@ -57,14 +58,17 @@ export interface ApiSampleSequencingQcMetric {
   /** `skip` = no cut-off configured, i.e. not checked — distinct from `pass`. Shares
    *  the QcStatus vocabulary used by sample-integrity QC. */
   verdict: QcStatus;
+  /** The profile whose cut-off judged it: the analysis's own, else the family's named one,
+   *  else the default; null when none sets one. */
+  profile_key?: string | null;
 }
 
 export interface ApiSampleSequencingQcEvaluation {
   verdict: QcStatus;
   metrics: ApiSampleSequencingQcMetric[];
   breached: string[];
-  profile_key?: string | null;
-  profile_label?: string | null;
+  /** The profiles read, in order: the analysis's own, the family's named one, the default. */
+  profiles?: { key: string; label: string }[];
 }
 
 export interface ApiQcThreshold {

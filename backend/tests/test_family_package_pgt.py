@@ -1337,7 +1337,11 @@ async def test_qc_import_records_each_samples_qc_and_the_familys_kinship(
     recorded: dict[str, dict[str, Any]] = {}
     family_qc: list[dict[str, Any]] = []
 
-    async def record_sample(_session: Any, *, sample_context: SampleMetadataContext, metrics: dict[str, Any]) -> None:
+    async def record_sample(
+        _session: Any, *, sample_context: SampleMetadataContext, analysis: str, metrics: dict[str, Any]
+    ) -> None:
+        # Under the analysis whose import recorded it: the test package names none.
+        assert analysis == "unspecified"
         recorded[sample_context.sample_id] = metrics
 
     async def record_family(_session: Any, *, family_uuid: str, pipeline_qc: dict[str, Any]) -> None:
@@ -1384,7 +1388,11 @@ async def test_an_embryo_only_in_the_family_tables_gets_a_verdict_on_its_pgt_met
     # and in %, so the members table's chip can show the metric that decided it.
     recorded: dict[str, dict[str, Any]] = {}
 
-    async def record_sample(_session: Any, *, sample_context: SampleMetadataContext, metrics: dict[str, Any]) -> None:
+    async def record_sample(
+        _session: Any, *, sample_context: SampleMetadataContext, analysis: str, metrics: dict[str, Any]
+    ) -> None:
+        # Under the analysis whose import recorded it: the test package names none.
+        assert analysis == "unspecified"
         recorded[sample_context.sample_id] = metrics
 
     async def record_family(_session: Any, *, family_uuid: str, pipeline_qc: dict[str, Any]) -> None:
@@ -1409,17 +1417,17 @@ async def test_an_embryo_only_in_the_family_tables_gets_a_verdict_on_its_pgt_met
         }
     }
 
-    async def resolve(_session: Any, *, family_uuid: str) -> dict[str, Any]:
+    async def resolve(_session: Any, *, family_uuid: str, analysis: str) -> dict[str, Any]:
+        assert analysis == "pgt"
         return {
-            "profile_key": "pgt",
-            "profile_label": "PGT",
+            "profiles": [{"key": "pgt", "label": "PGT"}, {"key": "default", "label": "Default"}],
             "thresholds": {
-                "pgt.allele_dropout_rate": {"warn_value": 10.0, "error_value": 15.0},
-                "pgt.mendelian_concordance_imputed": {"warn_value": 95.0, "error_value": 90.0},
+                "pgt.allele_dropout_rate": {"warn_value": 10.0, "error_value": 15.0, "profile_key": "pgt"},
+                "pgt.mendelian_concordance_imputed": {"warn_value": 95.0, "error_value": 90.0, "profile_key": "pgt"},
             },
         }
 
-    monkeypatch.setattr(qc_threshold_service, "resolve_family_qc_thresholds", resolve)
+    monkeypatch.setattr(qc_threshold_service, "resolve_analysis_qc_thresholds", resolve)
     family = FamilyOut(
         id="family-uuid",
         family_id=FAMILY,
@@ -1429,7 +1437,7 @@ async def test_an_embryo_only_in_the_family_tables_gets_a_verdict_on_its_pgt_met
                 sample_id="EMB1",
                 role="embryo",
                 affected=False,
-                sample_metadata={"sequencing_qc": recorded["EMB1"]},
+                sample_metadata={"sequencing_qc": {"pgt": recorded["EMB1"]}},
             )
         ],
     )
@@ -1440,8 +1448,7 @@ async def test_an_embryo_only_in_the_family_tables_gets_a_verdict_on_its_pgt_met
         family=family,
     )
 
-    served = family.members[0].sequencing_qc
-    assert served is not None
+    served = family.members[0].sequencing_qc["pgt"]
     assert served.verdict == "fail"
     assert [(metric.metric_key, metric.unit, metric.value, metric.verdict) for metric in served.metrics] == [
         ("pgt.allele_dropout_rate", "%", 15.5, "fail"),
@@ -1450,7 +1457,8 @@ async def test_an_embryo_only_in_the_family_tables_gets_a_verdict_on_its_pgt_met
         ("pgt.mendelian_concordance_imputed", "%", 98.5, "pass"),
     ]
     assert served.breached == ["pgt.allele_dropout_rate"]
-    assert served.profile_label == "PGT"
+    assert [profile.label for profile in served.profiles] == ["PGT", "Default"]
+    assert served.metrics[0].profile_key == "pgt"
 
 
 @pytest.mark.asyncio

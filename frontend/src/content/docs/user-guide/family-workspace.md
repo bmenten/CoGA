@@ -55,6 +55,8 @@ The chip shows the sequencing QC verdict and mean depth; hover or focus it for t
   returned). This is never a pass.
 - An embryo whose QC holds only the PGT pipeline's embryo metrics has no depth to show. Its chip gives
   the value of the metric that decided the verdict (*Fail ADO 14.2%*), or *Not run* alone.
+- A sample sequenced in more than one analysis (short-read and then long-read WGS) has a chip of each,
+  named by its analysis (*Short-read WGS: Pass 35.0x*). Each opens that analysis's QC report.
 
 In a PGT family each embryo also shows its derived call (see
 [Haplotype segregation](#haplotype-segregation)).

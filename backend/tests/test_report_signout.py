@@ -36,7 +36,7 @@ from backend.app.services.nipt_quality_checks import PLASMA_PROFILE_VERDICTS
 from backend.app.services.report_code import parse_report_code, report_code
 from backend.app.services.signed_record_sections import RECORD_SECTIONS
 from backend.app.services.family_package_records import package_sources
-from backend.app.services.signout_scope import ReviewsLeftOut
+from backend.app.services.signout_scope import WHOLE_FAMILY, ReviewsLeftOut, SignoutScope
 from backend.app.services.sample_integrity_qc import (
     MendelianCheck,
     NiptCategoryQc,
@@ -147,7 +147,7 @@ def _patch_common(
     import_unfinished=None,
 ):
     async def _ctx(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
     async def _manifest(session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
@@ -224,7 +224,7 @@ def test_sign_out_is_refused_below_supervisor_before_any_gate(monkeypatch, role:
 
     async def _ctx(session, *, family_identifier, user, project_id=None):
         checked.append(family_identifier)
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="T2T-CHM13v2.0")
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="T2T-CHM13v2.0", sample_rows=[])
 
     async def _must_not_build(*args, **kwargs):
         raise AssertionError("a sign-out below supervisor must be refused before its snapshot is built")
@@ -259,7 +259,7 @@ def _patch_off_scope(monkeypatch, assembly_name):
     _patch_common(monkeypatch, drifted_count=0)
 
     async def _ctx(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name=assembly_name)
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name=assembly_name, sample_rows=[])
 
     async def _must_not_build(*args, **kwargs):
         raise AssertionError("an off-scope family must be refused before its snapshot is built")
@@ -314,7 +314,7 @@ def test_a_validated_assembly_is_configured_not_hard_coded(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0)
 
     async def _ctx(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="T2T-CHM13v2.0")
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="T2T-CHM13v2.0", sample_rows=[])
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
     out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
@@ -601,7 +601,7 @@ def _sign_out_two_families(monkeypatch) -> _SignoutTable:
     family = {"uuid": "u1"}
 
     async def _ctx(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid=family["uuid"], family_id="FAM1", assembly_name="GRCh38")
+        return types.SimpleNamespace(family_uuid=family["uuid"], family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
     async def _complete_import(session, family_uuid):
         return None
@@ -850,7 +850,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
 
     def _patch(drift_rows):
         async def _ctx(session, *, family_identifier, user, project_id=None):
-            return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
+            return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
         async def _manifest(session, *, family_id, user, project_id=None):
             return {
@@ -1675,66 +1675,84 @@ def _qc_context() -> object:
     return types.SimpleNamespace(
         family_uuid="u1",
         family_id="FAM1",
+        assembly_name="GRCh38",
         sample_rows=[
             {
                 "sample_id": "HG002",
                 # The context query aliases samples.metadata to `sample_metadata`;
-                # reading the wrong key here yields an empty map and no error.
-                "sample_metadata": {"sequencing_qc": {"depth": {"mean_depth": 18.57}}},
+                # reading the wrong key here yields an empty map and no error. Sequenced
+                # long-read and then short-read: the QC of each analysis.
+                "sample_metadata": {
+                    "sequencing_qc": {
+                        "long_read_wgs": {"depth": {"mean_depth": 18.57}},
+                        "short_read_wgs": {"depth": {"mean_depth": 35.0}},
+                    }
+                },
             },
             {"sample_id": "NOQC", "sample_metadata": {}},
         ],
     )
 
 
-def test_snapshot_freezes_the_cut_offs_the_qc_verdict_was_judged_against(monkeypatch) -> None:
-    async def _resolve(session, *, family_uuid):
-        return {
-            "profile_key": "long_read_wgs",
-            "profile_label": "Long-read WGS",
-            "thresholds": {
-                "depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0},
-            },
-        }
+async def _resolve_by_analysis(session, *, family_uuid, analysis):
+    # The analysis's own profile first, then the default (resolve_analysis_qc_thresholds).
+    own = {"long_read_wgs": "Long-read WGS", "short_read_wgs": "Short-read WGS"}[analysis]
+    return {
+        "profiles": [{"key": analysis, "label": own}, {"key": "default", "label": "Default"}],
+        "thresholds": {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0, "profile_key": analysis}},
+    }
 
+
+def test_snapshot_freezes_the_cut_offs_the_qc_verdict_was_judged_against(monkeypatch) -> None:
     from backend.app.services import qc_threshold_service as qts
 
-    monkeypatch.setattr(qts, "resolve_family_qc_thresholds", _resolve)
+    monkeypatch.setattr(qts, "resolve_analysis_qc_thresholds", _resolve_by_analysis)
 
-    frozen = asyncio.run(rss._canonical_sequencing_qc(_Session(), _qc_context()))
+    frozen = asyncio.run(rss._canonical_sequencing_qc(_Session(), _qc_context(), WHOLE_FAMILY))
 
     # The chip a reviewer saw said "warning" *relative to limits that can be changed
     # afterwards*. Without these, a signed report cannot say what its own QC display
-    # meant at the time.
-    assert frozen["profile_key"] == "long_read_wgs"
-    assert frozen["thresholds"] == {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0}}
-    assert "HG002" in frozen["samples"], "the sample's QC verdict must be frozen too"
+    # meant at the time: each analysis's, with the profiles its cut-offs came from.
+    assert sorted(frozen["analyses"]) == ["long_read_wgs", "short_read_wgs"]
+    long_read = frozen["analyses"]["long_read_wgs"]
+    assert [profile["key"] for profile in long_read["profiles"]] == ["long_read_wgs", "default"]
+    assert long_read["thresholds"] == {
+        "depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0, "profile_key": "long_read_wgs"}
+    }
+    assert "HG002" in long_read["samples"], "the sample's QC verdict must be frozen too"
+    assert long_read["samples"]["HG002"]["verdict"] == "warn"
+    assert frozen["analyses"]["short_read_wgs"]["samples"]["HG002"]["verdict"] == "pass"
     # A sample with no recorded QC contributes nothing rather than a fabricated pass.
-    assert "NOQC" not in frozen["samples"]
+    assert "NOQC" not in long_read["samples"]
     # Only a failed lookup carries the marker: an ordinary snapshot holds none.
     assert "unavailable" not in frozen
 
 
+def test_a_sign_out_of_one_analysis_freezes_its_own_sequencing_qc(monkeypatch) -> None:
+    from backend.app.services import qc_threshold_service as qts
+
+    monkeypatch.setattr(qts, "resolve_analysis_qc_thresholds", _resolve_by_analysis)
+    scope = SignoutScope(analysis="short_read_wgs", own={}, held=frozenset({"long_read_wgs", "short_read_wgs"}))
+
+    frozen = asyncio.run(rss._canonical_sequencing_qc(_Session(), _qc_context(), scope))
+
+    assert list(frozen["analyses"]) == ["short_read_wgs"]
+
+
 def test_snapshot_sequencing_qc_survives_an_unresolvable_profile(monkeypatch) -> None:
-    async def _explode(session, *, family_uuid):
+    async def _explode(session, *, family_uuid, analysis):
         raise RuntimeError("clickhouse is down")
 
     from backend.app.services import qc_threshold_service as qts
 
-    monkeypatch.setattr(qts, "resolve_family_qc_thresholds", _explode)
+    monkeypatch.setattr(qts, "resolve_analysis_qc_thresholds", _explode)
 
-    frozen = asyncio.run(rss._canonical_sequencing_qc(_Session(), _qc_context()))
+    frozen = asyncio.run(rss._canonical_sequencing_qc(_Session(), _qc_context(), WHOLE_FAMILY))
 
     # QC display is advisory; it has never been allowed to break sign-out. But the
     # frozen block must say the cut-offs could not be read: empty on its own is the
     # shape of a family imported without QC outputs.
-    assert frozen == {
-        "profile_key": None,
-        "profile_label": None,
-        "thresholds": {},
-        "samples": {},
-        "unavailable": "QC thresholds could not be resolved",
-    }
+    assert frozen == {"analyses": {}, "unavailable": "QC thresholds could not be resolved"}
 
 
 _QC_GAP = {
@@ -1750,7 +1768,7 @@ def test_snapshot_gaps_list_what_the_record_could_not_capture() -> None:
             {"key": "clinvar", "label": "ClinVar", "version": "2026-05"},
             {"key": "monarch", "label": "Monarch", "version": "unavailable", "detail": "lookup failed"},
         ],
-        "sequencing_qc": {"thresholds": {}, "samples": {}, "unavailable": "QC thresholds could not be resolved"},
+        "sequencing_qc": {"analyses": {}, "unavailable": "QC thresholds could not be resolved"},
     }
     assert rss.snapshot_gaps(snapshot) == [
         _QC_GAP,
@@ -1758,7 +1776,7 @@ def test_snapshot_gaps_list_what_the_record_could_not_capture() -> None:
     ]
     complete = {
         "modules": [{"key": "clinvar", "version": "2026-05"}],
-        "sequencing_qc": {"thresholds": {}, "samples": {}},
+        "sequencing_qc": {"analyses": {}},
     }
     assert rss.snapshot_gaps(complete) == []
     assert rss.snapshot_gaps(None) == []
@@ -1777,11 +1795,17 @@ def _capture_audit(monkeypatch) -> dict:
 def _patch_qc_thresholds(monkeypatch, resolver) -> None:
     from backend.app.services import qc_threshold_service as qts
 
-    monkeypatch.setattr(qts, "resolve_family_qc_thresholds", resolver)
+    monkeypatch.setattr(qts, "resolve_analysis_qc_thresholds", resolver)
+
+    # A family whose samples recorded sequencing QC, whose cut-offs are then resolved.
+    async def _ctx(session, *, family_identifier, user, project_id=None):
+        return _qc_context()
+
+    monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
 
 
 def test_sign_out_audit_records_what_the_snapshot_could_not_capture(monkeypatch) -> None:
-    async def _explode(session, *, family_uuid):
+    async def _explode(session, *, family_uuid, analysis):
         raise RuntimeError("clickhouse is down")
 
     _patch_common(monkeypatch, drifted_count=0)
@@ -1798,8 +1822,8 @@ def test_sign_out_audit_records_what_the_snapshot_could_not_capture(monkeypatch)
 
 
 def test_a_complete_sign_out_records_no_gaps(monkeypatch) -> None:
-    async def _complete_qc(session, context):
-        return {"profile_key": "wgs", "profile_label": "WGS", "thresholds": {}, "samples": {}}
+    async def _complete_qc(session, context, scope):
+        return {"analyses": {}}
 
     _patch_common(monkeypatch, drifted_count=0)
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _complete_qc)
@@ -1901,8 +1925,8 @@ def _patch_check(monkeypatch, *, reviews):
     async def _reviews(session, family_uuid):
         return reviews
 
-    async def _sequencing_qc(session, context):
-        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+    async def _sequencing_qc(session, context, scope=None):
+        return {"analyses": {}}
 
     monkeypatch.setattr(rss, "_reported_reviews", _reviews)
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
@@ -3490,7 +3514,7 @@ def _as_now(monkeypatch, *, reported: list, structural_drifted: list) -> None:
     async def _no_small_reviews(session, family_uuid):
         return []
 
-    async def _sequencing_qc(session, context):
+    async def _sequencing_qc(session, context, scope=None):
         return {"profile_key": "wgs", "profile_label": "WGS", "thresholds": {}, "samples": {}}
 
     monkeypatch.setattr(rss, "_reported_reviews", _no_small_reviews)
@@ -3982,8 +4006,8 @@ _PGT_ANALYSIS = {
 
 
 def _no_sequencing_qc(monkeypatch) -> None:
-    async def _sequencing_qc(session, context):
-        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+    async def _sequencing_qc(session, context, scope=None):
+        return {"analyses": {}}
 
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
 
