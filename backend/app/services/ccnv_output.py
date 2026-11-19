@@ -37,6 +37,12 @@ from .data_scope import normalize_chromosome
 #: The ``source`` ccnv's tracks and calls are stored under.
 CCNV_SOURCE = "ccnv"
 
+#: The genotype a ccnv call is stored with. ccnv writes no GT: a call is an event it found in the
+#: plasma, a mixture of the mother's and the fetus's DNA, for which no zygosity holds. Stored as
+#: ``./1`` (an alternate allele, the other unknown), every reader counts the plasma as carrying
+#: the call, as a no-call it would not: the SV tracks draw it, the SV list's sample filters keep it.
+CCNV_CALL_GENOTYPE = "./1"
+
 #: The files a ccnv dataset's entry names for its sample, each required.
 CCNV_ROLES: tuple[str, ...] = ("bins", "segments", "calls", "qc")
 
@@ -353,3 +359,37 @@ def _track_row(line: str, *, header: Mapping[str, int], track_type: str, line_no
         line_no=line_no,
         kept=kept,
     )
+
+
+#: The fetal-fraction estimates ccnv's QC file gives beside the two it always gives, each served
+#: when the file gives a number: the standard error and each estimator's own fraction (from
+#: chrY, chrX, the autosomes and fragment sizes).
+_FF_ESTIMATES = ("active_ff_se", "ffy", "ffx", "ffa", "ff_size")
+
+
+def ccnv_track_summary(stored: Mapping[str, Any]) -> dict[str, Any]:
+    """What a plasma's ccnv tracks are drawn with: its QC file as the import kept it
+    (``samples.metadata["ccnv"]``, ``{"qc": …, "qc_file": …}``) read again as ``read_ccnv_qc``
+    reads it, as the fetal fraction the expected lines are drawn at (``effective_ff``, the
+    Fisher-weighted fraction ccnv's own lines use), every other estimate, the fetal sex, the
+    sex-chromosome call and ccnv's low-fetal-fraction warning. A record the import did not write
+    raises ``CcnvOutputError``."""
+    payload = stored.get("qc")
+    file = str(stored.get("qc_file") or "of the sample")
+    if not isinstance(payload, dict):
+        raise CcnvOutputError(f"The ccnv QC file {file} is not kept with the sample")
+    qc = read_ccnv_qc(json.dumps(payload).encode(), file=file)
+    prenatal = payload["prenatal"]
+    sca = prenatal["sca"]
+    source = prenatal.get("active_ff_source")
+    low_ff_warning = prenatal.get("low_ff_warning")
+    return {
+        "fetal_fraction": qc.effective_ff,
+        "active_ff": qc.active_ff,
+        **{key: _number(prenatal.get(key)) for key in _FF_ESTIMATES},
+        "active_ff_source": source if isinstance(source, str) and source.strip() else None,
+        "fetal_sex": qc.fetal_sex,
+        "sca_call": qc.sca_call,
+        "sca_confidence": _number(sca.get("confidence")),
+        "low_ff_warning": low_ff_warning if isinstance(low_ff_warning, bool) else None,
+    }

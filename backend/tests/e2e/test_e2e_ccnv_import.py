@@ -11,8 +11,12 @@ import into real Postgres and ClickHouse, as a family of its own (a new id each 
   structural-variant list as a gain;
 * the QC file is kept with the plasma (``samples.metadata.ccnv``), and each of the four files is
   recorded with its SHA-256;
-* ``GET /families/{family_id}/track-availability`` offers the ccnv coverage and segments, and
-  serves the coverage as a log2 ratio, so the viewers draw it on their log2-ratio axis.
+* ``GET /families/{family_id}/track-availability`` offers the ccnv coverage and segments, serves
+  the coverage as a log2 ratio, and serves the plasma's fetal fraction (ccnv's effective one,
+  beside the active one), fetal sex and sex-chromosome call, which the views draw the plasma's
+  track with;
+* a segments read serves each ccnv segment with ccnv's values (its call, expected ratio, implied
+  fetal fraction, discordance, origin), which the views colour it by and show on hover.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -139,6 +143,10 @@ async def _exercise(base: Path, family_id: str) -> dict:
         out["availability"] = {"status": availability.status_code, "json": availability.json()}
         svs = await ac.get(f"/api/families/{family_id}/structural-variants", params={"source": "ccnv"})
         out["svs"] = {"status": svs.status_code, "json": svs.json()}
+        segments = await ac.get(
+            f"/api/bed/{sample}/segments/batch", params={"chrom": ["21", "X"], "source": "ccnv"}
+        )
+        out["segments_read"] = {"status": segments.status_code, "json": segments.json()}
     return out
 
 
@@ -195,7 +203,8 @@ def test_the_gain_is_a_structural_variant_of_the_plasma(run) -> None:
         "ccnv",
     )
     assert variant["copy_change"] == "gain"
-    assert [call["sample"] for call in variant["genotypes"]] == [run["sample"]]
+    # The plasma carries it, at no stated zygosity: the SV tracks draw it.
+    assert [(call["sample"], call["gt"]) for call in variant["genotypes"]] == [(run["sample"], "./1")]
 
 
 def test_the_qc_file_and_the_four_files_are_kept(run) -> None:
@@ -213,3 +222,31 @@ def test_the_viewers_are_offered_the_ccnv_tracks_as_log2_ratios(run) -> None:
     served = run["availability"]["json"]["samples"][run["sample"]]
     assert "ccnv" in served["coverage_sources"] and "ccnv" in served["segments_sources"]
     assert served["coverage_contents"]["ccnv"] == "log2_ratio"
+
+
+def test_the_viewers_are_served_the_plasmas_fetal_fraction_and_calls(run) -> None:
+    served = run["availability"]["json"]["samples"][run["sample"]]["ccnv"]
+    # The expected lines are drawn at ccnv's effective fetal fraction; the others beside it.
+    assert (served["fetal_fraction"], served["active_ff"], served["active_ff_source"]) == (0.121111, 0.081234, "FUSED")
+    assert (served["fetal_sex"], served["sca_call"], served["low_ff_warning"]) == ("F", "XX", False)
+
+
+def test_each_ccnv_segment_is_read_with_ccnvs_values(run) -> None:
+    assert run["segments_read"]["status"] == 200, run["segments_read"]
+    body = run["segments_read"]["json"]
+    assert body["bed_type"] == "segments"
+    by_chrom = {item["chr"]: item for item in body["items"]}
+    assert by_chrom["21"]["details"] == {
+        "zscore": 5.6,
+        "weight": 282.0,
+        "bin_count": 2,
+        "call": "gain",
+        "expected_ratio": 0.08482,
+        "implied_ff": 0.118,
+        "discordant": False,
+        "frag_short_ratio": 0.205,
+        "frag_llr_size": 120.5,
+        "origin_call": "FETAL_CONSTITUTIONAL",
+    }
+    # A segment ccnv did not call has no call.
+    assert "call" not in by_chrom["X"]["details"]
