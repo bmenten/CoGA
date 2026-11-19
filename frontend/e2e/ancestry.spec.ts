@@ -89,7 +89,8 @@ test('calculates the exploratory PCA by itself after an upload and plots no indi
   }).toPass({ timeout: 120_000, intervals: [5_000] });
   const row = table.getByRole('row', { name: new RegExp(sample) });
   await expect(row).toContainText('Not plotted');
-  await expect(row).toContainText('Direct calls · part of the markers');
+  // The callset is named by its caller, the one the upload names.
+  await expect(row).toContainText('Direct calls (Clair3) · part of the markers');
   await expect(row).toContainText('cannot be read as reference');
   await expect(
     ancestry.getByRole('combobox', { name: 'Projection' })

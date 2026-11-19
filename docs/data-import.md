@@ -803,19 +803,23 @@ the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-
 An import records its small variants (in the flag, its entry and `imported_scopes`) as the
 callset it stores them as: the `source_format` the SNV dataset declares or, with `auto` (the
 default), the callset its family VCF holds. The import reads that from the file before it writes
-anything of the family, as the small-variant loader reads it: `glimpse2` for imputed genotypes
-(genotype posteriors in the first record, or phased genotypes in a file whose header or name says
-it was phased), else `clair3`. A monogenic NIPT pair's files are `nipt`, a long-read couple's
-`clair3`. So two imports that both leave `source_format` at `auto` complete each other's failure
-or entry only when their files hold the same callset: direct calls do not bring again imputed
-genotypes the family held, nor the other way round. A file that reads as another callset when its
-dataset's turn comes changed while the import ran, and is refused before anything of it is
-written.
+anything of the family, as the small-variant loader reads it
+([Small-variant callsets](#small-variant-callsets)): the caller the header names, else `glimpse2`
+for imputed genotypes (genotype posteriors in the first record, or phased genotypes in a file
+whose header or name says it was phased). A monogenic NIPT pair's files are `nipt`; a long-read
+couple's are the callset of the caller their dataset declares. So two imports that both leave
+`source_format` at `auto` complete each other's failure or entry only when their files hold the
+same callset: direct calls do not bring again imputed genotypes the family held, nor the other way
+round, and one caller's calls do not bring again another caller's. A file that reads as another
+callset when its dataset's turn comes changed while the import ran, and is refused before anything
+of it is written.
 
 The SNV dataset's update check and clean-up read that callset too, never an assumed one:
 
 - An `update` skips the dataset when the family holds small variants of the file's callset
-  (imputed genotypes are imported beside direct calls the family holds).
+  (imputed genotypes are imported beside direct calls the family holds, and one caller's calls
+  beside another caller's: a long-read package imported with update into a family that holds the
+  short-read callset imports its own).
 - After a failure the clean-up removes that callset's rows only, the callset the flag names (a
   failed import of imputed genotypes leaves the direct calls, and the other way round).
 - An import that could not read the file when it began reads it when the dataset's turn comes;
@@ -1282,7 +1286,8 @@ FAM001/
 
 Discover takes `bams/<sample>/<sample>.cram` (or `.bam`) as the sample's alignment, never another
 file in that folder (a `<sample>_phased.bam` beside it). For the family callset it sets
-`source_format: clair3` and `exclude_filters`, as for the long-read per-sample callsets (below).
+`source_format: deepvariant`, the caller its header names, and `exclude_filters`, as for the
+long-read per-sample callsets (below).
 
 A family on conventional short-read WGS (Illumina, analysis `short_read_wgs`, SR-WGS) has its PED,
 its joint callset (GATK HaplotypeCaller per sample, joint-genotyped with GenotypeGVCFs) twice at
@@ -1300,10 +1305,11 @@ FAM001/
 - Discover takes the annotated callset as the family's SNV callset, never the unannotated one, and
   `<sample>/<sample>.cram` (or `.bam`) as each sample's alignment; a sample without one has calls
   but no reads in the genome browser.
-- It sets `source_format: clair3`: GATK's header describes its physical phasing, so a file whose
-  first record is physically phased (`0|1`) would otherwise be read as imputed genotypes, which the
-  diagnostic views leave out. A package file the pipeline writes for such a family should say the
-  same in its `snv` dataset.
+- It sets `source_format: haplotypecaller`, the caller the header names
+  (`##GATKCommandLine=<ID=HaplotypeCaller,…`). The header also describes GATK's physical phasing,
+  and the first record can be physically phased (`0|1`); the caller's name decides, so the file is
+  never read as imputed genotypes, which the diagnostic views leave out. A package file the
+  pipeline writes for such a family should name the caller the same way in its `snv` dataset.
 - The callset's records carry no FILTER of their own (`.`, as GATK writes them without VQSR), which
   a PASS-only filter keeps; its contigs are in the order the joint calling concatenated them, which
   the import does not need sorted.
@@ -1480,13 +1486,17 @@ is imported: [Conventional NIPT](#conventional-nipt-ccnv).
 - A long-read package's per-sample SNV or NeedlR file counts as the family's callset only when the
   family has one sample. With two or more samples and no joint VCF, Discover proposes one VCF per
   sample (`per_sample`) and names a sample that has none.
-- For the long-read pipeline's annotated SNV files it sets `source_format: clair3` and, when the
-  header declares them, `exclude_filters: [RefCall, NoCall]`. It does the same for a family VCF of
-  DeepVariant's own calls (its header has `##DeepVariant_version`), merged and phased or not: a
-  phased callset would otherwise be read as imputed and kept out of the diagnostic views. A file
-  whose header declares genotype posteriors (FORMAT `GP`) or names an imputation or statistical
-  phasing tool (GLIMPSE, Beagle, IMPUTE, Minimac, SHAPEIT) is left to the loader, which reads it as
-  imputed.
+- For the long-read pipeline's annotated SNV files it sets `source_format` to the caller every
+  file's header names (`deepvariant` for `##DeepVariant_version`) and, when the header declares
+  them, `exclude_filters: [RefCall, NoCall]`. It does the same for a family VCF of a caller's own
+  calls whose header names the caller ([Small-variant callsets](#small-variant-callsets)):
+  DeepVariant's, merged and phased or not, as `deepvariant`; a short-read WGS family's GATK
+  callset as `haplotypecaller`. A file whose header declares genotype posteriors (FORMAT `GP`) or
+  names an imputation or statistical phasing tool (GLIMPSE, Beagle, IMPUTE, Minimac, SHAPEIT) is
+  left to the loader, which reads it as imputed. Any other file whose header names no caller, or
+  files whose headers do not name the same one, get no `source_format`: validation refuses them
+  until the delivery names the caller (**Correct…**; `dataset_callset_unnamed`, or
+  `dataset_per_sample_unsupported` for per-sample files).
 - A resumed Nextflow run writes an execution report, a trace and a params file at every start,
   failed ones included. For `pipeline_info` Discover names the records of the last run whose
   execution report says it completed (`Workflow execution completed successfully`, read from the
@@ -1682,9 +1692,13 @@ metadata. A dataset can be switched off with `enabled: false`.
 
 The `snv` dataset takes three optional settings:
 
-- `source_format`: `clair3` for a directly called callset, `glimpse2` for imputed genotypes. Set
-  it for long-read packages: without it the importer guesses from the first record, and can take
-  a phased primary callset for an imputed one and hide it from the diagnostic views.
+- `source_format`: the callset the calls are stored as. For direct calls, the caller that made
+  them (`haplotypecaller`, `mutect2`, `clair3`, `deepvariant`, or any other caller's name); for
+  imputed genotypes, `glimpse2`. With `auto`, the default, the loader reads it from the file
+  ([Small-variant callsets](#small-variant-callsets)), and validation refuses a family VCF whose
+  caller neither the dataset nor its header names (`dataset_callset_unnamed`). A value that is not
+  a callset's name is refused (`dataset_callset_invalid`). A per-sample callset of germline calls
+  must name its caller ([below](#per-sample-callsets-of-a-long-read-couple)).
 - `exclude_filters`: FILTER values to drop at import, such as `[RefCall, NoCall]` for a
   DeepVariant whole-genome callset. A record is dropped only when all its FILTER values are in
   the list.
@@ -1703,11 +1717,59 @@ track is drawn on its own range without an axis, with a note, and never read as 
 `content` is an error (`coverage_content_invalid`). A per-target coverage table (`target_table:`)
 declares nothing: it holds each target's depth.
 
+### Small-variant callsets
+
+A family's small variants are stored per callset (the ClickHouse `source`), and a callset of direct
+calls is named by the caller that made it
+([small_variant_callsets.py](../backend/app/services/small_variant_callsets.py)):
+
+- `haplotypecaller` (GATK HaplotypeCaller: short-read WGS), `mutect2` (GATK Mutect2: a NIPT
+  plasma's calls), `clair3` and `deepvariant` (long-read WGS);
+- any other caller a package or an upload names: lower-case letters, digits and underscores,
+  starting with a letter, 2 to 32 characters (`CALLSET_NAME`).
+
+Which caller a pipeline runs can change with its preprocessing, so the name comes from the package,
+the upload or the file's header, never from the kind of analysis. So short-read and long-read WGS
+of the same DNA keep their calls apart: one family can hold both, each analysis imported from its
+own package (the second with update) and signed out on its own. Beside the direct callsets sit
+callsets read by rules of their own: the imputed genotypes (`glimpse2`, `shapeit`), the mtDNA calls
+(`mito`) and a monogenic NIPT pair's per-sample calls (`nipt`).
+
+A package's `snv` dataset and an upload name their callset (`source_format`), and that name is used
+as given. With `auto`, the default, the loader reads it from the family VCF
+(`variant_upload_service._detect_small_variant_format_from_upload`):
+
+1. The caller the header names (`caller_from_vcf_header`, read without regard to case). It decides
+   even for a GATK callset whose header says it was phased and whose first record is physically
+   phased.
+
+   | Header line | Callset |
+   | --- | --- |
+   | `##GATKCommandLine=<ID=HaplotypeCaller,…` or `##GATKCommandLine.HaplotypeCaller=` | `haplotypecaller` |
+   | `##GATKCommandLine=<ID=Mutect2,…`, `##GATKCommandLine.Mutect2=`, `##source=Mutect2` or `##MutectVersion=` | `mutect2` |
+   | `##DeepVariant_version=` or `##source=DeepVariant` | `deepvariant` |
+   | `##source=Clair3` or `##clair3_version=` | `clair3` |
+
+   A header that names two different callers (a merge of two callers' files) names none.
+2. Else `glimpse2`, when the first record carries genotype posteriors (FORMAT `GP`), or phased
+   genotypes in a file whose header or name says it was phased.
+3. Else the file is refused (400, *"CoGA cannot tell which caller made this small-variant VCF …"*,
+   `UNNAMED_CALLER_MESSAGE`). CoGA never stores a callset under a guessed name: name the caller (the
+   dataset's `source_format`, or the upload's callset) and load the file again. Package validation
+   refuses such a file before anything is written (`dataset_callset_unnamed`).
+
+The caller's version is recorded from the same header in the family's annotation manifest
+([annotation-provenance.md](annotation-provenance.md)). A reader that reads one callset of a family
+(the Sample QC's genotypes, the ancestry estimate) takes the direct calls first (`clair3`,
+`deepvariant`, `haplotypecaller`, `mutect2`, then any other by name), then a monogenic NIPT's
+per-sample calls, then the imputed genotypes (`callset_preference`). The Sample QC of one
+analysis's sign-out chooses among that analysis's own callsets.
+
 ### Where each dataset lands
 
 | Dataset | Stored as |
 | --- | --- |
-| `snv` | small variants (ClickHouse), with the VEP table if given (VEP's `--tab` output, or its default output, whose `Extra` column's `KEY=VALUE` fields are read as the `--tab` columns). A monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)); a long-read couple's one-sample VCFs (`per_sample`, `source_format: clair3`) as the primary callset, source `clair3` ([below](#per-sample-callsets-of-a-long-read-couple)) |
+| `snv` | small variants (ClickHouse), with the VEP table if given (VEP's `--tab` output, or its default output, whose `Extra` column's `KEY=VALUE` fields are read as the `--tab` columns). A family VCF as the callset of its caller, or as imputed genotypes ([above](#small-variant-callsets)). A monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)); a long-read couple's one-sample VCFs (`per_sample`, `source_format` naming their caller, such as `deepvariant`) as one callset under that name ([below](#per-sample-callsets-of-a-long-read-couple)) |
 | `sv_needlr` | structural variants (ClickHouse), source `needlr`, from one family VCF or one VCF per sample (`per_sample`), each file's calls bound to its sample. A breakend keeps its mate, the position its ALT names in brackets, as a structural-variant upload reads it ([below](#6-single-file-uploads)). Each SV takes the id its coordinates give it, never the record's ID, which its annotation keeps (below this table) |
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
@@ -2095,9 +2157,11 @@ same: a folder counts as a package when it holds a PED or the pipeline's per-sam
   clinical status unknown. Any other set of members gets no link.
 - The warning `ped_proposed_from_folders` says what was proposed: check it before approving.
 
-**The SNV files are one callset**, the family's primary callset (source `clair3`), declared as
-`snv.per_sample` with `source_format: clair3`
-([per_sample_small_variants.py](../backend/app/services/per_sample_small_variants.py)):
+**The SNV files are one callset**, declared as `snv.per_sample` with `source_format` naming the
+caller that made them, and stored under that name: Discover declares the caller every file's header
+names, `deepvariant` for the long-read pipeline's files
+([Small-variant callsets](#small-variant-callsets),
+[per_sample_small_variants.py](../backend/app/services/per_sample_small_variants.py)):
 
 - The files are read side by side, each sorted in the order of its `##contig` lines. A file whose
   contigs are listed in another order than the others' fails the dataset before anything is
@@ -2122,15 +2186,16 @@ same: a folder counts as a package when it holds a PED or the pipeline's per-sam
 - Each record's QUAL, FILTER and caller metrics are the call's own (`calls.filters`,
   `calls.metrics`). The row's FILTER holds every record's; its annotation is that of the first
   file with a kept record there.
-- The callset replaces the family's primary callset, joint or per-sample: the import must bring
-  the file of every sample with calls in it, or it is refused before anything is deleted (*"The
-  family's callset also holds the calls of …"*). With `update`, the dataset is skipped when the
-  family holds a primary callset.
+- The callset replaces the family's callset of the same name, joint or per-sample: the import
+  must bring the file of every sample with calls in it, or it is refused before anything is
+  deleted (*"The family's callset also holds the calls of …"*). With `update`, the dataset is
+  skipped when the family holds a callset of that name; another caller's callset does not skip it.
 
 A monogenic NIPT pair's per-sample files are read differently ([above](#monogenic-nipt-pairs)).
-Without `analysis_type: monogenic_nipt` and without `source_format: clair3`, a per-sample SNV
-callset is refused (`dataset_per_sample_unsupported`), so a NIPT pair whose analysis type was left
-out is never read as germline calls.
+Without `analysis_type: monogenic_nipt`, a per-sample SNV callset whose `source_format` names no
+caller's direct callset (left out, or `glimpse2`, `mito` or `nipt`) is refused
+(`dataset_per_sample_unsupported`), so a NIPT pair whose analysis type was left out is never read
+as germline calls.
 
 **The NeedlR files** go under `sv_needlr.per_sample`. NeedlR has no sample column; each record
 names its query in `Query_ID`, after the caller's input (`<sample>_sv_phased`). A file whose query
@@ -2180,11 +2245,17 @@ Discover, dry run and import check:
   of it, starts with `~` or runs through a symlink loop is refused with 400, see
   [the manifest](#the-manifest)). A compressed family VCF has its index (`.tbi`, `.csi` or `.idx`,
   next to it or given as `index:`); a plain `.vcf` needs none.
+- **The SNV callset's name**: the `source_format` of an `snv` dataset with a family VCF is `auto`
+  or a callset's name (`dataset_callset_invalid` otherwise). With `auto`, the family VCF is read as
+  the loader reads it, and one whose caller neither the dataset nor its header names, and that
+  holds no imputed genotypes, is refused (`dataset_callset_unnamed`,
+  [Small-variant callsets](#small-variant-callsets)).
 - **Per-sample SNV callsets** (`snv.per_sample` without `family_vcf`) are read for a family with
-  `analysis_type: monogenic_nipt`, or as the primary callset of germline calls made one sample at
-  a time when the dataset says `source_format: clair3` (otherwise
-  `dataset_per_sample_unsupported`). Each VCF holds exactly one sample
-  (`dataset_vcf_not_single_sample`) and needs no index. A VCF whose header cannot be read (a
+  `analysis_type: monogenic_nipt`, or as a callset of germline calls made one sample at a time
+  when the dataset names the caller that made them as its `source_format` (`deepvariant`,
+  `clair3`, `haplotypecaller`…; otherwise `dataset_per_sample_unsupported`). Each VCF holds
+  exactly one sample (`dataset_vcf_not_single_sample`) and needs no index. A VCF whose header
+  cannot be read (a
   `.vcf.gz` cut short or damaged, or a plain-text file named `.gz`) is refused by its sample and
   file name (`dataset_vcf_unreadable`). A NIPT pair's VCF whose one column is named neither as its
   member nor as its entry's `vcf_sample` is a warning (`nipt_vcf_column_named_otherwise`,
@@ -2481,12 +2552,19 @@ that type.
 
 **Family small variants.** An upload is one family VCF from one callset:
 
-- `source_format` is `clair3` (a directly called callset), `glimpse2` (imputed genotypes, which
-  also make the haplotype blocks), `mito` (chrM calls) or `auto`, the default, which tells
-  `clair3` and `glimpse2` apart from the first record. Any other value is refused (422) before
-  anything is stored. Only Package Import writes the `nipt` callset of a monogenic NIPT pair, one
-  file per sample ([Monogenic NIPT pairs](#monogenic-nipt-pairs)); a combined father and plasma
-  VCF uploads as an ordinary callset.
+- `source_format` names the callset: a caller's direct calls by the caller's name
+  (`haplotypecaller`, `mutect2`, `clair3`, `deepvariant`, or any other callset name), `glimpse2`
+  (imputed genotypes, which also make the haplotype blocks), `mito` (chrM calls) or `auto`, the
+  default: the caller the VCF header names, else `glimpse2` for imputed genotypes
+  ([Small-variant callsets](#small-variant-callsets)). A file whose caller `auto` cannot tell is
+  refused (400) until the upload names it. A value that is not a callset's name, `nipt` and
+  imputed genotypes other than `glimpse2` are refused (422) before anything is stored. Only
+  Package Import writes the `nipt` callset of a monogenic NIPT pair, one file per sample
+  ([Monogenic NIPT pairs](#monogenic-nipt-pairs)); a combined father and plasma VCF uploads as an
+  ordinary callset, Mutect2's (`mutect2`).
+- The page's **Callset** field offers *The caller the VCF header names* (`auto`), Clair3,
+  DeepVariant, GATK HaplotypeCaller, GATK Mutect2 and GLIMPSE2 imputed genotypes. The answer's
+  `source_format` is the callset the rows were stored as.
 - The upload is refused (409) when the family already has calls from that callset or, for imputed
   genotypes, haplotype blocks. `overwrite=true` replaces them; every other callset stays.
 - With `overwrite`, the file is read and checked whole before anything is replaced: each record
@@ -2641,7 +2719,7 @@ again what the other brought; where no package dataset brings it, under a name o
 
 | Upload | Recorded as |
 | --- | --- |
-| Family small variants | `snv`, with the callset it stored (`clair3` or `mito`; `auto` as it resolved): what a package `snv` dataset stored as that callset brings (its `source_format`, or `auto` as the import resolved it). Imputed genotypes (`glimpse2`), with their haplotype blocks: `haplotypes`, as a package's imputed family VCF |
+| Family small variants | `snv`, with the callset it stored (a caller's direct callset, such as `haplotypecaller`, or `mito`; `auto` as it resolved): what a package `snv` dataset stored as that callset brings (its `source_format`, or `auto` as the import resolved it). Imputed genotypes (`glimpse2`), with their haplotype blocks: `haplotypes`, as a package's imputed family VCF |
 | Structural variants | `sv_sniffles`, `sv_spectre` or `sv_manual`, for the sample: no package dataset brings them |
 | Repeat expansions (TRGT) | `repeats_trgt`, for the sample: what a package's TRGT file of that sample brings |
 | Interval tracks (BED) | `bed_coverage`, `bed_segments`, `bed_apcad` or `bed_apcad_pcf`, for the sample: a package dataset that writes such a track may read another kind of file into it, or write another track. A coverage BED's scope also says what it declared it holds (`content`), as the package `coverage` dataset's says each sample's (`unknown` without the manifest's `content`); a later record of the same sample's BED replaces it, and no overwrite compares it |
@@ -2840,7 +2918,9 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
 | "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file or, if the file is X's after all, set `vcf_sample` on X's entry. An upload (TRGT, Sniffles, Spectre) takes X's own file. |
 | "… VCF has no #CHROM line", "… has a record before its #CHROM line", "… has more than one #CHROM line" | An uploaded Sniffles or Spectre VCF has no header line naming its sample columns before its records, or two files were joined into one: upload the sample's VCF as the caller wrote it. |
-| `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt` and does not say `source_format: clair3`. For the long-read pipeline's per-sample calls set `source_format: clair3`; else give a joint VCF as `snv.family_vcf`. |
+| `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt`, whose `source_format` does not name the caller that made the files. For the long-read pipeline's per-sample calls set the caller (`source_format: deepvariant`, or `clair3`…); else give a joint VCF as `snv.family_vcf`. |
+| `dataset_callset_unnamed` | The SNV family VCF's `source_format` is `auto`, its header names no caller CoGA reads (HaplotypeCaller, Mutect2, DeepVariant, Clair3) or two of them, and it holds no imputed genotypes ([Small-variant callsets](#small-variant-callsets)). Name the caller that made it as the dataset's `source_format` (**Correct…**), such as `haplotypecaller` or `deepvariant`. A single-file upload of such a file is refused (400) with the same message: choose its callset. |
+| `dataset_callset_invalid` | The SNV dataset's `source_format` is not a callset's name: write the caller in lower-case letters, digits and underscores, starting with a letter (`haplotypecaller`, `deepvariant`, `clair3`, `glimpse2`…). |
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
 | `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
 | `dataset_vcf_unreadable` | A sample's VCF under `snv.per_sample` (or a NIPT pair's parent VCF, in Discover), an APCAD VCF or the phased family VCF could not be read: a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF named `.gz`; for an APCAD or phased VCF also a BGZF file without its end-of-file block. The message names the file, and the sample where the file is a sample's. Copy the file again from where the pipeline wrote it. An import that meets such a file fails its dataset with "… could not be read: it is cut short or damaged, or is not gzip". |

@@ -44,7 +44,8 @@ def _long_read_sample(package: Path, sample_id: str, karyotype: str) -> None:
     snv = package / "snv" / sample_id / "annotation" / f"{sample_id}_annot.vcf.gz"
     trgt = package / "repeats" / sample_id / f"{sample_id}_tr.vcf.gz"
     for path, header in (
-        (snv, "##fileformat=VCFv4.2\n"),
+        # The long-read pipeline's DeepVariant callset: its header names the caller.
+        (snv, "##fileformat=VCFv4.2\n##DeepVariant_version=1.6.1\n"),
         (trgt, f"##fileformat=VCFv4.2\n##trgtCommand=trgt genotype --karyotype {karyotype}\n"),
     ):
         path.parent.mkdir(parents=True, exist_ok=True)

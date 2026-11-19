@@ -39,6 +39,8 @@ def one_sample_package(
         (root / "snv").mkdir(exist_ok=True)
         (root / "snv" / "family.vcf").write_text(
             "##fileformat=VCFv4.2\n"
+            # The caller its header names: the callset is stored under its name.
+            "##source=Clair3\n"
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
             + "".join(

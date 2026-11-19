@@ -433,6 +433,7 @@ async def test_per_sample_files_keep_deep_calls_and_skip_unstorable_positions(cl
         sample_contexts={name: _sample(name) for name in _SAMPLES},
         files=files,
         overwrite=True,
+        source="deepvariant",
     )
 
     assert (result["inserted"], result["skipped_malformed"]) == (1, 1)

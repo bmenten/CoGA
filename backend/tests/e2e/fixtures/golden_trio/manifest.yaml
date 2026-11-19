@@ -7,6 +7,8 @@ metadata:
 datasets:
   snv:
     family_vcf: snv/family.vcf
+    # The callset is stored under its caller's name, which the synthetic VCF's header does not state.
+    source_format: clair3
   sv_needlr:
     family_vcf: sv_needlr/family.needlr.vcf
   repeats_trgt:

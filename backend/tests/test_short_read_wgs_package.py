@@ -65,17 +65,17 @@ def test_discover_takes_the_annotated_callset_and_each_samples_cram(folder: Path
     assert {item.dataset_type for item in availability if item.complete} >= {"snv", "alignments"}
 
 
-def test_the_gatk_callset_is_declared_the_primary_callset_of_direct_calls(folder: Path) -> None:
+def test_the_gatk_callset_is_named_by_its_caller(folder: Path) -> None:
     annotated = folder / f"{FAMILY}.GRCh38.annotated.vcf.gz"
-    # Read by itself the file is taken for imputed genotypes: its header says "phased" and its
-    # first record is physically phased.
+    # Its header names GATK HaplotypeCaller, so it is read as that caller's direct calls,
+    # although the header says "phased" and its first record is physically phased.
     with annotated.open("rb") as handle:
-        assert _small_variant_callset(UploadFile(file=handle, filename=annotated.name)) == "glimpse2"
+        assert _small_variant_callset(UploadFile(file=handle, filename=annotated.name)) == "haplotypecaller"
 
     manifest, _availability = _discover(folder)
 
     snv = manifest["datasets"]["snv"]
-    assert snv["source_format"] == "clair3"
+    assert snv["source_format"] == "haplotypecaller"
     # GATK writes no reference-block records to leave out.
     assert "exclude_filters" not in snv
 

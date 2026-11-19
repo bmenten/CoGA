@@ -461,8 +461,9 @@ class SmallVariantUploadResult(BaseModel):
     skipped_filtered: int
     excluded_filters: List[str] = Field(default_factory=list)
     haplotypes_inserted: int
-    # The callset the rows are stored under (``auto`` resolves to clair3 or glimpse2).
-    source_format: Literal["clair3", "glimpse2", "mito"]
+    # The callset the rows are stored under: a direct callset named by its caller, glimpse2 or
+    # mito (``auto`` resolves to the caller the VCF header names, or glimpse2).
+    source_format: str
     annotation_rows: int
     annotation_source: Optional[str] = None
     annotation_version: str

@@ -3,8 +3,9 @@
 The long-read pipeline (nf-core/lrsvar) calls and annotates each sample on its own
 (DeepVariant, phased by longphase, annotated by VEP) and writes no joint callset, so a
 couple screened for carriership arrives as one annotated VCF per partner. CoGA reads such
-files as the family's primary callset (source ``clair3``, the label of the primary,
-directly called nuclear callset whatever produced it). The files are read side by side:
+files as one callset of direct calls, named by the caller its package declares
+(``source_format``: ``deepvariant``, ``clair3``…; small_variant_callsets.py). The files are
+read side by side:
 every file is sorted by position in the order of its ``##contig`` lines, and the records
 of one site -- one chromosome, position, REF and ALT -- become one row holding the call
 of each sample whose file has a record there. Nothing is held in memory but the records
@@ -86,9 +87,6 @@ from .vcf_call_metrics import record_filter_values, single_sample_call_metrics
 from .vcf_header_provenance import extract_header_provenance, merge_module_maps
 
 logger = logging.getLogger(__name__)
-
-# The callset the files are stored as: the family's primary, directly called callset.
-PER_SAMPLE_CALLSET_SOURCE = "clair3"
 
 _CONTIG_ID = re.compile(r"##contig=<(?:[^>]*,)?ID=([^,>]+)")
 
@@ -341,7 +339,7 @@ def merged_site_record(
     group: Sequence[_SiteRecord],
     readers: Sequence[_PerSampleVcfReader],
     *,
-    source: str = PER_SAMPLE_CALLSET_SOURCE,
+    source: str,
 ) -> SmallVariantRecord:
     """One row of the callset from the records of one site (at least one of them kept)."""
     lead = next((record for record in group if not record.excluded), group[0])
@@ -391,12 +389,14 @@ async def upload_family_per_sample_small_variant_files(
     sample_contexts: dict[str, SampleMetadataContext],
     files: Sequence[PerSampleVcf],
     overwrite: bool,
+    source: str,
     exclude_filters: Sequence[str] | None = None,
     progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
-    """Store ``files``, one VCF per sample, as the family's primary small-variant callset.
+    """Store ``files``, one VCF per sample, as the family's callset ``source``: direct calls,
+    named by their caller.
 
-    The callset replaces the family's stored primary callset (``overwrite``; else 409 when
+    The callset replaces the family's stored callset of that name (``overwrite``; else 409 when
     there is one). It must bring the file of every sample with calls in the stored one: a
     sample left out would lose its calls without a word, so that is refused (409) before
     anything is deleted, as is a file with no record and a BGZF file that does not end with
@@ -414,7 +414,6 @@ async def upload_family_per_sample_small_variant_files(
     if not files:
         raise HTTPException(status_code=400, detail="No per-sample SNV file to import")
     assembly_name = context.assembly_name
-    source = PER_SAMPLE_CALLSET_SOURCE
     excluded_filters = {str(value).strip() for value in (exclude_filters or []) if str(value).strip()}
     file_samples = [file.sample_id for file in files]
     if len(set(file_samples)) != len(file_samples):

@@ -43,6 +43,8 @@ _MANIFEST = (
 # literal "S1" across coexisting families would 409.
 _GOOD_VCF = (
     "##fileformat=VCFv4.2\n"
+    # The caller its header names: the callset is stored under its name.
+    "##source=Clair3\n"
     '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
     "1\t100\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n"
@@ -51,6 +53,7 @@ _GOOD_VCF = (
 # family sample) but raises on int(POS) during import -> dataset fails.
 _MALFORMED_VCF = (
     "##fileformat=VCFv4.2\n"
+    "##source=Clair3\n"
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
     "1\tNOT_A_NUMBER\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n"
 )
@@ -58,6 +61,7 @@ _MALFORMED_VCF = (
 # small-variant count must return to the pre-import value (1), not the overwrite's (2).
 _TWO_VARIANT_VCF = (
     "##fileformat=VCFv4.2\n"
+    "##source=Clair3\n"
     '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
     "1\t100\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n"

@@ -178,7 +178,7 @@ def test_discover_drafts_the_couple_and_its_per_sample_callsets(monkeypatch: pyt
         {"partners": [MOTHER, FATHER], "context": "carrier screening"}
     ]
     snv = manifest["datasets"]["snv"]
-    assert snv["source_format"] == "clair3"
+    assert snv["source_format"] == "deepvariant"
     assert snv["exclude_filters"] == ["RefCall", "NoCall"]
     assert "family_vcf" not in snv
     assert snv["per_sample"][MOTHER] == {

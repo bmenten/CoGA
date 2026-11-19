@@ -73,6 +73,7 @@ def _write_package(root: Path, family_id: str, **datasets: str) -> Path:
         pos = ["NOT_A_NUMBER", "NOT_A_NUMBER"] if datasets["snv"] == "unreadable" else ["100", "200"]
         (root / "snv" / "family.vcf").write_text(
             "##fileformat=VCFv4.2\n"
+            "##source=Clair3\n"
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
             + "".join(f"1\t{p}\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n" for p in pos),

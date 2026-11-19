@@ -3,7 +3,7 @@
 CoGA runs several applications with different input modalities, so a single
 generic QC is wrong. This layer resolves the application (long-read WGS family /
 shallow-WGS PGT / monogenic NIPT / carrier couple (BEGECS) / single targeted),
-picks the matching genotype callset (clair3 SNVs, GLIMPSE2 imputed, …), runs only
+picks the matching genotype callset (direct calls by their caller, GLIMPSE2 imputed, …), runs only
 the checks that make sense for it, and — for NIPT — derives paternity from the
 cfDNA classification instead of genotype relatedness. A sample without chrX genotypes
 is sexed from the call the pipeline's ngs-bits made from its reads, stored with its
@@ -36,6 +36,7 @@ from .haplotype_lineage_service import build_pedigree
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
 from .nipt import resolve_nipt_trio
+from .small_variant_callsets import callset_preference
 from .sample_integrity_qc import (
     FetalSexCheck,
     Genotype,
@@ -75,8 +76,6 @@ QC_X_SITES = 20_000
 # read only that part (the owner's decision of 2026-10-27).
 QC_MIN_AUTOSOMES = 20
 
-# Genotype callsets preferred for QC, best first: real SNV calls before imputed.
-_SOURCE_PREFERENCE = ("clair3", "glimpse2")
 
 
 # A family's genotype strings are a handful of distinct values ("0|1", "1/1", "./."), read
@@ -105,13 +104,9 @@ def _parse_genotype(gt: str | None) -> Genotype | None:
 
 
 def _choose_genotype_source(available: list[str]) -> str | None:
-    """Pick the QC genotype source from the family's callsets (clair3 > glimpse2)."""
-    lowered = [s.lower() for s in available]
-    for preferred in _SOURCE_PREFERENCE:
-        for raw, low in zip(available, lowered):
-            if preferred in low:
-                return raw
-    return available[0] if available else None
+    """Pick the QC genotype source from the family's callsets: direct calls before imputed
+    genotypes, the known callers first (``callset_preference``)."""
+    return min(available, key=callset_preference) if available else None
 
 
 async def _load_genotype_sample(

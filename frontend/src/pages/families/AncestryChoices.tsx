@@ -9,20 +9,15 @@ import type {
   AncestrySampleOut,
   FamilyAncestryOut,
 } from '../../lib/apiSchema.generated';
+import { callsetLabel } from '../../lib/callsets';
 
 type Panel = Pick<GenePanel, '_id' | 'name'>;
-
-const CALLSET_LABELS: Record<string, string> = {
-  clair3: 'Direct calls',
-  nipt: 'NIPT per-sample calls',
-  glimpse2: 'Imputed genotypes',
-};
 
 const describe = (choice: AncestrySampleChoiceOut | undefined, labels: Map<string, string>) => {
   if (!choice || choice.mode === 'auto') return 'Automatic';
   if (choice.mode === 'exclude') return 'Left out';
   const label =
-    labels.get(choice.callset ?? '') ?? CALLSET_LABELS[choice.callset ?? ''] ?? choice.callset;
+    labels.get(choice.callset ?? '') ?? (choice.callset ? callsetLabel(choice.callset) : choice.callset);
   return choice.regions
     ? `${label}, in ${choice.regions.name} (${choice.regions.covered_markers.toLocaleString()} markers)`
     : `${label}`;

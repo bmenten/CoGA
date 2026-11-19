@@ -50,7 +50,7 @@ from .access_control import (
 )
 from . import ancestry_choices as choices_store
 from .ancestry_callsets import (
-    CALLSET_LABELS,
+    CALLSET_KIND_LABELS,
     COMPLETE_SHARE,
     MIN_COVERAGE_RATIO,
     project_family,
@@ -437,7 +437,7 @@ async def _check_family(session: AsyncSession, run: dict) -> None:
 def _assumptions(reference: AncestryReference, digest: str) -> dict[str, str | bool | float | int]:
     exome = reference.exome
     return {
-        "genotypes": "the family's stored callsets (" + ", ".join(CALLSET_LABELS.values()).lower()
+        "genotypes": "the family's stored callsets (" + ", ".join(CALLSET_KIND_LABELS)
                      + ") at the reference markers; diploid GT; exact REF/ALT; no strand flips",
         "callset_kinds": "complete: explicit calls only; genome: an absent record is homozygous reference; "
                          "exome: an absent record is reference only inside the exome mask; partial: not projected",

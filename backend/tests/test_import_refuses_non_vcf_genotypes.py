@@ -242,6 +242,7 @@ async def test_a_long_read_samples_genotype_word_is_refused_before_any_write(
             sample_contexts=_SAMPLE_CONTEXTS,
             files=files,
             overwrite=True,
+            source="deepvariant",
         )
 
     assert refused.value.status_code == 400

@@ -164,7 +164,7 @@ def test_the_demo_deliverys_manifest_names_the_trio_the_plasmas_assay_and_the_da
         },
         "samples": {"CFDNA_NIPT": {"assay": "nipt_cfdna"}},
         "datasets": {
-            "snv": {"family_vcf": "nipt_combined.vcf"},
+            "snv": {"family_vcf": "nipt_combined.vcf", "source_format": "mutect2"},
             "coverage": {"per_sample": {"CFDNA_NIPT": {"bed": "nipt_coverage.bed", "content": "read_depth"}}},
         },
     }

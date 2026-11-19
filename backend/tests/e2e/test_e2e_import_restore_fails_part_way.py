@@ -132,7 +132,9 @@ def _write_package(
         posteriors = '##FORMAT=<ID=GP,Number=G,Type=Float,Description="Genotype posteriors">\n'
         (root / "snv" / "family.vcf").write_text(
             "##fileformat=VCFv4.2\n"
-            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            # Direct calls name their caller (Clair3); imputed genotypes carry their posteriors.
+            + ("" if imputed else "##source=Clair3\n")
+            + '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             + (posteriors if imputed else "")
             + f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
             + "".join(

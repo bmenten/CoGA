@@ -7,7 +7,7 @@ and runs the pure analysis core (nipt_analysis) and the de novo triage and reces
 
 Two kinds of callset reach here:
 
-- a joint VCF of the father and the plasma (source ``clair3``): every row holds both
+- a joint VCF of the father and the plasma (stored under its caller's name, ``mutect2``): every row holds both
   calls, a reference call reading ``0/0``;
 - the per-sample ``nipt`` callset, one VCF per sample (family_package_nipt): a sample
   without a call at a variant had no alt read there the caller reported. The father's

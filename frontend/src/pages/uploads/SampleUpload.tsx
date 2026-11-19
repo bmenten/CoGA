@@ -2,6 +2,7 @@ import { useState, type FC } from 'react';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { apiPath } from '../../lib/apiPath';
+import { CALLER_LABELS } from '../../lib/callsets';
 import type {
   BedUploadResult,
   SmallVariantUploadResult,
@@ -261,11 +262,16 @@ const SampleUpload: FC = () => {
               />
             </label>
             <label className="field-label">
-              Parser
+              Callset
+              {/* Each callset is stored under the name of the caller that made it. */}
               <select value={familyFormat} onChange={(e) => setFamilyFormat(e.target.value)}>
-                <option value="auto">Auto detect</option>
-                <option value="clair3">Clair3 / phased family VCF</option>
-                <option value="glimpse2">GLIMPSE2 / haplotype VCF</option>
+                <option value="auto">The caller the VCF header names</option>
+                {Object.entries(CALLER_LABELS).map(([callset, label]) => (
+                  <option key={callset} value={callset}>
+                    {label}
+                  </option>
+                ))}
+                <option value="glimpse2">GLIMPSE2 imputed genotypes (haplotype VCF)</option>
               </select>
             </label>
             <label className="field-label">

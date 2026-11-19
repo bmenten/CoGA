@@ -27,8 +27,12 @@ application, then runs only the checks that fit it:
 
 Any other family shape gets sex, relatedness and Mendelian checks where the data allows.
 
-The genotypes come from the family's Clair3 calls; failing those, from the imputed GLIMPSE2 calls;
-failing both, from the first call set the family has.
+Each call set is named by the caller that made it. The genotypes come from the family's direct calls:
+Clair3's, DeepVariant's, GATK HaplotypeCaller's or GATK Mutect2's, in that order, then any other
+caller's by name. Failing those, they come from a monogenic NIPT's per-sample calls; failing those,
+from the imputed genotypes (GLIMPSE2). The Sample QC of one analysis's sign-out reads only that
+analysis's own call sets, so a family sequenced both short-read and long-read checks each analysis
+with its own calls.
 
 ### Which sites are read
 

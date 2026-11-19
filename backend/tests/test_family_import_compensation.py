@@ -1387,14 +1387,19 @@ def test_each_upload_has_the_dataset_of_the_package_import_that_brings_the_same(
 # --- an SNV import names the callset it stores, `auto` as it resolves -------------
 #
 # A package snv dataset that leaves source_format at auto (the default) is stored as the
-# callset the small-variant loader works out from its family VCF: imputed genotypes (genotype
-# posteriors) as glimpse2, any other as clair3. Its scope names that callset, read from the
-# file before the import's first write, and the importer stores the file as that callset and
-# nothing else, so two such imports cover each other only for the same callset.
+# callset the small-variant loader works out from its family VCF: the caller its header names
+# (small_variant_callsets.py), or imputed genotypes (genotype posteriors) as glimpse2. Its scope
+# names that callset, read from the file before the import's first write, and the importer
+# stores the file as that callset and nothing else, so two such imports cover each other only
+# for the same callset.
 
 _VCF_HEADER = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\n"
-# Direct calls (clair3), and imputed genotypes with their posteriors (glimpse2).
-_DIRECT_VCF = _VCF_HEADER + "1\t100\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\t0/0\n"
+# Direct calls whose header names Clair3 (clair3), and imputed genotypes with their posteriors
+# (glimpse2).
+_DIRECT_VCF = (
+    "##fileformat=VCFv4.2\n##source=Clair3\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\n"
+    "1\t100\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\t0/0\n"
+)
 _IMPUTED_VCF = _VCF_HEADER + "1\t100\t.\tA\tG\t.\tPASS\t.\tGT:GP\t0|1:0.1,0.8,0.1\t0|0:0.9,0.05,0.05\n"
 _CLAIR3 = {"source": "clair3", "samples": None}
 _GLIMPSE2 = {"source": "glimpse2", "samples": None}

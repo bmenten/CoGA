@@ -211,7 +211,9 @@ def package_datasets() -> dict[str, Any]:
     family-VCF importer accepts) and the plasma's coverage BED, which declares that it holds read
     depths: the NIPT coverage check reads a coverage BED as depth only when it says so."""
     return {
-        "snv": {"family_vcf": VCF_FILE},
+        # The plasma's and the father's calls, by Mutect2: the callset is stored under its
+        # caller's name, which the demo VCF's header does not state.
+        "snv": {"family_vcf": VCF_FILE, "source_format": "mutect2"},
         "coverage": {"per_sample": {CFDNA_SAMPLE: {"bed": COVERAGE_FILE, "content": "read_depth"}}},
     }
 

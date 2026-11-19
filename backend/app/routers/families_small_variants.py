@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +48,8 @@ from ..services.small_variant_review_presets import (
     save_small_variant_filter_preset as save_small_variant_filter_preset_record,
 )
 from ..services.variant_prioritization import RANK_BY_COMBINED_SCORE, RankBy
-from ..services.variant_upload_service import SmallVariantFormat, upload_family_small_variant_file
+from ..services.small_variant_callsets import IMPUTED_CALLSETS, NIPT_CALLSET
+from ..services.variant_upload_service import upload_family_small_variant_file
 from .query_params import FiniteThreshold
 
 
@@ -80,13 +81,18 @@ async def upload_family_small_variants(
     family_id: str,
     file: UploadFile = File(...),
     overwrite: bool = False,
-    # The callsets the upload stores rows under. Anything else is refused (422) before
-    # a row is written: the value becomes the rows' source, which scopes every later
-    # overwrite and delete.
-    source_format: SmallVariantFormat = "auto",
+    # The callset the upload stores rows under: a direct callset named by its caller, the
+    # imputed genotypes (glimpse2), the mtDNA calls (mito), or auto (the caller the header
+    # names). Anything else is refused (422) before a row is written: the value becomes the
+    # rows' source, which scopes every later overwrite and delete.
+    source_format: str = Query(default="auto", pattern=r"^(auto|[a-z][a-z0-9_]{1,31})$"),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> SmallVariantUploadResult:
+    if source_format == NIPT_CALLSET or (source_format in IMPUTED_CALLSETS and source_format != "glimpse2"):
+        # A monogenic NIPT's per-sample calls only a package import writes; an imputation's
+        # genotypes are uploaded with their haplotype blocks, as GLIMPSE2's.
+        raise HTTPException(status_code=422, detail="This callset is not uploaded here")
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,

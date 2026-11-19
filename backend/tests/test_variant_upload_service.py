@@ -568,6 +568,8 @@ _GLIMPSE2_VCF = (
 )
 _CLAIR3_VCF = (
     "##fileformat=VCFv4.2\n"
+    # The caller its header names: the callset is stored under its name.
+    "##source=Clair3\n"
     '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
     '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">\n'
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"

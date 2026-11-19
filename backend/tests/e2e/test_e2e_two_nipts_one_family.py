@@ -92,7 +92,7 @@ def _mnipt_package(root: Path, family_id: str, father: str, plasma: str, fetus: 
         "ped": "family.ped",
         "samples": {plasma: {"assay": "nipt_cfdna"}},
         "datasets": {
-            "snv": {"family_vcf": "nipt_combined.vcf"},
+            "snv": {"family_vcf": "nipt_combined.vcf", "source_format": "mutect2"},
             "coverage": {"per_sample": {plasma: {"bed": f"coverage/{plasma}.bed", "content": "read_depth"}}},
         },
     }
