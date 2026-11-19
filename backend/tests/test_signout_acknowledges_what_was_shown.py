@@ -250,7 +250,7 @@ def test_each_refusal_carries_the_fingerprint_of_the_concerns_it_lists(family) -
         drift_concerns_fingerprint=drift["concerns_fingerprint"],
     )
     assert status == 409 and qc["gate"] == "sample_qc" and qc["concerns_changed"] is False
-    groups = ("failed_checks", "unverifiable_checks", "nipt_failed_checks", "warning_checks")
+    groups = ("failed_checks", "unverifiable_checks", "nipt_failed_checks", "cnipt_concerns", "warning_checks")
     assert qc["concerns_fingerprint"] == rss.concerns_fingerprint("sample_qc", {key: qc[key] for key in groups})
 
     status, imported = _refusal(
@@ -553,6 +553,7 @@ def test_the_fingerprints_shown_sign_out_and_the_audit_event_records_them(family
         "failed_checks": event["after"]["qc_failed"],
         "unverifiable_checks": event["after"]["qc_unverifiable"],
         "nipt_failed_checks": event["after"]["nipt_failed_checks"],
+        "cnipt_concerns": event["after"]["cnipt_concerns"],
         "warning_checks": event["after"]["qc_warnings"],
     }
     assert rss.concerns_fingerprint("sample_qc", qc_concerns) == fingerprints["qc_concerns_fingerprint"]

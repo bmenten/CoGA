@@ -222,7 +222,7 @@ class NiptCategoryQc:
 
 # The five applications CoGA runs, each with a different input modality and a
 # different set of meaningful integrity checks (see profile_for).
-ApplicationKind = Literal["wgs", "pgt", "nipt", "couple", "single", "unknown"]
+ApplicationKind = Literal["wgs", "pgt", "nipt", "cnipt", "couple", "single", "unknown"]
 
 
 @dataclass(slots=True)
@@ -715,11 +715,13 @@ def resolve_application(
 ) -> ApplicationKind:
     """Infer the application from the analysis type and the family shape.
 
-    Only monogenic NIPT is tagged explicitly; the rest are read from structure
-    (the input files / pedigree the family was built from), per CoGA's design.
+    Only monogenic and conventional NIPT are tagged explicitly; the rest are read from
+    structure (the input files / pedigree the family was built from), per CoGA's design.
     """
     if (analysis_type or "").strip().lower() == "monogenic_nipt":
         return "nipt"
+    if (analysis_type or "").strip().lower() == "conventional_nipt":
+        return "cnipt"
     if any((role or "").strip().lower() == "embryo" for role in roles.values()):
         return "pgt"
     if sample_count <= 1:
@@ -762,6 +764,17 @@ _PROFILES: dict[ApplicationKind, QcProfile] = {
         "mixture.",
         run_sex=False, run_relatedness=False, run_mendelian=False,
         run_paternity=True,
+    ),
+    # A conventional NIPT's maternal plasma (owner decision of 2026-11-19): ccnv's output
+    # holds no genotypes, and there is no recorded sex to check. As for a PGT embryo, the
+    # fetal sex is known only from the analysis: ccnv's call, in the cNIPT result.
+    "cnipt": QcProfile(
+        "cnipt", "Conventional NIPT (maternal plasma)",
+        "No genotype check. The maternal plasma's copy number (ccnv) holds no genotypes, "
+        "and the fetal sex is known only from the analysis, as an embryo's is in PGT: "
+        "ccnv's call, in the cNIPT result.",
+        run_sex=False, run_relatedness=False, run_mendelian=False,
+        run_paternity=False,
     ),
     "couple": QcProfile(
         "couple", "Carrier couple (BEGECS)",

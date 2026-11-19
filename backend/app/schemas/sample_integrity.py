@@ -94,7 +94,7 @@ class SampleIntegrityQcOut(BaseModel):
 
     family_id: str
     overall_status: str  # "pass" | "warn" | "fail" | "skip"
-    application: str  # "wgs" | "pgt" | "nipt" | "couple" | "single" | "unknown"
+    application: str  # "wgs" | "pgt" | "nipt" | "cnipt" | "couple" | "single" | "unknown"
     application_label: str = ""
     application_summary: str = ""
     genotype_source: Optional[str] = None

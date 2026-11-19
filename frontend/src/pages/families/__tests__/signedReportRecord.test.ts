@@ -2213,6 +2213,93 @@ describe('a NIPT family’s NIPT results', () => {
   });
 });
 
+// A family that holds a ccnv output: its record holds the conventional NIPT results
+// (signed_record_cnipt); no other family's does.
+describe('a conventional NIPT family’s results', () => {
+  const CNIPT = {
+    samples: [
+      {
+        sample_id: 'CFDNA1',
+        qc_file: 'CFDNA1_qc.json',
+        status: 'result',
+        no_result_reasons: [],
+        fetal_fraction: { effective: 0.1, active: 0.08, active_se: 0.005, active_source: 'FUSED', ffy: 0, ffx: 0.09, ffa: null, ff_size: 0.07 },
+        fetal_sex: 'F',
+        sca: { call: 'XX', is_aneuploid: false, confidence: 0.998 },
+        gestation: null,
+        limits_of_detection: { lod_ff_35mb: 0.03, lod_ff_3mb: 0.1, segmental_assessed_from_mb: 3, statement: 'Segmental CNVs are assessed from 3 Mb.' },
+        read_metrics: { usable_bins: 6 },
+        warnings: [],
+        targets: [
+          { target: '1', verdict: 'low_risk', reasons: [] },
+          { target: '21', verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'] },
+        ],
+        findings: [
+          {
+            chrom: '21', start: 0, end: 46000000, size_mb: 46, direction: 'gain', ratio: 0.07, zscore: 9,
+            bin_count: 400, ccnv_call: 'gain', expected_ratio: 0.07, implied_ff: 0.1, implied_ff_ratio: 1,
+            discordant: false, discordance_reason: null, origin_call: 'FETAL_CONSTITUTIONAL', kind: 'chromosome',
+            verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'],
+          },
+          'not a finding',
+        ],
+        bounds: [
+          { key: 'cnipt.fetal_fraction', label: 'cNIPT: fetal fraction', unit: 'fraction', warn_value: null, error_value: 0.04, provisional: true },
+        ],
+        rule: { threshold_profile: 'nipt_conventional', whole_chromosome_share: 0.5, maternal_or_mosaic_origins: [] },
+        inputs: {
+          qc_digest: 'a'.repeat(64),
+          segments: 2,
+          segments_digest: 'b'.repeat(64),
+          segment_files: [{ file: 'CFDNA1_segments.bed.gz', rows: 2, loaded_at: '2026-11-19T09:30:00+00:00' }],
+        },
+      },
+    ],
+  };
+
+  it('reads the section the record holds', () => {
+    const record = parseSignedReport({ ...SNAPSHOT, cnipt: CNIPT })!;
+    expect(record.cnipt.state).toBe('recorded');
+    if (record.cnipt.state !== 'recorded') return;
+    // The entry that is no finding is left out, and counted.
+    expect(record.cnipt.malformed).toBe(1);
+    const [sample] = record.cnipt.value.samples;
+    expect(sample).toMatchObject({
+      sampleId: 'CFDNA1',
+      status: 'result',
+      fetalSex: 'F',
+      sca: { call: 'XX', isAneuploid: false, confidence: 0.998 },
+      limitsStatement: 'Segmental CNVs are assessed from 3 Mb.',
+    });
+    expect(sample.fetalFraction).toEqual({
+      effective: 0.1, active: 0.08, activeSe: 0.005, activeSource: 'FUSED', ffy: 0, ffx: 0.09, ffa: null, ffSize: 0.07,
+    });
+    expect(sample.targets.map((target) => [target.target, target.verdict])).toEqual([['1', 'low_risk'], ['21', 'high_risk']]);
+    expect(sample.findings).toHaveLength(1);
+    expect(sample.findings[0]).toMatchObject({ chrom: '21', sizeMb: 46, zscore: 9, impliedFfRatio: 1, kind: 'chromosome', discordant: false });
+    expect(sample.bounds).toEqual([
+      { key: 'cnipt.fetal_fraction', label: 'cNIPT: fetal fraction', unit: 'fraction', warnValue: null, errorValue: 0.04, provisional: true },
+    ]);
+    expect(sample.inputs).toEqual({
+      qcFile: 'CFDNA1_qc.json',
+      qcDigest: 'a'.repeat(64),
+      segments: 2,
+      segmentsDigest: 'b'.repeat(64),
+      segmentFiles: [{ file: 'CFDNA1_segments.bed.gz', rows: 2, loadedAt: '2026-11-19T09:30:00+00:00' }],
+    });
+  });
+
+  it('reads a record without the section by whose it is', () => {
+    expect(parseSignedReport(SNAPSHOT)!.cnipt).toEqual({ state: 'absent' });
+    const unread = parseSignedReport({ ...SNAPSHOT, cnipt: { unavailable: 'The conventional NIPT results could not be read.' } })!;
+    expect(unread.cnipt).toEqual({ state: 'unavailable', reason: 'The conventional NIPT results could not be read.' });
+  });
+
+  it('names the section when the sign-out check finds it changed', () => {
+    expect(describeReportSections(['cnipt'])).toBe('conventional NIPT results');
+  });
+});
+
 // The family's live report and the NIPT report say alike how they stand to the latest
 // signed version (TF-06 H9): never the signed report.
 describe('a live report beside the latest signed version', () => {

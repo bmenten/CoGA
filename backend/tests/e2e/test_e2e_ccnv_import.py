@@ -18,7 +18,12 @@ import into real Postgres and ClickHouse, as a family of its own (a new id each 
 * a segments read serves each ccnv segment with ccnv's values (its call, expected ratio, implied
   fetal fraction, discordance, origin), which the views colour it by and show on hover;
 * ``GET /families/{family_id}/cnipt`` reads the conventional NIPT's result from the stored QC and
-  segments: the chr21 gain a high risk, the bounds provisional in a new database.
+  segments: the chr21 gain a high risk, the bounds provisional in a new database;
+* the sign-out (``POST /families/{family_id}/report/sign-out``) is refused under the Sample QC
+  until acknowledged, naming the result on provisional bounds and nothing else (the cNIPT Sample
+  QC runs no check); acknowledged, the signed record
+  holds the result as the page served it, with its inputs, and the sign-out check finds it
+  unchanged.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -151,6 +156,13 @@ async def _exercise(base: Path, family_id: str) -> dict:
         out["segments_read"] = {"status": segments.status_code, "json": segments.json()}
         cnipt = await ac.get(f"/api/families/{family_id}/cnipt")
         out["cnipt"] = {"status": cnipt.status_code, "json": cnipt.json()}
+        url = f"/api/families/{family_id}/report/sign-out"
+        refused = await ac.post(url, json={})
+        out["signout_refused"] = {"status": refused.status_code, "json": refused.json()}
+        signed = await _harness.sign_out(ac, url, _harness.DRIFT_AND_QC_ACKNOWLEDGED)
+        out["signout"] = {"status": signed.status_code, "json": signed.json()}
+        check = await ac.get(f"/api/families/{family_id}/report/sign-out-check")
+        out["signout_check"] = {"status": check.status_code, "json": check.json()}
     return out
 
 
@@ -277,3 +289,33 @@ def test_the_conventional_nipt_result_is_read_from_the_stored_qc_and_segments(ru
         "cnipt.sca_confidence": True,
         "cnipt.min_cnv_size": True,
     }
+
+
+def test_the_sign_out_holds_a_result_on_provisional_bounds_until_acknowledged(run) -> None:
+    refused = run["signout_refused"]
+    assert refused["status"] == 409, refused
+    detail = refused["json"]["detail"]
+    assert detail["gate"] == "sample_qc"
+    (concern,) = detail["cnipt_concerns"]
+    assert concern.startswith(f"Sample {run['sample']} (cNIPT maternal plasma): the result rests on provisional bounds")
+    # The cNIPT Sample QC runs no check (no genotypes; the fetal sex is the analysis's own
+    # result): only the provisional bounds hold the sign-out back.
+    assert (detail["failed_checks"], detail["unverifiable_checks"], detail["warning_checks"]) == ([], [], []), detail
+
+
+def test_the_signed_record_holds_the_cnipt_result_as_the_page_served_it(run) -> None:
+    assert run["signout"]["status"] == 200, run["signout"]
+    snapshot = run["signout"]["json"]["snapshot"]
+    assert snapshot["acknowledged_qc"] is True
+    assert (snapshot["sample_qc"]["application"], snapshot["sample_qc"]["overall_status"]) == ("cnipt", "skip")
+    (frozen,) = snapshot["cnipt"]["samples"]
+    inputs = frozen.pop("inputs")
+    (served,) = run["cnipt"]["json"]["samples"]
+    assert frozen == served
+    assert (len(inputs["qc_digest"]), inputs["segments"], len(inputs["segments_digest"])) == (64, 3, 64)
+    assert [entry["file"] for entry in inputs["segment_files"]] == [f"{run['sample']}_segments.bed.gz"]
+    assert "cnipt" not in [gap["section"] for gap in run["signout"]["json"].get("not_captured") or []]
+    # Nothing changed since: the family's data still matches the signed version.
+    assert run["signout_check"]["status"] == 200, run["signout_check"]
+    assert (run["signout_check"]["json"]["matches"], run["signout_check"]["json"]["changed_sections"]) == (True, [])
+

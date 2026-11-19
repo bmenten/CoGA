@@ -980,6 +980,78 @@ export interface SignedNiptCoverageNotes {
   notes: string[];
 }
 
+/** A target's verdict, as a conventional NIPT's record froze it (`cnipt_result`). */
+export interface SignedCniptTarget {
+  target: string;
+  verdict: string | null;
+  reasons: string[];
+}
+
+/** A segment the conventional NIPT's rule looked at, with ccnv's values and its own verdict. */
+export interface SignedCniptFinding {
+  chrom: string | null;
+  start: number | null;
+  end: number | null;
+  sizeMb: number | null;
+  direction: string | null;
+  ratio: number | null;
+  zscore: number | null;
+  impliedFf: number | null;
+  impliedFfRatio: number | null;
+  discordant: boolean;
+  originCall: string | null;
+  kind: string | null;
+  verdict: string | null;
+  reasons: string[];
+}
+
+/** A bound of the conventional NIPT's rule as the result applied it: QA's, or provisional. */
+export interface SignedCniptBound {
+  key: string;
+  label: string;
+  unit: string;
+  warnValue: number | null;
+  errorValue: number | null;
+  provisional: boolean;
+}
+
+/** One maternal plasma's conventional NIPT result, as its record froze it (`signed_record_cnipt`). */
+export interface SignedCniptSample {
+  sampleId: string;
+  status: string | null;
+  noResultReasons: string[];
+  fetalFraction: {
+    effective: number | null;
+    active: number | null;
+    activeSe: number | null;
+    activeSource: string | null;
+    ffy: number | null;
+    ffx: number | null;
+    ffa: number | null;
+    ffSize: number | null;
+  };
+  fetalSex: string | null;
+  sca: { call: string | null; isAneuploid: boolean; confidence: number | null };
+  gestation: string | null;
+  limitsStatement: string | null;
+  warnings: string[];
+  targets: SignedCniptTarget[];
+  findings: SignedCniptFinding[];
+  bounds: SignedCniptBound[];
+  inputs: {
+    qcFile: string | null;
+    qcDigest: string | null;
+    segments: number | null;
+    segmentsDigest: string | null;
+    segmentFiles: { file: string | null; rows: number | null; loadedAt: string | null }[];
+  };
+}
+
+/** A conventional NIPT family's results, one per maternal plasma (`signed_record_cnipt`). */
+export interface SignedCnipt {
+  samples: SignedCniptSample[];
+}
+
 /** A monogenic NIPT family's NIPT results, as its record froze them (`signed_record_nipt`). */
 export interface SignedNipt {
   samples: { father: string | null; maternalPlasma: string | null; fetus: string | null };
@@ -1061,6 +1133,8 @@ export interface SignedReport {
   pgtAnalysis: SignedApplicationSection<SignedPgtAnalysis>;
   /** A monogenic NIPT family's NIPT results; `absent` from a record of any other family. */
   nipt: SignedApplicationSection<SignedNipt>;
+  /** A conventional NIPT family's results; `absent` from a record of a family without ccnv output. */
+  cnipt: SignedApplicationSection<SignedCnipt>;
   /** The repeat and Paraphase reviews; null: not in the record. */
   findingReviews: SignedFindingReviews | null;
   unreviewedAcknowledgement: SignedAcknowledgement;
@@ -2011,6 +2085,75 @@ const parseNiptCoverageNotes = (value: Json): SignedNiptCoverageNotes => ({
   notes: strings(value.notes),
 });
 
+const parseCniptSample = (sample: Json): SignedCniptSample => {
+  const ff = asRecord(sample.fetal_fraction);
+  const sca = asRecord(sample.sca);
+  const limits = asRecord(sample.limits_of_detection);
+  const inputs = asRecord(sample.inputs);
+  return {
+    sampleId: text(sample.sample_id) ?? 'a sample',
+    status: text(sample.status),
+    noResultReasons: strings(sample.no_result_reasons),
+    fetalFraction: {
+      effective: number(ff.effective),
+      active: number(ff.active),
+      activeSe: number(ff.active_se),
+      activeSource: text(ff.active_source),
+      ffy: number(ff.ffy),
+      ffx: number(ff.ffx),
+      ffa: number(ff.ffa),
+      ffSize: number(ff.ff_size),
+    },
+    fetalSex: text(sample.fetal_sex),
+    sca: { call: text(sca.call), isAneuploid: sca.is_aneuploid === true, confidence: number(sca.confidence) },
+    gestation: text(sample.gestation),
+    limitsStatement: text(limits.statement),
+    warnings: strings(sample.warnings),
+    targets: objects(sample.targets).map((target) => ({
+      target: text(target.target) ?? 'a target',
+      verdict: text(target.verdict),
+      reasons: strings(target.reasons),
+    })),
+    findings: objects(sample.findings).map((finding) => ({
+      chrom: text(finding.chrom),
+      start: number(finding.start),
+      end: number(finding.end),
+      sizeMb: number(finding.size_mb),
+      direction: text(finding.direction),
+      ratio: number(finding.ratio),
+      zscore: number(finding.zscore),
+      impliedFf: number(finding.implied_ff),
+      impliedFfRatio: number(finding.implied_ff_ratio),
+      discordant: finding.discordant === true,
+      originCall: text(finding.origin_call),
+      kind: text(finding.kind),
+      verdict: text(finding.verdict),
+      reasons: strings(finding.reasons),
+    })),
+    bounds: objects(sample.bounds).map((bound) => ({
+      key: text(bound.key) ?? 'a bound',
+      label: text(bound.label) ?? text(bound.key) ?? 'a bound',
+      unit: text(bound.unit) ?? '',
+      warnValue: number(bound.warn_value),
+      errorValue: number(bound.error_value),
+      provisional: bound.provisional === true,
+    })),
+    inputs: {
+      qcFile: text(sample.qc_file),
+      qcDigest: text(inputs.qc_digest),
+      segments: number(inputs.segments),
+      segmentsDigest: text(inputs.segments_digest),
+      segmentFiles: objects(inputs.segment_files).map((file) => ({
+        file: text(file.file),
+        rows: number(file.rows),
+        loadedAt: text(file.loaded_at),
+      })),
+    },
+  };
+};
+
+const parseCnipt = (value: Json): SignedCnipt => ({ samples: objects(value.samples).map(parseCniptSample) });
+
 const parseNipt = (value: Json): SignedNipt => {
   const samples = isObject(value.samples) ? value.samples : {};
   const ff = isObject(value.fetal_fraction) ? value.fetal_fraction : null;
@@ -2202,6 +2345,7 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
       ? parseRecordSection(snapshot, 'pgt_analysis', parsePgtAnalysis)
       : { state: 'absent' },
     nipt: has(snapshot, 'nipt') ? parseRecordSection(snapshot, 'nipt', parseNipt) : { state: 'absent' },
+    cnipt: has(snapshot, 'cnipt') ? parseRecordSection(snapshot, 'cnipt', parseCnipt) : { state: 'absent' },
     findingReviews: parseFindingReviews(snapshot),
     unreviewedAcknowledgement: acknowledgement(
       snapshot,
@@ -2276,6 +2420,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   package_intake: 'delivered package and its corrections',
   pgt_analysis: 'PGT embryo results',
   nipt: 'NIPT results',
+  cnipt: 'conventional NIPT results',
   repeat_expansion_reviews: 'repeat locus reviews',
   paraphase_reviews: 'Paraphase region reviews',
   finding_review_drift: 'repeat and Paraphase review drift',

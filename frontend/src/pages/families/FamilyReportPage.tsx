@@ -6,6 +6,8 @@ import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import FamilyCaseHeader from './FamilyCaseHeader';
 import SignedFamilyReport from './SignedFamilyReport';
+import CniptReportSummary from './CniptReportSummary';
+import { isConventionalNipt } from './cniptResult';
 import { useAnnotationManifest } from './AnnotationProvenanceSummary';
 import type {
   ApiClassificationDrift,
@@ -749,6 +751,10 @@ const LiveFamilyReport: React.FC = () => {
         </p>
         <p className="report-disclaimer">{LIVE_REPORT_SIGN_OFF_STATEMENT}</p>
       </section>
+
+      {familyId && isConventionalNipt(family?.metadata) ? (
+        <CniptReportSummary familyId={familyId} projectId={projectId} />
+      ) : null}
 
       {driftFailed ? (
         <section className="surface-card report-drift" role="alert">

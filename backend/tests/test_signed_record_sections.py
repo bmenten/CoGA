@@ -74,6 +74,7 @@ def _context() -> types.SimpleNamespace:
         family_id="FAM1",
         assembly_id="22222222-2222-2222-2222-222222222222",
         assembly_name="GRCh38",
+        sample_rows=[],
     )
 
 
@@ -624,8 +625,10 @@ def test_nipt_results_that_cannot_be_read_are_frozen_as_unavailable_and_named(mo
 
 def _pgt_context(*roles: str) -> types.SimpleNamespace:
     return types.SimpleNamespace(
-        **vars(_context()),
-        sample_rows=[{"sample_id": f"S{index}", "role": role} for index, role in enumerate(roles)],
+        **{
+            **vars(_context()),
+            "sample_rows": [{"sample_id": f"S{index}", "role": role} for index, role in enumerate(roles)],
+        }
     )
 
 
@@ -743,13 +746,15 @@ def _nipt_family_with_a_fetus() -> types.SimpleNamespace:
     # takes that embryo for the fetus (nipt.resolve_nipt_trio_from_members). The fetus has no
     # sequencing column: no data of its own.
     return types.SimpleNamespace(
-        **vars(_context()),
-        sample_rows=[
-            {"sample_id": "FATHER1", "role": "father", "sample_metadata": {}},
-            {"sample_id": "CFDNA1", "role": "mother", "sample_metadata": {"assay": "nipt_cfdna"}},
-            {"sample_id": "FETUS1", "role": "embryo", "sample_metadata": None},
-        ],
-        sample_name_to_uuid={"FATHER1": "u-father", "CFDNA1": "u-cfdna", "FETUS1": "u-fetus"},
+        **{
+            **vars(_context()),
+            "sample_rows": [
+                {"sample_id": "FATHER1", "role": "father", "sample_metadata": {}},
+                {"sample_id": "CFDNA1", "role": "mother", "sample_metadata": {"assay": "nipt_cfdna"}},
+                {"sample_id": "FETUS1", "role": "embryo", "sample_metadata": None},
+            ],
+            "sample_name_to_uuid": {"FATHER1": "u-father", "CFDNA1": "u-cfdna", "FETUS1": "u-fetus"},
+        }
     )
 
 
@@ -858,13 +863,54 @@ def test_a_pgt_analysis_that_cannot_be_read_is_frozen_as_unavailable_and_named(m
     ]
 
 
-def test_only_the_pgt_and_nipt_sections_belong_to_one_application() -> None:
+def test_only_the_pgt_nipt_and_cnipt_sections_belong_to_one_application() -> None:
     assert {section.key: section.application for section in srs.RECORD_SECTIONS if section.application} == {
         "pgt_analysis": "pgt",
         "nipt": "nipt",
+        "cnipt": "cnipt",
     }
     assert srs.PGT_ANALYSIS.application == "pgt"
     assert srs.NIPT_RESULTS.application == "nipt"
+    assert srs.CNIPT_RESULTS.application == "cnipt"
+
+
+def _cnipt_family() -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        **{
+            **vars(_context()),
+            "sample_rows": [
+                {"sample_id": "CFDNA1", "sample_uuid": "u-cfdna", "role": "mother", "sample_metadata": {"ccnv": {"qc": {}, "qc_file": "q.json"}}},
+            ],
+            "sample_name_to_uuid": {"CFDNA1": "u-cfdna"},
+        }
+    )
+
+
+def test_a_family_with_ccnv_output_holds_the_cnipt_section(monkeypatch) -> None:
+    async def results(_session, context):
+        assert context.family_id == "FAM1"
+        return {"samples": [{"sample_id": "CFDNA1", "status": "result"}]}
+
+    monkeypatch.setattr(srs, "cnipt_results", results)
+    sections = asyncio.run(
+        srs.build_record_sections(_Session(), context=_cnipt_family(), reported=[], reported_structural=[])
+    )
+    assert sections["cnipt"] == {"samples": [{"sample_id": "CFDNA1", "status": "result"}]}
+    assert "nipt" not in sections and "pgt_analysis" not in sections
+
+
+def test_cnipt_results_that_cannot_be_read_are_frozen_as_unavailable_and_named(monkeypatch) -> None:
+    async def results(_session, _context):
+        raise RuntimeError("SELECT ... WHERE sample = 'CFDNA_SECRET'")
+
+    monkeypatch.setattr(srs, "cnipt_results", results)
+    session = _Session()
+    sections = asyncio.run(
+        srs.build_record_sections(session, context=_cnipt_family(), reported=[], reported_structural=[])
+    )
+    assert sections["cnipt"] == {"unavailable": "The conventional NIPT results could not be read."}
+    assert "SECRET" not in str(sections)
+    assert {"section": "cnipt", "item": "Conventional NIPT results", "reason": "The conventional NIPT results could not be read."} in srs.record_section_gaps(sections)
 
 
 # --- The delivered package and its corrections --------------------------------------

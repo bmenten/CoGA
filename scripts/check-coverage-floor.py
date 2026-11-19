@@ -127,6 +127,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/roi_gene_lookup.py": 97.0,
     "backend/app/services/sample_integrity_qc.py": 96.0,  # (99.1, 2026-11-03)
     "backend/app/services/sample_integrity_service.py": 95.0,  # (98.6, 2026-11-03) feeds the sign-out gate
+    # (98.2 measured locally: the conventional NIPT section of the signed
+    # analysis record, and what of it gates the sign-out)
+    "backend/app/services/signed_record_cnipt.py": 95.0,
     # (100.0 measured locally: the NIPT section of the signed analysis
     # record)
     "backend/app/services/signed_record_nipt.py": 97.0,

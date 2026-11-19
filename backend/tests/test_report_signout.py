@@ -4008,6 +4008,135 @@ def test_signout_check_reads_a_changed_qc_verdict_or_threshold_as_a_change(monke
     assert (out["matches"], out["changed_sections"]) == (False, ["pgt_analysis"])
 
 
+# --- A conventional NIPT family's record: its cNIPT results (signed_record_cnipt) ----------
+
+_CNIPT_CONCERN = "A conventional NIPT plasma has no result, or its result rests on provisional bounds."
+
+
+def _cnipt_bound(key: str, label: str, *, provisional: bool) -> dict:
+    return {"key": key, "label": label, "unit": "fraction", "warn_value": None, "error_value": 0.04, "provisional": provisional}
+
+
+def _cnipt_section(*, status: str = "result", provisional: bool = False) -> dict:
+    """A conventional NIPT family's ``cnipt`` section: one plasma, with the status given, its
+    bounds QA's or provisional."""
+    return {
+        "samples": [
+            {
+                "sample_id": "CFDNA1",
+                "qc_file": "CFDNA1_qc.json",
+                "status": status,
+                "no_result_reasons": ["the fetal fraction (3.1%) is below 4.0%"] if status == "no_result" else [],
+                "targets": [{"target": "21", "verdict": "no_result" if status == "no_result" else "low_risk", "reasons": []}],
+                "findings": [],
+                "bounds": [
+                    _cnipt_bound("cnipt.fetal_fraction", "cNIPT: fetal fraction", provisional=provisional),
+                    _cnipt_bound("cnipt.sca_confidence", "cNIPT: sex-chromosome call confidence", provisional=provisional),
+                ],
+                "inputs": {"qc_digest": "0" * 64, "segments": 1, "segments_digest": "1" * 64, "segment_files": []},
+            }
+        ]
+    }
+
+
+def test_a_cnipt_plasma_without_a_result_gates_the_sign_out_under_the_sample_qc(monkeypatch) -> None:
+    # A conventional NIPT family is signed out with its cNIPT results: a plasma without a
+    # result is signed out only when the signer acknowledges it, with a reason.
+    _patch_common(monkeypatch, drifted_count=0)
+    _with_sections(monkeypatch, cnipt=_cnipt_section(status="no_result"))
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+    detail = excinfo.value.detail
+    assert detail["gate"] == "sample_qc"
+    concern = "Sample CFDNA1 (cNIPT maternal plasma): no result — the fetal fraction (3.1%) is below 4.0%."
+    assert detail["cnipt_concerns"] == [concern]
+    assert detail["qc_summary"]["messages"] == [concern]
+    assert detail["nipt_failed_checks"] == [] and detail["failed_checks"] == []
+    assert detail["message"] == f"{_CNIPT_CONCERN} {_RESOLVE_OR_ACKNOWLEDGE}"
+    assert not _inserts(session)
+
+
+def test_a_cnipt_result_on_provisional_bounds_is_acknowledged_frozen_and_audited(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    section = _cnipt_section(provisional=True)
+    _with_sections(monkeypatch, cnipt=section)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    concern = (
+        "Sample CFDNA1 (cNIPT maternal plasma): the result rests on provisional bounds, which QA "
+        "has not set: fetal fraction; sex-chromosome call confidence."
+    )
+    assert excinfo.value.detail["cnipt_concerns"] == [concern]
+
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        _through_the_dialogs(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_qc=True,
+            qc_acknowledgement_reason="Development build: the bounds are being validated.",
+        )
+    )
+    snapshot = out["snapshot"]
+    assert snapshot["acknowledged_qc"] is True
+    assert snapshot["cnipt"] == section
+    assert captured["after"]["cnipt_concerns"] == [concern]
+    assert ", QC override acknowledged" in captured["summary"]
+
+
+def test_a_cnipt_result_on_qa_bounds_does_not_gate(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _with_sections(monkeypatch, cnipt=_cnipt_section())
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["acknowledged_qc"] is False
+    assert captured["after"]["cnipt_concerns"] == []
+
+
+def test_a_cnipt_plasma_on_qa_bounds_signs_out_without_a_sample_qc_acknowledgement(monkeypatch) -> None:
+    # The cNIPT Sample QC runs no check (owner decision of 2026-11-19: no genotypes, and the
+    # fetal sex is known only from the analysis): its "skip" is no concern, so a result on
+    # QA's bounds signs out without an acknowledgement.
+    report = SampleIntegrityReport(overall_status="skip", application="cnipt")
+    _patch_common(monkeypatch, drifted_count=0, qc_status="skip")
+    _patch_qc_report(monkeypatch, report)
+    _with_sections(monkeypatch, cnipt=_cnipt_section())
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["acknowledged_qc"] is False
+    assert out["snapshot"]["sample_qc"]["application"] == "cnipt"
+    assert captured["after"]["qc_unverifiable"] == [] and captured["after"]["cnipt_concerns"] == []
+
+
+def test_a_family_without_ccnv_output_holds_no_cnipt_section(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert "cnipt" not in out["snapshot"]
+    assert captured["after"]["cnipt_concerns"] == []
+
+
+def test_a_cnipt_familys_results_are_bound_into_the_content_hash_and_compared(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _with_sections(monkeypatch, cnipt=_cnipt_section())
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert (out["matches"], out["changed_sections"]) == (True, [])
+
+    # QA set the bounds since: the result rests on other bounds.
+    _with_sections(monkeypatch, cnipt=_cnipt_section(provisional=True))
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False
+    assert "cnipt" in out["changed_sections"]
+
+
 # --- The repeat calls' near-boundary warnings and QA's counting-units records ---------------
 #
 # The record freezes them (signed_record_sections.repeat_expansion_calls): each allele carries
