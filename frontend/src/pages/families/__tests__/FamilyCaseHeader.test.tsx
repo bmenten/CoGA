@@ -178,7 +178,7 @@ describe('FamilyCaseHeader', () => {
   });
 
   it("puts a monogenic NIPT family's NIPT report beside its report, with the NIPT page's scope", async () => {
-    const nipt = { ...family, metadata: { analysis_type: 'monogenic_nipt' } };
+    const nipt = { ...family, metadata: { analysis_types: ['monogenic_nipt'] } };
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MemoryRouter>
@@ -209,7 +209,7 @@ describe('FamilyCaseHeader', () => {
   });
 
   it("offers a conventional NIPT family's cNIPT result page with the project, before the variant summary", async () => {
-    const cnipt = { ...family, metadata: { analysis_type: 'conventional_nipt' } };
+    const cnipt = { ...family, metadata: { analysis_types: ['conventional_nipt'] } };
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MemoryRouter>
@@ -224,6 +224,22 @@ describe('FamilyCaseHeader', () => {
     expect(link).toHaveAttribute('aria-current', 'page');
     const labels = Array.from(nav.querySelectorAll('a')).map((anchor) => anchor.textContent);
     expect(labels.indexOf('cNIPT')).toBe(labels.indexOf('Variant summary') - 1);
+  });
+
+  it('offers both NIPT pages, and the NIPT report, to a family holding both NIPTs of a pregnancy', async () => {
+    const both = { ...family, metadata: { analysis_types: ['conventional_nipt', 'monogenic_nipt'] } };
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter>
+          <FamilyCaseHeader kicker="cNIPT" familyId="F1" family={both} projectId="p1" assemblyLabel="GRCh38" current="cnipt" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const nav = await screen.findByRole('navigation', { name: 'Variant analyses' });
+    expect(await within(nav).findByRole('link', { name: 'Monogenic NIPT' })).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: 'cNIPT' })).toHaveAttribute('aria-current', 'page');
+    const actions = screen.getByRole('group', { name: 'Family actions' });
+    expect(within(actions).getByRole('link', { name: 'NIPT report' })).toBeInTheDocument();
   });
 
   it('keeps the page it is on in the row even when the check finds no data there', async () => {

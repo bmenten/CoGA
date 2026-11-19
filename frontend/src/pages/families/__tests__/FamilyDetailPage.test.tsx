@@ -52,7 +52,7 @@ vi.mock('../../../lib/api', () => ({
             read_only: mockApiState.readOnly,
             metadata: {
               pipeline: { genome: 'GRCh38', snv_caller: 'deepvariant' },
-              ...(mockApiState.analysisType ? { analysis_type: mockApiState.analysisType } : {}),
+              ...(mockApiState.analysisType ? { analysis_types: [mockApiState.analysisType] } : {}),
             },
             status: { key: 'analysis_in_progress', label: 'Analysis in progress', color: '#2f6fb0' },
             assigned_to: {

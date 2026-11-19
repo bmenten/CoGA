@@ -375,7 +375,7 @@ The SV list shows the partner in its columns *Remote chr* and *Remote start*, it
 
 Every dataset kind has its own import function in a registry. A kind without an import function is an error: a test guards that, and the import fails loudly on it.
 
-**NIPT artefacts** (the list of recurrent artefacts per assay) are not filled by the package import; they have their own management (chapter 15). The import does take over into the metadata a declared analysis type (e.g. `monogenic_nipt`), an assay per sample (e.g. `nipt_cfdna`) and a sample's capture panel (`assay_panel`, which delimits the artefact list), so that the NIPT context is recognised later (chapter 8).
+**NIPT artefacts** (the list of recurrent artefacts per assay) are not filled by the package import; they have their own management (chapter 15). The import does add a declared analysis type (e.g. `monogenic_nipt`) to the family's analysis types and an assay per sample (e.g. `nipt_cfdna`) to that sample's assays, and takes over a sample's capture panel (`assay_panel`, which delimits the artefact list) into the metadata, so that the NIPT context is recognised later (chapter 8). So one family can hold the monogenic and the conventional NIPT of a pregnancy, each from a package of its own.
 
 **The import of a NIPT pair** first reads the plasma's VCF (the sample with the assay `nipt_cfdna`, otherwise the mother), whatever the order in the manifest. Then it merges every other per-sample file with the stored rows (`overwrite_scope="samples"`, as with `mito`): a file replaces only its own sample's calls.
 

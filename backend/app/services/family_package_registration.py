@@ -48,6 +48,7 @@ from .family_structure_audit import (
     record_family_deleted,
     record_structure_change,
 )
+from .family_analysis_types import SAMPLE_ASSAYS_KEY, added_to, sample_assays
 from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
@@ -471,11 +472,10 @@ async def _register_package_provenance(
         family_metadata["package_import"][REFERENCE_KEY] = reference_delivery(
             import_mode=import_mode, delivery=bundle.delivery, previous_reference=previous_reference
         )
-    # Promote a declared analysis type (e.g. monogenic_nipt) to the top level so
-    # the workspace surfaces the matching analysis section.
-    analysis_type = bundle.manifest.analysis_type
-    if isinstance(analysis_type, str) and analysis_type.strip():
-        family_metadata["analysis_type"] = analysis_type.strip()
+    # The package's analysis type (e.g. monogenic_nipt) is added to the family's in the update below:
+    # a family may hold several, such as the monogenic and the conventional NIPT of one pregnancy,
+    # each imported from a package of its own.
+    analysis_type = bundle.manifest.analysis_type.strip() if isinstance(bundle.manifest.analysis_type, str) else ""
     # The manifest's PGT context is merged into the family's, key by key.
     await session.execute(
         text(
@@ -492,6 +492,23 @@ async def _register_package_provenance(
                                 || jsonb_build_object('previous_import', (metadata -> 'package_import') - 'previous_import')
                         )
                         ELSE '{}'::jsonb
+                    END
+                    -- The package's analysis type added to the family's, sorted, without repeats.
+                    || CASE
+                        WHEN CAST(:analysis_type AS text) IS NULL THEN '{}'::jsonb
+                        ELSE jsonb_build_object(
+                            'analysis_types',
+                            (
+                                SELECT jsonb_agg(DISTINCT held.value ORDER BY held.value)
+                                FROM jsonb_array_elements_text(
+                                    CASE
+                                        WHEN jsonb_typeof(metadata -> 'analysis_types') = 'array'
+                                            THEN metadata -> 'analysis_types'
+                                        ELSE '[]'::jsonb
+                                    END || jsonb_build_array(CAST(:analysis_type AS text))
+                                ) AS held(value)
+                            )
+                        )
                     END
                     || CASE
                         WHEN CAST(:pgt AS jsonb) IS NULL THEN '{}'::jsonb
@@ -512,6 +529,7 @@ async def _register_package_provenance(
             "family_uuid": family_uuid,
             "metadata": json.dumps(family_metadata),
             "pgt": json.dumps(pgt_metadata) if pgt_metadata else None,
+            "analysis_type": analysis_type or None,
             "pedigree": bundle.ped.text,
         },
     )
@@ -578,13 +596,16 @@ async def _register_package_provenance(
                 )
             if sample_id in sample_metadata:
                 metadata["package_sample_metadata"] = sample_metadata[sample_id]
-                # Promote a per-sample assay (e.g. nipt_cfdna) to the top level so
-                # resolve_nipt_trio can identify the maternal-plasma cfDNA sample, and
-                # its capture panel, which scopes the NIPT artifact list (nipt.py).
-                for key in ("assay", "assay_panel"):
-                    value = sample_metadata[sample_id].get(key)
-                    if isinstance(value, str) and value.strip():
-                        metadata[key] = value.strip()
+                # The sample's assay (e.g. nipt_cfdna) is added to its assays, so resolve_nipt_trio
+                # can identify the maternal-plasma cfDNA sample: one plasma may be the sample of a
+                # monogenic and of a conventional NIPT. Its capture panel scopes the NIPT
+                # artifact list (nipt.py).
+                assay = sample_metadata[sample_id].get("assay")
+                if isinstance(assay, str) and assay.strip():
+                    metadata[SAMPLE_ASSAYS_KEY] = added_to(sample_assays(metadata), assay)
+                panel = sample_metadata[sample_id].get("assay_panel")
+                if isinstance(panel, str) and panel.strip():
+                    metadata["assay_panel"] = panel.strip()
             if sample_id in sample_provenance:
                 metadata["package_import"] = {
                     "source": "family_package",

@@ -394,21 +394,21 @@ def test_a_sample_without_a_called_chrx_site_reads_the_ngsbits_sex_and_one_witho
 # --- Application resolution + per-profile gating -----------------------------
 
 def test_resolve_application_per_input_shape() -> None:
-    assert resolve_application(analysis_type="monogenic_nipt", roles={}, parents_of={}, sample_count=3) == "nipt"
+    assert resolve_application(analysis_types=["monogenic_nipt"], roles={}, parents_of={}, sample_count=3) == "nipt"
     assert resolve_application(
-        analysis_type="", roles={"E1": "embryo", "F": "father", "M": "mother"},
+        analysis_types=(), roles={"E1": "embryo", "F": "father", "M": "mother"},
         parents_of={"E1": {"father": "F", "mother": "M"}}, sample_count=3,
     ) == "pgt"
-    assert resolve_application(analysis_type="", roles={"A": "father", "B": "mother"}, parents_of={}, sample_count=2) == "couple"
-    assert resolve_application(analysis_type="", roles={"A": "proband"}, parents_of={}, sample_count=1) == "single"
+    assert resolve_application(analysis_types=(), roles={"A": "father", "B": "mother"}, parents_of={}, sample_count=2) == "couple"
+    assert resolve_application(analysis_types=(), roles={"A": "proband"}, parents_of={}, sample_count=1) == "single"
     assert resolve_application(
-        analysis_type="", roles={"P": "proband", "F": "father", "M": "mother"},
+        analysis_types=(), roles={"P": "proband", "F": "father", "M": "mother"},
         parents_of={"P": {"father": "F", "mother": "M"}}, sample_count=3,
     ) == "wgs"
     # Several members and no parent-child edge, not a couple: the shape tells nothing, and
     # every check runs where the data allows.
     unknown = resolve_application(
-        analysis_type="", roles={"A": "proband", "B": "sibling", "C": "relative"}, parents_of={}, sample_count=3
+        analysis_types=(), roles={"A": "proband", "B": "sibling", "C": "relative"}, parents_of={}, sample_count=3
     )
     assert unknown == "unknown"
     assert (profile_for(unknown).run_sex, profile_for(unknown).run_relatedness, profile_for(unknown).run_mendelian) == (
@@ -428,12 +428,18 @@ def test_single_profile_runs_sex_only() -> None:
     assert report.relatedness_checks == [] and report.mendelian_checks == []
 
 
+def test_a_family_holding_both_nipts_gets_the_monogenic_nipts_checks() -> None:
+    # The conventional NIPT adds no check; the monogenic NIPT's run whichever came first.
+    for types in (["monogenic_nipt", "conventional_nipt"], ["conventional_nipt", "monogenic_nipt"]):
+        assert resolve_application(analysis_types=types, roles={}, parents_of={}, sample_count=4) == "nipt"
+
+
 def test_a_conventional_nipt_plasma_gets_no_genotype_check() -> None:
     # Owner decision of 2026-11-19: ccnv's output holds no genotypes, and as for a PGT embryo
     # the fetal sex is known only from the analysis (ccnv's call, in the cNIPT result). One
     # maternal plasma, recorded female, is no "single sample" whose sex is checked.
     application = resolve_application(
-        analysis_type="conventional_nipt", roles={"CFDNA1": "mother"}, parents_of={}, sample_count=1
+        analysis_types=["conventional_nipt"], roles={"CFDNA1": "mother"}, parents_of={}, sample_count=1
     )
     assert application == "cnipt"
     profile = profile_for(application)

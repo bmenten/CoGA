@@ -19,7 +19,8 @@ from .family_structure_audit import (
     record_structure_version,
 )
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
-from .nipt import FAMILY_ANALYSIS_TYPE_KEY, MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
+from .family_analysis_types import FAMILY_ANALYSIS_TYPES_KEY, SAMPLE_ASSAYS_KEY
+from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .pedigree_text import PedMember, pedigree_text, phenotype_code, sex_code
 from .upload_safety import decode_upload_text
 from .hpo_service import (
@@ -322,24 +323,30 @@ def _ped_upload_proband_id(members: list[dict[str, str]], *, parent_ids: set[str
     return next(affected, None) or next((member["iid"] for member in candidates), None)
 
 
-# The metadata the Family Builder may set, with the values each key may take: what its page sends
-# for a monogenic NIPT family and the mother's cfDNA sample. Every other key is written
+# The metadata the Family Builder may set, each key a list of the values it may hold: what its page
+# sends for a monogenic NIPT family (its analysis types) and the mother's cfDNA sample (its assays). Every other key is written
 # by an import or by an edit the audit trail records (the package folder a family was imported from,
 # a sample's sequencing QC, the import state), and is trusted where it is read, so a request does
 # not set it.
 MANUAL_FAMILY_METADATA: dict[str, frozenset[str]] = {
-    FAMILY_ANALYSIS_TYPE_KEY: frozenset({MONOGENIC_NIPT_ANALYSIS_TYPE}),
+    FAMILY_ANALYSIS_TYPES_KEY: frozenset({MONOGENIC_NIPT_ANALYSIS_TYPE}),
 }
 MANUAL_SAMPLE_METADATA: dict[str, frozenset[str]] = {
-    SAMPLE_ASSAY_KEY: frozenset({NIPT_CFDNA_ASSAY}),
+    SAMPLE_ASSAYS_KEY: frozenset({NIPT_CFDNA_ASSAY}),
 }
 
 
 def _require_manual_metadata(metadata: dict[str, Any], allowed: dict[str, frozenset[str]], what: str) -> None:
     for key, value in metadata.items():
         values = allowed.get(key)
-        if values is None or not isinstance(value, str) or value not in values:
-            accepted = "; ".join(f"{name}: {', '.join(sorted(names))}" for name, names in allowed.items())
+        if (
+            values is None
+            or not isinstance(value, list)
+            or not value
+            or not all(isinstance(item, str) and item in values for item in value)
+            or len(set(value)) != len(value)
+        ):
+            accepted = "; ".join(f"{name}: a list of {', '.join(sorted(names))}" for name, names in allowed.items())
             raise HTTPException(
                 status_code=400,
                 detail=f"{what} metadata may hold only {accepted}; other keys are set by an import or an audited edit",

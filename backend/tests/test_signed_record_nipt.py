@@ -115,7 +115,7 @@ def _targets(*, y_mean: float = 108.0, x_mean: float = 1300.0) -> list[TargetCov
 
 
 def _sample_rows(*, assay_panel: str | None = "panel-v2") -> list[dict[str, Any]]:
-    plasma_metadata: dict[str, Any] = {"assay": "nipt_cfdna"}
+    plasma_metadata: dict[str, Any] = {"assays": ["nipt_cfdna"]}
     if assay_panel:
         plasma_metadata["assay_panel"] = assay_panel
     return [
@@ -150,10 +150,10 @@ def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
             FamilyMemberOut(sample_id=FATHER, role="father", affected=False),
             FamilyMemberOut(
                 sample_id=PLASMA, role="mother", affected=False,
-                sample_metadata={"assay": "nipt_cfdna", "assay_panel": "panel-v2"},
+                sample_metadata={"assays": ["nipt_cfdna"], "assay_panel": "panel-v2"},
             ),
         ],
-        metadata={"analysis_type": "monogenic_nipt"},
+        metadata={"analysis_types": ["monogenic_nipt"]},
         roi=roi,
     )
 
@@ -186,7 +186,9 @@ class _Session:
         if "sample_interval_track_sources" in sql:
             return _Result([{"sample_id": PLASMA, "filename": "cfdna.targets.tsv", "row_count": 5, "uploaded_at": _LOADED}])
         if "FROM families" in sql:
-            return _Result([{"analysis_type": self.analysis_type, **self.roi}])
+            return _Result(
+                [{"metadata": {"analysis_types": [self.analysis_type]} if self.analysis_type else {}, **self.roi}]
+            )
         if "FROM small_variant_reviews" in sql:
             return _Result(
                 [
@@ -758,7 +760,7 @@ def test_the_trio_is_resolved_from_the_familys_active_members() -> None:
     trio, assay_key = srn.nipt_trio_of(_context(untagged))  # type: ignore[misc]
     assert (trio.cfdna_sample_id, trio.fetus_sample_id, assay_key) == ("MOTHER1", "CHILD1", "nipt_cfdna")
     # No father: no trio.
-    assert srn.nipt_trio_of(_context([{"sample_id": PLASMA, "role": "mother", "sample_metadata": {"assay": "nipt_cfdna"}}])) is None
+    assert srn.nipt_trio_of(_context([{"sample_id": PLASMA, "role": "mother", "sample_metadata": {"assays": ["nipt_cfdna"]}}])) is None
 
 
 @pytest.mark.asyncio
@@ -767,7 +769,7 @@ async def test_a_trio_that_cannot_be_resolved_is_frozen_as_such(monkeypatch: pyt
         raise AssertionError("no trio, no analysis")
 
     monkeypatch.setattr(srn, "get_family_nipt_record", _must_not_load)
-    context = _context([{"sample_id": PLASMA, "role": "mother", "sample_metadata": {"assay": "nipt_cfdna"}}])
+    context = _context([{"sample_id": PLASMA, "role": "mother", "sample_metadata": {"assays": ["nipt_cfdna"]}}])
     assert await srn.nipt_results(_Session(), context, reported_ids=["7-100-A-G"]) == {"unavailable": srn.TRIO_UNRESOLVED}
 
 

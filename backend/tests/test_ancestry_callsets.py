@@ -180,7 +180,7 @@ def test_direct_calls_are_preferred_and_imputed_genotypes_fill_in():
 
 def test_cfdna_samples_and_embryos_are_left_out_and_an_absent_individual_says_so():
     model = reference()
-    family = [member("PROBAND"), member("PLASMA", "mother", {"assay": "nipt_cfdna"}), member("EMB1", "Embryo"),
+    family = [member("PROBAND"), member("PLASMA", "mother", {"assays": ["nipt_cfdna"]}), member("EMB1", "Embryo"),
               member("FATHER1", "father")]
     data = rows("PROBAND", range(N)) + rows("PLASMA", range(N)) + rows("EMB1", range(N))
     results = {r.sample_id: r for r in callsets.project_family(data, model, family)}

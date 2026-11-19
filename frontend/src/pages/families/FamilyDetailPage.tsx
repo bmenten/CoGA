@@ -22,7 +22,7 @@ import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/refe
 import { getTagDefinitionMap, type SmallVariantTagDefinition } from './smallVariantSearch';
 import { getReviewTagStyle } from './smallVariantResultUtils';
 import { fetchFamilyReviewTags } from './smallVariantReview';
-import { MONOGENIC_NIPT_ANALYSIS_TYPE } from './niptClassification';
+import { isMonogenicNipt as holdsMonogenicNipt } from './niptClassification';
 import { formatRegion, getReviewSummaryTags } from './familyDetailHelpers';
 import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -110,7 +110,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     loaded: variantCountsLoaded,
   } = presence;
   // Monogenic NIPT families surface a dedicated analysis tab (see docs/monogenic-nipt.md).
-  const isMonogenicNipt = data?.metadata?.analysis_type === MONOGENIC_NIPT_ANALYSIS_TYPE;
+  const isMonogenicNipt = holdsMonogenicNipt(data?.metadata);
   const assemblyLabel = formatResolvedReferenceLabel(
     { assemblyName, isError: referenceFailed },
     'Not linked',

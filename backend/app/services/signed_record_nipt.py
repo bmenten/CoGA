@@ -44,6 +44,7 @@ order, numbers that JSONB cannot hold (NaN, infinity) frozen as null, and -0.0 a
 from __future__ import annotations
 
 import dataclasses
+import json
 import math
 from datetime import datetime
 from typing import Any, Iterable, Mapping
@@ -51,6 +52,7 @@ from typing import Any, Iterable, Mapping
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .family_analysis_types import family_analysis_types
 from .family_metadata_context import FamilyMetadataContext
 from .hash_chain import canonical_hash
 from .nipt import (
@@ -93,9 +95,9 @@ TRIO_UNRESOLVED = (
 # The notes of the coverage check over the coverage tracks, in the section.
 COVERAGE_NOTES_KEY = "coverage_notes"
 
-_ANALYSIS_TYPE_SQL = text(
+_FAMILY_METADATA_SQL = text(
     """
-    SELECT metadata ->> 'analysis_type' AS analysis_type
+    SELECT metadata
     FROM families
     WHERE id = CAST(:family_uuid AS uuid)
     """
@@ -139,12 +141,15 @@ def _iso(value: Any) -> str | None:
 
 
 async def is_nipt_family(session: AsyncSession, context: FamilyMetadataContext) -> bool:
-    """Whether the family is a monogenic NIPT family (``metadata.analysis_type``), as the
+    """Whether the family holds a monogenic NIPT analysis (its ``analysis_types``), as the
     NIPT page and the Sample QC read it."""
     row = (
-        await session.execute(_ANALYSIS_TYPE_SQL, {"family_uuid": context.family_uuid})
+        await session.execute(_FAMILY_METADATA_SQL, {"family_uuid": context.family_uuid})
     ).mappings().first()
-    return row is not None and row.get("analysis_type") == MONOGENIC_NIPT_ANALYSIS_TYPE
+    metadata = row.get("metadata") if row is not None else None
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+    return MONOGENIC_NIPT_ANALYSIS_TYPE in family_analysis_types(metadata if isinstance(metadata, dict) else None)
 
 
 def nipt_trio_of(context: FamilyMetadataContext) -> tuple[NiptTrio, str] | None:

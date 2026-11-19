@@ -335,11 +335,11 @@ describe('FamilyBuilderPage', () => {
         '/ped/manual',
         expect.objectContaining({
           family_id: 'FAM-NIPT',
-          metadata: { analysis_type: 'monogenic_nipt' },
+          metadata: { analysis_types: ['monogenic_nipt'] },
           members: expect.arrayContaining([
             expect.objectContaining({
               sample_id: 'CFDNA-1',
-              metadata: { assay: 'nipt_cfdna' },
+              metadata: { assays: ['nipt_cfdna'] },
             }),
           ]),
         })

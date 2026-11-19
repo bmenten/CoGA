@@ -5,7 +5,7 @@ import FamilyPageHeader, { type FamilyPageHeaderFamily } from './FamilyPageHeade
 import FamilyCaseControls, { FamilyCaseActions, type FamilyCaseActionKey } from './FamilyCaseControls';
 import FamilyModuleNav, { type FamilyModuleKey } from './FamilyModuleNav';
 import { useFamilyDataPresence } from './familyDataPresence';
-import { MONOGENIC_NIPT_ANALYSIS_TYPE } from './niptClassification';
+import { isMonogenicNipt as holdsMonogenicNipt } from './niptClassification';
 import { isConventionalNipt } from './cniptResult';
 
 /**
@@ -69,9 +69,7 @@ const FamilyCaseHeader: React.FC<{
     const names = new Map(catalog.map((project) => [project.id, project.name]));
     return (family?.projects ?? []).map((id) => ({ id, name: names.get(id) ?? id }));
   }, [catalog, family?.projects]);
-  const isMonogenicNipt =
-    (family?.metadata as { analysis_type?: string } | null | undefined)?.analysis_type ===
-    MONOGENIC_NIPT_ANALYSIS_TYPE;
+  const isMonogenicNipt = holdsMonogenicNipt(family?.metadata);
 
   return (
     <FamilyPageHeader

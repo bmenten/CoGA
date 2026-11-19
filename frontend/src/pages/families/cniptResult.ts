@@ -4,12 +4,14 @@
  */
 
 import type { CniptTargetOut } from '../../lib/apiSchema.generated';
+import { holdsAnalysis } from '../../lib/familyAnalyses';
 
-/** The family metadata `analysis_type` of a conventional NIPT family. */
+/** The analysis type of a conventional NIPT, among a family's analysis types (`familyAnalysisTypes`). */
 export const CONVENTIONAL_NIPT_ANALYSIS_TYPE = 'conventional_nipt';
 
+/** Whether a family holds a conventional NIPT (it may hold a monogenic NIPT beside it). */
 export const isConventionalNipt = (metadata: unknown): boolean =>
-  (metadata as { analysis_type?: string } | null | undefined)?.analysis_type === CONVENTIONAL_NIPT_ANALYSIS_TYPE;
+  holdsAnalysis(metadata, CONVENTIONAL_NIPT_ANALYSIS_TYPE);
 
 export type CniptVerdict = CniptTargetOut['verdict'];
 

@@ -375,7 +375,7 @@ De SV-lijst toont de partner in haar kolommen *Remote chr* en *Remote start*, ha
 
 Elke datasetsoort heeft een eigen importfunctie in een register. Een soort zonder importfunctie is een fout: een test bewaakt dat, en de import faalt er luid op.
 
-**NIPT-artefacten** (de lijst van terugkerende artefacten per assay) worden niet door de pakketimport gevuld; ze hebben een eigen beheer (hoofdstuk 15). De import neemt wel een gedeclareerd analysetype (bv. `monogenic_nipt`), een assay per sample (bv. `nipt_cfdna`) en het capturepanel van een sample (`assay_panel`, dat de artefactenlijst afbakent) over in de metadata, zodat de NIPT-context later wordt herkend (hoofdstuk 8).
+**NIPT-artefacten** (de lijst van terugkerende artefacten per assay) worden niet door de pakketimport gevuld; ze hebben een eigen beheer (hoofdstuk 15). De import voegt wel een gedeclareerd analysetype (bv. `monogenic_nipt`) toe aan de analysetypes van de familie en een assay per sample (bv. `nipt_cfdna`) aan de assays van dat sample, en neemt het capturepanel van een sample (`assay_panel`, dat de artefactenlijst afbakent) over in de metadata, zodat de NIPT-context later wordt herkend (hoofdstuk 8). Zo kan één familie de monogene en de conventionele NIPT van een zwangerschap bevatten, elk uit een eigen pakket.
 
 **De import van een NIPT-paar** leest eerst de VCF van het plasma (het sample met de assay `nipt_cfdna`, anders de moeder), wat de volgorde in het manifest ook is. Daarna voegt hij elk ander bestand per sample samen met de opgeslagen rijen (`overwrite_scope="samples"`, zoals bij `mito`): een bestand vervangt alleen de calls van zijn eigen sample.
 

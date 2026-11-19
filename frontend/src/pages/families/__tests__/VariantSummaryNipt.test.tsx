@@ -27,7 +27,7 @@ const mockedGet = vi.mocked(api.get);
 const NIPT_FAMILY = {
   family_id: 'F1',
   pedigree: 'F1 FETUS FATHER PLASMA 0 2\nF1 FATHER 0 0 1 1\nF1 PLASMA 0 0 2 1',
-  metadata: { analysis_type: 'monogenic_nipt' },
+  metadata: { analysis_types: ['monogenic_nipt'] },
   members: [
     { sample_id: 'FETUS', role: 'embryo', affected: false, sex: 'unknown' },
     { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' },

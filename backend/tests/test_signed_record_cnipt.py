@@ -144,7 +144,7 @@ def test_a_number_jsonb_cannot_hold_is_frozen_as_null() -> None:
 
 def test_only_a_family_with_ccnv_output_holds_the_section() -> None:
     assert src.holds_ccnv_output(_context(_stored())) is True
-    assert src.holds_ccnv_output(_context({"assay": "nipt_cfdna"})) is False
+    assert src.holds_ccnv_output(_context({"assays": ["nipt_cfdna"]})) is False
 
 
 @pytest.mark.asyncio

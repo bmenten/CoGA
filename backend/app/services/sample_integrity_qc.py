@@ -23,7 +23,7 @@ aligned by index (same site at the same position in every sample's list).
 from __future__ import annotations
 
 import statistics
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal, TypeVar
 
@@ -708,19 +708,22 @@ def _sibling_pairs(parents_of: dict[str, dict[str, str]]) -> set[tuple[str, str]
 
 def resolve_application(
     *,
-    analysis_type: str | None,
+    analysis_types: Iterable[str],
     roles: dict[str, str],
     parents_of: dict[str, dict[str, str]],
     sample_count: int,
 ) -> ApplicationKind:
-    """Infer the application from the analysis type and the family shape.
+    """Infer the application from the family's analysis types and its shape.
 
-    Only monogenic and conventional NIPT are tagged explicitly; the rest are read from
-    structure (the input files / pedigree the family was built from), per CoGA's design.
+    Only monogenic and conventional NIPT are read from the analysis types; the rest from
+    structure (the input files / pedigree the family was built from), per CoGA's design. A family
+    holding both NIPTs of one pregnancy gets the monogenic NIPT's checks: the conventional NIPT
+    adds none (its profile runs no check).
     """
-    if (analysis_type or "").strip().lower() == "monogenic_nipt":
+    types = {str(value).strip().lower() for value in analysis_types}
+    if "monogenic_nipt" in types:
         return "nipt"
-    if (analysis_type or "").strip().lower() == "conventional_nipt":
+    if "conventional_nipt" in types:
         return "cnipt"
     if any((role or "").strip().lower() == "embryo" for role in roles.values()):
         return "pgt"

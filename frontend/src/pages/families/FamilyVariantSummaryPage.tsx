@@ -14,7 +14,7 @@ import {
 import { useFamilyDataPresence } from './familyDataPresence';
 import VariantSummaryNipt from './VariantSummaryNipt';
 import VariantSummarySmallVariants from './VariantSummarySmallVariants';
-import { MONOGENIC_NIPT_ANALYSIS_TYPE } from './niptClassification';
+import { isMonogenicNipt as holdsMonogenicNipt } from './niptClassification';
 import VariantSummaryStructuralVariants from './VariantSummaryStructuralVariants';
 import {
   MitoDnaSummary,
@@ -97,9 +97,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
     ready: referenceReady,
   });
 
-  const isMonogenicNipt =
-    (family?.metadata as { analysis_type?: string } | null | undefined)?.analysis_type ===
-    MONOGENIC_NIPT_ANALYSIS_TYPE;
+  const isMonogenicNipt = holdsMonogenicNipt(family?.metadata);
   const has: Record<SectionKey, boolean> = {
     'nipt-m': isMonogenicNipt,
     'small-variants': presence.hasSmallVariants,

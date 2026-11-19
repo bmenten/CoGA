@@ -91,8 +91,8 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
         assembly_id = await fresh_assembly(session, species, assembly_name)
         sample_uuids: dict[str, str] = {}
         groups = [
-            (default_cfdna, {"assay": "nipt_cfdna"}),
-            (panel_cfdna, {"assay": "nipt_cfdna", "assay_panel": "PANEL_X"}),
+            (default_cfdna, {"assays": ["nipt_cfdna"]}),
+            (panel_cfdna, {"assays": ["nipt_cfdna"], "assay_panel": "PANEL_X"}),
             (wgs, {}),
         ]
         for index, (samples, metadata) in enumerate(groups):

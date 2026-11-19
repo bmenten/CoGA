@@ -1351,7 +1351,7 @@ describe('FamilyReportPage', () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
         return Promise.resolve({
-          data: { family_id: 'F1', members: [], projects: [], can_sign_out: true, metadata: { analysis_type: 'conventional_nipt' } },
+          data: { family_id: 'F1', members: [], projects: [], can_sign_out: true, metadata: { analysis_types: ['conventional_nipt'] } },
         });
       }
       if (url === '/families/F1/cnipt') return Promise.resolve({ data: result });

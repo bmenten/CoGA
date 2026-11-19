@@ -12,7 +12,7 @@ import type {
 } from '../../lib/apiTypes';
 import {
   CATEGORY_LABELS,
-  MONOGENIC_NIPT_ANALYSIS_TYPE,
+  isMonogenicNipt as holdsMonogenicNipt,
   depth,
   pct,
 } from './niptClassification';
@@ -198,9 +198,7 @@ const FamilyNiptPage: React.FC = () => {
     },
   });
 
-  const isMonogenicNipt =
-    (family?.metadata as { analysis_type?: string } | undefined)?.analysis_type ===
-    MONOGENIC_NIPT_ANALYSIS_TYPE;
+  const isMonogenicNipt = holdsMonogenicNipt(family?.metadata);
 
   const {
     speciesName,

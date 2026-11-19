@@ -13,7 +13,7 @@ import NiptClassificationBlock from './NiptClassificationBlock';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import {
   CATEGORY_LABELS,
-  MONOGENIC_NIPT_ANALYSIS_TYPE,
+  isMonogenicNipt as holdsMonogenicNipt,
   NIPT_INHERITANCE_GROUPS,
   depth,
   lowCoverageDetail,
@@ -200,9 +200,7 @@ const FamilyNiptReportPage: React.FC = () => {
     },
   });
 
-  const isMonogenicNipt =
-    (family?.metadata as { analysis_type?: string } | undefined)?.analysis_type ===
-    MONOGENIC_NIPT_ANALYSIS_TYPE;
+  const isMonogenicNipt = holdsMonogenicNipt(family?.metadata);
 
   const members = useMemo<FamilyMember[]>(
     () => ((family?.members as FamilyMember[] | undefined) ?? []).filter((m) => m.active !== false),

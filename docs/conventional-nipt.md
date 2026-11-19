@@ -11,9 +11,11 @@ with the code. ccnv's own description of its methods: https://matthdsm.github.io
 
 ## Family and input
 
-- A family is a conventional NIPT when its package says `analysis_type: conventional_nipt`
-  (`family.metadata.analysis_type`). Its member is the maternal plasma, the mother of the pregnancy,
-  tagged `assay: cnipt_cfdna`; a fetus may be listed without data.
+- A family holds a conventional NIPT when its package says `analysis_type: conventional_nipt`: the
+  import adds it to the family's analysis types (`family.metadata.analysis_types`), where a monogenic
+  NIPT of the same pregnancy may stand beside it. Its member is the maternal plasma, the mother of the
+  pregnancy, whose assays then hold `cnipt_cfdna` (`sample.metadata.assays`); a fetus may be listed
+  without data.
 - The `ccnv` dataset names, per plasma, ccnv's bins, segments, calls VCF and QC file. How they are
   read, checked and stored: [data-import.md](data-import.md#conventional-nipt-ccnv)
   (`ccnv_output.py`, `family_package_ccnv.py`).

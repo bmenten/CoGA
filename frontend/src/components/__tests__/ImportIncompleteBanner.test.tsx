@@ -328,7 +328,7 @@ describe('ImportIncompleteBanner', () => {
 
   it('shows nothing for a complete import', () => {
     const { container, rerender } = render(
-      <ImportIncompleteBanner metadata={{ analysis_type: 'monogenic_nipt' }} />,
+      <ImportIncompleteBanner metadata={{ analysis_types: ['monogenic_nipt'] }} />,
     );
     expect(container).toBeEmptyDOMElement();
 
