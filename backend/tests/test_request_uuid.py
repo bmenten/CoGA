@@ -242,6 +242,20 @@ ROUTES: list[tuple[str, str, Any, tuple[int, Any], Any]] = [
     ("DELETE", "/api/families/FAM1/hpo/{v}", None, (404, {"detail": "HPO annotation was not found"}), SAME),
     ("DELETE", "/api/admin/nipt/artifacts/{v}", None, (404, {"detail": "Artifact not found"}), SAME),
     ("GET", "/api/admin/nipt/artifacts?assembly_id={v}", None, (200, []), SAME),
+    (
+        "GET",
+        "/api/admin/nipt/artifacts/scopes?assembly_id={v}",
+        None,
+        (200, [{"assay_key": "nipt_cfdna", "cfdna_samples": 0, "listed": 0}]),
+        SAME,
+    ),
+    (
+        "GET",
+        "/api/admin/nipt/artifacts/auto-seed/preview?assembly_id={v}",
+        None,
+        (404, {"detail": "Assembly not found"}),
+        SAME,
+    ),
     ("DELETE", "/api/auth/small-variant-filter-presets/{v}", None, (404, {"detail": "Preset not found"}), SAME),
     (
         "DELETE",

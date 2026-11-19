@@ -24,7 +24,9 @@ Only the artefact is seeded, at the default threshold of 3, with 3 as its recurr
 first family is stored under two projects and counts once. The seed's count equals the
 list's ``unexplained_low_vaf`` count of every allele, and the candidates are the same after
 a forced part merge of ``entries`` (``OPTIMIZE … FINAL``; see
-``test_e2e_nipt_cfdna_recurrence.py`` for why).
+``test_e2e_nipt_cfdna_recurrence.py`` for why). The admin page's preview, read before the
+seed, shows what the seed then writes and writes nothing; read after it, the artefact is on
+the list as an auto entry.
 
 The rows are written by the importer's own writer, one row per variant and family, as a
 monogenic NIPT import stores them, in the tables of an assembly no other test uses, dropped
@@ -169,6 +171,7 @@ async def _exercise() -> dict[str, Any]:
         assay_cfdna_carrier_samples,
         auto_seed_nipt_artifacts,
         list_nipt_artifacts,
+        preview_auto_seed_nipt_artifacts,
         recurrence_rules,
     )
     from backend.tests.e2e._harness import ensure_postgres_schema
@@ -185,12 +188,14 @@ async def _exercise() -> dict[str, Any]:
             projects = [_PROJECT, _OTHER_PROJECT] if index == 1 else [_PROJECT]
             await cvs.insert_small_variant_records(_ASSEMBLY, f"e2e-nipt-seed-{index}", projects, records)
 
+        scope = {"assembly_id": assembly_id, "assay_key": _PANEL, "min_unexplained_samples": _THRESHOLD}
         async with get_postgres_sessionmaker()() as session:
             carriers = await assay_cfdna_carrier_samples(session, assay_key=_PANEL)
-            seeded = await auto_seed_nipt_artifacts(
-                session, assembly_id=assembly_id, assay_key=_PANEL, min_unexplained_samples=_THRESHOLD
-            )
+            preview = await preview_auto_seed_nipt_artifacts(session, **scope)
+            listed_after_preview = await list_nipt_artifacts(session, assembly_id=assembly_id, assay_key=_PANEL)
+            seeded = await auto_seed_nipt_artifacts(session, **scope)
             listed = await list_nipt_artifacts(session, assembly_id=assembly_id, assay_key=_PANEL)
+            preview_after_seed = await preview_auto_seed_nipt_artifacts(session, **scope)
         # The list's count, outside a family none of these is in.
         recurrence = await count_cfdna_recurrence(
             _ASSEMBLY, list(_ROWS), carrier_samples=carriers, exclude_family_uuid="none", rules=rules
@@ -204,6 +209,9 @@ async def _exercise() -> dict[str, Any]:
         )
         return {
             "carriers": sorted(carriers),
+            "preview": preview,
+            "listed_after_preview": listed_after_preview,
+            "preview_after_seed": preview_after_seed,
             "seeded": seeded,
             "listed": [(row["variant_id"], row["recurrence_count"], row["source"]) for row in listed],
             "recurrence": recurrence,
@@ -233,8 +241,23 @@ def test_the_seed_reads_the_assays_plasmas_only(run) -> None:
 def test_only_the_unexplained_low_vaf_artefact_is_seeded(run) -> None:
     # Not the maternal het in six plasmas, the paternal allele in four, the allele maternal
     # in three and unexplained in two, the crossed-over reads, or the protected alleles.
-    assert run["seeded"] == {"seeded": 1, "min_unexplained_samples": _THRESHOLD}
+    assert run["seeded"] == {
+        "assay_key": _PANEL,
+        "min_unexplained_samples": _THRESHOLD,
+        "cfdna_samples": 6,
+        "variants": [{"variant_id": _ARTEFACT, "recurrence_count": 3, "listed_source": None}],
+        "seeded": 1,
+    }
     assert run["listed"] == [(_ARTEFACT, 3, "auto")]
+
+
+def test_the_preview_shows_what_the_seed_then_writes_and_writes_nothing(run) -> None:
+    assert run["listed_after_preview"] == []
+    assert run["seeded"] == {**run["preview"], "seeded": 1}
+    # Read again after the seed, the artefact is on the list: a seed now refreshes its count.
+    assert run["preview_after_seed"]["variants"] == [
+        {"variant_id": _ARTEFACT, "recurrence_count": 3, "listed_source": "auto"}
+    ]
 
 
 def test_a_recurrent_maternal_het_has_carriers_but_no_unexplained_call(run) -> None:

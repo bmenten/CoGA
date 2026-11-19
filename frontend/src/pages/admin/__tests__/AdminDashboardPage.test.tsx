@@ -43,6 +43,7 @@ const GROUPS: Array<{ title: string; cards: Array<[label: string, href: string]>
     cards: [
       ['Variant tags', '/admin/variants/tags'],
       ['Preset filters', '/admin/variants/presets'],
+      ['NIPT artefact list', '/admin/variants/nipt-artifacts'],
     ],
   },
   {

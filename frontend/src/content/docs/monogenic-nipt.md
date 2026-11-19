@@ -484,17 +484,23 @@ Recurrent artifacts are capture-specific, so each cfDNA assay has its own artifa
 recorded on the cfDNA sample, otherwise one shared list). Listed sites are removed from the Summary and
 the variant list, and counted as *Artifact-filtered* in the funnel.
 
-An administrator maintains the list through the API; there is no screen for it. Two ways fill it:
+An administrator maintains the list on *Admin → NIPT artefact list*: choose the assembly and the assay
+(the default list, or a capture panel recorded on a cfDNA sample), see its entries with their source,
+recurrence and label, and change it. Each change asks for a confirmation first. Three ways fill it:
 
 - **Import the R pipeline's recurrent list** (`recurrent_cfdna_artifact_filter_*.tsv`): the rows it marks
-  `filter_as_recurrent_artifact`, each with the number of cfDNA families that carry it.
+  `filter_as_recurrent_artifact`, each with the number of cfDNA families that carry it. The page then
+  shows how many rows were read, imported and refused.
 - **Seed it from CoGA's own cfDNA samples:** the variants that are an *unexplained low-VAF* call (see
   *Recurrence in other cfDNA samples*) in at least 3 cfDNA samples of the same assay, in every project
-  (samples marked as maternal-plasma cfDNA; the administrator can ask for another number). Each is
+  (samples marked as maternal-plasma cfDNA; the administrator can set another number). Each is
   listed with that number. A maternal het or the fetus's allele from the father does not count,
-  however many pregnancies carry it: those are the sites the FF estimate relies on.
+  however many pregnancies carry it: those are the sites the FF estimate relies on. *Preview* shows
+  what the seed would list, and which of those alleles are on the list already, without changing the
+  list; the seed then shows what it listed.
+- **Add one allele by hand**, with a label (a curated entry). *Remove* takes an entry off the list.
 
-Neither ever lists:
+Neither the import nor the seed ever lists:
 
 - a common variant (a population frequency above 5% recorded at import): the FF estimate relies on
   these sites;
@@ -502,8 +508,8 @@ Neither ever lists:
   may hold a pathogenic submission. A familial founder variant recurs in a disease-focused panel, and a
   listed variant is left out of every analysis of the assay.
 
-The protections are checked when an allele is listed, on the annotation of the families on the
-assembly; an allele no family carried then is listed unchecked. So each family's analysis checks its
+The protections are checked when an allele is imported or seeded, on the annotation of the families
+on the assembly; an allele no family carried then, or one added by hand, is listed unchecked. So each family's analysis checks its
 listed alleles again with its own annotation: one it marks common or ClinVar-pathogenic stays in,
 flagged `artifact_list_protected`.
 

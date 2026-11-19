@@ -121,6 +121,9 @@ const MonarchDataAdminPage = lazyPage(
 const AdminRepeatLociPage = lazyPage(
   () => import('./pages/admin/AdminRepeatLociPage')
 );
+const AdminNiptArtifactsPage = lazyPage(
+  () => import('./pages/admin/AdminNiptArtifactsPage')
+);
 const ProjectsPage = lazyPage(() => import('./pages/projects/ProjectsPage'));
 const ReferenceCatalogPage = lazyPage(
   () => import('./pages/reference/ReferenceCatalogPage')
@@ -333,6 +336,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 <Route
                   path="/admin/reference/repeat-loci"
                   element={routeElement(<AdminRepeatLociPage />)}
+                />
+                <Route
+                  path="/admin/variants/nipt-artifacts"
+                  element={routeElement(<AdminNiptArtifactsPage />)}
                 />
                 <Route
                   path="/admin/access/users"
