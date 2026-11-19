@@ -18,13 +18,17 @@
 
 import type { CoverageContent } from './apiTypes';
 
-/** Display order: long-read caller first, then the short-read/reference-panel ones. */
-export const COVERAGE_SOURCE_ORDER = ['hificnv', 'wisecondorx', 'qdnaseq'] as const;
+/**
+ * Display order: long-read caller first, then the short-read/reference-panel ones, then
+ * ccnv, the maternal plasma's copy number of a conventional NIPT.
+ */
+export const COVERAGE_SOURCE_ORDER = ['hificnv', 'wisecondorx', 'qdnaseq', 'ccnv'] as const;
 
 const COVERAGE_SOURCE_LABEL: Record<string, string> = {
   hificnv: 'HiFiCNV',
   wisecondorx: 'WisecondorX',
   qdnaseq: 'QDNAseq',
+  ccnv: 'ccnv',
 };
 
 /**

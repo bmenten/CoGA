@@ -1484,10 +1484,10 @@ python docs/handleiding/build_site.py
 <p>De lijst van gevonden pakketten toont alleen mappen die de controle aanvaardt, en leest niets in de andere. Er staan dus niet in: een pakketmap die een symbolische link uit de importmappen is, en een link die in een kring loopt. Een link die binnen de importmappen blijft, wordt gevolgd; de map waar hij naar leidt, staat in de lijst. Ingetypt wordt zo'n map geweigerd, met de reden (<code>package_folder_not_allowed</code>).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_source.py</code> (de allowlist; <code>_listed_package_folder</code> controleert elke map van de pakketlijst zoals de import, voordat de lijst erin kijkt).</p>
 <h2>Wat een pakket bevat</h2>
-<p>Een pakket is een map met de bestanden van de pipeline; het manifest dat CoGA ervoor bewaart, beschrijft ze. Het manifest kent vijftien soorten datasets:</p>
+<p>Een pakket is een map met de bestanden van de pipeline; het manifest dat CoGA ervoor bewaart, beschrijft ze. Het manifest kent zestien soorten datasets:</p>
 <ul>
 <li><strong>Varianten:</strong> <code>snv</code> (small variants, met optionele annotatietabel), <code>sv_needlr</code> (structurele varianten), <code>cnv</code> (CNV-calls met hun signaalbestanden), <code>mito</code> (mitochondriale varianten), <code>repeats_trgt</code> (repeat-expansies).</li>
-<li><strong>Tracks:</strong> <code>wisecondorx</code> en <code>qdnaseq</code> (CNV-dekking en -segmenten), <code>coverage</code>, <code>apcad</code> en <code>pcf</code> (embryo-analyses), <code>haplotypes</code> (een gefaseerde familie-VCF van GLIMPSE2 of SHAPEIT5).</li>
+<li><strong>Tracks:</strong> <code>wisecondorx</code> en <code>qdnaseq</code> (CNV-dekking en -segmenten), <code>ccnv</code> (de kopieaantallen van het maternale plasma bij een conventionele NIPT, met de gain- en loss-calls en de QC van ccnv), <code>coverage</code>, <code>apcad</code> en <code>pcf</code> (embryo-analyses), <code>haplotypes</code> (een gefaseerde familie-VCF van GLIMPSE2 of SHAPEIT5).</li>
 <li><strong>Overige:</strong> <code>paraphase</code> (paraloge genen), <code>alignments</code> (CRAM/BAM voor de genoombrowser), <code>qc</code> (sequencing-QC) en <code>pipeline_info</code> (de run-registratie van de pipeline: toolversies en parameters).</li>
 </ul>
 <p>De verwachte mapindeling per dataset staat in <code>docs/data-import.md</code>. De ontdekkingsstap, waarmee CoGA voorstelt wat een pakketbestand weglaat of een met de hand toegevoegde map niet heeft, zoekt die paden af en toont wat hij vond. De long-read-pipeline zet de toolversie in bestandsnamen. Een zoekpad mag daarom een <code>*</code> bevatten, maar het manifest bevat altijd het gevonden concrete pad, nooit het patroon.</p>
@@ -1686,6 +1686,11 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <td>ClickHouse</td>
 </tr>
 <tr>
+<td><code>ccnv</code> (conventionele NIPT)</td>
+<td>Interval-tracks (bins als dekking, segmenten), bron <code>ccnv</code>, met de waarden van ccnv bij elke rij; de gain- en loss-calls als structurele varianten, bron <code>ccnv</code>; het QC-bestand in de metadata van het sample (<code>samples.metadata.ccnv</code>)</td>
+<td>ClickHouse, Postgres</td>
+</tr>
+<tr>
 <td><code>coverage</code> met <code>target_table</code> (NIPT)</td>
 <td>Interval-track <code>target_coverage</code>: per capture-target de gemiddelde diepte, het gen en de overige kolommen van de tabel</td>
 <td>ClickHouse</td>
@@ -1749,7 +1754,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </table></div>
 <p><strong>Elke track hoort bij de caller die hem schreef.</strong> Een sample kan van één tracktype tracks van verschillende callers hebben, elk onder een eigen bron (<code>source</code>):</p>
 <ul>
-<li>dekking uit een BED (<code>web</code>), van WisecondorX, QDNAseq en HiFiCNV; segmenten van dezelfde callers;</li>
+<li>dekking uit een BED (<code>web</code>), van WisecondorX, QDNAseq, HiFiCNV en ccnv; segmenten van dezelfde callers;</li>
 <li>op de APCAD-track: die van de dataset <code>apcad</code> (<code>apcad</code>), de minor allele fraction van HiFiCNV (<code>hificnv</code>) en een losse BED-upload (<code>web</code>);</li>
 <li>op <code>apcad_pcf</code>: die van de dataset <code>pcf</code> (<code>pcf</code>) en een BED-upload.</li>
 </ul>
@@ -1798,6 +1803,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li><code>repeats_trgt</code> leest de TRGT-VCF van elk sample helemaal, en nog eens om ze op te slaan; zo staan de calls van maar één sample tegelijk in het geheugen.</li>
 <li><code>cnv</code> controleert de HiFiCNV-VCF van elk sample (samplekolom, records) en leest elk signaalbestand tot zijn eerste waarde, voor hij een track schrijft.</li>
 <li><code>wisecondorx</code> en <code>qdnaseq</code> lezen de bins en segmenten van elk sample, en <code>pcf</code> de tabellen van elk sample, tot de eerste rij, voor ze een track wissen.</li>
+<li><code>ccnv</code> leest het QC-bestand en de calls-VCF van elk sample helemaal en controleert of ze hetzelfde resultaat geven (foetaal geslacht, foetale fractie, geslachtschromosoomcall, staal), en leest de bins en segmenten tot de eerste rij, voor hij iets schrijft.</li>
 <li><code>apcad</code> leest het bestand van elk embryo tot de eerste waarde van dat embryo, voor hij de track van een embryo wist. Een VCF waarin zijn lezer geen record vindt, wordt helemaal als BED gelezen.</li>
 <li><code>coverage</code> leest het bestand van elk sample voor hij de track van een sample vervangt: een BED helemaal gedecodeerd (zoals de BED-loader) en tot zijn eerste record gelezen, een dekkingstabel per target helemaal ontleed.</li>
 <li>De SNV-bestanden per sample van een monogene NIPT worden op hun ene samplekolom en een record gecontroleerd voor de calls van het plasma geschreven worden.</li>
@@ -2714,7 +2720,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <p>Classificeren gebruikt dezelfde ACMG-dialoog als small variants, met een eigen mtDNA-evaluator (hoofdstuk 10).</p>
 <p>Per sample toont de pagina dekking en een QC-status; de grenzen komen uit het QC-profiel van de familie (<em>Admin → Sequencing QC thresholds</em>, hoofdstuk 15). Zonder ingestelde grens telt een metriek niet mee: de status is dan <em>Not run</em> (<code>skip</code>), geen <em>Pass</em>. De dekking komt uit één dekkingstrack per sample met leesdiepte (<code>coverage_read_depth.py</code>): de dekkings-BED van het sample als die als leesdiepte verklaard is (<code>content: read_depth</code>, hoofdstuk 6), anders de diepte van HiFiCNV als de import die zoals gelezen bewaarde (<code>normalization: none</code>, hoofdstuk 9).</p>
 <ul>
-<li>De bins van WisecondorX en QDNAseq, de genormaliseerde diepte van HiFiCNV en een BED die als log2-ratio verklaard is, zijn log2-ratio's en tellen nooit als diepte: samen met de diepten van een BED zouden ze een gemiddelde geven dat geen van beide is. Een dekkings-BED die niet verklaart wat hij bevat (<code>unknown</code>), telt evenmin. De QC-notities van de pagina noemen elke track die niet als diepte gelezen werd, met de reden.</li>
+<li>De bins van WisecondorX, QDNAseq en ccnv, de genormaliseerde diepte van HiFiCNV en een BED die als log2-ratio verklaard is, zijn log2-ratio's en tellen nooit als diepte: samen met de diepten van een BED zouden ze een gemiddelde geven dat geen van beide is. Een dekkings-BED die niet verklaart wat hij bevat (<code>unknown</code>), telt evenmin. De QC-notities van de pagina noemen elke track die niet als diepte gelezen werd, met de reden.</li>
 <li>Een sample zonder track met leesdiepte krijgt de diepte van zijn chrM-calls, zoals een sample zonder dekkingstrack. Een moeder met op chrM alleen een log2-ratio-track en zonder calls telt dus niet als bekeken (<em>Mother not assessed</em>).</li>
 </ul>
 <p><strong>Sample-QC.</strong> Deze pagina controleert of de juiste data aan de juiste persoon hangt. Een verwisseld sample of een verkeerde stamboom geeft anders ongemerkt een foute overervingsredenering. Drie controles rekenen op de genotypes zelf:</p>
@@ -6345,10 +6351,10 @@ python docs/handleiding/build_site.py
 <p>The list of packages found shows only folders that the check accepts, and reads nothing in the others. So it does not contain: a package folder that is a symbolic link out of the import folders, or a link that loops. A link that stays within the import folders is followed; the folder it leads to is in the list. Typed in, such a folder is refused, with the reason (<code>package_folder_not_allowed</code>).</p>
 <p class="waar"><strong>Where in the code:</strong> <code>backend/app/services/family_package_source.py</code> (the allowlist; <code>_listed_package_folder</code> checks every folder of the package list as the import does, before the list looks into it).</p>
 <h2>What a package contains</h2>
-<p>A package is a folder with the pipeline's files; the manifest that CoGA keeps for it describes them. The manifest knows fifteen kinds of datasets:</p>
+<p>A package is a folder with the pipeline's files; the manifest that CoGA keeps for it describes them. The manifest knows sixteen kinds of datasets:</p>
 <ul>
 <li><strong>Variants:</strong> <code>snv</code> (small variants, with an optional annotation table), <code>sv_needlr</code> (structural variants), <code>cnv</code> (CNV calls with their signal files), <code>mito</code> (mitochondrial variants), <code>repeats_trgt</code> (repeat expansions).</li>
-<li><strong>Tracks:</strong> <code>wisecondorx</code> and <code>qdnaseq</code> (CNV coverage and segments), <code>coverage</code>, <code>apcad</code> and <code>pcf</code> (embryo analyses), <code>haplotypes</code> (a phased family VCF from GLIMPSE2 or SHAPEIT5).</li>
+<li><strong>Tracks:</strong> <code>wisecondorx</code> and <code>qdnaseq</code> (CNV coverage and segments), <code>ccnv</code> (the copy number of the maternal plasma in a conventional NIPT, with ccnv's gain and loss calls and its QC), <code>coverage</code>, <code>apcad</code> and <code>pcf</code> (embryo analyses), <code>haplotypes</code> (a phased family VCF from GLIMPSE2 or SHAPEIT5).</li>
 <li><strong>Other:</strong> <code>paraphase</code> (paralogous genes), <code>alignments</code> (CRAM/BAM for the genome browser), <code>qc</code> (sequencing QC) and <code>pipeline_info</code> (the pipeline's run record: tool versions and parameters).</li>
 </ul>
 <p>The expected folder layout per dataset is in <code>docs/data-import.md</code>. The discovery step, with which CoGA proposes what a package file leaves out or a folder added by hand does not have, searches those paths and shows what it found. The long-read pipeline puts the tool version in file names. A search path may therefore contain a <code>*</code>, but the manifest always contains the concrete path found, never the pattern.</p>
@@ -6547,6 +6553,11 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <td>ClickHouse</td>
 </tr>
 <tr>
+<td><code>ccnv</code> (conventional NIPT)</td>
+<td>Interval tracks (bins as coverage, segments), source <code>ccnv</code>, with ccnv's values beside each row; the gain and loss calls as structural variants, source <code>ccnv</code>; the QC file in the sample's metadata (<code>samples.metadata.ccnv</code>)</td>
+<td>ClickHouse, Postgres</td>
+</tr>
+<tr>
 <td><code>coverage</code> with <code>target_table</code> (NIPT)</td>
 <td>Interval track <code>target_coverage</code>: per capture target the mean depth, the gene and the other columns of the table</td>
 <td>ClickHouse</td>
@@ -6610,7 +6621,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </table></div>
 <p><strong>Every track belongs to the caller that wrote it.</strong> A sample can have tracks of one track type from different callers, each under its own source (<code>source</code>):</p>
 <ul>
-<li>coverage from a BED (<code>web</code>), from WisecondorX, QDNAseq and HiFiCNV; segments from the same callers;</li>
+<li>coverage from a BED (<code>web</code>), from WisecondorX, QDNAseq, HiFiCNV and ccnv; segments from the same callers;</li>
 <li>on the APCAD track: that of the dataset <code>apcad</code> (<code>apcad</code>), HiFiCNV's minor allele fraction (<code>hificnv</code>) and a separate BED upload (<code>web</code>);</li>
 <li>on <code>apcad_pcf</code>: that of the dataset <code>pcf</code> (<code>pcf</code>) and a BED upload.</li>
 </ul>
@@ -6659,6 +6670,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li><code>repeats_trgt</code> reads every sample's TRGT VCF in full, and once more to store them; that way only one sample's calls are in memory at a time.</li>
 <li><code>cnv</code> checks every sample's HiFiCNV VCF (sample column, records) and reads every signal file up to its first value, before it writes a track.</li>
 <li><code>wisecondorx</code> and <code>qdnaseq</code> read every sample's bins and segments, and <code>pcf</code> every sample's tables, up to the first row, before they wipe a track.</li>
+<li><code>ccnv</code> reads every sample's QC file and calls VCF in full and checks that they give the same result (fetal sex, fetal fraction, sex-chromosome call, sample), and reads the bins and segments up to the first row, before it writes anything.</li>
 <li><code>apcad</code> reads every embryo's file up to that embryo's first value, before it wipes an embryo's track. A VCF in which its reader finds no record is read in full as a BED.</li>
 <li><code>coverage</code> reads every sample's file before it replaces a sample's track: a BED fully decoded (like the BED loader) and read up to its first record, a per-target coverage table fully parsed.</li>
 <li>The per-sample SNV files of a monogenic NIPT are checked for their one sample column and a record before the plasma's calls are written.</li>
@@ -7575,7 +7587,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <p>Classifying uses the same ACMG dialog as small variants, with its own mtDNA evaluator (chapter 10).</p>
 <p>Per sample the page shows coverage and a QC status; the limits come from the family's QC profile (<em>Admin → Sequencing QC thresholds</em>, chapter 15). Without a set limit, a metric does not count: the status is then <em>Not run</em> (<code>skip</code>), not <em>Pass</em>. The coverage comes from one coverage track per sample with read depth (<code>coverage_read_depth.py</code>): the sample's coverage BED if it is declared as read depth (<code>content: read_depth</code>, chapter 6), otherwise HiFiCNV's depth if the import stored it as read (<code>normalization: none</code>, chapter 9).</p>
 <ul>
-<li>The bins of WisecondorX and QDNAseq, HiFiCNV's normalised depth and a BED declared as log2 ratio are log2 ratios and never count as depth: together with the depths of a BED they would give an average that is neither. A coverage BED that does not declare what it contains (<code>unknown</code>) does not count either. The page's QC notes name every track that was not read as depth, with the reason.</li>
+<li>The bins of WisecondorX, QDNAseq and ccnv, HiFiCNV's normalised depth and a BED declared as log2 ratio are log2 ratios and never count as depth: together with the depths of a BED they would give an average that is neither. A coverage BED that does not declare what it contains (<code>unknown</code>) does not count either. The page's QC notes name every track that was not read as depth, with the reason.</li>
 <li>A sample without a track with read depth gets the depth of its chrM calls, like a sample without a coverage track. A mother with only a log2-ratio track on chrM and without calls therefore does not count as assessed (<em>Mother not assessed</em>).</li>
 </ul>
 <p><strong>Sample QC.</strong> This page checks that the right data belong to the right person. Otherwise a swapped sample or a wrong pedigree leads, unnoticed, to wrong reasoning about inheritance. Three checks compute on the genotypes themselves:</p>

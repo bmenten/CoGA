@@ -69,10 +69,10 @@ De lijst van gevonden pakketten toont alleen mappen die de controle aanvaardt, e
 
 ## Wat een pakket bevat
 
-Een pakket is een map met de bestanden van de pipeline; het manifest dat CoGA ervoor bewaart, beschrijft ze. Het manifest kent vijftien soorten datasets:
+Een pakket is een map met de bestanden van de pipeline; het manifest dat CoGA ervoor bewaart, beschrijft ze. Het manifest kent zestien soorten datasets:
 
 - **Varianten:** `snv` (small variants, met optionele annotatietabel), `sv_needlr` (structurele varianten), `cnv` (CNV-calls met hun signaalbestanden), `mito` (mitochondriale varianten), `repeats_trgt` (repeat-expansies).
-- **Tracks:** `wisecondorx` en `qdnaseq` (CNV-dekking en -segmenten), `coverage`, `apcad` en `pcf` (embryo-analyses), `haplotypes` (een gefaseerde familie-VCF van GLIMPSE2 of SHAPEIT5).
+- **Tracks:** `wisecondorx` en `qdnaseq` (CNV-dekking en -segmenten), `ccnv` (de kopieaantallen van het maternale plasma bij een conventionele NIPT, met de gain- en loss-calls en de QC van ccnv), `coverage`, `apcad` en `pcf` (embryo-analyses), `haplotypes` (een gefaseerde familie-VCF van GLIMPSE2 of SHAPEIT5).
 - **Overige:** `paraphase` (paraloge genen), `alignments` (CRAM/BAM voor de genoombrowser), `qc` (sequencing-QC) en `pipeline_info` (de run-registratie van de pipeline: toolversies en parameters).
 
 De verwachte mapindeling per dataset staat in `docs/data-import.md`. De ontdekkingsstap, waarmee CoGA voorstelt wat een pakketbestand weglaat of een met de hand toegevoegde map niet heeft, zoekt die paden af en toont wat hij vond. De long-read-pipeline zet de toolversie in bestandsnamen. Een zoekpad mag daarom een `*` bevatten, maar het manifest bevat altijd het gevonden concrete pad, nooit het patroon.
@@ -233,6 +233,7 @@ Eerst registreert de import de familie en de herkomst, daarna volgen de datasets
 | `sv_needlr`, `cnv` (VCF) | Structurele varianten; bij `cnv` ook dekking, kopieaantal en allelfractie als interval-tracks | ClickHouse |
 | `mito` `sv_vcf` (Sniffles2, chrM) | Structurele varianten, callset `mito_sv`, met de heteroplasmie per sample; per sample vervangen | ClickHouse |
 | `wisecondorx`, `qdnaseq`, `apcad`, `pcf`, `coverage` | Interval-tracks | ClickHouse |
+| `ccnv` (conventionele NIPT) | Interval-tracks (bins als dekking, segmenten), bron `ccnv`, met de waarden van ccnv bij elke rij; de gain- en loss-calls als structurele varianten, bron `ccnv`; het QC-bestand in de metadata van het sample (`samples.metadata.ccnv`) | ClickHouse, Postgres |
 | `coverage` met `target_table` (NIPT) | Interval-track `target_coverage`: per capture-target de gemiddelde diepte, het gen en de overige kolommen van de tabel | ClickHouse |
 | Bron van elke interval-track | `sample_interval_track_sources` | Postgres |
 | `repeats_trgt` (VCF) | `repeat_expansions` | Postgres |
@@ -248,7 +249,7 @@ Eerst registreert de import de familie en de herkomst, daarna volgen de datasets
 
 **Elke track hoort bij de caller die hem schreef.** Een sample kan van één tracktype tracks van verschillende callers hebben, elk onder een eigen bron (`source`):
 
-- dekking uit een BED (`web`), van WisecondorX, QDNAseq en HiFiCNV; segmenten van dezelfde callers;
+- dekking uit een BED (`web`), van WisecondorX, QDNAseq, HiFiCNV en ccnv; segmenten van dezelfde callers;
 - op de APCAD-track: die van de dataset `apcad` (`apcad`), de minor allele fraction van HiFiCNV (`hificnv`) en een losse BED-upload (`web`);
 - op `apcad_pcf`: die van de dataset `pcf` (`pcf`) en een BED-upload.
 
@@ -302,6 +303,7 @@ ClickHouse kent geen transacties. Mislukt het schrijven toch na het wissen (Clic
 - `repeats_trgt` leest de TRGT-VCF van elk sample helemaal, en nog eens om ze op te slaan; zo staan de calls van maar één sample tegelijk in het geheugen.
 - `cnv` controleert de HiFiCNV-VCF van elk sample (samplekolom, records) en leest elk signaalbestand tot zijn eerste waarde, voor hij een track schrijft.
 - `wisecondorx` en `qdnaseq` lezen de bins en segmenten van elk sample, en `pcf` de tabellen van elk sample, tot de eerste rij, voor ze een track wissen.
+- `ccnv` leest het QC-bestand en de calls-VCF van elk sample helemaal en controleert of ze hetzelfde resultaat geven (foetaal geslacht, foetale fractie, geslachtschromosoomcall, staal), en leest de bins en segmenten tot de eerste rij, voor hij iets schrijft.
 - `apcad` leest het bestand van elk embryo tot de eerste waarde van dat embryo, voor hij de track van een embryo wist. Een VCF waarin zijn lezer geen record vindt, wordt helemaal als BED gelezen.
 - `coverage` leest het bestand van elk sample voor hij de track van een sample vervangt: een BED helemaal gedecodeerd (zoals de BED-loader) en tot zijn eerste record gelezen, een dekkingstabel per target helemaal ontleed.
 - De SNV-bestanden per sample van een monogene NIPT worden op hun ene samplekolom en een record gecontroleerd voor de calls van het plasma geschreven worden.
