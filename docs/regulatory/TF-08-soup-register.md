@@ -98,7 +98,7 @@ are not installed in the production image, and the non-blocking dev-tree audit r
 | ClickHouse | 26.8 LTS (26.8.36.3) — compose, CI and the Terraform VM pinned by digest (`clickhouse-server:26.8@sha256:d426d2f…`) | Variant & interval-track store | H |
 | Backend base image | `python:3.12-slim@sha256:5e2bdb1…` (Python 3.12.16) | Runtime packaging | M |
 | Frontend base image | `node:22-alpine@sha256:fe4f6d7…` | Runtime packaging | M |
-| Metrics collector | Google-Built OpenTelemetry Collector 0.164.0 — Terraform pinned by digest (`otelcol-google:0.164.0@sha256:871b9e7…`) | Scrapes the backend's `/metrics` beside it on Cloud Run and writes to Managed Service for Prometheus for the alert policies (operations, outside the clinical path) | L |
+| Metrics collector | Google-Built OpenTelemetry Collector 0.165.1 — Terraform pinned by digest (`otelcol-google:0.165.1@sha256:8cdd5c8…`) | Scrapes the backend's `/metrics` beside it on Cloud Run and writes to Managed Service for Prometheus for the alert policies (operations, outside the clinical path) | L |
 
 All container images are pinned by digest in the Dockerfiles, compose, CI and Terraform; the
 digest is the authoritative identity, the tag is for reading.

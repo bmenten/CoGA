@@ -19,18 +19,18 @@
 FROM python:3.12@sha256:cad37dd20c7cac861af9003af8796d03ea7a998ec1e3a664429740fc9d7d2691 AS python
 
 # generate-sbom.sh: the frontend's SBOM, outside CI (CI runs it --native).
-FROM node:22@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd AS node
+FROM node:22@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb AS node
 
 # The GCS emulator of the smoke job (.github/workflows/ci.yml) and of
 # backend/tests/integration/test_gcs_storage_integration.py.
 FROM fsouza/fake-gcs-server:1.56.1@sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef AS fake-gcs-server
 
 # The builder that ci/cloudbuild.backend.yaml and ci/cloudbuild.frontend.yaml run.
-FROM gcr.io/cloud-builders/docker:20.10.24@sha256:91eaff0806a70dc0b3c853191a2da9995b2aa88d9b24196182344a4cef633603 AS cloud-build-docker
+FROM gcr.io/cloud-builders/docker:20.10.24@sha256:dccbdf9b7877dc1b66427d769a55fe9d82c21655a88301e5eba3d0754c76d146 AS cloud-build-docker
 
 # The Terraform version .github/workflows/build.yml installs (terraform_version).
-FROM hashicorp/terraform:1.17.1@sha256:a5d5a5a892c98f60fcbfa81eac2a40fc19e7b3fa7719bccae10ff6111d22524a AS terraform
+FROM hashicorp/terraform:1.17.2@sha256:6e9c1e647c31a960dc9b59e13272f9111d90010c10b717f77ffb324767660475 AS terraform
 
 # The metrics collector beside the backend on Cloud Run (terraform/variables.tf,
 # metrics_collector_image).
-FROM us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.164.0@sha256:871b9e716d8749660c0e5fd7e7fd5a21b04d412919ab86792528ee4cfa258f89 AS metrics-collector
+FROM us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.165.1@sha256:8cdd5c85128a7f0b73710761487ee747ff9eadc7d7c090d91873aa3fdc1663cd AS metrics-collector
