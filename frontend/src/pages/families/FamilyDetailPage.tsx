@@ -24,7 +24,7 @@ import { getReviewTagStyle } from './smallVariantResultUtils';
 import { fetchFamilyReviewTags } from './smallVariantReview';
 import { isMonogenicNipt as holdsMonogenicNipt } from './niptClassification';
 import { formatRegion, getReviewSummaryTags } from './familyDetailHelpers';
-import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
+import { PipelineRunsPanels } from './PipelineSettingsPanel';
 import { apiPath, raw } from '../../lib/apiPath';
 import { routePath } from '../../lib/routePath';
 
@@ -184,10 +184,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     ...(hasRepeatExpansions ? [{ key: 'repeat' as const, label: 'Repeat expansions', noun: 'repeat loci' }] : []),
     ...(hasParaphase ? [{ key: 'paraphase' as const, label: 'Paraphase', noun: 'Paraphase regions' }] : []),
   ];
-  const pipelineSettings = useMemo(
-    () => pipelineSettingsFromMetadata(data?.metadata),
-    [data?.metadata],
-  );
   // The embryo calls at the ROI (carrier/affected/unaffected), shown per embryo in the
   // Family members table below: made by the backend from the haplotype analysis, the calls
   // a sign-out of the family freezes.
@@ -570,7 +566,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           context for everything above it, not a starting point. The workspace variant
           differs only in its lead sentence — there is no "Modules & versions" footer
           here to point at. */}
-      <PipelineSettingsPanel familyId={data.family_id} settings={pipelineSettings} variant="workspace" />
+      <PipelineRunsPanels familyId={data.family_id} metadata={data.metadata} variant="workspace" />
 
     </div>
   );

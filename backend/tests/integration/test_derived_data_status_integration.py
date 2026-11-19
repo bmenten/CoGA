@@ -177,7 +177,7 @@ def test_an_hpo_edit_marks_the_phenotype_views_stale_and_keeps_the_rest() -> Non
     from backend.app.services.hpo_service import mark_family_hpo_annotations_stale
 
     existing = {
-        "pipeline": {"reference": "GRCh38"},
+        "pipeline": {"long_read_wgs": {"reference": "GRCh38"}},
         "derived_data_status": {"family_metadata": {"state": "stale", "scopes": ["segregation"]}},
     }
 
@@ -215,7 +215,7 @@ def test_an_hpo_edit_marks_the_phenotype_views_stale_and_keeps_the_rest() -> Non
             assert fresh["derived_data_status"]["hpo_annotations"]["sample_id"] == "PROBAND"
             assert fresh["derived_data_status"]["updated_at"]
             # An earlier structure marker and the rest of the metadata are kept.
-            assert earlier["pipeline"] == {"reference": "GRCh38"}
+            assert earlier["pipeline"] == {"long_read_wgs": {"reference": "GRCh38"}}
             assert earlier["derived_data_status"]["family_metadata"] == existing["derived_data_status"]["family_metadata"]
             assert earlier["derived_data_status"]["hpo_annotations"]["reason"] == "hpo_annotation_created"
         finally:

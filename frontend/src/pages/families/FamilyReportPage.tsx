@@ -54,7 +54,7 @@ import {
   type StructuralVariant,
   type StructuralVariantPage,
 } from './structuralVariantSearch';
-import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
+import { PipelineRunsPanels } from './PipelineSettingsPanel';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { useReportBuild } from '../../lib/appVersion';
 import { ClassificationMotivationSentence, ReportClassificationChip } from './ReportClassification';
@@ -1222,11 +1222,7 @@ const LiveFamilyReport: React.FC = () => {
         </section>
       ) : null}
 
-      <PipelineSettingsPanel
-        familyId={familyId}
-        settings={pipelineSettingsFromMetadata(family?.metadata)}
-        variant="report"
-      />
+      <PipelineRunsPanels familyId={familyId} metadata={family?.metadata} variant="report" />
 
       <footer className="surface-card report-footer">
         <p className="report-footer-timestamp">

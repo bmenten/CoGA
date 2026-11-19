@@ -124,10 +124,10 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         # The pipeline parameters an import records leave the import state as it is.
         async with sm() as s:
             await record_family_pipeline_metadata(
-                s, family_uuid=family_uuid, parameters={"genome": "GRCh38"}
+                s, family_uuid=family_uuid, analysis="long_read_wgs", parameters={"genome": "GRCh38"}
             )
             metadata = await _metadata(s, family_uuid)
-        assert metadata["pipeline"] == {"genome": "GRCh38"}
+        assert metadata["pipeline"] == {"long_read_wgs": {"genome": "GRCh38"}}
         assert set(metadata["import_unfinished"]) == {first.key, second.key}
 
         # The sign-out reads them, sorted and normalized.

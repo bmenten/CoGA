@@ -31,7 +31,7 @@ async def _family(session, label: str, members: list[tuple[str, str, str]]) -> s
             text(
                 "INSERT INTO families (family_id, metadata) VALUES (:f, CAST(:m AS jsonb)) RETURNING id::text"
             ),
-            {"f": label, "m": json.dumps({"pipeline": {"reference": "GRCh38"}})},
+            {"f": label, "m": json.dumps({"pipeline": {"long_read_wgs": {"reference": "GRCh38"}}})},
         )
     ).scalar_one()
     for sample_id, sex, role in members:
@@ -158,7 +158,7 @@ def test_a_link_of_unknown_degree_is_stored_and_kept_and_the_phase_corrections_r
                         )
                     ).scalar_one()
                 assert metadata["haplotype_phase_corrections"] == [c.as_metadata() for c in corrections]
-                assert metadata["pipeline"] == {"reference": "GRCh38"}
+                assert metadata["pipeline"] == {"long_read_wgs": {"reference": "GRCh38"}}
         finally:
             if sessionmaker is not None:
                 async with sessionmaker() as session:
