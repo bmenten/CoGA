@@ -92,23 +92,23 @@ def test_a_bins_row_keeps_its_ratio_and_ccnvs_values_and_a_masked_bin_is_left_ou
 def test_a_segment_keeps_its_call_expected_ratio_implied_ff_discordance_and_origin() -> None:
     lines = [
         SEGMENTS_HEADER,
-        "chr18\t20900000\t80300000\t0.012\t4.0\t95631.9\t594\tgain\t0.086298\t0.0108\ttrue\tSUB_FETAL_RATIO\t0.17\t-70511.2\tMATERNAL_MOSAIC\n",
+        "chr13\t25000000\t75000000\t0.015\t4.2\t81234.5\t480\tgain\t0.08482\t0.0135\ttrue\tSUB_FETAL_RATIO\t0.18\t-51234.5\tMATERNAL_MOSAIC\n",
     ]
 
     (row,) = list(ccnv_track_rows(lines, track_type="segments", file="segments.bed.gz"))
 
-    assert row is not None and row.value == 0.012
+    assert row is not None and row.value == 0.015
     assert row.kept == {
-        "zscore": 4.0,
-        "weight": 95631.9,
-        "bin_count": 594,
+        "zscore": 4.2,
+        "weight": 81234.5,
+        "bin_count": 480,
         "call": "gain",
-        "expected_ratio": 0.086298,
-        "implied_ff": 0.0108,
+        "expected_ratio": 0.08482,
+        "implied_ff": 0.0135,
         "discordant": True,
         "discordance_reason": "SUB_FETAL_RATIO",
-        "frag_short_ratio": 0.17,
-        "frag_llr_size": -70511.2,
+        "frag_short_ratio": 0.18,
+        "frag_llr_size": -51234.5,
         "origin_call": "MATERNAL_MOSAIC",
     }
 
@@ -375,7 +375,7 @@ async def test_the_import_stores_the_tracks_the_calls_and_the_qc(monkeypatch: py
         "weight": 282.0,
         "bin_count": 2,
         "call": "gain",
-        "expected_ratio": 0.086298,
+        "expected_ratio": 0.08482,
         "implied_ff": 0.118,
         "discordant": False,
         "frag_short_ratio": 0.205,
@@ -391,7 +391,8 @@ async def test_the_import_stores_the_tracks_the_calls_and_the_qc(monkeypatch: py
     assert (record.variant_id, record.sv_type) == ("21-1-200000-DUP----ccnv", "DUP")
     assert record.annotations[0]["format"]["IMPLIED_FF"] == "0.118"
     assert record.annotations[0]["info"]["ORIGIN"] == "FETAL_CONSTITUTIONAL"
-    assert [call.sample for call in record.calls] == [SAMPLE]
+    # ccnv writes no genotype: the plasma carries the call, at no stated zygosity.
+    assert [(call.sample, call.gt) for call in record.calls] == [(SAMPLE, "./1")]
     # The QC file as ccnv wrote it.
     assert store.sample_metadata[SAMPLE] == {"qc": qc_payload(SAMPLE), "qc_file": f"{SAMPLE}_qc.json"}
 

@@ -1867,6 +1867,19 @@ track's record names (`coverage_normalizations`) and what each holds (`coverage_
 
 - A log2 ratio is drawn on the viewers' log2-ratio axis, with the gain/loss colouring and the
   caller's segments.
+- A conventional NIPT's maternal plasma (ccnv) is a log2 ratio too, but a fetal trisomy raises it
+  by only log2(1 + FF/2), about +0.06 at a fetal fraction of 12 %, which the gain/loss colouring
+  (±0.35) would never colour. Its track is drawn on a NIPT axis of its own (±0.3, a gridline every
+  0.1), each segment and its bins in the colour of ccnv's call (gain, loss, or discordant with the
+  fetal fraction, in purple; uncalled ones neutral, called ones thicker), and dashed lines where a
+  fetal trisomy and monosomy lie at the plasma's fetal fraction, log2(1 ± FF/2), on chromosomes 1–22
+  and X, as ccnv's own plot draws them. The fetal fraction is ccnv's effective one, which ccnv's own
+  lines use; the track availability serves it with every other estimate, the fetal sex and the
+  sex-chromosome call (`ccnv`), which the track's head shows.
+- A segments read serves each segment with the values its caller gives beside it (`details`): a
+  ccnv segment's call, z-score, bins, expected ratio, implied fetal fraction, discordance and
+  origin, a WisecondorX segment's z-score. The viewers show them over the segment under the
+  pointer.
 - Read depth (a coverage BED declared as read depth, HiFiCNV's depths stored as read) is drawn on
   a depth axis from 0 to a round number above the 99th percentile of the values shown, without
   the colouring or the segments, which are log2 ratios. HiFiCNV's track says why its depths are
@@ -2004,7 +2017,9 @@ datasets:
   fraction, discordance and its reason, fragment-length statistics and origin call kept with the row.
 - **The calls VCF** gives the plasma's structural variants, source `ccnv`: each `<DUP>` or `<DEL>`
   record as a gain or a loss, named by its coordinates, type and source like a HiFiCNV call. ccnv
-  writes no genotype: the call's genotype is a no-call (`./.`), and its FORMAT values (log2 ratio,
+  writes no genotype, as none holds for a mixture of the mother's and the fetus's DNA: the call's
+  genotype is `./1`, an alternate allele and the other unknown, so the SV tracks and the SV list's
+  sample filters count the plasma as carrying it. Its FORMAT values (log2 ratio,
   z-score, weight, bins, expected log2 ratio, implied fetal fraction) are kept in its annotation
   (`format`) beside its INFO (discordance, fragment statistics, origin, mosaic fraction). A VCF
   without a record is the run's answer that it called no gain or loss: the plasma's earlier ccnv

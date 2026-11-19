@@ -31,9 +31,9 @@ _BINS = [
 ]
 
 _SEGMENTS = [
-    ("chr1", 100_000, 400_000, "-0.001667", "-0.100000", "465.0", "3", "", "-0.091790", "0.001500", "false", "", "0.180000", "-300.0", ""),
-    ("chr21", 0, 200_000, "0.085000", "5.600000", "282.0", "2", "gain", "0.086298", "0.118000", "false", "", "0.205000", "120.5", "FETAL_CONSTITUTIONAL"),
-    ("chrX", 0, 100_000, "0.001000", "0.050000", "120.0", "1", "", "0.086298", "0.000900", "false", "", "0.170000", "-80.0", ""),
+    ("chr1", 100_000, 400_000, "-0.001667", "-0.100000", "465.0", "3", "", "-0.090120", "0.001500", "false", "", "0.180000", "-300.0", ""),
+    ("chr21", 0, 200_000, "0.085000", "5.600000", "282.0", "2", "gain", "0.084820", "0.118000", "false", "", "0.205000", "120.5", "FETAL_CONSTITUTIONAL"),
+    ("chrX", 0, 100_000, "0.001000", "0.050000", "120.0", "1", "", "0.084820", "0.000900", "false", "", "0.170000", "-80.0", ""),
 ]
 
 
@@ -90,7 +90,7 @@ def calls_vcf(sample: str, *, fetal_sex: str = "F", fetal_fraction: str = "0.081
         f"##scaCall={sca_call}\n"
         f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
         "chr21\t1\t.\tN\t<DUP>\t.\tPASS\tEND=200000;SVTYPE=DUP;IMPRECISE;ORIGIN=FETAL_CONSTITUTIONAL\t"
-        "LOG2R:ZSCORE:WEIGHT:BINS:EXP_LOG2R:IMPLIED_FF\t0.085:5.6:282.0:2:0.086298:0.118\n"
+        "LOG2R:ZSCORE:WEIGHT:BINS:EXP_LOG2R:IMPLIED_FF\t0.085:5.6:282.0:2:0.08482:0.118\n"
     )
 
 

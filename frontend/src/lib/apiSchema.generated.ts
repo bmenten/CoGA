@@ -259,6 +259,26 @@ export interface BedRecordOut {
 }
 
 /**
+ * One segment: the row with the values its caller gives beside it (``details``): a
+ * WisecondorX segment's z-score; a ccnv segment's z-score, bin count, call, expected ratio,
+ * implied fetal fraction, discordance and its reason, fragment statistics and origin call.
+ * Null for a segment whose caller gives none.
+ */
+export interface BedSegmentRecordOut {
+  chr: string;
+  start: number;
+  end: number;
+  value: number | null;
+  details: Record<string, boolean | number | string> | null;
+}
+
+/** A BED read of a segments track: each segment with its caller's values. */
+export interface BedSegmentsTrackOut {
+  bed_type: "segments";
+  items: BedSegmentRecordOut[];
+}
+
+/**
  * One site of an embryo's segregation table: its origin is its heterozygous parent, its value
  * the embryo's fraction of the allele the other parent does not carry
  * (``family_package_tracks._parse_segregation_row``), and its group the PGT pipeline's: 2A or
@@ -281,9 +301,9 @@ export interface BedSegregationTrackOut {
   items: BedSegregationRecordOut[];
 }
 
-/** A BED read of a coverage or segments track. */
+/** A BED read of a coverage track. */
 export interface BedTrackOut {
-  bed_type: "coverage" | "segments";
+  bed_type: "coverage";
   items: BedRecordOut[];
 }
 
@@ -361,6 +381,28 @@ export interface CasSignInOut {
 /** The service ticket the CAS server sent the browser back with. */
 export interface CasTicketIn {
   ticket: string;
+}
+
+/**
+ * A conventional NIPT plasma's ccnv results its tracks are drawn with
+ * (``ccnv_output.ccnv_track_summary``): the fetal fraction the expected trisomy and monosomy
+ * lines are drawn at (ccnv's Fisher-weighted ``effective_ff``), the fused ``active_ff`` with its
+ * standard error and source, each estimator's own fraction, the fetal sex, the sex-chromosome
+ * call with its confidence, and ccnv's low-fetal-fraction warning. Fractions from 0 to 1.
+ */
+export interface CcnvTrackSummaryOut {
+  fetal_fraction: number;
+  active_ff: number;
+  active_ff_se: number | null;
+  active_ff_source: string | null;
+  ffy: number | null;
+  ffx: number | null;
+  ffa: number | null;
+  ff_size: number | null;
+  fetal_sex: string;
+  sca_call: string;
+  sca_confidence: number | null;
+  low_ff_warning: boolean | null;
 }
 
 export interface ChromosomeOut {
@@ -4497,6 +4539,7 @@ export interface TrackAvailabilityOut {
   small_variants: boolean;
   haplotypes: boolean;
   repeat_expansions: boolean;
+  ccnv: CcnvTrackSummaryOut | null;
 }
 
 export interface UiEventBatchIn {

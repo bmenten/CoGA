@@ -268,9 +268,10 @@ async def fetch_interval_track_rows(
     # `metadata_json` (per-row provenance: filename, line_no, …) is NOT selected unless
     # asked for. It is large (a JSON blob per row) and unused by every track reader but
     # the per-target coverage table's (whose rows keep their median and covered share
-    # there), so streaming it for a whole-genome APCAD track would move megabytes of
-    # dead weight per request — slow, and a trigger for stream corruption under the genome
-    # view's concurrent fan-out.
+    # there) and the segments read (whose rows keep their caller's values, served as their
+    # details: a sample's segments are few), so streaming it for a whole-genome APCAD track
+    # would move megabytes of dead weight per request — slow, and a trigger for stream
+    # corruption under the genome view's concurrent fan-out.
     metadata_column = ", metadata_json" if include_metadata else ""
     query = f"""
         SELECT

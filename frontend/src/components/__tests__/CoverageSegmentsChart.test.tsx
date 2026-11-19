@@ -472,3 +472,142 @@ describe('CoverageSegmentsChart', () => {
     expect(onChromosomeClick.mock.calls).toEqual([['2'], ['1']]);
   });
 });
+
+// A conventional NIPT's maternal plasma (ccnv): a fetal trisomy raises its log2 ratio by about
+// +0.06, which the ±0.35 gain/loss cut-offs would never colour. Its track has an axis of its own,
+// colours each segment by ccnv's call, and draws where a fetal trisomy and monosomy lie at the
+// plasma's fetal fraction, on every chromosome but Y.
+describe('CoverageSegmentsChart of a maternal plasma (ccnv)', () => {
+  type Event = [string, unknown[]];
+  let events: Event[];
+
+  const recordingContext = (): CanvasRenderingContext2D => {
+    const ctx: Record<string, unknown> = { fillStyle: '', strokeStyle: '', lineWidth: 1 };
+    for (const name of ['clearRect', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'fillText', 'arc', 'fill', 'setLineDash']) {
+      ctx[name] = vi.fn((...args: unknown[]) => {
+        events.push([name, name === 'fill' ? [ctx.fillStyle] : name === 'stroke' ? [ctx.strokeStyle] : args]);
+      });
+    }
+    return ctx as unknown as CanvasRenderingContext2D;
+  };
+
+  beforeEach(() => {
+    events = [];
+    const ctx = recordingContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx);
+    for (const [name, value] of [
+      ['--color-coverage-gain', 'gain'],
+      ['--color-coverage-loss', 'loss'],
+      ['--color-coverage-neutral', 'neutral'],
+      ['--color-coverage-discordant', 'discordant'],
+    ]) {
+      document.documentElement.style.setProperty(name, value);
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.documentElement.removeAttribute('style');
+  });
+
+  const serve = (segments: unknown[]) =>
+    serveTrackFetchFrom(
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            String(input).includes('segments')
+              ? { bed_type: 'segments', items: segments }
+              : {
+                  bed_type: 'coverage',
+                  items: [
+                    { chr: '1', start: 0, end: 50, value: 0.06 },
+                    { chr: '1', start: 50, end: 100, value: 0.05 },
+                    { chr: 'Y', start: 0, end: 50, value: 0.0 },
+                  ],
+                },
+        }),
+      ),
+    );
+
+  const renderPlasma = (fetalFraction: number | null) =>
+    renderWithClient(
+      <CoverageSegmentsChart
+        coverageUrls={['https://example.test/coverage']}
+        segmentsUrls={['https://example.test/segments']}
+        chroms={['1', 'Y']}
+        layout={{ offsets: { '1': 0, Y: 100 }, lengths: { '1': 100, Y: 100 }, total: 200 }}
+        width={400}
+        height={120}
+        nipt={{ fetalFraction }}
+      />,
+    );
+
+  const gain = { call: 'gain', zscore: 5.6, bin_count: 2, implied_ff: 0.118, discordant: false, origin_call: 'FETAL_CONSTITUTIONAL' };
+
+  it('draws the NIPT axis, colours segments by ccnv’s call and draws the fetal-fraction lines but on Y', async () => {
+    serve([
+      { chr: '1', start: 0, end: 100, value: 0.055, details: gain },
+      { chr: 'Y', start: 0, end: 100, value: 0.0, details: { zscore: 0.1 } },
+    ]);
+    renderPlasma(0.12);
+
+    expect(
+      await screen.findByRole('img', {
+        name: 'Maternal plasma log2 ratio; NIPT axis ±0.3 · segments by ccnv’s call · dashed: fetal trisomy / monosomy at FF 12.0%'.replace('’', "'"),
+      }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(events.filter(([name]) => name === 'arc')).toHaveLength(3));
+    // The NIPT axis: ±0.3, a gridline every 0.1.
+    expect(events.filter(([name]) => name === 'fillText').map(([, args]) => args[0])).toEqual([
+      '-0.3', '-0.2', '-0.1', '0', '0.1', '0.2', '0.3',
+    ]);
+    // chr1's bins in the colour of ccnv's gain, chrY's (no call) neutral, whatever their value.
+    expect(events.filter(([name]) => name === 'fill').map(([, args]) => args[0])).toEqual(['gain', 'gain', 'neutral']);
+    // The dashed lines: trisomy (gain colour) and monosomy (loss colour), over chr1 only
+    // (x 0 to 200 of 400), not over chrY.
+    const start = events.findIndex(([name, args]) => name === 'setLineDash' && (args[0] as number[]).length > 0);
+    const end = events.findIndex(([name, args], index) => index > start && name === 'setLineDash' && (args[0] as number[]).length === 0);
+    const dashed = events.slice(start + 1, end);
+    const yOf = (value: number) => 120 - ((value + 0.3) / 0.6) * 120;
+    expect(dashed.filter(([name]) => name === 'moveTo').map(([, args]) => args)).toEqual([
+      [0, yOf(Math.log2(1.06))],
+      [0, yOf(Math.log2(0.94))],
+    ]);
+    expect(dashed.filter(([name]) => name === 'lineTo').map(([, args]) => args[0])).toEqual([200, 200]);
+    expect(dashed.filter(([name]) => name === 'stroke').map(([, args]) => args[0])).toEqual(['gain', 'loss']);
+  });
+
+  it('colours a call ccnv flags as discordant with the fetal fraction apart', async () => {
+    serve([{ chr: '1', start: 0, end: 100, value: 0.012, details: { ...gain, discordant: true, discordance_reason: 'SUB_FETAL_RATIO' } }]);
+    renderPlasma(0.12);
+
+    await waitFor(() => expect(events.filter(([name]) => name === 'arc')).toHaveLength(3));
+    expect(events.filter(([name]) => name === 'fill').map(([, args]) => args[0])).toEqual(['discordant', 'discordant', 'neutral']);
+  });
+
+  it('draws no fetal-fraction line without a fetal fraction, and says so', async () => {
+    serve([{ chr: '1', start: 0, end: 100, value: 0.055, details: gain }]);
+    renderPlasma(null);
+
+    expect(await screen.findByText(/no fetal fraction to draw the expected lines at/)).toBeInTheDocument();
+    await waitFor(() => expect(events.filter(([name]) => name === 'arc')).toHaveLength(3));
+    expect(events.some(([name]) => name === 'setLineDash')).toBe(false);
+  });
+
+  it('shows a segment’s values from ccnv under the pointer', async () => {
+    serve([{ chr: '1', start: 0, end: 100, value: 0.055, details: gain }]);
+    renderPlasma(0.12);
+    const canvas = await screen.findByRole('img', { name: /^Maternal plasma log2 ratio;/ });
+    await waitFor(() => expect(events.filter(([name]) => name === 'arc')).toHaveLength(3));
+
+    // 400 px over 200 bp: x 100 is 50 bp into chr1.
+    fireMouseAt('mouseMove', canvas, 100);
+    for (const line of ['chr1:0–100 (100 bp)', 'log2 ratio 0.055', 'Call: gain', 'z-score: 5.6', 'Bins: 2', 'Implied fetal fraction: 11.8%', 'Discordant: no', 'Origin: FETAL_CONSTITUTIONAL']) {
+      expect(screen.getByText(line)).toBeInTheDocument();
+    }
+    // Over chrY, where no segment is served, there is none.
+    fireMouseAt('mouseMove', canvas, 390);
+    expect(screen.queryByText('Call: gain')).not.toBeInTheDocument();
+  });
+});

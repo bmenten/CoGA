@@ -105,7 +105,7 @@ from .family_package_validation import _manifest_hpo_rows, _manifest_individuals
 from .structural_variant_ingest import SkippedRecords
 from .family_package_variants import ParaphaseValueError, _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
 from .import_progress import FilesReadInTurn
-from .ccnv_output import CCNV_SOURCE, CcnvOutputError, ccnv_vcf_header_problems
+from .ccnv_output import CCNV_CALL_GENOTYPE, CCNV_SOURCE, CcnvOutputError, ccnv_vcf_header_problems
 from .family_package_ccnv import ccnv_entry_paths, read_ccnv_qc_file
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .per_sample_small_variants import (
@@ -1000,6 +1000,8 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
             sample_column=0,
             skipped=skipped,
             keep_format=True,
+            # ccnv states no genotype: its call is the plasma's event, of no stated zygosity.
+            genotype_without_gt=CCNV_CALL_GENOTYPE,
         )
         if not sample_records and skipped.without_extent:
             raise ImportRefused(
