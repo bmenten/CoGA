@@ -241,7 +241,7 @@ const AdminQcThresholdsPage: React.FC = () => {
             </button>
           )}
           <p className="dashboard-link-note">
-            Each analysis's sequencing QC is judged metric by metric: by the cut-off in the analysis's
+            Each analysis’s sequencing QC is judged metric by metric: by the cut-off in the analysis’s
             own profile, else in the profile the family names in its <code>qc_profile</code> metadata,
             else in the default profile. A new profile starts with no cut-offs, so it gates nothing
             until values are entered.
