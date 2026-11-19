@@ -125,9 +125,9 @@ class NiptSiteObservation:
     # The plasma's depth at the site whether or not it called the allele, which is the depth
     # an allele it did not show is judged at: in the per-sample callset its per-target
     # coverage there (None outside every target, or without a coverage table); in a joint
-    # VCF its call's depth, as every record there holds a plasma call. Paternity counts a
-    # site only where it is known, so an allele it did not show is counted as surely as
-    # one it did.
+    # VCF its call's depth, as every record there holds a plasma call. Paternity and the
+    # fetal sex count a site only where it is known, so an allele it did not show is
+    # counted as surely as one it did.
     cf_coverage_dp: int | None
     # The father's genotype class (FATHER_STATES), from his allele fraction; the analysis
     # reads a call below min_father_dp / min_father_qual as missing.
@@ -961,6 +961,12 @@ def infer_fetal_sex(
     (the category-8 "absent" signal). A present alt at a maternal level (high VAF)
     means the mother carries it, so it is excluded as uninformative.
 
+    A site counts only where the plasma's depth there, known whether or not it called the
+    allele (``NiptSiteObservation.cf_coverage_dp``), leaves ``detect_min`` expected reads,
+    as for paternity: admitted on its call's depth, a daughter's alleles would count
+    wherever the plasma showed them and a son's missing ones only where a coverage table
+    gave a depth, so without one the check could read female but never male.
+
     Of at least ``MIN_FETAL_SEX_SITES`` informative sites, a transmitted share of 80% or
     more reads female, 10% or less male, and a share in between indeterminate.
     """
@@ -976,6 +982,8 @@ def infer_fetal_sex(
         # hom_alt.
         if trusted_father_state(site, qc) != "hom_alt":
             continue
+        if site.cf_coverage_dp is None or site.cf_coverage_dp * ff / 2.0 < detect_min:
+            continue
         n = site.cf_dp or 0
         k = site.cf_alt_reads or 0
         present = bool(site.cf_present) and not site.cf_depth_estimated and n > 0 and k >= qc.min_cf_alt_reads
@@ -983,7 +991,7 @@ def infer_fetal_sex(
             vaf = site.cf_vaf if site.cf_vaf is not None else (k / n if n else 0.0)
             if vaf < _FETAL_SEX_MATERNAL_VAF_FLOOR:
                 transmitted += 1
-        elif k == 0 and n * ff / 2.0 >= detect_min:
+        elif k == 0:
             not_transmitted += 1
     informative = transmitted + not_transmitted
     share = transmitted / informative if informative else 0.0

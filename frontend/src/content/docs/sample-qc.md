@@ -193,6 +193,9 @@ allele at a maternal level (VAF 30% or more) is the mother's and is ignored.
 - 80% or more of the father's X alleles seen → **female**; 10% or less → **male**. In between is
   indeterminate (**warn**): the alleles are not this fetus's father's, or the calls are noisy.
 - Only sites where the father is hom-alt count (a man's X), at a depth of 20 or more.
+- As for paternity, a site counts only where the plasma's depth is known whether or not it shows the
+  allele, and leaves at least 3 expected reads. Otherwise a girl's alleles would count wherever the
+  plasma showed them and a boy's missing ones only where its coverage table gave a depth.
 
 The NIPT page adds a second, independent signal, the plasma's chrY coverage, and shows the call of the
 two together.

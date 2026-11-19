@@ -119,8 +119,9 @@ it.
   the probabilities: `paternal_transmission_probability` (category 7 and absent paternal alleles),
   and `_maternal_probabilities` for the maternal bands (maternal allele inherited, fetus hom-alt,
   the fetal genotype posterior).
-- **Fetal sex** — `infer_fetal_sex` (non-PAR chrX sites where the father is hom-alt: ≥ 8
-  informative; a transmitted share ≥ 0.80 is female, ≤ 0.10 male), `sex_chromosome_coverage` (the
+- **Fetal sex** — `infer_fetal_sex` (non-PAR chrX sites where the father is hom-alt and
+  `cf_coverage_dp × FF/2 ≥ 3`, admitted like paternity's: ≥ 8 informative; a transmitted share ≥ 0.80
+  is female, ≤ 0.10 male), `sex_chromosome_coverage` (the
   plasma's chrX and chrY depth over the autosomes, from the target table) and `combined_fetal_sex`.
 - **Paternity** — `paternal_transmission_evidence` counts his hom-alt and het alleles seen and not
   seen, where the mother does not carry them and `cf_coverage_dp × FF/2 ≥ 10`. That depth does not

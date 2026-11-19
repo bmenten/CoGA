@@ -53,6 +53,27 @@ def test_the_fetal_sex_needs_most_or_hardly_any_paternal_x_alleles(seen: int, ab
     assert (result.inferred, result.x_transmitted, result.x_not_transmitted) == (expected, seen, absent)
 
 
+def test_the_fetal_sex_counts_a_site_only_where_a_missed_allele_would_count() -> None:
+    # Without the plasma's coverage at a site, a son's missing paternal-X allele has no depth
+    # to be judged at. A daughter's shown one must not count there either, or the check
+    # could read female but never male.
+    qc = NiptQualityThresholds()
+    seen = _x_sites(present=True, vaf=0.05, n=9)
+    missed = _x_sites(present=False, vaf=None, pos0=5_000_000, n=9)
+    for site in [*seen, *missed]:
+        site.cf_coverage_dp = None
+    result = infer_fetal_sex([*seen, *missed], _ff(0.10), qc)
+    assert (result.inferred, result.x_transmitted, result.x_not_transmitted) == ("indeterminate", 0, 0)
+    # The coverage depth decides, not the call's: a deep call over a thin target (expected
+    # 2.5 reads at FF/2) is too shallow to have shown a missed allele.
+    for site in seen:
+        site.cf_coverage_dp = 50
+    assert infer_fetal_sex(seen, _ff(0.10), qc).informative_sites == 0
+    for site in seen:
+        site.cf_coverage_dp = 200
+    assert infer_fetal_sex(seen, _ff(0.10), qc).inferred == "female"
+
+
 def test_the_fetal_sex_leaves_out_a_plasma_call_read_off_another_record() -> None:
     # The father's allele whose plasma reads are another record's: that record is a site
     # of its own, so this one is no second piece of evidence.

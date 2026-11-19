@@ -331,8 +331,8 @@ def build_nipt_observations(
     (``plasma_depth``; None outside every target), and a record without the father's call
     reads his genotype as ``absent``, with his depth there from his coverage when known.
     Every per-sample site, called by the plasma or not, also carries that coverage depth
-    as ``cf_coverage_dp``, the depth paternity judges a site at; a joint VCF's site carries
-    its plasma call's depth.
+    as ``cf_coverage_dp``, the depth paternity and the fetal sex judge a site at; a joint
+    VCF's site carries its plasma call's depth.
 
     The two per-sample VCFs can write one allele in two representations (an MNV in one,
     its SNVs in the other), so a call missing from a record is first looked up base by

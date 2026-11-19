@@ -106,6 +106,10 @@ def _targets(*, y_mean: float = 108.0, x_mean: float = 1300.0) -> list[TargetCov
         TargetCoverageRow(chrom="7", start=0, end=120, gene="GENEA", attribute="GENEA;NM_1", mean=250.0, median=240.0,
                           proportion_covered=100.0),
         TargetCoverageRow(chrom="X", start=0, end=100, gene="GENEX", attribute="GENEX", mean=x_mean, median=x_mean),
+        # Over the father's X alleles of _paternal_x_sites: the fetal sex counts a site only
+        # where the plasma's depth is known, called or not.
+        TargetCoverageRow(chrom="X", start=2_999_900, end=3_000_100, gene="GENEX", attribute="GENEX",
+                          mean=x_mean, median=x_mean),
         TargetCoverageRow(chrom="Y", start=0, end=100, gene="GENEY", attribute="GENEY", mean=y_mean, median=y_mean),
     ]
 

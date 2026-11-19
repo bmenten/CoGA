@@ -373,7 +373,8 @@ check that could not run included). A click shows each check.
 - **Fetal sex**, from two independent signals:
   - *Paternal X*: at the father's X alleles (outside the pseudo-autosomal regions, where he is hom-alt
     and the plasma's allele fraction is below 30%), a daughter shows the allele and a son does not.
-    From at least 8 informative sites, 80% or more seen is female and 10% or less male. A share in
+    As for paternity, a site counts only where the target coverage gives the plasma's depth, shown or
+    not. From at least 8 informative sites, 80% or more seen is female and 10% or less male. A share in
     between is indeterminate: the alleles are not this fetus's father's, or the calls are noisy.
   - *chrY coverage*: a chrY signal above the noise (2% of the autosomal depth) means a male fetus; none,
     at an FF of 4% or more, a female one.
