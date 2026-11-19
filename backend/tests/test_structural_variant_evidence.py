@@ -777,6 +777,15 @@ def test_the_drift_check_compares_each_classification_with_its_own_callers_row(m
     assert (out["checked"], out["drifted_count"], out["drifted"]) == (2, 0, [])
     assert sorted(looked_up) == [("u1", "sv-needlr", "needlr"), ("u1", "sv-upload", "sniffles")]
 
+    # A sign-out of one of the family's analyses leaves out a review of an SV stored under
+    # another analysis's sources alone: neither read nor counted.
+    looked_up.clear()
+    out = asyncio.run(
+        cds.evaluate_structural_classification_drift(_Session(reviews), _CONTEXT, left_out=frozenset({"sv-upload"}))
+    )
+    assert (out["checked"], out["drifted_count"]) == (1, 0)
+    assert looked_up == [("u1", "sv-needlr", "needlr")]
+
 
 def test_a_change_to_the_classified_callers_row_is_drift_and_one_to_another_callers_is_not(
     monkeypatch,

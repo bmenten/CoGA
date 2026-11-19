@@ -17,6 +17,7 @@ import functools
 import logging
 import math
 import re
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -352,22 +353,30 @@ async def get_family_sample_integrity_qc(
     user: CurrentUser,
     project_id: str | None = None,
     shared_nipt: SharedNiptAnalysis | None = None,
+    analysis_types: Sequence[str] | None = None,
+    genotype_source_held: Callable[[str], bool] | None = None,
 ) -> SampleIntegrityReport:
     """The family's sample-integrity QC. A monogenic NIPT family's NIPT checks read
     ``shared_nipt``'s analysis when given one: a sign-out's, which its record's NIPT section
-    reads too."""
+    reads too.
+
+    A sign-out of one of the family's analyses runs that analysis's QC: ``analysis_types`` names
+    it in place of the family's, and the genotypes are read from a callset of its own
+    (``genotype_source_held``, ``signout_scope``)."""
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
     family = await get_family_record(session, family_id, user)
-    analysis_types = family_analysis_types(getattr(family, "metadata", None))
+    types = (
+        family_analysis_types(getattr(family, "metadata", None)) if analysis_types is None else analysis_types
+    )
 
     spec = _build_pedigree_spec(context)
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
     samples = sorted(context.sample_name_to_uuid)
 
     application = resolve_application(
-        analysis_types=analysis_types,
+        analysis_types=types,
         roles=pedigree.roles,
         parents_of=pedigree.parents_of,
         sample_count=len(samples),
@@ -414,7 +423,10 @@ async def get_family_sample_integrity_qc(
     needs_genotypes = profile.run_sex or profile.run_relatedness or profile.run_mendelian
     if needs_genotypes and context.assembly_name and samples:
         try:
-            genotype_source = _choose_genotype_source(await fetch_family_variant_sources(context))
+            available = await fetch_family_variant_sources(context)
+            if genotype_source_held is not None:
+                available = [source for source in available if genotype_source_held(source)]
+            genotype_source = _choose_genotype_source(available)
             if genotype_source:
                 read_as_reference: dict[str, int] = {}
                 autosomes: set[str] = set()

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useInfiniteQuery, useQueries, useQuery } from '@tanstack/react-query';
 
@@ -7,6 +7,7 @@ import PageState from '../../components/PageState';
 import FamilyCaseHeader from './FamilyCaseHeader';
 import SignedFamilyReport from './SignedFamilyReport';
 import CniptReportSummary from './CniptReportSummary';
+import AnalysisSignouts from './AnalysisSignouts';
 import { isConventionalNipt } from './cniptResult';
 import { useAnnotationManifest } from './AnnotationProvenanceSummary';
 import type {
@@ -17,10 +18,13 @@ import type {
 } from '../../lib/apiTypes';
 import type { GeneProfileOut, HpoAnnotationOut } from '../../lib/apiSchema.generated';
 import {
+  latestSignoutOf,
   useReportSignoutCheck,
   useReportSignouts,
   useSignedVersionDownload,
 } from './reportSignoutQueries';
+import { analysisLabel, reportPageAnalyses, separatelySignedAnalyses } from '../../lib/familyAnalyses';
+import type { ApiReportSignoutList } from '../../lib/apiTypes';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import {
   describeModuleVersions,
@@ -180,6 +184,32 @@ const describeStructuralDrift = (item: ApiStructuralClassificationDriftItem): st
  * The live report: current data, and where the case is signed out. Labelled on screen and in
  * print as not the signed version.
  */
+/** The family's record, as every family page reads it. */
+const useFamilyRecord = (familyId: string | undefined) =>
+  useQuery<SmallVariantFamily>({
+    queryKey: ['family', familyId],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const res = await api.get(apiPath`/families/${familyId}`);
+      return res.data as SmallVariantFamily;
+    },
+  });
+
+/**
+ * The signed version the Report page opens on: the latest of the analyses it signs out
+ * (`reportPageAnalyses`) of a family that holds several, else the family's latest.
+ */
+const reportPageLatest = (list: ApiReportSignoutList | undefined, metadata: unknown) => {
+  const analyses = reportPageAnalyses(metadata);
+  if (!analyses.length) return list?.latest ?? null;
+  return (
+    analyses
+      .map((analysisType) => latestSignoutOf(list, analysisType))
+      .filter((entry) => entry !== null)
+      .sort((left, right) => right.version - left.version)[0] ?? null
+  );
+};
+
 const LiveFamilyReport: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
@@ -194,14 +224,7 @@ const LiveFamilyReport: React.FC = () => {
     isLoading: familyLoading,
     isError: familyFailed,
     refetch: refetchFamily,
-  } = useQuery<SmallVariantFamily>({
-    queryKey: ['family', familyId],
-    enabled: Boolean(familyId),
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}`);
-      return res.data as SmallVariantFamily;
-    },
-  });
+  } = useFamilyRecord(familyId);
   // A reader in the family's projects reads and prints the report and its signed versions,
   // but signs nothing out and does not see the audit trail.
   const readOnly = Boolean(family?.read_only);
@@ -407,12 +430,28 @@ const LiveFamilyReport: React.FC = () => {
     refetch: refetchSignouts,
   } = useReportSignouts(familyId);
 
-  // Does the live content below still match the latest signed version? It says so, and
-  // what changed, but even a match does not make this page the signed report.
-  const latestSignout = signouts?.latest ?? null;
+  // A family holding several analyses signs each out on its own (the owner's decision of
+  // 2026-11-19): this page signs out every one but the monogenic NIPT, which the NIPT report
+  // signs out, the analyst choosing which when there are several; a family of one analysis or
+  // none is signed out whole (null).
+  const heldAnalyses = useMemo(() => separatelySignedAnalyses(family?.metadata), [family]);
+  const pageAnalyses = useMemo(() => reportPageAnalyses(family?.metadata), [family]);
+  const [chosenAnalysis, setChosenAnalysis] = useState<string | null>(null);
+  const signOutAnalysis = pageAnalyses.length
+    ? chosenAnalysis !== null && pageAnalyses.includes(chosenAnalysis)
+      ? chosenAnalysis
+      : pageAnalyses[0]
+    : null;
+  const signOutAnalysisLabel = analysisLabel(signOutAnalysis);
+
+  // Does the live content below still match the latest signed version of the analysis this page
+  // signs out? It says so, and what changed, but even a match does not make this page the signed
+  // report. Read once the family is: until then the analysis is not known.
+  const latestSignout = family ? latestSignoutOf(signouts, signOutAnalysis) : null;
   const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
     familyId,
     latestSignout?.version ?? null,
+    signOutAnalysis,
   );
   // How this page relates to the latest signed version (the NIPT report reads it the same way).
   const signedState = liveReportSignedState({
@@ -484,7 +523,7 @@ const LiveFamilyReport: React.FC = () => {
         { search: reportViewSearch(location.search, { version }) },
         { state: { signedOut: { version } } },
       ),
-    { readOnly, canSignOut },
+    { readOnly, canSignOut, analysisType: signOutAnalysis },
   );
   const signOutBlocked = signOutRefusal(
     { readOnly, canSignOut, assemblyValidated, signoutsFailed, signoutsPending },
@@ -620,6 +659,19 @@ const LiveFamilyReport: React.FC = () => {
             <button type="button" className="form-button" onClick={() => window.print()}>
               Print report
             </button>
+            {pageAnalyses.length > 1 ? (
+              <select
+                aria-label="Analysis to sign out"
+                value={signOutAnalysis ?? ''}
+                onChange={(event) => setChosenAnalysis(event.target.value)}
+              >
+                {pageAnalyses.map((analysisType) => (
+                  <option key={analysisType} value={analysisType}>
+                    {analysisLabel(analysisType) ?? analysisType}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <button
               type="button"
               className="form-button"
@@ -631,9 +683,13 @@ const LiveFamilyReport: React.FC = () => {
             >
               {signOutPending
                 ? 'Signing out…'
-                : signouts?.latest
-                  ? 'Amend sign-out'
-                  : 'Sign out report'}
+                : signOutAnalysisLabel
+                  ? latestSignout
+                    ? `Amend sign-out of the ${signOutAnalysisLabel}`
+                    : `Sign out the ${signOutAnalysisLabel}`
+                  : latestSignout
+                    ? 'Amend sign-out'
+                    : 'Sign out report'}
             </button>
           </div>
         }
@@ -689,7 +745,8 @@ const LiveFamilyReport: React.FC = () => {
           role={signedState === 'changed' || signedState === 'unverified' ? 'alert' : undefined}
         >
           <p className="report-signout-line">
-            This is the live report, not signed version {latestSignout.version}.
+            This is the live report, not signed version {latestSignout.version}
+            {signOutAnalysisLabel ? ` of the ${signOutAnalysisLabel}` : ''}.
           </p>
           <p className="report-signout-status">
             Signed version {latestSignout.version}
@@ -733,6 +790,26 @@ const LiveFamilyReport: React.FC = () => {
             ) : null}
           </p>
         </section>
+      ) : null}
+
+      {familyId && heldAnalyses.length ? (
+        <AnalysisSignouts
+          familyId={familyId}
+          analyses={heldAnalyses}
+          signouts={signouts}
+          versionLink={(version) => ({ search: reportViewSearch(location.search, { version }) })}
+          signedOutOn={(analysisType) =>
+            analysisType === 'monogenic_nipt' ? (
+              <>
+                It is signed out on the{' '}
+                <Link to={{ pathname: routePath`/families/${familyId}/nipt/report`, search: location.search }}>
+                  NIPT report
+                </Link>
+                .
+              </>
+            ) : null
+          }
+        />
       ) : null}
 
       <section className="surface-card report-intro">
@@ -1178,6 +1255,8 @@ const FamilyReportPage: React.FC = () => {
   const location = useLocation();
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const signouts = useReportSignouts(familyId);
+  // Which analyses this page signs out: the latest signed version it opens on is theirs.
+  const familyRecord = useFamilyRecord(familyId);
 
   if (!familyId) {
     return <PageState kicker="Report" title="Family not specified" />;
@@ -1205,7 +1284,7 @@ const FamilyReportPage: React.FC = () => {
   if (params.get('view') !== 'live') {
     // Only until the first answer. A refetch (the live report's own, after a failure) must not
     // swap the page back to this state: it would unmount the report that asked, over and over.
-    if (!signouts.isFetched) {
+    if (!signouts.isFetched || !familyRecord.isFetched) {
       return (
         <PageState
           loading
@@ -1215,7 +1294,7 @@ const FamilyReportPage: React.FC = () => {
         />
       );
     }
-    const latest = signouts.data?.latest;
+    const latest = reportPageLatest(signouts.data, familyRecord.data?.metadata);
     if (latest) {
       return <SignedFamilyReport familyId={familyId} version={latest.version} projectId={projectId} />;
     }

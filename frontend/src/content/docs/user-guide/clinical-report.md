@@ -121,6 +121,15 @@ signed version and its report code: quote that code in the EPD report. A mistype
 typo, never taken for another record's. **Report codes** in the main menu finds the signed version a
 code names.
 
+**A family of several analyses.** A family that holds more than one analysis (the monogenic and the
+conventional NIPT of one pregnancy, or short-read and then long-read WGS) signs each out on its own.
+Its signed version freezes that analysis's data only, and the checks read that analysis's data only.
+Data no analysis claims as its own, such as an upload, count for every analysis. Sign out the
+monogenic NIPT on its NIPT report and every other analysis here. When several remain, pick one under
+*Analysis to sign out*; the button names it (**Sign out the conventional NIPT**). *Sign-out of each
+analysis* lists each analysis with its latest signed version, report code, signer and date, and
+whether the family's data still match it.
+
 > **Only a supervisor signs out.** **Sign out report** is for a supervisor of the family's project, a
 > superuser or an administrator. For an analyst, a viewer or a reader the button is disabled and says
 > why, and CoGA refuses the sign-out. The laboratory decides who gets the supervisor role; CoGA records
@@ -146,6 +155,12 @@ was signed:
 
 It says what the record does not hold — the population frequencies and predictions, the gene and
 phenotype context, the audit trail — and never fills that in from current data.
+
+Of a family of several analyses, the page opens on the latest signed version of the analyses it signs
+out. A signed version names its analysis (*Clinical report — signed version 2 of the conventional
+NIPT*), and its *latest* and its check are that analysis's. Where the analysis holds no repeat
+expansions or Paraphase results but another analysis does, the section says *Not part of this record*:
+the other analysis's record freezes them.
 **Print signed version N** prints it; **Download signed version N (JSON)** returns the record itself.
 *Signed versions* lists the earlier ones.
 

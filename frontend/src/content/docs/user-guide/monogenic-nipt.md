@@ -93,11 +93,15 @@ as *De novo in fetus*, *Dominant, transmitted*, *Recessive / biallelic risk* and
 ### Signing the NIPT analysis out
 
 **Sign out NIPT analysis** on the NIPT report is the analytical sign-off. It freezes the analysis into
-the family's signed record, which the EPD report refers to by its report code. It is the family's own
-sign-out, with the same checks and report code: the family has one signed record whether you sign out
-here or from the family report. The record holds the NIPT results as CoGA computed them: the fetal
-fraction and the quality checks, the coverage, and each variant tagged *report* with its category,
-reads, probabilities and recurrence in the other cfDNA samples.
+a signed record, which the EPD report refers to by its report code. It is the family's own sign-out,
+with the same checks and report code, whether you sign out here or from the family report. The record
+holds the NIPT results as CoGA computed them: the fetal fraction and the quality checks, the coverage,
+and each variant tagged *report* with its category, reads, probabilities and recurrence in the other
+cfDNA samples.
+
+When the family also holds the conventional NIPT of the pregnancy, each NIPT is signed out on its own:
+the NIPT report signs out the monogenic NIPT, and its record freezes and checks the monogenic NIPT's
+data only. The family's **Report** page signs out the conventional NIPT.
 
 - Tag the variants you report first. **Show reported (N)**, in the NIPT page's header, lists them
   before you sign out: the variants tagged *report*, with every other filter cleared.

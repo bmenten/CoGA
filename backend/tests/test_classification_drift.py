@@ -5,6 +5,7 @@ import types
 from datetime import datetime, timezone
 
 from backend.app.services import classification_drift_service as cds
+from backend.app.services.signout_scope import ReviewsLeftOut
 from backend.app.services.small_variant_review_acmg import build_evidence_snapshot
 
 _WHEN = datetime(2026, 6, 25, tzinfo=timezone.utc)
@@ -154,6 +155,21 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
     out = asyncio.run(cds.evaluate_classification_drift(_Session(), family_id="FAM1", user=None))
     assert (out["checked"], out["drifted_count"]) == (2, 2)
     assert {entry["status"] for entry in out["drifted"]} == {"variant_missing"}
+
+    # A sign-out of one of the family's analyses checks the classifications of its own
+    # variants only: one stored under another analysis's sources alone is neither read nor
+    # counted (signout_scope), the small variant's and the SV's alike.
+    seen_structural: list = []
+
+    async def _structural(session, context, *, left_out=()):
+        seen_structural.append(left_out)
+        return {"checked": 0, "drifted_count": 0, "drifted": []}
+
+    monkeypatch.setattr(cds, "evaluate_structural_classification_drift", _structural)
+    left_out = ReviewsLeftOut(small=frozenset({"1-100-A-G"}), structural=frozenset({"1-5-9-DEL"}))
+    out = asyncio.run(cds.evaluate_classification_drift(_Session(), family_id="FAM1", user=None, left_out=left_out))
+    assert (out["checked"], [entry["variant_id"] for entry in out["drifted"]]) == (1, ["2-200-C-T"])
+    assert seen_structural == [frozenset({"1-5-9-DEL"})]
 
 
 # --- The frequencies and in-silico scores a classification rests on -------------
@@ -473,7 +489,7 @@ def test_evaluate_classification_drift_names_the_moved_value(monkeypatch) -> Non
     async def _current(*, assembly_name, family_guid, variant_id):
         return current_by_variant[variant_id]
 
-    async def _structural(session, context):
+    async def _structural(session, context, *, left_out=()):
         return {"checked": 0, "drifted_count": 0, "drifted": []}
 
     monkeypatch.setattr(cds, "build_family_metadata_context", _context)
@@ -847,7 +863,7 @@ def test_evaluate_classification_drift_reads_the_genes_missense_z_in_one_query(m
     async def _current(*, assembly_name, family_guid, variant_id):
         return current_by_variant[variant_id]
 
-    async def _structural(session, context):
+    async def _structural(session, context, *, left_out=()):
         return {"checked": 0, "drifted_count": 0, "drifted": []}
 
     monkeypatch.setattr(cds, "build_family_metadata_context", _context)
@@ -906,7 +922,7 @@ def test_a_snapshot_that_is_not_a_json_object_reads_as_unknown_not_skipped(monke
     async def _current(*, assembly_name, family_guid, variant_id):
         return current_by_variant[variant_id]
 
-    async def _structural(session, context):
+    async def _structural(session, context, *, left_out=()):
         return {"checked": 0, "drifted_count": 0, "drifted": []}
 
     monkeypatch.setattr(cds, "build_family_metadata_context", _context)

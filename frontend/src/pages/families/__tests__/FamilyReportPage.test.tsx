@@ -892,7 +892,7 @@ describe('FamilyReportPage', () => {
         return Promise.resolve({ data: { variants: [], total: 0 } });
       }
       if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({ data: { family_id: 'F1', latest: null, signouts: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', latest: null, latest_per_analysis: [], signouts: [] } });
       }
       return Promise.resolve({ data: [] });
     });
@@ -1133,7 +1133,7 @@ describe('FamilyReportPage', () => {
         return Promise.resolve({ data: { variants: [], total: 0 } });
       }
       if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({ data: { family_id: 'F1', latest: null, signouts: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', latest: null, latest_per_analysis: [], signouts: [] } });
       }
       return Promise.resolve({ data: [] });
     });
@@ -1161,7 +1161,7 @@ describe('FamilyReportPage', () => {
         return Promise.resolve({ data: { variants: [], total: 0 } });
       }
       if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({ data: { family_id: 'F1', latest: null, signouts: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', latest: null, latest_per_analysis: [], signouts: [] } });
       }
       return Promise.resolve({ data: [] });
     });
@@ -1356,7 +1356,7 @@ describe('FamilyReportPage', () => {
       }
       if (url === '/families/F1/cnipt') return Promise.resolve({ data: result });
       if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({ data: { family_id: 'F1', latest: null, signouts: [] } });
+        return Promise.resolve({ data: { family_id: 'F1', latest: null, latest_per_analysis: [], signouts: [] } });
       }
       return Promise.resolve({ data: url.startsWith('/families/F1/small-variants') ? { variants: [], total: 0 } : [] });
     });
@@ -1460,6 +1460,8 @@ describe('FamilyReportPage', () => {
   // signed version, even when its content matches.
   const SIGNED_ENTRY = {
     version: 2,
+    // The family holds no analysis: its records close it whole.
+    analysis_type: null as string | null,
     signed_out_by: 'lab-signer',
     signed_out_at: '2026-06-25T10:00:00Z',
     content_hash: 'abc123def456',
@@ -1586,6 +1588,15 @@ describe('FamilyReportPage', () => {
     import_incomplete_acknowledgement_reason: null,
   };
 
+  /** The newest of each analysis's versions (`versions` newest first), as the server lists them. */
+  const latestPerAnalysis = (versions: Array<Record<string, unknown>>) => {
+    const newest = new Map<unknown, Record<string, unknown>>();
+    versions.forEach((entry) => {
+      if (!newest.has(entry.analysis_type ?? null)) newest.set(entry.analysis_type ?? null, entry);
+    });
+    return [...newest.values()];
+  };
+
   type SignedCase = {
     versions?: Array<Record<string, unknown>>;
     snapshot?: Record<string, unknown>;
@@ -1604,7 +1615,9 @@ describe('FamilyReportPage', () => {
     const base = apiMock.get.getMockImplementation()!;
     apiMock.get.mockImplementation((url: string, config?: unknown) => {
       if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({ data: { family_id: 'F1', latest: versions[0], signouts: versions } });
+        return Promise.resolve({
+          data: { family_id: 'F1', latest: versions[0], latest_per_analysis: latestPerAnalysis(versions), signouts: versions },
+        });
       }
       if (url === '/families/F1/report/sign-out-check') return check();
       const signed = url.match(/^\/families\/F1\/report\/sign-outs\/(\d+)$/);
@@ -3440,7 +3453,12 @@ describe('FamilyReportPage', () => {
     apiMock.get.mockImplementation((url: string, config?: unknown) => {
       if (url === '/families/F1/report/sign-outs') {
         return Promise.resolve({
-          data: { family_id: 'F1', latest: signed ? V1_SIGNED : null, signouts: signed ? [V1_SIGNED] : [] },
+          data: {
+            family_id: 'F1',
+            latest: signed ? V1_SIGNED : null,
+            latest_per_analysis: signed ? [V1_SIGNED] : [],
+            signouts: signed ? [V1_SIGNED] : [],
+          },
         });
       }
       if (url === '/families/F1/report/sign-outs/1') {
@@ -3748,6 +3766,134 @@ describe('FamilyReportPage', () => {
   // The package folder a family was imported from changed after its import (the owner's decision
   // of 2026-11-11): the report warns while it does, sign-out needs it acknowledged with a reason,
   // and the signed version keeps the change with the acknowledgement.
+  // The owner's decisions of 2026-11-19: each analysis of a family that holds several is signed
+  // out on its own, from its own report, its record freezing and its check comparing its own data;
+  // the family's Report page shows where each stands.
+  describe('a family holding several analyses', () => {
+    const analysisEntry = (version: number, analysisType: string) => ({
+      ...SIGNED_ENTRY,
+      version,
+      analysis_type: analysisType,
+      report_code: `7KQM2X-${version}-4PHT`,
+      signed_out_at: `2026-11-19T0${version}:00:00Z`,
+    });
+
+    /** The family holds `analysisTypes`, signed out as `versions` (newest first); the checks asked. */
+    const serveAnalyses = (analysisTypes: string[], versions: Array<Record<string, unknown>>) => {
+      mockSignedCase({ versions });
+      const base = apiMock.get.getMockImplementation()!;
+      const checked: Array<string | null> = [];
+      apiMock.get.mockImplementation((url: string, config?: unknown) => {
+        if (url === '/families/F1') {
+          return (base(url, config) as Promise<{ data: Record<string, unknown> }>).then((response) => ({
+            data: { ...response.data, metadata: { analysis_types: analysisTypes } },
+          }));
+        }
+        if (url.startsWith('/families/F1/cnipt')) return Promise.resolve({ data: { family_id: 'F1', samples: [] } });
+        if (url.startsWith('/families/F1/report/sign-out-check')) {
+          const analysis = new URLSearchParams(url.split('?')[1] ?? '').get('analysis_type');
+          checked.push(analysis);
+          const latest = versions.find((entry) => entry.analysis_type === analysis);
+          // The monogenic NIPT's data changed since its sign-out; the others' did not.
+          return checkResult({
+            analysis_type: analysis,
+            version: latest?.version ?? null,
+            matches: analysis !== 'monogenic_nipt',
+            changed_sections: analysis === 'monogenic_nipt' ? ['reported_variants'] : [],
+          });
+        }
+        return base(url, config);
+      });
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) =>
+        Promise.resolve({
+          data: { ...analysisEntry(9, String(body.analysis_type)), snapshot: SIGNED_SNAPSHOT, not_captured: [] },
+        }),
+      );
+      return checked;
+    };
+
+    it('opens on the latest version of the analysis it signs out, which names it', async () => {
+      // Version 3 is the monogenic NIPT's, which the NIPT report signs out: the Report page opens
+      // on the conventional NIPT's.
+      serveAnalyses(
+        ['conventional_nipt', 'monogenic_nipt'],
+        [analysisEntry(3, 'monogenic_nipt'), analysisEntry(2, 'conventional_nipt')],
+      );
+      renderPage();
+
+      expect(await screen.findByText('Clinical report — signed version 2 of the conventional NIPT')).toBeInTheDocument();
+      expect(screen.getByText(/^Signed version 2 of the conventional NIPT — signed out by/)).toBeInTheDocument();
+      expect(screen.getByText('This is the latest signed version of the conventional NIPT.')).toBeInTheDocument();
+      // Each version names its analysis; version 2 is its analysis's latest.
+      const versions = screen.getByRole('navigation', { name: 'Signed versions' });
+      expect(versions).toHaveTextContent('version 3 (monogenic NIPT) · version 2 (conventional NIPT) (latest)');
+    });
+
+    it('signs out the conventional NIPT and shows where each analysis stands', async () => {
+      const checked = serveAnalyses(
+        ['conventional_nipt', 'monogenic_nipt'],
+        [analysisEntry(3, 'monogenic_nipt'), analysisEntry(2, 'conventional_nipt')],
+      );
+      renderPage(undefined, '/families/F1/report?view=live');
+
+      expect(await screen.findByText('This is the live report, not signed version 2 of the conventional NIPT.')).toBeInTheDocument();
+      expect(await screen.findByText(/This page still matches signed version 2\./)).toBeInTheDocument();
+      const list = screen.getByRole('region', { name: 'Sign-out of each analysis' });
+      expect(list).toHaveTextContent('This family holds 2 analyses, each signed out on its own');
+      const [conventional, monogenic] = within(list).getAllByRole('listitem');
+      await waitFor(() => expect(monogenic).toHaveTextContent('⚠ Changed since sign-out: reported small variants.'));
+      expect(monogenic).toHaveTextContent(
+        'Monogenic NIPT: signed version 3 (report code 7KQM2X-3-4PHT), signed out by lab-signer on 2026-11-19 03:00 UTC.',
+      );
+      expect(monogenic).toHaveTextContent('It is signed out on the NIPT report.');
+      expect(within(monogenic).getByRole('link', { name: 'NIPT report' })).toHaveAttribute('href', '/families/F1/nipt/report?view=live');
+      expect(conventional).toHaveTextContent('Conventional NIPT: signed version 2');
+      expect(conventional).toHaveTextContent('The family’s data still match it.');
+      // Each check names its analysis.
+      expect(new Set(checked)).toEqual(new Set(['conventional_nipt', 'monogenic_nipt']));
+
+      // No choice to make: the Report page signs out the conventional NIPT alone.
+      expect(screen.queryByRole('combobox', { name: 'Analysis to sign out' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Amend sign-out of the conventional NIPT' }));
+      await waitFor(() => expect(apiMock.post).toHaveBeenCalled());
+      expect(apiMock.post.mock.calls[0][1]).toMatchObject({ analysis_type: 'conventional_nipt' });
+    });
+
+    it('signs out the germline analysis chosen', async () => {
+      serveAnalyses(['long_read_wgs', 'short_read_wgs'], [analysisEntry(1, 'long_read_wgs')]);
+      renderPage(undefined, '/families/F1/report?view=live');
+
+      const choice = await screen.findByRole('combobox', { name: 'Analysis to sign out' });
+      expect(within(choice).getAllByRole('option').map((option) => option.textContent)).toEqual([
+        'long-read WGS',
+        'short-read WGS',
+      ]);
+      expect(screen.getByRole('button', { name: 'Amend sign-out of the long-read WGS' })).toBeInTheDocument();
+      const list = screen.getByRole('region', { name: 'Sign-out of each analysis' });
+      expect(list).toHaveTextContent('Short-read WGS: not signed out.');
+      fireEvent.change(choice, { target: { value: 'short_read_wgs' } });
+      // The short-read WGS was never signed out: the live report is a draft of it.
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign out the short-read WGS' }));
+      await waitFor(() => expect(apiMock.post).toHaveBeenCalled());
+      expect(apiMock.post.mock.calls[0][1]).toMatchObject({ analysis_type: 'short_read_wgs' });
+    });
+
+    it('says a record holds no repeat calls when its analysis holds none', async () => {
+      serveAnalyses(['long_read_wgs', 'short_read_wgs'], [analysisEntry(1, 'short_read_wgs')]);
+      const withoutKinds: Record<string, unknown> = { ...SIGNED_SNAPSHOT };
+      delete withoutKinds.repeat_expansions;
+      delete withoutKinds.paraphase;
+      mockSignedCase({ versions: [analysisEntry(1, 'short_read_wgs')], snapshot: withoutKinds });
+      renderPage(undefined, '/families/F1/report?version=1');
+
+      expect(await screen.findByText(/^Signed version 1 of the short-read WGS — signed out by/)).toBeInTheDocument();
+      const repeats = screen.getByRole('heading', { name: 'Repeat expansions' }).closest('section') as HTMLElement;
+      expect(repeats).toHaveTextContent('Not part of this record: the analysis it closes holds no repeat-expansion calls.');
+      const paraphase = screen.getByRole('heading', { name: 'Paraphase' }).closest('section') as HTMLElement;
+      expect(paraphase).toHaveTextContent('holds no Paraphase results');
+    });
+  });
+
   describe('when the family’s package folder changed after its import', () => {
     const CHANGE = {
       delivery_id: 'd1',

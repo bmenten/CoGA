@@ -38,6 +38,8 @@ from backend.app.services import bed_service, family_package_datasets
 from backend.app.services import report_signout_service as rss
 from backend.app.services import signed_record_sections as srs
 from backend.app.services.coverage_read_depth import coverage_track_content
+from backend.app.services.family_package_records import package_sources
+from backend.app.services.signout_scope import signout_scope
 from backend.app.services.family_metadata_context import FamilyMetadataContext, family_sample_contexts
 from backend.app.services.family_package_common import (
     FamilyPackageBundle,
@@ -285,6 +287,32 @@ def test_another_loader_is_frozen_as_its_record_names_it() -> None:
     assert track["files"][0]["loaded_from"] == "demo-script"
 
 
+def test_a_sign_out_of_one_analysis_holds_the_tracks_of_its_sources() -> None:
+    # A family holding both NIPTs of a pregnancy: the monogenic NIPT's coverage BED and the
+    # conventional NIPT's ccnv coverage, and an analyst's upload no record claims.
+    metadata = {
+        "analysis_types": ["conventional_nipt", "monogenic_nipt"],
+        "package_imports": {
+            "monogenic_nipt": {"datasets": {"coverage": {}}, "sources": package_sources(["coverage"], None)},
+            "conventional_nipt": {"datasets": {"ccnv": {}}, "sources": package_sources(["ccnv"], None)},
+        },
+    }
+    rows = [
+        _record("S1", "web", "S1.bed", declared="read_depth", loaded_from="family_package"),
+        _record("S1", "ccnv", "S1.coverage.bed", loaded_from="family_package"),
+        _record("S2", "wisecondorx", "S2_bins.bed", loaded_from="web"),
+    ]
+
+    def _held(analysis: str) -> list[tuple[str, str]]:
+        tracks = asyncio.run(
+            srs.coverage_tracks(_TrackSession(rows), _context(), signout_scope(metadata, analysis))  # type: ignore[arg-type]
+        )["tracks"]
+        return [(track["sample"], track["source"]) for track in tracks]
+
+    assert _held("conventional_nipt") == [("S1", "ccnv"), ("S2", "wisecondorx")]
+    assert _held("monogenic_nipt") == [("S1", "web"), ("S2", "wisecondorx")]
+
+
 def test_a_family_without_a_coverage_track_holds_none() -> None:
     # Held all the same: a track loaded after sign-out then reads as a change.
     assert _tracks([]) == {"tracks": []}
@@ -386,11 +414,16 @@ def _check(monkeypatch, *, signed: dict[str, Any], current: dict[str, Any]) -> d
     async def _ctx(session, *, family_identifier, user, project_id=None):
         return types.SimpleNamespace(family_uuid="family-uuid", family_id=FAMILY)
 
-    async def _snapshot(session, *, family_id, user, project_id=None):
+    async def _snapshot(session, *, family_id, user, project_id=None, analysis_type=None):
         return copy.deepcopy(current)
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
     monkeypatch.setattr(rss, "build_report_snapshot", _snapshot)
+
+    async def _holds_no_analysis(_session, _family_uuid):
+        return []
+
+    monkeypatch.setattr(rss, "family_signout_analyses", _holds_no_analysis)
     return asyncio.run(
         rss.compare_report_with_latest_signout(
             _LatestSignout(signed),  # type: ignore[arg-type]

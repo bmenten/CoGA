@@ -26,3 +26,25 @@ const ANALYSIS_LABELS: Record<string, string> = {
 /** An analysis's name in a sentence ("monogenic NIPT"); null for one without a label (`unspecified`). */
 export const analysisLabel = (analysisType: string | null | undefined): string | null =>
   (analysisType && ANALYSIS_LABELS[analysisType]) || null;
+
+/**
+ * The analyses of a family that are each signed out on their own, sorted: every analysis of a
+ * family that holds several, whose sign-out of one freezes and checks that analysis's data only
+ * (the owner's decision of 2026-11-19). None for a family of one analysis or none, which is
+ * signed out whole.
+ */
+export const separatelySignedAnalyses = (metadata: unknown): string[] => {
+  const types = familyAnalysisTypes(metadata);
+  return types.length > 1 ? [...types].sort() : [];
+};
+
+/** The analysis the NIPT report signs out: the monogenic NIPT of a family that holds several, else null (the whole family). */
+export const niptReportAnalysis = (metadata: unknown): string | null =>
+  separatelySignedAnalyses(metadata).includes('monogenic_nipt') ? 'monogenic_nipt' : null;
+
+/**
+ * The analyses the family's Report page signs out of a family that holds several: every one but
+ * the monogenic NIPT, which the NIPT report signs out. Empty for a family signed out whole.
+ */
+export const reportPageAnalyses = (metadata: unknown): string[] =>
+  separatelySignedAnalyses(metadata).filter((type) => type !== 'monogenic_nipt');

@@ -462,7 +462,9 @@ export type SignedRecordSection<T> =
 
 /**
  * A section of one application (the PGT embryo calls, the NIPT results): `absent` from the record
- * of a family of any other application, which holds no such key.
+ * of a family of any other application, which holds no such key. Also a section of one kind of data
+ * (the repeat calls, the Paraphase results): `absent` from the record of an analysis that holds no
+ * such data, beside another analysis of the family that does.
  */
 export type SignedApplicationSection<T> = SignedRecordSection<T> | { state: 'absent' };
 
@@ -1127,12 +1129,21 @@ export interface SignedReport {
   reportedVariants: SignedSmallVariant[] | null;
   /** Null: the record holds no list of reported SVs. */
   reportedStructuralVariants: SignedStructuralVariant[] | null;
+  /**
+   * The analysis the record closes (`analysis_type`): each analysis of a family that holds
+   * several is signed out on its own; null for a family that held none.
+   */
+  analysisType: string | null;
   /** What the analysis looked at (signed_record_sections.py). */
   variantDescriptions: SignedRecordSection<SignedVariantDescriptions>;
   genePanels: SignedRecordSection<SignedGenePanel[]>;
   referenceData: SignedRecordSection<SignedReferenceData>;
-  repeatExpansions: SignedRecordSection<SignedRepeatExpansions>;
-  paraphase: SignedRecordSection<SignedParaphase>;
+  /**
+   * The repeat calls and the Paraphase results: `absent` from the record of an analysis that
+   * holds no such data, beside another analysis of the family that does (signout_scope.py).
+   */
+  repeatExpansions: SignedApplicationSection<SignedRepeatExpansions>;
+  paraphase: SignedApplicationSection<SignedParaphase>;
   /** What each coverage track of the family's samples held. */
   coverageTracks: SignedRecordSection<SignedCoverageTrack[]>;
   /** The delivered package and its corrections at intake. */
@@ -2300,6 +2311,7 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
   return {
     statement: text(snapshot.record_statement),
     familyId: text(snapshot.family_id),
+    analysisType: text(snapshot.analysis_type),
     assembly: text(snapshot.assembly),
     modules: parseModules(snapshot.modules),
     software: software && text(software.version)
@@ -2345,8 +2357,10 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     variantDescriptions: parseRecordSection(snapshot, 'variant_descriptions', parseVariantDescriptions),
     genePanels: parseRecordSection(snapshot, 'gene_panels', parseGenePanels),
     referenceData: parseRecordSection(snapshot, 'reference_data', parseReferenceData),
-    repeatExpansions: parseRecordSection(snapshot, 'repeat_expansions', parseRepeatExpansions),
-    paraphase: parseRecordSection(snapshot, 'paraphase', parseParaphase),
+    repeatExpansions: has(snapshot, 'repeat_expansions')
+      ? parseRecordSection(snapshot, 'repeat_expansions', parseRepeatExpansions)
+      : { state: 'absent' },
+    paraphase: has(snapshot, 'paraphase') ? parseRecordSection(snapshot, 'paraphase', parseParaphase) : { state: 'absent' },
     coverageTracks: parseRecordSection(snapshot, 'coverage_tracks', parseCoverageTracks),
     packageIntake: parseRecordSection(snapshot, 'package_intake', parsePackageIntake),
     pgtAnalysis: has(snapshot, 'pgt_analysis')

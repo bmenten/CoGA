@@ -33,6 +33,7 @@ import {
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import {
+  latestSignoutOfRecord,
   useReportSignoutCheck,
   useReportSignouts,
   useSignedVersionDownload,
@@ -802,6 +803,21 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
 };
 
 /**
+ * A section of a kind of data the analysis a record closes does not hold, beside another analysis
+ * of the family that does (signout_scope.py): said so, so that no section drops out of the signed
+ * view without a trace.
+ */
+const NotOfThisAnalysis: React.FC<{ title: string; what: string }> = ({ title, what }) => (
+  <section className="surface-card report-signed-checks">
+    <h2 className="report-audit-heading">{title}</h2>
+    <p className="report-paragraph">
+      Not part of this record: the analysis it closes holds no {what}. Another analysis of the family
+      holds them, and its own record freezes them.
+    </p>
+  </section>
+);
+
+/**
  * A monogenic NIPT family's NIPT results, as its record froze them. Any other family's record
  * holds none, and nothing is said of them.
  */
@@ -1103,6 +1119,9 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
       }
     </RecordSectionBlock>
 
+    {record.repeatExpansions.state === 'absent' ? (
+      <NotOfThisAnalysis title="Repeat expansions" what="repeat-expansion calls" />
+    ) : (
     <RecordSectionBlock
       title="Repeat expansions"
       what="the repeat-expansion calls"
@@ -1142,7 +1161,11 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
         </>
       )}
     </RecordSectionBlock>
+    )}
 
+    {record.paraphase.state === 'absent' ? (
+      <NotOfThisAnalysis title="Paraphase" what="Paraphase results" />
+    ) : (
     <RecordSectionBlock
       title="Paraphase"
       what="the Paraphase results"
@@ -1183,6 +1206,7 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
         </>
       )}
     </RecordSectionBlock>
+    )}
 
     <CoverageTracksSection record={record} version={version} />
 
@@ -1467,10 +1491,15 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
       (await api.get(apiPath`/families/${familyId}/report/sign-outs/${version}`))
         .data as ReportSignoutDetail,
   });
-  const latest = signouts.data?.latest ?? null;
+  // The analysis the record closes: each analysis of a family that holds several is signed out on
+  // its own, so the latest version is that analysis's, and the check compares that analysis's
+  // data (the owner's decision of 2026-11-19).
+  const analysisType = detailQuery.data?.analysis_type ?? null;
+  const analysisWords = analysisLabel(analysisType) ? ` of the ${analysisLabel(analysisType)}` : '';
+  const latest = detailQuery.data ? latestSignoutOfRecord(signouts.data, analysisType) : null;
   const isLatest = latest ? latest.version === version : null;
   // Only the latest version can be compared with the family's current data.
-  const check = useReportSignoutCheck(familyId, isLatest ? version : null);
+  const check = useReportSignoutCheck(familyId, isLatest ? version : null, analysisType);
   const reportBuild = useReportBuild();
   const { download, error: downloadError } = useSignedVersionDownload(familyId);
   const liveLink = { search: reportViewSearch(location.search, 'live') };
@@ -1522,9 +1551,10 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
                 Retry
               </button>
             )}
-            {latest && latest.version !== version ? (
-              <Link to={versionLink(latest.version)} className="button-secondary">
-                View signed version {latest.version}
+            {/* A version that cannot be read names no analysis: the family's latest. */}
+            {signouts.data?.latest && signouts.data.latest.version !== version ? (
+              <Link to={versionLink(signouts.data.latest.version)} className="button-secondary">
+                View signed version {signouts.data.latest.version}
               </Link>
             ) : null}
             <Link to={liveLink} className="button-secondary">
@@ -1548,6 +1578,8 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
     : null;
   const gaps = detail.not_captured ?? [];
   const versions = signouts.data?.signouts ?? [];
+  // The family's versions close more than one analysis: each is named in the list.
+  const severalAnalyses = new Set(versions.map((entry) => entry.analysis_type)).size > 1;
   const checkState = !isLatest
     ? null
     : check.isError
@@ -1599,7 +1631,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
     <div className="page-shell report-page report-page--signed space-y-6">
       {printNotice ? <p className="report-print-notice print-only">{printNotice}</p> : null}
       <FamilyPageHeader
-        kicker={`Clinical report — signed version ${version}`}
+        kicker={`Clinical report — signed version ${version}${analysisWords}`}
         familyId={familyId}
         projectId={projectId}
         className="report-header"
@@ -1628,6 +1660,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
                 ) : (
                   <Link to={versionLink(entry.version)}>version {entry.version}</Link>
                 )}
+                {severalAnalyses && analysisLabel(entry.analysis_type) ? ` (${analysisLabel(entry.analysis_type)})` : ''}
                 {entry.version === latest?.version ? ' (latest)' : ''}
               </React.Fragment>
             ))}
@@ -1642,7 +1675,8 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
         aria-label={`Signed version ${version}`}
       >
         <p className="report-signout-line">
-          Signed version {version} — signed out by <strong>{detail.signed_out_by}</strong> on{' '}
+          Signed version {version}
+          {analysisWords} — signed out by <strong>{detail.signed_out_by}</strong> on{' '}
           {formatReportTime(detail.signed_out_at)}
         </p>
         {confirmation ? (
@@ -1714,13 +1748,14 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
         {superseded ? (
           <p className="report-signed-warning" role="note">
             <strong>Superseded.</strong> Signed version {superseded.version}, signed out by{' '}
-            {superseded.signed_out_by} on {formatReportTime(superseded.signed_out_at)}, is the latest.{' '}
+            {superseded.signed_out_by} on {formatReportTime(superseded.signed_out_at)}, is the latest
+            {analysisWords}.{' '}
             <Link to={versionLink(superseded.version)} className="no-print">
               View signed version {superseded.version}
             </Link>
           </p>
         ) : isLatest ? (
-          <p className="report-signout-status">This is the latest signed version.</p>
+          <p className="report-signout-status">This is the latest signed version{analysisWords}.</p>
         ) : signouts.isError ? (
           <p className="report-signed-warning" role="note">
             Whether a later signed version exists could not be checked: the signed versions could

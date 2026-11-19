@@ -439,10 +439,15 @@ printout starts with *Draft* or *Not the signed report*, as the live family repo
 **Sign out NIPT analysis** on the NIPT report signs the analysis out. This is the analytical sign-off,
 by a supervisor, a superuser or an administrator: it closes and freezes the analysis into the family's
 signed record. The medical sign-off of the patient report happens in the EPD, which refers to the
-record by its report code. It is the family sign-out, with its checks and report code: one record per
-family, whether signed out here or from the family report. The NIPT page itself offers no sign-out.
-Once signed, the button reads **Amend sign-out**, and the NIPT report names the latest signed version,
-its report code, and whether the family's data still matches it.
+record by its report code. It is the family sign-out, with its checks and report code, whether signed
+out here or from the family report. The NIPT page itself offers no sign-out. Once signed, the button
+reads **Amend sign-out**, and the NIPT report names the latest signed version, its report code, and
+whether the family's data still matches it.
+
+A family that also holds the conventional NIPT of the pregnancy signs out each NIPT on its own. The
+NIPT report then signs out the monogenic NIPT, and names and checks that analysis's latest signed
+version; its record freezes the monogenic NIPT's data only. The family's **Report** page signs out the
+conventional NIPT (see *Report traceability & sign-out*, *One sign-out per analysis*).
 
 For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out. The
 signed version shows them:

@@ -4,7 +4,7 @@ A synthetic family is imported from two package folders of its own (the owner's 
 2026-11-19), into real Postgres and ClickHouse, a new family each run:
 
 1. a monogenic NIPT package (``analysis_type: monogenic_nipt``): the father, the maternal plasma
-   and the fetus, with the plasma's coverage BED;
+   and the fetus, with their callset (one variant) and the plasma's coverage BED;
 2. a conventional NIPT package (``analysis_type: conventional_nipt``) of the same plasma, which
    lists that plasma alone, imported with update.
 
@@ -19,6 +19,16 @@ Then:
   (conventional);
 * the family's raw files are read in both folders;
 * the cNIPT result is served, and the Sample QC runs the monogenic NIPT's checks.
+
+Each analysis is then signed out on its own (the owner's decision of 2026-11-19):
+
+* a sign-out that names no analysis is refused: the family holds two;
+* the conventional NIPT's record names it and holds its own data only: its results, its ccnv
+  tracks, its Sample QC (which runs no check), no reported variant;
+* the analyst then tags the monogenic NIPT's variant for the report: the conventional NIPT's
+  record still matches its check;
+* the monogenic NIPT's record holds that variant, its own tracks and NIPT section, and no
+  conventional NIPT result; the list of signed versions gives the latest of each.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -42,8 +52,31 @@ from backend.tests.e2e._harness import ensure_postgres_schema
 pytestmark = pytest.mark.integration
 
 
+# The monogenic NIPT's one variant (synthetic), which the analyst tags for the report.
+VARIANT = "7-1000-A-G"
+CNIPT_SIGN_OUT = {
+    "analysis_type": "conventional_nipt",
+    "acknowledge_qc": True,
+    "qc_acknowledgement_reason": "e2e: the synthetic ccnv output",
+}
+MNIPT_SIGN_OUT = {
+    "analysis_type": "monogenic_nipt",
+    "acknowledge_drift": True,
+    "drift_acknowledgement_reason": "e2e: the reported variant holds no ACMG classification",
+    "acknowledge_qc": True,
+    "qc_acknowledgement_reason": "e2e: one variant is too few for the NIPT checks",
+}
+
+
 def _mnipt_package(root: Path, family_id: str, father: str, plasma: str, fetus: str) -> Path:
     root.mkdir(parents=True)
+    (root / "nipt_combined.vcf").write_text(
+        "##fileformat=VCFv4.2\n"
+        "##contig=<ID=chr7>\n"
+        f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{father}\t{plasma}\n"
+        "chr7\t1000\t.\tA\tG\t.\tPASS\tTLOD=300\tGT:AD:DP\t0/1:500,500:1000\t0/1:900,100:1000\n",
+        encoding="utf-8",
+    )
     (root / "family.ped").write_text(
         f"{family_id}\t{father}\t0\t0\t1\t1\n"
         f"{family_id}\t{plasma}\t0\t0\t2\t1\n"
@@ -59,7 +92,8 @@ def _mnipt_package(root: Path, family_id: str, father: str, plasma: str, fetus: 
         "ped": "family.ped",
         "samples": {plasma: {"assay": "nipt_cfdna"}},
         "datasets": {
-            "coverage": {"per_sample": {plasma: {"bed": f"coverage/{plasma}.bed", "content": "read_depth"}}}
+            "snv": {"family_vcf": "nipt_combined.vcf"},
+            "coverage": {"per_sample": {plasma: {"bed": f"coverage/{plasma}.bed", "content": "read_depth"}}},
         },
     }
     (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
@@ -173,6 +207,33 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         out["cnipt"] = {"status": cnipt.status_code, "json": cnipt.json()}
         qc = await ac.get(f"/api/families/{family_id}/qc/sample-integrity")
         out["sample_qc"] = {"status": qc.status_code, "json": qc.json()}
+        out["signouts"] = await _sign_out_each(ac, f"/api/families/{family_id}")
+    return out
+
+
+async def _sign_out_each(ac: Any, family: str) -> dict[str, Any]:
+    """Sign out the conventional NIPT, tag the monogenic NIPT's variant for the report, check
+    the conventional NIPT's record, sign out the monogenic NIPT, and read both back."""
+    from backend.tests.e2e import _harness
+
+    def captured(response: Any) -> dict[str, Any]:
+        return {"status": response.status_code, "json": response.json()}
+
+    out: dict[str, Any] = {}
+    report = f"{family}/report"
+    out["unnamed"] = captured(await ac.post(f"{report}/sign-out", json={}))
+    out["cnipt"] = captured(await _harness.sign_out(ac, f"{report}/sign-out", CNIPT_SIGN_OUT))
+    out["tagged"] = captured(await ac.put(f"{family}/small-variants/{VARIANT}/review", json={"tags": ["report"]}))
+    check = f"{report}/sign-out-check"
+    out["cnipt_check"] = captured(await ac.get(check, params={"analysis_type": "conventional_nipt"}))
+    out["mnipt"] = captured(await _harness.sign_out(ac, f"{report}/sign-out", MNIPT_SIGN_OUT))
+    out["cnipt_check_after"] = captured(await ac.get(check, params={"analysis_type": "conventional_nipt"}))
+    out["mnipt_check"] = captured(await ac.get(check, params={"analysis_type": "monogenic_nipt"}))
+    out["list"] = captured(await ac.get(f"{report}/sign-outs"))
+    for analysis in ("cnipt", "mnipt"):
+        version = (out[analysis]["json"] or {}).get("version")
+        if version is not None:
+            out[f"{analysis}_record"] = captured(await ac.get(f"{report}/sign-outs/{version}"))
     return out
 
 
@@ -249,3 +310,62 @@ def test_the_cnipt_result_and_the_monogenic_nipts_sample_qc_are_served(run) -> N
     assert [sample["sample_id"] for sample in run["cnipt"]["json"]["samples"]] == [plasma]
     assert run["sample_qc"]["status"] == 200, run["sample_qc"]
     assert run["sample_qc"]["json"]["application"] == "nipt"
+
+
+def _snapshot(run, analysis: str) -> dict[str, Any]:
+    record = run["signouts"][f"{analysis}_record"]
+    assert record["status"] == 200, record
+    return record["json"]["snapshot"]
+
+
+def test_a_sign_out_that_names_no_analysis_is_refused(run) -> None:
+    unnamed = run["signouts"]["unnamed"]
+    assert unnamed["status"] == 422, unnamed
+    assert "several analyses (conventional_nipt, monogenic_nipt)" in str(unnamed["json"]["detail"])
+
+
+def test_the_conventional_nipt_s_record_holds_its_own_data_only(run) -> None:
+    assert run["signouts"]["cnipt"]["status"] == 200, run["signouts"]["cnipt"]
+    snapshot = _snapshot(run, "cnipt")
+    _father, plasma, _fetus = run["members"]
+    assert snapshot["analysis_type"] == "conventional_nipt"
+    assert [sample["sample_id"] for sample in snapshot["cnipt"]["samples"]] == [plasma]
+    assert "nipt" not in snapshot
+    assert {track["source"] for track in snapshot["coverage_tracks"]["tracks"]} == {"ccnv"}
+    assert snapshot["sample_qc"]["application"] == "cnipt"
+    assert snapshot["reported_variants"] == []
+    assert [entry["analysis_type"] for entry in snapshot["package_intake"]["deliveries"]] in ([], ["conventional_nipt"])
+
+
+def test_a_variant_tagged_for_the_monogenic_nipt_leaves_the_conventional_nipt_s_record_matching(run) -> None:
+    assert run["signouts"]["tagged"]["status"] == 200, run["signouts"]["tagged"]
+    for key in ("cnipt_check", "cnipt_check_after"):
+        check = run["signouts"][key]
+        assert check["status"] == 200, check
+        assert (check["json"]["analysis_type"], check["json"]["matches"]) == ("conventional_nipt", True), check
+        assert check["json"]["changed_sections"] == []
+
+
+def test_the_monogenic_nipt_s_record_holds_its_variant_and_no_conventional_nipt_result(run) -> None:
+    assert run["signouts"]["mnipt"]["status"] == 200, run["signouts"]["mnipt"]
+    snapshot = _snapshot(run, "mnipt")
+    assert snapshot["analysis_type"] == "monogenic_nipt"
+    assert [entry["variant_id"] for entry in snapshot["reported_variants"]] == [VARIANT]
+    assert "cnipt" not in snapshot and "nipt" in snapshot
+    assert "ccnv" not in {track["source"] for track in snapshot["coverage_tracks"]["tracks"]}
+    assert snapshot["sample_qc"]["application"] == "nipt"
+    check = run["signouts"]["mnipt_check"]
+    assert (check["status"], check["json"]["matches"]) == (200, True), check
+
+
+def test_the_list_of_signed_versions_gives_the_latest_of_each_analysis(run) -> None:
+    listed = run["signouts"]["list"]
+    assert listed["status"] == 200, listed
+    versions = {run["signouts"][analysis]["json"]["version"] for analysis in ("cnipt", "mnipt")}
+    assert {entry["version"] for entry in listed["json"]["signouts"]} == versions
+    assert [
+        (entry["analysis_type"], entry["version"]) for entry in listed["json"]["latest_per_analysis"]
+    ] == [
+        ("conventional_nipt", run["signouts"]["cnipt"]["json"]["version"]),
+        ("monogenic_nipt", run["signouts"]["mnipt"]["json"]["version"]),
+    ]

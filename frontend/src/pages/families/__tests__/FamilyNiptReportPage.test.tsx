@@ -558,6 +558,7 @@ describe('FamilyNiptReportPage', () => {
   describe('beside the signed record', () => {
     const LATEST = {
       version: 2,
+      analysis_type: 'monogenic_nipt',
       signed_out_by: 'lab-signer',
       signed_out_at: '2026-10-15T09:00:00Z',
       content_hash: 'hash-v2',
@@ -574,7 +575,14 @@ describe('FamilyNiptReportPage', () => {
         if (url === '/families/NIPT001/report/sign-outs') {
           return listFails
             ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
-            : Promise.resolve({ data: { family_id: 'NIPT001', latest, signouts: latest ? [latest] : [] } });
+            : Promise.resolve({
+                data: {
+                  family_id: 'NIPT001',
+                  latest,
+                  latest_per_analysis: latest ? [latest] : [],
+                  signouts: latest ? [latest] : [],
+                },
+              });
         }
         if (url === '/families/NIPT001/report/sign-out-check') {
           return Promise.resolve({
@@ -657,6 +665,7 @@ describe('FamilyNiptReportPage', () => {
   describe('signing the NIPT analysis out', () => {
     const LATEST = {
       version: 2,
+      analysis_type: 'monogenic_nipt',
       signed_out_by: 'lab-signer',
       signed_out_at: '2026-10-15T09:00:00Z',
       content_hash: 'hash-v2',
@@ -693,7 +702,9 @@ describe('FamilyNiptReportPage', () => {
           });
         }
         if (url === '/families/NIPT001/report/sign-outs') {
-          return Promise.resolve({ data: { family_id: 'NIPT001', latest, signouts: latest ? [latest] : [] } });
+          return Promise.resolve({
+            data: { family_id: 'NIPT001', latest, latest_per_analysis: latest ? [latest] : [], signouts: latest ? [latest] : [] },
+          });
         }
         if (url === '/families/NIPT001/report/sign-out-check') {
           return Promise.resolve({
@@ -764,6 +775,65 @@ describe('FamilyNiptReportPage', () => {
         acknowledge_unreviewed_findings: false,
         unreviewed_findings_acknowledgement_reason: undefined,
       });
+    });
+
+    it('signs out the monogenic NIPT of a family that holds the conventional NIPT too', async () => {
+      // The owner's decision of 2026-11-19: each NIPT of the pregnancy is signed out on its own.
+      // The conventional NIPT's version 3 is the family's newest; this report reads the monogenic
+      // NIPT's version 2, and checks it.
+      const MONOGENIC = { ...LATEST, version: 2, analysis_type: 'monogenic_nipt' };
+      const CONVENTIONAL = { ...LATEST, version: 3, analysis_type: 'conventional_nipt', report_code: '7KQM2X-3-B3HV' };
+      serveReport({});
+      const base = apiMock.get.getMockImplementation()!;
+      const checked: string[] = [];
+      apiMock.get.mockImplementation((url: string, config?: unknown) => {
+        if (url === '/families/NIPT001') {
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              members: [],
+              metadata: { analysis_types: ['conventional_nipt', 'monogenic_nipt'] },
+              read_only: false,
+              can_sign_out: true,
+            },
+          });
+        }
+        if (url === '/families/NIPT001/report/sign-outs') {
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              latest: CONVENTIONAL,
+              latest_per_analysis: [CONVENTIONAL, MONOGENIC],
+              signouts: [CONVENTIONAL, MONOGENIC],
+            },
+          });
+        }
+        if (url.startsWith('/families/NIPT001/report/sign-out-check')) {
+          checked.push(url);
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              analysis_type: 'monogenic_nipt',
+              version: 2,
+              content_hash: 'hash-v2',
+              matches: true,
+              changed_sections: [],
+              not_captured: [],
+              checked_at: '2026-11-19T09:00:00Z',
+            },
+          });
+        }
+        return base(url, config);
+      });
+      apiMock.post.mockResolvedValue({ data: { version: 4, report_code: '7KQM2X-4-B3HV' } });
+      renderWithReport();
+
+      const status = await signoutStatus();
+      expect(status).toHaveTextContent('This is the live report, not signed version 2.');
+      expect(checked).toEqual(['/families/NIPT001/report/sign-out-check?analysis_type=monogenic_nipt']);
+      fireEvent.click(await screen.findByRole('button', { name: 'Amend sign-out' }));
+      expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=4/)).toBeInTheDocument();
+      expect(apiMock.post.mock.calls[0][1]).toMatchObject({ analysis_type: 'monogenic_nipt' });
     });
 
     it('asks for a reason when a NIPT quality check failed, and freezes it with the sign-out', async () => {

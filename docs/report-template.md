@@ -35,6 +35,10 @@ the live report (`?view=live`), where the case is signed out. It loads:
 - the family's HPO terms (`GET /families/{family_id}/hpo`);
 - the family's annotation manifest.
 
+A family that holds several analyses signs each out on its own: the live report shows the family's
+data whole, and a sign-out freezes the chosen analysis's part of it
+([clinical-traceability.md](clinical-traceability.md#one-sign-out-per-analysis)).
+
 ## What each variant section contains
 
 For every reported small variant the template drafts:

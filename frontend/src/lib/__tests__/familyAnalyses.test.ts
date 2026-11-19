@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { familyAnalysisTypes, holdsAnalysis } from '../familyAnalyses';
+import {
+  analysisLabel,
+  familyAnalysisTypes,
+  holdsAnalysis,
+  niptReportAnalysis,
+  reportPageAnalyses,
+  separatelySignedAnalyses,
+} from '../familyAnalyses';
 
 // A family may hold several analyses (backend family_analysis_types.py): the monogenic and the
 // conventional NIPT of one pregnancy. Readers ask whether it holds one, never which one it holds.
@@ -18,5 +25,34 @@ describe('the analyses a family holds', () => {
       expect(familyAnalysisTypes(metadata)).toEqual([]);
       expect(holdsAnalysis(metadata, 'monogenic_nipt')).toBe(false);
     }
+  });
+});
+
+// The owner's decision of 2026-11-19: each analysis of a family that holds several is signed out on
+// its own, from its own report; a family of one analysis or none is signed out whole.
+describe('the analysis each report signs out', () => {
+  it('signs out each analysis of a family that holds several on its own', () => {
+    const nipts = { analysis_types: ['monogenic_nipt', 'conventional_nipt'] };
+    expect(separatelySignedAnalyses(nipts)).toEqual(['conventional_nipt', 'monogenic_nipt']);
+    // The NIPT report signs out the monogenic NIPT; the Report page every other.
+    expect(niptReportAnalysis(nipts)).toBe('monogenic_nipt');
+    expect(reportPageAnalyses(nipts)).toEqual(['conventional_nipt']);
+    const germline = { analysis_types: ['short_read_wgs', 'long_read_wgs'] };
+    expect(niptReportAnalysis(germline)).toBeNull();
+    expect(reportPageAnalyses(germline)).toEqual(['long_read_wgs', 'short_read_wgs']);
+  });
+
+  it('signs out a family of one analysis or none whole', () => {
+    for (const metadata of [{ analysis_types: ['monogenic_nipt'] }, { analysis_types: [] }, undefined]) {
+      expect(separatelySignedAnalyses(metadata)).toEqual([]);
+      expect(niptReportAnalysis(metadata)).toBeNull();
+      expect(reportPageAnalyses(metadata)).toEqual([]);
+    }
+  });
+
+  it('names each analysis in a sentence', () => {
+    expect(analysisLabel('conventional_nipt')).toBe('conventional NIPT');
+    expect(analysisLabel('unspecified')).toBeNull();
+    expect(analysisLabel(null)).toBeNull();
   });
 });

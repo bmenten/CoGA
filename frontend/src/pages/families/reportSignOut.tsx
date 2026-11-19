@@ -159,11 +159,19 @@ export const signOutRefusal = (offer: SignOutOffer, subject: 'report' | 'analysi
  * given the new version. For a viewer or a reader in the family's project (``readOnly``), and for
  * a user below supervisor (``canSignOut`` false), it sends nothing, whatever calls it: they sign
  * nothing out (TF-06 H15).
+ *
+ * ``analysisType`` names the analysis signed out of a family that holds several, each signed out
+ * on its own, its record freezing and its gates checking that analysis's data only (the owner's
+ * decision of 2026-11-19); null for a family of one analysis or none, signed out whole.
  */
 export const useReportSignOut = (
   familyId: string | undefined,
   onSigned: (version: number) => void,
-  { readOnly, canSignOut }: { readOnly: boolean; canSignOut: boolean },
+  {
+    readOnly,
+    canSignOut,
+    analysisType = null,
+  }: { readOnly: boolean; canSignOut: boolean; analysisType?: string | null },
 ): ReportSignOut => {
   const queryClient = useQueryClient();
 
@@ -259,6 +267,7 @@ export const useReportSignOut = (
         acknowledge_unreviewed_findings: vars.acknowledgeUnreviewed ?? false,
         unreviewed_findings_acknowledgement_reason: vars.unreviewedReason,
         unreviewed_findings_concerns_fingerprint: vars.unreviewedFingerprint,
+        analysis_type: analysisType ?? undefined,
       };
       return (await api.post(apiPath`/families/${familyId}/report/sign-out`, body)).data;
     },

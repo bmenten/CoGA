@@ -684,6 +684,9 @@ async def finding_reviews_for_record(
       and no review, which the gate of calls without a review lists (REQ-TRACE-016). A section
       that could not be read is listed as such, as its calls cannot be checked.
 
+    A kind whose section the record does not hold (a sign-out of an analysis that holds no such
+    data, ``signout_scope``) has no review list and adds nothing to the other two.
+
     Every list is sorted, so identical content hashes identically.
     """
     record: dict[str, Any] = {}
@@ -694,6 +697,8 @@ async def finding_reviews_for_record(
         (REPEAT, REPEAT_EXPANSIONS.key, REPEAT_REVIEWS_SECTION),
         (PARAPHASE_REGION, PARAPHASE.key, PARAPHASE_REVIEWS_SECTION),
     ):
+        if section_key not in sections:
+            continue
         section = sections.get(section_key)
         readable = _readable(section)
         rows = await finding_review_rows(

@@ -173,6 +173,10 @@ class ReportSignoutRequest(BaseModel):
     unreviewed_findings_concerns_fingerprint: Optional[str] = Field(
         default=None, pattern=_CONCERNS_FINGERPRINT
     )
+    # The analysis to sign out: each is signed out on its own (the owner's decision of
+    # 2026-11-19). Required when the family holds two or more; without one, the family's only
+    # analysis, or the whole family when it holds none.
+    analysis_type: Optional[str] = Field(default=None, max_length=64)
 
 
 class ReportSnapshotGapOut(BaseModel):
@@ -185,6 +189,9 @@ class ReportSnapshotGapOut(BaseModel):
 
 class ReportSignoutSummary(BaseModel):
     version: int
+    # The analysis the record closes (None: a family that holds none, whose record covers it
+    # whole).
+    analysis_type: Optional[str] = None
     signed_out_by: str
     signed_out_at: datetime
     content_hash: str
@@ -247,7 +254,11 @@ class ReportCodeLookupOut(BaseModel):
 
 class ReportSignoutListOut(BaseModel):
     family_id: str
+    # The latest version of any analysis.
     latest: Optional[ReportSignoutSummary] = None
+    # The latest version of each analysis signed out, in the order of the analyses (a record of
+    # no analysis first).
+    latest_per_analysis: List[ReportSignoutSummary] = Field(default_factory=list)
     signouts: List[ReportSignoutSummary] = Field(default_factory=list)
 
 
@@ -260,6 +271,9 @@ class ReportSignoutCheckOut(BaseModel):
     """
 
     family_id: str
+    # The analysis checked: the report as a sign-out of it would freeze it, against its latest
+    # version.
+    analysis_type: Optional[str] = None
     version: Optional[int] = None
     content_hash: Optional[str] = None
     matches: Optional[bool] = None

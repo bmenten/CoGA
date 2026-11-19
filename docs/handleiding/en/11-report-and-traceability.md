@@ -23,7 +23,7 @@ There are two report pages:
 
 A monogenic NIPT family uses the same sign-out:
 
-- It is signed out from the NIPT report (**Sign out NIPT analysis**) or the family report, not from the NIPT page itself. There is one signed record per analysis, with the same gates, version and report code.
+- It is signed out from the NIPT report (**Sign out NIPT analysis**) or the family report, not from the NIPT page itself; if the family holds other analyses too, only from the NIPT report (see *One sign-out per analysis*). There is one signed record per analysis, with the same gates, version and report code.
 - Its record also contains the section `nipt` (`signed_record_nipt.py`, see below): the NIPT analysis as the NIPT page showed it, computed by the backend.
 - The sample-QC checks stay in `sample_qc`: paternity, the fetal sex from the father's X alleles, the category pattern of the cfDNA and the sex of the parents.
 - A reported NIPT variant is in `reported_variants` and `variant_descriptions`, like every reported small variant, and in `nipt` with its category, reads and probabilities.
@@ -101,6 +101,27 @@ Signing out goes through **`POST /api/families/{id}/report/sign-out`**. The serv
 **Changes.** Every sign-out is a new version; a signed version is never changed. In the live report the button is then called *Amend sign-out*. A clinical report that relies on the amended analysis refers to the new version.
 
 **Where in the code:** `backend/app/services/report_signout_service.py` (`sign_out_report`, `build_report_snapshot`); the role in `require_sign_out_authority` and `user_can_sign_out_metadata_projects` (`backend/app/services/access_control.py`).
+
+### One sign-out per analysis
+
+A family can hold several analyses (`analysis_types`), each imported from a package of its own: the monogenic and the conventional NIPT of one pregnancy, or short-read and then long-read WGS of the same DNA. Each analysis is signed out on its own (the owner's decisions of 2026-11-19): its record freezes and checks that analysis's data only.
+
+- **The request names the analysis** (`analysis_type` in `ReportSignoutRequest`). A family with two or more analyses must name one: without it `422`, and `422` for an analysis the family does not hold. A family with one analysis or none need name none: its record names its only analysis, or none, and covers the whole family.
+- **One series of versions per family**, whichever analysis a version closes; the report code is made in the same way. Each snapshot names its analysis (`analysis_type`), and the content hash covers it.
+- **What belongs to an analysis.** Each package record (`families.metadata.package_imports`, chapter 6) lists the storage sources its import wrote, per kind of data (`sources`: `small_variants`, `structural_variants`, `tracks`, `repeats`, `paraphase`), and its datasets. An item belongs to analysis X if one of its sources is X's own or is claimed by no other analysis of the family. Data from an upload, from an analyst's addition or from a package that named no analysis therefore belong to every analysis. A package record that is not in the shape the import writes stops the sign-out (`PackageRecordShapeError`): CoGA does not guess which data are the analysis's.
+- **What the sign-out of X freezes and checks:**
+    - the reported small variants and SVs, their drift and their descriptions: by the sources under which their stored rows are (`entries` in ClickHouse); a variant whose rows are gone counts in;
+    - the coverage tracks: by the source of the track, in the same way;
+    - the repeat calls and the Paraphase results, with their reviews, their drift and gate 4: only if X's record lists such sources or no other analysis's record does. Otherwise the record holds neither section, and the signed view says so (*Not part of this record: the analysis it closes holds no repeat-expansion calls …*);
+    - the section of an application: `nipt` only for the monogenic NIPT, `cnipt` only for the conventional NIPT, `pgt_analysis` for PGT or the monogenic NIPT. A section of an application none of whose analyses the family holds goes to every analysis;
+    - the sample QC: that of X's own application (the conventional NIPT runs no check), on genotypes from a callset of its own;
+    - `package_intake` and `package_source_changes`: X's own record, and that of a package that named no analysis;
+    - `import_incomplete` and `import_unfinished`: the datasets of X's record or of no other analysis's record; an unfinished restore of an `overwrite` stays whole.
+- **Whole:** the gene panels, the reference data (for the genes the record describes), the modules and the sequencing QC.
+- **The gates and the check.** The gates read this snapshot, so each gate is the analysis's own. The check (`sign-out-check?analysis_type=…`) compares X's latest record with X's snapshot as it would be frozen now, and skips a section that neither holds: a change to another analysis's data leaves X's check matching.
+- **Where it is signed out.** The NIPT report signs out the monogenic NIPT, the family report every other analysis, with a choice (*Analysis to sign out*) when several remain. The button names the analysis (*Sign out the conventional NIPT*, *Amend sign-out of the conventional NIPT*). The family report lists each analysis (*Sign-out of each analysis*): the latest signed version with its report code, signer and date, and whether the family's data still match it. The live pages show the family's current data whole; the sign-out freezes the analysis's part of it.
+
+**Where in the code:** `backend/app/services/signout_scope.py`; `resolve_signout_analysis` and `family_signout_scope` in `report_signout_service.py`; `package_sources` in `family_package_records.py`; `AnalysisSignouts.tsx` and `familyAnalyses.ts` in the frontend.
 
 ### Gate 0b — the family is not being written to
 
@@ -266,6 +287,7 @@ That way a finding that turned up after the dialog showed the findings is never 
 | Field | Content |
 | --- | --- |
 | `family_id`, `assembly` | The family and the reference assembly |
+| `analysis_type` | The analysis the record closes; `null` for a family that holds none, whose record covers the whole family (see *One sign-out per analysis*) |
 | `modules` | The full annotation and reference manifest, per modality |
 | `software` | The build that made the snapshot (`app_version` and `git_sha`) |
 | `drift` | The number of small-variant classifications checked and the list with drift (including `no_snapshot`), with for each drift what shifted |
@@ -354,8 +376,9 @@ The characters are Crockford's base 32 (digits and capital letters without I, L,
 
 Only the signed version is the signed report. The report page has two views:
 
-- **A signed version** (`?version=N`). A signed-out case opens on the latest one. `SignedFamilyReport.tsx` draws it solely from the frozen snapshot that `GET /families/{id}/report/sign-outs/{version}` returns; `signedReportRecord.ts` reads it section by section. The page shows:
+- **A signed version** (`?version=N`). A signed-out case opens on the latest one (for a family with several analyses, the latest of the analyses the family report signs out). `SignedFamilyReport.tsx` draws it solely from the frozen snapshot that `GET /families/{id}/report/sign-outs/{version}` returns; `signedReportRecord.ts` reads it section by section. The page shows:
     - the version, the signer, the time, the **report code**, the sentence that says what the record is, the content hash and whether it still matches (`verified`), and the build that signed out;
+    - the analysis the record closes, in the title (*Clinical report — signed version 2 of the conventional NIPT*) and, if the family's versions close more than one analysis, next to each version in the list of versions; the *latest* and the check are that analysis's;
     - per reported variant the description as the analyst saw it, the class, the accepted criteria, the frozen evidence (including the gnomAD datasets the callset was annotated with), the tags and the note; for a variant that reports its compound-het pair, that pair review too, under *Compound-het pair*. The class is the one the record froze as shown (`class_shown`), with the ACMG score next to it if that gives a different class (see *The class each reported variant shows*);
     - the SVs with their description and ClinGen CNV criteria, the class as the SV page shows it and the CNV score next to it if that gives a different class, never as the class;
     - for a PGT family, the embryo calls (*PGT embryo results*): per embryo the call, the homologues at the ROI as the track names them (P1, P2, M1 and M2), the warnings, the QC, the verdict on that QC and the thresholds that applied;
@@ -378,11 +401,11 @@ In addition:
 
 - The signed version says what the snapshot does not contain, for the report and per variant: the population frequencies and in-silico predictions, the segregation, the gene and phenotype context, the audit trail and the pipeline settings. It never fills these in with current data. A section that could not be read at sign-out, or that the page cannot read, appears as *Not captured*, with the reason, never as empty. If the page cannot read a list in a section (a value that is not a list, or an element that is not of its kind), it leaves it out and the section says so (*Part of … cannot be read here*; `parseRecordSection` in `signedReportRecord.ts`).
 - The print button prints the signed version. At the top of the printout there is a notice for a record that no longer matches its content hash, for a version that a later one has superseded, and for a version that is not established to be the latest.
-- A check (`GET /families/{id}/report/sign-out-check`) builds the snapshot as it would be frozen now, and compares it section by section, each section as a whole, with the latest signed version. That way the live report says whether it still matches, which parts changed, or that the check could not run. On the latest signed version the same check says, on screen only, whether the family's data have changed since.
+- A check (`GET /families/{id}/report/sign-out-check`) builds the snapshot of an analysis as it would be frozen now, and compares it section by section, each section as a whole, with that analysis's latest signed version. That way the live report says whether it still matches, which parts changed, or that the check could not run. On the latest signed version the same check says, on screen only, whether the family's data have changed since.
 - The frozen record itself can be downloaded as JSON in both views.
 - If a lookup fails during sign-out (e.g. the QC limits or the version of the assembly, the gene loci, Monarch or HPO), the sign-out goes ahead, but the snapshot freezes that part explicitly as *not available*, with the reason. The audit event and the signed version name those parts (`not_captured`, also in the response of `GET …/sign-outs/{version}`).
 - A section that CoGA has since come to compute differently also reads as changed. The signed version shows what was signed out; whoever wants to record the new assessment signs out again.
-- CoGA reads one snapshot format: the format it writes itself. Every record contains every section and every field (a section of a single application only for the families of that application). Verification hashes the record as it is stored.
+- CoGA reads one snapshot format: the format it writes itself. Every record contains every section and every field (a section of a single application only for the families of that application; the repeat and Paraphase sections only in the record of an analysis that holds such data). Verification hashes the record as it is stored.
 - What the snapshot freezes was decided by the owner: the variant description, the gene panels applied, the releases of the reference data and the repeat and Paraphase results on 2026-10-14; what each coverage track contains and, for a PGT family, the embryo calls on 2026-10-20. It does not freeze the gene and phenotype context.
 - None of the QC thresholds holds back an embryo call. If the phasing QC at the ROI does not meet its thresholds (at least 50 informative sites, a Mendel error rate of at most 2%, at least 6 markers on each side of the ROI for each parental side the call reads), or it was not counted, a warning sits next to the call, on the family page and in the signed version. The call stands, the sign-out is not held back and the analyst decides (the owner's decision of 2026-10-20); the record freezes the verdict with the thresholds. Those thresholds are provisional: the laboratory director and QA still have to confirm them (CLIN-61). One other measure does change the call: an embryo that carries both homologues of a parent at the ROI becomes *Uninformative* (chapter 8).
 

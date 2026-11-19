@@ -71,7 +71,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
     async def _manifest(session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None):
+    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
         return {
             "checked": 0,
             "drifted_count": 0,
@@ -79,7 +79,9 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             "structural": {"checked": 0, "drifted_count": 0, "drifted": []},
         }
 
-    async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
+    async def _qc(
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+    ):
         return SampleIntegrityReport(overall_status="pass")
 
     async def _sequencing_qc(session, context):

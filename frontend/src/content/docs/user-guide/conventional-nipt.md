@@ -33,6 +33,8 @@ mark where a fetal trisomy and monosomy lie at the fetal fraction.
 Sign the family out from its **Report** page, which shows the result above the reported findings. The
 signed version keeps the result as the cNIPT page showed it, with the bounds and the files it was read
 from. A plasma without a result, or a result on provisional bounds, asks for an acknowledgement with a
-reason.
+reason. When the family also holds the monogenic NIPT of the pregnancy, each NIPT is signed out on its
+own: the **Report** page signs out the conventional NIPT (**Sign out the conventional NIPT**), and its
+record freezes and checks the conventional NIPT's data only.
 
 [Conventional NIPT reference (the fetal fraction, the rule, the targets and the bounds)](/docs/reference/conventional-nipt "further-reading")

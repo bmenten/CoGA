@@ -35,6 +35,8 @@ from backend.app.services.family_package_registration import ImportMarkShapeErro
 from backend.app.services.nipt_quality_checks import PLASMA_PROFILE_VERDICTS
 from backend.app.services.report_code import parse_report_code, report_code
 from backend.app.services.signed_record_sections import RECORD_SECTIONS
+from backend.app.services.family_package_records import package_sources
+from backend.app.services.signout_scope import ReviewsLeftOut
 from backend.app.services.sample_integrity_qc import (
     MendelianCheck,
     NiptCategoryQc,
@@ -84,7 +86,7 @@ _REAL_PACKAGE_SOURCE_STATE = rss._package_source_changes_state
 
 @pytest.fixture(autouse=True)
 def _record_sections(monkeypatch):
-    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None):
+    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None, scope=None):
         return copy.deepcopy(_RECORD_SECTIONS)
 
     async def _code_free(session, code):
@@ -92,9 +94,16 @@ def _record_sections(monkeypatch):
 
     monkeypatch.setattr(rss, "build_record_sections", _sections)
     monkeypatch.setattr(rss, "_report_code_taken", _code_free)
+    monkeypatch.setattr(rss, "_family_metadata", _holds_no_analysis)
     # The package folder the family's data came from is as it was imported (a test of the gate
     # stubs its own change; the reader itself is tested against a database in e2e).
     monkeypatch.setattr(rss, "_package_source_changes_state", _source_as_imported)
+
+
+async def _holds_no_analysis(_session, _family_uuid):
+    # The family's metadata names no analysis (its record covers it whole); a test of several
+    # stubs its own.
+    return None
 
 
 async def _source_as_imported(session, family_uuid):
@@ -143,7 +152,7 @@ def _patch_common(
     async def _manifest(session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None):
+    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
         return {
             "checked": drifted_count,
             "drifted_count": drifted_count,
@@ -157,7 +166,9 @@ def _patch_common(
     async def _audit(*args, **kwargs):
         return None
 
-    async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
+    async def _qc(
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+    ):
         # Sample QC is computed inside build_report_snapshot; stub it with a
         # parameterizable overall_status (default "pass" -> the QC gate stays open).
         return SampleIntegrityReport(overall_status=qc_status)
@@ -847,7 +858,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
                 "modules": [{"key": "clinvar", "version": "2026-05"}],
             }
 
-        async def _drift(session, *, family_id, user, project_id=None):
+        async def _drift(session, *, family_id, user, project_id=None, left_out=None):
             return {
                 "checked": len(drift_rows),
                 "drifted_count": len(drift_rows),
@@ -858,7 +869,9 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
         async def _reviews(session, family_uuid):
             return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
 
-        async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
+        async def _qc(
+            session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        ):
             return SampleIntegrityReport(overall_status="pass")
 
         monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
@@ -995,7 +1008,9 @@ def test_sample_qc_is_bound_into_content_hash(monkeypatch) -> None:
 
 
 def _patch_qc_report(monkeypatch, report: SampleIntegrityReport) -> None:
-    async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
+    async def _qc(
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+    ):
         return report
 
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
@@ -3337,7 +3352,7 @@ def _patch_sv(monkeypatch, *, reported: list, structural_drifted: list, small_dr
     """A family whose reported SVs and SV/CNV drift are given; nothing else drifted."""
     _patch_common(monkeypatch, drifted_count=small_drifted)
 
-    async def _drift(session, *, family_id, user, project_id=None):
+    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
         return {
             "checked": small_drifted,
             "drifted_count": small_drifted,
@@ -3522,10 +3537,67 @@ _PANEL = {
 
 
 def _with_sections(monkeypatch, **overrides) -> None:
-    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None):
+    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None, scope=None):
         return {**copy.deepcopy(_RECORD_SECTIONS), **copy.deepcopy(overrides)}
 
     monkeypatch.setattr(rss, "build_record_sections", _sections)
+
+
+# --- One sign-out per analysis (the owner's decision of 2026-11-19) ------------------------
+
+
+def _holds(monkeypatch, *analyses: str, package_imports: dict | None = None, left_out=None) -> None:
+    """The family holds ``analyses``, imported from ``package_imports`` (none by default: every
+    datum is then claimed by no analysis, and each sign-out holds it); ``left_out``: the reviews
+    whose variants are stored under other analyses' sources only."""
+
+    async def _held(_session, family_uuid):
+        assert family_uuid == "u1"
+        return {"analysis_types": sorted(analyses), "package_imports": package_imports or {}}
+
+    async def _left_out(_session, _context, _scope):
+        return left_out or ReviewsLeftOut()
+
+    monkeypatch.setattr(rss, "_family_metadata", _held)
+    monkeypatch.setattr(rss, "reviews_left_out", _left_out)
+
+
+def test_a_sign_out_names_the_analysis_it_closes() -> None:
+    # The family's only analysis, or the whole family when it holds none.
+    assert rss.resolve_signout_analysis([], None) is None
+    assert rss.resolve_signout_analysis(["conventional_nipt"], None) == "conventional_nipt"
+    assert rss.resolve_signout_analysis(["conventional_nipt", "monogenic_nipt"], "monogenic_nipt") == "monogenic_nipt"
+    # A family holding several must be told which; one it does not hold is refused.
+    with pytest.raises(HTTPException) as several:
+        rss.resolve_signout_analysis(["conventional_nipt", "monogenic_nipt"], None)
+    assert several.value.status_code == 422
+    assert "several analyses (conventional_nipt, monogenic_nipt)" in str(several.value.detail)
+    with pytest.raises(HTTPException) as unknown:
+        rss.resolve_signout_analysis(["conventional_nipt"], "short_read_wgs")
+    assert unknown.value.status_code == 422
+    # Named by what the family holds, not by the value asked.
+    assert unknown.value.detail == "This family holds no such analysis to sign out; it holds conventional_nipt."
+
+
+def test_the_record_of_a_family_holding_two_analyses_names_the_one_signed_out(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _holds(monkeypatch, "conventional_nipt", "monogenic_nipt")
+    out = asyncio.run(
+        rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), analysis_type="conventional_nipt")
+    )
+    assert out["snapshot"]["analysis_type"] == "conventional_nipt"
+    # Named in the record hashed and chained.
+    assert out["content_hash"] == rss._canonical_hash(out["snapshot"])
+    with pytest.raises(HTTPException) as unnamed:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert unnamed.value.status_code == 422
+
+
+def test_a_family_of_one_analysis_signs_it_out_without_naming_it(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _holds(monkeypatch, "short_read_wgs")
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["analysis_type"] == "short_read_wgs"
 
 
 def test_the_snapshot_freezes_what_the_analysis_looked_at_and_what_the_record_is(monkeypatch) -> None:
@@ -4490,6 +4562,207 @@ def test_the_list_of_signed_versions_names_each_ones_report_code(monkeypatch) ->
         report_code("FAM1", 1, "cd" * 32),
     ]
     assert out["latest"]["report_code"] == report_code("FAM1", 2, "ab" * 32)
+
+
+def test_the_list_of_signed_versions_gives_the_latest_of_each_analysis(monkeypatch) -> None:
+    # One series of versions per family, each record naming its analysis: the cNIPT signed out
+    # first, then the mNIPT, then the cNIPT amended.
+    _patch_common(monkeypatch, drifted_count=0)
+    rows = [
+        {
+            "version": version,
+            "analysis_type": analysis,
+            "signed_out_by": "lab-signer",
+            "signed_out_at": datetime(2026, 11, 19, 9, version),
+            "content_hash": f"{version:02d}" * 32,
+            "family_identifier": "FAM1",
+        }
+        for version, analysis in ((3, "conventional_nipt"), (2, "monogenic_nipt"), (1, "conventional_nipt"))
+    ]
+    out = asyncio.run(rss.list_report_signouts(_RowsSession(rows), family_id="FAM1", user=_user()))
+    assert [entry["version"] for entry in out["signouts"]] == [3, 2, 1]
+    assert out["latest"]["version"] == 3
+    assert [(entry["analysis_type"], entry["version"]) for entry in out["latest_per_analysis"]] == [
+        ("conventional_nipt", 3),
+        ("monogenic_nipt", 2),
+    ]
+
+
+def _two_nipt_records() -> dict:
+    """The package records of a family holding both NIPTs of a pregnancy, as the import writes
+    them: the monogenic NIPT's callset and coverage BED, the conventional NIPT's ccnv output."""
+    return {
+        "monogenic_nipt": {
+            "datasets": {"snv": {}, "coverage": {}},
+            "sources": package_sources(["snv", "coverage"], "nipt"),
+        },
+        "conventional_nipt": {"datasets": {"ccnv": {}}, "sources": package_sources(["ccnv"], None)},
+    }
+
+
+_NIPTS_INCOMPLETE = {
+    "at": "2026-11-19T09:00:00+00:00",
+    "failed_datasets": ["ccnv", "snv"],
+    "imported_datasets": ["coverage"],
+    "job_id": "job-2",
+    "failed_jobs": {"ccnv": "job-2", "snv": "job-1"},
+}
+_NIPTS_UNFINISHED = {
+    "import:job-3": {"job_id": "job-3", "at": "2026-11-19T10:00:00+00:00", "datasets": ["snv"], "finished_datasets": []},
+    # A dataset no record lists (an upload's): every analysis's.
+    "upload:u-1": {"job_id": None, "at": "2026-11-19T11:00:00+00:00", "datasets": ["mito"], "finished_datasets": []},
+}
+
+
+def _scoped_patches(monkeypatch, seen: dict, *, left_out: ReviewsLeftOut) -> None:
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=_NIPTS_INCOMPLETE, import_unfinished=_NIPTS_UNFINISHED)
+    _holds(monkeypatch, "conventional_nipt", "monogenic_nipt", package_imports=_two_nipt_records(), left_out=left_out)
+
+    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+        seen["drift_left_out"] = left_out
+        return {"checked": 0, "drifted_count": 0, "drifted": [], "structural": _NO_STRUCTURAL_DRIFT}
+
+    async def _qc(
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+    ):
+        seen["qc"] = (analysis_types, genotype_source_held)
+        return SampleIntegrityReport(overall_status="pass")
+
+    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None, scope=None):
+        seen["sections"] = ([entry["variant_id"] for entry in reported], scope)
+        return copy.deepcopy(_RECORD_SECTIONS)
+
+    async def _changes(session, family_uuid):
+        return [
+            {"analysis_type": "conventional_nipt", "kind": "gone"},
+            {"analysis_type": "monogenic_nipt", "kind": "changed"},
+        ]
+
+    monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
+    monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
+    monkeypatch.setattr(rss, "build_record_sections", _sections)
+    monkeypatch.setattr(rss, "_package_source_changes_state", _changes)
+
+
+def test_a_sign_out_of_one_analysis_freezes_and_checks_that_analysis_s_data_only(monkeypatch) -> None:
+    # The conventional NIPT of a family holding both NIPTs: the monogenic NIPT's reported variant
+    # (stored under its callset only) is neither frozen nor checked for drift, and the record
+    # holds the conventional NIPT's import states, folder change and Sample QC.
+    seen: dict = {}
+    left_out = ReviewsLeftOut(small=frozenset({"1-1-A-G"}))
+    _scoped_patches(monkeypatch, seen, left_out=left_out)
+    snapshot = asyncio.run(
+        rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user(), analysis_type="conventional_nipt")
+    )
+    assert snapshot["analysis_type"] == "conventional_nipt"
+    assert snapshot[rss.REPORTED_VARIANTS_SECTION] == []
+    assert seen["drift_left_out"] is left_out
+    reported, scope = seen["sections"]
+    assert reported == [] and scope.analysis == "conventional_nipt" and not scope.whole
+    analysis_types, genotype_source_held = seen["qc"]
+    assert analysis_types == ["conventional_nipt"]
+    assert not genotype_source_held("nipt") and genotype_source_held("ccnv") and genotype_source_held("upload")
+    assert snapshot["import_incomplete"] == {
+        **_NIPTS_INCOMPLETE,
+        "failed_datasets": ["ccnv"],
+        "imported_datasets": [],
+        "failed_jobs": {"ccnv": "job-2"},
+    }
+    assert snapshot["import_unfinished"] == {"upload:u-1": _NIPTS_UNFINISHED["upload:u-1"]}
+    assert snapshot["package_source_changes"] == [{"analysis_type": "conventional_nipt", "kind": "gone"}]
+
+
+def test_the_other_analysis_s_sign_out_holds_its_own_part_of_the_same_family(monkeypatch) -> None:
+    seen: dict = {}
+    _scoped_patches(monkeypatch, seen, left_out=ReviewsLeftOut())
+    snapshot = asyncio.run(
+        rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user(), analysis_type="monogenic_nipt")
+    )
+    assert [entry["variant_id"] for entry in snapshot[rss.REPORTED_VARIANTS_SECTION]] == ["1-1-A-G"]
+    assert seen["qc"][0] == ["monogenic_nipt"]
+    assert snapshot["import_incomplete"]["failed_datasets"] == ["snv"]
+    assert snapshot["import_incomplete"]["imported_datasets"] == ["coverage"]
+    assert snapshot["import_unfinished"] == _NIPTS_UNFINISHED
+    assert snapshot["package_source_changes"] == [{"analysis_type": "monogenic_nipt", "kind": "changed"}]
+
+
+def test_an_import_that_failed_only_another_analysis_s_datasets_leaves_this_one_complete(monkeypatch) -> None:
+    seen: dict = {}
+    _scoped_patches(monkeypatch, seen, left_out=ReviewsLeftOut())
+    _patch_common(
+        monkeypatch,
+        drifted_count=0,
+        import_incomplete={**_NIPTS_INCOMPLETE, "failed_datasets": ["snv"], "failed_jobs": {"snv": "job-1"}},
+        import_unfinished={"import:job-3": _NIPTS_UNFINISHED["import:job-3"]},
+    )
+    snapshot = asyncio.run(
+        rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user(), analysis_type="conventional_nipt")
+    )
+    assert snapshot["import_incomplete"] is None
+    assert snapshot["import_unfinished"] == {}
+
+
+def test_a_family_of_one_analysis_is_checked_whole(monkeypatch) -> None:
+    seen: dict = {}
+    _scoped_patches(monkeypatch, seen, left_out=ReviewsLeftOut(small=frozenset({"1-1-A-G"})))
+    _holds(monkeypatch, "monogenic_nipt", package_imports={"monogenic_nipt": _two_nipt_records()["monogenic_nipt"]})
+    snapshot = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert seen["qc"] == (None, None)
+    assert seen["sections"][1].whole
+    assert snapshot["import_incomplete"] == _NIPTS_INCOMPLETE
+    assert len(snapshot["package_source_changes"]) == 2
+
+
+def test_a_change_to_one_analysis_leaves_the_other_s_check_matching(monkeypatch) -> None:
+    # The conventional NIPT is signed out; then the analyst tags another monogenic NIPT variant
+    # for the report and reclassifies the first. The conventional NIPT's record still matches.
+    seen: dict = {}
+    _scoped_patches(monkeypatch, seen, left_out=ReviewsLeftOut(small=frozenset({"1-1-A-G"})))
+    _no_finding_reviews(monkeypatch)
+    signed = asyncio.run(
+        rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user(), analysis_type="conventional_nipt")
+    )
+
+    async def _more_reviews(session, family_uuid):
+        return [{**_REVIEW, "acmg_class": "acmg_class_5"}, {**_REVIEW, "variant_id": "2-2-C-T"}]
+
+    monkeypatch.setattr(rss, "_reported_reviews", _more_reviews)
+    _holds(
+        monkeypatch,
+        "conventional_nipt",
+        "monogenic_nipt",
+        package_imports=_two_nipt_records(),
+        left_out=ReviewsLeftOut(small=frozenset({"1-1-A-G", "2-2-C-T"})),
+    )
+    asked: list = []
+
+    async def _analyses(session, family_uuid):
+        asked.append(family_uuid)
+        return ["conventional_nipt", "monogenic_nipt"]
+
+    monkeypatch.setattr(rss, "family_signout_analyses", _analyses)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(
+            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user(), analysis_type="conventional_nipt"
+        )
+    )
+    assert (out["analysis_type"], out["matches"], out["changed_sections"]) == ("conventional_nipt", True, [])
+    # The monogenic NIPT's check, of its own variants, sees the change.
+    _holds(monkeypatch, "conventional_nipt", "monogenic_nipt", package_imports=_two_nipt_records())
+    monkeypatch.setattr(rss, "family_signout_analyses", _analyses)
+    monogenic = asyncio.run(
+        rss.compare_report_with_latest_signout(
+            _CheckSession(_signed_row({**signed, "analysis_type": "monogenic_nipt"})),
+            family_id="FAM1",
+            user=_user(),
+            analysis_type="monogenic_nipt",
+        )
+    )
+    assert monogenic["matches"] is False
+    assert "reported_variants" in monogenic["changed_sections"]
+    with pytest.raises(HTTPException) as unnamed:
+        asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(None), family_id="FAM1", user=_user()))
+    assert unnamed.value.status_code == 422
 
 
 def test_the_report_code_endpoint_serves_the_lookup(monkeypatch) -> None:

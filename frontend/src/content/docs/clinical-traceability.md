@@ -247,11 +247,48 @@ that could not be read while the version was frozen is recorded as not captured,
 (*Part of … cannot be read here*), never shown as empty: the downloaded record holds it as stored.
 
 A monogenic NIPT family can also be signed out from the NIPT report (**Sign out NIPT analysis**): the
-same sign-out, with the same checks and report code, into the family's one signed record. What is
-frozen does not depend on where you sign out. The NIPT report names the latest signed version with its
-report code and says whether the family's data still matches it. Like the live family report, the NIPT
-report is live: it says so on screen, and every printout of it starts with *Draft* or *Not the signed
-report*.
+same sign-out, with the same checks and report code. What is frozen does not depend on where you sign
+out. The NIPT report names the latest signed version with its report code and says whether the
+family's data still matches it. Like the live family report, the NIPT report is live: it says so on
+screen, and every printout of it starts with *Draft* or *Not the signed report*.
+
+### One sign-out per analysis
+
+A family can hold several analyses, each imported from a package of its own: the monogenic and the
+conventional NIPT of one pregnancy, or short-read and then long-read WGS of the same DNA. Each analysis
+is signed out on its own, and its signed version freezes and checks that analysis's data only:
+
+- its reported variants, with their evidence drift and their descriptions;
+- its coverage tracks;
+- the repeat expansions and the Paraphase results, with their reviews and the *Findings without a
+  review* check, only when the analysis holds such data or no other analysis does. Otherwise the signed
+  version says *Not part of this record: the analysis it closes holds no repeat-expansion calls.
+  Another analysis of the family holds them, and its own record freezes them.*;
+- its application's results: the NIPT results for the monogenic NIPT, the cNIPT results for the
+  conventional NIPT, the embryo calls for PGT or the monogenic NIPT;
+- its Sample QC, on genotypes of its own (the conventional NIPT runs no check);
+- its package's delivery and package-folder changes, and what its imports left incomplete.
+
+Data that no analysis claims as its own (an upload, an analyst's addition, a package that named no
+analysis) count in every analysis's sign-out. The gene panels, the versions and the sequencing QC are
+frozen whole. Each sign-out check reads the analysis's own data, so a drifted classification, a Sample
+QC concern or a failed dataset of another analysis does not stop it.
+
+Where you sign out:
+
+- the monogenic NIPT on its NIPT report;
+- every other analysis on the family's Report page. When several remain, pick one under *Analysis to
+  sign out*. The button names it: **Sign out the conventional NIPT**, or **Amend sign-out of the
+  conventional NIPT** once it is signed out.
+
+The Report page lists each analysis under *Sign-out of each analysis*: its latest signed version, with
+the report code, signer and date, and whether the family's data still match it. It opens on the latest
+signed version of the analyses it signs out. A signed version names its analysis (*Clinical report —
+signed version 2 of the conventional NIPT*), and its *latest* and its check are that analysis's. The
+versions of all the family's analyses are numbered in one series. The live report pages show the
+family's current data whole; a sign-out freezes the analysis's part of it.
+
+A family of one analysis, or of none, is signed out whole.
 
 ### The report code
 
@@ -411,8 +448,9 @@ trail. The medical sign-off of the clinical report is given in the EPD, under it
 ### Amendments
 
 Signing out again creates a new version (v2, v3, …); earlier versions are never overwritten. Once a
-case is signed out, the button on the live report reads **Amend sign-out**. A clinical report that rests
-on the amended analysis refers to the new version.
+case is signed out, the button on the live report reads **Amend sign-out** (of a family of several
+analyses, **Amend sign-out of the …**, naming the analysis). A clinical report that rests on the amended
+analysis refers to the new version.
 
 Versions are numbered per family ID. A family deleted and made again under the same ID (for example by
 replacing it with **overwrite**) continues the numbering: after a deleted family's versions 1 and 2,

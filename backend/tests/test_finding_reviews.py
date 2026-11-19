@@ -290,6 +290,36 @@ def test_the_record_holds_the_reviews_that_bear_a_judgement_with_their_drift(mon
     assert record["unreviewed_findings"] == []
 
 
+def test_a_record_without_a_kind_s_section_holds_none_of_its_reviews(monkeypatch) -> None:
+    # A sign-out of an analysis that holds no repeat calls (a short-read analysis beside a
+    # long-read one): its record holds no repeat section, so neither the repeat reviews, nor
+    # their drift, nor the abnormal repeat calls without a review.
+    frozen = _locus("HTT", "HTT", "intermediate", [_call("PROBAND", "intermediate", [18, 34])])
+    _rows(
+        monkeypatch,
+        {
+            "HTT": _row(
+                "HTT",
+                classification="pathogenic_expansion",
+                evidence_snapshot={"captured_at": "2026-10-20T10:00:00+00:00", "evidence": frozen},
+            )
+        },
+        {"smn1": _row("smn1", classification="carrier", evidence_snapshot=None)},
+    )
+    sections = {"paraphase": _paraphase_section(_region("smn1", {"PROBAND": "carrier"}))}
+    record = asyncio.run(frp.finding_reviews_for_record(None, _context(), sections))  # type: ignore[arg-type]
+    assert "repeat_expansion_reviews" not in record
+    assert [entry["key"] for entry in record["paraphase_reviews"]] == ["smn1"]
+    assert record["finding_review_drift"]["checked"] == 1
+    assert [item["kind"] for item in record["finding_review_drift"]["drifted"]] == ["paraphase"]
+    # Neither section: nothing to review.
+    none = asyncio.run(frp.finding_reviews_for_record(None, _context(), {}))  # type: ignore[arg-type]
+    assert none == {
+        "finding_review_drift": {"checked": 0, "drifted_count": 0, "drifted": []},
+        "unreviewed_findings": [],
+    }
+
+
 def test_the_gate_lists_each_abnormal_call_without_a_review(monkeypatch) -> None:
     _rows(monkeypatch, {"HTT": _row("HTT", tags=["excluded"])}, {})
     sections = {
