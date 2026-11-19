@@ -86,7 +86,7 @@ member's status unset without a word. Information of your own goes under `extra`
 | `pipeline` | always | `name`, `version` and `run_id`: one `run_id` per run, the same in each file it writes | pipeline |
 | `project` | complete | the CoGA project, by its name; it fixes the assembly | samplesheet |
 | `assembly` | complete | the reference assembly (`GRCh38`); must be the project's, compared by build (`GRCh38.p14` and `hg38` are a GRCh38 project's) | pipeline |
-| `analysis_type` | complete | `long_read_wgs` (LR-WGS), `long_read_adaptive_sampling` (LR-AS, long-read adaptive sampling), `short_read_wgs` (SR-WGS, short-read Illumina WGS), `pgt` (PGT), `expanded_carrier_screening` (expanded carrier screening) or `monogenic_nipt` (mNIPT) | samplesheet |
+| `analysis_type` | complete | `long_read_wgs` (LR-WGS), `long_read_adaptive_sampling` (LR-AS, long-read adaptive sampling), `short_read_wgs` (SR-WGS, short-read Illumina WGS), `pgt` (PGT), `expanded_carrier_screening` (expanded carrier screening), `monogenic_nipt` (mNIPT) or `conventional_nipt` (cNIPT, conventional NIPT) | samplesheet |
 | `family` | complete | `family_id`; `roi`, the region of interest (a gene or `chr7:1000-2000`); for PGT `pgt` (below) | samplesheet |
 | `members` | no | every member of the family, the pedigree (below) | pipeline and laboratory |
 | `couples` | no | each couple: `partners` (two members) and `context` (`reproductive`, `carrier screening`) | pipeline |
@@ -119,7 +119,7 @@ member, also one without data of their own (a fetus).
 | `role` | no | `proband`, `father`, `mother`, `sibling`, `embryo` or `relative` |
 | `clinical_status` | no | `affected`, `unaffected` or `unknown` (left out: unknown) |
 | `carrier_status`, `carrier_type` | no | `carrier`, `not_carrier` or `unknown`; `obligate`, `proven`, `reported` or `inferred` |
-| `assay`, `assay_panel` | no | the sample's assay where it is not the family's (`nipt_cfdna` for a maternal plasma) and its capture panel |
+| `assay`, `assay_panel` | no | the sample's assay where it is not the family's (`nipt_cfdna` for a monogenic NIPT's maternal plasma, `cnipt_cfdna` for a conventional NIPT's) and its capture panel |
 | `hpo` | no | `present` and `absent`: HPO terms (`HP:0001250`) |
 | `related_to` | no | members this one is related to by an unknown degree (a PGT index on the mother's side) |
 
@@ -131,7 +131,7 @@ relatives the risk haplotype is read from). The import derives their statuses fr
 ### Datasets
 
 `datasets` is the manifest's `datasets` block, unchanged: one entry per dataset the import reads,
-keyed `snv`, `sv_needlr`, `repeats_trgt`, `wisecondorx`, `qdnaseq`, `apcad`, `pcf`, `haplotypes`,
+keyed `snv`, `sv_needlr`, `repeats_trgt`, `wisecondorx`, `qdnaseq`, `ccnv`, `apcad`, `pcf`, `haplotypes`,
 `paraphase`, `coverage`, `cnv`, `mito`, `alignments`, `qc` or `pipeline_info`. What each entry
 holds, and where it lands, is in [data-import.md](data-import.md#the-manifest). Its paths are
 relative to the package folder, and every file an entry names is listed in `files`.
@@ -246,6 +246,9 @@ All synthetic, with checksums of nothing real:
   pedigree.
 - [monogenic-nipt.json](schemas/examples/monogenic-nipt.json): a monogenic NIPT pair: the maternal
   plasma, the father and the fetus, with each parent's callset and coverage table.
+- [conventional-nipt.json](schemas/examples/conventional-nipt.json): a conventional NIPT: the
+  maternal plasma and the fetus, with the plasma's ccnv output (bins, segments, calls and QC file)
+  and the run's records.
 - [long-read-couple.json](schemas/examples/long-read-couple.json): a couple screened for
   carriership (expanded carrier screening) on the long-read pipeline, with each partner's own
   callsets.

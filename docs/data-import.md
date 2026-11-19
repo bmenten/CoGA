@@ -1434,6 +1434,28 @@ in the same places) under `datasets.coverage.per_sample` as `target_table`.
 
 How the pair is imported: [Monogenic NIPT pairs](#monogenic-nipt-pairs).
 
+A conventional NIPT package holds the output of ccnv, the laboratory's copy-number tool for shallow
+whole-genome sequencing, in its prenatal mode: per maternal plasma its bins, segments, calls and QC
+file, beside the package file or in a folder named after the sample:
+
+```text
+CNIPTFAM1/
+  coga-package.json
+  CFDNA1_bins.bed.gz (+ .tbi)       each 100 kb bin's log2 ratio, z-score and weight
+  CFDNA1_segments.bed.gz            the segments, their call, expected ratio, implied fetal fraction
+  CFDNA1_calls.vcf.gz               the gain and loss calls, with the run's results in the header
+  CFDNA1_qc.json                    read metrics, fetal fractions, fetal sex, sex-chromosome call
+  CFDNA1_calls.bed.gz, CFDNA1_segments.vcf.gz, CFDNA1_plot.html   copies and ccnv's plot: not read
+  pipeline_info/params_*.json, software_versions.yml
+```
+
+Without a package file or a PED, Discover reads such a folder (`<sample>_qc.json` with the sample's
+bins beside it, at the top, in `<sample>/` or under `ccnv/`) as a conventional NIPT: the sample is
+the maternal plasma, the mother of the pregnancy, female, tagged `assay: cnipt_cfdna`, and the
+manifest gets `analysis_type: conventional_nipt` and the `ccnv` dataset. Its warning
+(`ccnv_plasma_proposed`) says so; no fetus is proposed, as its ID would be invented. How the output
+is imported: [Conventional NIPT](#conventional-nipt-ccnv).
+
 **How Discover picks files.**
 
 - A long-read package's per-sample SNV or NeedlR file counts as the family's callset only when the
@@ -1549,6 +1571,9 @@ datasets:
   wisecondorx:
     per_sample:
       SAMPLE1: {bins: wisecondorx/SAMPLE1/bins.bed, segments: wisecondorx/SAMPLE1/segments.bed}
+  ccnv:                    # a conventional NIPT's maternal plasma (analysis_type: conventional_nipt)
+    per_sample:
+      CFDNA1: {bins: CFDNA1_bins.bed.gz, segments: CFDNA1_segments.bed.gz, calls: CFDNA1_calls.vcf.gz, qc: CFDNA1_qc.json}
   coverage:
     per_sample:
       SAMPLE1: {bed: coverage/SAMPLE1.coverage.bed, content: read_depth}   # or log2_ratio
@@ -1667,6 +1692,7 @@ declares nothing: it holds each target's depth.
 | `sv_needlr` | structural variants (ClickHouse), source `needlr`, from one family VCF or one VCF per sample (`per_sample`), each file's calls bound to its sample. A breakend keeps its mate, the position its ALT names in brackets, as a structural-variant upload reads it ([below](#6-single-file-uploads)). Each SV takes the id its coordinates give it, never the record's ID, which its annotation keeps (below this table) |
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
+| `ccnv` | a conventional NIPT's maternal plasma: its bins as the `coverage` track and its segments as the `segments` track, both log2 ratios, source `ccnv`, each row with ccnv's values beside it; its gain and loss calls as structural variants, source `ccnv`; its QC file under `samples.metadata.ccnv` ([below](#conventional-nipt-ccnv)) |
 | `coverage` | the `coverage` track (a BED per sample, `bed:`, with what it holds, `content:`, [above](#the-manifest)), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
 | `apcad` | the `apcad` track: per SNV the embryo's alternate-allele fraction, tagged with the parent the alternate allele can only have come from. From a family VCF, one trio VCF per embryo (`vcf:` under `per_sample`), or the PGT pipeline's table of the sites its APCAD read (`file:`; the embryo's `raw_AF`, the parent in `source`). An embryo's segregation table (`segregation:`) gives its `apcad_segregation` track |
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
@@ -1724,7 +1750,7 @@ own source:
 
 | Track | Sources |
 | --- | --- |
-| `coverage` | a BED (`web`), WisecondorX, QDNAseq, HiFiCNV |
+| `coverage` | a BED (`web`), WisecondorX, QDNAseq, HiFiCNV, ccnv |
 | `segments` | the same callers |
 | `apcad` | the `apcad` dataset (`apcad`), HiFiCNV's minor allele fraction (`hificnv`), a BED upload (`web`) |
 | `apcad_pcf` | the `pcf` dataset (`pcf`), a BED upload |
@@ -1744,7 +1770,7 @@ store: a header alone, a file cut short before its first record, or nothing at a
 for:
 
 - a TRGT VCF (a sample's, or a family VCF, which must hold a record for each sample it names);
-- WisecondorX and QDNAseq bins and segments;
+- WisecondorX and QDNAseq bins and segments, and ccnv's;
 - HiFiCNV's copy-number bedGraph and its depth and minor-allele-fraction bigWigs (a depth file
   without a bin above zero holds none);
 - an APCAD file, and a PCF table (both of a sample's tables are read before its track is
@@ -1799,6 +1825,7 @@ sample's refused file then fails the dataset with every sample's data as it was.
 | `repeats_trgt` | each sample's TRGT VCF, read whole (and again to store it, so that one sample's calls are held at a time) |
 | `cnv` | each sample's HiFiCNV VCF (its sample column, its records), and each signal file up to its first value |
 | `wisecondorx`, `qdnaseq` | every sample's bins and segments, up to the first row |
+| `ccnv` | every sample's QC file and calls VCF, read whole and checked against each other, and its bins and segments up to the first row |
 | `pcf` | every sample's tables, up to the first row |
 | `apcad` | every embryo's file up to the embryo's first value (a VCF in which its reader finds no record is read whole, as a BED) |
 | `coverage` | every sample's file: a BED decoded whole, as the BED loader decodes it, and read up to its first record; a per-target table parsed whole |
@@ -1857,7 +1884,7 @@ its depth verdict, and the NIPT coverage check without a per-target table) read 
 per sample whose values are depth: the coverage BED (`web`) when declared as read depth, else
 HiFiCNV's depth when its record says it is stored as read (`none`).
 
-- Never read as depth: WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth (log2
+- Never read as depth: WisecondorX's, QDNAseq's and ccnv's bins and HiFiCNV's normalised depth (log2
   ratios), a coverage BED declared as a log2 ratio or declaring nothing (`unknown`), and another
   caller's track whose record names no transform.
 - Each track a reader leaves out is named with the reason: in the family's mtDNA QC notes, and in
@@ -1945,6 +1972,70 @@ One combined VCF with a father column and a plasma column, genotyped jointly, st
 ordinary `snv` `family_vcf`, as the demo family does
 ([demo/nipt_family](../demo/nipt_family/README.md)); the analysis is the same. Without coverage
 tables, the NIPT coverage check reads the plasma's `coverage` track (a BED) instead.
+
+### Conventional NIPT (ccnv)
+
+A conventional NIPT reads the genome-wide copy number of a maternal plasma from ccnv's prenatal
+output ([family_package_ccnv.py](../backend/app/services/family_package_ccnv.py),
+[ccnv_output.py](../backend/app/services/ccnv_output.py)). Its manifest names, per plasma, the four
+files the import reads:
+
+```yaml
+analysis_type: conventional_nipt
+samples:
+  CFDNA1: {assay: cnipt_cfdna}
+datasets:
+  ccnv:
+    per_sample:
+      CFDNA1: {bins: CFDNA1_bins.bed.gz, segments: CFDNA1_segments.bed.gz, calls: CFDNA1_calls.vcf.gz, qc: CFDNA1_qc.json}
+```
+
+- **Only for a conventional NIPT.** The dataset is refused in a package of another analysis
+  (`ccnv_analysis_type`). The plasma's `assay: cnipt_cfdna` keeps it apart from a monogenic NIPT's
+  plasma (`nipt_cfdna`): the monogenic NIPT's artefact list and recurrence counts, which read the
+  samples tagged `nipt_cfdna`, do not count it.
+- **The bins** become the plasma's `coverage` track, source `ccnv`: each 100 kb bin's log2 ratio
+  (`ratio`), with its z-score, precision weight, reference size and reference branch (`autosomal`;
+  `female_sex` for chrX, which ccnv's prenatal mode normalises against the diploid XX reference)
+  kept with the row. A bin ccnv masked has no ratio and is not stored. The viewers draw the track on
+  their log2-ratio axis; it is never read as depth.
+- **The segments** become the plasma's `segments` track, source `ccnv`: each segment's log2 ratio,
+  with its z-score, weight, bin count, call (`gain`, `loss` or none), expected ratio, implied fetal
+  fraction, discordance and its reason, fragment-length statistics and origin call kept with the row.
+- **The calls VCF** gives the plasma's structural variants, source `ccnv`: each `<DUP>` or `<DEL>`
+  record as a gain or a loss, named by its coordinates, type and source like a HiFiCNV call. ccnv
+  writes no genotype: the call's genotype is a no-call (`./.`), and its FORMAT values (log2 ratio,
+  z-score, weight, bins, expected log2 ratio, implied fetal fraction) are kept in its annotation
+  (`format`) beside its INFO (discordance, fragment statistics, origin, mosaic fraction). A VCF
+  without a record is the run's answer that it called no gain or loss: the plasma's earlier ccnv
+  calls go.
+- **The QC file** is kept under `samples.metadata.ccnv` as ccnv wrote it (`qc`), with its path
+  (`qc_file`): the read metrics, every fetal-fraction estimate, the fetal sex, the sex-chromosome
+  call, the limits of detection and the warnings. It is read strictly: one JSON object, no key
+  twice, no NaN or Infinity; of format version 2 (`schema_version` 2.x.y); of ccnv's `prenatal`
+  mode; naming its sample; with `prenatal.active_ff` and `prenatal.effective_ff` from 0 to 1, the
+  fetal sex and the sex-chromosome call (`prenatal.sca.call`). Any other file is refused
+  (`ccnv_qc_invalid`).
+
+**One run's result.** The four files of an entry are one run's result for one sample, and are
+checked as such in validation and again by the import, before anything is written:
+
+- the calls VCF's header states the fetal sex (`##fetalSex`), the fetal fraction
+  (`##fetalFraction`, `prenatal.active_ff` to four decimals) and the sex-chromosome call
+  (`##scaCall`) its QC file states (`ccnv_results_disagree`);
+- the calls VCF holds one sample column, named as the QC file's `sample` (`ccnv_samples_disagree`);
+- the bins and segments start with ccnv's header line and have the columns CoGA reads
+  (`ccnv_file_invalid`).
+
+A sample name other than the member's is read as the member's all the same, with a warning
+(`ccnv_sample_named_otherwise`), as a monogenic NIPT's per-sample file is: the laboratory maps its
+verified tubes to the files they are in. The entry's `vcf_sample` records a name the laboratory
+verified, which silences the warning.
+
+**Replacing.** Every sample's files are read and checked first, so a later sample's refused file
+fails the dataset with every sample's data as it was. An overwrite replaces each sample's ccnv
+tracks and the family's ccnv calls. An update leaves the dataset as it is when the family holds ccnv
+bins of one of its samples or ccnv calls, since the calls of every sample are replaced together.
 
 ### Per-sample callsets of a long-read couple
 
@@ -2586,8 +2677,8 @@ data again. Which stores hold a dataset's data is fixed per dataset:
 | Store | Datasets |
 | --- | --- |
 | Small variants | `snv`, `haplotypes`, `mito` |
-| Structural variants | an SV upload's, `sv_needlr`, `cnv`, `mito` |
-| Interval tracks | a BED upload's, `haplotypes`, `wisecondorx`, `qdnaseq`, `apcad`, `pcf`, `coverage`, `cnv` |
+| Structural variants | an SV upload's, `sv_needlr`, `cnv`, `ccnv`, `mito` |
+| Interval tracks | a BED upload's, `haplotypes`, `wisecondorx`, `qdnaseq`, `ccnv`, `apcad`, `pcf`, `coverage`, `cnv` |
 | Postgres alone (the deletion's transaction rolls them back) | the repeat calls, paraphase results, QC, run record and phenotypes |
 
 | Deletion | What it does | What its mark lists |

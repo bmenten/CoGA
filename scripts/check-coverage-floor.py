@@ -41,6 +41,8 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/acmg_points.py": 97.0,  # (100.0)
     "backend/app/services/annotation_manifest_service.py": 94.0,  # (97.1, 2026-11-03)
     "backend/app/services/assembly_scope.py": 97.0,  # (100.0)
+    # (89.4 measured locally: a conventional NIPT's ccnv output, read strictly)
+    "backend/app/services/ccnv_output.py": 86.0,
     "backend/app/services/classification_drift_service.py": 97.0,  # (100.0, 2026-11-03)
     # (93.8 and 91.7 measured locally: the family search's SQL builders, the one definition
     # of its small-variant filters, and the records it reads)
@@ -61,6 +63,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured locally)
     "backend/app/services/coverage_read_depth.py": 97.0,  # (100.0, measured locally)
     "backend/app/services/family_identifiers.py": 97.0,  # (100.0)
+    # (84.5 measured locally: a conventional NIPT package's ccnv entry, its checks and
+    # Discover's draft)
+    "backend/app/services/family_package_ccnv.py": 81.0,
     # (100.0 measured locally: the package fingerprint an import is queued
     # and checked with)
     "backend/app/services/family_package_fingerprint.py": 97.0,

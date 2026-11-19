@@ -274,6 +274,7 @@ class ImportDeliveryAdd(BaseModel):
             "pgt",
             "expanded_carrier_screening",
             "monogenic_nipt",
+            "conventional_nipt",
         ]
     ] = None
 

@@ -1,0 +1,101 @@
+{
+  "schema": "coga-package/1",
+  "status": "complete",
+  "written_at": "2026-11-19T10:30:00+01:00",
+  "pipeline": {
+    "name": "ccnv",
+    "version": "0.1.0",
+    "run_id": "RUN-2026-0003"
+  },
+  "project": "NIPT",
+  "assembly": "GRCh38",
+  "analysis_type": "conventional_nipt",
+  "family": {
+    "family_id": "CNIPTFAM1"
+  },
+  "members": [
+    {
+      "sample_id": "CFDNA1",
+      "sex": "female",
+      "role": "mother",
+      "assay": "cnipt_cfdna"
+    },
+    {
+      "sample_id": "FETUS1",
+      "sex": "unknown",
+      "mother": "CFDNA1",
+      "role": "proband"
+    }
+  ],
+  "datasets": {
+    "ccnv": {
+      "per_sample": {
+        "CFDNA1": {
+          "bins": "CFDNA1_bins.bed.gz",
+          "segments": "CFDNA1_segments.bed.gz",
+          "calls": "CFDNA1_calls.vcf.gz",
+          "qc": "CFDNA1_qc.json"
+        }
+      }
+    },
+    "pipeline_info": {
+      "params": "pipeline_info/params_2026-11-19_10-00-00.json",
+      "versions": "pipeline_info/software_versions.yml"
+    }
+  },
+  "files": [
+    {
+      "path": "CFDNA1_bins.bed.gz",
+      "size": 2000,
+      "sha256": "d564e3ae934d3e535f2c6243d7a6cb362eda5619e73da26125b7baca47d12182"
+    },
+    {
+      "path": "CFDNA1_bins.bed.gz.tbi",
+      "size": 2001,
+      "sha256": "fa158b20f36a7e6669f48be84af4f9c5de50e27830669881589beb905905ce81"
+    },
+    {
+      "path": "CFDNA1_segments.bed.gz",
+      "size": 2002,
+      "sha256": "9c593f2391e6437e41f5769ae415201f4c2e37330c60bda1a79530cef04ae359"
+    },
+    {
+      "path": "CFDNA1_segments.vcf.gz",
+      "size": 2003,
+      "sha256": "2b9080aa1b7295dcfd783859fa4b633163118917b3f0dfe6533ed503ed0bbed1"
+    },
+    {
+      "path": "CFDNA1_calls.bed.gz",
+      "size": 2004,
+      "sha256": "3b5d74eed34f5fda879fdf914b4619e7fc7b0ec9c64e3843ce09b431d2391852"
+    },
+    {
+      "path": "CFDNA1_calls.vcf.gz",
+      "size": 2005,
+      "sha256": "2784c096e7fe01631829b417349824dae1c3aafb312d80164d716d8a87ea211d"
+    },
+    {
+      "path": "CFDNA1_qc.json",
+      "size": 2006,
+      "sha256": "4c3534a59ebad41a9b1c5406835f3e6acb9d9ab5f98ca4a2beb116f4be6a0213"
+    },
+    {
+      "path": "CFDNA1_plot.html",
+      "size": 2007,
+      "sha256": "5a52397901d096f26b0f939b4247aa7b8c52bb0bf968378c10cb3523f2d1a661"
+    },
+    {
+      "path": "pipeline_info/params_2026-11-19_10-00-00.json",
+      "size": 2008,
+      "sha256": "72c2cc5fbf47600e5aa14238cb728949ce36c50b55c99e0cd772be9090e9c4ef"
+    },
+    {
+      "path": "pipeline_info/software_versions.yml",
+      "size": 2009,
+      "sha256": "a6888b3b47f5fbfa2c5f84e3a0c57258713d06fd2a92958bed78f69f2b15ccf0"
+    }
+  ],
+  "qc": {
+    "status": "pass"
+  }
+}

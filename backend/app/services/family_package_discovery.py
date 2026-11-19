@@ -18,6 +18,8 @@ from ..schemas import (
 
 from .family_identifiers import visible
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, family_id_issue, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
+from .ccnv_output import CCNV_ROLES
+from .family_package_ccnv import CCNV_FILE_PATTERNS, apply_ccnv_package, ccnv_family_block, ccnv_sample_ids
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
 from .family_package_manifest import _parse_ped_text_strict, ped_member_entries, ped_relatives
 from .family_package_mito_table import MITO_TABLE_PATTERNS, read_mito_table, table_id_member
@@ -174,6 +176,8 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "wisecondorx/{sample_id}/{sample_id}_segments.bed",
                 ],
             },
+            # ccnv's output of a conventional NIPT's maternal plasma (family_package_ccnv.py).
+            "ccnv": CCNV_FILE_PATTERNS,
             "qdnaseq": {
                 "bins": [
                     # nf-core/lrsvar writes QDNAseq output as BED beside the HiFiCNV
@@ -1568,6 +1572,7 @@ def _build_manifest_payload(
 
     per_sample_roles = {
         "wisecondorx": ["bins", "segments"],
+        "ccnv": list(CCNV_ROLES),
         "paraphase": ["json"],
     }
     for dataset_type, roles in per_sample_roles.items():
@@ -1852,7 +1857,12 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
     # A long-read package without a PED (the pipeline writes none for a couple screened
     # for carriership): the members are its per-sample folders.
     folder_sample_ids = long_read_sample_ids(root) if ped_path is None and not ped_warnings else []
-    if not folder_sample_ids:
+    # Nor for a conventional NIPT's ccnv output: its member is the maternal plasma the files are
+    # named after.
+    ccnv_folder_ids = (
+        ccnv_sample_ids(root) if ped_path is None and not ped_warnings and not folder_sample_ids else []
+    )
+    if not folder_sample_ids and not ccnv_folder_ids:
         errors.extend(ped_errors)
         warnings.extend(ped_warnings)
         if ped_path is not None:
@@ -1909,6 +1919,10 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
     if folder_sample_ids:
         family_block, folder_warnings = long_read_family_block(root, folder_sample_ids)
         warnings.extend(folder_warnings)
+    elif ccnv_folder_ids:
+        family_block, ccnv_warnings = ccnv_family_block(ccnv_folder_ids)
+        warnings.extend(ccnv_warnings)
+        added_source = "the name of its ccnv output"
     added_ids = [sample_id for sample_id in _added_member_ids(family_block) if sample_id not in sample_ids]
     added_issues = sample_id_issues(added_ids, source=added_source)
     if added_issues:
@@ -1927,6 +1941,8 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
         # (pgt_run_context): its run records stay the newest too, so both name one run.
         newest_run_records=roi is not None or traced_parent is not None,
     )
+    # A conventional NIPT's ccnv output makes the draft a conventional NIPT one.
+    apply_ccnv_package(manifest_payload)
     nipt_files: NiptPackageFiles | None = None
     if parsed_ped is not None and not manifest_payload["datasets"].get("snv", {}).get("enabled"):
         # No joint VCF: a monogenic NIPT pair has one VCF per parent instead. A parent's VCF

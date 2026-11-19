@@ -571,7 +571,7 @@ maternal plasma sample) is frozen as unavailable, with a sentence of its own.
 
 **`coverage_tracks`** (owner decision of 2026-10-20). Every coverage track of the family's members,
 one per sample and caller (`source`: `web` for a coverage BED, an upload's or a package's;
-`wisecondorx`, `qdnaseq`, `hificnv`). For each:
+`wisecondorx`, `qdnaseq`, `hificnv`, `ccnv`). For each:
 
 - what it holds as the depth readers read it (`content`: `read_depth`, `log2_ratio` or `unknown`),
   by their one rule (`coverage_read_depth.coverage_track_content`) over the same records: for a
