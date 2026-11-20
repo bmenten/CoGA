@@ -206,29 +206,50 @@ _SCOPES = {
 }
 
 
-def _entry(job_id, datasets, finished=(), scopes=None):
+def _entry(job_id, datasets, finished=(), scopes=None, analysis_type="unspecified"):
     return {
         "job_id": job_id,
         "at": "2026-10-02T10:00:00+00:00",
+        "analysis_type": analysis_type,
         "datasets": list(datasets),
         "finished_datasets": list(finished),
         "scopes": {name: (scopes or _SCOPES)[name] for name in datasets if name in (scopes or _SCOPES)},
     }
 
 
-def _flag(job_id, failed, imported=(), *, jobs=None, scopes=None):
+def _flag(job_id, failed, imported=(), *, jobs=None, scopes=None, analysis_type="unspecified"):
     """A flag as an import writes it (registration._flag_payload): each failed dataset with
-    its job, and its one failure with its scope (``scopes``, else ``_SCOPES``) and job."""
+    its job, and its one failure with its scope (``scopes``, else ``_SCOPES``), job and
+    analysis (``analysis_type``: the package named none)."""
     dataset_jobs = {name: (jobs or {}).get(name, job_id) for name in sorted(failed)}
+    at = "2026-10-01T09:00:00+00:00"
     return {
-        "at": "2026-10-01T09:00:00+00:00",
+        "at": at,
         "failed_datasets": sorted(failed),
         "imported_datasets": sorted(imported),
         "job_id": job_id,
         "failed_jobs": dataset_jobs,
+        "failed_analysis_types": {name: [analysis_type] for name in dataset_jobs},
         "failed_scopes": {
-            name: [{"scope": (scopes or _SCOPES)[name], "job_id": job}] for name, job in dataset_jobs.items()
+            name: [
+                {
+                    "scope": (scopes or _SCOPES)[name],
+                    "job_id": job,
+                    "analysis_type": analysis_type,
+                    "at": at,
+                    "imported_datasets": sorted(imported),
+                }
+            ]
+            for name, job in dataset_jobs.items()
         },
+    }
+
+
+def _scope_jobs(flag):
+    """Each failure of ``flag`` by its dataset, as its scope and job."""
+    return {
+        name: [{"scope": item["scope"], "job_id": item["job_id"]} for item in items]
+        for name, items in flag["failed_scopes"].items()
     }
 
 
@@ -241,6 +262,7 @@ async def test_flag_family_import_incomplete_records_datasets() -> None:
     await fpi._flag_family_import_incomplete(
         row,
         _ctx(),
+        analysis_type="unspecified",
         failed_datasets=["snv"],
         imported_datasets=["sv_needlr"],
         scopes=_SCOPES,
@@ -249,7 +271,7 @@ async def test_flag_family_import_incomplete_records_datasets() -> None:
     assert row.flag["imported_datasets"] == ["sv_needlr"]
     assert "at" in row.flag
     # What would import it again: the scope it failed for (with its job: none here).
-    assert row.flag["failed_scopes"] == {"snv": [{"scope": _SCOPES["snv"], "job_id": None}]}
+    assert _scope_jobs(row.flag) == {"snv": [{"scope": _SCOPES["snv"], "job_id": None}]}
     select_sql, _ = row.executed[0]
     assert "FOR UPDATE" in select_sql  # merged under the row's lock
 
@@ -260,18 +282,21 @@ async def test_flag_family_import_incomplete_records_the_import_job() -> None:
     # texts, which can carry file paths.
     row = _FamilyRow()
     await fpi._flag_family_import_incomplete(
-        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-uuid", scopes=_SCOPES
+        row, _ctx(), analysis_type="unspecified", failed_datasets=["snv"], imported_datasets=[], job_id="job-uuid", scopes=_SCOPES
     )
     assert row.flag["job_id"] == "job-uuid"
     assert row.flag["failed_jobs"] == {"snv": "job-uuid"}
     assert set(row.flag) == {
-        "at", "failed_datasets", "imported_datasets", "job_id", "failed_jobs", "failed_scopes"
+        "at", "failed_datasets", "imported_datasets", "job_id", "failed_jobs", "failed_analysis_types", "failed_scopes"
     }
+    # Its failure records the analysis of the import it failed in.
+    assert row.flag["failed_analysis_types"] == {"snv": ["unspecified"]}
+    assert row.flag["failed_scopes"]["snv"][0]["analysis_type"] == "unspecified"
 
     # An import run outside a job records none.
     row = _FamilyRow()
     await fpi._flag_family_import_incomplete(
-        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], scopes=_SCOPES
+        row, _ctx(), analysis_type="unspecified", failed_datasets=["snv"], imported_datasets=[], scopes=_SCOPES
     )
     assert row.flag["job_id"] is None
 
@@ -283,6 +308,7 @@ async def test_a_failed_import_removes_its_own_unfinished_entry_with_the_flag() 
     await fpi._flag_family_import_incomplete(
         row,
         _ctx(),
+        analysis_type="unspecified",
         failed_datasets=["snv"],
         imported_datasets=[],
         job_id="job-1",
@@ -299,12 +325,12 @@ async def test_a_failed_import_removes_its_own_unfinished_entry_with_the_flag() 
 async def test_a_later_failure_keeps_an_earlier_one_with_its_job() -> None:
     row = _FamilyRow(flag=_flag("job-1", ["sv_needlr"], ["snv"]))
     await fpi._flag_family_import_incomplete(
-        row, _ctx(), failed_datasets=["coverage"], imported_datasets=[], job_id="job-2", scopes=_SCOPES
+        row, _ctx(), analysis_type="unspecified", failed_datasets=["coverage"], imported_datasets=[], job_id="job-2", scopes=_SCOPES
     )
     assert row.flag["failed_datasets"] == ["coverage", "sv_needlr"]
     assert row.flag["failed_jobs"] == {"coverage": "job-2", "sv_needlr": "job-1"}
     assert row.flag["job_id"] == "job-2"
-    assert row.flag["failed_scopes"] == {
+    assert _scope_jobs(row.flag) == {
         "coverage": [{"scope": _SCOPES["coverage"], "job_id": "job-2"}],
         "sv_needlr": [{"scope": _SCOPES["sv_needlr"], "job_id": "job-1"}],
     }
@@ -316,6 +342,7 @@ async def test_a_failure_drops_an_earlier_failure_it_imported_again() -> None:
     await fpi._flag_family_import_incomplete(
         row,
         _ctx(),
+        analysis_type="unspecified",
         failed_datasets=["coverage"],
         imported_datasets=["sv_needlr"],
         job_id="job-2",
@@ -332,7 +359,7 @@ async def test_a_failure_drops_an_earlier_failure_it_imported_again() -> None:
 @pytest.mark.asyncio
 async def test_clear_family_import_incomplete_drops_the_flag() -> None:
     row = _FamilyRow()
-    left = await fpi._clear_family_import_incomplete(row, _ctx())
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified")
     assert left is not None and left.unfinished == {} and left.failures.failed == {}
     select_sql, _ = row.executed[0]
     assert "FOR UPDATE" in select_sql  # read under the row's lock
@@ -342,7 +369,7 @@ async def test_clear_family_import_incomplete_drops_the_flag() -> None:
 @pytest.mark.asyncio
 async def test_a_completed_import_that_did_not_import_the_failed_dataset_leaves_it_flagged() -> None:
     row = _FamilyRow(flag=_flag("job-1", ["sv_needlr"], ["snv"]))
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _SCOPES["snv"]})
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported={"snv": _SCOPES["snv"]})
     assert row.flag == _flag("job-1", ["sv_needlr"], ["snv"])
     assert left.failures.failed == {"sv_needlr": "job-1"}
 
@@ -354,7 +381,7 @@ async def test_an_import_that_imports_the_failed_dataset_again_in_any_mode_clear
     # and a skipped dataset is not imported).
     row = _FamilyRow(flag=_flag("job-1", ["sv_needlr"]))
     left = await fpi._clear_family_import_incomplete(
-        row, _ctx(), imported={"sv_needlr": _SCOPES["sv_needlr"]}
+        row, _ctx(), analysis_type="unspecified", imported={"sv_needlr": _SCOPES["sv_needlr"]}
     )
     assert row.flag is None and left.failures.failed == {}
 
@@ -363,11 +390,11 @@ async def test_an_import_that_imports_the_failed_dataset_again_in_any_mode_clear
 async def test_a_partial_reimport_shrinks_the_flag_to_what_is_still_missing() -> None:
     row = _FamilyRow(flag=_flag("job-2", ["coverage", "sv_needlr"], jobs={"sv_needlr": "job-1"}))
     left = await fpi._clear_family_import_incomplete(
-        row, _ctx(), imported={"sv_needlr": _SCOPES["sv_needlr"]}
+        row, _ctx(), analysis_type="unspecified", imported={"sv_needlr": _SCOPES["sv_needlr"]}
     )
     assert row.flag["failed_datasets"] == ["coverage"]
     assert row.flag["failed_jobs"] == {"coverage": "job-2"}
-    assert row.flag["failed_scopes"] == {"coverage": [{"scope": _SCOPES["coverage"], "job_id": "job-2"}]}
+    assert _scope_jobs(row.flag) == {"coverage": [{"scope": _SCOPES["coverage"], "job_id": "job-2"}]}
     # When and by which job the import failed stay as they were.
     assert (row.flag["at"], row.flag["job_id"]) == ("2026-10-01T09:00:00+00:00", "job-2")
     assert left.failures.failed == {"coverage": "job-2"}
@@ -384,7 +411,7 @@ async def test_a_partial_reimport_shrinks_the_flag_to_what_is_still_missing() ->
 async def test_an_import_of_less_than_failed_leaves_it_flagged(case, imported) -> None:
     name = next(iter(imported))
     row = _FamilyRow(flag=_flag("job-1", [name]))
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported=imported)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported=imported)
     assert left.failures.failed == {name: "job-1"}, case
 
 
@@ -410,10 +437,10 @@ def test_a_flag_not_in_the_shape_an_import_writes_raises(flag) -> None:
     with pytest.raises(registration.ImportMarkShapeError, match="import_incomplete flag"):
         registration.read_import_flag(flag)
     with pytest.raises(registration.ImportMarkShapeError):
-        registration.failures_left_after(flag, {"snv": _SCOPES["snv"]})
+        registration.failures_left_after(flag, {"snv": _SCOPES["snv"]}, analysis_type="unspecified")
     with pytest.raises(registration.ImportMarkShapeError):
         registration.merged_import_failure(
-            flag, at=_AT, job_id="job-2", failed=["coverage"], imported=[], scopes=_SCOPES, imported_scopes={}
+            flag, at=_AT, job_id="job-2", analysis_type="unspecified", failed=["coverage"], imported=[], scopes=_SCOPES, imported_scopes={}
         )
     with pytest.raises(registration.ImportMarkShapeError):
         registration.flag_without_sample(flag, "S1")
@@ -427,14 +454,14 @@ async def test_a_flag_not_in_the_shape_an_import_writes_is_never_replaced_or_cle
     # (test_report_signout). An upload that meets it fails.
     row = _FamilyRow(flag=copy.deepcopy(flag))
     await fpi._flag_family_import_incomplete(
-        row, _ctx(), failed_datasets=["coverage"], imported_datasets=["snv"], job_id="job-2", scopes=_SCOPES
+        row, _ctx(), analysis_type="unspecified", failed_datasets=["coverage"], imported_datasets=["snv"], job_id="job-2", scopes=_SCOPES
     )
     assert row.flag == flag
     await registration.record_family_upload_failure(
         row, family_uuid="uuid-1", dataset="snv", scope=_SCOPES["snv"]
     )
     assert row.flag == flag
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"coverage": _SCOPES["coverage"]})
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported={"coverage": _SCOPES["coverage"]})
     assert left is None and row.flag == flag
     with pytest.raises(registration.ImportMarkShapeError):
         await registration.record_family_upload(
@@ -458,6 +485,7 @@ async def test_a_completed_import_removes_its_own_entry_and_those_it_completed()
     left = await fpi._clear_family_import_incomplete(
         row,
         _ctx(),
+        analysis_type="unspecified",
         import_key="job-own",
         rewritten={"snv": _SCOPES["snv"], "coverage": _SCOPES["coverage"]},
     )
@@ -482,7 +510,7 @@ async def test_an_overwrite_of_less_than_the_stopped_import_wrote_leaves_its_ent
     pending = next(iter(replaced))
     row = _FamilyRow(unfinished={"job-stopped": _entry("job-stopped", [pending])})
 
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten=replaced)
 
     assert set(left.unfinished) == {"job-stopped"}, case
 
@@ -492,7 +520,7 @@ async def test_an_overwrite_of_the_same_samples_or_more_completes_the_stopped_im
     row = _FamilyRow(unfinished={"job-stopped": _entry("job-stopped", ["coverage"])})
 
     left = await fpi._clear_family_import_incomplete(
-        row, _ctx(), rewritten={"coverage": {"source": None, "samples": ["S1", "S2", "S3"]}}
+        row, _ctx(), analysis_type="unspecified", rewritten={"coverage": {"source": None, "samples": ["S1", "S2", "S3"]}}
     )
 
     assert left.unfinished == {} and row.unfinished is None
@@ -502,7 +530,7 @@ async def test_an_overwrite_of_the_same_samples_or_more_completes_the_stopped_im
 async def test_an_entry_without_the_scope_of_what_it_was_writing_is_never_completed() -> None:
     row = _FamilyRow(unfinished={"job-stopped": {**_entry("job-stopped", ["snv"]), "scopes": {}}})
 
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={"snv": _SCOPES["snv"]})
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten={"snv": _SCOPES["snv"]})
 
     assert set(left.unfinished) == {"job-stopped"}
 
@@ -518,7 +546,7 @@ async def test_an_update_completes_no_earlier_imports_partial_data() -> None:
         }
     )
     left = await fpi._clear_family_import_incomplete(
-        row, _ctx(), import_key="job-own", rewritten={}, imported={"snv": _SCOPES["snv"]}
+        row, _ctx(), analysis_type="unspecified", import_key="job-own", rewritten={}, imported={"snv": _SCOPES["snv"]}
     )
     assert set(left.unfinished) == {"job-stopped"}
 
@@ -540,7 +568,7 @@ async def test_a_clear_that_fails_leaves_the_marks_and_says_so(caplog) -> None:
     session = _Failing()
     caplog.set_level("WARNING", logger=registration.logger.name)
 
-    assert await fpi._clear_family_import_incomplete(session, _ctx(), import_key="job-1") is None
+    assert await fpi._clear_family_import_incomplete(session, _ctx(), analysis_type="unspecified", import_key="job-1") is None
     # Nothing is written: the flag and the entry stay, the safe side; the log names the
     # family by its UUID, never its ID.
     assert (session.committed, session.rolled_back) == (False, True)
@@ -559,6 +587,7 @@ def _one(sample=None, source=None):
 
 def _mark(job_id="job-2", datasets=("snv", "coverage")):
     return registration.ImportMark.begin(
+        analysis_type="unspecified",
         job_id=job_id, datasets=datasets, scopes={name: _SCOPES[name] for name in datasets}
     )
 
@@ -642,12 +671,12 @@ async def test_the_whole_family_entry_goes_once_each_dataset_is_imported_again_w
 
     # An update replaces nothing: it skips a dataset whose rows are there.
     await fpi._clear_family_import_incomplete(
-        row, _ctx(), rewritten={}, imported={"snv": _SCOPES["snv"], "sv_needlr": _one()}
+        row, _ctx(), analysis_type="unspecified", rewritten={}, imported={"snv": _SCOPES["snv"], "sv_needlr": _one()}
     )
     assert row.unfinished == {mark.key: entry}
 
     # An overwrite of S1's coverage alone: S2's is still to import.
-    await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={"coverage": _one("S1")})
+    await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten={"coverage": _one("S1")})
     assert [item["scope"] for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] == "coverage"] == [
         _one("S2")
     ]
@@ -655,7 +684,7 @@ async def test_the_whole_family_entry_goes_once_each_dataset_is_imported_again_w
     # The datasets that failed, imported again in one overwrite: the gate holds, for the
     # SV calls the import did not carry.
     left = await fpi._clear_family_import_incomplete(
-        row, _ctx(), rewritten={"snv": _SCOPES["snv"], "coverage": _SCOPES["coverage"]}
+        row, _ctx(), analysis_type="unspecified", rewritten={"snv": _SCOPES["snv"], "coverage": _SCOPES["coverage"]}
     )
     assert set(left.unfinished) == {mark.key}
     assert row.unfinished[mark.key]["datasets"] == ["sv_needlr"]
@@ -663,7 +692,7 @@ async def test_the_whole_family_entry_goes_once_each_dataset_is_imported_again_w
     assert row.unfinished[mark.key]["whole_family"] == [{"dataset": "sv_needlr", "scope": _one()}]
 
     # The last of them, imported again with overwrite: the family is complete.
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={"sv_needlr": _one()})
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten={"sv_needlr": _one()})
     assert left.unfinished == {} and row.unfinished is None
 
 
@@ -676,6 +705,7 @@ async def test_one_overwrite_of_the_whole_family_removes_the_entry() -> None:
     left = await fpi._clear_family_import_incomplete(
         row,
         _ctx(),
+        analysis_type="unspecified",
         import_key="job-own",
         rewritten={"snv": _SCOPES["snv"], "coverage": _SCOPES["coverage"], "sv_needlr": _one()},
     )
@@ -722,7 +752,7 @@ async def test_an_unfinished_entry_not_in_the_shape_written_raises_and_stays(unf
         registration.read_unfinished_entries(unfinished)
     # A completed import cannot clear the family's marks, so they stay as stored.
     row = _FamilyRow(unfinished=copy.deepcopy(unfinished))
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={"snv": _SCOPES["snv"]})
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten={"snv": _SCOPES["snv"]})
     assert left is None and row.unfinished == unfinished
 
 
@@ -759,6 +789,7 @@ async def test_what_the_family_s_imports_imported_is_recorded_for_it() -> None:
     await fpi._flag_family_import_incomplete(
         row,
         _ctx(),
+        analysis_type="unspecified",
         failed_datasets=["snv"],
         imported_datasets=["coverage"],
         job_id="job-1",
@@ -773,6 +804,7 @@ async def test_what_the_family_s_imports_imported_is_recorded_for_it() -> None:
     await fpi._clear_family_import_incomplete(
         row,
         _ctx(),
+        analysis_type="unspecified",
         rewritten={"snv": _SCOPES["snv"]},
         imported={"snv": _SCOPES["snv"], "coverage": _one("S1")},
     )
@@ -787,7 +819,7 @@ async def test_what_the_family_s_imports_imported_is_recorded_for_it() -> None:
 
     # An import that imported nothing records nothing.
     row = _FamilyRow()
-    await fpi._clear_family_import_incomplete(row, _ctx())
+    await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified")
     assert row.imported is None
 
 
@@ -796,6 +828,7 @@ def test_the_whole_family_entry_leaves_out_what_postgres_alone_holds_of_other_im
     # whole: a dataset held in Postgres alone that this import did not carry cannot be left
     # partly written, so it is not listed.
     mark = registration.ImportMark.begin(
+        analysis_type="unspecified",
         job_id="job-2", datasets=("snv", "repeats_trgt"), scopes={"snv": _SCOPES["snv"], "repeats_trgt": _one("S1")}
     )
     stopped = _entry("job-stopped", ["paraphase", "coverage"])
@@ -841,17 +874,21 @@ def test_pending_datasets_are_those_an_import_had_not_finished() -> None:
 
 def test_an_import_mark_is_keyed_by_its_job_or_its_own_run() -> None:
     scopes = {"snv": _SCOPES["snv"], "sv": {"source": None, "samples": None}}
-    mark = registration.ImportMark.begin(job_id="job-1", datasets=["sv", "snv", "sv"], scopes=scopes)
+    mark = registration.ImportMark.begin(
+        analysis_type="long_read_wgs", job_id="job-1", datasets=["sv", "snv", "sv"], scopes=scopes
+    )
     assert mark.key == "job-1"
     assert mark.entry() == {
         "job_id": "job-1",
         "at": mark.at,
+        # The analysis of its package, whose sign-out the entry gates.
+        "analysis_type": "long_read_wgs",
         "datasets": ["snv", "sv"],
         "finished_datasets": [],
         "scopes": scopes,
     }
     assert mark.entry(["sv"])["finished_datasets"] == ["sv"]
-    outside = registration.ImportMark.begin(job_id=None, datasets=[])
+    outside = registration.ImportMark.begin(analysis_type="unspecified", job_id=None, datasets=[])
     assert outside.key.startswith("run-") and outside.job_id is None
 
 
@@ -1242,7 +1279,7 @@ async def test_an_overwrite_upload_strikes_what_it_brought_again_off_the_whole_f
     # The coverage imported again with overwrite: the family has been imported again in
     # full, and the entry goes.
     cleared = await fpi._clear_family_import_incomplete(
-        row, _ctx(), rewritten={"coverage": _SCOPES["coverage"]}
+        row, _ctx(), analysis_type="unspecified", rewritten={"coverage": _SCOPES["coverage"]}
     )
     assert cleared is not None and cleared.unfinished == {} and row.unfinished is None
 
@@ -1356,7 +1393,7 @@ async def test_an_upload_whose_record_cannot_be_written_fails_and_keeps_none_of_
         # mark goes with it.
         assert [sql for sql, _ in row.executed].count("COMMIT") == 1
         assert row.flag["failed_datasets"] == ["snv"]
-        assert row.flag["failed_scopes"] == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
+        assert _scope_jobs(row.flag) == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
         assert row.flag["failed_jobs"] == {"snv": None} and row.flag["job_id"] is None
         assert len(row.marks) == 1 and row.unfinished is None
     elif kind == "repeats":
@@ -1465,6 +1502,7 @@ async def test_two_auto_imports_strike_each_other_off_the_whole_family_entry_onl
     # other package (auto too) failed, and its restore failed part-way: the held callset
     # may be gone.
     mark = registration.ImportMark.begin(
+        analysis_type="unspecified",
         job_id="job-2", datasets=["snv"], scopes=registration.dataset_scopes(again_package, ["snv"])
     )
     entry = registration.whole_family_entry(
@@ -1477,7 +1515,7 @@ async def test_two_auto_imports_strike_each_other_off_the_whole_family_entry_onl
 
     # The other package imported again with overwrite: it replaced its own callset alone.
     replaced = registration.dataset_scopes(again_package, ["snv"])
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten=replaced, imported=replaced)
 
     # It leaves the held callset listed: the gate stays shut while that callset is gone.
     assert left is not None and set(left.unfinished) == {mark.key}
@@ -1486,7 +1524,7 @@ async def test_two_auto_imports_strike_each_other_off_the_whole_family_entry_onl
     # The held package imported again with overwrite: the family has been imported again in
     # full, and the entry goes.
     replaced = registration.dataset_scopes(held_package, ["snv"])
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten=replaced, imported=replaced)
     assert left is not None and left.unfinished == {} and row.unfinished is None
 
 
@@ -1496,17 +1534,18 @@ async def test_an_auto_import_completes_a_stopped_auto_import_only_for_the_same_
     imputed = _package(tmp_path, "imputed", _IMPUTED_VCF)
     # An import of the imputed genotypes stopped inside them: they may be partly written.
     stopped = registration.ImportMark.begin(
+        analysis_type="unspecified",
         job_id="job-stopped", datasets=["snv"], scopes=registration.dataset_scopes(imputed, ["snv"])
     )
     row = _FamilyRow(unfinished={stopped.key: stopped.entry()})
 
     # An overwrite of the direct calls leaves it: the imputed genotypes may be partly written.
     replaced = registration.dataset_scopes(direct, ["snv"])
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten=replaced, imported=replaced)
     assert left is not None and set(left.unfinished) == {stopped.key}
 
     replaced = registration.dataset_scopes(imputed, ["snv"])
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten=replaced, imported=replaced)
     assert left is not None and left.unfinished == {} and row.unfinished is None
 
 
@@ -1519,18 +1558,20 @@ async def test_an_auto_import_clears_an_auto_failure_only_for_the_same_callset(t
     await fpi._flag_family_import_incomplete(
         row,
         _ctx(),
+        analysis_type="unspecified",
         failed_datasets=["snv"],
         imported_datasets=[],
         job_id="job-1",
         scopes=registration.dataset_scopes(imputed, ["snv"]),
     )
-    assert row.flag["failed_scopes"] == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
+    assert _scope_jobs(row.flag) == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
 
     # An import that imported the direct calls and failed in coverage keeps that failure.
     direct_scope = registration.dataset_scopes(direct, ["snv"])["snv"]
     await fpi._flag_family_import_incomplete(
         row,
         _ctx(),
+        analysis_type="unspecified",
         failed_datasets=["coverage"],
         imported_datasets=["snv"],
         job_id="job-2",
@@ -1542,14 +1583,14 @@ async def test_an_auto_import_clears_an_auto_failure_only_for_the_same_callset(t
 
     # One that completes with the direct calls and coverage leaves it flagged ...
     left = await fpi._clear_family_import_incomplete(
-        row, _ctx(), imported={"snv": direct_scope, "coverage": _SCOPES["coverage"]}
+        row, _ctx(), analysis_type="unspecified", imported={"snv": direct_scope, "coverage": _SCOPES["coverage"]}
     )
     assert left is not None and left.failures.failed == {"snv": "job-1"}
-    assert row.flag["failed_scopes"] == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
+    assert _scope_jobs(row.flag) == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
 
     # ... and one that imports the imputed genotypes again clears it.
     left = await fpi._clear_family_import_incomplete(
-        row, _ctx(), imported=registration.dataset_scopes(imputed, ["snv"])
+        row, _ctx(), analysis_type="unspecified", imported=registration.dataset_scopes(imputed, ["snv"])
     )
     assert left is not None and left.failures.failed == {} and row.flag is None
 
@@ -1590,7 +1631,7 @@ async def test_an_auto_import_and_an_upload_bring_each_other_s_callset_again_whe
     row = _FamilyRow(unfinished={mark.key: copy.deepcopy(entry)})
     for package, still_listed in ((imputed, True), (direct, False)):
         replaced = registration.dataset_scopes(package, ["snv"])
-        await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+        await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten=replaced, imported=replaced)
         listed = [item for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] == "snv"]
         assert listed == ([{"dataset": "snv", "scope": scope}] if still_listed else [])
 
@@ -1611,7 +1652,7 @@ async def test_a_scope_that_still_reads_auto_names_no_callset(uploads) -> None:
     # auto.
     for replaced in (_CLAIR3, _GLIMPSE2, _UNRESOLVED):
         left = await fpi._clear_family_import_incomplete(
-            row, _ctx(), rewritten={"snv": replaced}, imported={"snv": replaced}
+            row, _ctx(), analysis_type="unspecified", rewritten={"snv": replaced}, imported={"snv": replaced}
         )
         assert left is not None and left.failures.failed == {"snv": "job-1"}, replaced
         assert set(left.unfinished) == {mark.key, "job-stopped"}, replaced
@@ -1625,6 +1666,7 @@ async def test_a_scope_that_still_reads_auto_names_no_callset(uploads) -> None:
         flag,
         at="2026-10-13T10:00:00+00:00",
         job_id="job-2",
+        analysis_type="unspecified",
         failed=["coverage"],
         imported=["snv"],
         scopes=_SCOPES,
@@ -1794,11 +1836,11 @@ async def test_two_auto_snv_imports_that_failed_for_different_callsets_both_stay
     # An import of the imputed genotypes failed in them, then one of the direct calls in those.
     for job_id, scopes in (("job-1", imputed), ("job-2", direct)):
         await fpi._flag_family_import_incomplete(
-            row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id=job_id, scopes=scopes
+            row, _ctx(), analysis_type="unspecified", failed_datasets=["snv"], imported_datasets=[], job_id=job_id, scopes=scopes
         )
     # Both scopes are kept.
     assert row.flag["failed_datasets"] == ["snv"]
-    assert row.flag["failed_scopes"] == {
+    assert _scope_jobs(row.flag) == {
         "snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}, {"scope": _CLAIR3, "job_id": "job-2"}]
     }
     # The family pages and a sign-out name one job per dataset: its latest failure's.
@@ -1808,15 +1850,15 @@ async def test_two_auto_snv_imports_that_failed_for_different_callsets_both_stay
     # The direct calls imported again leave the imputed genotypes flagged, and the flag names
     # the job that holds their error, job-2's failure having been brought again; when it was
     # set stays.
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported=direct)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported=direct)
     assert left is not None and left.failures.failed == {"snv": "job-1"}
-    assert row.flag["failed_scopes"] == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
+    assert _scope_jobs(row.flag) == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
     assert (row.flag["failed_jobs"], row.flag["job_id"], row.flag["at"]) == ({"snv": "job-1"}, "job-1", at)
     note = fpi._still_failed_message("F1", left.failures)
     assert "(snv in import job job-1)" in note and "for the callset and samples that failed" in note
 
     # The imputed genotypes imported again clear it.
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported=imputed)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported=imputed)
     assert left is not None and left.failures.failed == {} and row.flag is None
 
 
@@ -1828,22 +1870,23 @@ async def test_a_dataset_that_failed_for_other_samples_stays_flagged_for_each() 
         await fpi._flag_family_import_incomplete(
             row,
             _ctx(),
+            analysis_type="unspecified",
             failed_datasets=["coverage"],
             imported_datasets=[],
             job_id=job_id,
             scopes={"coverage": _one(sample)},
         )
-    assert row.flag["failed_scopes"] == {
+    assert _scope_jobs(row.flag) == {
         "coverage": [{"scope": _one("S1"), "job_id": "job-1"}, {"scope": _one("S2"), "job_id": "job-2"}]
     }
 
     # S2's coverage imported again: S1's may still be missing, so the flag stays.
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"coverage": _one("S2")})
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported={"coverage": _one("S2")})
     assert left is not None and left.failures.failed == {"coverage": "job-1"}
-    assert row.flag["failed_scopes"] == {"coverage": [{"scope": _one("S1"), "job_id": "job-1"}]}
+    assert _scope_jobs(row.flag) == {"coverage": [{"scope": _one("S1"), "job_id": "job-1"}]}
 
     # Both samples' coverage imported again clears it.
-    await fpi._clear_family_import_incomplete(row, _ctx(), imported={"coverage": _SCOPES["coverage"]})
+    await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported={"coverage": _SCOPES["coverage"]})
     assert row.flag is None
 
 
@@ -1854,12 +1897,13 @@ def test_the_same_scope_failing_again_is_one_failure_with_its_latest_job() -> No
             flag,
             at=_AT,
             job_id=job_id,
+            analysis_type="unspecified",
             failed=["snv"],
             imported=[],
             scopes={"snv": _CLAIR3},
             imported_scopes={},
         )
-    assert flag["failed_scopes"] == {"snv": [{"scope": _CLAIR3, "job_id": "job-2"}]}
+    assert _scope_jobs(flag) == {"snv": [{"scope": _CLAIR3, "job_id": "job-2"}]}
     assert flag["failed_jobs"] == {"snv": "job-2"}
 
 
@@ -1869,12 +1913,13 @@ def test_a_later_failure_strikes_off_only_the_scope_it_imported_again() -> None:
     flag = None
     for job_id, scope in (("job-1", _GLIMPSE2), ("job-2", _CLAIR3)):
         flag = registration.merged_import_failure(
-            flag, at=_AT, job_id=job_id, failed=["snv"], imported=[], scopes={"snv": scope}, imported_scopes={}
+            flag, at=_AT, job_id=job_id, analysis_type="unspecified", failed=["snv"], imported=[], scopes={"snv": scope}, imported_scopes={}
         )
     flag = registration.merged_import_failure(
         flag,
         at=_AT,
         job_id="job-3",
+        analysis_type="unspecified",
         failed=["coverage"],
         imported=["snv"],
         scopes=_SCOPES,
@@ -1882,7 +1927,7 @@ def test_a_later_failure_strikes_off_only_the_scope_it_imported_again() -> None:
     )
     # The imputed genotypes' scope stays flagged beside the coverage.
     assert flag["failed_datasets"] == ["coverage", "snv"]
-    assert flag["failed_scopes"] == {
+    assert _scope_jobs(flag) == {
         "coverage": [{"scope": _SCOPES["coverage"], "job_id": "job-3"}],
         "snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}],
     }
@@ -1898,19 +1943,19 @@ async def test_an_upload_brings_again_only_the_scope_it_brought_of_a_dataset_tha
     # An import of the imputed genotypes (auto) failed in them; then an upload of direct calls
     # failed after it had deleted the stored ones, under no job.
     await fpi._flag_family_import_incomplete(
-        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-1", scopes=imputed
+        row, _ctx(), analysis_type="unspecified", failed_datasets=["snv"], imported_datasets=[], job_id="job-1", scopes=imputed
     )
     await registration.record_family_upload_failure(
         row, family_uuid="uuid-1", dataset="snv", scope=_CLAIR3
     )
-    assert row.flag["failed_scopes"] == {
+    assert _scope_jobs(row.flag) == {
         "snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}, {"scope": _CLAIR3, "job_id": None}]
     }
 
     # The direct calls uploaded again strike their own failure off, not the imputed
     # genotypes'.
     await uploads("small_variants", row, overwrite=True, rows=3)
-    assert row.flag["failed_scopes"] == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
+    assert _scope_jobs(row.flag) == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
     assert (row.flag["failed_jobs"], row.flag["job_id"]) == ({"snv": "job-1"}, "job-1")
 
 
@@ -1933,24 +1978,25 @@ async def test_a_flag_whose_failed_scopes_are_not_as_written_raises_and_stays(fa
     with pytest.raises(registration.ImportMarkShapeError):
         registration.read_import_flag(flag)
     row = _FamilyRow(flag=copy.deepcopy(flag))
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _SCOPES["snv"]})
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported={"snv": _SCOPES["snv"]})
     assert left is None and row.flag == flag
 
 
 def test_the_job_log_names_each_job_that_holds_an_error_left() -> None:
     flag = registration.merged_import_failure(
-        None, at=_AT, job_id="job-1", failed=["snv"], imported=[], scopes={"snv": _GLIMPSE2}, imported_scopes={}
+        None, at=_AT, job_id="job-1", analysis_type="unspecified", failed=["snv"], imported=[], scopes={"snv": _GLIMPSE2}, imported_scopes={}
     )
     flag = registration.merged_import_failure(
         flag,
         at=_AT,
         job_id="job-2",
+        analysis_type="unspecified",
         failed=["coverage", "snv"],
         imported=[],
         scopes={**_SCOPES, "snv": _CLAIR3},
         imported_scopes={},
     )
-    left = registration.failures_left_after(flag, {"sv_needlr": _SCOPES["sv_needlr"]})
+    left = registration.failures_left_after(flag, {"sv_needlr": _SCOPES["sv_needlr"]}, analysis_type="unspecified")
     assert not left.changed and left.flag == flag
     assert left.jobs == {"coverage": ["job-2"], "snv": ["job-1", "job-2"]}
     # snv is named with both jobs.
@@ -1962,12 +2008,12 @@ def test_the_job_log_names_each_job_that_holds_an_error_left() -> None:
 def test_the_job_log_says_a_failure_no_job_records_failed_outside_one() -> None:
     # an upload's failure runs in no job.
     flag = registration.merged_import_failure(
-        None, at=_AT, job_id="job-1", failed=["snv"], imported=[], scopes={"snv": _CLAIR3}, imported_scopes={}
+        None, at=_AT, job_id="job-1", analysis_type="unspecified", failed=["snv"], imported=[], scopes={"snv": _CLAIR3}, imported_scopes={}
     )
     flag = registration.merged_import_failure(
-        flag, at=_AT, job_id=None, failed=["coverage"], imported=[], scopes=_SCOPES, imported_scopes={}
+        flag, at=_AT, job_id=None, analysis_type=None, failed=["coverage"], imported=[], scopes=_SCOPES, imported_scopes={}
     )
-    message = fpi._still_failed_message("F1", registration.failures_left_after(flag, {}))
+    message = fpi._still_failed_message("F1", registration.failures_left_after(flag, {}, analysis_type="unspecified"))
     assert "an earlier import or single-file upload failed" in message
     assert "(snv in import job job-1; coverage outside an import job)" in message
     assert "in an import" not in message
@@ -2309,6 +2355,7 @@ async def test_a_failure_of_a_dataset_that_carried_nothing_is_cleared_by_its_reg
             None,
             at=_AT,
             job_id="job-1",
+            analysis_type="unspecified",
             failed=["haplotypes", "snv"],
             imported=[],
             scopes={"haplotypes": _EMPTY_PER_SAMPLE, "snv": _CLAIR3},
@@ -2321,7 +2368,7 @@ async def test_a_failure_of_a_dataset_that_carried_nothing_is_cleared_by_its_reg
     imported = registration.imported_dataset_scopes(
         brought, {"haplotypes": _EMPTY_PER_SAMPLE, "snv": _CLAIR3}, {}
     )
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported=imported)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported=imported)
     assert left is not None and left.failures.failed == {} and row.flag is None
     # The family holds nothing of the dataset that carried nothing.
     assert row.imported == {"snv": [_CLAIR3]}
@@ -2337,13 +2384,14 @@ async def test_a_dataset_that_carries_nothing_brings_nothing_again_of_data_anoth
         None,
         at=_AT,
         job_id="job-1",
+        analysis_type="unspecified",
         failed=["apcad"],
         imported=[],
         scopes={"apcad": {"source": None, "samples": None}},
         imported_scopes={},
     )
     row = _FamilyRow(flag=copy.deepcopy(flag))
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"apcad": _EMPTY})
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", imported={"apcad": _EMPTY})
     assert left is not None and left.failures.failed == {"apcad": "job-1"}
     assert row.flag == flag
 
@@ -2354,6 +2402,7 @@ async def test_the_whole_family_entry_drops_a_dataset_that_carried_nothing_once_
     # them, one sample at a time and still marked empty, beside the family VCF's haplotypes an
     # earlier import brought.
     mark = registration.ImportMark.begin(
+        analysis_type="unspecified",
         job_id="job-2", datasets=["haplotypes", "snv"], scopes={"haplotypes": _EMPTY_PER_SAMPLE, "snv": _CLAIR3}
     )
     entry = registration.whole_family_entry(
@@ -2372,19 +2421,19 @@ async def test_the_whole_family_entry_drops_a_dataset_that_carried_nothing_once_
     again = {"haplotypes": _EMPTY_PER_SAMPLE, "snv": _CLAIR3}
 
     # An update registers them too, and replaces nothing: the entry stays whole.
-    await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={}, imported=again)
+    await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten={}, imported=again)
     assert row.unfinished[mark.key]["whole_family"] == entry["whole_family"]
 
     # An overwrite that registers them again strikes them off, and the direct calls it
     # imported; not the haplotypes the family VCF brought.
-    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=again, imported=again)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten=again, imported=again)
     assert left is not None
     assert row.unfinished[mark.key]["whole_family"] == [
         {"dataset": "haplotypes", "scope": {"source": None, "samples": None}}
     ]
     # The family VCF imported again with overwrite completes the family.
     replaced = {"haplotypes": _SCOPES["haplotypes"]}
-    await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+    await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="unspecified", rewritten=replaced, imported=replaced)
     assert row.unfinished is None
 
 
@@ -2477,7 +2526,7 @@ async def test_an_import_clears_what_it_registered_carrying_nothing_or_imported_
     flagged = {"snv": _CLAIR3, "haplotypes": _EMPTY_PER_SAMPLE, "pipeline_info": _EMPTY, "coverage": _one("S1")}
     row = _FamilyRow(
         flag=registration.merged_import_failure(
-            None, at=_AT, job_id="job-0", failed=sorted(flagged), imported=[], scopes=flagged, imported_scopes={}
+            None, at=_AT, job_id="job-0", analysis_type="unspecified", failed=sorted(flagged), imported=[], scopes=flagged, imported_scopes={}
         )
     )
     context = FamilyMetadataContext(
@@ -2552,6 +2601,172 @@ async def test_an_import_clears_what_it_registered_carrying_nothing_or_imported_
     left = {"coverage": [{"scope": _one("S1"), "job_id": "job-0"}]}
     if snv_still_flagged:
         left["snv"] = [{"scope": _CLAIR3, "job_id": "job-0"}]
-    assert row.flag["failed_scopes"] == left
+    assert _scope_jobs(row.flag) == left
     # The family holds the direct calls it brought, and nothing of what carried nothing.
     assert row.imported == (None if snv_still_flagged else {"snv": [_CLAIR3]})
+
+
+# --- each mark records the analysis it is of ------------------------------------------------
+# A family may hold several analyses (short-read and then long-read WGS of the same DNA), which
+# share dataset types: both packages carry `snv`, `qc`, `alignments`. Each import mark records
+# the analysis of the import that left it (`analysis_type`: its package's record), an upload's
+# none, so that each analysis's sign-out is gated by its own marks; and only an import of the
+# same analysis, or an upload, completes a mark of an analysis.
+
+_QC = {"source": None, "samples": ["S1"]}
+
+
+def _failed(flag, *, at, job_id, analysis_type, failed, imported=()):
+    return registration.merged_import_failure(
+        flag,
+        at=at,
+        job_id=job_id,
+        analysis_type=analysis_type,
+        failed=list(failed),
+        imported=list(imported),
+        scopes=failed,
+        imported_scopes={},
+    )
+
+
+def test_each_failure_records_its_analysis_and_two_analyses_of_one_scope_stay_two() -> None:
+    flag = _failed(
+        None,
+        at="2026-11-20T08:00:00+00:00",
+        job_id="job-sr",
+        analysis_type="short_read_wgs",
+        failed={"qc": _QC},
+        imported=["snv"],
+    )
+    flag = _failed(
+        flag, at="2026-11-20T09:00:00+00:00", job_id="job-lr", analysis_type="long_read_wgs", failed={"qc": _QC}
+    )
+    # The same dataset and scope, failed in each analysis's import: two failures, each with
+    # its analysis, its time and what its import did import.
+    assert flag["failed_scopes"]["qc"] == [
+        {
+            "scope": _QC,
+            "job_id": "job-sr",
+            "analysis_type": "short_read_wgs",
+            "at": "2026-11-20T08:00:00+00:00",
+            "imported_datasets": ["snv"],
+        },
+        {
+            "scope": _QC,
+            "job_id": "job-lr",
+            "analysis_type": "long_read_wgs",
+            "at": "2026-11-20T09:00:00+00:00",
+            "imported_datasets": [],
+        },
+    ]
+    assert flag["failed_analysis_types"] == {"qc": ["long_read_wgs", "short_read_wgs"]}
+    # The same analysis failing it again is one failure, with its latest job.
+    again = _failed(
+        flag, at="2026-11-20T10:00:00+00:00", job_id="job-lr2", analysis_type="long_read_wgs", failed={"qc": _QC}
+    )
+    assert [(item["job_id"], item["analysis_type"]) for item in again["failed_scopes"]["qc"]] == [
+        ("job-sr", "short_read_wgs"),
+        ("job-lr2", "long_read_wgs"),
+    ]
+    # An upload's failure records none, listed first.
+    upload = _failed(again, at="2026-11-20T11:00:00+00:00", job_id=None, analysis_type=None, failed={"qc": _QC})
+    assert upload["failed_analysis_types"] == {"qc": [None, "long_read_wgs", "short_read_wgs"]}
+    assert registration.read_import_flag(upload) == upload
+
+
+def test_only_an_import_of_the_same_analysis_or_an_upload_completes_a_failure_of_an_analysis() -> None:
+    clair3 = {"source": "clair3", "samples": None}
+    flag = _failed(
+        None,
+        at="2026-11-20T08:00:00+00:00",
+        job_id="job-sr",
+        analysis_type="short_read_wgs",
+        failed={"qc": _QC, "snv": clair3},
+    )
+    # The long-read import of qc for the same sample brings its own QC, not the short-read's.
+    other = registration.failures_left_after(flag, {"qc": _QC, "snv": clair3}, analysis_type="long_read_wgs")
+    assert not other.changed and other.failed == {"qc": "job-sr", "snv": "job-sr"}
+    # The short-read import brings them again.
+    own = registration.failures_left_after(flag, {"qc": _QC}, analysis_type="short_read_wgs")
+    assert own.changed and own.failed == {"snv": "job-sr"}
+    # An upload brings data stored by source alone, whichever analysis's.
+    upload = registration.failures_left_after(flag, {"snv": clair3}, analysis_type=None)
+    assert upload.changed and upload.failed == {"qc": "job-sr"}
+    # A failure of no analysis (an upload's) is completed by any import that brings its scope.
+    by_upload = _failed(None, at="2026-11-20T08:00:00+00:00", job_id=None, analysis_type=None, failed={"snv": clair3})
+    assert registration.failures_left_after(by_upload, {"snv": clair3}, analysis_type="long_read_wgs").flag is None
+    # An import's later failure strikes only what it can complete.
+    merged = _failed(
+        flag,
+        at="2026-11-20T09:00:00+00:00",
+        job_id="job-lr",
+        analysis_type="long_read_wgs",
+        failed={"pipeline_info": {"source": None, "samples": None}},
+    )
+    assert merged["failed_jobs"] == {"pipeline_info": "job-lr", "qc": "job-sr", "snv": "job-sr"}
+
+
+@pytest.mark.asyncio
+async def test_another_analysis_s_overwrite_leaves_an_analysis_s_stopped_import_and_its_failure() -> None:
+    stopped = _entry("job-sr", ["qc"], scopes={"qc": _QC}, analysis_type="short_read_wgs")
+    flag = _failed(
+        None, at="2026-11-20T08:00:00+00:00", job_id="job-sr0", analysis_type="short_read_wgs", failed={"qc": _QC}
+    )
+    row = _FamilyRow(flag=flag, unfinished={"job-sr": stopped})
+
+    left = await fpi._clear_family_import_incomplete(
+        row, _ctx(), analysis_type="long_read_wgs", rewritten={"qc": _QC}, imported={"qc": _QC}
+    )
+    assert set(left.unfinished) == {"job-sr"} and left.failures.failed == {"qc": "job-sr0"}
+    assert row.flag == flag
+
+    left = await fpi._clear_family_import_incomplete(
+        row, _ctx(), analysis_type="short_read_wgs", rewritten={"qc": _QC}, imported={"qc": _QC}
+    )
+    assert left.unfinished == {} and left.failures.failed == {}
+    assert row.flag is None and row.unfinished is None
+
+
+@pytest.mark.asyncio
+async def test_a_stopped_import_that_had_finished_everything_goes_with_any_completed_import() -> None:
+    done = _entry("job-sr", ["qc"], finished=["qc"], scopes={"qc": _QC}, analysis_type="short_read_wgs")
+    row = _FamilyRow(unfinished={"job-sr": done})
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), analysis_type="long_read_wgs")
+    assert left.unfinished == {}
+
+
+@pytest.mark.asyncio
+async def test_each_writer_records_the_analysis_of_its_mark() -> None:
+    # An import's failure records its package's analysis, and its entry goes with it.
+    row = _FamilyRow(
+        unfinished={"job-lr": _entry("job-lr", ["qc"], scopes={"qc": _QC}, analysis_type="long_read_wgs")}
+    )
+    await fpi._flag_family_import_incomplete(
+        row,
+        _ctx(),
+        analysis_type="long_read_wgs",
+        failed_datasets=["qc"],
+        imported_datasets=[],
+        job_id="job-lr",
+        import_key="job-lr",
+        scopes={"qc": _QC},
+    )
+    assert row.flag["failed_analysis_types"] == {"qc": ["long_read_wgs"]}
+    assert row.unfinished is None
+    # A restore's whole-family entry is the import's, its analysis kept; the gate holds every
+    # analysis's sign-out with it all the same.
+    mark = registration.ImportMark.begin(job_id="job-lr", datasets=["qc"], analysis_type="long_read_wgs")
+    entry = registration.whole_family_entry(mark, imported=None, unfinished={})
+    assert entry["analysis_type"] == "long_read_wgs" and registration.is_whole_family_entry(entry)
+    # An upload's and a deletion's mark record none.
+    for prefix in (registration.UPLOAD_MARK_PREFIX, registration.DELETION_MARK_PREFIX):
+        written = registration.FamilyWriteMark.begin(prefix, [("snv", {"source": "clair3", "samples": None})]).entry()
+        assert written["analysis_type"] is None
+        assert registration.read_unfinished_entries({"k": written}) == {"k": written}
+    # An upload's failure records none.
+    row = _FamilyRow()
+    await registration.record_family_upload_failure(
+        row, family_uuid="uuid-1", dataset="snv", scope={"source": "clair3", "samples": None}
+    )
+    assert row.flag["failed_analysis_types"] == {"snv": [None]}
+    assert row.flag["failed_scopes"]["snv"][0]["analysis_type"] is None

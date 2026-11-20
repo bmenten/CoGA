@@ -1,4 +1,5 @@
 import React from 'react';
+import { analysisLabel, separatelySignedAnalyses } from '../lib/familyAnalyses';
 import { joinWithAnd } from '../lib/format';
 
 /** What a partly failed family-package import left out, as the family's metadata records it. */
@@ -20,6 +21,12 @@ export interface FamilyImportIncomplete {
    * with no job. The flag's own job is another failure's. Empty when no dataset has a job.
    */
   withoutJob: string[];
+  /**
+   * The analyses each failed dataset's failures are of (`failed_analysis_types`): the key of
+   * the package record of the import it failed in, or null for a single-file upload's. A
+   * failure holds the sign-out of its own analysis, and one of no analysis that of every one.
+   */
+  failedAnalysisTypes: Record<string, (string | null)[]>;
 }
 
 /**
@@ -60,6 +67,38 @@ const isNameList = (value: unknown): value is string[] =>
 /** A job as a mark records it: its id, or null for a write outside a job. */
 const isJob = (value: unknown): value is string | null => value === null || typeof value === 'string';
 
+/**
+ * The analysis a mark records (`analysis_type`): the key of the package record of the import
+ * that left it, or null for a single-file upload's or a deletion's.
+ */
+const isAnalysis = (value: unknown): value is string | null =>
+  value === null || (typeof value === 'string' && value !== '');
+
+/** A failed dataset's analyses, as `failed_analysis_types` lists them: each once, null first. */
+const isAnalysisList = (value: unknown): value is (string | null)[] =>
+  Array.isArray(value) && value.length > 0 && value.every(isAnalysis);
+
+/**
+ * A failed dataset as a page names it: with the analyses whose imports it failed in, those
+ * the pages have a name for ("snv (long-read WGS)").
+ */
+export const failedDatasetWords = (flag: FamilyImportIncomplete, name: string): string => {
+  const labels = (flag.failedAnalysisTypes[name] ?? [])
+    .map((analysis) => analysisLabel(analysis))
+    .filter((label): label is string => label !== null);
+  return labels.length ? `${name} (${labels.join(', ')})` : name;
+};
+
+/**
+ * An import of a package of `analysis` (the analysis an `import_unfinished` entry records), as a
+ * sentence names it: "of the long-read WGS data", or nothing for one the pages have no name for
+ * (a package that named no analysis).
+ */
+export const importedAnalysisWords = (analysis: string | null): string => {
+  const label = analysisLabel(analysis);
+  return label ? ` of the ${label} data` : '';
+};
+
 const sameNames = (a: string[], b: string[]): boolean => {
   const left = new Set(a);
   const right = new Set(b);
@@ -73,18 +112,26 @@ const sameNames = (a: string[], b: string[]): boolean => {
  * A family-package import that partly fails keeps the datasets that did import and stamps
  * `metadata.import_incomplete` (family_package_registration._flag_payload); it goes once an
  * import has imported each failed dataset again. The sign-out's refusal and the signed record
- * freeze the same keys, less `failed_scopes`, and are read here too. This reads the keys the
- * pages show: when (`at`), the failed and the imported datasets, the flag's job, and the job of
- * each failed dataset (`failed_jobs`, one per failed dataset), each in the shape it is written.
- * It does not read `failed_scopes`. Throws {@link ImportMarkShapeError} for a flag in any other
- * shape.
+ * freeze the same keys, less `failed_scopes`, and are read here too: a sign-out of one of the
+ * family's analyses freezes only the failures of that analysis and of none. This reads the keys
+ * the pages show: when (`at`), the failed and the imported datasets, the flag's job, the job of
+ * each failed dataset (`failed_jobs`, one per failed dataset) and the analyses its failures are
+ * of (`failed_analysis_types`), each in the shape it is written. It does not read
+ * `failed_scopes`. Throws {@link ImportMarkShapeError} for a flag in any other shape.
  */
 export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportIncomplete | null => {
   if (!metadata || typeof metadata !== 'object') return null;
   const flag = (metadata as Record<string, unknown>).import_incomplete;
   if (flag === undefined || flag === null) return null;
   if (isRecord(flag)) {
-    const { at, failed_datasets: failed, imported_datasets: imported, job_id: jobId, failed_jobs: jobs } = flag;
+    const {
+      at,
+      failed_datasets: failed,
+      imported_datasets: imported,
+      job_id: jobId,
+      failed_jobs: jobs,
+      failed_analysis_types: analyses,
+    } = flag;
     if (
       typeof at === 'string' &&
       isNameList(failed) &&
@@ -92,7 +139,10 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
       isJob(jobId) &&
       isRecord(jobs) &&
       sameNames(Object.keys(jobs), failed) &&
-      Object.values(jobs).every(isJob)
+      Object.values(jobs).every(isJob) &&
+      isRecord(analyses) &&
+      sameNames(Object.keys(analyses), failed) &&
+      Object.values(analyses).every(isAnalysisList)
     ) {
       const failedJobs: Record<string, string> = {};
       const listedWithoutJob: string[] = [];
@@ -112,6 +162,7 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
         // Named only beside a failure a job records: with no job beside them, no job is named
         // that could be taken for theirs.
         withoutJob: Object.keys(failedJobs).length ? listedWithoutJob : [],
+        failedAnalysisTypes: analyses as Record<string, (string | null)[]>,
       };
     }
   }
@@ -133,6 +184,12 @@ export interface FamilyImportUnfinished {
   jobId: string | null;
   /** When it began writing the family (ISO timestamp). */
   at: string;
+  /**
+   * The analysis it is of (`analysis_type`): the key of the imported package's record, or null
+   * for a single-file upload's or a deletion's mark. It holds the sign-out of its own analysis,
+   * and one of no analysis that of every one; a restore that did not finish holds every one.
+   */
+  analysisType: string | null;
   /** What it set out to import. */
   datasets: string[];
   /** Those it finished; the others may be partly written or missing. */
@@ -181,10 +238,12 @@ export const WRITER_LABELS: Record<Exclude<UnfinishedWriter, 'import'>, string> 
  * a mark goes once an upload or an import with overwrite has brought it again.
  *
  * None when the map is absent or null. The sign-out's refusal and the signed record freeze each
- * entry's job, `at`, datasets and finished datasets, and `whole_family: true` for a restore's,
- * and are read here too. This reads those keys, each in the shape it is written, and
- * `whole_family` as the restore's list (or `true`, frozen); it does not read the entries'
- * scopes or items. Throws {@link ImportMarkShapeError} for a map or an entry in any other shape.
+ * entry's job, `at`, analysis, datasets and finished datasets, and `whole_family: true` for a
+ * restore's, and are read here too: a sign-out of one of the family's analyses freezes only the
+ * entries of that analysis and of none, and every restore's. This reads those keys, each in the
+ * shape it is written, and `whole_family` as the restore's list (or `true`, frozen); it does not
+ * read the entries' scopes or items. Throws {@link ImportMarkShapeError} for a map or an entry in
+ * any other shape.
  */
 export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnfinished[] => {
   if (!metadata || typeof metadata !== 'object') return [];
@@ -194,10 +253,19 @@ export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnf
   return Object.entries(map)
     .map(([key, entry]): FamilyImportUnfinished => {
       if (isRecord(entry)) {
-        const { job_id: jobId, at, datasets, finished_datasets: finished, whole_family: whole } = entry;
+        const {
+          job_id: jobId,
+          at,
+          analysis_type: analysisType,
+          datasets,
+          finished_datasets: finished,
+          whole_family: whole,
+        } = entry;
         if (
           isJob(jobId) &&
           typeof at === 'string' &&
+          'analysis_type' in entry &&
+          isAnalysis(analysisType) &&
           isNameList(datasets) &&
           isNameList(finished) &&
           (whole === undefined || whole === true || Array.isArray(whole))
@@ -206,6 +274,7 @@ export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnf
             key,
             jobId,
             at,
+            analysisType,
             datasets,
             finishedDatasets: finished,
             // An upload's or a deletion's mark lists its items the same way, but is no restore.
@@ -268,7 +337,7 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }
   }
   const who = (
     <>
-      A family-package import ({bannerTime(entry.at)})
+      A family-package import{importedAnalysisWords(entry.analysisType)} ({bannerTime(entry.at)})
       {entry.jobId ? (
         <>
           , import job <code>{entry.jobId}</code>,
@@ -311,7 +380,9 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }
  * and while a single-file upload, or a deletion of the family's data, has not finished,
  * naming what it may have left partly written or missing.
  * Printed with the report, like the assembly-scope label. Sign-out refuses such a family
- * unless the signer acknowledges it with a reason, whatever this banner does.
+ * unless the signer acknowledges it with a reason, whatever this banner does. Each mark names
+ * the analysis it is of: in a family of several analyses, a sign-out of one is held only by
+ * that analysis's marks, those of no analysis and a restore that did not finish.
  *
  * A mark not in the shape CoGA writes ({@link importMarksFromMetadata}) shows the same banner,
  * naming nothing: the family's data may be missing or partly written, and its sign-out fails
@@ -332,7 +403,9 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
   const what = !flag
     ? null
     : flag.failedDatasets.length
-      ? `A family-package import${when} failed for ${joinWithAnd(flag.failedDatasets)}${
+      ? `A family-package import${when} failed for ${joinWithAnd(
+          flag.failedDatasets.map((name) => failedDatasetWords(flag, name)),
+        )}${
           flag.importedDatasets.length ? `; ${joinWithAnd(flag.importedDatasets)} did import` : ''
         }.`
       : `A family-package import${when} did not complete, and which datasets it left out was not recorded.`;
@@ -380,6 +453,9 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
         ? 'Upload or import again, with overwrite, what a single-file upload or a deletion did not finish: one without overwrite keeps the data already there. '
         : null}
       Sign-out needs this acknowledged with a reason.
+      {separatelySignedAnalyses(metadata).length
+        ? ' Each analysis’s sign-out is held only by what its own imports left and by what names no analysis; a restore that did not finish holds every analysis’s.'
+        : null}
     </div>
   );
 };

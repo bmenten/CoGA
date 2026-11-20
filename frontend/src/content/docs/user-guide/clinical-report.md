@@ -45,6 +45,9 @@ It refers to exactly one signed version: the one it rests on.
     structure change that clears its data.
 
   The warning shows on every family page until an import or an upload has brought those datasets again.
+  In a family of several analyses it names the analysis each failure or unfinished import was for: the
+  sign-out of an analysis is held only by its own imports' marks and by those of an upload, a deletion
+  or a package that named no analysis.
 - A **Package folder changed after import** warning at the top when a folder the family was imported
   from (one per analysis) has changed since its import, naming the analysis and the files added, removed
   or changed; or **Package folder
@@ -87,7 +90,8 @@ stops for seven things:
    checks, and warnings (which do not stop sign-out on their own). Each concern names the sample, pair
    or child it is about; your reason covers all of them.
 5. **An incomplete import** (*Import incomplete*): import what failed again, or acknowledge with a
-   reason.
+   reason. Only what the analysis you sign out failed to import or did not finish, and what names no
+   analysis, holds its sign-out.
    - After an import that stopped part-way, re-run it with **overwrite**: an update skips data that is
      already there, partly written data too.
    - After a failed overwrite that could not put the family's data back, import the whole family again

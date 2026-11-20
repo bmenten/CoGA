@@ -14,12 +14,24 @@ export const INCOMPLETE_IMPORT_METADATA = {
     imported_datasets: ['snv'],
     job_id: 'job-failed',
     failed_jobs: { sv: 'job-failed' },
-    failed_scopes: { sv: [{ scope: { source: null, samples: null }, job_id: 'job-failed' }] },
+    failed_analysis_types: { sv: ['unspecified'] },
+    failed_scopes: {
+      sv: [
+        {
+          scope: { source: null, samples: null },
+          job_id: 'job-failed',
+          analysis_type: 'unspecified',
+          at: '2026-09-12T10:14:00+00:00',
+          imported_datasets: ['snv'],
+        },
+      ],
+    },
   },
   import_unfinished: {
     'job-stopped': {
       job_id: 'job-stopped',
       at: '2026-09-13T08:00:00+00:00',
+      analysis_type: 'unspecified',
       datasets: ['coverage'],
       finished_datasets: [],
       scopes: { coverage: { source: null, samples: ['PROBAND'] } },

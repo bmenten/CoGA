@@ -677,6 +677,12 @@ async def test_an_overwrite_of_a_track_clears_its_rows_no_record_names(
 # --- what the import counts as imported again ------------------------------------------------
 
 
+def _failure(scope: dict, *, at: str = "2026-10-01T09:00:00+00:00") -> dict:
+    """A failure of job-1, an import of a package that named no analysis, as the flag records
+    it (registration._flag_payload)."""
+    return {"scope": scope, "job_id": "job-1", "analysis_type": "unspecified", "at": at, "imported_datasets": []}
+
+
 def test_a_skip_is_not_counted_as_importing_a_dataset_again() -> None:
     scopes = {
         "snv": {"source": "clair3", "samples": None},
@@ -705,11 +711,12 @@ def test_a_skip_is_not_counted_as_importing_a_dataset_again() -> None:
             "imported_datasets": [],
             "job_id": "job-1",
             "failed_jobs": {"coverage": "job-1"},
-            "failed_scopes": {"coverage": [{"scope": {"source": None, "samples": samples}, "job_id": "job-1"}]},
+            "failed_analysis_types": {"coverage": ["unspecified"]},
+            "failed_scopes": {"coverage": [_failure({"source": None, "samples": samples})]},
         }
 
-    assert registration.failures_left_after(flag(["S1", "S2"]), imported).failed == {"coverage": "job-1"}
-    assert registration.failures_left_after(flag(["S2"]), imported).flag is None
+    assert registration.failures_left_after(flag(["S1", "S2"]), imported, analysis_type="unspecified").failed == {"coverage": "job-1"}
+    assert registration.failures_left_after(flag(["S2"]), imported, analysis_type="unspecified").flag is None
 
 
 # --- through the import: the family's import-incomplete flag ----------------------------------
@@ -736,15 +743,17 @@ def package(stores: _Stores, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         "imported_datasets": [],
         "job_id": "job-1",
         "failed_jobs": {"coverage": "job-1", "snv": "job-1"},
+        "failed_analysis_types": {"coverage": ["unspecified"], "snv": ["unspecified"]},
         "failed_scopes": {
-            "coverage": [{"scope": coverage_scope, "job_id": "job-1"}],
-            "snv": [{"scope": {"source": "auto", "samples": None}, "job_id": "job-1"}],
+            "coverage": [_failure(coverage_scope, at="2026-10-13T10:00:00+00:00")],
+            "snv": [_failure({"source": "auto", "samples": None}, at="2026-10-13T10:00:00+00:00")],
         },
     }
     stores.unfinished = {
         "job-1": {
             "job_id": "job-1",
             "at": "2026-10-13T10:00:00+00:00",
+            "analysis_type": "unspecified",
             "datasets": ["coverage", "snv"],
             "finished_datasets": [],
             "scopes": {},

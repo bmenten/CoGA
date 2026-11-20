@@ -362,6 +362,7 @@ def test_no_overwrite_compares_what_a_bed_declared() -> None:
     # A restore that failed part-way names the sample's BED, declared as read depth; uploading it
     # again declared as a log2 ratio brings that BED again, and strikes it off.
     mark = registration.ImportMark.begin(
+        analysis_type="unspecified",
         job_id="job-1", datasets=["snv"], scopes={"snv": {"source": "clair3", "samples": None}}
     )
     entry = registration.whole_family_entry(

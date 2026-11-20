@@ -50,6 +50,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.app.services.signout_scope import WHOLE_FAMILY
 from backend.tests.integration._datastores import run_closing_stores
 
 pytestmark = pytest.mark.integration
@@ -88,6 +89,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
 
     def mark(*datasets: str) -> ImportMark:
         return ImportMark.begin(
+            analysis_type="unspecified",
             job_id=str(uuid4()), datasets=datasets, scopes={name: scopes[name] for name in datasets}
         )
 
@@ -132,10 +134,11 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
 
         # The sign-out reads them, sorted and normalized.
         async with sm() as s:
-            state = await rss._import_unfinished_state(s, family_uuid)
+            state = await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY)
         assert state[first.key] == {
             "job_id": first.job_id,
             "at": first.at,
+            "analysis_type": "unspecified",
             "datasets": ["coverage", "snv"],
             "finished_datasets": ["snv"],
         }
@@ -145,6 +148,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
             await _flag_family_import_incomplete(
                 s,
                 context,
+                analysis_type="unspecified",
                 failed_datasets=["coverage"],
                 imported_datasets=["snv"],
                 job_id=first.job_id,
@@ -159,7 +163,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         # entry changes nothing.
         async with sm() as s:
             await _flag_family_import_incomplete(
-                s, context, failed_datasets=["coverage"], imported_datasets=[], scopes=first.scopes
+                s, context, analysis_type="unspecified", failed_datasets=["coverage"], imported_datasets=[], scopes=first.scopes
             )
             await _end_family_import_unfinished(s, context, import_key="no-such-import")
             metadata = await _metadata(s, family_uuid)
@@ -184,8 +188,8 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
             )
             await s.commit()
             with pytest.raises(ImportMarkShapeError):
-                await rss._import_unfinished_state(s, family_uuid)
-            assert await _clear_family_import_incomplete(s, context) is None
+                await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY)
+            assert await _clear_family_import_incomplete(s, context, analysis_type="unspecified") is None
             metadata = await _metadata(s, family_uuid)
             assert metadata["import_unfinished"] == "garbage" and metadata["import_incomplete"]
             # Removed by hand, the next import's entry is written as usual.
@@ -211,7 +215,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=other)
             overwritten = {"snv": scopes["snv"], "coverage": scopes["coverage"]}
             left = await _clear_family_import_incomplete(
-                s, context, import_key=own.key, rewritten=overwritten, imported=overwritten
+                s, context, analysis_type="unspecified", import_key=own.key, rewritten=overwritten, imported=overwritten
             )
             metadata = await _metadata(s, family_uuid)
         assert left is not None
@@ -224,10 +228,10 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         # entry: the map goes with it.
         async with sm() as s:
             left = await _clear_family_import_incomplete(
-                s, context, rewritten={"snv": scopes["snv"], "haplotypes": scopes["haplotypes"]}
+                s, context, analysis_type="unspecified", rewritten={"snv": scopes["snv"], "haplotypes": scopes["haplotypes"]}
             )
             metadata = await _metadata(s, family_uuid)
-            state = await rss._import_unfinished_state(s, family_uuid)
+            state = await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY)
         assert left is not None and left.unfinished == {}
         assert "import_unfinished" not in metadata and state == {}
         assert metadata["qc_profile"] == "short_read_wgs"
@@ -253,6 +257,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
             await _flag_family_import_incomplete(
                 s,
                 context,
+                analysis_type="unspecified",
                 failed_datasets=["haplotypes"],
                 imported_datasets=[],
                 job_id=later.job_id,
@@ -267,7 +272,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         }
         async with sm() as s:
             left = await _clear_family_import_incomplete(
-                s, context, imported={"snv": scopes["snv"], "coverage": {"source": None, "samples": []}}
+                s, context, analysis_type="unspecified", imported={"snv": scopes["snv"], "coverage": {"source": None, "samples": []}}
             )
             flag = (await _metadata(s, family_uuid))["import_incomplete"]
         # coverage came back for fewer samples than failed: still flagged.
@@ -275,7 +280,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         assert flag["failed_datasets"] == ["coverage", "haplotypes"]
         async with sm() as s:
             await _clear_family_import_incomplete(
-                s, context, imported={"coverage": scopes["coverage"], "haplotypes": scopes["haplotypes"]}
+                s, context, analysis_type="unspecified", imported={"coverage": scopes["coverage"], "haplotypes": scopes["haplotypes"]}
             )
             assert "import_incomplete" not in await _metadata(s, family_uuid)
 
@@ -310,6 +315,7 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
 
     def mark(*datasets: str) -> ImportMark:
         return ImportMark.begin(
+            analysis_type="unspecified",
             job_id=str(uuid4()), datasets=datasets, scopes={name: scopes[name] for name in datasets}
         )
 
@@ -331,7 +337,7 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
         # An import of the SV calls (another package) completed: the family records them.
         async with sm() as s:
             await _clear_family_import_incomplete(
-                s, context, imported={"sv_needlr": scopes["sv_needlr"]}
+                s, context, analysis_type="unspecified", imported={"sv_needlr": scopes["sv_needlr"]}
             )
             metadata = await _metadata(s, family_uuid)
         assert metadata["imported_scopes"] == {"sv_needlr": [scopes["sv_needlr"]]}
@@ -364,8 +370,8 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
                 family_samples=["S1"],
             )
             metadata = await _metadata(s, family_uuid)
-            flag = await rss._import_incomplete_state(s, family_uuid)
-            unfinished = await rss._import_unfinished_state(s, family_uuid)
+            flag = await rss._import_incomplete_state(s, family_uuid, WHOLE_FAMILY)
+            unfinished = await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY)
         assert listed == ["coverage", "snv", "sv_needlr"]
         assert metadata["import_incomplete"]["failed_datasets"] == ["coverage", "snv"]
         assert metadata["import_incomplete"]["imported_datasets"] == []
@@ -374,6 +380,7 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
             own.key: {
                 "job_id": own.job_id,
                 "at": own.at,
+                "analysis_type": "unspecified",
                 "datasets": ["coverage", "snv", "sv_needlr"],
                 "finished_datasets": [],
                 "whole_family": True,
@@ -384,9 +391,9 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
         # entry keeps the SV calls.
         async with sm() as s:
             again = {"snv": scopes["snv"], "coverage": scopes["coverage"]}
-            left = await _clear_family_import_incomplete(s, context, rewritten=again, imported=again)
+            left = await _clear_family_import_incomplete(s, context, analysis_type="unspecified", rewritten=again, imported=again)
             metadata = await _metadata(s, family_uuid)
-            unfinished = await rss._import_unfinished_state(s, family_uuid)
+            unfinished = await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY)
         assert left is not None and set(left.unfinished) == {own.key}
         assert "import_incomplete" not in metadata
         assert unfinished[own.key]["datasets"] == ["sv_needlr"]
@@ -397,16 +404,16 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
         # An update of the SV calls replaces nothing: the entry stays.
         async with sm() as s:
             await _clear_family_import_incomplete(
-                s, context, rewritten={}, imported={"sv_needlr": scopes["sv_needlr"]}
+                s, context, analysis_type="unspecified", rewritten={}, imported={"sv_needlr": scopes["sv_needlr"]}
             )
             assert own.key in (await _metadata(s, family_uuid))["import_unfinished"]
 
         # The SV calls imported again with overwrite: the family is complete.
         async with sm() as s:
             sv = {"sv_needlr": scopes["sv_needlr"]}
-            left = await _clear_family_import_incomplete(s, context, rewritten=sv, imported=sv)
+            left = await _clear_family_import_incomplete(s, context, analysis_type="unspecified", rewritten=sv, imported=sv)
             metadata = await _metadata(s, family_uuid)
-            unfinished = await rss._import_unfinished_state(s, family_uuid)
+            unfinished = await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY)
         assert left is not None and left.unfinished == {}
         assert "import_unfinished" not in metadata and unfinished == {}
         assert metadata["imported_scopes"] == {
@@ -424,6 +431,7 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
             await _flag_family_import_incomplete(
                 s,
                 context,
+                analysis_type="unspecified",
                 failed_datasets=["snv"],
                 imported_datasets=[],
                 job_id=refused.job_id,
@@ -504,7 +512,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
             )
             async with sm() as package:
                 clear = asyncio.create_task(
-                    _clear_family_import_incomplete(package, context, imported={"snv": snv})
+                    _clear_family_import_incomplete(package, context, analysis_type="unspecified", imported={"snv": snv})
                 )
                 done, _pending = await asyncio.wait({clear}, timeout=0.5)
                 assert not done, "the import's bookkeeping waits for the upload's record"
@@ -551,7 +559,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
         # An overwrite of the small variants fails, and its restore fails part-way: its entry
         # names the uploaded SV calls and track besides what the imports recorded, and not the
         # uploaded repeat calls.
-        own = ImportMark.begin(job_id=str(uuid4()), datasets=["snv"], scopes={"snv": snv})
+        own = ImportMark.begin(analysis_type="unspecified", job_id=str(uuid4()), datasets=["snv"], scopes={"snv": snv})
         async with sm() as s:
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own)
             await _mark_family_import_restoring(s, context, own, family_samples=["S1"])
@@ -570,8 +578,8 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
         # to bring again.
         async with sm() as s:
             again = {"snv": snv, "coverage": {"source": None, "samples": ["S1"]}}
-            await _clear_family_import_incomplete(s, context, rewritten=again, imported=again)
-            unfinished = await rss._import_unfinished_state(s, family_uuid)
+            await _clear_family_import_incomplete(s, context, analysis_type="unspecified", rewritten=again, imported=again)
+            unfinished = await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY)
         assert unfinished[own.key]["datasets"] == ["bed_wisecondorx", "sv_sniffles"]
 
         # An upload without overwrite strikes nothing off; one with overwrite strikes off what
@@ -581,7 +589,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
                 s, family_uuid=family_uuid, dataset=sv_dataset, scope=sv_scope, overwrite=False
             )
             await s.commit()
-            assert (await rss._import_unfinished_state(s, family_uuid))[own.key]["datasets"] == [
+            assert (await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY))[own.key]["datasets"] == [
                 "bed_wisecondorx",
                 "sv_sniffles",
             ]
@@ -589,7 +597,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
                 s, family_uuid=family_uuid, dataset=sv_dataset, scope=sv_scope, overwrite=True
             )
             await s.commit()
-            assert (await rss._import_unfinished_state(s, family_uuid))[own.key]["datasets"] == [
+            assert (await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY))[own.key]["datasets"] == [
                 "bed_wisecondorx"
             ]
             await record_family_upload(
@@ -597,7 +605,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
             )
             await s.commit()
             metadata = await _metadata(s, family_uuid)
-            unfinished = await rss._import_unfinished_state(s, family_uuid)
+            unfinished = await rss._import_unfinished_state(s, family_uuid, WHOLE_FAMILY)
         assert "import_unfinished" not in metadata and unfinished == {}
         assert "import_incomplete" not in metadata
         assert metadata["qc_profile"] == "short_read_wgs"

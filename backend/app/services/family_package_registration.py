@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Collection, Iterable, Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Iterable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -995,6 +995,19 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 IMPORT_UNFINISHED_KEY = "import_unfinished"
 WHOLE_FAMILY_KEY = "whole_family"
 
+# Every import mark records the analysis it is of (`analysis_type`): each `import_unfinished`
+# entry, and each failure the `import_incomplete` flag records. A package import's mark records
+# the key of its package's record (``package_record_key``: the analysis the package names, or
+# `unspecified` for one that names none); a single-file upload's or a deletion's records none
+# (None). The family's analyses share dataset types (`snv`, `qc`, `alignments`…), so the dataset
+# a mark names cannot say whose it is. A sign-out of one analysis is gated by its own imports'
+# marks and by those of no analysis the family holds (``signout_scope.SignoutScope.holds_mark``),
+# and a restore's whole-family entry by every analysis's. A mark of an analysis is completed only
+# by an import of that analysis, or by an upload (``_completes``): each analysis's sequencing QC,
+# alignments and pipeline record are its own, so another analysis's import of the same dataset
+# for the same samples does not bring them again.
+MARK_ANALYSIS_KEY = "analysis_type"
+
 
 class ImportMarkShapeError(ValueError):
     """A family's import mark in a shape no writer writes: its ``import_incomplete`` flag
@@ -1017,6 +1030,23 @@ def _is_name_list(value: Any) -> bool:
 def _is_job(value: Any) -> bool:
     """Whether ``value`` is a job as a mark records it: its id, or None outside a job."""
     return value is None or isinstance(value, str)
+
+
+def _is_analysis(value: Any) -> bool:
+    """Whether ``value`` is the analysis a mark records (``MARK_ANALYSIS_KEY``): the key of the
+    imported package's record, or None for an upload's or a deletion's mark."""
+    return value is None or (isinstance(value, str) and bool(value))
+
+
+def _completes(bringer: str | None, mark: str | None) -> bool:
+    """Whether what an import of the package record ``bringer`` brings again -- or an upload's,
+    None -- can complete a mark of ``mark`` (each as ``MARK_ANALYSIS_KEY`` records it): an
+    upload's or a deletion's mark by any, a mark of an analysis by an import of the same
+    analysis or by an upload. An upload brings data stored by source alone (small variants,
+    structural variants, tracks, repeat calls), as any import does; an analysis's sequencing
+    QC, alignments and pipeline record are kept under its own record's key, so another
+    analysis's import of the same dataset brings none of them again."""
+    return bringer is None or mark is None or bringer == mark
 
 
 def _written_scope(scope: Any) -> Mapping[str, Any] | None:
@@ -1228,47 +1258,79 @@ def _scope_without_sample(scope: Mapping[str, Any], sample: str) -> dict[str, An
     return narrowed
 
 
-def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) -> bool:
+def _failure_imported_again(
+    imported: Mapping[str, Any], name: str, failure: Mapping[str, Any], bringer: str | None
+) -> bool:
     """Whether a failure of a dataset was imported again: an import that imported the
     dataset (in any mode -- the failing loader's rows were rolled back or cleaned up, so an
     update finds none and imports it whole, while one whose clean-up left rows is skipped)
-    for the scope the failure records (``_scope_covers``)."""
-    return name in imported and _scope_covers(imported[name], scope)
+    for the scope the failure records (``_scope_covers``), by an import of the package
+    record ``bringer`` (None: an upload) that can complete it (``_completes``)."""
+    return (
+        name in imported
+        and _completes(bringer, failure[MARK_ANALYSIS_KEY])
+        and _scope_covers(imported[name], failure["scope"])
+    )
 
 
 # `import_incomplete.failed_scopes`: for each failed dataset, every scope it failed for --
-# each callset of the small variants, each set of samples of a per-sample dataset -- oldest
-# first, each with the import job whose record holds its error (None: an upload, or an
-# import run outside a job). A later failure of the same dataset under another scope never
-# replaces an earlier one: each leaves the flag only once an import or upload has brought
-# that scope again.
+# each callset of the small variants, each set of samples of a per-sample dataset, each
+# analysis's -- oldest first, each with the import job whose record holds its error (None: an
+# upload, or an import run outside a job), the analysis it is of (``MARK_ANALYSIS_KEY``), when
+# it failed (`at`) and the datasets the import it failed in did import (`imported_datasets`). A
+# later failure of the same dataset under another scope, or of another analysis, never replaces
+# an earlier one: each leaves the flag only once an import or upload that can complete it has
+# brought that scope again.
 FAILED_SCOPES_KEY = "failed_scopes"
+
+# `import_incomplete.failed_analysis_types`: for each failed dataset, the analyses its failures
+# are of (``MARK_ANALYSIS_KEY``), each once, None (an upload's) first, then by name.
+FAILED_ANALYSES_KEY = "failed_analysis_types"
+
+
+def _is_failure(item: Any) -> bool:
+    """Whether ``item`` is one failure as ``_flag_payload`` writes it: its scope
+    (``_written_scope``, which raises for a scope in another shape), its job, its analysis,
+    when it failed and what its import did import."""
+    if not (
+        isinstance(item, Mapping)
+        and "scope" in item
+        and _is_job(item.get("job_id"))
+        and MARK_ANALYSIS_KEY in item
+        and _is_analysis(item[MARK_ANALYSIS_KEY])
+        and isinstance(item.get("at"), str)
+        and _is_name_list(item.get("imported_datasets"))
+    ):
+        return False
+    _written_scope(item["scope"])
+    return True
 
 
 def _is_failure_list(items: Any) -> bool:
     """Whether ``items`` lists a failed dataset's failures as ``_flag_payload`` writes them:
-    at least one, each with its job and its scope (``_written_scope``, which raises for a
-    scope in another shape)."""
-    if not isinstance(items, list) or not items:
-        return False
-    for item in items:
-        if not (isinstance(item, Mapping) and "scope" in item and _is_job(item.get("job_id"))):
-            return False
-        _written_scope(item["scope"])
-    return True
+    at least one, each a failure (``_is_failure``)."""
+    return isinstance(items, list) and bool(items) and all(_is_failure(item) for item in items)
+
+
+def _analyses_listed(analyses: Iterable[str | None]) -> list[str | None]:
+    """``analyses`` (as ``MARK_ANALYSIS_KEY`` records them) each once, None first, then by
+    name: how ``failed_analysis_types`` lists a dataset's."""
+    return sorted(set(analyses), key=lambda analysis: (analysis is not None, analysis or ""))
 
 
 def read_import_flag(flag: Any) -> Mapping[str, Any] | None:
     """A family's stored ``import_incomplete`` flag, None when it has none. The flag is
     as ``_flag_payload`` writes it: when (``at``), the failed and the imported datasets,
     the flag's job (``job_id``), the job of each failed dataset's latest failure
-    (``failed_jobs``) and each of its failures with its scope and job
-    (``failed_scopes``). Raises ``ImportMarkShapeError`` for any other value."""
+    (``failed_jobs``), the analyses of each one's failures (``failed_analysis_types``) and
+    each of its failures (``failed_scopes``). Raises ``ImportMarkShapeError`` for any other
+    value."""
     if flag is None:
         return None
     if isinstance(flag, Mapping):
         failed: Any = flag.get("failed_datasets")
         jobs = flag.get("failed_jobs")
+        analyses = flag.get(FAILED_ANALYSES_KEY)
         listed = flag.get(FAILED_SCOPES_KEY)
         if (
             isinstance(flag.get("at"), str)
@@ -1281,17 +1343,27 @@ def read_import_flag(flag: Any) -> Mapping[str, Any] | None:
             and isinstance(listed, Mapping)
             and set(listed) == set(failed)
             and all(_is_failure_list(items) for items in listed.values())
+            and isinstance(analyses, Mapping)
+            and set(analyses) == set(failed)
+            and all(
+                analyses[name]
+                == _analyses_listed(item[MARK_ANALYSIS_KEY] for item in listed[name])
+                for name in failed
+            )
         ):
             return flag
     raise ImportMarkShapeError("import_incomplete flag")
 
 
+# The keys of one failure, as ``_flag_payload`` writes it.
+_FAILURE_KEYS = ("scope", "job_id", MARK_ANALYSIS_KEY, "at", "imported_datasets")
+
+
 def _flag_failures(flag: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """The datasets a flag (as ``read_import_flag`` reads it) names as failed, each with
-    every failure of it the flag records, oldest first: its scope, and the import job whose
-    record holds its error (``failed_scopes``)."""
+    every failure of it the flag records, oldest first (``failed_scopes``)."""
     return {
-        str(name): [{"job_id": item["job_id"], "scope": item["scope"]} for item in items]
+        str(name): [{key: item[key] for key in _FAILURE_KEYS} for item in items]
         for name, items in flag[FAILED_SCOPES_KEY].items()
     }
 
@@ -1305,7 +1377,8 @@ def _flag_payload(
 ) -> dict[str, Any]:
     """The ``import_incomplete`` flag naming ``failures`` (each failed dataset with every
     failure of it, oldest first). ``failed_jobs`` names, for each, the job of its latest
-    failure: the one job the family pages and a sign-out name for it."""
+    failure: the one job the family pages and a sign-out name for it;
+    ``failed_analysis_types`` the analyses its failures are of."""
     names = sorted(failures)
     return {
         "at": at,
@@ -1313,23 +1386,28 @@ def _flag_payload(
         "imported_datasets": sorted({str(name) for name in imported}),
         "job_id": job_id,
         "failed_jobs": {name: failures[name][-1]["job_id"] for name in names},
+        FAILED_ANALYSES_KEY: {
+            name: _analyses_listed(item[MARK_ANALYSIS_KEY] for item in failures[name]) for name in names
+        },
         FAILED_SCOPES_KEY: {
-            name: [{"scope": item["scope"], "job_id": item["job_id"]} for item in failures[name]]
+            name: [{key: item[key] for key in _FAILURE_KEYS} for item in failures[name]]
             for name in names
         },
     }
 
 
 def _failures_not_imported_again(
-    failures: Mapping[str, list[dict[str, Any]]], imported_scopes: Mapping[str, Any]
+    failures: Mapping[str, list[dict[str, Any]]],
+    imported_scopes: Mapping[str, Any],
+    bringer: str | None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """``failures`` without each one an import or upload brought again
-    (``imported_scopes``: the scope of each dataset it brought), and without a dataset once
-    none of its failures is left."""
+    """``failures`` without each one an import of the package record ``bringer`` (None: an
+    upload) brought again (``imported_scopes``: the scope of each dataset it brought), and
+    without a dataset once none of its failures is left."""
     left: dict[str, list[dict[str, Any]]] = {}
     for name, items in failures.items():
         kept = [
-            item for item in items if not _failure_imported_again(imported_scopes, name, item["scope"])
+            item for item in items if not _failure_imported_again(imported_scopes, name, item, bringer)
         ]
         if kept:
             left[name] = kept
@@ -1341,30 +1419,73 @@ def merged_import_failure(
     *,
     at: str,
     job_id: str | None,
+    analysis_type: str | None,
     failed: Iterable[str],
     imported: Iterable[str],
     scopes: Mapping[str, Any],
     imported_scopes: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """The ``import_incomplete`` flag after an import that failed for ``failed``: its own
-    failures, and those of the flag already stored (``stored``, None when there is none)
+    """The ``import_incomplete`` flag after an import of the package record ``analysis_type``
+    (None: an upload) that failed for ``failed``: its own failures, each recording that
+    analysis, and those of the flag already stored (``stored``, None when there is none)
     that it did not import again (``imported_scopes``: the scope of each dataset it
     imported). A later failure never drops an earlier one, of another dataset or of the
-    same dataset under another scope (another callset, other samples): each failure keeps
-    its scope and the job whose record holds its error, and leaves the flag only once its
-    scope has been brought again. The same scope failing again is one failure, with its
-    latest job. Raises ``ImportMarkShapeError`` for a stored flag in another shape."""
+    same dataset under another scope (another callset, other samples) or of another
+    analysis: each failure keeps its scope, its analysis and the job whose record holds its
+    error, and leaves the flag only once an import or upload that can complete it
+    (``_completes``) has brought its scope again. The same scope of the same analysis failing
+    again is one failure, with its latest job. Raises ``ImportMarkShapeError`` for a stored
+    flag in another shape."""
     flag = read_import_flag(stored)
+    did_import = sorted({str(name) for name in imported})
     failures = _failures_not_imported_again(
-        _flag_failures(flag) if flag is not None else {}, imported_scopes
+        _flag_failures(flag) if flag is not None else {}, imported_scopes, analysis_type
     )
     for name in sorted({str(name) for name in failed}):
         scope = scopes.get(name)
         earlier = [
-            item for item in failures.get(name, []) if _canonical(item["scope"]) != _canonical(scope)
+            item
+            for item in failures.get(name, [])
+            if _canonical(item["scope"]) != _canonical(scope) or item[MARK_ANALYSIS_KEY] != analysis_type
         ]
-        failures[name] = [*earlier, {"job_id": job_id, "scope": scope}]
-    return _flag_payload(failures, at=at, job_id=job_id, imported=imported)
+        failures[name] = [
+            *earlier,
+            {
+                "scope": scope,
+                "job_id": job_id,
+                MARK_ANALYSIS_KEY: analysis_type,
+                "at": at,
+                "imported_datasets": did_import,
+            },
+        ]
+    return _flag_payload(failures, at=at, job_id=job_id, imported=did_import)
+
+
+def analysis_import_flag(stored: Any, holds: Callable[[str | None], bool]) -> Mapping[str, Any] | None:
+    """The ``import_incomplete`` flag a sign-out of one of the family's analyses reads: the
+    failures of the stored flag whose analysis ``holds`` takes
+    (``signout_scope.SignoutScope.holds_mark``), and with them alone the flag's time, job and
+    imported datasets, those of its latest failure. Built from those failures alone, so that
+    another analysis's failure, or the striking of one, leaves it as it is. None when no
+    failure is left, or there is no flag. Raises ``ImportMarkShapeError`` for a stored flag in
+    another shape."""
+    flag = read_import_flag(stored)
+    if flag is None:
+        return None
+    kept: dict[str, list[dict[str, Any]]] = {}
+    for name, items in _flag_failures(flag).items():
+        held = [item for item in items if holds(item[MARK_ANALYSIS_KEY])]
+        if held:
+            kept[name] = held
+    if not kept:
+        return None
+    latest = max(
+        (item for items in kept.values() for item in items),
+        key=lambda item: (item["at"], item["job_id"] or ""),
+    )
+    return _flag_payload(
+        kept, at=latest["at"], job_id=latest["job_id"], imported=latest["imported_datasets"]
+    )
 
 
 @dataclass(frozen=True)
@@ -1380,11 +1501,14 @@ class FailuresLeft:
     changed: bool = False
 
 
-def failures_left_after(stored: Any, imported_scopes: Mapping[str, Any]) -> FailuresLeft:
-    """The ``import_incomplete`` flag after an import that completed, or an upload, having
-    brought ``imported_scopes``: each failure it brought again, for the scope the failure
-    records, leaves the flag; a dataset leaves it with its last failure, and the flag goes
-    with the last dataset. A flag nothing left stays as it was stored. Raises
+def failures_left_after(
+    stored: Any, imported_scopes: Mapping[str, Any], *, analysis_type: str | None
+) -> FailuresLeft:
+    """The ``import_incomplete`` flag after an import of the package record ``analysis_type``
+    that completed, or an upload (None), having brought ``imported_scopes``: each failure it
+    brought again, for the scope the failure records, and that it can complete
+    (``_completes``), leaves the flag; a dataset leaves it with its last failure, and the flag
+    goes with the last dataset. A flag nothing left stays as it was stored. Raises
     ``ImportMarkShapeError`` for a stored flag in another shape.
 
     When the failures left are all one job's (or all of no job: uploads), that job becomes
@@ -1395,7 +1519,7 @@ def failures_left_after(stored: Any, imported_scopes: Mapping[str, Any]) -> Fail
     if flag is None:
         return FailuresLeft(flag=None, failed={})
     failures = _flag_failures(flag)
-    left = _failures_not_imported_again(failures, imported_scopes)
+    left = _failures_not_imported_again(failures, imported_scopes, analysis_type)
     if not left:
         return FailuresLeft(flag=None, failed={}, changed=True)
     changed = sum(map(len, left.values())) != sum(map(len, failures.values()))
@@ -1472,16 +1596,19 @@ class ImportMark:
     """One import's entry in ``families.metadata.import_unfinished``.
 
     Keyed by its job's id, or, run outside a job, by an id of its own run. ``at`` is when
-    it began writing the family, ``datasets`` what it set out to import and ``scopes``
-    what an overwrite of each replaces (``dataset_scopes``); the entry also records the
-    datasets it has finished (``finished_datasets``), so after a stop the others
-    (``pending_datasets``) are those that may be partly written or missing.
+    it began writing the family, ``datasets`` what it set out to import, ``analysis_type``
+    the key of its package's record (``package_record_key``: the analysis whose sign-out the
+    entry gates, ``MARK_ANALYSIS_KEY``) and ``scopes`` what an overwrite of each replaces
+    (``dataset_scopes``); the entry also records the datasets it has finished
+    (``finished_datasets``), so after a stop the others (``pending_datasets``) are those that
+    may be partly written or missing. The failures it flags record the same analysis.
     """
 
     key: str
     job_id: str | None
     at: str
     datasets: tuple[str, ...]
+    analysis_type: str
     scopes: Mapping[str, Mapping[str, Any]] = field(default_factory=dict, hash=False)
 
     @classmethod
@@ -1490,6 +1617,7 @@ class ImportMark:
         *,
         job_id: str | None,
         datasets: Iterable[str],
+        analysis_type: str,
         scopes: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> "ImportMark":
         return cls(
@@ -1497,6 +1625,7 @@ class ImportMark:
             job_id=job_id,
             at=datetime.now(timezone.utc).isoformat(),
             datasets=tuple(sorted(set(datasets))),
+            analysis_type=analysis_type,
             scopes=dict(scopes or {}),
         )
 
@@ -1504,6 +1633,7 @@ class ImportMark:
         return {
             "job_id": self.job_id,
             "at": self.at,
+            MARK_ANALYSIS_KEY: self.analysis_type,
             "datasets": list(self.datasets),
             "finished_datasets": sorted(set(finished)),
             "scopes": {name: dict(scope) for name, scope in sorted(self.scopes.items())},
@@ -1536,15 +1666,18 @@ def _written_item(item: Any) -> Mapping[str, Any]:
 
 def _written_entry(entry: Any) -> Mapping[str, Any]:
     """An ``import_unfinished`` entry as its writers write it: its job (None outside one),
-    when it began (``at``), its datasets and those it finished, and its datasets' scopes
-    (an import's own entry, ``ImportMark.entry``: ``scopes``, each as ``dataset_scopes``
-    gives it), its items (a whole-family one, ``whole_family_entry``, and the mark of an
-    upload or a deletion, ``FamilyWriteMark``: ``whole_family``), or both. Raises
-    ``ImportMarkShapeError`` for any other value."""
+    when it began (``at``), the analysis it is of (``MARK_ANALYSIS_KEY``: an import's
+    package record, None for an upload's or a deletion's), its datasets and those it
+    finished, and its datasets' scopes (an import's own entry, ``ImportMark.entry``:
+    ``scopes``, each as ``dataset_scopes`` gives it), its items (a whole-family one,
+    ``whole_family_entry``, and the mark of an upload or a deletion, ``FamilyWriteMark``:
+    ``whole_family``), or both. Raises ``ImportMarkShapeError`` for any other value."""
     if (
         isinstance(entry, Mapping)
         and _is_job(entry.get("job_id"))
         and isinstance(entry.get("at"), str)
+        and MARK_ANALYSIS_KEY in entry
+        and _is_analysis(entry[MARK_ANALYSIS_KEY])
         and _is_name_list(entry.get("datasets"))
         and _is_name_list(entry.get("finished_datasets"))
         and ("scopes" in entry or WHOLE_FAMILY_KEY in entry)
@@ -1868,6 +2001,7 @@ async def _write_import_failure(
     failed_datasets: Iterable[str],
     imported_datasets: Iterable[str],
     job_id: str | None,
+    analysis_type: str | None,
     import_key: str | None,
     scopes: Mapping[str, Any],
     imported_scopes: Mapping[str, Any],
@@ -1875,7 +2009,8 @@ async def _write_import_failure(
     keep: ImportMark | None = None,
     family_samples: Collection[str] | None = None,
 ) -> dict[str, Any] | None:
-    """Write an import's failure into the family's ``import_incomplete`` flag, merged with
+    """Write an import's failure into the family's ``import_incomplete`` flag, each failure
+    recording the import's package record (``analysis_type``; None: an upload), merged with
     the flag already there (``merged_import_failure``), add what it imported to
     ``imported_scopes``, and remove the import's ``import_unfinished`` entry -- or, with
     ``keep`` (its mark), write that entry as the whole-family one a restore that failed
@@ -1898,6 +2033,7 @@ async def _write_import_failure(
         row["flag"],
         at=datetime.now(timezone.utc).isoformat(),
         job_id=job_id,
+        analysis_type=analysis_type,
         failed=failed_datasets,
         imported=imported_datasets,
         scopes=scopes,
@@ -1949,6 +2085,7 @@ async def _end_import_failed_before_datasets(
             failed_datasets=mark.datasets,
             imported_datasets=(),
             job_id=mark.job_id,
+            analysis_type=mark.analysis_type,
             import_key=mark.key,
             scopes=mark.scopes,
             imported_scopes={},
@@ -2276,12 +2413,14 @@ async def _flag_family_import_incomplete(
     failed_datasets: list[str],
     imported_datasets: list[str],
     scopes: Mapping[str, Any],
+    analysis_type: str,
     job_id: str | None = None,
     import_key: str | None = None,
     imported_scopes: Mapping[str, Any] | None = None,
 ) -> None:
-    """Stamp a family as import-incomplete after an import that failed for some datasets
-    and left the family in place.
+    """Stamp a family as import-incomplete after an import of the package record
+    ``analysis_type`` that failed for some datasets and left the family in place: each
+    failure records that analysis, whose sign-out it then gates (``MARK_ANALYSIS_KEY``).
 
     The family is left in place by an import that imported some datasets (a new family is
     deleted only when none imported), a failed update (it takes no snapshot: it skips what
@@ -2301,7 +2440,8 @@ async def _flag_family_import_incomplete(
     an earlier import's failures this import did not import again (``imported_scopes``),
     those of the same dataset under another scope too, each with the job that holds its
     error (``failed_scopes``; ``failed_jobs`` names each dataset's latest): the flag clears
-    only once each failure has been imported again, for its scope (``failures_left_after``).
+    only once each failure has been imported again, for its scope, by an import that can
+    complete it (``failures_left_after``).
 
     The import has ended, so its ``import_unfinished`` entry (``import_key``) goes in the
     same transaction: the family is never without one or the other. If the write fails,
@@ -2309,7 +2449,8 @@ async def _flag_family_import_incomplete(
     ``imported_scopes`` in the same transaction.
 
     Read back by report sign-out (``report_signout_service._import_incomplete_state``),
-    which refuses a flagged family unless the signer acknowledges it with a reason, and
+    which refuses a flagged family -- a sign-out of one of its analyses, for that analysis's
+    failures and those of no analysis -- unless the signer acknowledges it with a reason, and
     by the family pages, which warn while it is set. Keep the payload's keys in step.
     """
     try:
@@ -2319,6 +2460,7 @@ async def _flag_family_import_incomplete(
             failed_datasets=failed_datasets,
             imported_datasets=imported_datasets,
             job_id=job_id,
+            analysis_type=analysis_type,
             import_key=import_key,
             scopes=scopes,
             imported_scopes=imported_scopes or {},
@@ -2413,6 +2555,7 @@ async def _flag_family_restore_failed(
             failed_datasets=failed_datasets,
             imported_datasets=[],
             job_id=job_id,
+            analysis_type=mark.analysis_type,
             import_key=mark.key,
             scopes=scopes,
             imported_scopes={},
@@ -2464,24 +2607,28 @@ async def _clear_family_import_incomplete(
     session: AsyncSession,
     family_context: FamilyMetadataContext,
     *,
+    analysis_type: str,
     import_key: str | None = None,
     rewritten: Mapping[str, Any] | None = None,
     imported: Mapping[str, Any] | None = None,
 ) -> ImportStateLeft | None:
-    """After a fully-successful (re)import: remove what of the ``import_incomplete`` flag
-    it imported again, and this import's ``import_unfinished`` entry (``import_key``).
+    """After a fully-successful (re)import of the package record ``analysis_type``: remove
+    what of the ``import_incomplete`` flag it imported again, and this import's
+    ``import_unfinished`` entry (``import_key``).
 
     The flag shrinks by each failure this import imported again, in any mode, for the
     scope the failure records (``imported``: the scope of each dataset it imported, as
-    ``dataset_scopes`` gives it), and goes with the last (``failures_left_after``); an
-    import that does not import a failed dataset, or not for each scope it failed for,
-    leaves it flagged.
+    ``dataset_scopes`` gives it), of its own analysis or of none (``_completes``), and goes
+    with the last (``failures_left_after``); an import that does not import a failed
+    dataset, or not for each scope it failed for, leaves it flagged, as does another
+    analysis's import.
 
     An earlier import's entry goes when this import completed what that one may have left
     partly written: every dataset it had not finished is one this import imported again,
     replacing all of what that one was writing (``rewritten``: as ``imported``, but only
-    for an ``overwrite``; an ``update`` replaces nothing, so passes none), or it had
-    finished them all. Any other entry stays. The whole-family entry of an import whose
+    for an ``overwrite``; an ``update`` replaces nothing, so passes none), an import of the
+    same analysis (``_completes``), or it had finished them all. Any other entry stays. The
+    whole-family entry of an import whose
     restore did not finish shrinks instead by what this import replaced, one dataset (and
     sample) at a time, and goes with the last (``whole_family_left``). Returns what is
     left, so the import can say why the family stays marked, or None when nothing could be
@@ -2518,12 +2665,16 @@ async def _clear_family_import_incomplete(
                     remaining[key] = left
                 continue
             scopes = entry["scopes"]
-            if all(_scope_covers(replaced.get(name), scopes.get(name)) for name in pending_datasets(entry)):
+            pending = pending_datasets(entry)
+            if not pending or (
+                _completes(analysis_type, entry[MARK_ANALYSIS_KEY])
+                and all(_scope_covers(replaced.get(name), scopes.get(name)) for name in pending)
+            ):
                 # What it had finished stays the family's: this import replaced the rest.
                 recorded.extend((name, scopes.get(name)) for name in sorted(set(entry["finished_datasets"])))
                 continue
             remaining[key] = entry
-        failures = failures_left_after(stored_flag, dict(imported or {}))
+        failures = failures_left_after(stored_flag, dict(imported or {}), analysis_type=analysis_type)
         holds = merged_imported_scopes(row.get("imported_scopes") if row is not None else None, recorded)
         await session.execute(
             text(
@@ -2701,6 +2852,8 @@ class FamilyWriteMark:
         return {
             "job_id": None,
             "at": self.at,
+            # Of no analysis: what an upload brought, or a deletion reached, is every analysis's.
+            MARK_ANALYSIS_KEY: None,
             "datasets": sorted({str(item["dataset"]) for item in self.items}),
             "finished_datasets": [],
             WHOLE_FAMILY_KEY: [dict(item) for item in self.items],
@@ -3241,7 +3394,7 @@ async def record_family_upload(
     if stored_flag is not None and _flag_failures(stored_flag):
         # Rewritten once it strikes a failure off: a dataset that failed for several
         # scopes stays, for the others.
-        failures = failures_left_after(stored_flag, {dataset: scope})
+        failures = failures_left_after(stored_flag, {dataset: scope}, analysis_type=None)
         if failures.changed:
             metadata = _with_import_flag(metadata)
             params["flag"] = json.dumps(failures.flag)
@@ -3264,7 +3417,8 @@ async def record_family_upload_failure(
     ``scope``, as ``small_variant_upload_scope`` gives them) is missing or partly written.
     The family is flagged import-incomplete for it, as an import that failed for a dataset
     flags it (``_write_import_failure``): merged with a flag already there, under no import
-    job, as an upload runs in none. The flag clears once the dataset has been brought
+    job, as an upload runs in none, and of no analysis, as what it brings is every
+    analysis's: it gates the sign-out of each (``MARK_ANALYSIS_KEY``). The flag clears once the dataset has been brought
     again, by an upload (``record_family_upload``) or an import. The upload's mark
     (``mark``: ``mark_family_upload``) goes in the same transaction, as an import's entry
     goes with its flag: the family is never without one or the other.
@@ -3281,6 +3435,8 @@ async def record_family_upload_failure(
             failed_datasets=[dataset],
             imported_datasets=(),
             job_id=None,
+            # Of no analysis: an upload's data is every analysis's.
+            analysis_type=None,
             import_key=mark.key if mark is not None else None,
             scopes={dataset: dict(scope)},
             imported_scopes={},

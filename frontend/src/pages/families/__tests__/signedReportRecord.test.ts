@@ -746,6 +746,7 @@ describe('parseSignedReport', () => {
         imported_datasets: ['snv'],
         job_id: 'job-1',
         failed_jobs: { sv: 'job-1' },
+        failed_analysis_types: { sv: ['long_read_wgs'] },
       },
       acknowledged_import_incomplete: true,
       import_incomplete_acknowledgement_reason: 'SVs not requested.',
@@ -759,6 +760,7 @@ describe('parseSignedReport', () => {
       jobId: 'job-1',
       failedJobs: { sv: 'job-1' },
       withoutJob: [],
+      failedAnalysisTypes: { sv: ['long_read_wgs'] },
     });
     expect(record.importAcknowledgement).toEqual({ acknowledged: true, reason: 'SVs not requested.' });
     expect(record.sequencingQc?.unavailable).toBe('QC thresholds could not be resolved');
@@ -847,6 +849,7 @@ describe('parseSignedReport', () => {
         'job-2': {
           job_id: 'job-2',
           at: '2026-10-02T09:12:00+00:00',
+          analysis_type: 'long_read_wgs',
           datasets: ['haplotypes', 'snv'],
           finished_datasets: ['snv'],
         },
@@ -860,6 +863,7 @@ describe('parseSignedReport', () => {
         key: 'job-2',
         jobId: 'job-2',
         at: '2026-10-02T09:12:00+00:00',
+        analysisType: 'long_read_wgs',
         datasets: ['haplotypes', 'snv'],
         finishedDatasets: ['snv'],
         wholeFamily: false,

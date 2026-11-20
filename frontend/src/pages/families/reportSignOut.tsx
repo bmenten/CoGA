@@ -7,12 +7,14 @@ import type { ReportSignoutRequest } from '../../lib/apiSchema.generated';
 import { READ_ONLY_HINT, SIGN_OUT_ROLE_HINT } from '../../lib/familyAccess';
 import ModalDialog from '../../components/ModalDialog';
 import {
+  failedDatasetWords,
   failuresByJob,
   importMarksFromMetadata,
   pendingDatasets,
   unfinishedWriter,
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
+import { analysisLabel } from '../../lib/familyAnalyses';
 import { apiErrorMessage } from './reportSignoutQueries';
 import {
   PackageSourceChangePaths,
@@ -393,7 +395,8 @@ export const useReportSignOut = (
         if (shown.changed) setImportReason('');
         setImportGate({
           message: (detail as { message?: string }).message || 'The family’s import is incomplete.',
-          failed: flag?.failedDatasets ?? [],
+          // Each with the analyses whose imports it failed in.
+          failed: flag ? flag.failedDatasets.map((name) => failedDatasetWords(flag, name)) : [],
           imported: flag?.importedDatasets ?? [],
           jobId: flag?.jobId ?? null,
           // The jobs that hold the failed datasets' errors, when more than one does, or when
@@ -740,8 +743,13 @@ export const useReportSignOut = (
                         ? ' (single-file upload)'
                         : unfinishedWriter(entry.key) === 'deletion'
                           ? ' (deletion of this family’s data)'
-                          : entry.jobId
-                            ? ` (import job ${entry.jobId})`
+                          : entry.jobId || analysisLabel(entry.analysisType)
+                            ? ` (${[
+                                entry.jobId ? `import job ${entry.jobId}` : null,
+                                analysisLabel(entry.analysisType),
+                              ]
+                                .filter(Boolean)
+                                .join(', ')})`
                             : ''}
                       :{' '}
                       {pendingDatasets(entry).length

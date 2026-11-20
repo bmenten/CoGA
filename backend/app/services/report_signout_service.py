@@ -41,7 +41,7 @@ import dataclasses
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterator, Mapping, Sequence
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -68,6 +68,8 @@ from .finding_review_pg import (
     unreviewed_finding_names,
 )
 from .family_package_registration import (
+    MARK_ANALYSIS_KEY,
+    analysis_import_flag,
     is_whole_family_entry,
     read_import_flag,
     read_unfinished_entries,
@@ -83,7 +85,7 @@ from .package_changed_after_import import (
     gates_a_sign_out,
     sign_out_source_changes,
 )
-from .family_package_records import analysis_data_words
+from .family_package_records import ANALYSIS_LABELS, analysis_data_words
 from .report_code import (
     ReportCodeError,
     content_hash_prefix,
@@ -508,43 +510,26 @@ def _qc_gate_message(
     return " ".join(parts)
 
 
-async def _import_incomplete_state(
-    session: AsyncSession, family_uuid: str
-) -> dict[str, Any] | None:
-    """What the family's package import left incomplete, or None when nothing is.
+def frozen_import_flag(raw: Any, scope: SignoutScope) -> dict[str, Any] | None:
+    """The family's stored ``import_incomplete`` flag (``raw``) as a sign-out of ``scope``
+    freezes it, or None when it holds nothing of that scope.
 
-    A family-package import that partly fails keeps the family and the datasets that did
-    import, and stamps ``families.metadata.import_incomplete`` with when it ran, which
-    datasets failed, which imported and the import job whose record holds each dataset's
-    error (``family_package_registration._flag_family_import_incomplete``); a later,
-    fully successful import removes it. Frozen into the snapshot and gating sign-out, so
-    a report on partly loaded data is never released as if it were complete.
+    A sign-out of the whole family freezes the flag as stored. A sign-out of one of the
+    family's analyses freezes only the failures of that analysis and of no analysis
+    (``SignoutScope.holds_mark``, ``family_package_registration.analysis_import_flag``):
+    each failure records the analysis of the import it failed in (an upload's none), as
+    analyses share dataset types. Its time, job and imported datasets are those of its latest
+    failure, so another analysis's failure, or the striking of one, leaves it as it is.
 
-    The flag is read in the shape the import writes
-    (``family_package_registration.read_import_flag``); a flag in any other shape raises
-    ``ImportMarkShapeError``, so the sign-out fails and its gate stays closed. Dataset lists
-    are frozen sorted, for a stable hash.
-
-    ``failed_jobs`` names, for each failed dataset, the import job whose record holds its
-    error: a later failure keeps an earlier import's failed datasets in the flag
-    (``family_package_registration.merged_import_failure``), so they can come from
-    different jobs. A dataset it lists with no job failed outside one -- in a single-file
-    upload, or an import run outside a job -- and is frozen with none: the flag's
-    own job is another failure's, which does not hold its error. A dataset that
-    failed for more than one scope (another callset, other samples) is named with the job of
-    its latest failure; the flag keeps every scope with its own job (``failed_scopes``),
-    which is not frozen.
-    """
-    raw = (
-        await session.execute(
-            text(
-                "SELECT metadata -> 'import_incomplete' FROM families "
-                "WHERE id = CAST(:family_uuid AS uuid)"
-            ),
-            {"family_uuid": family_uuid},
-        )
-    ).scalar_one_or_none()
-    flag = read_import_flag(raw)
+    Frozen: when (``at``), the failed and the imported datasets (sorted, for a stable hash),
+    the flag's job, the job of each failed dataset's latest failure (``failed_jobs``: None for
+    one that failed outside an import job -- in a single-file upload, or an import run
+    outside a job -- whose error the flag's own job does not hold) and the analyses its
+    failures are of (``failed_analysis_types``). A dataset that failed for more than one scope
+    (another callset, other samples) is named once; the flag keeps every scope
+    (``failed_scopes``), which is not frozen. Raises ``ImportMarkShapeError`` for a flag in
+    another shape (``family_package_registration.read_import_flag``)."""
+    flag = read_import_flag(raw) if scope.whole else analysis_import_flag(raw, scope.holds_mark)
     if flag is None:
         return None
     failed = sorted(set(flag["failed_datasets"]))
@@ -555,39 +540,89 @@ async def _import_incomplete_state(
         "job_id": flag["job_id"],
         # None: it failed outside an import job.
         "failed_jobs": {name: flag["failed_jobs"][name] for name in failed},
+        "failed_analysis_types": {name: list(flag["failed_analysis_types"][name]) for name in failed},
     }
 
 
+async def _import_incomplete_state(
+    session: AsyncSession, family_uuid: str, scope: SignoutScope
+) -> dict[str, Any] | None:
+    """What the family's package imports left incomplete of the analysis signed out
+    (``scope``), or None when nothing is (``frozen_import_flag``).
+
+    A family-package import that partly fails keeps the family and the datasets that did
+    import, and stamps ``families.metadata.import_incomplete`` with when it ran, which
+    datasets failed, which imported and the import job whose record holds each dataset's
+    error (``family_package_registration._flag_family_import_incomplete``); a later,
+    fully successful import of the same analysis removes it. Frozen into the snapshot and
+    gating sign-out, so a report on partly loaded data is never released as if it were
+    complete. A flag in a shape the import does not write raises ``ImportMarkShapeError``, so
+    the sign-out fails and its gate stays closed."""
+    raw = (
+        await session.execute(
+            text(
+                "SELECT metadata -> 'import_incomplete' FROM families "
+                "WHERE id = CAST(:family_uuid AS uuid)"
+            ),
+            {"family_uuid": family_uuid},
+        )
+    ).scalar_one_or_none()
+    return frozen_import_flag(raw, scope)
+
+
+def frozen_unfinished_entries(raw: Any, scope: SignoutScope) -> dict[str, dict[str, Any]]:
+    """The family's stored ``import_unfinished`` map (``raw``) as a sign-out of ``scope``
+    freezes it: each entry of the analysis signed out or of no analysis
+    (``SignoutScope.holds_mark``), by its key, and each entry a failed overwrite's restore
+    left, whichever analysis's import it was: the restore rewrote the whole family's rows.
+
+    Frozen: its job, when it began (``at``), the analysis it is of (``analysis_type``: an
+    import's package record, None for an upload's or a deletion's mark), its datasets and
+    those it finished, sorted for a stable hash; and ``whole_family`` true for a restore's
+    entry (``family_package_registration.whole_family_entry``), so the gate, its dialog and
+    the signed record describe it as that restore, not as an import that stopped. Only then
+    is the key set. Raises ``ImportMarkShapeError`` for an entry in another shape
+    (``family_package_registration.read_unfinished_entries``)."""
+    frozen: dict[str, dict[str, Any]] = {}
+    for key, entry in read_unfinished_entries(raw).items():
+        # An upload's or a deletion's mark lists its items the same way, but is no restore.
+        restore = unfinished_entry_writer(key) == "import" and is_whole_family_entry(entry)
+        if not restore and not scope.holds_mark(entry[MARK_ANALYSIS_KEY]):
+            continue
+        frozen[key] = {
+            "job_id": entry["job_id"],
+            "at": entry["at"],
+            MARK_ANALYSIS_KEY: entry[MARK_ANALYSIS_KEY],
+            "datasets": sorted(set(entry["datasets"])),
+            "finished_datasets": sorted(set(entry["finished_datasets"])),
+        }
+        if restore:
+            frozen[key]["whole_family"] = True
+    return frozen
+
+
 async def _import_unfinished_state(
-    session: AsyncSession, family_uuid: str
+    session: AsyncSession, family_uuid: str, scope: SignoutScope
 ) -> dict[str, dict[str, Any]]:
-    """The family's package imports that began writing it and did not finish, by their
-    key in ``families.metadata.import_unfinished``; empty when there are none.
+    """The writes of the family's data that began and did not finish, of the analysis signed
+    out (``scope``), by their key in ``families.metadata.import_unfinished``; empty when there
+    are none (``frozen_unfinished_entries``).
 
     An import records its entry there before its first write of the family and removes it
     when it ends, completed, failed (and flagged import_incomplete) or put back
     (``family_package_registration.ImportMark``). So an entry outlives only an import whose
     process stopped part-way -- a restart, a crash, running out of memory -- and the
-    datasets it had not finished may be partly written or missing. A later import removes
-    it only by importing those again with overwrite. Frozen into the snapshot beside
-    ``import_incomplete`` and gating sign-out with it, as one gate.
+    datasets it had not finished may be partly written or missing. A later import of the
+    same analysis removes it only by importing those again with overwrite. Frozen into the
+    snapshot beside ``import_incomplete`` and gating sign-out with it, as one gate.
 
     A single-file upload marks the family the same way before its first ClickHouse write
     (``family_package_registration.FamilyWriteMark``), and so does a deletion of the
     family's data that deletes or rewrites ClickHouse rows: an entry under a key
-    that says which (``unfinished_entry_writer``), with no job, listing what may be partly
-    written or missing. It reads and gates as an import's.
-
-    Each entry is read in the shape its writer writes
-    (``family_package_registration.read_unfinished_entries``); a value in any other shape
-    raises ``ImportMarkShapeError``, as the flag does. Dataset lists are frozen sorted, for a
-    stable hash.
-
-    The entry a failed overwrite's restore leaves when it does not finish (its datasets the
-    whole family's: ``family_package_registration.whole_family_entry``) is frozen with
-    ``whole_family`` true, so the gate, its dialog and the signed record describe it as that
-    restore, not as an import that stopped. Only then is the key set.
-    """
+    that says which (``unfinished_entry_writer``), with no job and of no analysis, listing
+    what may be partly written or missing. It reads and gates as an import's, for every
+    analysis. An entry in a shape its writer does not write raises ``ImportMarkShapeError``,
+    as the flag does."""
     raw = (
         await session.execute(
             text(
@@ -597,63 +632,29 @@ async def _import_unfinished_state(
             {"family_uuid": family_uuid},
         )
     ).scalar_one_or_none()
-    state: dict[str, dict[str, Any]] = {}
-    for key, entry in read_unfinished_entries(raw).items():
-        state[key] = {
-            "job_id": entry["job_id"],
-            "at": entry["at"],
-            "datasets": sorted(set(entry["datasets"])),
-            "finished_datasets": sorted(set(entry["finished_datasets"])),
-        }
-        # An upload's or a deletion's mark lists its items the same way, but is no restore.
-        if unfinished_entry_writer(key) == "import" and is_whole_family_entry(entry):
-            state[key]["whole_family"] = True
-    return state
+    return frozen_unfinished_entries(raw, scope)
 
 
-def _scoped_import_incomplete(state: dict[str, Any] | None, scope: SignoutScope) -> dict[str, Any] | None:
-    """What the family's imports left incomplete of the analysis signed out (``scope``): its
-    datasets (``SignoutScope.holds_dataset``); None when none of them failed."""
-    if state is None or scope.whole:
-        return state
-    failed = [name for name in state["failed_datasets"] if scope.holds_dataset(name)]
-    if not failed:
-        return None
-    return {
-        **state,
-        "failed_datasets": failed,
-        "imported_datasets": [name for name in state["imported_datasets"] if scope.holds_dataset(name)],
-        "failed_jobs": {name: state["failed_jobs"][name] for name in failed},
-    }
+def _import_words(analysis_type: object) -> str:
+    """An import of a package of ``analysis_type`` (the analysis an import mark records), as
+    the gate message names it: "an import of this family's long-read WGS data", or "an
+    import" for one it has no label for (a package that named no analysis)."""
+    label = ANALYSIS_LABELS.get(str(analysis_type or ""))
+    return f"an import of this family's {label} data" if label else "an import"
 
 
-def _scoped_import_unfinished(state: dict[str, dict[str, Any]], scope: SignoutScope) -> dict[str, dict[str, Any]]:
-    """The unfinished writes of the family that touch the analysis signed out (``scope``), each
-    with its datasets of that analysis: a write that touched only other analyses' datasets is
-    left out. A failed overwrite's restore (``whole_family``) is the whole family's, kept whole."""
-    if scope.whole:
-        return state
-    scoped: dict[str, dict[str, Any]] = {}
-    for key, entry in state.items():
-        if entry.get("whole_family"):
-            scoped[key] = entry
-            continue
-        datasets = [name for name in entry["datasets"] if scope.holds_dataset(name)]
-        if entry["datasets"] and not datasets:
-            continue
-        scoped[key] = {
-            **entry,
-            "datasets": datasets,
-            "finished_datasets": [name for name in entry["finished_datasets"] if scope.holds_dataset(name)],
-        }
-    return scoped
+def _failed_dataset_words(name: str, analyses: Iterable[Any]) -> str:
+    """A failed dataset as the gate message names it: with the analyses whose imports it
+    failed in, those it has a label for ("snv (long-read WGS)")."""
+    labels = [ANALYSIS_LABELS[str(analysis)] for analysis in analyses if str(analysis) in ANALYSIS_LABELS]
+    return f"{name} ({', '.join(labels)})" if labels else name
 
 
 def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
-    """One unfinished import, as the gate message names it. An entry a single-file upload,
-    or a deletion of the family's data, left is named for what wrote it,
-    which its key says (``family_package_registration.unfinished_entry_writer``): the
-    snapshot freezes the key with the entry."""
+    """One unfinished import, as the gate message names it, with the analysis it was of. An
+    entry a single-file upload, or a deletion of the family's data, left is named for what
+    wrote it, which its key says (``family_package_registration.unfinished_entry_writer``):
+    the snapshot freezes the key with the entry."""
     when = f" ({entry['at']})" if entry.get("at") else ""
     finished = list(entry.get("finished_datasets") or [])
     pending = [name for name in entry.get("datasets") or [] if name not in finished]
@@ -668,14 +669,17 @@ def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
     if entry.get("whole_family"):
         # A failed overwrite whose restore did not finish: it rewrites the family's rows table
         # by table, whichever import or upload wrote them.
-        what = f"an import{when} failed, and putting this family's data back did not finish"
+        what = (
+            f"{_import_words(entry.get(MARK_ANALYSIS_KEY))}{when} failed, and putting this "
+            "family's data back did not finish"
+        )
         if pending:
             what += (
                 f", so {', '.join(pending)} may be partly written or missing, whichever import or "
                 f"upload wrote {'it' if len(pending) == 1 else 'them'}"
             )
         return f"{what}." + (f" Import job {job_id} records its failure." if job_id else "")
-    what = f"an import{when} stopped before it finished"
+    what = f"{_import_words(entry.get(MARK_ANALYSIS_KEY))}{when} stopped before it finished"
     if pending:
         what += f", so {', '.join(pending)} may be partly written or missing"
         if finished:
@@ -695,9 +699,11 @@ def _import_gate_message(
     if state is not None:
         failed = list(state.get("failed_datasets") or [])
         imported = list(state.get("imported_datasets") or [])
+        analyses = state.get("failed_analysis_types") or {}
         when = f" ({state['at']})" if state.get("at") else ""
         if failed:
-            what = f"the package import{when} failed for {', '.join(failed)}"
+            named = [_failed_dataset_words(name, analyses.get(name) or ()) for name in failed]
+            what = f"the package import{when} failed for {', '.join(named)}"
             if imported:
                 what += f" ({', '.join(imported)} did import)"
         else:
@@ -1367,12 +1373,8 @@ async def build_report_snapshot(
         if str(entry["variant_id"]) not in left_out.structural
     ]
     sequencing_qc = await _canonical_sequencing_qc(session, context, scope)
-    import_incomplete = _scoped_import_incomplete(
-        await _import_incomplete_state(session, context.family_uuid), scope
-    )
-    import_unfinished = _scoped_import_unfinished(
-        await _import_unfinished_state(session, context.family_uuid), scope
-    )
+    import_incomplete = await _import_incomplete_state(session, context.family_uuid, scope)
+    import_unfinished = await _import_unfinished_state(session, context.family_uuid, scope)
     package_source_changes = [
         change
         for change in await _package_source_changes_state(session, context.family_uuid)

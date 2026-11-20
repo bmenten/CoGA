@@ -57,6 +57,7 @@ from backend.app.services import family_package_registration as registration
 from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_package_common import ImportRefused
+from backend.app.services.signout_scope import WHOLE_FAMILY
 from backend.tests._family_import_fakes import admin_user, no_variant_copy, two_sample_context
 from backend.tests._kept_manifest import kept_manifest
 
@@ -825,6 +826,7 @@ async def _sign_out_reads(job: _Store) -> dict[str, Any] | None:
     return await report_signout_service._import_incomplete_state(
         _FlagRead(job.incomplete),  # type: ignore[arg-type]
         FAMILY_UUID,
+        WHOLE_FAMILY,
     )
 
 
@@ -835,6 +837,7 @@ async def _unfinished_reads(job: _Store) -> dict[str, Any]:
     return await report_signout_service._import_unfinished_state(
         _FlagRead(job.unfinished or None),  # type: ignore[arg-type]
         FAMILY_UUID,
+        WHOLE_FAMILY,
     )
 
 

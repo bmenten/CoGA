@@ -568,6 +568,8 @@ async def execute_family_package_import(
     import_mark = ImportMark.begin(
         job_id=job_id,
         datasets=dataset_types,
+        # The analysis whose sign-out the import's marks gate: its package's record.
+        analysis_type=package_record_key(bundle.manifest.analysis_type),
         scopes=dataset_scopes(bundle, dataset_types),
     )
     logs.append("Registering family metadata and package provenance.")
@@ -702,6 +704,8 @@ async def _import_family_datasets(
     put back, it is flagged import-incomplete, as for any failed import. The job ends failed
     with ``package_changed_during_import``, and the package list offers the folder again."""
     import_key = import_mark.key if import_mark is not None else None
+    # The analysis each mark this import leaves is of: its package's record.
+    analysis_type = package_record_key(bundle.manifest.analysis_type)
     # The import as the phenotypes' audit events name it: who runs it, the package (by the
     # folder it was read from, as its log says) and its job.
     phenotype_import = PhenotypeImport(
@@ -960,7 +964,7 @@ async def _import_family_datasets(
             # family's data was imported from, which a sign-out compares the package folder with
             # (package_changed_after_import).
             await put_back_family_package_record(
-                session, family_context.family_uuid, package_record_key(bundle.manifest.analysis_type)
+                session, family_context.family_uuid, analysis_type
             )
             restored = True
             logs.append(
@@ -1006,6 +1010,7 @@ async def _import_family_datasets(
                     failed_datasets=failed_datasets,
                     imported_datasets=imported_datasets,
                     job_id=job_id,
+                    analysis_type=analysis_type,
                     import_key=import_key,
                     scopes=flag_scopes,
                     imported_scopes=imported_scopes,
@@ -1039,6 +1044,7 @@ async def _import_family_datasets(
                         failed_datasets=flagged_failed,
                         imported_datasets=[],
                         job_id=job_id,
+                        analysis_type=analysis_type,
                         scopes=flag_scopes,
                     )
                 logs.append(_restore_failed_message(flagged_failed, whole))
@@ -1049,6 +1055,7 @@ async def _import_family_datasets(
             failed_datasets=failed_datasets,
             imported_datasets=imported_datasets,
             job_id=job_id,
+            analysis_type=analysis_type,
             import_key=import_key,
             scopes=flag_scopes,
             imported_scopes=imported_scopes,
@@ -1091,6 +1098,7 @@ async def _import_family_datasets(
             left = await _clear_family_import_incomplete(
                 session,
                 family_context,
+                analysis_type=analysis_type,
                 import_key=import_key,
                 rewritten=imported_scopes if conflict_mode == "overwrite" else {},
                 imported=imported_scopes,

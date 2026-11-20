@@ -748,10 +748,20 @@ completes without that leaves the flag, and says so in its log.
   something it does not say: reading it raises (`ImportMarkShapeError`). A sign-out that meets one
   fails, so its gate stays closed. An import, upload or deletion that meets one leaves it as
   stored; an upload or a deletion fails on it.
+- Each failure records the analysis of the import it failed in (`analysis_type`: the key of its
+  package's record, `unspecified` for a package that named no analysis; none for an upload's), when
+  it failed and what that import did import; `failed_analysis_types` lists, for each failed
+  dataset, the analyses its failures are of. A family of several analyses shares dataset types
+  (a short-read and a long-read package both carry `snv`, `qc` and `alignments`), so the dataset
+  alone cannot say whose a failure is. The same scope failing in two analyses' imports is two
+  failures, and only an import of the same analysis, or an upload, brings a failure of an analysis
+  again: each analysis's sequencing QC, alignments and pipeline record are its own. The sign-out
+  of one analysis is gated by its own failures and those of no analysis
+  ([clinical-traceability.md](clinical-traceability.md#one-sign-out-per-analysis)).
 
 **An import that stops part-way.** Nothing runs in an ended process, so none of the above
 happens. Therefore an import marks the family before it writes anything of it: an entry in
-`families.metadata.import_unfinished` (its job, its start time, its datasets). It records each
+`families.metadata.import_unfinished` (its job, its start time, its analysis, its datasets). It records each
 dataset it finishes there, and removes the entry when it ends, unless its restore failed part-way
 (below). An entry that stays names an import that stopped, and the datasets it had not finished,
 which may be partly written or missing.
@@ -2790,7 +2800,8 @@ upload's clean-up. So the small-variant, structural-variant and interval-track u
 family before their first write to ClickHouse, as an import does ([The import job](#the-import-job)).
 
 The mark is an entry in `families.metadata.import_unfinished` under a key of its own (`upload-` and
-an id), with no import job, written and committed apart from the upload (whose transaction holds
+an id), with no import job and of no analysis (`analysis_type` null: what an upload brings is every
+analysis's, so its mark holds each analysis's sign-out), written and committed apart from the upload (whose transaction holds
 the family's write locks until it commits). It lists what the upload may leave partly written or
 missing, each dataset with its scope as the table above records it, one sample at a time:
 

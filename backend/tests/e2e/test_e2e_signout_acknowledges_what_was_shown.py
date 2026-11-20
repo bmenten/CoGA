@@ -71,7 +71,20 @@ def _flag(failed: list[str], jobs: dict[str, str], job_id: str) -> dict[str, Any
         "imported_datasets": ["coverage"],
         "job_id": job_id,
         "failed_jobs": jobs,
-        "failed_scopes": {name: [{"scope": _SCOPES[name], "job_id": jobs[name]}] for name in failed},
+        # The package named no analysis.
+        "failed_analysis_types": {name: ["unspecified"] for name in failed},
+        "failed_scopes": {
+            name: [
+                {
+                    "scope": _SCOPES[name],
+                    "job_id": jobs[name],
+                    "analysis_type": "unspecified",
+                    "at": "2026-10-27T10:14:00+00:00",
+                    "imported_datasets": ["coverage"],
+                }
+            ]
+            for name in failed
+        },
     }
 
 

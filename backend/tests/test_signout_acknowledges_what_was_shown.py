@@ -91,6 +91,7 @@ def _flag(failed: list[str], *, at: str = "2026-10-27T10:14:00+00:00") -> dict:
         "imported_datasets": ["coverage"],
         "job_id": _JOB_1,
         "failed_jobs": {name: _JOB_1 for name in failed},
+        "failed_analysis_types": {name: ["unspecified"] for name in failed},
     }
 
 
@@ -147,10 +148,10 @@ def family(monkeypatch) -> _Family:
     async def _sequencing_qc(session, context, scope=None):
         return {"analyses": {}}
 
-    async def _import_incomplete(session, family_uuid):
+    async def _import_incomplete(session, family_uuid, scope):
         return copy.deepcopy(state.import_incomplete)
 
-    async def _import_unfinished(session, family_uuid):
+    async def _import_unfinished(session, family_uuid, scope):
         return copy.deepcopy(state.import_unfinished)
 
     async def _package_source_change(session, family_uuid):
@@ -410,7 +411,13 @@ def test_an_import_failure_that_arose_after_the_dialog_is_refused_with_the_new_c
 
     # An import that stops part-way is a concern of the same gate.
     family.import_unfinished = {
-        _JOB_2: {"job_id": _JOB_2, "at": "2026-10-27T12:00:00+00:00", "datasets": ["coverage"], "finished_datasets": []}
+        _JOB_2: {
+            "job_id": _JOB_2,
+            "at": "2026-10-27T12:00:00+00:00",
+            "analysis_type": "unspecified",
+            "datasets": ["coverage"],
+            "finished_datasets": [],
+        }
     }
     status, stopped = _refusal(
         acknowledge_import_incomplete=True,
