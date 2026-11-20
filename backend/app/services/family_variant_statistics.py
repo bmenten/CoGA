@@ -197,8 +197,11 @@ def mendelian_class(child: int, father: int, mother: int) -> str | None:
 
 
 def _family_where(context: FamilyMetadataContext, params: dict[str, Any], *, alias: str = "") -> list[str]:
-    """The family's rows of its directly called nuclear callsets."""
+    """The family's rows of its directly called nuclear callsets, of the analysis the family is
+    read for (``context.scope``; analysis_scope.py): one of a family that holds several
+    analyses with small variants of their own must be named."""
     prefix = f"{alias}." if alias else ""
+    left_out = context.scope.require_named().left_out_sources("small_variants")
     params["family_guid"] = context.family_uuid
     params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
     params["mitochondrial_chromosomes"] = _MITOCHONDRIAL_ALIASES
@@ -211,6 +214,9 @@ def _family_where(context: FamilyMetadataContext, params: dict[str, Any], *, ali
     if context.project_ids:
         params["project_ids"] = tuple(context.project_ids)
         clauses.append(f"{prefix}project_guid IN %(project_ids)s")
+    if left_out:
+        params["scope_left_out_sources"] = tuple(sorted(left_out))
+        clauses.append(f"{prefix}source NOT IN %(scope_left_out_sources)s")
     return clauses
 
 
@@ -226,6 +232,10 @@ async def _source_names(context: FamilyMetadataContext, entries: str) -> list[st
     if context.project_ids:
         params["project_ids"] = tuple(context.project_ids)
         clauses.append("project_guid IN %(project_ids)s")
+    left_out = context.scope.require_named().left_out_sources("small_variants")
+    if left_out:
+        params["scope_left_out_sources"] = tuple(sorted(left_out))
+        clauses.append("source NOT IN %(scope_left_out_sources)s")
     rows = await _execute_clickhouse(
         f"SELECT DISTINCT source FROM {entries} WHERE {' AND '.join(clauses)} ORDER BY source LIMIT 50",
         params,

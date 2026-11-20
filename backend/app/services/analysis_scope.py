@@ -47,6 +47,10 @@ class AnalysisScope:
 
     analysis: str | None = None
     left_out: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    # The members only the family's other analyses' packages list (a second sample of a person,
+    # linked as the same individual, sequenced for another analysis): a reading of ``analysis``
+    # neither requires nor reads their calls.
+    left_out_members: frozenset[str] = frozenset()
     # The analyses among which a reading must name one: set only when none was named and the
     # family holds several analyses with small variants of their own.
     unnamed_among: tuple[str, ...] = ()
@@ -114,11 +118,25 @@ def analysis_scope(metadata: Mapping[str, Any] | None, analysis: str | None = No
         else:
             return WHOLE_FAMILY_SCOPE
     left_out: dict[str, set[str]] = {kind: set() for kind in SOURCE_KINDS}
+    own_members: set[str] = set()
+    other_members: set[str] = set()
     for key, record in family_package_records(metadata).items():
-        if key != analysis and key in held:
+        if key == analysis:
+            own_members.update(_record_members(record))
+        elif key in held:
             for kind, names in record_sources(record).items():
                 left_out[kind].update(names)
-    return AnalysisScope(analysis=analysis, left_out={kind: frozenset(names) for kind, names in left_out.items()})
+            other_members.update(_record_members(record))
+    return AnalysisScope(
+        analysis=analysis,
+        left_out={kind: frozenset(names) for kind, names in left_out.items()},
+        left_out_members=frozenset(other_members - own_members),
+    )
+
+
+def _record_members(record: Mapping[str, Any]) -> list[str]:
+    members = record.get("members")
+    return [str(member) for member in members] if isinstance(members, list) else []
 
 
 def review_belongs(scope_analysis: str | None, held: frozenset[str], review_analysis: object) -> bool:

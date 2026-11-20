@@ -1803,10 +1803,15 @@ def _structural_variant_out(
 def _family_affected_unaffected_sample_names(
     context: FamilyMetadataContext,
 ) -> tuple[list[str], list[str]]:
+    """The affected and the unaffected members' samples an inheritance mode reads, of the
+    analysis the family is read for: a member only another analysis's package lists (a person's
+    second sample, sequenced for that analysis) is neither required nor read, as the analysis's
+    callset holds no call of it (``AnalysisScope.left_out_members``)."""
+    left_out = context.scope.left_out_members
     affected_sample_names = [
         sample_name
         for sample_name in context.affected_sample_names
-        if sample_name in context.sample_name_to_uuid
+        if sample_name in context.sample_name_to_uuid and sample_name not in left_out
     ]
     affected_sample_set = set(affected_sample_names)
     unaffected_sample_names = [
@@ -1815,6 +1820,7 @@ def _family_affected_unaffected_sample_names(
         if str(row.get("sample_id") or "").strip()
         and str(row.get("clinical_status") or "").lower() == "unaffected"
         and str(row.get("sample_id") or "").strip() not in affected_sample_set
+        and str(row.get("sample_id") or "").strip() not in left_out
     ]
     return affected_sample_names, unaffected_sample_names
 
