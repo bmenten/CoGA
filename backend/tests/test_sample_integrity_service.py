@@ -79,7 +79,7 @@ def _stub_reads(monkeypatch, *, context: FamilyMetadataContext, sources: list[st
     """The QC's reads: the family's metadata context and record, its callsets, and the
     genotype sample ``sample(scope, limit, source)`` of a callset."""
 
-    async def _fake_context(session, *, family_identifier, user, project_id=None):
+    async def _fake_context(session, *, family_identifier, user, project_id=None, analysis=None):
         return context
 
     async def _fake_get_family(session, family_id, user):

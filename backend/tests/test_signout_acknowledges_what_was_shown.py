@@ -136,7 +136,8 @@ def family(monkeypatch) -> _Family:
         }
 
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         return copy.deepcopy(state.qc)
 

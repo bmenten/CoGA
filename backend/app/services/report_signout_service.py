@@ -1353,6 +1353,7 @@ async def build_report_snapshot(
         # The QC of the analysis signed out, on genotypes of its own callset.
         analysis_types=None if scope.whole or analysis is None else [analysis],
         genotype_source_held=None if scope.whole else lambda source: scope.holds("small_variants", [source]),
+        analysis=None if scope.whole else analysis,
     )
     # Each with the class its review shows, by the family page's rule.
     reported = [

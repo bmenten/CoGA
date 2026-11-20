@@ -405,16 +405,18 @@ async def get_family_sample_integrity_qc(
     shared_nipt: SharedNiptAnalysis | None = None,
     analysis_types: Sequence[str] | None = None,
     genotype_source_held: Callable[[str], bool] | None = None,
+    analysis: str | None = None,
 ) -> SampleIntegrityReport:
     """The family's sample-integrity QC. A monogenic NIPT family's NIPT checks read
     ``shared_nipt``'s analysis when given one: a sign-out's, which its record's NIPT section
     reads too.
 
-    A sign-out of one of the family's analyses runs that analysis's QC: ``analysis_types`` names
-    it in place of the family's, and the genotypes are read from a callset of its own
-    (``genotype_source_held``, ``signout_scope``)."""
+    A sign-out of one of the family's analyses (``analysis``) runs that analysis's QC:
+    ``analysis_types`` names it in place of the family's, the genotypes are read from a callset
+    of its own (``genotype_source_held``, ``signout_scope``), and its members are checked: a
+    member only another analysis's package lists is not (``AnalysisScope.left_out_members``)."""
     context = await build_family_metadata_context(
-        session, family_identifier=family_id, user=user, project_id=project_id
+        session, family_identifier=family_id, user=user, project_id=project_id, analysis=analysis
     )
     family = await get_family_record(session, family_id, user)
     types = (
@@ -426,7 +428,7 @@ async def get_family_sample_integrity_qc(
 
     spec = _build_pedigree_spec(context)
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
-    samples = sorted(context.sample_name_to_uuid)
+    samples = sorted(name for name in context.sample_name_to_uuid if name not in context.scope.left_out_members)
 
     application = resolve_application(
         analysis_types=types,

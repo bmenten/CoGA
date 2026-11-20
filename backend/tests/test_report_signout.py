@@ -167,7 +167,8 @@ def _patch_common(
         return None
 
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         # Sample QC is computed inside build_report_snapshot; stub it with a
         # parameterizable overall_status (default "pass" -> the QC gate stays open).
@@ -870,7 +871,8 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
             return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
 
         async def _qc(
-            session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+            session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
         ):
             return SampleIntegrityReport(overall_status="pass")
 
@@ -1009,7 +1011,8 @@ def test_sample_qc_is_bound_into_content_hash(monkeypatch) -> None:
 
 def _patch_qc_report(monkeypatch, report: SampleIntegrityReport) -> None:
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         return report
 
@@ -4647,7 +4650,8 @@ def _scoped_patches(monkeypatch, seen: dict, *, left_out: ReviewsLeftOut) -> Non
         return {"checked": 0, "drifted_count": 0, "drifted": [], "structural": _NO_STRUCTURAL_DRIFT}
 
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         seen["qc"] = (analysis_types, genotype_source_held)
         return SampleIntegrityReport(overall_status="pass")
