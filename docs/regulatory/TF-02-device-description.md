@@ -26,10 +26,11 @@
 ## 2. Intended purpose
 
 See [TF-01 Intended Purpose Statement](TF-01-intended-purpose.md). CoGA is decision-support
-software for genomic variant interpretation across six clinical applications (monogenic
+software for genomic variant interpretation across seven clinical applications (monogenic
 NIPT, expanded carrier screening, PGT, rare-disorder diagnostics from long-read and from
-short-read whole-genome sequencing, and combined mtDNA + nuclear mitochondrial-disease testing
-from ONT long-read adaptive sampling).
+short-read whole-genome sequencing, combined mtDNA + nuclear mitochondrial-disease testing
+from ONT long-read adaptive sampling, and conventional NIPT screening for fetal aneuploidy from
+the copy number of maternal plasma).
 
 ## 3. Device boundary
 
@@ -68,7 +69,9 @@ drafted and medically signed in the EPD and refers 1:1 to that analysis* (owner 
 **Explicitly upstream / not part of CoGA:** base-calling, demultiplexing, alignment,
 variant calling, annotation, per-target coverage computation (for monogenic NIPT, CoGA
 estimates the fetal fraction itself from the calls and takes no externally supplied value),
-imputation/phasing computation (CoGA consumes phased/imputed markers). The provenance and
+imputation/phasing computation (CoGA consumes phased/imputed markers), and the conventional
+NIPT's copy number, segmentation, z-scores and fetal-fraction estimates (the laboratory's ccnv
+pipeline computes them; CoGA applies its result rule to them). The provenance and
 versions of these upstream modules are captured per family and frozen into the signed-out
 analysis ([clinical-traceability.md](../clinical-traceability.md)).
 
@@ -87,6 +90,7 @@ The reference is written into the report by the person who drafts it.
 | Per-target coverage table | Per capture target: mean and median depth and the share of its bases covered (the NIPT-M pipeline's `coverage_<sample>.txt`), stored as the sample's target-coverage track | NIPT (coverage QC, the plasma's sex profile, a sample's depth where its VCF has no call) |
 | Phased/imputed markers | Per-site phased genotypes for haplotype segregation | PGT |
 | Repeat expansions (TRGT), Paraphase, mtDNA results | Per-sample specialized caller outputs; the **complete-mtDNA** call set from ONT adaptive sampling drives the mitochondrial app | Rare-disorder, mitochondrial (3.5) |
+| Conventional NIPT copy-number output (ccnv, prenatal mode) | Per maternal plasma: the copy number in 100-kb bins and the segments (log2 ratio, z-score, expected ratio, implied fetal fraction, discordance, origin), stored as the plasma's log2-ratio tracks; the gain and loss calls VCF, stored as its structural variants; the QC file (the fetal-fraction estimates, the fetal sex, the sex-chromosome call, the limits of detection, ccnv's warnings), kept under the sample. The import refuses files that are not one run's result (REQ-CNIPT-001) | Conventional NIPT (3.7) |
 | Copy-number VCF (depth-based caller) | Per-sample CNV calls with copy number, confidence intervals and overlapping genes; ingested as reviewable structural variants alongside the alignment-based SV calls | Rare-disorder, PGT |
 | mtDNA annotation table | Per-variant heteroplasmy level, coverage, haplogroup assignment and mtDNA population frequency accompanying the chrM call set | Mitochondrial (3.5) |
 | Sequencing QC | Per-sample read metrics (length, quality, N50, yield) and per-chromosome depth, plus the location of the pipeline's rendered QC report | All |
@@ -105,6 +109,7 @@ The reference is written into the report by the person who drafts it.
 | Variant summary | Per family and member, what each kind of variant data holds; for small variants the genotypes, types, Ti/Tv, consequences and call quality, and for each child with both parents the Mendelian inconsistencies per autosome and callset. No filter, classification or sign-out reads it (REG-15) | In-app user guide (*Structural variants, repeats, Paraphase and mtDNA*) |
 | Semi-automatic ACMG/AMP classifier | Pre-position ACMG criteria, server-recompute points/class on save; overridable | In-app reference ([source](../../frontend/src/content/docs/acmg-classification.md)); [acmg-classification.md](../acmg-classification.md) |
 | Monogenic-NIPT analysis | Fetal-fraction estimation, cfDNA quality filter, 8-category VAF zygosity classification with fetal-inheritance probabilities, de novo triage, inheritance views with the per-gene recessive fetal risk, quality checks (paternity, fetal sex, maternal-plasma sample, target coverage), coverage/QC funnels | [monogenic-nipt.md](../monogenic-nipt.md) |
+| Conventional-NIPT result | A fixed rule of z-score and fetal-fraction concordance over ccnv's segments and QC, with bounds QA sets in the QC-threshold profile `nipt_conventional` (a provisional value where QA has set none, named on the result): a result per target (each autosome, the sex chromosomes, the segmental CNVs: high risk, inconclusive, low risk, no result, not assessed), each with its reasons and whether the intended purpose claims it; the cNIPT page; the ccnv tracks in the genome and chromosome views with the fetal trisomy and monosomy lines (REQ-CNIPT-001…011) | [conventional-nipt.md](../conventional-nipt.md) |
 | PGT haplotype segregation | Pedigree-IBD founder colouring, disease-haplotype inference, derived embryo classification + QC | [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md) |
 | Structural / CNV / aneuploidy review | SV second-hit; each sample's segment, copy-number and APCAD tracks, on which the analyst judges an embryo's aneuploidy and large SVs (CoGA makes no automatic aneuploidy call, REQ-PGT-008) | [snv-sv-compound-het.md](../snv-sv-compound-het.md) |
 | Repeat / Paraphase / mtDNA | Specialized per-data-type views | README |
@@ -115,7 +120,7 @@ The reference is written into the report by the person who drafts it.
 
 - Filtered/prioritized candidate-variant lists with annotations and internal/external frequencies.
 - Semi-automatic ACMG/AMP classification (5-class + VUS sub-tier), fully overridable, server-recomputed.
-- Application-specific derived calls: NIPT fetal-fraction + per-variant category and fetal-inheritance probabilities, triaged de novo candidates, per-gene recessive fetal risk and quality checks; PGT per-embryo ROI classification with QC. For the analyst's aneuploidy and large-SV review, each embryo's segment, copy-number and APCAD tracks (no automatic aneuploidy call).
+- Application-specific derived calls: NIPT fetal-fraction + per-variant category and fetal-inheritance probabilities, triaged de novo candidates, per-gene recessive fetal risk and quality checks; the conventional NIPT's screening result per target, with its reasons, findings and bounds, each target outside the claim (the other autosomes, the segmental CNVs) marked *outside the validated claim*; PGT per-embryo ROI classification with QC. For the analyst's aneuploidy and large-SV review, each embryo's segment, copy-number and APCAD tracks (no automatic aneuploidy call).
 - A **signed-out analysis** (the family report, signed out by a supervisor: the analytical sign-off) with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen and content-hashed, rendered and printed from its frozen record, and downloadable; the live report says when it no longer matches the latest signed version (TF-06 H9). The clinical report is not a CoGA output: it is drafted and medically signed in the EPD and refers 1:1 to a signed version (§3).
 
 **Which outputs are signed.** The sign-out freezes an analysis of the family into one signed record,
@@ -141,6 +146,13 @@ analysis's data (the owner's decisions of 2026-11-19).
   estimate; the quality checks with their verdicts; the target coverage; each variant tagged
   for the report, with its category, fetal-inheritance probabilities and, for a de novo
   candidate, its triage; and the recessive fetal risk of those variants' genes.
+- **A conventional NIPT family's** analysis is signed out from the report page, which shows the
+  live cNIPT result above the reported findings. Its record also holds the section `cnipt`: each
+  maternal plasma's result as the cNIPT page shows it (each target's verdict, reasons and whether
+  the intended purpose claims it; the findings with ccnv's values; the fetal fractions, fetal sex
+  and sex-chromosome call; the warnings), the bounds it applied, each QA's or provisional, and its
+  inputs (a digest of the kept QC, the number and a digest of the segments read, the segments
+  files). The ccnv calls tagged for the report are frozen like any reported CNV.
 - **The record holds no** gene or phenotype context, no population frequencies or in silico
   predictions beyond those a small variant's classification froze in its evidence snapshot, and
   no NIPT candidate that is not tagged for the report (TF-09b §3).
@@ -180,7 +192,7 @@ These are product features and also risk controls / GSPR evidence:
 - **Immutable, append-only clinical audit trail** (who classified/tagged/edited/signed, with field-level deltas).
 - **Frozen, versioned, SHA-256 content-hashed case sign-out**, the analytical sign-off (by a supervisor) that closes the analysis; the clinical report in the EPD refers 1:1 to a signed version (§3). Amendments create new versions; signed snapshots are never changed.
   - Sign-out is **refused**, with no override, for a family on an assembly outside the validated set, and while the family's data is being written: an import of it queued or running, or another write holding its variant-write locks (a sign-out shares those locks while it reads its snapshot, TF-06 H16).
-  - Sign-out is **blocked**, until the analyst records a reason, by unacknowledged evidence drift, by a failed or unverifiable Sample QC, and by an incomplete import (an import that failed for some datasets, or an import, upload or deletion that did not finish, REQ-TRACE-013).
+  - Sign-out is **blocked**, until the analyst records a reason, by unacknowledged evidence drift, by a failed or unverifiable Sample QC (for a monogenic NIPT, also a failed NIPT quality check; for a conventional NIPT, a maternal plasma without a result or a result that rests on a provisional bound, REQ-CNIPT-011), and by an incomplete import (an import that failed for some datasets, or an import, upload or deletion that did not finish, REQ-TRACE-013).
 - A signed version is **rendered and printed from its frozen record** alone, and says what that record does not hold (REQ-TRACE-007). The live report is labelled as not the signed version and is **checked against the latest signed version**: it says when the two differ. The signed version can be downloaded.
 - **Server-side recomputation** of ACMG scores so stored classifications never depend on the browser.
 
@@ -192,7 +204,9 @@ CoGA is one device with per-application configuration (assay tags, gene panels, 
 presets), not separate software variants. Configuration items under control: gene-panel
 definitions and their source version, ACMG criterion pre-positioning rules, NIPT artifact
 lists (per assay/panel; seeded from the assay's cfDNA samples or imported from the NIPT-M
-pipeline's recurrent-artefact table), reference-data releases. **TF-18** governs
+pipeline's recurrent-artefact table), the conventional NIPT rule's bounds (the QC-threshold
+profile `nipt_conventional`, each change with its reason in the append-only history),
+reference-data releases. **TF-18** governs
 configuration management.
 
 ## 10. Operating environment & deployment

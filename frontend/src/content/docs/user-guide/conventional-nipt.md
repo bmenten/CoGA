@@ -1,7 +1,13 @@
 A conventional NIPT screens a pregnancy for aneuploidies and copy-number changes from the genome-wide
 copy number of the **maternal plasma**. The laboratory's tool, ccnv, measures it; CoGA draws it and gives
 an **automatic screening result per target**. A high-risk result calls for confirmatory diagnostic
-testing.
+testing; a low-risk result does not exclude an aneuploidy.
+
+The validated claim covers **trisomies 21, 18 and 13 and the sex-chromosome aneuploidies**, in
+pregnancies of more than 12 weeks, singleton or twin. Triplets or more, a vanishing twin, a maternal
+organ or bone-marrow transplant or a blood transfusion in the months before sampling, and a known
+maternal malignancy are outside the validated scope. A twin pregnancy gets one result, which does not
+say which fetus a finding concerns.
 
 ### Setting up a conventional NIPT family
 
@@ -15,6 +21,9 @@ page then shows a **cNIPT** tab.
 - **The result** lists chromosomes 21, 18 and 13, the sex chromosomes and the segmental CNVs first, each
   **High risk**, **Inconclusive**, **Low risk**, **No result** or **Not assessed**, with why. Another
   autosome is listed with them when it is not low risk; every autosome is under *Every other autosome*.
+  The segmental CNVs and every autosome other than 21, 18 and 13 are marked **outside the validated
+  claim**, here, on the report page and in the signed version: screen them as findings outside the
+  claim.
 - **The maternal plasma** gives the fetal fraction the result uses (ccnv's effective one) and every other
   estimate, the fetal sex and the sex-chromosome call, the resolution (from which size segmental CNVs are
   assessed at this fetal fraction), and ccnv's warnings.

@@ -594,7 +594,8 @@ same object from the same code (`cnipt_service.family_cnipt_results`, `cnipt_res
 order (`samples`):
 
 - the status (`result`, or `no_result` with its reasons) and each target's verdict with its reasons
-  (each autosome, `sex_chromosomes`, `segmental`);
+  (each autosome, `sex_chromosomes`, `segmental`) and whether the intended purpose claims it
+  (`claimed`: chromosomes 21, 18 and 13 and the sex chromosomes);
 - the findings the rule looked at, each with ccnv's values (log2 ratio, z-score, implied fetal
   fraction, discordance, origin), whether it is read as an aneuploidy or a segmental CNV, and its
   verdict;
@@ -1097,7 +1098,8 @@ nothing else (`frontend/src/pages/families/signedReportRecord.ts` reads it). It 
   family's record shows or mentions PGT or NIPT results;
 - in a conventional NIPT family, its results (*Conventional NIPT results*): per maternal plasma the
   verdict of chromosomes 21, 18 and 13, the sex chromosomes and the segmental CNVs, then every other
-  autosome that is not low risk and a line for the rest; the fetal fractions, fetal sex and
+  autosome that is not low risk and a line for the rest, each target the record does not mark
+  `claimed` named *outside the validated claim*, and the claim stated; the fetal fractions, fetal sex and
   sex-chromosome call; the findings; the bounds, each QA's or provisional, with a note when any was
   provisional; and the inputs (the QC file and its digest, the segments read and their digest, and
   the files they were loaded from);

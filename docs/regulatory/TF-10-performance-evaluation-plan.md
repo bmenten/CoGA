@@ -57,6 +57,7 @@ the intended workflow, and CoGA's outcome is compared with the comparator.
 | Rare-disorder diagnostics (short-read WGS) | **🔲 (define)** | **🔲 N (define)** | 🔲 (define) |
 | Monogenic NIPT | **Monogenic NIPT samples** | **30 samples** | Validated comparator (‹invasive confirmatory genotype / established NIPT result / known fetal genotype›) |
 | Mitochondrial disease (ONT adaptive sampling) | **mtDNA + nuclear mito-gene cases** | **🔲 N (define)** | Validated comparator (‹established mtDNA assay + nuclear mito-gene NGS result; orthogonal heteroplasmy quantitation›) |
+| Conventional NIPT | **Maternal plasmas** (singleton and twin pregnancies, > 12 weeks) | **🔲 N (define)** | **The laboratory's current routine NIPT method on the same plasmas**, with the **confirmed diagnosis** (karyotype, array, birth outcome) of the screen-positives |
 
 **Acceptance — carrier screening (C1).** CoGA's **sensitivity and specificity must be at least
 equal to the current gold-standard method**. 🔲 To make that criterion testable *before* the
@@ -133,6 +134,23 @@ agreement estimates.
 - **Metrics:** concordance of the reported causal/candidate SNV/indel(s) with the established diagnosis; ACMG-class concordance; de novo / inheritance-mode concordance; the callset read as GATK writes it (no FILTER of its own, physical phasing not taken for imputation).
 - **🔲 INPUT NEEDED:** validation set and N, comparator, acceptance criteria, and whether proband-only cases are included.
 
+### 3.7 Conventional NIPT (N to define)
+- **Units of analysis:** the screening result of each **claimed target** per maternal plasma: trisomy 21, trisomy 18, trisomy 13 and the sex-chromosome aneuploidies (45,X; 47,XXX; 47,XXY; 47,XYY) (TF-01 §3.7); and whether the plasma has a result at all.
+- **Inputs:** per maternal plasma, the ccnv pipeline's prenatal output (bins, segments, calls VCF, QC file); pedigree. The ccnv version of each plasma is recorded with the study (🔲 its output carries none yet, TF-01 §5).
+- **Design:** 🔲 retrospective, prospective or both, and the case selection (consecutive, or enriched for screen-positives) (INPUTS C5). Each plasma is analysed by the comparator and in CoGA; the analyst reads CoGA's result per target without the comparator's.
+- **Comparator ("truth"):** the laboratory's current routine NIPT method on the same plasmas; for the screen-positives, the confirmed diagnosis (karyotype, array, birth outcome) (owner, 2026-11-20; INPUTS C4c). 🔲 How the truth of a screen-negative is set (the comparator's result alone, or a birth outcome where it is known): the sensitivity and the NPV depend on it.
+- **Metrics, per claimed target:**
+  - sensitivity, specificity, PPV and NPV against the confirmed diagnosis, and agreement (PPA, NPA, OPA) with the comparator's result, each with its 95% CI;
+  - the **no-result rate** (a fetal fraction below its bound) and the **inconclusive rate**, beside the comparator's own rate of failed or uncalled samples;
+  - agreement of the fetal fraction (ccnv's effective estimate) with the comparator's, where the comparator gives one (bias and correlation, Bland–Altman).
+- **The rule's bounds:** the study counts only on bounds QA has set, which QA and the laboratory director confirm before it starts (TF-01 §3.7, §5). A result that rests on a provisional bound is not a study result. The bounds in force are recorded with the study; a later change of a bound is a change under [TF-18](TF-18-change-configuration-management.md).
+- **Twins:** in scope, and reported as a stratum of their own. The plasma gives one fetal fraction and one result, which does not say which fetus a finding concerns; an aneuploidy of one fetus lies at about half the fetal fraction.
+- **Excluded:** pregnancies outside the validated scope (gestational age ≤ 12 weeks; triplets or more; a vanishing twin; a maternal organ or bone-marrow transplant, or a blood transfusion in the months before sampling; a known maternal malignancy).
+- **Targets outside the claim:** the other autosomes and the segmental CNVs are recorded with each case, but not evaluated as claims (TF-01 §3.7).
+- **Safety-critical error:** a **low risk** on a claimed target where the confirmed diagnosis shows the aneuploidy. Each is adjudicated (CoGA's rule or bounds, the comparator, the upstream input, or the biology: confined placental mosaicism, a maternal copy-number change). 🔲 Whether a false low risk the comparator shares counts as a failure under §5 is part of the acceptance criteria.
+- **Edge cases:** a fetal fraction near its bound; the grey zone; a finding not concordant with the fetal fraction (sub- or super-fetal, of maternal or mosaic origin); a maternal copy-number change; placental or fetal mosaicism; twins; ccnv's warnings; a sex-chromosome call below its confidence bound or of mixed signals.
+- **🔲 INPUT NEEDED:** design and case selection, validation N (enough screen-positives per claimed target to estimate its sensitivity), and the acceptance criteria per claimed target (sensitivity, specificity, the no-result and inconclusive rates).
+
 ## 4. Reproducibility, robustness & cross-cutting checks
 - **Reproducibility/repeatability:** the same validated input gives an identical signed report (content-hash equality); a second analyst re-analyses a subset (inter-operator).
 - **Robustness:** behavior on degraded inputs (low coverage, missing tracks, malformed VCF) should fail safe / warn, not silently mis-call.
@@ -163,14 +181,14 @@ performance vocabulary:
 
 | H11.1-F11 parameter | For CoGA |
 | --- | --- |
-| Type test | **Qualitative** (variant/embryo/fetal-risk present or not); NIPT fetal fraction is a derived quantitative QC value. |
+| Type test | **Qualitative** (variant/embryo/fetal-risk present or not); NIPT fetal fraction is a derived quantitative QC value. The conventional NIPT's result per target is qualitative, read from ccnv's quantitative values (§3.7). |
 | **Analytical performance** — qualitative: **analytische sensitiviteit / specificiteit** | = **PPA / NPA** vs the validated comparator (§2–§3). Genetic-test target: **~100% sensitivity** (no missed at-risk/causal call, the safety-critical error in each §3 protocol). |
-| Trueness / precision (quantitative) | NIPT FF bias (Bland–Altman) + repeatability; mtDNA heteroplasmy agreement (§3.5). |
+| Trueness / precision (quantitative) | NIPT FF bias (Bland–Altman) + repeatability; mtDNA heteroplasmy agreement (§3.5); the conventional NIPT's fetal-fraction agreement with the comparator, where it gives one (§3.7). |
 | Herhaalbaarheid / reproduceerbaarheid | Content-hash reproducibility + inter-operator subset (§4). |
 | Vergelijking met een 2e onafhankelijke methode; controlemateriaal; **3/n regel**; EKE/interlab | The comparator assay is the independent method; reference material (the GIAB baseline, §2); estimate sens/spec with the **3/n rule** when control counts are small; EKE/interlab where available. |
-| Robuustheid, detectielimiet | Degraded-input fail-safe (REQ-PERF-003); the limits of the analyst's >10 Mb SV and aneuploidy review on CoGA's tracks (§3.2); heteroplasmy detection limit (§3.5). |
+| Robuustheid, detectielimiet | Degraded-input fail-safe (REQ-PERF-003); the limits of the analyst's >10 Mb SV and aneuploidy review on CoGA's tracks (§3.2); heteroplasmy detection limit (§3.5); the conventional NIPT's fetal-fraction bound, below which there is no result, and its no-result and inconclusive rates (§3.7). |
 | Risico op staalverwisseling; subjectiviteit | Sample QC (sample-swap, TF-06 H4); inter-operator/blind re-read on a subset (§4). |
-| **Clinical performance** — diagnostische sens/spec, PPV/NPV, likelihood ratio, verwachte waarden | The conclusion of the signed-out analysis vs the established diagnosis (§3); for new applications, accumulate through PMPF (§6). |
+| **Clinical performance** — diagnostische sens/spec, PPV/NPV, likelihood ratio, verwachte waarden | The conclusion of the signed-out analysis vs the established diagnosis (§3); for the conventional NIPT, sensitivity, specificity, PPV and NPV per claimed target against the confirmed diagnosis (§3.7); for new applications, accumulate through PMPF (§6). |
 | Risicoanalyse — veiligheidseisen IVDR (§19) | [TF-06](TF-06-risk-management-plan.md) (shared with the bio-IT validation). |
 | Gevolgen voor kwaliteitsdocumentatie (§21) | Update the analysis protocol (H10.1-Pxx), IFU ([TF-15](TF-15-instructions-for-use.md)), and CMGGMC. |
 
@@ -266,6 +284,15 @@ pull request updates this list only when it adds clinical behaviour that no area
     man's one X between the PARs, none passed from a man to his son); the affected parent's
     and the index's statuses from the inheritance model.
   - The mtDNA haplogroup and per-sample mitochondrial imports.
+  - Conventional NIPT: a result per target by z-score and fetal-fraction concordance over ccnv's
+    segments and QC, with ccnv's effective fetal fraction; no result below the fetal-fraction
+    bound; a finding not concordant with the fetal fraction, or of maternal or mosaic origin,
+    inconclusive, never high risk; segmental CNVs assessed within ccnv's limits of detection; the
+    sex chromosomes from ccnv's sex-chromosome call; QA's bounds in the profile
+    `nipt_conventional`, a provisional bound named on the result; the warnings of a low fetal
+    fraction, ccnv's own and a twin pregnancy; each target marked whether the intended purpose
+    claims it, the others shown *outside the validated claim*; the ccnv tracks drawn with the
+    lines where a fetal trisomy and monosomy lie at the fetal fraction.
   - The Sample QC read from sites across every autosome, so sibling embryos read as siblings,
     and its sex check from chrX outside the pseudo-autosomal regions.
 - **Data integrity**
@@ -279,6 +306,9 @@ pull request updates this list only when it adds clinical behaviour that no area
       the parental-origin view of an aneuploid chromosome;
     - the monogenic NIPT pair: one VCF per sample with the father's noise left out, and the
       per-target coverage tables;
+    - the conventional NIPT's ccnv output (bins, segments, calls VCF, QC file), refused unless
+      the files are one run's result; its plasma, under another sample ID than the monogenic
+      NIPT's plasma of the same pregnancy, linked to it as the same individual;
     - a package read where it lies, on a share or a bucket mounted as a folder; snapshot/restore.
   - Coverage BEDs that declare whether they hold read depth or a log2 ratio: read as depth
     only when declared so; an undeclared one drawn without an axis.
@@ -314,8 +344,14 @@ pull request updates this list only when it adds clinical behaviour that no area
     releases; the repeat-expansion and Paraphase calls with their status; in a PGT family, each
     embryo's call at the ROI as the family page shows it; in a monogenic NIPT family, its NIPT
     results as the NIPT page computes them, signed out from the NIPT report too, with a failed
-    NIPT quality check gating the sign-out with the Sample QC; and what each coverage track
-    held (read depth, a log2 ratio or unknown) and where it was loaded from.
+    NIPT quality check gating the sign-out with the Sample QC; in a conventional NIPT family,
+    each plasma's result as the cNIPT page shows it, with its bounds and inputs, a plasma
+    without a result or a result on a provisional bound gating the sign-out with the Sample QC;
+    and what each coverage track held (read depth, a log2 ratio or unknown) and where it was
+    loaded from.
+  - A family that holds several analyses (the monogenic and the conventional NIPT of one
+    pregnancy; short-read and then long-read WGS of the same DNA) signs each out on its own,
+    its record freezing and checking that analysis's data.
   - The report code the EPD report quotes, its check symbol and its lookup.
   - The device label and the build identity.
   - Every review, classification and phenotype change on the clinical audit trail, a

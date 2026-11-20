@@ -32,7 +32,8 @@
 
 CoGA uses an **iterative/incremental** model (feature branches → PR → CI gates → merge → QA's
 per-release review → release), mapped onto the IEC 62304 processes below. The per-feature
-design docs (e.g. [monogenic-nipt.md](../monogenic-nipt.md), [clinical-traceability.md](../clinical-traceability.md))
+design docs (e.g. [monogenic-nipt.md](../monogenic-nipt.md),
+[conventional-nipt.md](../conventional-nipt.md), [clinical-traceability.md](../clinical-traceability.md))
 are the project's de-facto design records; this plan formalizes the structure around them.
 
 These processes realize the **H11.1-OP5 phase flow**:

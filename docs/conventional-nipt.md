@@ -89,6 +89,25 @@ a finding:
   fetus lies at about half the fetal fraction. The owner put twins in scope with one fetal fraction
   and one result per plasma.
 
+**The claim.** Each target says whether the intended purpose claims it (`claimed`, from
+`CLAIMED_TARGETS`): trisomies 21, 18 and 13 and the sex chromosomes, for the sex-chromosome
+aneuploidies (TF-01 §3.7, the owner's decision of 2026-11-20). The other autosomes and the
+segmental CNVs keep their result and are shown outside the claim:
+
+- the cNIPT page writes *outside the validated claim* under each such target's name and on the
+  folded list of the other autosomes, and states the claim under the result (`OUTSIDE_CLAIM` and
+  `CNIPT_CLAIM_NOTE` in `cniptResult.ts`);
+- the report page's summary (`CniptReportSummary.tsx`) and the signed view (`CniptResults`) add
+  it to each such target's line and state the claim; the signed record keeps `claimed` with each
+  target, as it was when signed.
+
+A change of `CLAIMED_TARGETS` is a change of the intended purpose, under change control.
+
+The population is the intended purpose's (TF-01 §3.7): pregnancies of more than 12 weeks,
+singleton or twin. Triplets or more, a vanishing twin, a maternal organ or bone-marrow transplant
+or a blood transfusion in the months before sampling, and a known maternal malignancy are outside
+the validated scope.
+
 **The bounds** are QA's, in the QC-threshold profile `nipt_conventional` (catalogue entries
 `cnipt.*` in `qc_threshold_service.QC_METRICS`, source `cnipt`). Each change takes a reason and is
 kept in `qc_threshold_changes`. The rule compares as each entry's help text says, not by the generic
@@ -120,8 +139,8 @@ before the release candidate.
 
 A conventional NIPT family is signed out like every family, from its report page, which shows the
 live result above the reported findings (`CniptReportSummary.tsx`). The signed record holds the
-section `cnipt` (`signed_record_cnipt.py`): each plasma's result, the same object the page shows,
-with the bounds it applied and its inputs (a digest of the kept QC object, the number and a digest of
+section `cnipt` (`signed_record_cnipt.py`): each plasma's result, the same object the page shows
+(each target with its verdict, reasons and `claimed`), with the bounds it applied and its inputs (a digest of the kept QC object, the number and a digest of
 the segments read, the segments files). The signed view renders it (`CniptResults` in
 `SignedFamilyReport.tsx`, parsed in `signedReportRecord.ts`).
 

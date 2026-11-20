@@ -22,10 +22,10 @@
 | Purpose | Clinical genomic interpretation and reporting (diagnosis, screening, PGT, carrier screening) within CMGG. |
 | Controller | Ghent University Hospital (UZ Gent) / CMGG. |
 | Data subjects | Patients, pregnant individuals + partner, prospective parents/couples, embryos (and, via family/pedigree, relatives). |
-| Categories of data | **Special category:** genetic data (variants, genotypes, haplotypes), health/clinical status, phenotype (HPO), reproductive/pregnancy data; identifiers/pedigree metadata; user account data (staff). |
+| Categories of data | **Special category:** genetic data (variants, genotypes, haplotypes, and the genome-wide copy number of maternal plasma in the conventional NIPT), health/clinical status, phenotype (HPO), reproductive/pregnancy data (the fetal fraction, the fetal sex and the fetal findings of the NIPT); identifiers/pedigree metadata; user account data (staff). |
 | Processing operations | Ingestion of validated genomic files, storage (Postgres + ClickHouse + file/object store), filtering/analysis/visualization, classification, reporting, audit logging. |
 | Hosting / processors | Production target: **Google Cloud**, deployed with Terraform (owner decision of 2026-09-29). The configuration is in `terraform/` and not yet applied, so no patient data is processed yet. Google Cloud will store and process the data as a **processor** for the institution: Cloud SQL, a ClickHouse VM and CMEK-encrypted storage buckets in the configured region (default `europe-west1`), behind an HTTPS load balancer that go-live restricts to institutional networks ([TF-13 §3](TF-13-cybersecurity.md)). Local development uses Docker Compose on synthetic data only. The data-processing agreement with Google is being signed (owner, 2026-09-29). **🔲 OWNER/DPO:** file the signed DPIA and the executed agreement with this file; record the region, any sub-processors and transfers; settle whether Google is a *processor* (this file, TF-02) or a *sub-processor*. |
-| Scale & duration | All CMGG cases across the six applications; retention per clinical/legal record requirements. |
+| Scale & duration | All CMGG cases across the seven applications; retention per clinical/legal record requirements. |
 
 ## 2. Lawful basis & special-category condition
 - **Lawful basis (Art. 6):** ‹typically Art. 6(1)(e) public-interest task / (c) legal obligation for healthcare — confirm with DPO›.
@@ -55,7 +55,7 @@ patient data.
 | --- | --- | --- |
 | Unauthorized access to genetic data | RBAC, audit, encryption (S-1..S-8 in TF-13) | ‹…› |
 | Re-identification from genomic data | Access control, minimization, professional-secrecy context | ‹…› |
-| Incidental findings / familial implications | Clinical governance, reporting policy ‹CMGG SOP› | ‹…› |
+| Incidental findings / familial implications (in the conventional NIPT also the fetal sex, a maternal copy-number change and the targets outside the claim) | Clinical governance, reporting policy ‹CMGG SOP›; the targets outside the conventional NIPT's claim are marked so (TF-01 §3.7) | ‹…› |
 | Data integrity / wrong record | Immutable audit, content-hash, provenance | ‹…› |
 | Breach (confidentiality) | TF-13 controls + incident process (TF-17) + breach notification per GDPR Art. 33/34 | ‹…› |
 | Processing by a cloud provider | Data-processing agreement, EU region, CMEK encryption at rest, TLS in transit, least-privilege service accounts, audit logging (TF-13; `terraform/`) | ‹… — owner/DPO› |

@@ -42,24 +42,33 @@ analytical sign-off; the clinical report is signed in the EPD (§3 item 2).
 
 ## 2. Intended purpose & users
 Full statement in [TF-01](TF-01-intended-purpose.md). Decision-support software for genomic
-interpretation across monogenic NIPT screening, expanded carrier screening (BeGECS,
-long-read), PGT (shallow WGS), rare-disorder diagnostics (long-read), and combined mtDNA +
-nuclear mitochondrial-disease testing (ONT long-read adaptive sampling): filtering,
-visualisation and interpretation of the results, and their traceability up to the closed,
-frozen analysis. **For use by trained clinical laboratory professionals only**, in an ISO
-15189-accredited laboratory.
+interpretation across seven clinical applications: monogenic NIPT screening, expanded carrier
+screening (BeGECS, long-read), PGT (shallow WGS), rare-disorder diagnostics (long-read),
+rare-disorder diagnostics (short-read whole-genome sequencing), combined mtDNA + nuclear
+mitochondrial-disease testing (ONT long-read adaptive sampling), and conventional NIPT screening
+(trisomies 21, 18 and 13 and the sex-chromosome aneuploidies, from the copy number of maternal
+plasma): filtering, visualisation and interpretation of the results, and their traceability up
+to the closed, frozen analysis. **For use by trained clinical laboratory professionals only**, in
+an ISO 15189-accredited laboratory.
 
 ## 3. Warnings, limitations & contraindications (from TF-01 §4)
 1. **Decision support only** — every result must be reviewed by a qualified professional; CoGA does not issue an autonomous diagnosis.
 2. **Sign-out in CoGA is the analytical sign-off, not the medical one** — **Sign out report** is a supervisor's sign-off: it closes the analysis and freezes it into a signed version. The clinical report is drafted and medically signed in the hospital's electronic patient record (EPD), outside CoGA. It refers 1:1 to the signed version it rests on: one report, one signed version. An amended analysis is a new signed version; a report that rests on it refers to that version. CoGA does not see the EPD report and does not check it against the signed version (TF-01 §4 condition 8, [TF-02 §3](TF-02-device-description.md)).
 3. **Validated upstream pipeline required** — CoGA processes outputs of separately validated or accredited wet-lab and bioinformatics workflows; it does not detect all errors in its inputs.
-4. **Screening vs diagnosis** — NIPT and carrier-screening results are screening; at-risk findings require confirmatory diagnostic testing.
-5. **Inferred genotypes** — the NIPT fetal genotype and the PGT embryo haplotype are inferred, not observed. **Check the QC signals** (fetal fraction & CI, informative-marker count, Mendel-error rate, recombination proximity) before trusting a call.
+4. **Screening vs diagnosis** — NIPT (monogenic and conventional) and carrier-screening results are screening; at-risk findings require confirmatory diagnostic testing.
+5. **Inferred genotypes** — the NIPT fetal genotype and the PGT embryo haplotype are inferred, not observed; the conventional NIPT reads the fetal copy number from the plasma's, at its fetal fraction. **Check the QC signals** (fetal fraction & CI, informative-marker count, Mendel-error rate, recombination proximity; for the conventional NIPT, the fetal-fraction estimates, the limits of detection and ccnv's warnings) before trusting a call.
 6. **Validated scope only** — use CoGA only within the validated panels, assays, assemblies and populations (TF-11); use outside them is off-label. The validated reference assembly is **GRCh38**: a family on any other assembly is labelled *Not validated for clinical use* and its report cannot be signed out.
 7. **Sample identity & data integrity** — **review the Sample QC** before sign-out to confirm sample identity and rule out sample swaps (checks listed in TF-01 §4 condition 7). For mitochondrial cases, also compare the samples' mtDNA haplogroups. This review is mandatory for family/trio and combined mtDNA/nuclear (mitochondrial) cases. CoGA blocks sign-out when a Sample QC check fails or cannot be verified, unless you record a reason. The Sample QC does not measure contamination: an excess of Mendelian errors, or heterozygous calls on a male's X outside the pseudo-autosomal regions, can be a sign of it, and a pass does not rule it out (TF-01 §4 condition 7).
 8. **Authorised personnel only** — sign out an analysis in CoGA only if the laboratory has authorised you to. CoGA lets only a supervisor of the project, a superuser or an administrator sign out (an analyst, a viewer and a reader cannot). An administrator gives the supervisor role to the personnel the laboratory has authorised; CoGA does not check that authorisation itself. It records who signed each version in the signed record and the audit trail (TF-06 H15). The medical sign-off of the clinical report is given in the EPD, under its own signing rights.
 9. **Not for** primary variant calling, somatic/oncology use, patient/home use, or non-accredited settings.
 10. **Ancestry PCA is exploratory** — the *Ancestry (exploratory)* section of Sample QC shows genetic similarity to public reference populations, not ancestry or ethnicity. It is outside the intended purpose and not validated: do not use it for any clinical interpretation or report. It is never part of the sign-out or the signed record (TF-01 §4).
+11. **Conventional NIPT: the claim and the population** (TF-01 §3.7):
+    - The validated claim covers **trisomies 21, 18 and 13 and the sex-chromosome aneuploidies**. The other autosomes and the segmental CNVs are shown marked *outside the validated claim*, on the cNIPT page, the report page and the signed record: they are not validated results.
+    - The validated population is pregnancies of more than 12 weeks, singleton or twin. Outside it: triplets or more, a vanishing twin, a maternal organ or bone-marrow transplant or a blood transfusion in the months before sampling, and a known maternal malignancy.
+    - A twin pregnancy gives one fetal fraction and one result, which does not say which fetus a finding concerns.
+    - The cfDNA is mostly placental: a result may reflect the placenta rather than the fetus (confined placental mosaicism), and a maternal copy-number change or mosaicism can underlie a finding.
+    - A high risk requires confirmatory diagnostic testing; a low risk does not exclude an aneuploidy.
+    - The rule's bounds are QA's. A result that rests on a provisional bound says so: provisional bounds are not validated.
 
 ## 4. Instructions for safe use (per application)
 
@@ -69,15 +78,17 @@ frozen analysis. **For use by trained clinical laboratory professionals only**, 
 - Review the Sample QC (§3 item 7).
 - Deal with each warning the sign-out shows. It holds the sign-out until you acknowledge it with
   a reason, which the signed record keeps: evidence drift; a failed or unverifiable Sample QC
-  (for monogenic NIPT, also a failed quality check); an incomplete import; a package folder
-  changed after its import; an abnormal repeat or Paraphase call without a review (or review
-  it).
+  (for monogenic NIPT, also a failed quality check; for the conventional NIPT, a maternal plasma
+  without a result or a result that rests on a provisional bound); an incomplete import; a
+  package folder changed after its import; an abnormal repeat or Paraphase call without a review
+  (or review it).
 - A family on an assembly outside the validated set, or with an import queued or running,
   cannot be signed out at all.
 
 **Per application:**
 
 - Monogenic NIPT — see the in-app reference *Monogenic NIPT (cfDNA)* (`/docs/reference/monogenic-nipt`). Read the quality checks first (FF and CI, paternity, fetal sex, the maternal-plasma sample, target coverage). After a failed paternity check, do not read the variants (another father, or a sample or file mix-up). Then read each variant's inheritance probability, not only its category, and the category-8 dropout. Before acting on a de novo candidate, confirm that it is absent in the father and check its reads.
+- Conventional NIPT — see the in-app reference *Conventional NIPT (cell-free DNA)* (`/docs/reference/conventional-nipt`). Read the fetal fraction and the warnings first (a low fetal fraction, ccnv's warnings, a twin pregnancy), and any bound marked provisional. Then read chromosomes 21, 18 and 13 and the sex chromosomes, the claimed targets, each with its reasons and findings; read the other autosomes and the segmental CNVs as findings outside the claim. Before acting on a finding, check it in the chromosome view (its implied fetal fraction and origin against a maternal copy-number change or mosaicism). A high risk calls for confirmatory diagnostic testing (§3 item 11).
 - PGT — see *Haplotype segregation analysis* (`/docs/reference/haplotype-segregation`). Read informative markers, Mendel errors, recombination near the ROI, "uninformative" results and donor-family limits. Judge each embryo's aneuploidy and large (>10 Mb) structural variants yourself, on its segment, copy-number and APCAD tracks in the genome overview and the chromosome view: CoGA makes no automatic aneuploidy call (TF-01 §3.3).
 - Carrier screening — couple-wise at-risk interpretation; reportable-variant confirmation. The *Expanded carrier screening* preset lists the genes in which both partners carry a rare (below 1%) high- or moderate-impact variant (ClinVar P/LP whatever its frequency), and a female partner's X-linked variant on its own; it leaves out ClinVar benign and likely benign variants.
 - Rare-disorder — multi-data-type review (SNV/SV/repeat/Paraphase/mtDNA); ACMG classification is overridable (*Semi-automatic ACMG classification*, `/docs/reference/acmg-classification`).
@@ -100,7 +111,9 @@ version is the signed-out analysis, which the clinical report in the EPD refers 
 - each reported variant's description as the analyst reviewed it (gene, HGVS, consequence,
   genotypes);
 - in a PGT family, the embryo calls;
-- in a monogenic NIPT family, the NIPT results (of its candidates, those tagged for the report).
+- in a monogenic NIPT family, the NIPT results (of its candidates, those tagged for the report);
+- in a conventional NIPT family, each maternal plasma's result per target as the cNIPT page
+  showed it, each target outside the claim marked so, with the bounds it applied and its inputs.
 
 It does not hold the population frequencies and in silico predictions the live report shows,
 the segregation, or the gene and phenotype context; the page says so. The live report shows

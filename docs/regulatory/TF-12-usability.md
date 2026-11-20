@@ -30,8 +30,9 @@
 
 Primary functions (those users perform to reach a clinical conclusion): apply and adjust
 filters; review candidate variants and annotations; run and read the application-specific
-analysis (NIPT categories, PGT embryo calls, SV/CNV); read QC signals; classify (ACMG,
-overridable); tag and note; **sign out / amend**; acknowledge evidence drift.
+analysis (NIPT categories, the conventional NIPT's result per target, PGT embryo calls, SV/CNV);
+read QC signals; classify (ACMG, overridable); tag and note; **sign out / amend**; acknowledge
+evidence drift.
 
 ## 3. Hazard-related use scenarios (62366-1 §5.3–5.5)
 
@@ -50,6 +51,7 @@ The summative evaluation must cover each of them.
 | U8 | Analyst loses half-finished review or ACMG input through a stray backdrop click or Escape, or two reviewers overwrite each other's classification | H3, H9 | Clinical dialogs (review, ACMG, family-member and QC cut-off among them) ask before discarding unsaved input, respond to Escape as soon as they are drawn, trap focus and ignore a text-selection drag onto the backdrop; a save against a review changed since it was loaded is refused and the current review shown (REQ-TRACE-010) |
 | U9 | Two workstations colour the same coverage differently (per-browser gain/loss thresholds) and the analyst reads a CNV call from the colour | H1, H7 | The chart always shows the thresholds in use and marks custom (this-browser) values; Settings explains the scope and resets them |
 | U10 | Analyst misjudges how strong an ACMG total is, reading the points as a linear probability (a VUS of 5 points as nearly pathogenic) | H3, H10 | The ACMG score bar places the points on the Tavtigian model's posterior-probability scale (prior 0.10): Benign and Pathogenic as end caps at 0.1% and 99%, one cell per VUS point, ticks at the class boundaries and at each VUS point's probability, and the arrow in the current total's cell (REQ-UI-003) |
+| U11 | Analyst reads a conventional-NIPT result of a target outside the claim (another autosome, a segmental CNV) as validated, trusts a result on a provisional bound, or overlooks a low fetal fraction or a twin pregnancy | H19 | Each target outside the claim marked *outside the validated claim*, with the claim stated, on the cNIPT page, the report page and the signed record (REQ-CNIPT-007); chromosomes 21, 18 and 13, the sex chromosomes and the segmental CNVs read first, the other autosomes folded; each provisional bound marked on the page and the report, and the sign-out held until it is acknowledged with a reason (REQ-CNIPT-008, REQ-CNIPT-011); the warnings of a low fetal fraction, ccnv's own and a twin pregnancy shown with the plasma (REQ-CNIPT-009); a plasma without a result says why (REQ-CNIPT-010) |
 
 ## 4. User interface specification & risk controls
 The UI-level risk controls above are requirements, traced in the TF-09 RTM. Design principles:
@@ -83,7 +85,7 @@ reference docs at `/docs/reference/<slug>`) is part of the information for safet
 ## 5. Evaluation plan
 
 - **Formative evaluation** (iterative, during development): heuristic review and walkthroughs of the hazard-related scenarios with one or more user reps; findings feed UI changes. ‹Record sessions/findings.›
-- **Summative evaluation** (validation): representative intended users (target **n ≥ 15** per distinct user group, **🔲 confirm**) perform the hazard-related use scenarios (U1–U10) on realistic cases without coaching; **use errors and difficulties are recorded and risk-assessed**. Acceptance: no uncontrolled use error that could lead to a wrong clinical conclusion; residual use-related risk acceptable (TF-06).
+- **Summative evaluation** (validation): representative intended users (target **n ≥ 15** per distinct user group, **🔲 confirm**) perform the hazard-related use scenarios (U1–U11) on realistic cases without coaching; **use errors and difficulties are recorded and risk-assessed**. Acceptance: no uncontrolled use error that could lead to a wrong clinical conclusion; residual use-related risk acceptable (TF-06).
 - Conducted on the release candidate; re-evaluated when a safety-critical UI element changes (TF-18).
 
 ## 6. Known use problems & field feedback

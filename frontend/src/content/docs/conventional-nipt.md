@@ -8,7 +8,8 @@ estimates the fetal fraction and the fetal sex. CoGA imports its output, draws i
 **automatic result per target**.
 
 > **Screening, not diagnosis.** A high-risk result calls for confirmatory diagnostic testing. An
-> inconclusive result needs the analyst's judgement and, often, a repeat or a diagnostic test.
+> inconclusive result needs the analyst's judgement and, often, a repeat or a diagnostic test. A
+> low-risk result does not exclude an aneuploidy.
 
 ---
 
@@ -87,6 +88,24 @@ anything else is inconclusive.
 **Twins.** In a twin pregnancy an aneuploidy of one fetus lies at about half the fetal fraction, at
 the edge of the concordant band. The page says when ccnv reads a twin pregnancy.
 
+## The validated claim and population
+
+The validated claim covers **trisomies 21, 18 and 13 and the sex-chromosome aneuploidies** (45,X;
+47,XXX; 47,XXY; 47,XYY). CoGA also gives a result for every other autosome and for the segmental
+CNVs, but these are **outside the validated claim**. The cNIPT page, the report page and the signed
+version mark each of them *outside the validated claim* and state the claim. Screen them as
+findings outside the claim.
+
+The result is validated for pregnancies of **more than 12 weeks**, **singleton or twin**. In a twin
+pregnancy the plasma gives one fetal fraction and one result, which does not say which fetus a
+finding concerns. Outside the validated scope:
+
+- triplets or more;
+- a vanishing twin;
+- a maternal organ or bone-marrow transplant, or a blood transfusion in the months before
+  sampling;
+- a known maternal malignancy.
+
 ## The bounds
 
 The bounds of the rule are QA's to set: *Admin → Sequencing QC thresholds*, profile **Conventional
@@ -108,8 +127,8 @@ before clinical use.
 
 The family is signed out from its **Report** page, which shows the result above the reported
 findings. The signed version freezes each plasma's result as the cNIPT page showed it: the verdicts,
-the findings, the fetal fractions, the bounds (each QA's or provisional) and the files it was read
-from. A family that also holds the monogenic NIPT of the pregnancy signs out each NIPT on its own:
+each target in or outside the validated claim, the findings, the fetal fractions, the bounds (each
+QA's or provisional) and the files it was read from. A family that also holds the monogenic NIPT of the pregnancy signs out each NIPT on its own:
 the **Report** page then signs out the conventional NIPT, and its record freezes and checks the
 conventional NIPT's data only (see *Report traceability & sign-out*, *One sign-out per analysis*).
 
