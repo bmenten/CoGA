@@ -3414,12 +3414,18 @@ def _structural_variant_scope_clauses(
 ) -> tuple[list[str], dict[str, Any]]:
     """The family's SV rows (alias ``e``) a search reads before its regions and panel: the
     family's live rows in its projects with a call of a visible member, within the
-    search's chromosome and locus, and of its review selection."""
+    search's chromosome and locus, and of its review selection. A search that names one of the
+    family's analyses (``context.scope.asked``) leaves out the other analyses' SV sources
+    (analysis_scope.py)."""
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
     if context.project_ids:
         where_clauses.append("e.project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
+    left_out = context.scope.left_out_sources("structural_variants") if context.scope.asked else frozenset()
+    if left_out:
+        where_clauses.append("e.source NOT IN %(scope_left_out_sv_sources)s")
+        params["scope_left_out_sv_sources"] = tuple(sorted(left_out))
     visible_sample_ids = _visible_clickhouse_sample_ids(context)
     if visible_sample_ids:
         where_clauses.append("hasAny(e.calls.sampleId, %(visible_sample_ids)s)")

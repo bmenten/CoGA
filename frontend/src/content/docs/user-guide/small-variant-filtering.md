@@ -24,7 +24,8 @@ of their own, the page reads one analysis at a time: pick it in the list beside 
 analysis imported last is shown first). The list, its counts, the filters, the ranking, the CSV
 export and the variant summary are that analysis's alone, and a review you save is that analysis's
 review: a variant both callsets hold has a review in each analysis, and each sign-out freezes its own.
-An inheritance filter reads the members the analysis sequenced.
+An inheritance filter reads the members the analysis sequenced. The **Structural variants** page
+offers the same choice, and the genome view reads the analysis the page you came from named.
 
 ### Filters and presets
 

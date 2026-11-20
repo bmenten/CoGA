@@ -90,12 +90,14 @@ _FILTERS = {
     "exclude_review_tag": "array",
     "has_notes": "boolean",
 }
-# Each route's own query parameters, none of them a filter: the project and the ranking on
-# both, and the list's page and genome-track options (``overlap`` is the track's region rule:
-# the SV page never sends it, and the export never took it).
+# Each route's own query parameters, none of them a filter: the project, the analysis read and
+# the ranking on both, and the list's page and genome-track options (``overlap`` is the track's
+# region rule: the SV page never sends it, and the export never took it).
 _OWN = {
-    _LIST_ROUTE: {"project_id", "prioritize", "rank_by", "page", "page_size", "overlap", "track_mode", "count_only"},
-    _EXPORT_ROUTE: {"project_id", "prioritize", "rank_by"},
+    _LIST_ROUTE: {
+        "project_id", "analysis", "prioritize", "rank_by", "page", "page_size", "overlap", "track_mode", "count_only",
+    },
+    _EXPORT_ROUTE: {"project_id", "analysis", "prioritize", "rank_by"},
 }
 
 
@@ -126,7 +128,9 @@ def routes(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """The app with ``_USER`` signed in and the synthetic family; no Postgres session and no
     audit rows."""
 
-    async def family_context(_session: Any, *, family_identifier: str, user: Any, project_id: Any = None):
+    async def family_context(
+        _session: Any, *, family_identifier: str, user: Any, project_id: Any = None, analysis: Any = None
+    ):
         assert family_identifier == "FAM001"
         return _family()
 

@@ -8,6 +8,7 @@ sat outside the window — indistinguishable, in the UI, from "this gene has no 
 import pytest
 from clickhouse_connect.driver.binding import bind_query
 
+from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
 from backend.app.services.clickhouse_variant_queries import (
     _structural_region_filter_condition,
     _structural_variant_where_clauses,
@@ -21,6 +22,7 @@ class _Context:
     project_ids: list[str] = []
     sample_rows: list[dict] = []
     sample_name_to_uuid: dict[str, str] = {}
+    scope = WHOLE_FAMILY_SCOPE
 
     def __init__(self, visible: list[str] | None = None):
         self._visible = visible or ["S1"]

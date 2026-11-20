@@ -54,6 +54,9 @@ class AnalysisScope:
     # The analyses among which a reading must name one: set only when none was named and the
     # family holds several analyses with small variants of their own.
     unnamed_among: tuple[str, ...] = ()
+    # Whether the reading named ``analysis`` itself: only then is the family's structural-variant
+    # list read for it (a page of a family read one analysis at a time names it).
+    asked: bool = False
 
     @property
     def review_analysis(self) -> str:
@@ -123,6 +126,7 @@ def analysis_scope(
     mtDNA page reads the analysis with the mtDNA callset) when one does, and otherwise gives a
     scope that must still name one (``AnalysisScope.require_named``)."""
     held = family_analysis_types(metadata)
+    asked = analysis is not None
     if analysis is not None:
         analysis = analysis.strip()
         if analysis not in held:
@@ -154,6 +158,7 @@ def analysis_scope(
         analysis=analysis,
         left_out={kind: frozenset(names) for kind, names in left_out.items()},
         left_out_members=frozenset(other_members - own_members),
+        asked=asked,
     )
 
 

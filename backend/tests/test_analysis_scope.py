@@ -176,3 +176,17 @@ def test_the_sample_qc_reads_the_callset_that_covers_most_of_its_members(monkeyp
     # Of one callset per kind nothing is probed; direct calls before imputed genotypes.
     assert asyncio.run(choose(None, ["glimpse2", "deepvariant"], trio)) == "deepvariant"
     assert asyncio.run(choose(None, [], trio)) is None
+
+
+def test_the_sv_list_of_a_named_analysis_leaves_out_the_other_s_sv_sources() -> None:
+    from backend.app.services.clickhouse_variant_queries import _structural_variant_scope_clauses
+    from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
+
+    filters = StructuralVariantQueryFilters(page=1, page_size=10)
+    clauses, params = _structural_variant_scope_clauses(_context(analysis_scope(_TWO_WGS, "short_read_wgs")), filters)
+    assert "e.source NOT IN %(scope_left_out_sv_sources)s" in clauses
+    assert params["scope_left_out_sv_sources"] == ("mito_sv",)
+    # A family read without naming an analysis (a monogenic and a conventional NIPT) keeps every
+    # SV: the conventional NIPT's ccnv calls stay on its SV list.
+    _clauses, params = _structural_variant_scope_clauses(_context(analysis_scope(_TWO_NIPTS)), filters)
+    assert "scope_left_out_sv_sources" not in params

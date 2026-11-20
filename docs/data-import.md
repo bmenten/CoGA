@@ -1785,8 +1785,10 @@ own, and each stays apart from the others (the owner's decisions of 2026-11-20):
   filter. The request names the analysis (`analysis=`); one that names none is refused (422). The
   pages offer the analysis to read beside the family's name, the one imported last first. A
   family whose one analysis holds small variants (a monogenic NIPT beside a conventional one) is
-  read as that analysis without naming it. The mtDNA page reads the analysis whose package holds
-  the mtDNA calls; the monogenic NIPT page its own.
+  read as that analysis without naming it. The structural-variant list of a page that names the
+  analysis reads that analysis's SV sources alone (a family read without naming one keeps every
+  SV: the conventional NIPT's ccnv calls beside a monogenic NIPT). The mtDNA page reads the
+  analysis whose package holds the mtDNA calls; the monogenic NIPT page its own.
 - **A review is the analysis's** it was made in; a sign-out freezes and checks its own analysis's
   data, reviews and evidence ([clinical-traceability.md](clinical-traceability.md)).
 
