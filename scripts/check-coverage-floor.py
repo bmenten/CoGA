@@ -39,6 +39,9 @@ MODULE_FLOORS: dict[str, float] = {
     # package imports without the API)
     "backend/app/import_worker.py": 94.0,
     "backend/app/services/acmg_points.py": 97.0,  # (100.0)
+    # (100.0 measured locally: which review of a variant a reading for one of a family's
+    # analyses reads, and which review a save in it writes)
+    "backend/app/services/analysis_reviews.py": 97.0,
     "backend/app/services/annotation_manifest_service.py": 94.0,  # (97.1, 2026-11-03)
     "backend/app/services/assembly_scope.py": 97.0,  # (100.0)
     # (89.4 measured locally: a conventional NIPT's ccnv output, read strictly)
@@ -127,6 +130,9 @@ MODULE_FLOORS: dict[str, float] = {
     # (100.0 measured locally: the gene look-up of a region of interest, which the family
     # page and the package import share)
     "backend/app/services/roi_gene_lookup.py": 97.0,
+    # (100.0 measured locally: two samples of one person, the people the same-individual links
+    # make, as the structure checks, Sample QC and the carrier screen read them)
+    "backend/app/services/same_individual.py": 97.0,
     "backend/app/services/sample_integrity_qc.py": 96.0,  # (99.1, 2026-11-03)
     "backend/app/services/sample_integrity_service.py": 95.0,  # (98.6, 2026-11-03) feeds the sign-out gate
     # (98.2 measured locally: the conventional NIPT section of the signed

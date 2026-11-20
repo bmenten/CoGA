@@ -36,10 +36,14 @@ A footer at the end of the report states when it was generated and which version
   release and the HPO release (with its date and the SHA-256 of the ontology file it was imported
   from).
 
-The pipeline versions come from the family's import manifest; no screen edits them. Only an admin can
-replace them, through the API. The replacement is written to the audit trail (section 3), and a later
-import leaves it in place. An unknown version is left out, never guessed. The footer prints with the
-report and is part of the signed record.
+The pipeline versions come from the import of each analysis; no screen edits them. A family that
+holds several analyses (short-read and then long-read WGS of the same DNA) keeps each analysis's
+versions apart: importing one never replaces the other's, and the footer names the versions of each
+(*Modules & versions (short-read WGS): …*). An upload's versions belong to every analysis. Only an
+admin can replace an analysis's versions, through the API. The replacement is written to the audit
+trail (section 3), naming the analysis, and a later import leaves it in place. An unknown version is
+left out, never guessed. The footer prints with the report, and a signed version holds the versions
+of its own analysis.
 
 The footer also names the software: *Software: CoGA X.Y.Z (commit)*, the build that produced the page,
 then the in-house IVD statement and the manufacturer. Only a release names a release's version. Any
@@ -123,6 +127,7 @@ and what changed (before → after). It lists:
 - clearing a review;
 - a compound-heterozygous pair review: listed under the variant whose review holds it, naming its
   partner, each time the pair is recorded, changed or broken up;
+- in a family of several analyses, each review change names the analysis whose review it changed;
 - a change to the pedigree or its members (below);
 - each sign-out;
 - each replacement of the pipeline versions;
@@ -259,20 +264,32 @@ A family can hold several analyses, each imported from a package of its own: the
 conventional NIPT of one pregnancy, or short-read and then long-read WGS of the same DNA. Each analysis
 is signed out on its own, and its signed version freezes and checks that analysis's data only:
 
-- its reported variants, with their evidence drift and their descriptions;
+- its reported variants, with their evidence drift and their descriptions: the variants its own
+  reviews tag for the report. A review is one analysis's: a variant reviewed in the short-read analysis
+  is not in the long-read analysis's signed version unless it is reviewed there too, and a variant
+  reviewed in both holds its own review in each. A review made while the family held no analysis
+  counts in each analysis that has no review of its own of the variant;
 - its coverage tracks;
 - the repeat expansions and the Paraphase results, with their reviews and the *Findings without a
-  review* check, only when the analysis holds such data or no other analysis does. Otherwise the signed
-  version says *Not part of this record: the analysis it closes holds no repeat-expansion calls.
-  Another analysis of the family holds them, and its own record freezes them.*;
+  review* check, when the calls are the analysis's or no other analysis's. Otherwise the signed version
+  holds none of them and says so of its analysis (*The short-read WGS had no repeat-expansion
+  calls.*): the other analysis's record freezes them;
 - its application's results: the NIPT results for the monogenic NIPT, the cNIPT results for the
   conventional NIPT, the embryo calls for PGT or the monogenic NIPT;
 - its Sample QC, on genotypes of its own (the conventional NIPT runs no check);
 - its sequencing QC, judged against its own cut-offs;
-- its package's delivery and package-folder changes, and what its imports left incomplete.
+- its package's delivery and package-folder changes, and what its own imports failed to import or
+  did not finish. Both packages of short-read and long-read WGS carry small variants, QC and
+  alignments, so CoGA records with each failure and each unfinished import the analysis it was
+  for: a failed long-read import does not hold the short-read sign-out;
+- its own annotation and pipeline versions, never another analysis's.
 
 Data that no analysis claims as its own (an upload, an analyst's addition, a package that named no
-analysis) count in every analysis's sign-out. The gene panels and the versions are frozen whole.
+analysis) count in every analysis's sign-out, and so does what such a write failed to bring or did
+not finish. An overwrite whose putting back did not finish counts in every analysis's sign-out: it
+rewrote the whole family's data. The gene panels are frozen whole. Importing another analysis
+afterwards leaves the check of an analysis already signed out matching: its versions, its data and
+its repeat and Paraphase sections stay its own.
 Each sign-out check reads the analysis's own data, so a drifted classification, a Sample QC concern
 or a failed dataset of another analysis does not stop it.
 
@@ -435,6 +452,13 @@ Upload or import again, with **overwrite**, what the warning names: each part go
 again. Deleting a sample also removes that sample's items from the warning, and what a failed or
 stopped import's warning names of that sample alone: nothing of a sample that is gone can be missing.
 
+In a family of several analyses, *Import incomplete* names the analysis each failed dataset and each
+unfinished import was for (*failed for snv (long-read WGS)*, *A family-package import of the
+long-read WGS data*), and says that each analysis's sign-out is held only by what its own imports
+left and by what names no analysis. Only an import of the same analysis, or an upload, completes
+what an analysis's import left: another analysis's import brings its own QC and alignments, not that
+analysis's.
+
 CoGA writes each of these marks in one shape. If a family's marks are not in that shape, *Import
 incomplete* says so and names nothing: the family's data may be missing or partly written, and signing
 out fails until the marks are put right. Report it as a defect.
@@ -546,7 +570,10 @@ signed version. The case is signed out here, but it is never the
 signed report. Its top card says *This is the live report, not signed version 2*, and whether it still
 matches that version:
 
-- *This page still matches signed version 2* — even then, print the signed version for the record;
+- *This page still matches signed version 2* — even then, print the signed version for the record. Of
+  a family of several analyses the page shows every analysis's data, so it says which part matches
+  (*The conventional NIPT data on this page still match signed version 2, which holds the conventional
+  NIPT data only: …*);
 - amber — something changed after sign-out, and the card names what;
 - grey — *This page could not be checked against signed version N — treat it as unsigned.*
 

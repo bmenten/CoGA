@@ -29,6 +29,7 @@ from .family_metadata_context import (
 from .family_project_variants import copy_variants_to_linked_projects
 from .family_variant_write_lock import (
     VariantWriteHoldLost,
+    hold_family_import,
     hold_family_variant_writes,
     watch_family_variant_holds,
 )
@@ -61,6 +62,7 @@ from .family_package_common import (
     _json_list,
 )
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
+from .family_package_qc import clear_analysis_import_records
 from .family_package_records import package_record_key
 from .family_package_source import package_folder_path
 from .raw_import_files_pg import unlink_managed_files
@@ -100,7 +102,6 @@ from .family_package_registration import (
     _execution_metadata,
     _merge_validation_metadata,
     _existing_package_entity_warnings,
-    family_sample_ids,
     is_whole_family_entry,
     manifest_roi_issue,
     pending_datasets,
@@ -568,49 +569,63 @@ async def execute_family_package_import(
     import_mark = ImportMark.begin(
         job_id=job_id,
         datasets=dataset_types,
+        # The analysis whose sign-out the import's marks gate: its package's record.
+        analysis_type=package_record_key(bundle.manifest.analysis_type),
         scopes=dataset_scopes(bundle, dataset_types),
     )
-    logs.append("Registering family metadata and package provenance.")
-    registration_warnings: list[FamilyImportValidationIssue] = []
-    try:
-        family_context, family_created = await _ensure_family_from_ped(
-            session,
-            bundle=bundle,
-            project_id=project_id,
-            user=user,
-            validation=validation,
-            conflict_mode=conflict_mode,
-            import_mark=import_mark,
-            warnings=registration_warnings,
-        )
-    except Exception:
-        # Failed before its first dataset: if it had marked the family, the mark becomes
-        # the import_incomplete flag, naming its datasets as failed (it wrote none).
-        await _end_import_failed_before_datasets(
-            session, family_id=_package_family_id(validation, bundle), mark=import_mark
-        )
-        raise
-    sample_contexts = family_sample_contexts(family_context)
-    logs.append(
-        f"Family {family_context.family_id} is registered with {len(sample_contexts)} sample(s)."
-    )
-    if registration_warnings:
-        # A region of interest the manifest names and the import did not find: in
-        # the import's result, with the package's warnings.
-        validation = validation.model_copy(
-            update={"warnings": [*validation.warnings, *registration_warnings]}
-        )
-        logs.append("The manifest's region of interest was not found: see the warnings.")
-    if progress is not None:
-        await progress(validation, datasets, logs, family_context.family_id)
+    # One import of the family at a time (``hold_family_import``), from before its registration to
+    # its end, whichever worker runs it: the imports of two analyses of one family (each from a
+    # package of its own) would otherwise interleave, one registering while the other writes or
+    # restores the family. One that waits ends this session's reads first, so it waits holding
+    # nothing.
+    async def waiting() -> None:
+        await session.commit()
+        logs.append("Another import of the family is running: this import waits for it to end.")
+        if progress is not None:
+            await progress(validation, datasets, logs, validation.family_id)
 
-    # One write of the family's variants at a time, and this import is one write from its
-    # snapshot to its restore: it commits after its datasets, and a restore puts back the
-    # family's rows as they were before the import, so a write that ran in between would
-    # be undone. The locks are held for the whole run on a connection of their own; the
-    # dataset loaders take none of their own for this family. Taken after the family's
-    # registration has committed, so this session holds no lock another writer waits for.
     async with AsyncExitStack() as stack:
+        await stack.enter_async_context(hold_family_import(_package_family_id(validation, bundle), waiting=waiting))
+        logs.append("Registering family metadata and package provenance.")
+        registration_warnings: list[FamilyImportValidationIssue] = []
+        try:
+            family_context, family_created = await _ensure_family_from_ped(
+                session,
+                bundle=bundle,
+                project_id=project_id,
+                user=user,
+                validation=validation,
+                conflict_mode=conflict_mode,
+                import_mark=import_mark,
+                warnings=registration_warnings,
+            )
+        except Exception:
+            # Failed before its first dataset: if it had marked the family, the mark becomes
+            # the import_incomplete flag, naming its datasets as failed (it wrote none).
+            await _end_import_failed_before_datasets(
+                session, family_id=_package_family_id(validation, bundle), mark=import_mark
+            )
+            raise
+        sample_contexts = family_sample_contexts(family_context)
+        logs.append(
+            f"Family {family_context.family_id} is registered with {len(sample_contexts)} sample(s)."
+        )
+        if registration_warnings:
+            # A region of interest the manifest names and the import did not find: in
+            # the import's result, with the package's warnings.
+            validation = validation.model_copy(
+                update={"warnings": [*validation.warnings, *registration_warnings]}
+            )
+            logs.append("The manifest's region of interest was not found: see the warnings.")
+        if progress is not None:
+            await progress(validation, datasets, logs, family_context.family_id)
+
+        # One write of the family's variants at a time, and this import is one write from its
+        # snapshot to its restore: it commits after its datasets, and a restore puts back the
+        # family's rows as they were before the import, so a write that ran in between would
+        # be undone. The locks are held for the whole run on a connection of their own; the
+        # dataset loaders take none of their own for this family. Taken after the family's
+        # registration has committed, so this session holds no lock another writer waits for.
         try:
             await stack.enter_async_context(
                 hold_family_variant_writes(
@@ -639,6 +654,11 @@ async def execute_family_package_import(
                     "that held none of them."
                 )
         except Exception:
+            # None of its datasets ran: an existing family's package record of the analysis,
+            # and what the registration wrote of its samples, are put back, so the record does
+            # not name a delivery whose data was never imported.
+            if not family_created:
+                await _put_back_before_datasets(session, family_context, bundle)
             await _end_import_failed_before_datasets(
                 session, family_id=family_context.family_id, mark=import_mark
             )
@@ -659,6 +679,30 @@ async def execute_family_package_import(
             user=user,
         )
     return result
+
+
+async def _put_back_before_datasets(
+    session: AsyncSession, family_context: FamilyMetadataContext, bundle: FamilyPackageBundle
+) -> None:
+    """Put back the package record of the analysis an import of an existing family registered and
+    the keys it wrote of the family's samples (``put_back_family_package_record``): the import
+    failed before its first dataset. Best-effort: a record left names the import's delivery while
+    the family is flagged import-incomplete, the safe side."""
+    try:
+        with suppress(Exception):
+            await session.rollback()
+        await put_back_family_package_record(
+            session, family_context.family_uuid, package_record_key(bundle.manifest.analysis_type)
+        )
+    except Exception:  # the flag still marks the family
+        logger.warning(
+            "Could not put back the package record of family %s after its import failed before "
+            "its first dataset",
+            family_context.family_uuid,
+            exc_info=True,
+        )
+        with suppress(Exception):
+            await session.rollback()
 
 
 async def _import_family_datasets(
@@ -702,6 +746,8 @@ async def _import_family_datasets(
     put back, it is flagged import-incomplete, as for any failed import. The job ends failed
     with ``package_changed_during_import``, and the package list offers the folder again."""
     import_key = import_mark.key if import_mark is not None else None
+    # The analysis each mark this import leaves is of: its package's record.
+    analysis_type = package_record_key(bundle.manifest.analysis_type)
     # The import as the phenotypes' audit events name it: who runs it, the package (by the
     # folder it was read from, as its log says) and its job.
     phenotype_import = PhenotypeImport(
@@ -759,6 +805,17 @@ async def _import_family_datasets(
             )
             clickhouse_snapshot = None
             postgres_snapshot = None
+
+    # What an earlier import of this analysis recorded under its key (its run parameters, each
+    # sample's sequencing QC and alignment) goes before the first dataset, so what the family
+    # shows of the analysis is this package's: one it does not carry is not left as current.
+    # After the snapshot, so an import that is undone puts them back with its package record.
+    if not family_created:
+        await clear_analysis_import_records(
+            session,
+            family_uuid=family_context.family_uuid,
+            analysis=package_record_key(bundle.manifest.analysis_type),
+        )
 
     package_changed = False
     reference_recorded = False
@@ -943,9 +1000,7 @@ async def _import_family_datasets(
         # counts as pending, this import's finished ones too and those of other imports.
         # If the process stops in the restore, the entry says so.
         if import_mark is not None:
-            await _mark_family_import_restoring(
-                session, family_context, import_mark, family_samples=family_sample_ids(bundle)
-            )
+            await _mark_family_import_restoring(session, family_context, import_mark)
         try:
             if clickhouse_snapshot is not None:
                 await restore_family_clickhouse_state(clickhouse_snapshot)
@@ -960,7 +1015,7 @@ async def _import_family_datasets(
             # family's data was imported from, which a sign-out compares the package folder with
             # (package_changed_after_import).
             await put_back_family_package_record(
-                session, family_context.family_uuid, package_record_key(bundle.manifest.analysis_type)
+                session, family_context.family_uuid, analysis_type
             )
             restored = True
             logs.append(
@@ -1006,6 +1061,7 @@ async def _import_family_datasets(
                     failed_datasets=failed_datasets,
                     imported_datasets=imported_datasets,
                     job_id=job_id,
+                    analysis_type=analysis_type,
                     import_key=import_key,
                     scopes=flag_scopes,
                     imported_scopes=imported_scopes,
@@ -1030,7 +1086,6 @@ async def _import_family_datasets(
                         job_id=job_id,
                         mark=import_mark,
                         scopes=flag_scopes,
-                        family_samples=family_sample_ids(bundle),
                     )
                 else:  # an import outside the bookkeeping: there is no entry to keep
                     await _flag_family_import_incomplete(
@@ -1039,6 +1094,7 @@ async def _import_family_datasets(
                         failed_datasets=flagged_failed,
                         imported_datasets=[],
                         job_id=job_id,
+                        analysis_type=analysis_type,
                         scopes=flag_scopes,
                     )
                 logs.append(_restore_failed_message(flagged_failed, whole))
@@ -1049,6 +1105,7 @@ async def _import_family_datasets(
             failed_datasets=failed_datasets,
             imported_datasets=imported_datasets,
             job_id=job_id,
+            analysis_type=analysis_type,
             import_key=import_key,
             scopes=flag_scopes,
             imported_scopes=imported_scopes,
@@ -1091,6 +1148,7 @@ async def _import_family_datasets(
             left = await _clear_family_import_incomplete(
                 session,
                 family_context,
+                analysis_type=analysis_type,
                 import_key=import_key,
                 rewritten=imported_scopes if conflict_mode == "overwrite" else {},
                 imported=imported_scopes,
@@ -1284,9 +1342,9 @@ async def run_family_import_job(
             # the job no longer this worker's: the import, which may have gone on meanwhile,
             # is stopped where it is -- unless it has ended, and only its end is left to
             # record (an end the job cannot record is said in the log). Between beats, every
-            # FAMILY_IMPORT_LOCK_CHECK_SECONDS, the connection holding the family's
-            # variant-write locks is checked, and the import stopped where it is when it is
-            # gone.
+            # FAMILY_IMPORT_LOCK_CHECK_SECONDS, each connection holding the family's locks (its
+            # import lock, its variant-write locks) is checked, and the import stopped where it
+            # is when one is gone.
             tick = min(FAMILY_IMPORT_HEARTBEAT_SECONDS, FAMILY_IMPORT_LOCK_CHECK_SECONDS)
             last_beat = loop.time()
             next_beat = last_beat + FAMILY_IMPORT_HEARTBEAT_SECONDS
@@ -1297,7 +1355,7 @@ async def run_family_import_job(
                 except (VariantWriteHoldLost, TimeoutError):
                     logger.warning(
                         "Family package import job %s lost the connection that held its "
-                        "family's variant-write locks",
+                        "family's import or variant-write locks",
                         job_id,
                         exc_info=True,
                     )

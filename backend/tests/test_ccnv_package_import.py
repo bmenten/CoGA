@@ -267,7 +267,7 @@ def _job(root: Path, entries: dict[str, dict[str, str]], session: Any, *, confli
     samples = {name: f"uuid-{name.lower()}" for name in entries}
     return family_package_datasets.DatasetImportJob(
         session=session,
-        bundle=SimpleNamespace(root=root),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=root, manifest=SimpleNamespace(analysis_type=None)),  # type: ignore[arg-type]
         dataset=ManifestDataset(per_sample=entries),
         summary=FamilyImportDatasetSummary(dataset_type="ccnv", status="valid"),
         family_context=FamilyMetadataContext(

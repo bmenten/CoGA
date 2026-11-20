@@ -1,30 +1,45 @@
-"""Per-family annotation/reference version manifest (clinical traceability, Phase 0).
+"""Per-analysis annotation/reference version manifest (clinical traceability, Phase 0).
 
-Consolidates which annotation modules/versions backed a family's data so a report
+Consolidates which annotation modules/versions backed an analysis's data so its report
 can state its provenance (see docs/clinical-traceability.md). It merges two layers:
 
-* the per-family *pipeline* manifest — the upstream tools that produced this family's
-  annotated VCF (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, …), recorded in
+* the *pipeline* manifest — the upstream tools that produced the analysis's annotated
+  VCF (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, …), recorded in
   ``family_annotation_manifest``: by an import, from the VCF headers (``vcf_header``) or
   the package's run manifest (``manifest``), or by an admin's replacement (``manual``).
 * the platform *reference* layer — versions of what CoGA itself loaded (the assembly,
   the gene loci, the Monarch and HPO releases), read live from the reference tables.
+
+A family may hold several analyses, each imported from a package of its own: short-read and
+then long-read WGS of the same DNA, or the monogenic and the conventional NIPT of one pregnancy.
+So the pipeline manifest is kept per analysis: one row per family and analysis, keyed as the
+family's package records are (``family_package_records.package_record_key``). An import writes
+its own analysis's row and keeps the others; a single-file upload, which belongs to no analysis,
+writes the row of no analysis (``UNSPECIFIED_ANALYSIS``), as a package that names none does.
+
+What an analysis's manifest states (``analysis_manifest``), and so what a sign-out of it freezes:
+its own row, laid over the rows of no analysis the family holds, which are every analysis's (the
+scope rule of ``signout_scope``). A family that holds no analysis has one manifest, of those rows.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Mapping
+from collections.abc import Collection, Mapping, Sequence
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .clinical_audit_service import audit_actor, record_clinical_event
-from .family_metadata_context import build_family_metadata_context
+from .family_analysis_types import family_analysis_types
+from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
+from .family_package_records import ANALYSIS_LABELS, package_record_key
 from .hpo_service import get_loaded_hpo_release
 from .access_control import CurrentUser, is_admin_user
+from .signout_scope import analysis_listing_source
 from .stored_values import json_object as _as_dict
 
 logger = logging.getLogger(__name__)
@@ -137,8 +152,8 @@ def _as_module(value: Any) -> dict[str, Any]:
 async def _lock_family_manifest(session: AsyncSession, family_uuid: str) -> None:
     """Hold this family's manifest lock until the transaction ends.
 
-    Both writers of ``family_annotation_manifest`` take it before they read the row: an
-    import's merge and an admin's replacement. A replacement therefore never lands
+    Both writers of ``family_annotation_manifest`` take it before they read the family's rows:
+    an import's merge and an admin's replacement. A replacement therefore never lands
     between an import's read and its write (the import would overwrite the manual
     manifest it never saw), and each replacement's audit event records the manifest it
     really replaced. A replacement waits for an import of the same family to commit.
@@ -149,20 +164,56 @@ async def _lock_family_manifest(session: AsyncSession, family_uuid: str) -> None
     )
 
 
-async def _family_manifest_row(session: AsyncSession, family_uuid: str) -> dict[str, Any] | None:
+def manifest_key(analysis: str | None) -> str:
+    """The row of the family's manifest that holds the versions of ``analysis``: its package
+    record's key; for a family that holds no analysis (None), the row of no analysis."""
+    return package_record_key(analysis)
+
+
+async def _family_manifest_row(
+    session: AsyncSession, family_uuid: str, analysis: str
+) -> dict[str, Any] | None:
+    """The family's manifest row of one analysis (``manifest_key``), or None."""
     row = (
         await session.execute(
             text(
                 """
-                SELECT modules, source, recorded_by, recorded_at
+                SELECT analysis_type, modules, source, recorded_by, recorded_at
+                FROM family_annotation_manifest
+                WHERE family_id = CAST(:family_uuid AS uuid) AND analysis_type = :analysis
+                """
+            ),
+            {"family_uuid": family_uuid, "analysis": analysis},
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+async def _family_manifest_rows(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
+    """Every manifest row of the family, one per analysis, by analysis."""
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT analysis_type, modules, source, recorded_by, recorded_at
                 FROM family_annotation_manifest
                 WHERE family_id = CAST(:family_uuid AS uuid)
+                ORDER BY analysis_type
                 """
             ),
             {"family_uuid": family_uuid},
         )
-    ).mappings().first()
-    return dict(row) if row else None
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+_FAMILY_METADATA = text("SELECT metadata FROM families WHERE id = CAST(:family_uuid AS uuid)")
+
+
+async def _family_metadata(session: AsyncSession, family_uuid: str) -> dict[str, Any]:
+    """The family's ``families.metadata``: its analyses and its package records."""
+    metadata = (await session.execute(_FAMILY_METADATA, {"family_uuid": family_uuid})).scalar_one_or_none()
+    return _as_dict(metadata)
 
 
 # Stands in for a module version the provenance lookup could not read.
@@ -298,35 +349,132 @@ def _module_list(
     return result
 
 
-async def _pipeline_manifest(session: AsyncSession, *, family_uuid: str) -> dict[str, Any]:
-    """The family's pipeline layer as its report states it: the recorded row, or none."""
-    row = await _family_manifest_row(session, family_uuid)
-    if row and _as_dict(row.get("modules")):
-        return {
-            "modules": _as_dict(row.get("modules")),
-            "source": row.get("source"),
-            "recorded_at": row.get("recorded_at"),
-            "recorded_by": row.get("recorded_by"),
-        }
-    return {"modules": {}, "source": None, "recorded_at": None, "recorded_by": None}
+def _holds_modules(row: Mapping[str, Any]) -> bool:
+    return bool(_as_dict(row.get("modules")))
+
+
+def _stated_rows(
+    rows: Sequence[Mapping[str, Any]], *, analysis: str | None, held: Collection[str]
+) -> list[Mapping[str, Any]]:
+    """The manifest rows a manifest of ``analysis`` states, of the family's ``rows`` (``held``:
+    the analyses the family holds), in the order they are laid over each other: each row of no
+    analysis the family holds (a single-file upload's, a package's that named none), by key, as
+    that data is every analysis's; then the analysis's own, which wins. An analysis's own row an
+    administrator replaced (``manual``) is stated alone: the replacement is the whole manifest
+    of that analysis. A row that records no module states nothing."""
+    own_key = manifest_key(analysis)
+    own = next((row for row in rows if row.get("analysis_type") == own_key), None)
+    if own is not None and own.get("source") == _MANUAL_SOURCE:
+        return [own]
+    shared = sorted(
+        (
+            row
+            for row in rows
+            if row.get("analysis_type") != own_key
+            and row.get("analysis_type") not in held
+            and _holds_modules(row)
+        ),
+        key=lambda row: str(row.get("analysis_type")),
+    )
+    return [*shared, *([own] if own is not None and _holds_modules(own) else [])]
+
+
+def _stated_modules(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Each module as ``rows`` state it, a later row's over an earlier's: its fields replaced
+    whole, its versions per modality joined, the later row's for a modality both name. So an
+    upload's SV caller stays beside the analysis's own SNV annotation, and the analysis's own
+    release of a database wins over an upload's."""
+    stated: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        for key, value in _as_dict(row.get("modules")).items():
+            module = dict(_as_module(value))
+            earlier = stated.get(key, {}).get("by_modality")
+            later = module.get("by_modality")
+            joined = {
+                **(earlier if isinstance(earlier, dict) else {}),
+                **(later if isinstance(later, dict) else {}),
+            }
+            if joined:
+                module["by_modality"] = joined
+            stated[key] = module
+    return stated
+
+
+def analysis_manifest(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    analysis: str | None,
+    held: Collection[str],
+    platform_modules: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """The manifest of one of the family's analyses (``analysis``; None for a family that holds
+    none), from the family's manifest ``rows`` and the analyses it holds (``held``): the modules
+    its rows state (``_stated_rows``) over the platform's reference layer, with where the row
+    stated last came from (the analysis's own, when it has one)."""
+    stated = _stated_rows(rows, analysis=analysis, held=held)
+    last: Mapping[str, Any] = stated[-1] if stated else {}
+    return {
+        "analysis_type": analysis,
+        "source": last.get("source"),
+        "recorded_at": last.get("recorded_at"),
+        "recorded_by": last.get("recorded_by"),
+        "modules": _module_list(_stated_modules(stated), platform_modules),
+    }
 
 
 async def get_family_annotation_manifest(
     session: AsyncSession, *, family_id: str, user: CurrentUser, project_id: str | None = None
 ) -> dict[str, Any]:
+    """The family's annotation manifests, one per analysis it holds (by analysis), each as a
+    sign-out of that analysis freezes it; one, of no analysis, for a family that holds none."""
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
-    pipeline = await _pipeline_manifest(session, family_uuid=context.family_uuid)
+    held = family_analysis_types(await _family_metadata(session, context.family_uuid))
+    rows = await _family_manifest_rows(session, context.family_uuid)
     platform_modules = await _platform_modules(session, context.assembly_id)
+    analyses: list[str | None] = [*sorted(held)] or [None]
     return {
         "family_id": context.family_id,
         "assembly": context.assembly_name,
-        "source": pipeline["source"],
-        "recorded_at": pipeline["recorded_at"],
-        "recorded_by": pipeline["recorded_by"],
-        "modules": _module_list(pipeline["modules"], platform_modules),
+        "analyses": [
+            analysis_manifest(rows, analysis=analysis, held=held, platform_modules=platform_modules)
+            for analysis in analyses
+        ],
     }
+
+
+async def analysis_annotation_manifest(
+    session: AsyncSession, context: FamilyMetadataContext, *, analysis: str | None
+) -> dict[str, Any]:
+    """The annotation manifest a sign-out of the family's ``analysis`` freezes (None: a family
+    that holds none), with the family's assembly: that analysis's versions, never another's."""
+    held = family_analysis_types(await _family_metadata(session, context.family_uuid))
+    rows = await _family_manifest_rows(session, context.family_uuid)
+    platform_modules = await _platform_modules(session, context.assembly_id)
+    return {
+        "assembly": context.assembly_name,
+        **analysis_manifest(rows, analysis=analysis, held=held, platform_modules=platform_modules),
+    }
+
+
+async def call_annotation_manifest(
+    session: AsyncSession, context: FamilyMetadataContext, *, kind: str, stored_under: str | None
+) -> dict[str, Any]:
+    """The annotation manifest of the analysis a call of the family is (of the
+    ``family_package_records.SOURCE_KINDS`` ``kind``, stored under the source ``stored_under``):
+    that of the one analysis the family holds whose package record lists that source, else that
+    of no analysis (a single-file upload's call, or one of a package that named none)."""
+    metadata = await _family_metadata(session, context.family_uuid)
+    held = family_analysis_types(metadata)
+    rows = await _family_manifest_rows(session, context.family_uuid)
+    platform_modules = await _platform_modules(session, context.assembly_id)
+    return analysis_manifest(
+        rows,
+        analysis=analysis_listing_source(metadata, kind, stored_under),
+        held=held,
+        platform_modules=platform_modules,
+    )
 
 
 # The ClinVar modules name where a classification comes from: the ClinVar file the pipeline
@@ -381,12 +529,19 @@ async def merge_vcf_header_provenance(
     family_uuid: str,
     assembly_id: str | None,
     modules: Mapping[str, Any],
+    analysis: str,
     modality: str | None = None,
     recorded_by: str = "import (vcf_header)",
     source: str = "vcf_header",
 ) -> None:
-    """Best-effort: fold harvested module versions into the family's annotation
-    manifest under ``source`` (``'vcf_header'`` by default).
+    """Best-effort: fold harvested module versions into the annotation manifest of the
+    family's ``analysis`` under ``source`` (``'vcf_header'`` by default).
+
+    ``analysis`` is the analysis whose data the versions came with: the key of its package
+    record (``family_package_records.package_record_key`` of the package's analysis type), or
+    ``UNSPECIFIED_ANALYSIS`` for a single-file upload, which belongs to no analysis. Only that
+    analysis's row is written: another analysis's versions stay as its own import recorded
+    them.
 
     ``source`` records *where* the versions came from. Most arrive from a VCF header;
     the long-read pipeline instead ships a run manifest (``software_versions.yaml``),
@@ -407,6 +562,7 @@ async def merge_vcf_header_provenance(
     """
     if not modules:
         return
+    key = manifest_key(analysis)
     # 'manual' is written only by the admin-curation path; accepting it here would let
     # an import masquerade as curated provenance and then be immune to later refreshes.
     recorded_source = source if source != "manual" else "vcf_header"
@@ -415,7 +571,7 @@ async def merge_vcf_header_provenance(
             # Taken inside the SAVEPOINT, but a released savepoint hands its locks to
             # the enclosing transaction, so it is held until the import commits.
             await _lock_family_manifest(session, family_uuid)
-            existing = await _family_manifest_row(session, family_uuid)
+            existing = await _family_manifest_row(session, family_uuid, key)
             if existing and existing.get("source") == "manual":
                 return  # respect admin-curated provenance
             current = _as_dict(existing.get("modules")) if existing else {}
@@ -424,9 +580,9 @@ async def merge_vcf_header_provenance(
                 text(
                     """
                     INSERT INTO family_annotation_manifest
-                        (family_id, assembly_id, modules, source, recorded_by, recorded_at)
+                        (family_id, analysis_type, assembly_id, modules, source, recorded_by, recorded_at)
                     VALUES
-                        (CAST(:family_uuid AS uuid),
+                        (CAST(:family_uuid AS uuid), :analysis,
                          -- NULLIF, not `CASE WHEN :assembly_id IS NULL`: asyncpg cannot
                          -- infer a parameter's type when one of its uses is a bare
                          -- `IS NULL`, and raises AmbiguousParameterError. The merge is
@@ -435,7 +591,7 @@ async def merge_vcf_header_provenance(
                          -- word. test_sql_parameter_typing.py guards it.
                          CAST(NULLIF(:assembly_id, '') AS uuid),
                          CAST(:modules AS jsonb), :source, :recorded_by, now())
-                    ON CONFLICT (family_id) DO UPDATE SET
+                    ON CONFLICT (family_id, analysis_type) DO UPDATE SET
                         modules = EXCLUDED.modules,
                         source = EXCLUDED.source,
                         recorded_by = EXCLUDED.recorded_by,
@@ -445,6 +601,7 @@ async def merge_vcf_header_provenance(
                 ),
                 {
                     "family_uuid": family_uuid,
+                    "analysis": key,
                     # '' rather than None so NULLIF above resolves it to SQL NULL with a
                     # parameter type asyncpg can infer.
                     "assembly_id": assembly_id or "",
@@ -491,15 +648,43 @@ def _manifest_replacement_summary(
     source: str,
     before: Mapping[str, Any],
     after: Mapping[str, Any],
+    analysis: str | None = None,
 ) -> str:
-    """The audit trail's one-line account of a manifest replacement."""
+    """The audit trail's one-line account of a manifest replacement, naming the analysis whose
+    manifest it is (none for a family that holds no analysis)."""
     changes = _manifest_changes(before, after)
     listed = "; ".join(changes[:_SUMMARY_MAX_CHANGES]) or "no module changed"
     if len(changes) > _SUMMARY_MAX_CHANGES:
         listed += f"; and {len(changes) - _SUMMARY_MAX_CHANGES} more"
+    of = f" of the {ANALYSIS_LABELS.get(analysis, analysis)}" if analysis else ""
     if prior_source is None:
-        return f"Annotation manifest recorded ({source}): {listed}"
-    return f"Annotation manifest replaced (was {prior_source}, now {source}): {listed}"
+        return f"Annotation manifest{of} recorded ({source}): {listed}"
+    return f"Annotation manifest{of} replaced (was {prior_source}, now {source}): {listed}"
+
+
+def resolve_manifest_analysis(held: Collection[str], asked: str | None) -> str | None:
+    """The analysis whose manifest a replacement is of: ``asked``, which the family must hold
+    (``held``); without one, the family's only analysis, or None for a family that holds none.
+    A family that holds two or more must be asked which: 422 otherwise, as for an analysis it
+    does not hold."""
+    ordered = sorted(held)
+    if asked is not None:
+        if asked not in held:
+            raise HTTPException(
+                status_code=422,
+                detail="This family holds no such analysis"
+                + (f"; it holds {', '.join(ordered)}." if ordered else "."),
+            )
+        return asked
+    if len(ordered) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"This family holds several analyses ({', '.join(ordered)}): name the one whose "
+                "annotation manifest to replace."
+            ),
+        )
+    return ordered[0] if ordered else None
 
 
 async def set_family_annotation_manifest(
@@ -508,14 +693,18 @@ async def set_family_annotation_manifest(
     family_id: str,
     user: CurrentUser,
     modules: dict[str, Any],
+    analysis_type: str | None = None,
 ) -> dict[str, Any]:
-    """Replace a family's pipeline manifest by hand (admin only), on the audit trail.
+    """Replace the pipeline manifest of one of a family's analyses by hand (admin only), on the
+    audit trail: ``analysis_type`` (``resolve_manifest_analysis``; for a family that holds none,
+    the manifest of no analysis).
 
     The replacement is always recorded as ``'manual'``: that is what it is, and it is
-    the source an import never overwrites. The row is overwritten in place and every
-    later sign-out freezes it into the signed report, so the replacement is recorded as
-    a clinical audit event on the family's hash chain, with the manifest it replaced and
-    the one it wrote, in the same transaction as the overwrite: neither persists without
+    the source an import never overwrites. It is that analysis's whole manifest
+    (``_stated_rows``). The row is overwritten in place and every later sign-out of the
+    analysis freezes it into the signed report, so the replacement is recorded as a clinical
+    audit event on the family's hash chain, naming the analysis, with the manifest it replaced
+    and the one it wrote, in the same transaction as the overwrite: neither persists without
     the other.
     """
     # Also enforced by the route (get_current_admin_user); checked here because this is
@@ -525,18 +714,25 @@ async def set_family_annotation_manifest(
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user
     )
+    held = family_analysis_types(await _family_metadata(session, context.family_uuid))
+    analysis = resolve_manifest_analysis(held, analysis_type)
     await _lock_family_manifest(session, context.family_uuid)
-    prior = await _pipeline_manifest(session, family_uuid=context.family_uuid)
+    # What the analysis's manifest stated until now: the modules a sign-out of it froze.
+    prior_rows = _stated_rows(
+        await _family_manifest_rows(session, context.family_uuid), analysis=analysis, held=held
+    )
+    prior_last: Mapping[str, Any] = prior_rows[-1] if prior_rows else {}
+    prior_modules = _stated_modules(prior_rows)
     new_modules = modules or {}
     await session.execute(
         text(
             """
             INSERT INTO family_annotation_manifest
-                (family_id, assembly_id, modules, source, recorded_by, recorded_at)
+                (family_id, analysis_type, assembly_id, modules, source, recorded_by, recorded_at)
             VALUES
-                (CAST(:family_uuid AS uuid), CAST(:assembly_id AS uuid),
+                (CAST(:family_uuid AS uuid), :analysis, CAST(:assembly_id AS uuid),
                  CAST(:modules AS jsonb), :source, :recorded_by, now())
-            ON CONFLICT (family_id) DO UPDATE SET
+            ON CONFLICT (family_id, analysis_type) DO UPDATE SET
                 modules = EXCLUDED.modules,
                 source = EXCLUDED.source,
                 recorded_by = EXCLUDED.recorded_by,
@@ -546,13 +742,15 @@ async def set_family_annotation_manifest(
         ),
         {
             "family_uuid": context.family_uuid,
+            "analysis": manifest_key(analysis),
             "assembly_id": context.assembly_id,
             "modules": json.dumps(new_modules),
             "source": _MANUAL_SOURCE,
             "recorded_by": getattr(user, "email", None),
         },
     )
-    prior_recorded_at = prior["recorded_at"]
+    prior_source = prior_last.get("source")
+    prior_recorded_at: Any = prior_last.get("recorded_at")
     await record_clinical_event(
         session,
         family_uuid=context.family_uuid,
@@ -562,22 +760,24 @@ async def set_family_annotation_manifest(
         actor_id=getattr(user, "id", None),
         action="annotation_manifest",
         summary=_manifest_replacement_summary(
-            prior_source=prior["source"],
+            prior_source=prior_source,
             source=_MANUAL_SOURCE,
-            before=prior["modules"],
+            before=prior_modules,
             after=new_modules,
+            analysis=analysis,
         ),
         before={
-            "source": prior["source"],
-            "recorded_by": prior["recorded_by"],
+            "analysis_type": analysis,
+            "source": prior_source,
+            "recorded_by": prior_last.get("recorded_by"),
             "recorded_at": (
                 prior_recorded_at.isoformat()
                 if hasattr(prior_recorded_at, "isoformat")
                 else prior_recorded_at
             ),
-            "modules": prior["modules"],
+            "modules": prior_modules,
         },
-        after={"source": _MANUAL_SOURCE, "modules": new_modules},
+        after={"analysis_type": analysis, "source": _MANUAL_SOURCE, "modules": new_modules},
     )
     await session.commit()
     return await get_family_annotation_manifest(session, family_id=family_id, user=user)

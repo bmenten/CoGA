@@ -850,7 +850,7 @@ async def test_a_package_imports_status_refresh_is_checked_for_a_pedigree_change
 
     class _Session:
         async def execute(self, *_args: Any, **_kwargs: Any) -> Any:
-            return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: []))
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [], first=lambda: None))
 
         async def commit(self) -> None:
             calls.append({"commit": True})

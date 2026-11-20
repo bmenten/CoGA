@@ -65,13 +65,13 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             family_uuid=holder["uuid"], family_id=label, assembly_name="GRCh38", sample_rows=[]
         )
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _context()
 
-    async def _manifest(session, *, family_id, user, project_id=None):
+    async def _manifest(session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+    async def _drift(session, *, family_id, user, project_id=None, analysis=None):
         return {
             "checked": 0,
             "drifted_count": 0,
@@ -80,7 +80,8 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
         }
 
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         return SampleIntegrityReport(overall_status="pass")
 
@@ -90,7 +91,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
     # No repeat or Paraphase call, and no review of one (finding_review_pg).
     monkeypatch.setattr(rss, "finding_reviews_for_record", no_finding_reviews)
-    monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
+    monkeypatch.setattr(rss, "analysis_annotation_manifest", _manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
@@ -128,6 +129,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                 await _flag_family_import_incomplete(
                     s,
                     _context(),
+                    analysis_type="unspecified",
                     failed_datasets=["sv", "snv"],
                     imported_datasets=["coverage"],
                     job_id=job_id,
@@ -230,11 +232,11 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             # round-trip; sign-out then needs no acknowledgement.
             async with sm() as s:
                 left = await _clear_family_import_incomplete(
-                    s, _context(), imported={"coverage": {"source": None, "samples": None}}
+                    s, _context(), analysis_type="unspecified", imported={"coverage": {"source": None, "samples": None}}
                 )
                 assert left is not None and set(left.failures.failed) == {"snv", "sv"}
             async with sm() as s:
-                await _clear_family_import_incomplete(s, _context(), imported=_SCOPES)
+                await _clear_family_import_incomplete(s, _context(), analysis_type="unspecified", imported=_SCOPES)
             async with sm() as s:
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
                 assert check["version"] == 1

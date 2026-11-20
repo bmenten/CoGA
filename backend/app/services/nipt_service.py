@@ -67,7 +67,8 @@ from .family_variant_filters import SmallVariantQueryFilters
 from .genotypes import classify_genotype
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
-from .nipt import NiptTrio, nipt_assay_key, resolve_nipt_trio
+from .family_analysis_types import family_analysis_types
+from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NiptTrio, nipt_assay_key, resolve_nipt_trio
 from .nipt_artifact_pg import assay_cfdna_carrier_samples, load_nipt_artifact_ids, recurrence_rules
 from .nipt_coverage import (
     DEFAULT_MIN_DEPTH,
@@ -604,11 +605,19 @@ async def _resolve_family_trio_context(
             status_code=400,
             detail="Family is not configured for monogenic NIPT analysis",
         )
+    # The monogenic NIPT is read from its own analysis's callset: a family that also holds
+    # another analysis with small variants of its own (the couple's carrier screening) never
+    # lends it its rows (analysis_scope.py).
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+        analysis=(
+            MONOGENIC_NIPT_ANALYSIS_TYPE
+            if MONOGENIC_NIPT_ANALYSIS_TYPE in family_analysis_types(family.metadata)
+            else None
+        ),
     )
     return family, trio, context
 
@@ -1297,7 +1306,7 @@ async def get_family_nipt_variants(
     # The review tags, as the family search selects by them: the ids go into the variant
     # load itself, so a tagged variant is never one the classification limit cut off.
     review = await resolve_review_selection(
-        session, context.family_uuid, tags=review_tags, exclude_tags=exclude_review_tags
+        session, context.family_uuid, scope=context.scope, tags=review_tags, exclude_tags=exclude_review_tags
     )
 
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are

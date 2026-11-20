@@ -99,8 +99,8 @@ async def seed_sv_reviews(session_factory: Any, label: str) -> tuple[Any, list[s
             )
             await session.execute(
                 text(
-                    "INSERT INTO structural_variant_reviews (family_id, variant_id, classification, tags, "
-                    "cnv_acmg, cnv_class, updated_by) VALUES (CAST(:f AS uuid), :v, :c, CAST(:t AS jsonb), "
+                    "INSERT INTO structural_variant_reviews (family_id, analysis, variant_id, classification, tags, "
+                    "cnv_acmg, cnv_class, updated_by) VALUES (CAST(:f AS uuid), '', :v, :c, CAST(:t AS jsonb), "
                     "CAST(:a AS jsonb), :k, 'reviewer')"
                 ),
                 {

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import PipelineSettingsPanel, { PipelineRunsPanels, pipelineRunsFromMetadata } from '../PipelineSettingsPanel';
 
 vi.mock('../../../lib/api', () => ({
-  default: { get: vi.fn().mockResolvedValue({ data: { modules: [] } }) },
+  default: { get: vi.fn().mockResolvedValue({ data: { analyses: [{ analysis_type: null, modules: [] }] } }) },
 }));
 
 /** The panel fetches the annotation manifest for tool versions, so it needs a client. */
@@ -61,6 +61,51 @@ describe('pipelineRunsFromMetadata', () => {
 });
 
 describe('PipelineRunsPanels', () => {
+  // A family sequenced short-read and then long-read: each run's panel lists the tool versions of
+  // its own analysis's annotation manifest, never the other's.
+  it("lists each analysis's own tool versions in its panel", async () => {
+    const api = (await import('../../../lib/api')).default;
+    const tool = (key: string, label: string, version: string) => ({
+      key,
+      label,
+      version,
+      detail: null,
+      layer: 'pipeline',
+      by_modality: null,
+    });
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        analyses: [
+          {
+            analysis_type: 'long_read_wgs',
+            modules: [tool('minimap2', 'minimap2', '2.30-r1287'), tool('sniffles', 'Sniffles', '2.2'), tool('xz', 'xz', '5.8.3')],
+          },
+          { analysis_type: 'short_read_wgs', modules: [tool('gatk', 'GATK', '4.5.0.0'), tool('gzip', 'gzip', '1.14')] },
+        ],
+      },
+    });
+
+    render(
+      <PipelineRunsPanels
+        familyId="FAM1"
+        metadata={{ pipeline: { short_read_wgs: { genome: 'GRCh38' }, long_read_wgs: PACBIO_SETTINGS } }}
+        variant="report"
+      />,
+    );
+
+    await screen.findByText('2.30-r1287');
+    const [longRead, shortRead] = screen.getAllByTestId('pipeline-settings');
+    expect(longRead).toHaveTextContent('minimap2');
+    expect(longRead).toHaveTextContent('xz 5.8.3');
+    expect(longRead).not.toHaveTextContent('GATK');
+    expect(shortRead).toHaveTextContent('GATK');
+    expect(shortRead).toHaveTextContent('4.5.0.0');
+    expect(shortRead).toHaveTextContent('gzip 1.14');
+    expect(shortRead).not.toHaveTextContent('minimap2');
+    expect(shortRead).not.toHaveTextContent('Sniffles');
+    vi.mocked(api.get).mockResolvedValue({ data: { analyses: [{ analysis_type: null, modules: [] }] } });
+  });
+
   it('shows a panel per analysis, named, when the family holds the run record of several', async () => {
     render(
       <PipelineRunsPanels
@@ -73,11 +118,79 @@ describe('PipelineRunsPanels', () => {
     ).toEqual(['Analysis pipeline settings — long-read WGS', 'Analysis pipeline settings — short-read WGS']);
   });
 
+  it('shows the tool versions of an analysis whose package carried no run record', async () => {
+    const api = (await import('../../../lib/api')).default;
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        analyses: [
+          { analysis_type: 'long_read_wgs', modules: [] },
+          {
+            analysis_type: 'short_read_wgs',
+            modules: [{ key: 'gatk', label: 'GATK', version: '4.5.0.0', detail: null, layer: 'pipeline', by_modality: null }],
+          },
+        ],
+      },
+    });
+
+    render(
+      <PipelineRunsPanels
+        familyId="FAM1"
+        metadata={{ analysis_types: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
+        variant="report"
+      />,
+    );
+
+    await screen.findByText('4.5.0.0');
+    expect((await screen.findAllByRole('heading')).map((heading) => heading.textContent)).toEqual([
+      'Analysis pipeline settings — long-read WGS',
+      'Analysis pipeline settings — short-read WGS',
+    ]);
+    vi.mocked(api.get).mockResolvedValue({ data: { analyses: [{ analysis_type: null, modules: [] }] } });
+  });
+
   it('shows one unnamed panel for a family of one run record', async () => {
     render(<PipelineRunsPanels metadata={{ pipeline: { long_read_wgs: PACBIO_SETTINGS } }} variant="report" />);
     expect((await screen.findAllByRole('heading')).map((heading) => heading.textContent)).toEqual([
       'Analysis pipeline settings',
     ]);
+  });
+
+  it('names the one run record of a family that holds several analyses', async () => {
+    // The short-read package carried no run record: the long-read one is not the family's whole.
+    render(
+      <PipelineRunsPanels
+        metadata={{ analysis_types: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
+        variant="workspace"
+      />,
+    );
+    expect((await screen.findAllByRole('heading')).map((heading) => heading.textContent)).toEqual([
+      'Analysis pipeline settings — long-read WGS',
+    ]);
+  });
+
+  it('shows on the report the run record of the analysis it signs out alone', async () => {
+    const metadata = {
+      analysis_types: ['long_read_wgs', 'short_read_wgs'],
+      pipeline: { short_read_wgs: { genome: 'GRCh38' }, long_read_wgs: PACBIO_SETTINGS },
+    };
+    const { unmount } = render(<PipelineRunsPanels metadata={metadata} variant="report" analysis="short_read_wgs" />);
+    expect((await screen.findAllByRole('heading')).map((heading) => heading.textContent)).toEqual([
+      'Analysis pipeline settings — short-read WGS',
+    ]);
+    expect(screen.queryByText('sniffles')).not.toBeInTheDocument();
+    unmount();
+
+    // An analysis whose package carried none: its panel is named, and shows no other analysis's
+    // run record.
+    render(
+      <PipelineRunsPanels
+        metadata={{ analysis_types: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
+        variant="report"
+        analysis="short_read_wgs"
+      />,
+    );
+    expect(screen.queryByText('sniffles')).not.toBeInTheDocument();
+    expect(screen.queryByText('Analysis pipeline settings — long-read WGS')).not.toBeInTheDocument();
   });
 });
 
@@ -178,12 +291,17 @@ describe('PipelineSettingsPanel', () => {
     const api = (await import('../../../lib/api')).default;
     vi.mocked(api.get).mockResolvedValue({
       data: {
-        modules: [
-          { key: 'nf-core/lrsvar', label: 'nf-core/lrsvar', version: 'v1.0.0dev', detail: 'Workflow', layer: 'pipeline', by_modality: null },
-          { key: 'nextflow', label: 'Nextflow', version: '26.04.3', detail: 'Workflow', layer: 'pipeline', by_modality: null },
-          { key: 'minimap2', label: 'minimap2', version: '2.30-r1287', detail: 'MINIMAP2_ALIGN', layer: 'pipeline', by_modality: null },
-          { key: 'samtools', label: 'samtools', version: '1.23.1', detail: 'BAM_SORT', layer: 'pipeline', by_modality: null },
-          { key: 'unversioned', label: 'unversioned', version: null, detail: null, layer: 'pipeline', by_modality: null },
+        analyses: [
+          {
+            analysis_type: null,
+            modules: [
+              { key: 'nf-core/lrsvar', label: 'nf-core/lrsvar', version: 'v1.0.0dev', detail: 'Workflow', layer: 'pipeline', by_modality: null },
+              { key: 'nextflow', label: 'Nextflow', version: '26.04.3', detail: 'Workflow', layer: 'pipeline', by_modality: null },
+              { key: 'minimap2', label: 'minimap2', version: '2.30-r1287', detail: 'MINIMAP2_ALIGN', layer: 'pipeline', by_modality: null },
+              { key: 'samtools', label: 'samtools', version: '1.23.1', detail: 'BAM_SORT', layer: 'pipeline', by_modality: null },
+              { key: 'unversioned', label: 'unversioned', version: null, detail: null, layer: 'pipeline', by_modality: null },
+            ],
+          },
         ],
       },
     });
@@ -216,8 +334,13 @@ describe('PipelineSettingsPanel', () => {
     const api = (await import('../../../lib/api')).default;
     vi.mocked(api.get).mockResolvedValue({
       data: {
-        modules: [
-          { key: 'assembly', label: 'assembly', version: 'GRCh38', detail: '2013-12-01', layer: 'reference', by_modality: null },
+        analyses: [
+          {
+            analysis_type: null,
+            modules: [
+              { key: 'assembly', label: 'assembly', version: 'GRCh38', detail: '2013-12-01', layer: 'reference', by_modality: null },
+            ],
+          },
         ],
       },
     });
@@ -234,10 +357,15 @@ describe('PipelineSettingsPanel', () => {
     const api = (await import('../../../lib/api')).default;
     vi.mocked(api.get).mockResolvedValue({
       data: {
-        modules: [
-          { key: 'htslib', label: 'htslib', version: '1.23.1', detail: null, layer: 'pipeline', by_modality: null },
-          { key: 'gzip', label: 'gzip', version: '1.14', detail: null, layer: 'pipeline', by_modality: null },
-          { key: 'xz', label: 'xz', version: '5.8.3', detail: null, layer: 'pipeline', by_modality: null },
+        analyses: [
+          {
+            analysis_type: null,
+            modules: [
+              { key: 'htslib', label: 'htslib', version: '1.23.1', detail: null, layer: 'pipeline', by_modality: null },
+              { key: 'gzip', label: 'gzip', version: '1.14', detail: null, layer: 'pipeline', by_modality: null },
+              { key: 'xz', label: 'xz', version: '5.8.3', detail: null, layer: 'pipeline', by_modality: null },
+            ],
+          },
         ],
       },
     });
@@ -254,7 +382,7 @@ describe('PipelineSettingsPanel', () => {
 
   it('keeps a caller the pipeline named but reported no version for', async () => {
     const api = (await import('../../../lib/api')).default;
-    vi.mocked(api.get).mockResolvedValue({ data: { modules: [] } });
+    vi.mocked(api.get).mockResolvedValue({ data: { analyses: [{ analysis_type: null, modules: [] }] } });
 
     render(<PipelineSettingsPanel familyId="pacbio" settings={PACBIO_SETTINGS} />);
 
@@ -280,7 +408,7 @@ describe('PipelineSettingsPanel', () => {
     expect(tools).toHaveTextContent('version could not be loaded');
     expect(tools).not.toHaveTextContent('not reported');
 
-    vi.mocked(api.get).mockResolvedValue({ data: { modules: [] } });
+    vi.mocked(api.get).mockResolvedValue({ data: { analyses: [{ analysis_type: null, modules: [] }] } });
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.queryByTestId('pipeline-versions-failed')).not.toBeInTheDocument());
     expect(screen.getByTestId('pipeline-tools')).toHaveTextContent('not reported');

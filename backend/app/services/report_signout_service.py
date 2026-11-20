@@ -41,17 +41,19 @@ import dataclasses
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterator, Mapping, Sequence
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from .analysis_reviews import effective_reviews, scope_review_clause
+from .analysis_scope import AnalysisScope, analysis_scope
 from .review_pg_utils import review_class_label
 from .annotation_manifest_service import (
     UNAVAILABLE_MODULE_VERSION,
-    get_family_annotation_manifest,
+    analysis_annotation_manifest,
 )
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
@@ -67,6 +69,8 @@ from .finding_review_pg import (
     unreviewed_finding_names,
 )
 from .family_package_registration import (
+    MARK_ANALYSIS_KEY,
+    analysis_import_flag,
     is_whole_family_entry,
     read_import_flag,
     read_unfinished_entries,
@@ -82,7 +86,7 @@ from .package_changed_after_import import (
     gates_a_sign_out,
     sign_out_source_changes,
 )
-from .family_package_records import analysis_data_words
+from .family_package_records import ANALYSIS_LABELS, analysis_data_words
 from .report_code import (
     ReportCodeError,
     content_hash_prefix,
@@ -96,6 +100,7 @@ from .signed_record_sections import (
     NIPT_RESULTS,
     RECORD_SECTIONS,
     build_record_sections,
+    finding_kinds_held,
     record_section_gaps,
 )
 from .sample_integrity_qc import (
@@ -107,7 +112,7 @@ from .sample_integrity_qc import (
     SampleIntegrityReport,
 )
 from .sample_integrity_service import get_family_sample_integrity_qc
-from .signout_scope import SignoutScope, reviews_left_out, signout_scope
+from .signout_scope import SignoutScope, signout_scope
 
 logger = logging.getLogger(__name__)
 
@@ -507,43 +512,26 @@ def _qc_gate_message(
     return " ".join(parts)
 
 
-async def _import_incomplete_state(
-    session: AsyncSession, family_uuid: str
-) -> dict[str, Any] | None:
-    """What the family's package import left incomplete, or None when nothing is.
+def frozen_import_flag(raw: Any, scope: SignoutScope) -> dict[str, Any] | None:
+    """The family's stored ``import_incomplete`` flag (``raw``) as a sign-out of ``scope``
+    freezes it, or None when it holds nothing of that scope.
 
-    A family-package import that partly fails keeps the family and the datasets that did
-    import, and stamps ``families.metadata.import_incomplete`` with when it ran, which
-    datasets failed, which imported and the import job whose record holds each dataset's
-    error (``family_package_registration._flag_family_import_incomplete``); a later,
-    fully successful import removes it. Frozen into the snapshot and gating sign-out, so
-    a report on partly loaded data is never released as if it were complete.
+    A sign-out of the whole family freezes the flag as stored. A sign-out of one of the
+    family's analyses freezes only the failures of that analysis and of no analysis
+    (``SignoutScope.holds_mark``, ``family_package_registration.analysis_import_flag``):
+    each failure records the analysis of the import it failed in (an upload's none), as
+    analyses share dataset types. Its time, job and imported datasets are those of its latest
+    failure, so another analysis's failure, or the striking of one, leaves it as it is.
 
-    The flag is read in the shape the import writes
-    (``family_package_registration.read_import_flag``); a flag in any other shape raises
-    ``ImportMarkShapeError``, so the sign-out fails and its gate stays closed. Dataset lists
-    are frozen sorted, for a stable hash.
-
-    ``failed_jobs`` names, for each failed dataset, the import job whose record holds its
-    error: a later failure keeps an earlier import's failed datasets in the flag
-    (``family_package_registration.merged_import_failure``), so they can come from
-    different jobs. A dataset it lists with no job failed outside one -- in a single-file
-    upload, or an import run outside a job -- and is frozen with none: the flag's
-    own job is another failure's, which does not hold its error. A dataset that
-    failed for more than one scope (another callset, other samples) is named with the job of
-    its latest failure; the flag keeps every scope with its own job (``failed_scopes``),
-    which is not frozen.
-    """
-    raw = (
-        await session.execute(
-            text(
-                "SELECT metadata -> 'import_incomplete' FROM families "
-                "WHERE id = CAST(:family_uuid AS uuid)"
-            ),
-            {"family_uuid": family_uuid},
-        )
-    ).scalar_one_or_none()
-    flag = read_import_flag(raw)
+    Frozen: when (``at``), the failed and the imported datasets (sorted, for a stable hash),
+    the flag's job, the job of each failed dataset's latest failure (``failed_jobs``: None for
+    one that failed outside an import job -- in a single-file upload, or an import run
+    outside a job -- whose error the flag's own job does not hold) and the analyses its
+    failures are of (``failed_analysis_types``). A dataset that failed for more than one scope
+    (another callset, other samples) is named once; the flag keeps every scope
+    (``failed_scopes``), which is not frozen. Raises ``ImportMarkShapeError`` for a flag in
+    another shape (``family_package_registration.read_import_flag``)."""
+    flag = read_import_flag(raw) if scope.whole else analysis_import_flag(raw, scope.holds_mark)
     if flag is None:
         return None
     failed = sorted(set(flag["failed_datasets"]))
@@ -554,39 +542,89 @@ async def _import_incomplete_state(
         "job_id": flag["job_id"],
         # None: it failed outside an import job.
         "failed_jobs": {name: flag["failed_jobs"][name] for name in failed},
+        "failed_analysis_types": {name: list(flag["failed_analysis_types"][name]) for name in failed},
     }
 
 
+async def _import_incomplete_state(
+    session: AsyncSession, family_uuid: str, scope: SignoutScope
+) -> dict[str, Any] | None:
+    """What the family's package imports left incomplete of the analysis signed out
+    (``scope``), or None when nothing is (``frozen_import_flag``).
+
+    A family-package import that partly fails keeps the family and the datasets that did
+    import, and stamps ``families.metadata.import_incomplete`` with when it ran, which
+    datasets failed, which imported and the import job whose record holds each dataset's
+    error (``family_package_registration._flag_family_import_incomplete``); a later,
+    fully successful import of the same analysis removes it. Frozen into the snapshot and
+    gating sign-out, so a report on partly loaded data is never released as if it were
+    complete. A flag in a shape the import does not write raises ``ImportMarkShapeError``, so
+    the sign-out fails and its gate stays closed."""
+    raw = (
+        await session.execute(
+            text(
+                "SELECT metadata -> 'import_incomplete' FROM families "
+                "WHERE id = CAST(:family_uuid AS uuid)"
+            ),
+            {"family_uuid": family_uuid},
+        )
+    ).scalar_one_or_none()
+    return frozen_import_flag(raw, scope)
+
+
+def frozen_unfinished_entries(raw: Any, scope: SignoutScope) -> dict[str, dict[str, Any]]:
+    """The family's stored ``import_unfinished`` map (``raw``) as a sign-out of ``scope``
+    freezes it: each entry of the analysis signed out or of no analysis
+    (``SignoutScope.holds_mark``), by its key, and each entry a failed overwrite's restore
+    left, whichever analysis's import it was: the restore rewrote the whole family's rows.
+
+    Frozen: its job, when it began (``at``), the analysis it is of (``analysis_type``: an
+    import's package record, None for an upload's or a deletion's mark), its datasets and
+    those it finished, sorted for a stable hash; and ``whole_family`` true for a restore's
+    entry (``family_package_registration.whole_family_entry``), so the gate, its dialog and
+    the signed record describe it as that restore, not as an import that stopped. Only then
+    is the key set. Raises ``ImportMarkShapeError`` for an entry in another shape
+    (``family_package_registration.read_unfinished_entries``)."""
+    frozen: dict[str, dict[str, Any]] = {}
+    for key, entry in read_unfinished_entries(raw).items():
+        # An upload's or a deletion's mark lists its items the same way, but is no restore.
+        restore = unfinished_entry_writer(key) == "import" and is_whole_family_entry(entry)
+        if not restore and not scope.holds_mark(entry[MARK_ANALYSIS_KEY]):
+            continue
+        frozen[key] = {
+            "job_id": entry["job_id"],
+            "at": entry["at"],
+            MARK_ANALYSIS_KEY: entry[MARK_ANALYSIS_KEY],
+            "datasets": sorted(set(entry["datasets"])),
+            "finished_datasets": sorted(set(entry["finished_datasets"])),
+        }
+        if restore:
+            frozen[key]["whole_family"] = True
+    return frozen
+
+
 async def _import_unfinished_state(
-    session: AsyncSession, family_uuid: str
+    session: AsyncSession, family_uuid: str, scope: SignoutScope
 ) -> dict[str, dict[str, Any]]:
-    """The family's package imports that began writing it and did not finish, by their
-    key in ``families.metadata.import_unfinished``; empty when there are none.
+    """The writes of the family's data that began and did not finish, of the analysis signed
+    out (``scope``), by their key in ``families.metadata.import_unfinished``; empty when there
+    are none (``frozen_unfinished_entries``).
 
     An import records its entry there before its first write of the family and removes it
     when it ends, completed, failed (and flagged import_incomplete) or put back
     (``family_package_registration.ImportMark``). So an entry outlives only an import whose
     process stopped part-way -- a restart, a crash, running out of memory -- and the
-    datasets it had not finished may be partly written or missing. A later import removes
-    it only by importing those again with overwrite. Frozen into the snapshot beside
-    ``import_incomplete`` and gating sign-out with it, as one gate.
+    datasets it had not finished may be partly written or missing. A later import of the
+    same analysis removes it only by importing those again with overwrite. Frozen into the
+    snapshot beside ``import_incomplete`` and gating sign-out with it, as one gate.
 
     A single-file upload marks the family the same way before its first ClickHouse write
     (``family_package_registration.FamilyWriteMark``), and so does a deletion of the
     family's data that deletes or rewrites ClickHouse rows: an entry under a key
-    that says which (``unfinished_entry_writer``), with no job, listing what may be partly
-    written or missing. It reads and gates as an import's.
-
-    Each entry is read in the shape its writer writes
-    (``family_package_registration.read_unfinished_entries``); a value in any other shape
-    raises ``ImportMarkShapeError``, as the flag does. Dataset lists are frozen sorted, for a
-    stable hash.
-
-    The entry a failed overwrite's restore leaves when it does not finish (its datasets the
-    whole family's: ``family_package_registration.whole_family_entry``) is frozen with
-    ``whole_family`` true, so the gate, its dialog and the signed record describe it as that
-    restore, not as an import that stopped. Only then is the key set.
-    """
+    that says which (``unfinished_entry_writer``), with no job and of no analysis, listing
+    what may be partly written or missing. It reads and gates as an import's, for every
+    analysis. An entry in a shape its writer does not write raises ``ImportMarkShapeError``,
+    as the flag does."""
     raw = (
         await session.execute(
             text(
@@ -596,63 +634,29 @@ async def _import_unfinished_state(
             {"family_uuid": family_uuid},
         )
     ).scalar_one_or_none()
-    state: dict[str, dict[str, Any]] = {}
-    for key, entry in read_unfinished_entries(raw).items():
-        state[key] = {
-            "job_id": entry["job_id"],
-            "at": entry["at"],
-            "datasets": sorted(set(entry["datasets"])),
-            "finished_datasets": sorted(set(entry["finished_datasets"])),
-        }
-        # An upload's or a deletion's mark lists its items the same way, but is no restore.
-        if unfinished_entry_writer(key) == "import" and is_whole_family_entry(entry):
-            state[key]["whole_family"] = True
-    return state
+    return frozen_unfinished_entries(raw, scope)
 
 
-def _scoped_import_incomplete(state: dict[str, Any] | None, scope: SignoutScope) -> dict[str, Any] | None:
-    """What the family's imports left incomplete of the analysis signed out (``scope``): its
-    datasets (``SignoutScope.holds_dataset``); None when none of them failed."""
-    if state is None or scope.whole:
-        return state
-    failed = [name for name in state["failed_datasets"] if scope.holds_dataset(name)]
-    if not failed:
-        return None
-    return {
-        **state,
-        "failed_datasets": failed,
-        "imported_datasets": [name for name in state["imported_datasets"] if scope.holds_dataset(name)],
-        "failed_jobs": {name: state["failed_jobs"][name] for name in failed},
-    }
+def _import_words(analysis_type: object) -> str:
+    """An import of a package of ``analysis_type`` (the analysis an import mark records), as
+    the gate message names it: "an import of this family's long-read WGS data", or "an
+    import" for one it has no label for (a package that named no analysis)."""
+    label = ANALYSIS_LABELS.get(str(analysis_type or ""))
+    return f"an import of this family's {label} data" if label else "an import"
 
 
-def _scoped_import_unfinished(state: dict[str, dict[str, Any]], scope: SignoutScope) -> dict[str, dict[str, Any]]:
-    """The unfinished writes of the family that touch the analysis signed out (``scope``), each
-    with its datasets of that analysis: a write that touched only other analyses' datasets is
-    left out. A failed overwrite's restore (``whole_family``) is the whole family's, kept whole."""
-    if scope.whole:
-        return state
-    scoped: dict[str, dict[str, Any]] = {}
-    for key, entry in state.items():
-        if entry.get("whole_family"):
-            scoped[key] = entry
-            continue
-        datasets = [name for name in entry["datasets"] if scope.holds_dataset(name)]
-        if entry["datasets"] and not datasets:
-            continue
-        scoped[key] = {
-            **entry,
-            "datasets": datasets,
-            "finished_datasets": [name for name in entry["finished_datasets"] if scope.holds_dataset(name)],
-        }
-    return scoped
+def _failed_dataset_words(name: str, analyses: Iterable[Any]) -> str:
+    """A failed dataset as the gate message names it: with the analyses whose imports it
+    failed in, those it has a label for ("snv (long-read WGS)")."""
+    labels = [ANALYSIS_LABELS[str(analysis)] for analysis in analyses if str(analysis) in ANALYSIS_LABELS]
+    return f"{name} ({', '.join(labels)})" if labels else name
 
 
 def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
-    """One unfinished import, as the gate message names it. An entry a single-file upload,
-    or a deletion of the family's data, left is named for what wrote it,
-    which its key says (``family_package_registration.unfinished_entry_writer``): the
-    snapshot freezes the key with the entry."""
+    """One unfinished import, as the gate message names it, with the analysis it was of. An
+    entry a single-file upload, or a deletion of the family's data, left is named for what
+    wrote it, which its key says (``family_package_registration.unfinished_entry_writer``):
+    the snapshot freezes the key with the entry."""
     when = f" ({entry['at']})" if entry.get("at") else ""
     finished = list(entry.get("finished_datasets") or [])
     pending = [name for name in entry.get("datasets") or [] if name not in finished]
@@ -667,14 +671,17 @@ def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
     if entry.get("whole_family"):
         # A failed overwrite whose restore did not finish: it rewrites the family's rows table
         # by table, whichever import or upload wrote them.
-        what = f"an import{when} failed, and putting this family's data back did not finish"
+        what = (
+            f"{_import_words(entry.get(MARK_ANALYSIS_KEY))}{when} failed, and putting this "
+            "family's data back did not finish"
+        )
         if pending:
             what += (
                 f", so {', '.join(pending)} may be partly written or missing, whichever import or "
                 f"upload wrote {'it' if len(pending) == 1 else 'them'}"
             )
         return f"{what}." + (f" Import job {job_id} records its failure." if job_id else "")
-    what = f"an import{when} stopped before it finished"
+    what = f"{_import_words(entry.get(MARK_ANALYSIS_KEY))}{when} stopped before it finished"
     if pending:
         what += f", so {', '.join(pending)} may be partly written or missing"
         if finished:
@@ -694,9 +701,11 @@ def _import_gate_message(
     if state is not None:
         failed = list(state.get("failed_datasets") or [])
         imported = list(state.get("imported_datasets") or [])
+        analyses = state.get("failed_analysis_types") or {}
         when = f" ({state['at']})" if state.get("at") else ""
         if failed:
-            what = f"the package import{when} failed for {', '.join(failed)}"
+            named = [_failed_dataset_words(name, analyses.get(name) or ()) for name in failed]
+            what = f"the package import{when} failed for {', '.join(named)}"
             if imported:
                 what += f" ({', '.join(imported)} did import)"
         else:
@@ -1074,8 +1083,42 @@ def _dataset_list(value: Any) -> list[str] | None:
     return [str(item) for item in value]
 
 
-async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
-    """The small variants tagged for the report, each with its review as frozen.
+async def _scoped_reviews(
+    session: AsyncSession, *, table: str, columns: str, family_uuid: str, scope: AnalysisScope
+) -> list[dict[str, Any]]:
+    """The family's reviews of ``table`` the analysis ``scope`` reads, one per variant: its own,
+    else the shared one (``analysis_reviews``), in variant order. ``table`` and ``columns`` are
+    this module's own identifiers."""
+    params: dict[str, Any] = {"family_uuid": family_uuid}
+    belongs = scope_review_clause(scope, params)
+    rows = (
+        await session.execute(
+            text(
+                f"""
+                SELECT analysis, updated_at, {columns}
+                FROM {table}
+                WHERE family_id = CAST(:family_uuid AS uuid)
+                  AND variant_id IS NOT NULL
+                  AND {belongs}
+                """
+            ),
+            params,
+        )
+    ).mappings().all()
+    reviews = effective_reviews((dict(row) for row in rows), scope)
+    return [reviews[variant_id] for variant_id in sorted(reviews)]
+
+
+async def _reported_reviews(
+    session: AsyncSession, family_uuid: str, scope: AnalysisScope
+) -> list[dict[str, Any]]:
+    """The small variants tagged for the report in the analysis signed out (``scope``), each
+    with its review as frozen.
+
+    Each variant's review is the analysis's (``analysis_reviews``): its own review, else the
+    shared one, made while the family held no analysis. A review of another analysis is not
+    its, whether or not that analysis's callset holds the variant (the owner's decision of
+    2026-11-20): the report in the EPD refers 1:1 to one analysis's signed record.
 
     A variant is reported when its review or its compound-het pair review holds the report
     tag: the rule of the review-tag filter (``list_matching_small_variant_review_ids``), by
@@ -1089,25 +1132,20 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     alone holds none. Each holds its classification text as stored; the class its review
     shows is added by :func:`build_report_snapshot` (``class_shown``).
     """
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT variant_id, classification, acmg_class, acmg, tags, note,
-                       acmg_evidence_snapshot, compound_het_group_id, compound_het_partner_variant_ids,
-                       compound_het_gene, compound_het_classification, compound_het_tags,
-                       compound_het_note, compound_het_phase_status
-                FROM small_variant_reviews
-                WHERE family_id = CAST(:family_uuid AS uuid)
-                  AND (tags @> :report_tag OR compound_het_tags @> :report_tag)
-                ORDER BY variant_id
-                """
-            ),
-            {"family_uuid": family_uuid, "report_tag": json.dumps([_REPORT_TAG])},
-        )
-    ).mappings().all()
     reported: list[dict[str, Any]] = []
-    for row in rows:
+    for row in await _scoped_reviews(
+        session,
+        table="small_variant_reviews",
+        columns=(
+            "variant_id, classification, acmg_class, acmg, tags, note, acmg_evidence_snapshot, "
+            "compound_het_group_id, compound_het_partner_variant_ids, compound_het_gene, "
+            "compound_het_classification, compound_het_tags, compound_het_note, compound_het_phase_status"
+        ),
+        family_uuid=family_uuid,
+        scope=scope,
+    ):
+        if _REPORT_TAG not in (row["tags"] or []) and _REPORT_TAG not in (row["compound_het_tags"] or []):
+            continue
         entry: dict[str, Any] = {
             "variant_id": row["variant_id"],
             # The classification text as stored, which the class shown is read from.
@@ -1118,7 +1156,7 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
             "note": row["note"],
             "evidence_snapshot": row["acmg_evidence_snapshot"],
         }
-        pair = compound_het_pair_state(dict(row))
+        pair = compound_het_pair_state(row)
         if pair is not None and _REPORT_TAG in pair["tags"]:
             entry["compound_het"] = pair
         reported.append(entry)
@@ -1126,30 +1164,16 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
 
 
 async def _reported_structural_reviews(
-    session: AsyncSession, family_uuid: str
+    session: AsyncSession, family_uuid: str, scope: AnalysisScope
 ) -> list[dict[str, Any]]:
-    """Structural variants / CNVs tagged for the report, with their classification and the
-    evidence its CNV scoring froze.
+    """Structural variants / CNVs tagged for the report in the analysis signed out
+    (``scope``: its own reviews, else the shared ones, as for small variants), with their
+    classification and the evidence its CNV scoring froze.
 
     The report page renders these beside the small variants, so the signed record freezes
     them too. The class the review shows is added by :func:`build_report_snapshot`
     (``class_shown``).
     """
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT variant_id, classification, cnv_class, cnv_point_total,
-                       cnv_acmg, tags, note, cnv_evidence_snapshot
-                FROM structural_variant_reviews
-                WHERE family_id = CAST(:family_uuid AS uuid)
-                  AND tags @> :report_tag
-                ORDER BY variant_id NULLS LAST
-                """
-            ),
-            {"family_uuid": family_uuid, "report_tag": json.dumps([_REPORT_TAG])},
-        )
-    ).mappings().all()
     return [
         {
             "variant_id": row["variant_id"],
@@ -1161,7 +1185,17 @@ async def _reported_structural_reviews(
             "note": row["note"],
             "evidence_snapshot": row["cnv_evidence_snapshot"],
         }
-        for row in rows
+        for row in await _scoped_reviews(
+            session,
+            table="structural_variant_reviews",
+            columns=(
+                "variant_id, classification, cnv_class, cnv_point_total, cnv_acmg, tags, note, "
+                "cnv_evidence_snapshot"
+            ),
+            family_uuid=family_uuid,
+            scope=scope,
+        )
+        if _REPORT_TAG in (row["tags"] or [])
     ]
 
 
@@ -1329,12 +1363,15 @@ async def build_report_snapshot(
     # whole family, for a family of one analysis or none.
     scope = await family_signout_scope(session, context.family_uuid, analysis_type)
     analysis = scope.analysis
-    left_out = await reviews_left_out(session, context, scope)
-    manifest = await get_family_annotation_manifest(
-        session, family_id=family_id, user=user, project_id=project_id
-    )
+    # Its variants are read, and its reviews frozen and checked, as the analysis's: its own
+    # callsets (analysis_scope.py) and its own reviews, else the shared ones (analysis_reviews);
+    # every review of a family that holds no analysis.
+    context.scope = analysis_scope(await _family_metadata(session, context.family_uuid), analysis)
+    # The analysis's own annotation and pipeline versions, never another analysis's: a family
+    # sequenced short-read and then long-read keeps each analysis's manifest apart.
+    manifest = await analysis_annotation_manifest(session, context, analysis=analysis)
     drift = await evaluate_classification_drift(
-        session, family_id=family_id, user=user, project_id=project_id, left_out=left_out
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
     # A monogenic NIPT family's analysis, over its whole callset, is computed once: the
     # Sample QC's NIPT checks and the record's NIPT section below read the same values.
@@ -1348,25 +1385,20 @@ async def build_report_snapshot(
         # The QC of the analysis signed out, on genotypes of its own callset.
         analysis_types=None if scope.whole or analysis is None else [analysis],
         genotype_source_held=None if scope.whole else lambda source: scope.holds("small_variants", [source]),
+        analysis=None if scope.whole else analysis,
     )
     # Each with the class its review shows, by the family page's rule.
     reported = [
         _with_class_shown(entry)
-        for entry in await _reported_reviews(session, context.family_uuid)
-        if str(entry["variant_id"]) not in left_out.small
+        for entry in await _reported_reviews(session, context.family_uuid, context.scope)
     ]
     reported_structural = [
         _with_class_shown(entry)
-        for entry in await _reported_structural_reviews(session, context.family_uuid)
-        if str(entry["variant_id"]) not in left_out.structural
+        for entry in await _reported_structural_reviews(session, context.family_uuid, context.scope)
     ]
     sequencing_qc = await _canonical_sequencing_qc(session, context, scope)
-    import_incomplete = _scoped_import_incomplete(
-        await _import_incomplete_state(session, context.family_uuid), scope
-    )
-    import_unfinished = _scoped_import_unfinished(
-        await _import_unfinished_state(session, context.family_uuid), scope
-    )
+    import_incomplete = await _import_incomplete_state(session, context.family_uuid, scope)
+    import_unfinished = await _import_unfinished_state(session, context.family_uuid, scope)
     package_source_changes = [
         change
         for change in await _package_source_changes_state(session, context.family_uuid)
@@ -1407,6 +1439,10 @@ async def build_report_snapshot(
         [*structural["drifted"], *structural_unsnapshotted],
         key=lambda item: item.get("variant_id") or "",
     )
+    # The kinds of finding whose calls are the analysis's (the repeat calls, the Paraphase
+    # results), by the sources they are stored under: the record of an analysis that holds none
+    # of them holds those sections, and their reviews, empty.
+    finding_kinds = await finding_kinds_held(session, context, scope)
     # What the analysis looked at: each reported variant's description, the gene-panel
     # versions its searches applied, the reference-data releases, the family's repeat
     # expansions and Paraphase results, what each coverage track holds, a PGT family's embryo
@@ -1418,13 +1454,14 @@ async def build_report_snapshot(
         reported_structural=reported_structural,
         shared_nipt=shared_nipt,
         scope=scope,
+        finding_kinds=finding_kinds,
     )
     # The reviews of the repeat loci and Paraphase regions that carry a classification or the
     # Report tag, with whether the calls each froze are still the family's; those whose calls
     # changed, which the drift gate counts; and each locus or region with an abnormal call and
     # no review, which the gate of unreviewed findings lists (finding_review_pg, from the
     # repeat and Paraphase sections just built).
-    finding_reviews = await finding_reviews_for_record(session, context, sections)
+    finding_reviews = await finding_reviews_for_record(session, context, sections, kinds=finding_kinds)
     return {
         # What the record is: the analytical sign-off, to which the EPD's report refers.
         "record_statement": ANALYTICAL_SIGN_OFF_STATEMENT,
@@ -1949,6 +1986,12 @@ async def sign_out_report(
         },
     )
     gaps = snapshot_gaps(snapshot_body)
+    # The analysis the record closes, named on the trail as the record names it (none: a family
+    # that holds no analysis, signed out whole).
+    signed_analysis = snapshot_body["analysis_type"]
+    analysis_words = (
+        f" of the {ANALYSIS_LABELS.get(signed_analysis, signed_analysis)}" if signed_analysis else ""
+    )
     await record_clinical_event(
         session,
         family_uuid=context.family_uuid,
@@ -1958,7 +2001,7 @@ async def sign_out_report(
         actor_id=getattr(user, "id", None),
         action="sign_out",
         summary=(
-            f"Report signed out (v{version}, report code {code}) — "
+            f"Report{analysis_words} signed out (v{version}, report code {code}) — "
             f"{len(snapshot_body['reported_variants'])} "
             f"reported variant(s), "
             f"{len(snapshot_body['reported_structural_variants'])} reported structural "
@@ -1972,6 +2015,8 @@ async def sign_out_report(
         ),
         after={
             "version": version,
+            # The analysis the record closes (snapshot.analysis_type).
+            "analysis_type": signed_analysis,
             "content_hash": content_hash,
             # The code the EPD report quotes for this record (report_code.py).
             "report_code": code,
@@ -2348,9 +2393,9 @@ async def compare_report_with_latest_signout(
     with the frozen one: a section that differs, or that only one of the two holds, is
     changed. A section of one application that neither holds (``pgt_analysis`` of a family
     without an embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype
-    blocks; ``nipt`` of a family that is no monogenic NIPT family), or of a kind of data the
-    analysis does not hold (``signout_scope``), is not compared. Both snapshots are of the
-    analysis's own data, so a change to another analysis's leaves its check matching.
+    blocks; ``nipt`` of a family that is no monogenic NIPT family) is not compared. Both
+    snapshots are of the analysis's own data (``signout_scope``), its annotation manifest
+    included, so a change to another analysis's leaves its check matching.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -2396,8 +2441,7 @@ async def compare_report_with_latest_signout(
         if section not in signed and section not in current:
             # Another application's section (the PGT embryo calls of a family without an
             # embryo or of a NIPT family's fetus, the NIPT results of a family that is no
-            # NIPT family), or a kind of data the analysis does not hold (the repeat calls of a
-            # short-read analysis beside a long-read one, signout_scope): nothing to compare.
+            # NIPT family): nothing to compare.
             continue
         if (
             section not in signed

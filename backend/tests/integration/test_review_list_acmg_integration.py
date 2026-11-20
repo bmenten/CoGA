@@ -45,8 +45,9 @@ def test_a_review_saved_with_acmg_criteria_comes_back_through_the_list(monkeypat
         SmallVariantReviewUpdate,
     )
     from backend.app.services import small_variant_review_pg as svr
+    from backend.app.services.analysis_scope import AnalysisScope
 
-    async def _variant_record(*, assembly_name, family_guid, variant_id):
+    async def _variant_record(*, assembly_name, family_guid, variant_id, left_out_sources=()):
         # What the save reads from ClickHouse: the variant's key, and the annotation it
         # freezes as evidence.
         return SimpleNamespace(
@@ -86,8 +87,14 @@ def test_a_review_saved_with_acmg_criteria_comes_back_through_the_list(monkeypat
                     )
                 ).scalar_one()
                 await s.commit()
+            # A family that holds no analysis: its reviews are stored, and read, under none.
             context = SimpleNamespace(
-                family_uuid=family_uuid, family_id=label, project_ids=[], assembly_name="GRCh38", assembly_id=None
+                family_uuid=family_uuid,
+                family_id=label,
+                project_ids=[],
+                assembly_name="GRCh38",
+                assembly_id=None,
+                scope=AnalysisScope(),
             )
             user = SimpleNamespace(id=None, username="reviewer", email="reviewer@x.org")
 
@@ -107,10 +114,14 @@ def test_a_review_saved_with_acmg_criteria_comes_back_through_the_list(monkeypat
 
             async with sm() as s:
                 listed = await svr.get_small_variant_review_map(
-                    s, family_uuid=family_uuid, variant_ids=[_VARIANT_ID]
+                    s, family_uuid=family_uuid, variant_ids=[_VARIANT_ID], scope=AnalysisScope()
                 )
                 single = svr._serialize_review(
-                    await svr._fetch_review_row(s, family_uuid=family_uuid, variant_id=_VARIANT_ID)
+                    (
+                        await svr._fetch_scoped_review(
+                            s, family_uuid=family_uuid, variant_id=_VARIANT_ID, scope=AnalysisScope()
+                        )
+                    ).own
                 )
 
             review = listed[_VARIANT_ID]
@@ -146,7 +157,7 @@ def test_a_review_saved_with_acmg_criteria_comes_back_through_the_list(monkeypat
             async with sm() as s:
                 after = (
                     await svr.get_small_variant_review_map(
-                        s, family_uuid=family_uuid, variant_ids=[_VARIANT_ID]
+                        s, family_uuid=family_uuid, variant_ids=[_VARIANT_ID], scope=AnalysisScope()
                     )
                 )[_VARIANT_ID]
             assert _criteria(after) == expected
@@ -171,8 +182,9 @@ def test_a_review_holding_only_an_acmg_record_counts_as_reviewed(monkeypatch) ->
         SmallVariantReviewUpdate,
     )
     from backend.app.services import small_variant_review_pg as svr
+    from backend.app.services.analysis_scope import AnalysisScope
 
-    async def _variant_record(*, assembly_name, family_guid, variant_id):
+    async def _variant_record(*, assembly_name, family_guid, variant_id, left_out_sources=()):
         return SimpleNamespace(variant_key=4243, annotations=[], annotation_version="v1", annotation_set_hash="set-1")
 
     monkeypatch.setattr(svr, "get_small_variant_family_record", _variant_record)
@@ -190,8 +202,14 @@ def test_a_review_holding_only_an_acmg_record_counts_as_reviewed(monkeypatch) ->
                     )
                 ).scalar_one()
                 await s.commit()
+            # A family that holds no analysis: its reviews are stored, and read, under none.
             context = SimpleNamespace(
-                family_uuid=family_uuid, family_id=label, project_ids=[], assembly_name="GRCh38", assembly_id=None
+                family_uuid=family_uuid,
+                family_id=label,
+                project_ids=[],
+                assembly_name="GRCh38",
+                assembly_id=None,
+                scope=AnalysisScope(),
             )
             async with sm() as s:
                 await svr.upsert_small_variant_review(
@@ -206,7 +224,9 @@ def test_a_review_holding_only_an_acmg_record_counts_as_reviewed(monkeypatch) ->
                     user=SimpleNamespace(id=None, username="reviewer", email="reviewer@x.org"),
                 )
             async with sm() as s:
-                summary = await svr.get_small_variant_review_summary(s, family_uuid=family_uuid)
+                summary = await svr.get_small_variant_review_summary(
+                    s, family_uuid=family_uuid, scope=AnalysisScope()
+                )
             assert summary.reviewed_variant_count == 1, summary
         finally:
             await close_postgres_engine()

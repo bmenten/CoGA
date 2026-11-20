@@ -17,7 +17,7 @@ import functools
 import logging
 import math
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,7 @@ from .metadata_service import get_family_record
 from .access_control import CurrentUser
 from .nipt import resolve_nipt_trio
 from .family_package_records import UNSPECIFIED_ANALYSIS
+from .same_individual import persons, same_individual_pairs
 from .small_variant_callsets import callset_preference
 from .sample_integrity_qc import (
     FetalSexCheck,
@@ -104,10 +105,35 @@ def _parse_genotype(gt: str | None) -> Genotype | None:
     return (int(alleles[0]), int(alleles[1]))
 
 
-def _choose_genotype_source(available: list[str]) -> str | None:
-    """Pick the QC genotype source from the family's callsets: direct calls before imputed
-    genotypes, the known callers first (``callset_preference``)."""
-    return min(available, key=callset_preference) if available else None
+# The sites a probe reads of each of several callsets of one kind to tell which covers most of
+# the QC's samples (``_choose_covering_source``).
+QC_COVERAGE_PROBE_SITES = 2000
+
+
+async def _choose_covering_source(
+    context: FamilyMetadataContext, available: list[str], samples: list[str]
+) -> str | None:
+    """The callset the QC reads genotypes from: of the best kind the family holds (direct calls
+    before a monogenic NIPT's per-sample calls before imputed genotypes, ``callset_preference``),
+    the one with calls for the most of ``samples``, read at a fixed sample of its sites; among
+    those, the known callers first. So a family sequenced short-read as a trio and long-read for
+    the proband alone is checked on the trio's callset, never on one where the parents have no
+    genotypes."""
+    if not available:
+        return None
+    ranked = sorted(available, key=callset_preference)
+    best_kind = callset_preference(ranked[0])[0]
+    candidates = [name for name in ranked if callset_preference(name)[0] == best_kind]
+    if len(candidates) == 1:
+        return candidates[0]
+    wanted = set(samples)
+    coverage: dict[str, int] = {}
+    for name in candidates:
+        rows = await fetch_genotype_site_sample(
+            context, scope="autosomes", limit=QC_COVERAGE_PROBE_SITES, source=name
+        )
+        coverage[name] = len({sample for *_site, sample_ids, _gts in rows for sample in sample_ids} & wanted)
+    return min(candidates, key=lambda name: (-coverage[name], callset_preference(name)))
 
 
 async def _load_genotype_sample(
@@ -192,16 +218,11 @@ def _build_pedigree_spec(context: FamilyMetadataContext) -> PedigreeSpec:
         if row.get("sample_id")
     }
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
-    same_individual = [
-        (str(row["sample_id_a"]), str(row["sample_id_b"]))
-        for row in context.relationship_rows
-        if row.get("relationship_type") == "same_individual" and row.get("sample_id_a") and row.get("sample_id_b")
-    ]
     return PedigreeSpec(
         recorded_sex=recorded_sex,
         parents_of=pedigree.parents_of,
         roles=pedigree.roles,
-        same_individual=same_individual,
+        same_individual=same_individual_pairs(context.relationship_rows),
     )
 
 
@@ -224,18 +245,26 @@ def _stored_ratio(value: object) -> float | None:
 
 def _read_sex_call(sample_metadata: object, analyses: Sequence[str]) -> ReadSexCall | None:
     """The sex the pipeline's ngs-bits read off a sample's chrY/chrX read ratio, from what
-    the ``qc`` dataset of one of ``analyses`` (the analyses the QC is run for, in order)
-    stored on the sample (``samples.metadata.sequencing_qc``, per analysis); None without one,
-    or when what is stored is not an ngs-bits call (the message the check gives names
+    the ``qc`` dataset of one of ``analyses`` stored on the sample
+    (``samples.metadata.sequencing_qc``, per analysis): the first of ``analyses``, in their
+    order (the analyses the QC is run for, sorted by key, then a package's that named none),
+    whose QC holds an ngs-bits call. None without one (the message the check gives names
     ngs-bits)."""
     by_analysis = sample_metadata.get("sequencing_qc") if isinstance(sample_metadata, dict) else None
     if not isinstance(by_analysis, dict):
         return None
     recorded = [by_analysis.get(analysis) for analysis in analyses]
     stored = next(
-        (qc["sex_check"] for qc in recorded if isinstance(qc, dict) and isinstance(qc.get("sex_check"), dict)), None
+        (
+            qc["sex_check"]
+            for qc in recorded
+            if isinstance(qc, dict)
+            and isinstance(qc.get("sex_check"), dict)
+            and qc["sex_check"].get("method") == _NGSBITS_SEX_METHOD
+        ),
+        None,
     )
-    if not isinstance(stored, dict) or stored.get("method") != _NGSBITS_SEX_METHOD:
+    if stored is None:
         return None
     inferred = stored.get("inferred_sex")
     if not isinstance(inferred, str) or inferred.strip().lower() not in _READ_SEXES:
@@ -246,6 +275,15 @@ def _read_sex_call(sample_metadata: object, analyses: Sequence[str]) -> ReadSexC
         reads_chrx=_stored_count(stored.get("reads_chrx")),
         ratio_chry_chrx=_stored_ratio(stored.get("ratio_chry_chrx")),
     )
+
+
+def sex_call_analyses(analyses: Iterable[str]) -> list[str]:
+    """The analyses whose sequencing QC the sex check reads an ngs-bits call from, in the order
+    they are read (``_read_sex_call``: the first holding one answers): ``analyses``, those the QC
+    is run for, sorted by key, then a package's that named none (``UNSPECIFIED_ANALYSIS``). Sorted,
+    so a family whose analyses each stored a call is sexed from the same analysis's call in every
+    process: a family's analyses are a set, whose order varies from one process to the next."""
+    return list(dict.fromkeys([*sorted(analyses), UNSPECIFIED_ANALYSIS]))
 
 
 def _read_sex_calls(context: FamilyMetadataContext, analyses: Sequence[str]) -> dict[str, ReadSexCall]:
@@ -260,7 +298,11 @@ def _read_sex_calls(context: FamilyMetadataContext, analyses: Sequence[str]) -> 
 
 
 async def _nipt_parent_sex_checks(
-    context: FamilyMetadataContext, *, parents: list[str], notes: list[str]
+    context: FamilyMetadataContext,
+    *,
+    parents: list[str],
+    notes: list[str],
+    genotype_source_held: Callable[[str], bool] | None = None,
 ) -> list[SexCheck]:
     """Sex the NIPT parents from X-SNV zygosity (father hemizygous → male; the
     cfDNA maternal-plasma sample is ~all maternal so reads female-het).
@@ -281,7 +323,10 @@ async def _nipt_parent_sex_checks(
         if row.get("sample_id")
     }
     try:
-        source = _choose_genotype_source(await fetch_family_variant_sources(context))
+        available = await fetch_family_variant_sources(context)
+        if genotype_source_held is not None:
+            available = [source for source in available if genotype_source_held(source)]
+        source = await _choose_covering_source(context, available, present)
         if not source:
             return []
         x_genotypes = await _load_genotype_sample(context, "chrX", QC_X_SITES, present, source)
@@ -323,6 +368,7 @@ async def _nipt_checks(
     context: FamilyMetadataContext,
     notes: list[str],
     shared_nipt: SharedNiptAnalysis | None = None,
+    genotype_source_held: Callable[[str], bool] | None = None,
 ) -> tuple[PaternityCheck | None, FetalSexCheck | None, NiptCategoryQc | None, list[SexCheck]]:
     """NIPT cfDNA integrity: paternity (cat 7/8), fetal sex (paternal X), category
     distribution QC, and germline parent sex (X zygosity). ``notes`` is given the note
@@ -355,7 +401,10 @@ async def _nipt_checks(
     # The cfDNA sample is the maternal-plasma (mostly maternal) — sex it as the
     # mother; there is no separate maternal germline sample in the NIPT model.
     parent_sex = await _nipt_parent_sex_checks(
-        context, parents=[trio.father_sample_id, trio.cfdna_sample_id], notes=notes
+        context,
+        parents=[trio.father_sample_id, trio.cfdna_sample_id],
+        notes=notes,
+        genotype_source_held=genotype_source_held,
     )
     return paternity, fetal_sex, category_qc, parent_sex
 
@@ -369,34 +418,34 @@ async def get_family_sample_integrity_qc(
     shared_nipt: SharedNiptAnalysis | None = None,
     analysis_types: Sequence[str] | None = None,
     genotype_source_held: Callable[[str], bool] | None = None,
+    analysis: str | None = None,
 ) -> SampleIntegrityReport:
     """The family's sample-integrity QC. A monogenic NIPT family's NIPT checks read
     ``shared_nipt``'s analysis when given one: a sign-out's, which its record's NIPT section
     reads too.
 
-    A sign-out of one of the family's analyses runs that analysis's QC: ``analysis_types`` names
-    it in place of the family's, and the genotypes are read from a callset of its own
-    (``genotype_source_held``, ``signout_scope``)."""
+    A sign-out of one of the family's analyses (``analysis``) runs that analysis's QC:
+    ``analysis_types`` names it in place of the family's, the genotypes are read from a callset
+    of its own (``genotype_source_held``, ``signout_scope``), and its members are checked: a
+    member only another analysis's package lists is not (``AnalysisScope.left_out_members``)."""
     context = await build_family_metadata_context(
-        session, family_identifier=family_id, user=user, project_id=project_id
+        session, family_identifier=family_id, user=user, project_id=project_id, analysis=analysis
     )
     family = await get_family_record(session, family_id, user)
     types = (
         family_analysis_types(getattr(family, "metadata", None)) if analysis_types is None else analysis_types
     )
-    # The analyses whose sequencing QC the checks read (the ngs-bits sex call): those QC'd, then
-    # a package's that named none (family_package_records).
-    qc_analyses = [*types, UNSPECIFIED_ANALYSIS]
+    qc_analyses = sex_call_analyses(types)
 
     spec = _build_pedigree_spec(context)
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
-    samples = sorted(context.sample_name_to_uuid)
+    samples = sorted(name for name in context.sample_name_to_uuid if name not in context.scope.left_out_members)
 
     application = resolve_application(
         analysis_types=types,
         roles=pedigree.roles,
         parents_of=pedigree.parents_of,
-        sample_count=len(samples),
+        person_count=len(persons(samples, spec.same_individual)),
     )
     profile = profile_for(application)
 
@@ -425,6 +474,7 @@ async def get_family_sample_integrity_qc(
                     context=context,
                     notes=service_notes,
                     shared_nipt=shared_nipt,
+                    genotype_source_held=genotype_source_held,
                 )
             paternity_check, fetal_sex_check, category_qc_check, nipt_parent_sex_checks = nipt_checks
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
@@ -443,7 +493,7 @@ async def get_family_sample_integrity_qc(
             available = await fetch_family_variant_sources(context)
             if genotype_source_held is not None:
                 available = [source for source in available if genotype_source_held(source)]
-            genotype_source = _choose_genotype_source(available)
+            genotype_source = await _choose_covering_source(context, available, samples)
             if genotype_source:
                 read_as_reference: dict[str, int] = {}
                 autosomes: set[str] = set()

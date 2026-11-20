@@ -1,3 +1,4 @@
+import { analysisQuery, niptVariantAnalysis } from '../../lib/familyAnalyses';
 import React, { useId, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -314,12 +315,16 @@ const FamilyNiptPage: React.FC = () => {
   // How many variants are tagged report, for "Show reported": the family's review summary,
   // which counts a tag's variants as the review-tag filter selects them (the family page's
   // curation summary, under the same key).
-  const reviewSummaryKey = ['family', familyId, 'small-variant-review-summary'] as const;
+  // The family's monogenic NIPT, named when the family holds another analysis with small variants.
+  const variantAnalysis = niptVariantAnalysis(family?.metadata);
+  const reviewSummaryKey = ['family', familyId, 'small-variant-review-summary', variantAnalysis] as const;
   const { data: reviewSummary } = useQuery<ApiSmallVariantReviewSummary>({
     queryKey: reviewSummaryKey,
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/small-variant-review-summary`);
+      const res = await api.get(
+        apiPath`/families/${familyId}/small-variant-review-summary${raw(analysisQuery(variantAnalysis))}`,
+      );
       return res.data as ApiSmallVariantReviewSummary;
     },
   });
@@ -409,7 +414,7 @@ const FamilyNiptPage: React.FC = () => {
       if (!familyId) {
         throw new Error('Family id is required');
       }
-      const reviewPath = buildSmallVariantReviewPath(familyId, variant._id);
+      const reviewPath = buildSmallVariantReviewPath(familyId, variant._id, variantAnalysis);
       const body = withReviewVersion(payload, variant.review);
       const res = projectId
         ? await api.put(reviewPath, body, { params: { project_id: projectId } })

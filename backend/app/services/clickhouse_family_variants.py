@@ -35,6 +35,7 @@ from ..schemas import (
 from .cytoband_labels import fetch_cytoband_labels
 from .data_scope import normalize_chromosome
 from .ensembl_gene_ids import ensembl_gene_id
+from .analysis_scope import AnalysisScope
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import (
     SmallVariantQueryFilters,
@@ -1116,6 +1117,7 @@ async def _hydrate_small_variant_outs(
     review_map = await get_small_variant_review_map(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope,
         variant_ids=[str(variant.id) for variant in variants],
     )
     for variant in variants:
@@ -1360,7 +1362,11 @@ async def _fetch_structural_variant_summary(
 async def _fetch_small_variant_summary(
     context: FamilyMetadataContext,
 ) -> SmallVariantSummaryOut | None:
-    if not context.assembly_name:
+    """The family's kept counts of its small variants (``family_variant_summary``,
+    ``family_sample_variant_summary``). They count every callset of the family: a reading of one
+    of several analyses (``context.scope`` leaving another's callsets out) gets none, as they
+    are not its own counts."""
+    if not context.assembly_name or context.scope.left_out_sources("small_variants"):
         return None
 
     family_variant_summary: SmallVariantSummaryOut | None = None
@@ -1520,45 +1526,37 @@ async def _fetch_small_variant_rows(
         exclude_imputed=True,
     )
     flag_columns = ""
+    flag_names = ""
     if segregation_flags:
         columns, flag_params = _small_segregation_flag_columns(context)
         _merge_params(params, flag_params)
-        flag_columns = "".join(f",\n            {column}" for column in columns)
-    # Collapse to one row per key with any() + GROUP BY e.key — exactly the grouping the
-    # count path (_count_small_variant_rows_bounded) uses, so the list and the deduped
-    # total always agree. The entries table is a CollapsingMergeTree and a lagged/partial
-    # ALTER…DELETE mutation or replica lag can transiently leave more than one sign=1 row
-    # per key; without the GROUP BY those would surface as duplicate rows in the page and
-    # drift the OFFSET boundaries. (any() aggregation mirrors _fetch_structural_variant_rows.)
+        flag_columns = "".join(f",\n                {column}" for column in columns)
+        flag_names = "".join(f", {column.rsplit(' AS ', 1)[1]}" for column in columns)
+    # One row per key, as the count path (_count_small_variant_rows_bounded) groups them, so the
+    # list and the deduped total always agree. A key the reading's callsets hold more than once
+    # (two callsets of the analysis read, or, transiently, a CollapsingMergeTree row an
+    # ALTER…DELETE mutation or replica lag left) is read from one stored row, whole: every
+    # column is taken from the row of the callset whose name sorts first (argMin over one
+    # tuple, which keeps a NULL as it is, as any() per column would not), so its calls, source
+    # and annotation are one callset's and the same on every read.
+    stored_columns = (
+        "e.key, e.variantId, e.annotation_version, e.annotationSetHash, e.chrom, e.pos, e.ref, e.alt, "
+        "e.source, e.rsid, e.filters, e.gene_symbols, e.calls.sampleId, e.calls.gt, e.calls.gq, "
+        "e.calls.dp, e.calls.ab, e.calls.af, e.calls.ad, e.calls.ps, e.qual, e.calls.filters, "
+        "e.calls.metrics"
+    )
     query = f"""
-        SELECT
-            any(e.key) AS key,
-            any(e.variantId) AS variant_id,
-            any(e.annotation_version) AS annotation_version,
-            any(e.annotationSetHash) AS annotation_set_hash,
-            any(e.chrom) AS chrom,
-            any(e.pos) AS pos,
-            any(e.ref) AS ref,
-            any(e.alt) AS alt,
-            any(e.source) AS source,
-            any(e.rsid) AS rsid,
-            any(e.filters) AS entry_filters,
-            any(e.gene_symbols) AS gene_symbols,
-            any(e.calls.sampleId) AS sample_ids,
-            any(e.calls.gt) AS sample_gts,
-            any(e.calls.gq) AS sample_gqs,
-            any(e.calls.dp) AS sample_dps,
-            any(e.calls.ab) AS sample_abs,
-            any(e.calls.af) AS sample_afs,
-            any(e.calls.ad) AS sample_ads,
-            any(e.calls.ps) AS sample_phase_sets,
-            any(e.qual) AS qual,
-            any(e.calls.filters) AS sample_filters,
-            any(e.calls.metrics) AS sample_metrics{flag_columns}
-        FROM {entries_table} AS e
-        WHERE {' AND '.join(where_clauses)}
-        GROUP BY e.key
-        ORDER BY any(e.xpos), key
+        SELECT untuple(picked){flag_names}
+        FROM (
+            SELECT
+                argMin(tuple({stored_columns}), e.source) AS picked,
+                any(e.xpos) AS xpos,
+                e.key AS key{flag_columns}
+            FROM {entries_table} AS e
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY e.key
+        )
+        ORDER BY xpos, key
     """
     query = _append_limit_offset(query, params, limit=limit, offset=offset)
     rows = await _execute_clickhouse(query, params)
@@ -1949,13 +1947,25 @@ def _below_genotype_quality(gq: float | None) -> bool:
 
 
 async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[str]:
-    """Distinct small-variant callset ``source`` values for the family (e.g.
-    ``glimpse2``, ``clair3``). Lets sample-integrity QC pick the right genotype
-    source for the application without hard-coding it."""
+    """The family's small-variant callsets (``source``: ``glimpse2``, ``clair3``…) that hold
+    a call of one of its members, sorted. Sample-integrity QC picks the callset it reads from
+    them. Of a context scoped to one of the family's analyses (``context.scope``), the other
+    analyses' callsets are left out; a family that holds several analyses and is read for none
+    lists them all, as listing reads no variant."""
     if not context.assembly_name:
         return []
-    filters = SmallVariantQueryFilters(page=1, page_size=1)
-    where_clauses, params, _ = _small_query_filter_parts(context, filters)
+    visible_ids = _visible_clickhouse_sample_ids(context)
+    if not visible_ids:
+        return []
+    where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1", "hasAny(e.calls.sampleId, %(visible_ids)s)"]
+    params: dict[str, Any] = {"family_guid": context.family_uuid, "visible_ids": visible_ids}
+    if context.project_ids:
+        where_clauses.append("e.project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(context.project_ids)
+    left_out = context.scope.left_out_sources("small_variants")
+    if left_out:
+        where_clauses.append("e.source NOT IN %(left_out_sources)s")
+        params["left_out_sources"] = tuple(sorted(left_out))
     entries_table = _small_table_name(context.assembly_name, "entries")
     query = f"""
         SELECT DISTINCT e.source AS source
@@ -1964,7 +1974,7 @@ async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[s
         LIMIT 50
     """
     rows = await _execute_clickhouse(query, params)
-    return [str(row[0]) for row in rows if row[0]]
+    return sorted(str(row[0]) for row in rows if row[0])
 
 
 async def _small_variant_present_sample_names(
@@ -2908,6 +2918,8 @@ async def _prioritized_small_variants_page(
         # while its panel still holds exactly this (_serve_subpanel_from_superset).
         "panel_members": panel_members,
         "filters": canonical_filters(filters),
+        # The analysis it ranked, of a family with several: the warm replays it for that one.
+        "analysis": context.scope.analysis,
     }
     cached = await get_cached_ranking(
         session, family_uuid=context.family_uuid, inputs_hash=inputs_hash
@@ -3137,6 +3149,17 @@ async def precompute_family_ranking_safe(
             stored_filters = provenance.get("filters") if isinstance(provenance, dict) else None
             if not stored_filters:
                 return  # nothing to replay yet — leave the first open as a (lazy) miss
+            # Replayed for the analysis it ranked (of a family with several analyses with small
+            # variants, analysis_scope.py).
+            ranked_analysis = provenance.get("analysis") if isinstance(provenance, dict) else None
+            if ranked_analysis is not None:
+                context = await build_family_metadata_context(
+                    session,
+                    family_identifier=family_identifier,
+                    user=user,
+                    project_id=project_id,
+                    analysis=str(ranked_analysis),
+                )
 
             filters = SmallVariantQueryFilters(**{**stored_filters, "page": 1, "page_size": 100})
             # Prepared as a live request prepares it, so the ranking goes under the key the
@@ -3372,6 +3395,7 @@ async def resolve_review_selection(
     session: AsyncSession,
     family_uuid: str,
     *,
+    scope: AnalysisScope,
     classifications: list[str] | None = None,
     tags: list[str] | None = None,
     exclude_tags: list[str] | None = None,
@@ -3380,7 +3404,8 @@ async def resolve_review_selection(
     """The review filters of a family's variant list, read from its reviews
     (``list_matching_small_variant_review_ids``): the classifications (by the class a review
     shows), the review tags (a variant's own or its compound-het pair's) and the saved
-    notes it keeps, and the review tags it leaves out. A filter sent with blank values only
+    notes it keeps, and the review tags it leaves out, each variant's review being the one the
+    analysis ``scope`` reads (``analysis_reviews``). A filter sent with blank values only
     still counts as set, and matches nothing. The small-variant list and the NIPT variant list
     select by it alike."""
     include: set[str] | None = None
@@ -3388,6 +3413,7 @@ async def resolve_review_selection(
         include = await list_matching_small_variant_review_ids(
             session,
             family_uuid=family_uuid,
+            scope=scope,
             classifications=classifications,
             tags=tags,
             has_notes=has_notes,
@@ -3398,6 +3424,7 @@ async def resolve_review_selection(
         await list_matching_small_variant_review_ids(
             session,
             family_uuid=family_uuid,
+            scope=scope,
             tags=exclude_tags,
         )
         if exclude_tags
@@ -3432,6 +3459,7 @@ async def _resolve_small_variant_scope(
     review = await resolve_review_selection(
         session,
         context.family_uuid,
+        scope=context.scope,
         classifications=review_classifications,
         tags=review_tags,
         exclude_tags=exclude_review_tags,
@@ -4093,6 +4121,7 @@ async def _prioritized_structural_variants_page(
     review_variant_ids = await list_matching_structural_variant_review_ids(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope,
         classifications=filters.review_classifications,
         tags=filters.review_tags,
         has_notes=filters.has_notes,
@@ -4106,6 +4135,7 @@ async def _prioritized_structural_variants_page(
         await list_matching_structural_variant_review_ids(
             session,
             family_uuid=context.family_uuid,
+            scope=context.scope,
             tags=filters.exclude_review_tags,
         )
         if filters.exclude_review_tags
@@ -4265,6 +4295,7 @@ async def _prioritized_structural_variants_page(
     review_map = await get_structural_variant_review_map(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope,
         variant_ids=[record.variant_id for record in page_records],
     )
     cytoband_map = await _fetch_structural_cytoband_map(
@@ -4356,6 +4387,7 @@ async def get_family_structural_variants_page(
         review_map = await get_structural_variant_review_map(
             session,
             family_uuid=context.family_uuid,
+            scope=context.scope,
             variant_ids=[record.variant_id for record in page_records],
         )
         cytoband_map = await _fetch_structural_cytoband_map(
@@ -4392,6 +4424,7 @@ async def get_family_structural_variants_page(
     review_variant_ids = await list_matching_structural_variant_review_ids(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope,
         classifications=filters.review_classifications,
         tags=filters.review_tags,
         has_notes=filters.has_notes,
@@ -4405,6 +4438,7 @@ async def get_family_structural_variants_page(
         await list_matching_structural_variant_review_ids(
             session,
             family_uuid=context.family_uuid,
+            scope=context.scope,
             tags=filters.exclude_review_tags,
         )
         if filters.exclude_review_tags
@@ -4451,6 +4485,7 @@ async def get_family_structural_variants_page(
         else await get_structural_variant_review_map(
             session,
             family_uuid=context.family_uuid,
+            scope=context.scope,
             variant_ids=[record.variant_id for record in page_records],
         )
     )

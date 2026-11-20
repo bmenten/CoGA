@@ -136,7 +136,7 @@ classification ([clinical-traceability.md](../clinical-traceability.md)).
 
 | Source | Role | Version capture | Notes |
 | --- | --- | --- | --- |
-| Reference assembly (GRCh38, …) | Coordinate system | The build: the project's assembly (`assemblies`, whose version and release date are those of the reference data loaded). The FASTA the pipeline aligned to: the family's manifest, from the package file's `reference` and the VCFs' `##reference` | Per-family manifest; shown by build, never by patch |
+| Reference assembly (GRCh38, …) | Coordinate system | The build: the project's assembly (`assemblies`, whose version and release date are those of the reference data loaded). The FASTA the pipeline aligned to: the manifest of the analysis whose package names it, from the package file's `reference` and the VCFs' `##reference` | Per-analysis manifest; shown by build, never by patch |
 | UCSC cytobands | Band names for CNV and region labels, the ideograms | `reference_dataset_imports.source_version`: the file and its SHA-256 | Read as published when the assembly is imported. When UCSC cannot serve it, the shipped backup for hg38 or hg19, pinned by SHA-256 (`CYTOBAND_BACKUP_FILES`; [README](../../data/ref-data/cytobands/README.md)) |
 | VEP (+ cache) | Functional annotation | per-family pipeline manifest / VCF header | Produced upstream; version recorded |
 | ClinVar | Clinical significance | reference import bookkeeping / manifest | Release date pinned |
@@ -197,9 +197,10 @@ file, both pins, this note and the note beside the file agree.
 
 The callers below run in the analysis pipeline, not in CoGA: CoGA's device boundary starts at
 the annotated VCF. They are registered because their versions determine the evidence a report
-rests on. Versions are captured **per family** from the pipeline's `software_versions.yaml`
+rests on. Versions are captured **per analysis** from the pipeline's `software_versions.yaml`
 (or the VCF header when a package ships without one) and stored in
-`family_annotation_manifest`, so a signed report names the exact caller build behind it.
+`family_annotation_manifest`, one row per family and analysis, so a signed report names the exact
+caller build behind its own analysis, never another analysis's of the same family.
 
 | Source | Role | Version capture |
 | --- | --- | --- |

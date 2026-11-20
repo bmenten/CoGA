@@ -409,8 +409,10 @@ export interface SignedSequencingQcMetric {
   errorValue: number | null;
   /** `lower_is_worse` or `higher_is_worse`, as the evaluation served it. */
   direction: string | null;
-  /** The profile whose cut-off judged it (the analysis's own, the family's named one, the default). */
-  profileKey: string | null;
+  /** The profile each bound came from (the analysis's own, the family's named one, the default):
+   *  each falls back on its own, so the two may differ. */
+  warnProfileKey: string | null;
+  errorProfileKey: string | null;
 }
 
 export interface SignedSequencingQcSample {
@@ -472,9 +474,7 @@ export type SignedRecordSection<T> =
 
 /**
  * A section of one application (the PGT embryo calls, the NIPT results): `absent` from the record
- * of a family of any other application, which holds no such key. Also a section of one kind of data
- * (the repeat calls, the Paraphase results): `absent` from the record of an analysis that holds no
- * such data, beside another analysis of the family that does.
+ * of a family of any other application, which holds no such key.
  */
 export type SignedApplicationSection<T> = SignedRecordSection<T> | { state: 'absent' };
 
@@ -1154,8 +1154,8 @@ export interface SignedReport {
    * The repeat calls and the Paraphase results: `absent` from the record of an analysis that
    * holds no such data, beside another analysis of the family that does (signout_scope.py).
    */
-  repeatExpansions: SignedApplicationSection<SignedRepeatExpansions>;
-  paraphase: SignedApplicationSection<SignedParaphase>;
+  repeatExpansions: SignedRecordSection<SignedRepeatExpansions>;
+  paraphase: SignedRecordSection<SignedParaphase>;
   /** What each coverage track of the family's samples held. */
   coverageTracks: SignedRecordSection<SignedCoverageTrack[]>;
   /** The delivered package and its corrections at intake. */
@@ -1561,7 +1561,8 @@ const parseSequencingQcSamples = (value: unknown): SignedSequencingQcSample[] =>
             warnValue: number(metric.warn_value),
             errorValue: number(metric.error_value),
             direction: text(metric.direction),
-            profileKey: text(metric.profile_key),
+            warnProfileKey: text(metric.warn_profile_key),
+            errorProfileKey: text(metric.error_profile_key),
           }),
         );
         return {
@@ -2385,10 +2386,9 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     variantDescriptions: parseRecordSection(snapshot, 'variant_descriptions', parseVariantDescriptions),
     genePanels: parseRecordSection(snapshot, 'gene_panels', parseGenePanels),
     referenceData: parseRecordSection(snapshot, 'reference_data', parseReferenceData),
-    repeatExpansions: has(snapshot, 'repeat_expansions')
-      ? parseRecordSection(snapshot, 'repeat_expansions', parseRepeatExpansions)
-      : { state: 'absent' },
-    paraphase: has(snapshot, 'paraphase') ? parseRecordSection(snapshot, 'paraphase', parseParaphase) : { state: 'absent' },
+    // Every record holds both: those of an analysis whose calls are another analysis's, none.
+    repeatExpansions: parseRecordSection(snapshot, 'repeat_expansions', parseRepeatExpansions),
+    paraphase: parseRecordSection(snapshot, 'paraphase', parseParaphase),
     coverageTracks: parseRecordSection(snapshot, 'coverage_tracks', parseCoverageTracks),
     packageIntake: parseRecordSection(snapshot, 'package_intake', parsePackageIntake),
     pgtAnalysis: has(snapshot, 'pgt_analysis')

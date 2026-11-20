@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import IgvViewer from '../../components/IgvViewer';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
+import { familyAnalysisTypes } from '../../lib/familyAnalyses';
 import {
   formatResolvedReferenceLabel,
   mapAssemblyToIgvGenome,
@@ -163,6 +164,7 @@ const FamilyIgvPage: React.FC = () => {
           sampleIds={sampleIds}
           genome={resolvedGenome}
           locus={initialLocus}
+          severalAnalyses={familyAnalysisTypes(data.metadata).length > 1}
         />
       </section>
     </div>

@@ -581,6 +581,7 @@ async def test_a_sample_deletion_that_completes_strikes_the_sample_off_the_impor
         None,
         at="2026-10-27T08:00:00+00:00",
         job_id="job-a",
+        analysis_type="unspecified",
         failed=["coverage", "repeats_trgt"],
         imported=["qc"],
         scopes={"coverage": coverage, "repeats_trgt": {"source": None, "samples": ["S2"]}},
@@ -590,6 +591,7 @@ async def test_a_sample_deletion_that_completes_strikes_the_sample_off_the_impor
         flag,
         at="2026-10-27T09:00:00+00:00",
         job_id="job-b",
+        analysis_type="unspecified",
         failed=["repeats_trgt", "snv"],
         imported=["qc"],
         scopes={"repeats_trgt": {"source": None, "samples": ["S1"]}, "snv": {"source": "clair3", "samples": None}},
@@ -606,7 +608,10 @@ async def test_a_sample_deletion_that_completes_strikes_the_sample_off_the_impor
     # VCF, a file of every sample. A flag naming S2, whose data no import or upload can bring
     # again, could never be cleared.
     assert left["failed_datasets"] == ["coverage", "repeats_trgt", "snv"]
-    assert left[registration.FAILED_SCOPES_KEY] == {
+    assert {
+        name: [{"scope": item["scope"], "job_id": item["job_id"]} for item in items]
+        for name, items in left[registration.FAILED_SCOPES_KEY].items()
+    } == {
         "coverage": [
             {"scope": {"source": None, "samples": ["S1"], "content": {"S1": "read_depth"}}, "job_id": "job-a"}
         ],
@@ -621,7 +626,7 @@ async def test_a_sample_deletion_that_completes_strikes_the_sample_off_the_impor
         "repeats_trgt": {"source": None, "samples": ["S1"]},
         "snv": {"source": "clair3", "samples": None},
     }
-    assert registration.failures_left_after(left, brought).flag is None
+    assert registration.failures_left_after(left, brought, analysis_type="unspecified").flag is None
 
 
 @pytest.mark.asyncio
@@ -630,6 +635,7 @@ async def test_a_sample_deletion_removes_a_flag_that_named_that_sample_alone(sto
         None,
         at="2026-10-27T08:00:00+00:00",
         job_id="job-a",
+        analysis_type="unspecified",
         failed=["coverage", "repeats_trgt"],
         imported=[],
         scopes={
@@ -665,6 +671,7 @@ async def test_a_sample_deletion_fails_on_a_flag_not_in_the_shape_an_import_writ
 @pytest.mark.asyncio
 async def test_a_sample_deletion_strikes_the_sample_off_a_stopped_imports_entry(stores) -> None:
     stopped = registration.ImportMark.begin(
+        analysis_type="unspecified",
         job_id="job-c",
         datasets=["coverage", "repeats_trgt", "snv"],
         scopes={
@@ -674,6 +681,7 @@ async def test_a_sample_deletion_strikes_the_sample_off_a_stopped_imports_entry(
         },
     )
     s2_alone = registration.ImportMark.begin(
+        analysis_type="unspecified",
         job_id="job-d", datasets=["repeats_trgt"], scopes={"repeats_trgt": {"source": None, "samples": ["S2"]}}
     )
     database = _Postgres(

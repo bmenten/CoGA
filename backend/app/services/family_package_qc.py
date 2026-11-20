@@ -466,9 +466,11 @@ async def _merge_sample_metadata(
     sample_uuid: str,
     patch: dict[str, Any],
 ) -> None:
-    """Shallow-merge ``patch`` into ``samples.metadata`` (top-level keys replaced)."""
+    """Shallow-merge ``patch`` into ``samples.metadata`` (top-level keys replaced), read and
+    written under the sample row's lock, so a write of the sample's other keys in between is not
+    put back."""
     result = await session.execute(
-        text("SELECT metadata FROM samples WHERE id = CAST(:sample_id AS uuid)"),
+        text("SELECT metadata FROM samples WHERE id = CAST(:sample_id AS uuid) FOR UPDATE"),
         {"sample_id": sample_uuid},
     )
     metadata = _metadata_dict(result.scalar_one_or_none())
@@ -500,7 +502,7 @@ async def record_sample_qc_metadata(
     (qc_threshold_service.resolve_analysis_qc_thresholds), and its report read in that
     analysis's package folder."""
     result = await session.execute(
-        text("SELECT metadata -> 'sequencing_qc' FROM samples WHERE id = CAST(:sample_id AS uuid)"),
+        text("SELECT metadata -> 'sequencing_qc' FROM samples WHERE id = CAST(:sample_id AS uuid) FOR UPDATE"),
         {"sample_id": sample_context.sample_uuid},
     )
     sequencing_qc = _metadata_dict(result.scalar_one_or_none())
@@ -543,7 +545,7 @@ async def record_sample_alignment_metadata(
     sequenced short-read and then long-read has one of each. The CRAM endpoint serves each
     only after checking it (routers/cram.py): paths in that analysis's package folder."""
     result = await session.execute(
-        text("SELECT metadata -> 'alignments' FROM samples WHERE id = CAST(:sample_id AS uuid)"),
+        text("SELECT metadata -> 'alignments' FROM samples WHERE id = CAST(:sample_id AS uuid) FOR UPDATE"),
         {"sample_id": sample_context.sample_uuid},
     )
     alignments = _metadata_dict(result.scalar_one_or_none())
@@ -625,6 +627,44 @@ async def record_family_pipeline_metadata(
             """
         ),
         {"family_id": family_uuid, "analysis": analysis, "value_json": json.dumps(_jsonb_safe(parameters))},
+    )
+    await session.commit()
+
+
+async def clear_analysis_import_records(session: AsyncSession, *, family_uuid: str, analysis: str) -> None:
+    """Take away what an earlier import of ``analysis`` recorded under that analysis's key: its
+    run parameters (``families.metadata["pipeline"][analysis]``) and each of the family's
+    samples' sequencing QC and alignment (``samples.metadata["sequencing_qc"][analysis]``,
+    ``samples.metadata["alignments"][analysis]``). The other analyses' entries are kept.
+
+    An import of the analysis runs it before its first dataset, after the snapshot a restore
+    puts the family back from (family_package_import), so what these hold afterwards is its
+    own package's: run parameters, a sample's QC or alignment that the new package does not
+    carry are gone rather than shown as current, or read in the folder the new package record
+    names, which is not the one they were recorded in."""
+    params = {"family_uuid": family_uuid, "analysis": analysis}
+    await session.execute(
+        text(
+            """
+            UPDATE families
+            SET metadata = metadata #- ARRAY['pipeline', CAST(:analysis AS text)]
+            WHERE id = CAST(:family_uuid AS uuid)
+              AND jsonb_typeof(metadata -> 'pipeline') = 'object'
+            """
+        ),
+        params,
+    )
+    await session.execute(
+        text(
+            """
+            UPDATE samples
+            SET metadata = metadata
+                #- ARRAY['sequencing_qc', CAST(:analysis AS text)]
+                #- ARRAY['alignments', CAST(:analysis AS text)]
+            WHERE family_id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        params,
     )
     await session.commit()
 

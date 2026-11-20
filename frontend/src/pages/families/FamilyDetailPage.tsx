@@ -1,3 +1,5 @@
+import { useVariantAnalysis } from './useVariantAnalysis';
+import { analysisQuery } from '../../lib/familyAnalyses';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useLocation } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -115,11 +117,15 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     { assemblyName, isError: referenceFailed },
     'Not linked',
   );
+  // Of a family with several analyses with small variants, the reviews of the one read.
+  const variantAnalysis = useVariantAnalysis(familyId);
   const { data: reviewSummary, isError: reviewSummaryFailed } = useQuery<ApiSmallVariantReviewSummary>({
-    queryKey: ['family', familyId, 'small-variant-review-summary'],
+    queryKey: ['family', familyId, 'small-variant-review-summary', variantAnalysis],
     enabled: Boolean(familyId && hasSmallVariants),
     queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/small-variant-review-summary`);
+      const res = await api.get(
+        apiPath`/families/${familyId}/small-variant-review-summary${raw(analysisQuery(variantAnalysis))}`,
+      );
       return res.data as ApiSmallVariantReviewSummary;
     },
   });

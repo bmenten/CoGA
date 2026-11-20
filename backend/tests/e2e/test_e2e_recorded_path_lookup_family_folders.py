@@ -1,11 +1,13 @@
 """Signal tracks and QC reports are served only from their own family's folders (E2E).
 
-The CNV caller's signal files and the sequencing-QC report are served from
-the path the import recorded on the sample (``samples.metadata``: ``signal_tracks``,
-``sequencing_qc`` of an analysis, its ``report``), relative to the family's package folder ``<data>/families/<family>``.
-A check only that the path stays inside the data directory would let an edited row holding
-``..`` or an absolute path serve another family's track, listed in the manifest; a lookup that
-follows a package folder linked to another family's package would serve that family's report.
+The CNV caller's signal files are served from the path the import recorded on the sample
+(``samples.metadata.signal_tracks``), relative to the family's package folder
+``<data>/families/<family>``; the sequencing-QC report from the path the import of an analysis
+recorded (``samples.metadata.sequencing_qc[<analysis>].report``), relative to the package folder
+that analysis's import read (``families.metadata.package_imports[<analysis>].folder_path``), and
+nowhere else. A check only that the path stays inside the data directory would let an edited row
+holding ``..`` or an absolute path serve another family's track, listed in the manifest; a lookup
+that follows a package folder linked to another family's package would serve that family's report.
 
 Over the real API (an in-process ``httpx.ASGITransport`` client, one event loop, see
 test_e2e_api_contract.py), with the families in Postgres made through the Family Builder and
@@ -14,13 +16,15 @@ row would hold them. The files lie in a data directory of the test's own, its pa
 the import root (as deployed, ``/data/families``): F2 (sample S2) has its track and report in
 its package; F1's S1 records its own; S3 records ``../<F2>/...``, S4 the absolute path of F2's
 track and S5 a path through a folder of F1's package that is a link into F2's; F3's package
-folder is a link to F2's, and its S6 records the name of F2's report.
+folder is a link to F2's, and its S6 records the name of F2's report. F1 and F2 record their
+package folders as their analysis's; F3 records none.
 
 * F1's signal-track manifest lists S1 alone (not S3, S4 or S5 with F2's track), its URL
   fetches S1's track, and S3, S4 and S5's tracks answer 404 to GET and HEAD; F2's manifest
   still lists S2, and its URL fetches F2's track;
-* F1's S1 gets a QC-report link that opens its report; S3's report and F3's S6's answer 404;
-  F2's S2 still opens its report.
+* F1's S1 gets a QC-report link that opens its report; S3's report and F3's S6's answer 404,
+  the latter though F3's folder in the family layout leads to F2's report: the report of an
+  analysis is read in its package folder alone; F2's S2 still opens its report.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it. The IDs
 and files are synthetic, and the families are dropped at the end.
@@ -59,7 +63,7 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
     from backend.app.core.config import settings
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
-    from backend.app.routers import family_qc_reports, signal_tracks
+    from backend.app.routers import signal_tracks
     from backend.tests.e2e import _harness
 
     f1, f2, f3 = f"RECPATH_{run}_F1", f"RECPATH_{run}_F2", f"RECPATH_{run}_F3"
@@ -91,8 +95,8 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
 
     out: dict[str, Any] = {}
-    saved = signal_tracks.DATA_DIR, family_qc_reports.DATA_DIR, settings.family_import_roots
-    signal_tracks.DATA_DIR = family_qc_reports.DATA_DIR = data
+    saved = signal_tracks.DATA_DIR, settings.family_import_roots
+    signal_tracks.DATA_DIR = data
     settings.family_import_roots = [str(data / "families")]
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
@@ -119,6 +123,20 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
                     await session.execute(
                         text("UPDATE samples SET metadata = metadata || CAST(:patch AS jsonb) WHERE sample_id = :sample_id"),
                         {"patch": json.dumps(metadata), "sample_id": sample_id},
+                    )
+                # F1 and F2 were imported from their package folders, as a package naming no
+                # analysis; F3 records none.
+                for family_id in (f1, f2):
+                    await session.execute(
+                        text(
+                            "UPDATE families SET metadata = metadata || CAST(:patch AS jsonb) WHERE family_id = :family_id"
+                        ),
+                        {
+                            "patch": json.dumps(
+                                {"package_imports": {"unspecified": {"folder_path": str(data / "families" / family_id)}}}
+                            ),
+                            "family_id": family_id,
+                        },
                     )
                 await session.commit()
 
@@ -149,7 +167,7 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
 
             out["reports"] = {sample_id: await report(family_id, sample_id) for family_id, sample_id in ((f1, s1), (f1, s3), (f3, s6), (f2, s2))}
     finally:
-        signal_tracks.DATA_DIR, family_qc_reports.DATA_DIR, settings.family_import_roots = saved
+        signal_tracks.DATA_DIR, settings.family_import_roots = saved
         async with sessionmaker() as session:
             await session.execute(
                 text("DELETE FROM families WHERE family_id IN (:f1, :f2, :f3)"), {"f1": f1, "f2": f2, "f3": f3}

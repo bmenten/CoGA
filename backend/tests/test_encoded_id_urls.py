@@ -111,7 +111,7 @@ async def test_the_qc_report_link_names_the_family_and_sample_it_was_issued_for(
         return family_qc_reports._RecordedReport("qc/report.html")
 
     monkeypatch.setattr(family_qc_reports, "_recorded_report_path", recorded_report_path)
-    monkeypatch.setattr(family_qc_reports, "_resolve_report_file", lambda family, relative, folder=None: Path("report.html"))
+    monkeypatch.setattr(family_qc_reports, "_resolve_report_file", lambda relative, folder: Path("report.html"))
 
     link = await family_qc_reports.get_family_qc_report_link(
         family_id, sample_id, analysis="long_read_wgs", session=None, user=None
@@ -169,7 +169,7 @@ def families(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Families:
     store = _Families(tmp_path)
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
     monkeypatch.setattr(settings, "secret_key", "x" * 40)
-    for module in (cram, signal_tracks, family_qc_reports):
+    for module in (cram, signal_tracks):
         monkeypatch.setattr(module, "DATA_DIR", tmp_path)
 
     async def signal_track_rows(session: Any, sample_ids: list[str]) -> list[tuple[str, dict[str, Any]]]:
@@ -178,7 +178,8 @@ def families(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Families:
     async def recorded_report(session: Any, *, family_id: str, sample_id: str, analysis: str) -> Any:
         if (family_id, sample_id) not in store.reports:
             raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
-        return family_qc_reports._RecordedReport(store.reports[(family_id, sample_id)])
+        # Read in the family's package folder, as its analysis's import recorded it.
+        return family_qc_reports._RecordedReport(store.reports[(family_id, sample_id)], str(tmp_path / "families" / family_id))
 
     sign_in_a_viewer_who_reads(monkeypatch, store.members, cram, signal_tracks, family_qc_reports)
     monkeypatch.setattr(signal_tracks, "_signal_track_rows", signal_track_rows)

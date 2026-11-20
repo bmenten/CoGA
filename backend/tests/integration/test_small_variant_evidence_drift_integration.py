@@ -151,11 +151,12 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
     def _ctx_now():
         return _context(holder["uuid"], label, project)
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _ctx_now()
 
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         return SampleIntegrityReport(overall_status="pass")
 
@@ -224,8 +225,8 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                 ).scalar_one()
                 await s.execute(
                     text(
-                        "INSERT INTO family_annotation_manifest (family_id, modules, source, recorded_by) "
-                        "VALUES (CAST(:f AS uuid), CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
+                        "INSERT INTO family_annotation_manifest (family_id, analysis_type, modules, source, recorded_by) "
+                        "VALUES (CAST(:f AS uuid), 'unspecified', CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
                     ),
                     {
                         "f": holder["uuid"],
@@ -441,11 +442,12 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
         # The gene's profile is in the assembly made below: the family's.
         return _context(holder["uuid"], label, project, holder.get("assembly"))
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _ctx_now()
 
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         return SampleIntegrityReport(overall_status="pass")
 
@@ -532,8 +534,8 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 ).scalar_one()
                 await s.execute(
                     text(
-                        "INSERT INTO family_annotation_manifest (family_id, modules, source, recorded_by) "
-                        "VALUES (CAST(:f AS uuid), CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
+                        "INSERT INTO family_annotation_manifest (family_id, analysis_type, modules, source, recorded_by) "
+                        "VALUES (CAST(:f AS uuid), 'unspecified', CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
                     ),
                     {
                         "f": holder["uuid"],
@@ -764,7 +766,7 @@ def test_a_classification_freezes_the_vcfs_missense_z_when_the_genes_profile_hol
     def _ctx_now():
         return _context(holder["uuid"], label, project, holder["assembly"])
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _ctx_now()
 
     async def _no_hydration(session, *, context, variants):

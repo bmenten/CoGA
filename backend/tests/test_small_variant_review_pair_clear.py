@@ -26,6 +26,7 @@ from fastapi import HTTPException
 from app.schemas import SmallVariantReviewUpdate
 from app.services import clinical_audit_service, small_variant_review_pg, small_variant_review_repository
 from app.services.small_variant_review_repository import ReviewRowNotStored
+from app.services.analysis_scope import AnalysisScope
 
 A, B, X, Y = "1-4000-T-C", "1-5000-A-T", "1-6000-G-A", "1-7000-C-G"
 
@@ -37,7 +38,7 @@ _COLUMNS = (
     "tags",
     "tag_metadata",
     "note",
-    *small_variant_review_repository._compound_het_field_names(),
+    *small_variant_review_repository._compound_het_clear_payload(),
     "acmg",
     "acmg_point_total",
     "acmg_class",
@@ -163,6 +164,8 @@ def _save(monkeypatch, store: _Store, payload: SmallVariantReviewUpdate, variant
         assembly_id=None,
         project_ids=[],
         affected_sample_names=["PROBAND"],
+        # A family that holds no analysis: its reviews are stored under none.
+        scope=AnalysisScope(),
     )
     user = SimpleNamespace(id=None, username="analyst-c", email="c@example.org")
     return asyncio.run(

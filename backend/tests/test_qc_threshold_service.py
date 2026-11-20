@@ -828,65 +828,15 @@ async def test_the_history_of_cut_off_edits_is_read_newest_first_with_a_bounded_
     assert sql.endswith("ORDER BY changed_at DESC LIMIT :limit")
 
 
-_PROFILE = {"key": "pgt", "label": "PGT", "id": "00000000-0000-0000-0000-000000000009"}
-_DEFAULT = {"key": "default", "label": "Default", "id": "00000000-0000-0000-0000-000000000001"}
-_LIMITS = [{"metric_key": "depth.mean_depth", "warn_value": 20.0, "error_value": 10.0}]
 
 
-@pytest.mark.asyncio
-async def test_a_family_is_judged_by_its_own_profile() -> None:
-    from app.services.qc_threshold_service import resolve_family_qc_thresholds
-
-    session = _QueuedRowsSession([_PROFILE], _LIMITS)
-
-    resolved = await resolve_family_qc_thresholds(session, family_uuid="family-uuid")
-
-    assert resolved == {
-        "profile_key": "pgt",
-        "profile_label": "PGT",
-        "thresholds": {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0}},
-    }
-    assert session.statements[0][1] == {"family_uuid": "family-uuid"}
-    assert session.statements[1][1] == {"profile_id": _PROFILE["id"]}
-
-
-@pytest.mark.asyncio
-async def test_a_family_without_a_known_profile_is_judged_by_the_default_one() -> None:
-    from app.services.qc_threshold_service import resolve_family_qc_thresholds
-
-    # No profile, or one under a key no profile has: a typo does not opt a family out of
-    # its QC gate (REQ-QC-004).
-    session = _QueuedRowsSession([], [_DEFAULT], _LIMITS)
-
-    resolved = await resolve_family_qc_thresholds(session, family_uuid="family-uuid")
-
-    assert (resolved["profile_key"], resolved["thresholds"]) == (
-        "default",
-        {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0}},
-    )
-    assert "WHERE is_default" in session.statements[1][0]
-    assert session.statements[2][1] == {"profile_id": _DEFAULT["id"]}
-
-
-@pytest.mark.asyncio
-async def test_without_any_profile_or_a_session_no_cut_off_applies() -> None:
-    from app.services.qc_threshold_service import resolve_family_qc_thresholds
-
-    nothing = {"profile_key": None, "profile_label": None, "thresholds": {}}
-    session = _QueuedRowsSession([], [])
-    assert await resolve_family_qc_thresholds(session, family_uuid="family-uuid") == nothing
-    # Every metric then evaluates to skip: never a pass of a gate that was not consulted.
-    assert len(session.statements) == 2
-    assert await resolve_family_qc_thresholds(None, family_uuid="family-uuid") == nothing
-    assert evaluate_sequencing_qc(HG002_QC, nothing["thresholds"])["verdict"] == "skip"
-
-
-# --- The cut-offs of one analysis, metric by metric (the owner's decision of 2026-11-19) -----
+# --- The cut-offs of one analysis, bound by bound (the owner's decisions of 2026-11-19 and
+# 2026-11-20) ------------------------------------------------------------------------------
 
 
 class _ProfilesSession:
     """Answers resolve_analysis_qc_thresholds' reads: the family's named profile, the profiles
-    by key, the default, and each profile's cut-offs."""
+    by key, the default, and each profile's cut-offs. Records the statements."""
 
     def __init__(self, family_profile: str | None, cut_offs: dict[str, dict[str, tuple]]) -> None:
         self.family_profile = family_profile
@@ -894,28 +844,36 @@ class _ProfilesSession:
         self.profiles = {
             key: {"key": key, "label": key.replace("_", " ").title(), "id": f"id-{key}"} for key in cut_offs
         }
+        self.statements: list[tuple[str, dict]] = []
 
     async def execute(self, statement, params=None):
         from types import SimpleNamespace
 
         sql, params = str(statement), params or {}
+        self.statements.append((" ".join(sql.split()), dict(params)))
         if "metadata ->> 'qc_profile'" in sql:
             return SimpleNamespace(scalar_one_or_none=lambda: self.family_profile)
         if "WHERE key = :key" in sql:
             row = self.profiles.get(params["key"])
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
         if "WHERE is_default" in sql:
-            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: self.profiles["default"]))
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: self.profiles.get("default")))
         key = params["profile_id"].removeprefix("id-")
         rows = [
             {"metric_key": metric, "warn_value": warn, "error_value": error}
             for metric, (warn, error) in self.cut_offs[key].items()
+            # The query reads only the metrics with a bound set.
+            if warn is not None or error is not None
         ]
         return SimpleNamespace(mappings=lambda: rows)
 
 
+def _bounds(warn, warn_profile, error, error_profile) -> dict:
+    return {"warn_value": warn, "error_value": error, "warn_profile_key": warn_profile, "error_profile_key": error_profile}
+
+
 @pytest.mark.asyncio
-async def test_each_metric_takes_the_analysis_cut_off_else_the_familys_else_the_default() -> None:
+async def test_each_bound_takes_the_analysis_cut_off_else_the_familys_else_the_default() -> None:
     from app.services.qc_threshold_service import resolve_analysis_qc_thresholds
 
     session = _ProfilesSession(
@@ -930,13 +888,56 @@ async def test_each_metric_takes_the_analysis_cut_off_else_the_familys_else_the_
 
     assert [profile["key"] for profile in resolved["profiles"]] == ["short_read_wgs", "lab_trio", "default"]
     assert resolved["thresholds"] == {
-        # QA set short-read cut-offs for depth: they judge the short-read analysis.
-        "depth.mean_depth": {"warn_value": 30.0, "error_value": 20.0, "profile_key": "short_read_wgs"},
-        # None there for N50: the family's named profile's.
-        "reads.read_length_n50": {"warn_value": 10_000.0, "error_value": None, "profile_key": "lab_trio"},
+        # QA set short-read cut-offs for depth: both bounds judge the short-read analysis.
+        "depth.mean_depth": _bounds(30.0, "short_read_wgs", 20.0, "short_read_wgs"),
+        # None there for N50: the family's named profile's warning; no profile sets an error.
+        "reads.read_length_n50": _bounds(10_000.0, "lab_trio", None, None),
         # Nor there for read quality: the default's.
-        "reads.median_read_quality": {"warn_value": 20.0, "error_value": 15.0, "profile_key": "default"},
+        "reads.median_read_quality": _bounds(20.0, "default", 15.0, "default"),
     }
+
+
+@pytest.mark.asyncio
+async def test_a_warning_only_cut_off_of_the_analysis_keeps_the_defaults_error_bound() -> None:
+    from app.services.qc_threshold_service import resolve_analysis_qc_thresholds
+
+    # The long-read profile sets a warning for depth and no error; the default sets both. A
+    # long-read sample at 4x fails on the default's error bound, never only warns.
+    session = _ProfilesSession(
+        None,
+        {
+            "long_read_wgs": {"depth.mean_depth": (20.0, None), "reads.read_length_n50": (None, 5_000.0)},
+            "default": {"depth.mean_depth": (15.0, 10.0), "reads.read_length_n50": (12_000.0, 3_000.0)},
+        },
+    )
+    resolved = await resolve_analysis_qc_thresholds(session, family_uuid="u1", analysis="long_read_wgs")
+
+    assert resolved["thresholds"] == {
+        "depth.mean_depth": _bounds(20.0, "long_read_wgs", 10.0, "default"),
+        # An error-only cut-off of the analysis keeps the default's warning the same way.
+        "reads.read_length_n50": _bounds(12_000.0, "default", 5_000.0, "long_read_wgs"),
+    }
+    low = {"depth": {"mean_depth": 4.0}, "reads": {"read_length_n50": 8_000.0}}
+    by_key = {metric["metric_key"]: metric for metric in evaluate_sequencing_qc(low, resolved["thresholds"])["metrics"]}
+    assert by_key["depth.mean_depth"]["verdict"] == "fail"
+    assert (by_key["depth.mean_depth"]["warn_profile_key"], by_key["depth.mean_depth"]["error_profile_key"]) == (
+        "long_read_wgs",
+        "default",
+    )
+    assert by_key["reads.read_length_n50"]["verdict"] == "warn"
+
+
+@pytest.mark.asyncio
+async def test_bounds_mixed_from_two_profiles_in_the_wrong_order_still_fail() -> None:
+    from app.services.qc_threshold_service import resolve_analysis_qc_thresholds
+
+    # The analysis warns below 5x, the default fails below 10x: neither profile alone would hold
+    # this pair, and 7x fails on the error bound, tested first.
+    session = _ProfilesSession(None, {"pgt": {"depth.mean_depth": (5.0, None)}, "default": {"depth.mean_depth": (12.0, 10.0)}})
+    resolved = await resolve_analysis_qc_thresholds(session, family_uuid="u1", analysis="pgt")
+
+    assert resolved["thresholds"]["depth.mean_depth"] == _bounds(5.0, "pgt", 10.0, "default")
+    assert evaluate_sequencing_qc({"depth": {"mean_depth": 7.0}}, resolved["thresholds"])["verdict"] == "fail"
 
 
 @pytest.mark.asyncio
@@ -948,20 +949,65 @@ async def test_an_analysis_without_a_profile_of_its_own_reads_the_familys_and_th
     for analysis in ("unspecified", "long_read_wgs"):
         resolved = await resolve_analysis_qc_thresholds(session, family_uuid="u1", analysis=analysis)
         # An empty profile of its own adds nothing: the default's cut-off stands.
-        assert resolved["thresholds"] == {
-            "depth.mean_depth": {"warn_value": 15.0, "error_value": 10.0, "profile_key": "default"}
-        }
+        assert resolved["thresholds"] == {"depth.mean_depth": _bounds(15.0, "default", 10.0, "default")}
     assert await resolve_analysis_qc_thresholds(None, family_uuid="u1", analysis="pgt") == {
         "profiles": [],
         "thresholds": {},
     }
 
 
-def test_a_verdict_names_the_profile_whose_cut_off_judged_each_metric() -> None:
+@pytest.mark.asyncio
+async def test_without_an_analysis_each_bound_takes_the_familys_profile_else_the_default() -> None:
+    from app.services.qc_threshold_service import resolve_analysis_qc_thresholds
+
+    # The family names the PGT profile; it sets a warning for depth alone.
+    session = _ProfilesSession(
+        "pgt",
+        {"pgt": {"depth.mean_depth": (20.0, None)}, "default": {"depth.mean_depth": (15.0, 10.0), "mtdna.mean_depth": (100.0, 50.0)}},
+    )
+    resolved = await resolve_analysis_qc_thresholds(session, family_uuid="family-uuid", analysis=None)
+
+    assert [profile["key"] for profile in resolved["profiles"]] == ["pgt", "default"]
+    assert resolved["thresholds"] == {
+        "depth.mean_depth": _bounds(20.0, "pgt", 10.0, "default"),
+        "mtdna.mean_depth": _bounds(100.0, "default", 50.0, "default"),
+    }
+    assert session.statements[0][1] == {"family_uuid": "family-uuid"}
+
+
+@pytest.mark.asyncio
+async def test_a_family_profile_that_does_not_exist_leaves_the_default() -> None:
+    from app.services.qc_threshold_service import resolve_analysis_qc_thresholds
+
+    # A key no profile has: a typo does not opt a family out of its QC gate (REQ-QC-004).
+    session = _ProfilesSession("pgt_typo", {"default": {"depth.mean_depth": (20.0, 10.0)}})
+    resolved = await resolve_analysis_qc_thresholds(session, family_uuid="family-uuid", analysis=None)
+
+    assert [profile["key"] for profile in resolved["profiles"]] == ["default"]
+    assert resolved["thresholds"] == {"depth.mean_depth": _bounds(20.0, "default", 10.0, "default")}
+
+
+@pytest.mark.asyncio
+async def test_without_any_profile_no_cut_off_applies() -> None:
+    from app.services.qc_threshold_service import resolve_analysis_qc_thresholds
+
+    session = _ProfilesSession(None, {})
+    nothing = {"profiles": [], "thresholds": {}}
+
+    assert await resolve_analysis_qc_thresholds(session, family_uuid="family-uuid", analysis=None) == nothing
+    # Every metric then evaluates to skip: never a pass of a gate that was not consulted.
+    assert evaluate_sequencing_qc(HG002_QC, nothing["thresholds"])["verdict"] == "skip"
+
+
+def test_a_verdict_names_the_profile_each_bound_came_from() -> None:
     evaluation = evaluate_sequencing_qc(
-        HG002_QC, {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0, "profile_key": "long_read_wgs"}}
+        HG002_QC, {"depth.mean_depth": _bounds(20.0, "long_read_wgs", 10.0, "default")}
     )
     by_key = {metric["metric_key"]: metric for metric in evaluation["metrics"]}
-    assert (by_key["depth.mean_depth"]["verdict"], by_key["depth.mean_depth"]["profile_key"]) == ("warn", "long_read_wgs")
+    depth = by_key["depth.mean_depth"]
+    assert (depth["verdict"], depth["warn_profile_key"], depth["error_profile_key"]) == ("warn", "long_read_wgs", "default")
     # A metric no profile sets a cut-off for names none.
-    assert by_key["reads.read_length_n50"]["profile_key"] is None
+    assert (by_key["reads.read_length_n50"]["warn_profile_key"], by_key["reads.read_length_n50"]["error_profile_key"]) == (
+        None,
+        None,
+    )

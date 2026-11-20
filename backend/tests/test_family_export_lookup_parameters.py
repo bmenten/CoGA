@@ -32,6 +32,7 @@ from backend.app.services.clickhouse_variant_records import (
     StructuralVariantRecord,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services.small_variant_review_pg import get_small_variant_review_map
 from backend.app.services.small_variant_review_repository import _fetch_review_rows_for_variants
 from backend.app.services.structural_variant_review_pg import get_structural_variant_review_map
@@ -118,27 +119,34 @@ class _AsyncpgSession(_RecordingSession):
 # --- each lookup binds its ids as one parameter -----------------------------------------
 
 
+# The analysis whose reviews a list reads (analysis_reviews): its own and the shared ones.
+_SCOPE = AnalysisScope(analysis="long_read_wgs", held=frozenset({"long_read_wgs", "short_read_wgs"}))
+
+
 def test_the_small_variant_review_lookup_binds_any_number_of_ids_as_one_parameter() -> None:
     session = _RecordingSession()
     variant_ids = _small_ids()
-    asyncio.run(get_small_variant_review_map(session, family_uuid=_FAMILY, variant_ids=variant_ids))
+    asyncio.run(get_small_variant_review_map(session, family_uuid=_FAMILY, variant_ids=variant_ids, scope=_SCOPE))
 
     statement, params = session.calls[0]
     names, values = _sent(statement, params)
-    # The family and one array holding every id.
-    assert names == ["family_id", "variant_ids"]
+    # The family, one array holding every id, and the analysis read with the family's analyses.
+    assert names == ["family_id", "variant_ids", "review_scope_analysis", "review_scope_held"]
     assert values["variant_ids"] == variant_ids
+    assert values["review_scope_held"] == ["long_read_wgs", "short_read_wgs"]
     assert "variant_id = ANY(CAST(:variant_ids AS text[]))" in str(statement)
 
 
 def test_the_structural_variant_review_lookup_binds_any_number_of_ids_as_one_parameter() -> None:
     session = _RecordingSession()
     variant_ids = [f"sv-{index}" for index in range(_EXPORT_READ)]
-    asyncio.run(get_structural_variant_review_map(session, family_uuid=_FAMILY, variant_ids=variant_ids))
+    asyncio.run(
+        get_structural_variant_review_map(session, family_uuid=_FAMILY, variant_ids=variant_ids, scope=_SCOPE)
+    )
 
     statement, params = session.calls[0]
     names, values = _sent(statement, params)
-    assert names == ["family_id", "variant_ids"]
+    assert names == ["family_id", "variant_ids", "review_scope_analysis", "review_scope_held"]
     assert values["variant_ids"] == variant_ids
     assert "variant_id = ANY(CAST(:variant_ids AS text[]))" in str(statement)
 
@@ -209,11 +217,13 @@ def test_an_empty_id_list_reaches_postgres_as_an_empty_text_array() -> None:
     # which Postgres refuses on a text column (text = integer). The array parameter is
     # typed in the SQL, so no ids is an empty text[]: no rows, no error.
     session = _RecordingSession()
-    assert asyncio.run(_fetch_review_rows_for_variants(session, family_uuid=_FAMILY, variant_ids=[])) == []
+    assert (
+        asyncio.run(_fetch_review_rows_for_variants(session, family_uuid=_FAMILY, variant_ids=[], scope=_SCOPE)) == []
+    )
 
     statement, params = session.calls[0]
     expanded = statement.compile(dialect=asyncpg_dialect()).construct_expanded_state(params)
-    assert list(expanded.positiontup) == ["family_id", "variant_ids"]
+    assert list(expanded.positiontup) == ["family_id", "variant_ids", "review_scope_analysis", "review_scope_held"]
     assert expanded.parameters["variant_ids"] == []
     assert "variant_id = ANY(CAST($2 AS text[]))" in expanded.statement
     assert "CAST(NULL AS INTEGER)" not in expanded.statement

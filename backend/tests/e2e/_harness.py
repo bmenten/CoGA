@@ -142,42 +142,44 @@ async def wait_until(condition: Callable[[], bool], timeout: float = 30.0) -> No
     await asyncio.wait_for(poll(), timeout)
 
 
-async def annotation_manifest_modules(family_uuid: str) -> str | None:
-    """The family's annotation-manifest modules as stored (``None`` without a manifest), for a
-    module to put back once its writes have recorded their callers in it."""
+async def annotation_manifest_modules(family_uuid: str) -> str:
+    """The family's annotation-manifest modules as stored, by analysis (a JSON object, ``{}``
+    without a manifest), for a module to put back once its writes have recorded their callers
+    in it."""
     from backend.app.core.postgres import get_postgres_sessionmaker
 
     async with get_postgres_sessionmaker()() as session:
         return (
             await session.execute(
                 text(
-                    "SELECT modules::text FROM family_annotation_manifest "
-                    "WHERE family_id = CAST(:family_uuid AS uuid)"
+                    "SELECT COALESCE(jsonb_object_agg(analysis_type, modules), '{}'::jsonb)::text "
+                    "FROM family_annotation_manifest WHERE family_id = CAST(:family_uuid AS uuid)"
                 ),
                 {"family_uuid": family_uuid},
             )
-        ).scalar_one_or_none()
+        ).scalar_one()
 
 
-async def restore_annotation_manifest_modules(family_uuid: str, modules: str | None) -> None:
-    """Put back the modules ``annotation_manifest_modules`` read (or remove a manifest the
-    family had not had)."""
+async def restore_annotation_manifest_modules(family_uuid: str, modules: str) -> None:
+    """Put back the modules ``annotation_manifest_modules`` read, per analysis (and remove the
+    manifest of an analysis the family had not had)."""
     from backend.app.core.postgres import get_postgres_sessionmaker
 
     async with get_postgres_sessionmaker()() as session:
-        if modules is None:
-            await session.execute(
-                text("DELETE FROM family_annotation_manifest WHERE family_id = CAST(:f AS uuid)"),
-                {"f": family_uuid},
-            )
-        else:
-            await session.execute(
-                text(
-                    "UPDATE family_annotation_manifest SET modules = CAST(:modules AS jsonb) "
-                    "WHERE family_id = CAST(:f AS uuid)"
-                ),
-                {"f": family_uuid, "modules": modules},
-            )
+        await session.execute(
+            text(
+                "DELETE FROM family_annotation_manifest WHERE family_id = CAST(:f AS uuid) "
+                "AND NOT (CAST(:modules AS jsonb) ? analysis_type)"
+            ),
+            {"f": family_uuid, "modules": modules},
+        )
+        await session.execute(
+            text(
+                "UPDATE family_annotation_manifest SET modules = CAST(:modules AS jsonb) -> analysis_type "
+                "WHERE family_id = CAST(:f AS uuid)"
+            ),
+            {"f": family_uuid, "modules": modules},
+        )
         await session.commit()
 
 

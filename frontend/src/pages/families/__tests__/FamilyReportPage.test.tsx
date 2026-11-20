@@ -130,12 +130,17 @@ const mockApi = () => {
         data: {
           family_id: 'F1',
           assembly: 'GRCh38',
-          source: 'manual',
-          recorded_at: null,
-          recorded_by: null,
-          modules: [
-            { key: 'assembly', label: 'Reference assembly', version: 'GRCh38', detail: '2013-12-01', layer: 'reference' },
-            { key: 'clinvar', label: 'ClinVar', version: '2026-05', detail: null, layer: 'pipeline' },
+          analyses: [
+            {
+              analysis_type: null,
+              source: 'manual',
+              recorded_at: null,
+              recorded_by: null,
+              modules: [
+                { key: 'assembly', label: 'Reference assembly', version: 'GRCh38', detail: '2013-12-01', layer: 'reference' },
+                { key: 'clinvar', label: 'ClinVar', version: '2026-05', detail: null, layer: 'pipeline' },
+              ],
+            },
           ],
         },
       });
@@ -1524,9 +1529,9 @@ describe('FamilyReportPage', () => {
             PROBAND: {
               verdict: 'warn',
               metrics: [
-                { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', profile_key: 'default' },
+                { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', warn_profile_key: 'default', error_profile_key: 'default' },
                 // A value without a cut-off: shown as frozen, not judged.
-                { metric_key: 'pgt.allele_dropout_rate', label: 'Allele drop-out (ADO)', unit: '%', value: 17.46, warn_value: null, error_value: null, verdict: 'skip', profile_key: null },
+                { metric_key: 'pgt.allele_dropout_rate', label: 'Allele drop-out (ADO)', unit: '%', value: 17.46, warn_value: null, error_value: null, verdict: 'skip', warn_profile_key: null, error_profile_key: null },
               ],
               breached: ['mean_coverage'],
             },
@@ -3840,7 +3845,14 @@ describe('FamilyReportPage', () => {
       renderPage(undefined, '/families/F1/report?view=live');
 
       expect(await screen.findByText('This is the live report, not signed version 2 of the conventional NIPT.')).toBeInTheDocument();
-      expect(await screen.findByText(/This page still matches signed version 2\./)).toBeInTheDocument();
+      // The page shows every analysis's data; the record holds the conventional NIPT's alone, and
+      // the page says so rather than that it matches the record.
+      expect(
+        await screen.findByText(
+          /The conventional NIPT data on this page still match signed version 2, which holds the conventional NIPT data only: the other analyses’ data this page shows are not part of it\./,
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/This page still matches signed version 2\./)).not.toBeInTheDocument();
       const list = screen.getByRole('region', { name: 'Sign-out of each analysis' });
       expect(list).toHaveTextContent('This family holds 2 analyses, each signed out on its own');
       const [conventional, monogenic] = within(list).getAllByRole('listitem');
@@ -3881,19 +3893,102 @@ describe('FamilyReportPage', () => {
       expect(apiMock.post.mock.calls[0][1]).toMatchObject({ analysis_type: 'short_read_wgs' });
     });
 
-    it('says a record holds no repeat calls when its analysis holds none', async () => {
+    // Each analysis's own annotation and pipeline versions: the live page shows every analysis's
+    // data, each built with its own.
+    it('names the versions of each analysis in the live report footer', async () => {
       serveAnalyses(['long_read_wgs', 'short_read_wgs'], [analysisEntry(1, 'short_read_wgs')]);
-      const withoutKinds: Record<string, unknown> = { ...SIGNED_SNAPSHOT };
-      delete withoutKinds.repeat_expansions;
-      delete withoutKinds.paraphase;
-      mockSignedCase({ versions: [analysisEntry(1, 'short_read_wgs')], snapshot: withoutKinds });
+      const base = apiMock.get.getMockImplementation()!;
+      const module = (key: string, label: string, version: string) => ({
+        key,
+        label,
+        version,
+        detail: null,
+        layer: 'pipeline',
+        by_modality: null,
+      });
+      apiMock.get.mockImplementation((url: string, config?: unknown) =>
+        url === '/families/F1/annotation-manifest'
+          ? Promise.resolve({
+              data: {
+                family_id: 'F1',
+                assembly: 'GRCh38',
+                analyses: [
+                  { analysis_type: 'long_read_wgs', source: 'manifest', recorded_at: null, recorded_by: null, modules: [module('vep', 'VEP', '112')] },
+                  { analysis_type: 'short_read_wgs', source: 'vcf_header', recorded_at: null, recorded_by: null, modules: [module('vep', 'VEP', '110')] },
+                ],
+              },
+            })
+          : base(url, config),
+      );
+      renderPage(undefined, '/families/F1/report?view=live');
+
+      const longRead = await screen.findByText('Modules & versions (long-read WGS):');
+      expect(longRead.parentElement).toHaveTextContent('VEP 112');
+      expect(longRead.parentElement).not.toHaveTextContent('VEP 110');
+      const shortRead = screen.getByText('Modules & versions (short-read WGS):');
+      expect(shortRead.parentElement).toHaveTextContent('VEP 110');
+    });
+
+    // A family of one analysis whose latest record is another's (a second analysis's import was
+    // undone): the page reads its own analysis's latest, as the check compares it, never "unverified".
+    it('reads the record of the family’s only analysis, not the latest of another', async () => {
+      const own = analysisEntry(2, 'short_read_wgs');
+      const other = analysisEntry(3, 'long_read_wgs');
+      mockSignedCase({ versions: [other, own] });
+      const base = apiMock.get.getMockImplementation()!;
+      apiMock.get.mockImplementation((url: string, config?: unknown) => {
+        if (url === '/families/F1') {
+          return (base(url, config) as Promise<{ data: Record<string, unknown> }>).then((response) => ({
+            data: { ...response.data, metadata: { analysis_types: ['short_read_wgs'] } },
+          }));
+        }
+        // Named no analysis, the check is of the family's only one.
+        if (url === '/families/F1/report/sign-out-check') {
+          return checkResult({ analysis_type: 'short_read_wgs', version: 2, matches: true });
+        }
+        return base(url, config);
+      });
+      renderPage(undefined, '/families/F1/report?view=live');
+
+      expect(await screen.findByText('This is the live report, not signed version 2.')).toBeInTheDocument();
+      expect(await screen.findByText(/This page still matches signed version 2\./)).toBeInTheDocument();
+      expect(screen.queryByText(/could not be checked against signed version/)).not.toBeInTheDocument();
+    });
+
+    it('opens a family of one analysis on that analysis’s latest signed version', async () => {
+      mockSignedCase({ versions: [analysisEntry(3, 'long_read_wgs'), analysisEntry(2, 'short_read_wgs')] });
+      const base = apiMock.get.getMockImplementation()!;
+      apiMock.get.mockImplementation((url: string, config?: unknown) =>
+        url === '/families/F1'
+          ? (base(url, config) as Promise<{ data: Record<string, unknown> }>).then((response) => ({
+              data: { ...response.data, metadata: { analysis_types: ['short_read_wgs'] } },
+            }))
+          : base(url, config),
+      );
+      renderPage();
+
+      expect(await screen.findByText(/^Signed version 2 of the short-read WGS — signed out by/)).toBeInTheDocument();
+    });
+
+    it('says a record holds no repeat calls of its analysis when its analysis holds none', async () => {
+      // The long-read WGS holds the family's repeat calls and Paraphase results: the short-read
+      // WGS's record holds both sections without a call, worded of its analysis, not the family.
+      serveAnalyses(['long_read_wgs', 'short_read_wgs'], [analysisEntry(1, 'short_read_wgs')]);
+      const withoutCalls = {
+        ...SIGNED_SNAPSHOT,
+        analysis_type: 'short_read_wgs',
+        repeat_expansions: { catalogue: { loci: 2, sources: ['STRchive'], digest: 'a'.repeat(64) }, count_unit_margin: 3, loci: [] },
+        paraphase: { catalogue: { regions: 1, digest: 'b'.repeat(64) }, genes: [] },
+      };
+      mockSignedCase({ versions: [analysisEntry(1, 'short_read_wgs')], snapshot: withoutCalls });
       renderPage(undefined, '/families/F1/report?version=1');
 
       expect(await screen.findByText(/^Signed version 1 of the short-read WGS — signed out by/)).toBeInTheDocument();
       const repeats = screen.getByRole('heading', { name: 'Repeat expansions' }).closest('section') as HTMLElement;
-      expect(repeats).toHaveTextContent('Not part of this record: the analysis it closes holds no repeat-expansion calls.');
+      expect(repeats).toHaveTextContent('The short-read WGS had no repeat-expansion calls.');
+      expect(repeats).not.toHaveTextContent('The family’s samples');
       const paraphase = screen.getByRole('heading', { name: 'Paraphase' }).closest('section') as HTMLElement;
-      expect(paraphase).toHaveTextContent('holds no Paraphase results');
+      expect(paraphase).toHaveTextContent('The short-read WGS had no Paraphase results.');
     });
   });
 
@@ -4088,13 +4183,31 @@ describe('FamilyReportPage', () => {
       imported_datasets: ['coverage'],
       job_id: IMPORT_JOB_ID,
       failed_jobs: { snv: IMPORT_JOB_ID, sv: IMPORT_JOB_ID },
+      // The package named no analysis.
+      failed_analysis_types: { snv: ['unspecified'], sv: ['unspecified'] },
     };
     // As the import writes it in the family's metadata: each failure with its scope too.
     const STORED_IMPORT_FLAG = {
       ...IMPORT_FLAG,
       failed_scopes: {
-        snv: [{ scope: { source: 'auto', samples: null }, job_id: IMPORT_JOB_ID }],
-        sv: [{ scope: { source: null, samples: null }, job_id: IMPORT_JOB_ID }],
+        snv: [
+          {
+            scope: { source: 'auto', samples: null },
+            job_id: IMPORT_JOB_ID,
+            analysis_type: 'unspecified',
+            at: IMPORT_FLAG.at,
+            imported_datasets: ['coverage'],
+          },
+        ],
+        sv: [
+          {
+            scope: { source: null, samples: null },
+            job_id: IMPORT_JOB_ID,
+            analysis_type: 'unspecified',
+            at: IMPORT_FLAG.at,
+            imported_datasets: ['coverage'],
+          },
+        ],
       },
     };
     const IMPORT_FINGERPRINT = 'e'.repeat(64);
@@ -4244,6 +4357,7 @@ describe('FamilyReportPage', () => {
                 failed_datasets: ['coverage', 'snv', 'sv'],
                 imported_datasets: [],
                 failed_jobs: { coverage: IMPORT_JOB_ID, snv: IMPORT_JOB_ID, sv: IMPORT_JOB_ID },
+                failed_analysis_types: { coverage: ['unspecified'], snv: ['unspecified'], sv: ['unspecified'] },
               },
               concerns_fingerprint: changedFingerprint,
               concerns_changed: true,
@@ -4343,6 +4457,7 @@ describe('FamilyReportPage', () => {
       [STOPPED_JOB_ID]: {
         job_id: STOPPED_JOB_ID,
         at: '2026-10-02T09:12:00+00:00',
+        analysis_type: 'unspecified',
         datasets: ['apcad', 'haplotypes', 'qdnaseq'],
         finished_datasets: ['apcad', 'qdnaseq'],
       },
@@ -4362,7 +4477,13 @@ describe('FamilyReportPage', () => {
               import_unfinished: {
                 ...UNFINISHED,
                 // Stopped after its last dataset had finished.
-                'job-2': { job_id: 'job-2', at: '2026-10-02T11:00:00+00:00', datasets: ['snv'], finished_datasets: ['snv'] },
+                'job-2': {
+                  job_id: 'job-2',
+                  at: '2026-10-02T11:00:00+00:00',
+                  analysis_type: 'unspecified',
+                  datasets: ['snv'],
+                  finished_datasets: ['snv'],
+                },
               },
             },
           },
@@ -4489,6 +4610,7 @@ describe('FamilyReportPage', () => {
       const restore = {
         job_id: 'job-r',
         at: '2026-10-13T09:00:00+00:00',
+        analysis_type: 'long_read_wgs',
         datasets: ['coverage', 'snv'],
         finished_datasets: [],
         whole_family: true,
@@ -4517,7 +4639,7 @@ describe('FamilyReportPage', () => {
       });
       expect(
         within(dialog).getByText(
-          'Restore not finished (import job job-r): coverage, snv may be partly written or missing, whichever import or upload wrote them',
+          'Restore not finished (import job job-r, long-read WGS): coverage, snv may be partly written or missing, whichever import or upload wrote them',
         ),
       ).toBeInTheDocument();
       unmount();
@@ -4536,7 +4658,7 @@ describe('FamilyReportPage', () => {
       await signedRecordCard();
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(checks).toHaveTextContent(
-        /import job job-r, had failed, and putting the family’s data back had not finished: coverage and snv may have been partly written or missing, whichever import or upload wrote them\./,
+        /An import of the long-read WGS data \(begun [^)]*\), import job job-r, had failed, and putting the family’s data back had not finished: coverage and snv may have been partly written or missing, whichever import or upload wrote them\./,
       );
       expect(checks).not.toHaveTextContent(/had begun writing the family’s data/);
     });
@@ -4570,12 +4692,14 @@ describe('FamilyReportPage', () => {
       [UPLOAD_KEY]: {
         job_id: null,
         at: '2026-10-14T08:30:00+00:00',
+        analysis_type: null,
         datasets: ['sv_sniffles'],
         finished_datasets: [],
       },
       [DELETION_KEY]: {
         job_id: null,
         at: '2026-10-14T09:00:00+00:00',
+        analysis_type: null,
         datasets: ['cnv', 'sv_needlr'],
         finished_datasets: [],
       },

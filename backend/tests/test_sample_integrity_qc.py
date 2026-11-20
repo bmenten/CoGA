@@ -394,21 +394,21 @@ def test_a_sample_without_a_called_chrx_site_reads_the_ngsbits_sex_and_one_witho
 # --- Application resolution + per-profile gating -----------------------------
 
 def test_resolve_application_per_input_shape() -> None:
-    assert resolve_application(analysis_types=["monogenic_nipt"], roles={}, parents_of={}, sample_count=3) == "nipt"
+    assert resolve_application(analysis_types=["monogenic_nipt"], roles={}, parents_of={}, person_count=3) == "nipt"
     assert resolve_application(
         analysis_types=(), roles={"E1": "embryo", "F": "father", "M": "mother"},
-        parents_of={"E1": {"father": "F", "mother": "M"}}, sample_count=3,
+        parents_of={"E1": {"father": "F", "mother": "M"}}, person_count=3,
     ) == "pgt"
-    assert resolve_application(analysis_types=(), roles={"A": "father", "B": "mother"}, parents_of={}, sample_count=2) == "couple"
-    assert resolve_application(analysis_types=(), roles={"A": "proband"}, parents_of={}, sample_count=1) == "single"
+    assert resolve_application(analysis_types=(), roles={"A": "father", "B": "mother"}, parents_of={}, person_count=2) == "couple"
+    assert resolve_application(analysis_types=(), roles={"A": "proband"}, parents_of={}, person_count=1) == "single"
     assert resolve_application(
         analysis_types=(), roles={"P": "proband", "F": "father", "M": "mother"},
-        parents_of={"P": {"father": "F", "mother": "M"}}, sample_count=3,
+        parents_of={"P": {"father": "F", "mother": "M"}}, person_count=3,
     ) == "wgs"
     # Several members and no parent-child edge, not a couple: the shape tells nothing, and
     # every check runs where the data allows.
     unknown = resolve_application(
-        analysis_types=(), roles={"A": "proband", "B": "sibling", "C": "relative"}, parents_of={}, sample_count=3
+        analysis_types=(), roles={"A": "proband", "B": "sibling", "C": "relative"}, parents_of={}, person_count=3
     )
     assert unknown == "unknown"
     assert (profile_for(unknown).run_sex, profile_for(unknown).run_relatedness, profile_for(unknown).run_mendelian) == (
@@ -431,7 +431,7 @@ def test_single_profile_runs_sex_only() -> None:
 def test_a_family_holding_both_nipts_gets_the_monogenic_nipts_checks() -> None:
     # The conventional NIPT adds no check; the monogenic NIPT's run whichever came first.
     for types in (["monogenic_nipt", "conventional_nipt"], ["conventional_nipt", "monogenic_nipt"]):
-        assert resolve_application(analysis_types=types, roles={}, parents_of={}, sample_count=4) == "nipt"
+        assert resolve_application(analysis_types=types, roles={}, parents_of={}, person_count=4) == "nipt"
 
 
 def test_a_conventional_nipt_plasma_gets_no_genotype_check() -> None:
@@ -439,7 +439,7 @@ def test_a_conventional_nipt_plasma_gets_no_genotype_check() -> None:
     # the fetal sex is known only from the analysis (ccnv's call, in the cNIPT result). One
     # maternal plasma, recorded female, is no "single sample" whose sex is checked.
     application = resolve_application(
-        analysis_types=["conventional_nipt"], roles={"CFDNA1": "mother"}, parents_of={}, sample_count=1
+        analysis_types=["conventional_nipt"], roles={"CFDNA1": "mother"}, parents_of={}, person_count=1
     )
     assert application == "cnipt"
     profile = profile_for(application)
@@ -739,6 +739,67 @@ def test_a_second_sample_that_is_not_the_person_fails_as_a_possible_swap() -> No
     assert "possible sample swap" in same.message
     assert _pair(report, "CHILD", "MOTHER2").status == "fail"
     assert report.overall_status == "fail"
+
+
+def _two_people_sampled_twice():
+    """A trio whose mother (M1 = M2) and child (C1 = C2) each have two samples, and whose father
+    has two (F1 = F2): the pedigree records F1 and M1 as C1's parents only."""
+    father, mother, child = _trio(42)
+    spec = PedigreeSpec(
+        recorded_sex={"F1": "male", "F2": "male", "M1": "female", "M2": "female", "C1": "male", "C2": "male"},
+        parents_of={"C1": {"father": "F1", "mother": "M1"}},
+        same_individual=[("M1", "M2"), ("C2", "C1"), ("F2", "F1")],
+    )
+    autosomal = {
+        "F1": father, "F2": list(father), "M1": mother, "M2": list(mother), "C1": child, "C2": list(child),
+    }
+    return evaluate_sample_integrity(autosomal, {}, spec, profile=_WGS)
+
+
+def test_two_people_sampled_twice_each_expect_their_relationship_of_every_pair_of_their_samples() -> None:
+    report = _two_people_sampled_twice()
+
+    for parent in ("F1", "F2", "M1", "M2"):
+        for child in ("C1", "C2"):
+            check = _pair(report, parent, child)
+            assert (check.expected_relationship, check.status) == ("parent-child", "pass"), (parent, child)
+    # Co-parents: every pair of a sample of the father and a sample of the mother.
+    for father in ("F1", "F2"):
+        for mother in ("M1", "M2"):
+            check = _pair(report, father, mother)
+            assert check.status == "pass" and "consanguinity" in check.message.lower(), (father, mother)
+    for a, b in (("F1", "F2"), ("M1", "M2"), ("C1", "C2")):
+        assert _pair(report, a, b).expected_relationship == "same-individual"
+    # Nothing fails (the sex checks, without chrX genotypes, could not run: a warning).
+    assert all(check.status == "pass" for check in [*report.relatedness_checks, *report.mendelian_checks])
+    assert report.overall_status == "warn"
+
+
+def test_children_whose_recorded_mothers_are_two_samples_of_one_person_are_siblings() -> None:
+    rng = random.Random(43)
+    father, mother = _founder(rng), _founder(rng)
+    first, second = _child(rng, father, mother), _child(rng, father, mother)
+    spec = PedigreeSpec(
+        recorded_sex={"F": "male", "M1": "female", "M2": "female", "S1": "male", "S2": "female"},
+        parents_of={"S1": {"father": "F", "mother": "M1"}, "S2": {"father": "F", "mother": "M2"}},
+        same_individual=[("M1", "M2")],
+    )
+    autosomal = {"F": father, "M1": mother, "M2": list(mother), "S1": first, "S2": second}
+
+    report = evaluate_sample_integrity(autosomal, {}, spec, profile=_WGS)
+
+    siblings = _pair(report, "S1", "S2")
+    assert (siblings.expected_relationship, siblings.status) == ("sibling", "pass")
+    assert _pair(report, "M2", "S1").expected_relationship == "parent-child"
+    assert all(check.status == "pass" for check in report.relatedness_checks)
+
+
+def test_the_application_counts_people_not_samples() -> None:
+    # One person sampled twice is a single; a couple with a partner sampled twice is a couple.
+    assert resolve_application(analysis_types=(), roles={"A": "proband", "A2": "relative"}, parents_of={}, person_count=1) == "single"
+    assert resolve_application(
+        analysis_types=(), roles={"A": "relative", "A2": "relative", "B": "relative"}, parents_of={}, person_count=2
+    ) == "couple"
 
 
 def test_a_same_individual_pair_with_too_few_sites_gates_the_sign_out() -> None:

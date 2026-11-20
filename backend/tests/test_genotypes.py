@@ -13,6 +13,7 @@ import types
 
 import pytest
 
+from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
 from backend.app.services import genotypes as g
 from backend.app.services.clickhouse_variant_queries import _small_native_inheritance_clauses
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters, parse_small_variant_sample_filter
@@ -110,6 +111,7 @@ def test_the_x_linked_sql_admits_haploid_alt_calls() -> None:
         ],
         relationship_rows=[],
         sample_name_to_uuid={"SON": "u-son", "FATHER": "u-father"},
+        scope=WHOLE_FAMILY_SCOPE,
     )
     filters = SmallVariantQueryFilters(page=1, page_size=50, inheritance="x_linked")
     clauses, params = _small_native_inheritance_clauses(context, filters)

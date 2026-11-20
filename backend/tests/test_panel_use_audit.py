@@ -274,7 +274,7 @@ def test_an_event_read_back_as_text_reads_the_same_and_one_that_is_not_json_name
 def order(monkeypatch) -> list[str]:
     steps: list[str] = []
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None, variant_kind=None):
         return _context()
 
     async def _record(session, *, context, panel_id, user, search):

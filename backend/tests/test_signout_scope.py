@@ -3,29 +3,23 @@
 A family holding the monogenic and the conventional NIPT of one pregnancy, or short-read and then
 long-read WGS of the same DNA, signs out each analysis on its own, and each sign-out freezes and
 checks that analysis's data only (the owner's decisions of 2026-11-19). The data of an analysis are
-read from its package record's sources and datasets; data no other analysis claims belong to every
-analysis.
+read from its package record's sources; data no other analysis claims belong to every analysis. An
+import mark belongs to the analysis it records, or to every analysis when it records none.
 """
 
 from __future__ import annotations
 
-import asyncio
-import types
 from typing import Any
 
 import pytest
 
-from backend.app.services import signout_scope as scope_module
-from backend.app.services.family_package_records import package_sources
+from backend.app.services.family_package_records import PackageRecordShapeError, package_sources
 from backend.app.services.signout_scope import (
     CNIPT_SECTION_ANALYSES,
     NIPT_SECTION_ANALYSES,
     PGT_SECTION_ANALYSES,
     WHOLE_FAMILY,
-    PackageRecordShapeError,
-    ReviewsLeftOut,
-    SignoutScope,
-    reviews_left_out,
+    analysis_listing_source,
     signout_scope,
 )
 
@@ -59,7 +53,8 @@ def test_a_family_of_one_analysis_or_none_is_signed_out_whole() -> None:
         scope = signout_scope(metadata, analysis)
         assert scope.whole and scope.analysis == analysis
         assert scope.holds("small_variants", ["anything"])
-        assert scope.holds_kind("repeats") and scope.holds_dataset("snv") and scope.holds_record("x")
+        assert scope.holds("repeats", ["trgt"]) and scope.holds_record("x")
+        assert scope.holds_mark("conventional_nipt") and scope.holds_mark(None)
         assert scope.holds_application(CNIPT_SECTION_ANALYSES)
     assert WHOLE_FAMILY.whole and WHOLE_FAMILY.analysis is None
 
@@ -86,29 +81,50 @@ def test_data_no_other_analysis_claims_belong_to_every_analysis() -> None:
         assert scope.holds("small_variants", ["upload"])
         # A variant whose stored rows are gone, whose sources cannot be told.
         assert scope.holds("small_variants", []) and scope.holds("small_variants", [None, ""])
-        # A dataset no record lists.
-        assert scope.holds_dataset("mito")
     # A package that named no analysis claims nothing: its sources are every analysis's.
     metadata = _two_nipts(unspecified=_record(["sv_needlr"]))
     assert signout_scope(metadata, "conventional_nipt").holds("structural_variants", ["needlr"])
-    assert signout_scope(metadata, "conventional_nipt").holds_dataset("sv_needlr")
 
 
-def test_a_kind_read_whole_is_the_analysis_s_when_it_or_no_other_holds_it() -> None:
-    metadata = {
+def _short_and_long_read() -> dict[str, Any]:
+    return {
         "analysis_types": ["long_read_wgs", "short_read_wgs"],
         "package_imports": {
             "long_read_wgs": _record(["snv", "repeats_trgt", "paraphase"], "clair3"),
             "short_read_wgs": _record(["snv"], "gatk"),
         },
     }
-    short_read = signout_scope(metadata, "short_read_wgs")
-    long_read = signout_scope(metadata, "long_read_wgs")
-    assert not short_read.holds_kind("repeats") and not short_read.holds_kind("paraphase")
-    assert long_read.holds_kind("repeats") and long_read.holds_kind("paraphase")
-    # A kind no analysis holds is every analysis's.
-    assert short_read.holds_kind("tracks") and long_read.holds_kind("tracks")
+
+
+def test_the_repeat_and_paraphase_calls_are_the_analysis_s_by_their_sources() -> None:
+    short_read = signout_scope(_short_and_long_read(), "short_read_wgs")
+    long_read = signout_scope(_short_and_long_read(), "long_read_wgs")
+    assert not short_read.holds("repeats", ["trgt"]) and not short_read.holds("paraphase", ["paraphase"])
+    assert long_read.holds("repeats", ["trgt"]) and long_read.holds("paraphase", ["paraphase"])
+    # A family holding no such call: nothing can be told, so the kind is every analysis's.
+    assert short_read.holds("repeats", []) and long_read.holds("repeats", [])
     assert short_read.holds("small_variants", ["gatk"]) and not short_read.holds("small_variants", ["clair3"])
+
+
+def test_the_analysis_listing_a_source_is_the_one_whose_record_lists_it() -> None:
+    metadata = _short_and_long_read()
+    assert analysis_listing_source(metadata, "small_variants", "gatk") == "short_read_wgs"
+    assert analysis_listing_source(metadata, "small_variants", "clair3") == "long_read_wgs"
+    assert analysis_listing_source(metadata, "repeats", "trgt") == "long_read_wgs"
+    # A source no record lists (an upload's), or none: no analysis.
+    assert analysis_listing_source(metadata, "structural_variants", "web") is None
+    assert analysis_listing_source(metadata, "small_variants", None) is None
+    assert analysis_listing_source(metadata, "small_variants", "") is None
+    # A source two analyses list cannot be told apart.
+    both = _short_and_long_read()
+    both["package_imports"]["short_read_wgs"] = _record(["snv"], "clair3")
+    assert analysis_listing_source(both, "small_variants", "clair3") is None
+    # A record of no analysis the family holds (a package that named none) is no analysis's own.
+    unnamed = {**metadata, "package_imports": {**metadata["package_imports"], "unspecified": _record(["sv_needlr"])}}
+    assert analysis_listing_source(unnamed, "structural_variants", "needlr") is None
+    # A family of one analysis: its record's sources are its own.
+    single = {"analysis_types": ["short_read_wgs"], "package_imports": {"short_read_wgs": _record(["snv"], "gatk")}}
+    assert analysis_listing_source(single, "small_variants", "gatk") == "short_read_wgs"
 
 
 def test_an_analysis_with_no_package_record_holds_what_no_other_claims() -> None:
@@ -119,7 +135,29 @@ def test_an_analysis_with_no_package_record_holds_what_no_other_claims() -> None
     scope = signout_scope(metadata, "conventional_nipt")
     assert not scope.holds("small_variants", ["nipt"])
     assert scope.holds("structural_variants", ["ccnv"])
-    assert not scope.holds_dataset("snv") and scope.holds_dataset("ccnv")
+
+
+def test_an_import_mark_is_the_analysis_s_it_records_or_every_analysis_s() -> None:
+    metadata = {
+        "analysis_types": ["long_read_wgs", "short_read_wgs"],
+        "package_imports": {
+            "long_read_wgs": _record(["snv", "qc"], "deepvariant"),
+            "short_read_wgs": _record(["snv", "qc"], "haplotypecaller"),
+        },
+    }
+    short_read = signout_scope(metadata, "short_read_wgs")
+    long_read = signout_scope(metadata, "long_read_wgs")
+    # Both analyses list snv and qc: a mark is told apart by the analysis it records, never by
+    # the dataset it names.
+    assert short_read.holds_mark("short_read_wgs") and not short_read.holds_mark("long_read_wgs")
+    assert long_read.holds_mark("long_read_wgs") and not long_read.holds_mark("short_read_wgs")
+    # An upload's or a deletion's mark records none; a package that named no analysis records
+    # `unspecified`, which the family never holds: each is every analysis's.
+    for scope in (short_read, long_read):
+        assert scope.holds_mark(None) and scope.holds_mark("unspecified")
+    # A mark of an analysis the family no longer holds (its import was put back) holds every
+    # analysis's sign-out: the safe side.
+    assert short_read.holds_mark("pgt") and long_read.holds_mark("pgt")
 
 
 def test_package_records_and_application_sections_by_analysis() -> None:
@@ -147,8 +185,6 @@ def test_package_records_and_application_sections_by_analysis() -> None:
         {"datasets": {}, "sources": {"tracks": ["ccnv"]}},
         {"datasets": {}, "sources": {**package_sources([], None), "tracks": "ccnv"}},
         {"datasets": {}, "sources": {**package_sources([], None), "tracks": [1]}},
-        {"datasets": ["ccnv"], "sources": package_sources(["ccnv"], None)},
-        {"sources": package_sources(["ccnv"], None)},
     ],
 )
 def test_a_record_not_in_the_shape_the_import_writes_stops_the_sign_out(record: dict[str, Any]) -> None:
@@ -156,91 +192,3 @@ def test_a_record_not_in_the_shape_the_import_writes_stops_the_sign_out(record: 
         metadata = _two_nipts(**{"conventional_nipt" if own else "monogenic_nipt": record})
         with pytest.raises(PackageRecordShapeError):
             signout_scope(metadata, "conventional_nipt")
-
-
-# --- The reviews a scoped sign-out leaves out -------------------------------------------------
-
-
-class _Result:
-    def __init__(self, values: list[Any]) -> None:
-        self._values = values
-
-    def scalars(self) -> list[Any]:
-        return self._values
-
-
-class _Session:
-    def __init__(self, small: list[str], structural: list[str]) -> None:
-        self._small, self._structural = small, structural
-        self.statements: list[str] = []
-
-    async def execute(self, statement: Any, params: dict[str, Any]) -> _Result:
-        sql = str(statement)
-        self.statements.append(sql)
-        assert params == {"family_uuid": "u1"}
-        return _Result(self._small if "small_variant_reviews" in sql else self._structural)
-
-
-_CONTEXT = types.SimpleNamespace(family_uuid="u1", assembly_name="GRCh38")
-
-
-def test_reviews_of_variants_stored_only_under_other_analyses_sources_are_left_out(monkeypatch) -> None:
-    async def _sources(context, *, small_ids, structural_ids):
-        assert sorted(small_ids) == ["1-10-A-G", "1-20-C-T", "1-30-G-A"]
-        assert sorted(structural_ids) == ["1-100-900-DEL", "1-500-800-DUP"]
-        return (
-            # A monogenic NIPT call; a variant also in an upload; one stored no more (absent).
-            {"1-10-A-G": frozenset({"nipt"}), "1-20-C-T": frozenset({"nipt", "upload"})},
-            {"1-100-900-DEL": frozenset({"ccnv"}), "1-500-800-DUP": frozenset({"needlr"})},
-        )
-
-    monkeypatch.setattr(scope_module, "stored_variant_sources", _sources)
-    session = _Session(["1-10-A-G", "1-20-C-T", "1-30-G-A"], ["1-100-900-DEL", "1-500-800-DUP"])
-    cnipt = asyncio.run(reviews_left_out(session, _CONTEXT, signout_scope(_two_nipts(), "conventional_nipt")))
-    assert cnipt == ReviewsLeftOut(small=frozenset({"1-10-A-G"}), structural=frozenset())
-    mnipt = asyncio.run(reviews_left_out(session, _CONTEXT, signout_scope(_two_nipts(), "monogenic_nipt")))
-    assert mnipt == ReviewsLeftOut(small=frozenset(), structural=frozenset({"1-100-900-DEL"}))
-
-
-def test_a_sign_out_of_the_whole_family_leaves_no_review_out() -> None:
-    session = _Session(["1-10-A-G"], [])
-    assert asyncio.run(reviews_left_out(session, _CONTEXT, SignoutScope(analysis="pgt"))) == ReviewsLeftOut()
-    # Nothing is read for it.
-    assert session.statements == []
-
-
-def test_the_stored_sources_are_read_from_the_current_rows_of_the_family(monkeypatch) -> None:
-    calls: list[tuple[str, dict[str, Any]]] = []
-
-    async def _execute(query: str, params: dict[str, Any]):
-        calls.append((" ".join(query.split()), params))
-        if "SV/entries" in query:
-            return [("1-100-900-DEL", ["ccnv", "web"])]
-        return [(variant_id, ["nipt"]) for variant_id in params["variant_ids"][:1]]
-
-    monkeypatch.setattr(scope_module, "_CHUNK", 2)
-    monkeypatch.setattr(scope_module, "execute_clickhouse", _execute)
-    small, structural = asyncio.run(
-        scope_module.stored_variant_sources(
-            _CONTEXT, small_ids=["1-30-G-A", "1-10-A-G", "1-20-C-T", "1-10-A-G", ""], structural_ids=["1-100-900-DEL"]
-        )
-    )
-    # Read in chunks, each variant once, its current rows only.
-    assert [params["variant_ids"] for _query, params in calls[:2]] == [("1-10-A-G", "1-20-C-T"), ("1-30-G-A",)]
-    assert all(params["family_guid"] == "u1" for _query, params in calls)
-    assert all("sign = 1" in query for query, _params in calls)
-    assert "`GRCh38/SNV_INDEL/entries`" in calls[0][0] and "`GRCh38/SV/entries`" in calls[2][0]
-    assert small == {"1-10-A-G": frozenset({"nipt"}), "1-30-G-A": frozenset({"nipt"})}
-    assert structural == {"1-100-900-DEL": frozenset({"ccnv", "web"})}
-
-
-def test_a_family_with_no_assembly_has_no_stored_sources(monkeypatch) -> None:
-    async def _must_not_read(query: str, params: dict[str, Any]):
-        raise AssertionError("no ClickHouse read for a family without an assembly")
-
-    monkeypatch.setattr(scope_module, "execute_clickhouse", _must_not_read)
-    context = types.SimpleNamespace(family_uuid="u1", assembly_name=None)
-    assert asyncio.run(scope_module.stored_variant_sources(context, small_ids=["1-1-A-G"], structural_ids=[])) == (
-        {},
-        {},
-    )

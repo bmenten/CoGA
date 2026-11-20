@@ -18,6 +18,7 @@ import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import VariantResultsLoading from './VariantResultsLoading';
+import AnalysisSelect from './AnalysisSelect';
 import {
   addableTagDefinitions,
   BUILT_IN_SMALL_PRESETS,
@@ -120,6 +121,8 @@ const FamilySmallVariantsPage: React.FC = () => {
   const {
     activeFilterChips,
     activeFilterCount,
+    analyses,
+    analysis,
     applyPreset,
     applySavedPreset,
     draftFilters,
@@ -138,6 +141,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     sampleDraftFilters,
     sampleFilters,
     searchReady,
+    selectAnalysis,
     toggleDraftFilterListValue,
   } = useSmallVariantSearchState({
     family,
@@ -284,7 +288,7 @@ const FamilySmallVariantsPage: React.FC = () => {
       if (!familyId) {
         throw new Error('Family id is required');
       }
-      const reviewPath = buildSmallVariantReviewPath(familyId, variant._id);
+      const reviewPath = buildSmallVariantReviewPath(familyId, variant._id, analysis);
       // A pair save writes the partner's review too: it names the version the list loaded.
       const partnerId = payload.compound_het?.partner_variant_id;
       const partnerReview = partnerId
@@ -423,6 +427,7 @@ const FamilySmallVariantsPage: React.FC = () => {
         assemblyLabel={referenceLabel}
         current="small-variants"
         className="variant-workbench-card"
+        actions={<AnalysisSelect analyses={analyses} analysis={analysis} onChange={selectAnalysis} />}
         facts={
           data ? (
             <>

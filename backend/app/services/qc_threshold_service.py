@@ -390,12 +390,13 @@ def worst_verdict(verdicts: Sequence[QcVerdict]) -> QcVerdict:
 
 def evaluate_sequencing_qc(
     sequencing_qc: dict[str, Any] | None,
-    thresholds: dict[str, dict[str, float | None]],
+    thresholds: dict[str, dict[str, Any]],
 ) -> dict[str, Any] | None:
     """Per-metric verdicts plus an overall verdict for one sample.
 
-    ``thresholds`` maps metric key -> ``{"warn_value": …, "error_value": …}``, already
-    resolved to the sample's profile. Returns None when the sample has no recorded QC,
+    ``thresholds`` maps metric key -> ``{"warn_value", "error_value", "warn_profile_key",
+    "error_profile_key"}``, already resolved bound by bound (``resolve_analysis_qc_thresholds``).
+    Returns None when the sample has no recorded QC,
     so the caller can leave the payload untouched rather than attaching an empty verdict.
     """
     if not isinstance(sequencing_qc, dict) or not sequencing_qc:
@@ -410,9 +411,10 @@ def evaluate_sequencing_qc(
         bounds = thresholds.get(metric.key) or {}
         warn_value = bounds.get("warn_value")
         error_value = bounds.get("error_value")
-        # The profile whose cut-off judged it (resolve_analysis_qc_thresholds); None for a
-        # profile's own thresholds.
-        profile_key = bounds.get("profile_key")
+        # The profile each bound came from (resolve_analysis_qc_thresholds): each bound falls
+        # back on its own, so the two may differ. None for a bound no profile sets.
+        warn_profile_key = bounds.get("warn_profile_key")
+        error_profile_key = bounds.get("error_profile_key")
         verdict = evaluate_metric(
             value,
             direction=metric.direction,
@@ -429,7 +431,8 @@ def evaluate_sequencing_qc(
                 "warn_value": warn_value,
                 "error_value": error_value,
                 "verdict": verdict,
-                "profile_key": profile_key,
+                "warn_profile_key": warn_profile_key,
+                "error_profile_key": error_profile_key,
             }
         )
     if not metrics:
@@ -823,75 +826,6 @@ async def resolve_profile_thresholds(session: AsyncSession, profile_key: str) ->
     }
 
 
-async def resolve_family_qc_thresholds(
-    session: AsyncSession | None,
-    *,
-    family_uuid: str,
-) -> dict[str, Any]:
-    """The thresholds that apply to a family: its named profile, else the default.
-
-    Returns ``{"profile_key", "profile_label", "thresholds": {metric_key: {...}}}``.
-    An unknown or absent ``qc_profile`` falls back to the default profile rather than
-    gating nothing, so a family cannot quietly opt out of its QC gate by carrying a
-    typo.
-
-    With no session (presence probes and unit tests call the analysis without one) there
-    is nothing to read, so no cut-offs apply and every metric evaluates to ``skip``. That
-    is the safe direction: a sample is never reported as passing a gate that was not
-    consulted.
-    """
-    if session is None:
-        return {"profile_key": None, "profile_label": None, "thresholds": {}}
-    row = (
-        await session.execute(
-            text(
-                """
-                SELECT p.key, p.label, p.id::text AS id
-                FROM qc_threshold_profiles p
-                WHERE p.key = (
-                    SELECT f.metadata->>'qc_profile' FROM families f
-                    WHERE f.id = CAST(:family_uuid AS uuid)
-                )
-                """
-            ),
-            {"family_uuid": family_uuid},
-        )
-    ).mappings().first()
-    if row is None:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT key, label, id::text AS id FROM qc_threshold_profiles WHERE is_default LIMIT 1"
-                )
-            )
-        ).mappings().first()
-    if row is None:
-        return {"profile_key": None, "profile_label": None, "thresholds": {}}
-    threshold_rows = (
-        await session.execute(
-            text(
-                """
-                SELECT metric_key, warn_value, error_value
-                FROM qc_thresholds
-                WHERE profile_id = CAST(:profile_id AS uuid)
-                """
-            ),
-            {"profile_id": row["id"]},
-        )
-    ).mappings()
-    return {
-        "profile_key": row["key"],
-        "profile_label": row["label"],
-        "thresholds": {
-            entry["metric_key"]: {
-                "warn_value": entry["warn_value"],
-                "error_value": entry["error_value"],
-            }
-            for entry in threshold_rows
-        },
-    }
-
-
 # The QC profile of each analysis a package may name: its seeded profile's key. An analysis
 # without one is judged by the family's named profile and the default.
 ANALYSIS_QC_PROFILES: dict[str, str] = {
@@ -914,28 +848,40 @@ _PROFILE_THRESHOLDS = text(
     """
 )
 
+# The bounds of a metric, each with the profile it was read from.
+_BOUNDS: tuple[tuple[str, str], ...] = (("warn_value", "warn_profile_key"), ("error_value", "error_profile_key"))
+
 
 async def resolve_analysis_qc_thresholds(
     session: AsyncSession | None,
     *,
     family_uuid: str,
-    analysis: str,
+    analysis: str | None,
 ) -> dict[str, Any]:
-    """The cut-offs that judge a family's sequencing QC of one analysis (its package record's
-    key), metric by metric (the owner's decision of 2026-11-19): the cut-off QA set in the
-    analysis's own profile (``ANALYSIS_QC_PROFILES``), else in the profile the family names
-    (``qc_profile``), else in the default profile. So short-read and long-read WGS of one family
-    are each judged by their own cut-offs once QA enters them, and no cut-off QA set on the
-    family's or the default profile is lost meanwhile.
+    """The cut-offs that judge a family's QC of one analysis (its package record's key; None
+    where no analysis is known), bound by bound (the owner's decisions of 2026-11-19 and
+    2026-11-20): each metric's warning bound and its error bound each come, on its own, from
+    the analysis's own profile (``ANALYSIS_QC_PROFILES``), else the profile the family names
+    (``qc_profile``), else the default profile. So short-read and long-read WGS of one family
+    are each judged by their own cut-offs once QA enters them, and no bound QA set on the
+    family's or the default profile is lost meanwhile: a warning-only cut-off in the analysis's
+    profile keeps the default's error bound. An unknown or absent ``qc_profile`` adds nothing,
+    so a family cannot quietly opt out of the default's cut-offs by carrying a typo.
+
+    The two bounds of a metric may thus come from two profiles, in an order neither profile
+    alone would accept (``set_qc_threshold``): ``evaluate_metric`` tests the error bound
+    first, so such a pair still fails rather than reporting a warning.
 
     Returns ``{"profiles": [{"key", "label"}…], "thresholds": {metric_key: {"warn_value",
-    "error_value", "profile_key"}}}``: the profiles in the order they are read (each once), and
-    each metric's cut-off with the profile it came from. Without a session nothing is read and
-    nothing is gated, as ``resolve_family_qc_thresholds``.
+    "error_value", "warn_profile_key", "error_profile_key"}}}``: the profiles in the order they
+    are read (each once), and each metric with a bound, each bound with the profile it came
+    from (None for a bound no profile sets). With no session (presence probes and unit tests
+    call the analyses without one) nothing is read, so no cut-off applies and every metric
+    evaluates to ``skip``: a sample is never reported as passing a gate that was not consulted.
     """
     if session is None:
         return {"profiles": [], "thresholds": {}}
-    keys = [ANALYSIS_QC_PROFILES.get(analysis)]
+    keys = [ANALYSIS_QC_PROFILES.get(analysis) if analysis is not None else None]
     keys.append(
         (await session.execute(_FAMILY_PROFILE_KEY, {"family_uuid": family_uuid})).scalar_one_or_none()
     )
@@ -952,10 +898,15 @@ async def resolve_analysis_qc_thresholds(
     for profile in profiles:
         rows = (await session.execute(_PROFILE_THRESHOLDS, {"profile_id": profile["id"]})).mappings()
         for row in rows:
-            thresholds.setdefault(
+            entry = thresholds.setdefault(
                 str(row["metric_key"]),
-                {"warn_value": row["warn_value"], "error_value": row["error_value"], "profile_key": profile["key"]},
+                {bound: None for pair in _BOUNDS for bound in pair},
             )
+            # Each bound from the first profile that sets it, the other bound left to the next.
+            for bound, source in _BOUNDS:
+                if entry[bound] is None and row[bound] is not None:
+                    entry[bound] = row[bound]
+                    entry[source] = profile["key"]
     return {
         "profiles": [{"key": profile["key"], "label": profile["label"]} for profile in profiles],
         "thresholds": thresholds,

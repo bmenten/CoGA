@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Collection, Iterable, Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Iterable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -14,7 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import bindparam, text
+from sqlalchemy import String, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_sessionmaker
@@ -48,13 +48,16 @@ from .family_structure_audit import (
     record_family_deleted,
     record_structure_change,
 )
-from .family_analysis_types import SAMPLE_ASSAYS_KEY, added_to, sample_assays
+from .family_analysis_types import SAMPLE_ASSAY_PANELS_KEY, SAMPLE_ASSAYS_KEY, added_to, sample_assays
 from .family_package_records import (
     PACKAGE_IMPORTS_KEY,
     SOURCES_KEY,
+    PackageRecordShapeError,
     family_package_records,
     package_record_key,
     package_sources,
+    source_collision_message,
+    source_collisions,
 )
 from .family_metadata_context import (
     FamilyMetadataContext,
@@ -67,12 +70,18 @@ from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .hpo_service import PHENOTYPES_ROLLED_BACK, PhenotypeImport, record_phenotypes_deleted_with_family
 from .access_control import CurrentUser
 from . import ped_service
-from .raw_import_files_pg import family_managed_files, record_raw_import_file, store_managed_file
+from .raw_import_files_pg import (
+    family_managed_files,
+    record_raw_import_file,
+    store_managed_file,
+    unlink_managed_files,
+)
 from .roi_gene_lookup import roi_gene_region
+from .same_individual import person_of
 from .vcf_header_provenance import reference_name
 
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ImportRefused, ParsedPed, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
-from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ImportRefused, ParsedPed, ManifestDataset, _display_path, _issue, _resolve_package_path, manifest_text_sha256
+from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict, _ped_members_for_import
 
 
 logger = logging.getLogger(__name__)
@@ -127,6 +136,23 @@ def _package_record_sources(bundle: FamilyPackageBundle) -> dict[str, list[str]]
     enabled = [name for name, dataset in bundle.manifest.datasets.items() if dataset.enabled]
     snv_callset = dataset_scopes(bundle, ["snv"])["snv"]["source"] if "snv" in enabled else None
     return package_sources(enabled, None if snv_callset == UNRESOLVED_SNV_SOURCE else snv_callset)
+
+
+def _shared_source_message(family_metadata: Any, bundle: FamilyPackageBundle) -> str | None:
+    """Why the package cannot be imported into the family whose metadata is
+    ``family_metadata``: a storage source its import would write that another analysis's
+    package record of the family lists (``family_package_records.source_collisions``). None
+    when it shares none. Checked before the family is marked or written."""
+    key = package_record_key(bundle.manifest.analysis_type)
+    records = family_package_records(family_metadata if isinstance(family_metadata, Mapping) else None)
+    try:
+        collisions = source_collisions(records, key, _package_record_sources(bundle))
+    except PackageRecordShapeError:
+        return (
+            "The family's package records are not in the shape the import writes, so CoGA cannot "
+            "tell which data are each analysis's."
+        )
+    return source_collision_message(key, collisions) if collisions else None
 
 
 def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]:
@@ -354,19 +380,45 @@ async def _record_package_raw_files(
 
 
 # The keys of a package record (``family_package_records``) that keep what the family had before
-# this import registered it: the record of the same analysis, itself without one, and the family's
-# analysis types. An import undone because its package changed while it was read puts both back
-# (``put_back_family_package_record``).
+# this import registered it: the record of the same analysis, itself without one; the family's
+# analysis types; and, per sample whose metadata the registration changed, the registered keys'
+# values (``REGISTERED_SAMPLE_KEYS``, None for a key the sample lacked). An import undone puts
+# them back (``put_back_family_package_record``).
 PREVIOUS_IMPORT_KEY = "previous_import"
 PREVIOUS_ANALYSIS_TYPES_KEY = "previous_analysis_types"
+PREVIOUS_SAMPLES_KEY = "previous_samples"
 
 
 async def put_back_family_package_record(session: AsyncSession, family_uuid: str, record_key: str) -> None:
-    """Put the family's package record of the analysis ``record_key`` back as it was before the
-    import that registered it last (its ``previous_import``; none, when it had none), and the
-    family's analysis types as they were then, and commit: an import undone because its package
-    changed while it was read leaves the family naming the package it was imported from before,
-    not the one that changed. The records of the family's other analyses stay as they are."""
+    """Put back what the import that registered the family's package record of the analysis
+    ``record_key`` last changed of the family's records, and commit: the record as it was before
+    (its ``previous_import``; none, when it had none), the family's analysis types as they were
+    then, the registered keys of each sample's metadata (its assays, its capture panels, its
+    package records: ``previous_samples``), and the raw-file rows of the package folder no record
+    names any more, with the copy of the manifest CoGA kept for the import (unlinked once the rows
+    are gone). An import undone, because its package changed while it was read or because it failed
+    and was put back from its snapshot, leaves the family naming the package it was imported from
+    before, not the one undone. The records of the family's other analyses stay as they are.
+
+    The pedigree stays: a member the import added and a value it filled are structure changes on
+    the family's clinical audit trail, as an edit's are."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT metadata -> 'package_imports' AS records FROM families "
+                "WHERE id = CAST(:family_uuid AS uuid) FOR UPDATE"
+            ),
+            {"family_uuid": family_uuid},
+        )
+    ).mappings().first()
+    records = _json_object(row.get("records")) if row is not None else {}
+    undone = records.get(record_key)
+    if not isinstance(undone, dict):
+        await session.commit()
+        return
+    previous_samples = undone.get(PREVIOUS_SAMPLES_KEY)
+    if isinstance(previous_samples, dict) and previous_samples:
+        await _put_back_sample_keys(session, family_uuid, previous_samples)
     await session.execute(
         text(
             """
@@ -396,7 +448,108 @@ async def put_back_family_package_record(session: AsyncSession, family_uuid: str
         ),
         {"family_uuid": family_uuid, "key": record_key},
     )
+    remaining = {analysis: record for analysis, record in records.items() if analysis != record_key}
+    if isinstance(undone.get(PREVIOUS_IMPORT_KEY), dict):
+        remaining[record_key] = undone[PREVIOUS_IMPORT_KEY]
+    kept_copies = await _remove_raw_files_of_undone_import(session, family_uuid, undone=undone, remaining=remaining)
     await session.commit()
+    await unlink_managed_files(kept_copies)
+
+
+async def _put_back_sample_keys(
+    session: AsyncSession, family_uuid: str, previous_samples: Mapping[str, Any]
+) -> None:
+    """Give each of the family's samples ``previous_samples`` names its registered keys' values
+    back (a key whose value was None removed), under the samples' rows' lock."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id::text AS sample_uuid, sample_id, metadata FROM samples "
+                "WHERE family_id = CAST(:family_uuid AS uuid) ORDER BY sample_id FOR UPDATE"
+            ),
+            {"family_uuid": family_uuid},
+        )
+    ).mappings().all()
+    for row in rows:
+        before = previous_samples.get(str(row["sample_id"]))
+        if not isinstance(before, dict):
+            continue
+        metadata = _json_object(row.get("metadata"))
+        for key in REGISTERED_SAMPLE_KEYS:
+            if key not in before:
+                continue
+            if before[key] is None:
+                metadata.pop(key, None)
+            else:
+                metadata[key] = before[key]
+        await session.execute(
+            text("UPDATE samples SET metadata = CAST(:metadata AS jsonb) WHERE id = CAST(:sample_uuid AS uuid)"),
+            {"sample_uuid": str(row["sample_uuid"]), "metadata": json.dumps(metadata)},
+        )
+
+
+def _within(path: str, folder: str) -> bool:
+    """Whether the recorded path ``path`` is the folder ``folder`` or lies inside it, told from the
+    strings, as the import recorded both (real paths)."""
+    return path == folder or Path(folder) in Path(path).parents
+
+
+async def _remove_raw_files_of_undone_import(
+    session: AsyncSession,
+    family_uuid: str,
+    *,
+    undone: Mapping[str, Any],
+    remaining: Mapping[str, Any],
+) -> list[tuple[str, str]]:
+    """Delete the family's raw-file rows an undone import recorded that no record left names: the
+    files of its package folder (``folder_path``) outside every folder a remaining record names,
+    and the copy of the manifest CoGA kept for its job (its ``manifest_sha256``) when no remaining
+    record names that manifest. Returns the managed copies the deleted rows name, ``(storage_path,
+    record id)``, for ``unlink_managed_files`` once the deletion has committed."""
+    folder = undone.get("folder_path")
+    remaining_records = [record for record in remaining.values() if isinstance(record, dict)]
+    remaining_folders = [str(record["folder_path"]) for record in remaining_records if isinstance(record.get("folder_path"), str)]
+    remaining_manifests = {record.get("manifest_sha256") for record in remaining_records}
+    manifest_sha256 = undone.get("manifest_sha256")
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text AS id, storage_path, managed, dataset, sha256
+                FROM raw_import_files
+                WHERE family_id = CAST(:family_uuid AS uuid) AND source = 'family_package'
+                """
+            ),
+            {"family_uuid": family_uuid},
+        )
+    ).mappings().all()
+    gone: list[str] = []
+    kept_copies: list[tuple[str, str]] = []
+    for row in rows:
+        path = str(row["storage_path"] or "")
+        if row["managed"]:
+            if (
+                row["dataset"] == "manifest"
+                and isinstance(manifest_sha256, str)
+                and row["sha256"] == manifest_sha256
+                and manifest_sha256 not in remaining_manifests
+            ):
+                gone.append(str(row["id"]))
+                kept_copies.append((path, str(row["id"])))
+        elif (
+            isinstance(folder, str)
+            and _within(path, folder)
+            and not any(_within(path, other) for other in remaining_folders)
+        ):
+            gone.append(str(row["id"]))
+    if gone:
+        await session.execute(
+            text("DELETE FROM raw_import_files WHERE id::text IN :ids").bindparams(
+                bindparam("ids", expanding=True, type_=String())
+            ),
+            {"ids": gone},
+        )
+    return kept_copies
 
 
 # The file name a manifest CoGA kept for an import is recorded and stored under.
@@ -447,11 +600,22 @@ async def _register_package_provenance(
     stored as the family's next structure version and recorded on its clinical audit
     trail as made by ``user``.
 
+    A family that holds only this analysis takes the package's statuses and PED text: the
+    package is its pedigree's source. One that holds another analysis (a package record of
+    another key, ``other_analyses_of``) keeps every status it knows of a member: the package
+    fills only an unknown one, and a known one it states otherwise refuses the import
+    (``ImportRefused``, nothing written; ``family_member_differences`` refused it before the
+    import marked the family, this reads it again under the pedigree lock). Its PED text stays
+    the family's: the package lists its own analysis's members only.
+
     ``import_mode`` is the import's: ``new_family`` (it created the family), ``update`` or
     ``overwrite``. The record keeps it, and, for an import of a delivery, the reference delivery:
     the one the family's data was last imported from whole (``package_changed_after_import.
     reference_delivery``), whose fingerprint the folder CoGA serves the family's source files
-    from is compared with after the import."""
+    from is compared with after the import. It keeps too what the registration replaced: the
+    record of the same analysis (``previous_import``), the family's analysis types
+    (``previous_analysis_types``) and each sample's registered keys (``previous_samples``), which
+    an import undone puts back (``put_back_family_package_record``)."""
     now = datetime.now(timezone.utc).isoformat()
     await lock_family_pedigree(session, family_identifier)
     pedigree_before = await read_structure_snapshot(session, family_uuid)
@@ -516,6 +680,20 @@ async def _register_package_provenance(
         record[REFERENCE_KEY] = reference_delivery(
             import_mode=import_mode, delivery=bundle.delivery, previous_reference=previous_reference
         )
+    # The family's other analyses, read under the pedigree lock: with one, the members the family
+    # holds keep the values it knows.
+    others = await other_analyses_of(
+        session, family_id=family_identifier, analysis_type=bundle.manifest.analysis_type
+    )
+    record[PREVIOUS_SAMPLES_KEY] = await _register_package_samples(
+        session,
+        bundle=bundle,
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        record_key=record_key,
+        registered_at=now,
+        others=others,
+    )
     # The package's analysis type (e.g. monogenic_nipt) is added to the family's in the update below:
     # a family may hold several, such as the monogenic and the conventional NIPT of one pregnancy,
     # each imported from a package of its own.
@@ -579,7 +757,10 @@ async def _register_package_provenance(
                             END || CAST(:pgt AS jsonb)
                         )
                     END,
-                pedigree = :pedigree
+                -- The package's PED text, unless the family holds another analysis: the package
+                -- then lists its own analysis's members only, and the family's text, written from
+                -- its structure (take_package_pedigree), stays.
+                pedigree = COALESCE(CAST(:pedigree AS text), pedigree)
             WHERE id = CAST(:family_uuid AS uuid)
             """
         ),
@@ -590,107 +771,9 @@ async def _register_package_provenance(
             "record_key": record_key,
             "record": json.dumps(record),
             "analysis_type": analysis_type or None,
-            "pedigree": bundle.ped.text,
+            "pedigree": None if others else bundle.ped.text,
         },
     )
-
-    sample_metadata = _normalize_manifest_samples(bundle.manifest.samples)
-    sample_provenance = _sample_provenance(bundle)
-    manifest_carrier_types = _manifest_carrier_types(bundle.manifest)
-    member_overrides = _manifest_member_status_overrides(bundle.manifest, bundle.ped)
-    ped_member_state: dict[str, dict[str, Any]] = {}
-    for member in bundle.ped.members:
-        carrier_type = manifest_carrier_types.get(member.iid) or _ped_carrier_type(member)
-        override = member_overrides.get(member.iid, {})
-        clinical_status = override.get("clinical_status") or member.clinical_status
-        carrier_type = override.get("carrier_type") or carrier_type
-        carrier_status = override.get("carrier_status") or (
-            "carrier" if carrier_type or member.iid in manifest_carrier_types or _ped_is_carrier(member) else "unknown"
-        )
-        ped_member_state[member.iid] = {
-            "clinical_status": clinical_status,
-            "carrier_status": carrier_status,
-            "carrier_type": carrier_type,
-            "carrier_evidence": override.get("carrier_evidence") or {},
-            "role": override.get("role") or member.role_hint,
-        }
-    if sample_metadata or sample_provenance or ped_member_state:
-        result = await session.execute(
-            text(
-                """
-                SELECT id::text AS sample_uuid, sample_id, metadata
-                FROM samples
-                WHERE family_id = CAST(:family_uuid AS uuid)
-                """
-            ),
-            {"family_uuid": family_uuid},
-        )
-        for row in result.mappings().all():
-            sample_id = str(row["sample_id"])
-            metadata = _metadata_dict(row.get("metadata"))
-            if sample_id in ped_member_state:
-                state = ped_member_state[sample_id]
-                await session.execute(
-                    text(
-                        """
-                        UPDATE family_members
-                        SET clinical_status = :clinical_status,
-                            carrier_status = :carrier_status,
-                            carrier_type = :carrier_type,
-                            carrier_evidence = CAST(:carrier_evidence AS jsonb),
-                            affected = :affected,
-                            updated_at = timezone('utc', now())
-                        WHERE family_id = CAST(:family_uuid AS uuid)
-                          AND sample_id = CAST(:sample_uuid AS uuid)
-                        """
-                    ),
-                    {
-                        "family_uuid": family_uuid,
-                        "sample_uuid": str(row["sample_uuid"]),
-                        "clinical_status": state["clinical_status"],
-                        "carrier_status": state["carrier_status"],
-                        "carrier_type": state.get("carrier_type"),
-                        "carrier_evidence": json.dumps(state.get("carrier_evidence") or {}),
-                        "affected": state["clinical_status"] == "affected",
-                    },
-                )
-            if sample_id in sample_metadata:
-                metadata["package_sample_metadata"] = sample_metadata[sample_id]
-                # The sample's assay (e.g. nipt_cfdna) is added to its assays, so resolve_nipt_trio
-                # can identify the maternal-plasma cfDNA sample: one plasma may be the sample of a
-                # monogenic and of a conventional NIPT. Its capture panel scopes the NIPT
-                # artifact list (nipt.py).
-                assay = sample_metadata[sample_id].get("assay")
-                if isinstance(assay, str) and assay.strip():
-                    metadata[SAMPLE_ASSAYS_KEY] = added_to(sample_assays(metadata), assay)
-                panel = sample_metadata[sample_id].get("assay_panel")
-                if isinstance(panel, str) and panel.strip():
-                    metadata["assay_panel"] = panel.strip()
-            if sample_id in sample_provenance:
-                # Per analysis, as the family's records: one plasma may be the sample of a
-                # monogenic and of a conventional NIPT, each imported from a package of its own.
-                records = metadata.get(PACKAGE_IMPORTS_KEY)
-                metadata[PACKAGE_IMPORTS_KEY] = {
-                    **(records if isinstance(records, dict) else {}),
-                    record_key: {
-                        "source": "family_package",
-                        "datasets": sample_provenance[sample_id],
-                        "registered_at": now,
-                    },
-                }
-            await session.execute(
-                text(
-                    """
-                    UPDATE samples
-                    SET metadata = CAST(:metadata AS jsonb)
-                    WHERE id = CAST(:sample_uuid AS uuid)
-                    """
-                ),
-                {
-                    "sample_uuid": str(row["sample_uuid"]),
-                    "metadata": json.dumps(metadata),
-                },
-            )
     await record_structure_change(
         session,
         family_uuid=family_uuid,
@@ -705,6 +788,205 @@ async def _register_package_provenance(
     await session.commit()
 
 
+# The keys of a sample's metadata an import's registration writes (``_register_package_samples``):
+# the manifest's entry for the sample, kept whole; its assays; the capture panel each analysis
+# named; and the sample's package record of each analysis. The family's package record keeps each
+# sample's values from before (``previous_samples``), which an import undone puts back.
+PACKAGE_SAMPLE_METADATA_KEY = "package_sample_metadata"
+REGISTERED_SAMPLE_KEYS: tuple[str, ...] = (
+    PACKAGE_SAMPLE_METADATA_KEY,
+    SAMPLE_ASSAYS_KEY,
+    SAMPLE_ASSAY_PANELS_KEY,
+    PACKAGE_IMPORTS_KEY,
+)
+
+
+async def _register_package_samples(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    family_uuid: str,
+    family_identifier: str,
+    record_key: str,
+    registered_at: str,
+    others: OtherAnalyses,
+) -> dict[str, dict[str, Any]]:
+    """Write what the package says of the family's samples it lists: each member's statuses
+    (``family_members``), and the registered keys of each sample's metadata
+    (``REGISTERED_SAMPLE_KEYS``): the manifest's entry, the assay it names added to the sample's
+    assays, the capture panel it names kept under the package's analysis (``assay_panels``,
+    beside another analysis's), and the sample's package record of the analysis (its files per
+    dataset). The samples are read under their rows' lock, and only those changed are written.
+
+    With another analysis held (``others``) a member keeps every status the family knows, the
+    package filling only an unknown one (``merge_member_values``); a known status it states
+    otherwise refuses the import before anything is written (``ImportRefused``).
+
+    Returns, per sample whose metadata it changed, the registered keys' values before (None for
+    a key the sample lacked)."""
+    entries = _normalize_manifest_samples(bundle.manifest.samples)
+    sample_provenance = _sample_provenance(bundle)
+    given = {str(member["sample_id"]): member for member in _package_members(bundle)}
+    if not (entries or sample_provenance or given):
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT s.id::text AS sample_uuid, s.sample_id, s.metadata,
+                       fm.family_id IS NOT NULL AS is_member,
+                       fm.clinical_status, fm.carrier_status, fm.carrier_type, fm.carrier_evidence
+                FROM samples s
+                LEFT JOIN family_members fm ON fm.sample_id = s.id AND fm.family_id = s.family_id
+                WHERE s.family_id = CAST(:family_uuid AS uuid)
+                ORDER BY s.sample_id
+                FOR UPDATE OF s
+                """
+            ),
+            {"family_uuid": family_uuid},
+        )
+    ).mappings().all()
+    status_writes: list[tuple[str, dict[str, Any]]] = []
+    sample_writes: list[tuple[str, dict[str, Any]]] = []
+    previous: dict[str, dict[str, Any]] = {}
+    conflicts: list[tuple[str, str]] = []
+    for row in rows:
+        sample_id = str(row["sample_id"])
+        if sample_id in given and row.get("is_member"):
+            held = _held_member_statuses(dict(row))
+            wanted = {field: given[sample_id].get(field) for field in MEMBER_STATUS_FIELDS}
+            if others:
+                values = merge_member_values(sample_id, given=wanted, held=held, fields=MEMBER_STATUS_FIELDS)
+                conflicts.extend(values.conflicts)
+                wanted = values.merged
+            wanted = _coherent_statuses(wanted)
+            if wanted != held:
+                status_writes.append((str(row["sample_uuid"]), wanted))
+        metadata = _json_object(row.get("metadata"))
+        changed = _registered_sample_metadata(
+            metadata,
+            entry=entries.get(sample_id),
+            listed=sample_id in given or sample_id in entries,
+            files=sample_provenance.get(sample_id),
+            record_key=record_key,
+            registered_at=registered_at,
+        )
+        if changed != metadata:
+            previous[sample_id] = {key: metadata.get(key) for key in REGISTERED_SAMPLE_KEYS}
+            sample_writes.append((str(row["sample_uuid"]), changed))
+    if conflicts:
+        raise ImportRefused(member_values_conflict_message(family_identifier, others, conflicts))
+    for sample_uuid, wanted in status_writes:
+        await session.execute(
+            text(
+                """
+                UPDATE family_members
+                SET clinical_status = :clinical_status,
+                    carrier_status = :carrier_status,
+                    carrier_type = :carrier_type,
+                    carrier_evidence = CAST(:carrier_evidence AS jsonb),
+                    affected = :affected,
+                    updated_at = timezone('utc', now())
+                WHERE family_id = CAST(:family_uuid AS uuid)
+                  AND sample_id = CAST(:sample_uuid AS uuid)
+                """
+            ),
+            {
+                "family_uuid": family_uuid,
+                "sample_uuid": sample_uuid,
+                "clinical_status": wanted["clinical_status"],
+                "carrier_status": wanted["carrier_status"],
+                "carrier_type": wanted["carrier_type"],
+                "carrier_evidence": json.dumps(wanted["carrier_evidence"]),
+                "affected": wanted["clinical_status"] == "affected",
+            },
+        )
+    for sample_uuid, metadata in sample_writes:
+        await session.execute(
+            text("UPDATE samples SET metadata = CAST(:metadata AS jsonb) WHERE id = CAST(:sample_uuid AS uuid)"),
+            {"sample_uuid": sample_uuid, "metadata": json.dumps(metadata)},
+        )
+    return previous
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    """A jsonb object as a dict of its own (a deep copy), whether the driver gave it decoded or
+    as text; {} for anything else."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+    return json.loads(json.dumps(value, default=str)) if isinstance(value, dict) else {}
+
+
+def _held_member_statuses(row: Mapping[str, Any]) -> dict[str, Any]:
+    """A member's statuses as the family holds them, named as ``_package_members`` names a
+    package's."""
+    return {
+        "clinical_status": row.get("clinical_status") or "unknown",
+        "carrier_status": row.get("carrier_status") or "unknown",
+        "carrier_type": row.get("carrier_type") or None,
+        "carrier_evidence": _json_object(row.get("carrier_evidence")),
+    }
+
+
+def _coherent_statuses(statuses: Mapping[str, Any]) -> dict[str, Any]:
+    """Statuses as a member row stores them: a carrier type only for a carrier, and a value not
+    given as unknown."""
+    carrier_type = statuses.get("carrier_type") or None
+    carrier_status = "carrier" if carrier_type is not None else (statuses.get("carrier_status") or "unknown")
+    return {
+        "clinical_status": statuses.get("clinical_status") or "unknown",
+        "carrier_status": carrier_status,
+        "carrier_type": carrier_type if carrier_status == "carrier" else None,
+        "carrier_evidence": dict(statuses.get("carrier_evidence") or {}),
+    }
+
+
+def _registered_sample_metadata(
+    metadata: Mapping[str, Any],
+    *,
+    entry: Mapping[str, Any] | None,
+    listed: bool,
+    files: Mapping[str, Any] | None,
+    record_key: str,
+    registered_at: str,
+) -> dict[str, Any]:
+    """A sample's metadata with what a package of the analysis ``record_key`` says of it: its
+    manifest entry (``entry``) kept whole; the assay it names added to the sample's assays, so
+    resolve_nipt_trio can identify the maternal-plasma cfDNA sample (one plasma may be the sample
+    of a monogenic and of a conventional NIPT); the capture panel it names kept as the analysis's
+    (``assay_panels``: for a sample the package lists, none named removes the analysis's); and the
+    sample's files per dataset as its package record of the analysis (``files``). The other
+    analyses' panels and records stay."""
+    changed = _json_object(dict(metadata))
+    if entry is not None:
+        changed[PACKAGE_SAMPLE_METADATA_KEY] = dict(entry)
+        assay = entry.get("assay")
+        if isinstance(assay, str) and assay.strip():
+            changed[SAMPLE_ASSAYS_KEY] = added_to(sample_assays(changed), assay)
+    if listed:
+        panel = entry.get("assay_panel") if entry is not None else None
+        held_panels = changed.get(SAMPLE_ASSAY_PANELS_KEY)
+        panels = dict(held_panels) if isinstance(held_panels, dict) else {}
+        if isinstance(panel, str) and panel.strip():
+            panels[record_key] = panel.strip()
+        else:
+            panels.pop(record_key, None)
+        if panels:
+            changed[SAMPLE_ASSAY_PANELS_KEY] = panels
+        else:
+            changed.pop(SAMPLE_ASSAY_PANELS_KEY, None)
+    if files is not None:
+        records = changed.get(PACKAGE_IMPORTS_KEY)
+        changed[PACKAGE_IMPORTS_KEY] = {
+            **(records if isinstance(records, dict) else {}),
+            record_key: {"source": "family_package", "datasets": files, "registered_at": registered_at},
+        }
+    return changed
+
+
 async def _record_package_reference(
     session: AsyncSession,
     *,
@@ -712,7 +994,7 @@ async def _record_package_reference(
     context: FamilyMetadataContext,
 ) -> None:
     """Record the reference genome the package names (its ``reference``, the FASTA the pipeline
-    aligned to) as the Reference assembly of the family's annotation manifest, under the modality
+    aligned to) as the Reference assembly of its analysis's annotation manifest, under the modality
     ``package``, beside the ``##reference`` its VCF headers give. The project names the build
     (GRCh38), the FASTA what the calls were made on (an analysis set, with or without ALT contigs,
     decoys or masked regions), and the manifest is frozen into every sign-out.
@@ -731,6 +1013,7 @@ async def _record_package_reference(
         family_uuid=context.family_uuid,
         assembly_id=context.assembly_id,
         modules={"assembly": {"version": name, "detail": f"from {PACKAGE_FILE_NAME}"}},
+        analysis=package_record_key(bundle.manifest.analysis_type),
         modality="package",
         recorded_by=f"import ({PACKAGE_FILE_NAME})",
         source="manifest",
@@ -975,6 +1258,19 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 IMPORT_UNFINISHED_KEY = "import_unfinished"
 WHOLE_FAMILY_KEY = "whole_family"
 
+# Every import mark records the analysis it is of (`analysis_type`): each `import_unfinished`
+# entry, and each failure the `import_incomplete` flag records. A package import's mark records
+# the key of its package's record (``package_record_key``: the analysis the package names, or
+# `unspecified` for one that names none); a single-file upload's or a deletion's records none
+# (None). The family's analyses share dataset types (`snv`, `qc`, `alignments`…), so the dataset
+# a mark names cannot say whose it is. A sign-out of one analysis is gated by its own imports'
+# marks and by those of no analysis the family holds (``signout_scope.SignoutScope.holds_mark``),
+# and a restore's whole-family entry by every analysis's. A mark of an analysis is completed only
+# by an import of that analysis, or by an upload (``_completes``): each analysis's sequencing QC,
+# alignments and pipeline record are its own, so another analysis's import of the same dataset
+# for the same samples does not bring them again.
+MARK_ANALYSIS_KEY = "analysis_type"
+
 
 class ImportMarkShapeError(ValueError):
     """A family's import mark in a shape no writer writes: its ``import_incomplete`` flag
@@ -997,6 +1293,23 @@ def _is_name_list(value: Any) -> bool:
 def _is_job(value: Any) -> bool:
     """Whether ``value`` is a job as a mark records it: its id, or None outside a job."""
     return value is None or isinstance(value, str)
+
+
+def _is_analysis(value: Any) -> bool:
+    """Whether ``value`` is the analysis a mark records (``MARK_ANALYSIS_KEY``): the key of the
+    imported package's record, or None for an upload's or a deletion's mark."""
+    return value is None or (isinstance(value, str) and bool(value))
+
+
+def _completes(bringer: str | None, mark: str | None) -> bool:
+    """Whether what an import of the package record ``bringer`` brings again -- or an upload's,
+    None -- can complete a mark of ``mark`` (each as ``MARK_ANALYSIS_KEY`` records it): an
+    upload's or a deletion's mark by any, a mark of an analysis by an import of the same
+    analysis or by an upload. An upload brings data stored by source alone (small variants,
+    structural variants, tracks, repeat calls), as any import does; an analysis's sequencing
+    QC, alignments and pipeline record are kept under its own record's key, so another
+    analysis's import of the same dataset brings none of them again."""
+    return bringer is None or mark is None or bringer == mark
 
 
 def _written_scope(scope: Any) -> Mapping[str, Any] | None:
@@ -1208,47 +1521,79 @@ def _scope_without_sample(scope: Mapping[str, Any], sample: str) -> dict[str, An
     return narrowed
 
 
-def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) -> bool:
+def _failure_imported_again(
+    imported: Mapping[str, Any], name: str, failure: Mapping[str, Any], bringer: str | None
+) -> bool:
     """Whether a failure of a dataset was imported again: an import that imported the
     dataset (in any mode -- the failing loader's rows were rolled back or cleaned up, so an
     update finds none and imports it whole, while one whose clean-up left rows is skipped)
-    for the scope the failure records (``_scope_covers``)."""
-    return name in imported and _scope_covers(imported[name], scope)
+    for the scope the failure records (``_scope_covers``), by an import of the package
+    record ``bringer`` (None: an upload) that can complete it (``_completes``)."""
+    return (
+        name in imported
+        and _completes(bringer, failure[MARK_ANALYSIS_KEY])
+        and _scope_covers(imported[name], failure["scope"])
+    )
 
 
 # `import_incomplete.failed_scopes`: for each failed dataset, every scope it failed for --
-# each callset of the small variants, each set of samples of a per-sample dataset -- oldest
-# first, each with the import job whose record holds its error (None: an upload, or an
-# import run outside a job). A later failure of the same dataset under another scope never
-# replaces an earlier one: each leaves the flag only once an import or upload has brought
-# that scope again.
+# each callset of the small variants, each set of samples of a per-sample dataset, each
+# analysis's -- oldest first, each with the import job whose record holds its error (None: an
+# upload, or an import run outside a job), the analysis it is of (``MARK_ANALYSIS_KEY``), when
+# it failed (`at`) and the datasets the import it failed in did import (`imported_datasets`). A
+# later failure of the same dataset under another scope, or of another analysis, never replaces
+# an earlier one: each leaves the flag only once an import or upload that can complete it has
+# brought that scope again.
 FAILED_SCOPES_KEY = "failed_scopes"
+
+# `import_incomplete.failed_analysis_types`: for each failed dataset, the analyses its failures
+# are of (``MARK_ANALYSIS_KEY``), each once, None (an upload's) first, then by name.
+FAILED_ANALYSES_KEY = "failed_analysis_types"
+
+
+def _is_failure(item: Any) -> bool:
+    """Whether ``item`` is one failure as ``_flag_payload`` writes it: its scope
+    (``_written_scope``, which raises for a scope in another shape), its job, its analysis,
+    when it failed and what its import did import."""
+    if not (
+        isinstance(item, Mapping)
+        and "scope" in item
+        and _is_job(item.get("job_id"))
+        and MARK_ANALYSIS_KEY in item
+        and _is_analysis(item[MARK_ANALYSIS_KEY])
+        and isinstance(item.get("at"), str)
+        and _is_name_list(item.get("imported_datasets"))
+    ):
+        return False
+    _written_scope(item["scope"])
+    return True
 
 
 def _is_failure_list(items: Any) -> bool:
     """Whether ``items`` lists a failed dataset's failures as ``_flag_payload`` writes them:
-    at least one, each with its job and its scope (``_written_scope``, which raises for a
-    scope in another shape)."""
-    if not isinstance(items, list) or not items:
-        return False
-    for item in items:
-        if not (isinstance(item, Mapping) and "scope" in item and _is_job(item.get("job_id"))):
-            return False
-        _written_scope(item["scope"])
-    return True
+    at least one, each a failure (``_is_failure``)."""
+    return isinstance(items, list) and bool(items) and all(_is_failure(item) for item in items)
+
+
+def _analyses_listed(analyses: Iterable[str | None]) -> list[str | None]:
+    """``analyses`` (as ``MARK_ANALYSIS_KEY`` records them) each once, None first, then by
+    name: how ``failed_analysis_types`` lists a dataset's."""
+    return sorted(set(analyses), key=lambda analysis: (analysis is not None, analysis or ""))
 
 
 def read_import_flag(flag: Any) -> Mapping[str, Any] | None:
     """A family's stored ``import_incomplete`` flag, None when it has none. The flag is
     as ``_flag_payload`` writes it: when (``at``), the failed and the imported datasets,
     the flag's job (``job_id``), the job of each failed dataset's latest failure
-    (``failed_jobs``) and each of its failures with its scope and job
-    (``failed_scopes``). Raises ``ImportMarkShapeError`` for any other value."""
+    (``failed_jobs``), the analyses of each one's failures (``failed_analysis_types``) and
+    each of its failures (``failed_scopes``). Raises ``ImportMarkShapeError`` for any other
+    value."""
     if flag is None:
         return None
     if isinstance(flag, Mapping):
         failed: Any = flag.get("failed_datasets")
         jobs = flag.get("failed_jobs")
+        analyses = flag.get(FAILED_ANALYSES_KEY)
         listed = flag.get(FAILED_SCOPES_KEY)
         if (
             isinstance(flag.get("at"), str)
@@ -1261,17 +1606,27 @@ def read_import_flag(flag: Any) -> Mapping[str, Any] | None:
             and isinstance(listed, Mapping)
             and set(listed) == set(failed)
             and all(_is_failure_list(items) for items in listed.values())
+            and isinstance(analyses, Mapping)
+            and set(analyses) == set(failed)
+            and all(
+                analyses[name]
+                == _analyses_listed(item[MARK_ANALYSIS_KEY] for item in listed[name])
+                for name in failed
+            )
         ):
             return flag
     raise ImportMarkShapeError("import_incomplete flag")
 
 
+# The keys of one failure, as ``_flag_payload`` writes it.
+_FAILURE_KEYS = ("scope", "job_id", MARK_ANALYSIS_KEY, "at", "imported_datasets")
+
+
 def _flag_failures(flag: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """The datasets a flag (as ``read_import_flag`` reads it) names as failed, each with
-    every failure of it the flag records, oldest first: its scope, and the import job whose
-    record holds its error (``failed_scopes``)."""
+    every failure of it the flag records, oldest first (``failed_scopes``)."""
     return {
-        str(name): [{"job_id": item["job_id"], "scope": item["scope"]} for item in items]
+        str(name): [{key: item[key] for key in _FAILURE_KEYS} for item in items]
         for name, items in flag[FAILED_SCOPES_KEY].items()
     }
 
@@ -1285,7 +1640,8 @@ def _flag_payload(
 ) -> dict[str, Any]:
     """The ``import_incomplete`` flag naming ``failures`` (each failed dataset with every
     failure of it, oldest first). ``failed_jobs`` names, for each, the job of its latest
-    failure: the one job the family pages and a sign-out name for it."""
+    failure: the one job the family pages and a sign-out name for it;
+    ``failed_analysis_types`` the analyses its failures are of."""
     names = sorted(failures)
     return {
         "at": at,
@@ -1293,23 +1649,28 @@ def _flag_payload(
         "imported_datasets": sorted({str(name) for name in imported}),
         "job_id": job_id,
         "failed_jobs": {name: failures[name][-1]["job_id"] for name in names},
+        FAILED_ANALYSES_KEY: {
+            name: _analyses_listed(item[MARK_ANALYSIS_KEY] for item in failures[name]) for name in names
+        },
         FAILED_SCOPES_KEY: {
-            name: [{"scope": item["scope"], "job_id": item["job_id"]} for item in failures[name]]
+            name: [{key: item[key] for key in _FAILURE_KEYS} for item in failures[name]]
             for name in names
         },
     }
 
 
 def _failures_not_imported_again(
-    failures: Mapping[str, list[dict[str, Any]]], imported_scopes: Mapping[str, Any]
+    failures: Mapping[str, list[dict[str, Any]]],
+    imported_scopes: Mapping[str, Any],
+    bringer: str | None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """``failures`` without each one an import or upload brought again
-    (``imported_scopes``: the scope of each dataset it brought), and without a dataset once
-    none of its failures is left."""
+    """``failures`` without each one an import of the package record ``bringer`` (None: an
+    upload) brought again (``imported_scopes``: the scope of each dataset it brought), and
+    without a dataset once none of its failures is left."""
     left: dict[str, list[dict[str, Any]]] = {}
     for name, items in failures.items():
         kept = [
-            item for item in items if not _failure_imported_again(imported_scopes, name, item["scope"])
+            item for item in items if not _failure_imported_again(imported_scopes, name, item, bringer)
         ]
         if kept:
             left[name] = kept
@@ -1321,30 +1682,73 @@ def merged_import_failure(
     *,
     at: str,
     job_id: str | None,
+    analysis_type: str | None,
     failed: Iterable[str],
     imported: Iterable[str],
     scopes: Mapping[str, Any],
     imported_scopes: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """The ``import_incomplete`` flag after an import that failed for ``failed``: its own
-    failures, and those of the flag already stored (``stored``, None when there is none)
+    """The ``import_incomplete`` flag after an import of the package record ``analysis_type``
+    (None: an upload) that failed for ``failed``: its own failures, each recording that
+    analysis, and those of the flag already stored (``stored``, None when there is none)
     that it did not import again (``imported_scopes``: the scope of each dataset it
     imported). A later failure never drops an earlier one, of another dataset or of the
-    same dataset under another scope (another callset, other samples): each failure keeps
-    its scope and the job whose record holds its error, and leaves the flag only once its
-    scope has been brought again. The same scope failing again is one failure, with its
-    latest job. Raises ``ImportMarkShapeError`` for a stored flag in another shape."""
+    same dataset under another scope (another callset, other samples) or of another
+    analysis: each failure keeps its scope, its analysis and the job whose record holds its
+    error, and leaves the flag only once an import or upload that can complete it
+    (``_completes``) has brought its scope again. The same scope of the same analysis failing
+    again is one failure, with its latest job. Raises ``ImportMarkShapeError`` for a stored
+    flag in another shape."""
     flag = read_import_flag(stored)
+    did_import = sorted({str(name) for name in imported})
     failures = _failures_not_imported_again(
-        _flag_failures(flag) if flag is not None else {}, imported_scopes
+        _flag_failures(flag) if flag is not None else {}, imported_scopes, analysis_type
     )
     for name in sorted({str(name) for name in failed}):
         scope = scopes.get(name)
         earlier = [
-            item for item in failures.get(name, []) if _canonical(item["scope"]) != _canonical(scope)
+            item
+            for item in failures.get(name, [])
+            if _canonical(item["scope"]) != _canonical(scope) or item[MARK_ANALYSIS_KEY] != analysis_type
         ]
-        failures[name] = [*earlier, {"job_id": job_id, "scope": scope}]
-    return _flag_payload(failures, at=at, job_id=job_id, imported=imported)
+        failures[name] = [
+            *earlier,
+            {
+                "scope": scope,
+                "job_id": job_id,
+                MARK_ANALYSIS_KEY: analysis_type,
+                "at": at,
+                "imported_datasets": did_import,
+            },
+        ]
+    return _flag_payload(failures, at=at, job_id=job_id, imported=did_import)
+
+
+def analysis_import_flag(stored: Any, holds: Callable[[str | None], bool]) -> Mapping[str, Any] | None:
+    """The ``import_incomplete`` flag a sign-out of one of the family's analyses reads: the
+    failures of the stored flag whose analysis ``holds`` takes
+    (``signout_scope.SignoutScope.holds_mark``), and with them alone the flag's time, job and
+    imported datasets, those of its latest failure. Built from those failures alone, so that
+    another analysis's failure, or the striking of one, leaves it as it is. None when no
+    failure is left, or there is no flag. Raises ``ImportMarkShapeError`` for a stored flag in
+    another shape."""
+    flag = read_import_flag(stored)
+    if flag is None:
+        return None
+    kept: dict[str, list[dict[str, Any]]] = {}
+    for name, items in _flag_failures(flag).items():
+        held = [item for item in items if holds(item[MARK_ANALYSIS_KEY])]
+        if held:
+            kept[name] = held
+    if not kept:
+        return None
+    latest = max(
+        (item for items in kept.values() for item in items),
+        key=lambda item: (item["at"], item["job_id"] or ""),
+    )
+    return _flag_payload(
+        kept, at=latest["at"], job_id=latest["job_id"], imported=latest["imported_datasets"]
+    )
 
 
 @dataclass(frozen=True)
@@ -1360,11 +1764,14 @@ class FailuresLeft:
     changed: bool = False
 
 
-def failures_left_after(stored: Any, imported_scopes: Mapping[str, Any]) -> FailuresLeft:
-    """The ``import_incomplete`` flag after an import that completed, or an upload, having
-    brought ``imported_scopes``: each failure it brought again, for the scope the failure
-    records, leaves the flag; a dataset leaves it with its last failure, and the flag goes
-    with the last dataset. A flag nothing left stays as it was stored. Raises
+def failures_left_after(
+    stored: Any, imported_scopes: Mapping[str, Any], *, analysis_type: str | None
+) -> FailuresLeft:
+    """The ``import_incomplete`` flag after an import of the package record ``analysis_type``
+    that completed, or an upload (None), having brought ``imported_scopes``: each failure it
+    brought again, for the scope the failure records, and that it can complete
+    (``_completes``), leaves the flag; a dataset leaves it with its last failure, and the flag
+    goes with the last dataset. A flag nothing left stays as it was stored. Raises
     ``ImportMarkShapeError`` for a stored flag in another shape.
 
     When the failures left are all one job's (or all of no job: uploads), that job becomes
@@ -1375,7 +1782,7 @@ def failures_left_after(stored: Any, imported_scopes: Mapping[str, Any]) -> Fail
     if flag is None:
         return FailuresLeft(flag=None, failed={})
     failures = _flag_failures(flag)
-    left = _failures_not_imported_again(failures, imported_scopes)
+    left = _failures_not_imported_again(failures, imported_scopes, analysis_type)
     if not left:
         return FailuresLeft(flag=None, failed={}, changed=True)
     changed = sum(map(len, left.values())) != sum(map(len, failures.values()))
@@ -1452,16 +1859,19 @@ class ImportMark:
     """One import's entry in ``families.metadata.import_unfinished``.
 
     Keyed by its job's id, or, run outside a job, by an id of its own run. ``at`` is when
-    it began writing the family, ``datasets`` what it set out to import and ``scopes``
-    what an overwrite of each replaces (``dataset_scopes``); the entry also records the
-    datasets it has finished (``finished_datasets``), so after a stop the others
-    (``pending_datasets``) are those that may be partly written or missing.
+    it began writing the family, ``datasets`` what it set out to import, ``analysis_type``
+    the key of its package's record (``package_record_key``: the analysis whose sign-out the
+    entry gates, ``MARK_ANALYSIS_KEY``) and ``scopes`` what an overwrite of each replaces
+    (``dataset_scopes``); the entry also records the datasets it has finished
+    (``finished_datasets``), so after a stop the others (``pending_datasets``) are those that
+    may be partly written or missing. The failures it flags record the same analysis.
     """
 
     key: str
     job_id: str | None
     at: str
     datasets: tuple[str, ...]
+    analysis_type: str
     scopes: Mapping[str, Mapping[str, Any]] = field(default_factory=dict, hash=False)
 
     @classmethod
@@ -1470,6 +1880,7 @@ class ImportMark:
         *,
         job_id: str | None,
         datasets: Iterable[str],
+        analysis_type: str,
         scopes: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> "ImportMark":
         return cls(
@@ -1477,6 +1888,7 @@ class ImportMark:
             job_id=job_id,
             at=datetime.now(timezone.utc).isoformat(),
             datasets=tuple(sorted(set(datasets))),
+            analysis_type=analysis_type,
             scopes=dict(scopes or {}),
         )
 
@@ -1484,6 +1896,7 @@ class ImportMark:
         return {
             "job_id": self.job_id,
             "at": self.at,
+            MARK_ANALYSIS_KEY: self.analysis_type,
             "datasets": list(self.datasets),
             "finished_datasets": sorted(set(finished)),
             "scopes": {name: dict(scope) for name, scope in sorted(self.scopes.items())},
@@ -1516,15 +1929,18 @@ def _written_item(item: Any) -> Mapping[str, Any]:
 
 def _written_entry(entry: Any) -> Mapping[str, Any]:
     """An ``import_unfinished`` entry as its writers write it: its job (None outside one),
-    when it began (``at``), its datasets and those it finished, and its datasets' scopes
-    (an import's own entry, ``ImportMark.entry``: ``scopes``, each as ``dataset_scopes``
-    gives it), its items (a whole-family one, ``whole_family_entry``, and the mark of an
-    upload or a deletion, ``FamilyWriteMark``: ``whole_family``), or both. Raises
-    ``ImportMarkShapeError`` for any other value."""
+    when it began (``at``), the analysis it is of (``MARK_ANALYSIS_KEY``: an import's
+    package record, None for an upload's or a deletion's), its datasets and those it
+    finished, and its datasets' scopes (an import's own entry, ``ImportMark.entry``:
+    ``scopes``, each as ``dataset_scopes`` gives it), its items (a whole-family one,
+    ``whole_family_entry``, and the mark of an upload or a deletion, ``FamilyWriteMark``:
+    ``whole_family``), or both. Raises ``ImportMarkShapeError`` for any other value."""
     if (
         isinstance(entry, Mapping)
         and _is_job(entry.get("job_id"))
         and isinstance(entry.get("at"), str)
+        and MARK_ANALYSIS_KEY in entry
+        and _is_analysis(entry[MARK_ANALYSIS_KEY])
         and _is_name_list(entry.get("datasets"))
         and _is_name_list(entry.get("finished_datasets"))
         and ("scopes" in entry or WHOLE_FAMILY_KEY in entry)
@@ -1820,24 +2236,27 @@ END
 # The row an import's failure (or its restore) is written to, read under its lock: by the
 # family's uuid, or by its identifier (an import that failed before it had the family's
 # context).
-_FAILURE_ROW_BY_UUID = """
-SELECT id::text AS family_uuid,
-       metadata -> 'import_incomplete' AS flag,
-       metadata -> 'import_unfinished' AS unfinished,
-       metadata -> 'imported_scopes' AS imported_scopes
-FROM families
-WHERE id = CAST(:family_uuid AS uuid)
-FOR UPDATE
+# The family's import state, read under its row's lock, with the sample IDs of its active members
+# (``family_samples``): every analysis's, whichever import's package listed them, as a restore
+# rewrites the rows of each (``whole_family_entry``).
+_FAILURE_ROW = """
+SELECT f.id::text AS family_uuid,
+       f.metadata -> 'import_incomplete' AS flag,
+       f.metadata -> 'import_unfinished' AS unfinished,
+       f.metadata -> 'imported_scopes' AS imported_scopes,
+       ARRAY(
+           SELECT s.sample_id
+           FROM family_members fm
+           JOIN samples s ON s.id = fm.sample_id
+           WHERE fm.family_id = f.id AND fm.active
+           ORDER BY s.sample_id
+       ) AS family_samples
+FROM families f
+WHERE {where}
+FOR UPDATE OF f
 """
-_FAILURE_ROW_BY_FAMILY_ID = """
-SELECT id::text AS family_uuid,
-       metadata -> 'import_incomplete' AS flag,
-       metadata -> 'import_unfinished' AS unfinished,
-       metadata -> 'imported_scopes' AS imported_scopes
-FROM families
-WHERE family_id = :family_id
-FOR UPDATE
-"""
+_FAILURE_ROW_BY_UUID = _FAILURE_ROW.format(where="f.id = CAST(:family_uuid AS uuid)")
+_FAILURE_ROW_BY_FAMILY_ID = _FAILURE_ROW.format(where="f.family_id = :family_id")
 
 
 async def _write_import_failure(
@@ -1848,18 +2267,20 @@ async def _write_import_failure(
     failed_datasets: Iterable[str],
     imported_datasets: Iterable[str],
     job_id: str | None,
+    analysis_type: str | None,
     import_key: str | None,
     scopes: Mapping[str, Any],
     imported_scopes: Mapping[str, Any],
     only_with_entry: bool = False,
     keep: ImportMark | None = None,
-    family_samples: Collection[str] | None = None,
 ) -> dict[str, Any] | None:
-    """Write an import's failure into the family's ``import_incomplete`` flag, merged with
+    """Write an import's failure into the family's ``import_incomplete`` flag, each failure
+    recording the import's package record (``analysis_type``; None: an upload), merged with
     the flag already there (``merged_import_failure``), add what it imported to
     ``imported_scopes``, and remove the import's ``import_unfinished`` entry -- or, with
     ``keep`` (its mark), write that entry as the whole-family one a restore that failed
-    part-way leaves (``whole_family_entry``) -- in one transaction under the row's lock.
+    part-way leaves (``whole_family_entry``, over the family's active members, those of each of
+    its analyses) -- in one transaction under the row's lock.
     With ``only_with_entry``, only where the import's entry is. Raises on a database error;
     returns the family's ``import_unfinished`` as written ({}: none), or None when there
     was nothing to write."""
@@ -1878,6 +2299,7 @@ async def _write_import_failure(
         row["flag"],
         at=datetime.now(timezone.utc).isoformat(),
         job_id=job_id,
+        analysis_type=analysis_type,
         failed=failed_datasets,
         imported=imported_datasets,
         scopes=scopes,
@@ -1888,7 +2310,7 @@ async def _write_import_failure(
             keep,
             imported=row.get("imported_scopes"),
             unfinished=entries,
-            family_samples=family_samples,
+            family_samples=row.get("family_samples"),
         )
     elif import_key is not None:
         entries.pop(import_key, None)
@@ -1929,6 +2351,7 @@ async def _end_import_failed_before_datasets(
             failed_datasets=mark.datasets,
             imported_datasets=(),
             job_id=mark.job_id,
+            analysis_type=mark.analysis_type,
             import_key=mark.key,
             scopes=mark.scopes,
             imported_scopes={},
@@ -2023,17 +2446,16 @@ async def _take_package_pedigree(
 ) -> None:
     """Give the existing family the package's pedigree (``family_structure_service.
     take_package_pedigree``): an update adds the members the family lacks, an overwrite makes the
-    package's members and links the family's, but for the members the packages of the family's
-    other analyses listed (``members_of_other_analyses``), which stay with their links. Committed; a
-    structure change it cannot make (one made since it read the family, a sample ID another family
-    holds) refuses the import."""
+    package's members and links the family's. A family that holds another analysis
+    (``other_analyses_of``) keeps the members the import keeps, active with their links, and every
+    value it knows of a member it holds: the package adds members and links, and fills unknown
+    values. Committed; a structure change it cannot make (one made since it read the family, a
+    sample ID another family holds) refuses the import."""
     # Imported here: family_structure_service imports this module.
     from .family_structure_service import take_package_pedigree
 
     members = _package_members(bundle)
-    kept = await members_of_other_analyses(
-        session, family_id=family_id, analysis_type=bundle.manifest.analysis_type
-    )
+    others = await other_analyses_of(session, family_id=family_id, analysis_type=bundle.manifest.analysis_type)
     try:
         await take_package_pedigree(
             session,
@@ -2042,7 +2464,8 @@ async def _take_package_pedigree(
             relationships=_package_relationships(bundle, members),
             user=user,
             replace=overwrite,
-            kept=kept,
+            kept=others.kept,
+            merge=bool(others),
         )
     except HTTPException as refused:
         raise ImportRefused(f"The family's pedigree could not take the package's members: {refused.detail}") from None
@@ -2110,15 +2533,43 @@ async def _ensure_family_from_ped(
         # The package's members are the pedigree the import reads (the owner's decision of
         # 2026-11-10): an update adds the members the family lacks and is refused when the
         # package changes one it holds (another sex or other parents) or lacks one; an
-        # overwrite makes the package's members the family's pedigree.
+        # overwrite makes the package's members the family's pedigree. A family that holds
+        # another analysis keeps every value it knows of a member (the owner's decision of
+        # 2026-11-20): a package that states one otherwise is refused, whatever the mode,
+        # before anything of the family is written.
         differences = await family_member_differences(
-            session, family_id=family_id, ped=bundle.ped, analysis_type=bundle.manifest.analysis_type
+            session,
+            family_id=family_id,
+            ped=bundle.ped,
+            analysis_type=bundle.manifest.analysis_type,
+            members=_package_members(bundle),
         )
-        if conflict_mode != "overwrite" and not differences.kept_by_an_update:
+        if differences.conflicting:
+            raise ImportRefused(member_values_conflict_message(family_id, differences.others, differences.conflicting))
+        overwrite = conflict_mode == "overwrite"
+        if not overwrite and not differences.kept_by_an_update:
             raise ImportRefused(members_differ_message(family_id, differences))
-        outside = await same_individual_outside_message(session, family_id=family_id, bundle=bundle)
+        outside = await same_individual_outside_message(
+            session, family_id=family_id, bundle=bundle, overwrite=overwrite
+        )
         if outside is not None:
             raise ImportRefused(outside)
+        shared = _shared_source_message(existing.get("metadata"), bundle)
+        if shared is not None:
+            raise ImportRefused(shared)
+        # The package's same-individual links between two members the family holds already,
+        # which the family lacks: an overwrite makes them (the links are the package's), an
+        # update does not and says so.
+        links = package_same_individual_links(bundle)
+        not_made = (
+            same_individual_not_made(links, held=await family_samples_held(session, family_id=family_id))
+            if links
+            else []
+        )
+        if not_made and not overwrite and warnings is not None:
+            warnings.append(
+                _issue(SAME_INDIVIDUAL_NOT_MADE, same_individual_not_made_message(not_made, family_id=family_id))
+            )
         if resolved_project_id is not None:
             # The family is linked to the import's project below: one on another assembly
             # than its stored variants is refused, as for a change of its projects, before
@@ -2134,10 +2585,8 @@ async def _ensure_family_from_ped(
             await _mark_family_import_unfinished(
                 session, family_uuid=str(existing["family_uuid"]), mark=import_mark
             )
-        if differences:
-            await _take_package_pedigree(
-                session, family_id=family_id, bundle=bundle, user=user, overwrite=conflict_mode == "overwrite"
-            )
+        if differences or (overwrite and not_made):
+            await _take_package_pedigree(session, family_id=family_id, bundle=bundle, user=user, overwrite=overwrite)
         if resolved_project_id is not None:
             await session.execute(
                 text(
@@ -2253,12 +2702,14 @@ async def _flag_family_import_incomplete(
     failed_datasets: list[str],
     imported_datasets: list[str],
     scopes: Mapping[str, Any],
+    analysis_type: str,
     job_id: str | None = None,
     import_key: str | None = None,
     imported_scopes: Mapping[str, Any] | None = None,
 ) -> None:
-    """Stamp a family as import-incomplete after an import that failed for some datasets
-    and left the family in place.
+    """Stamp a family as import-incomplete after an import of the package record
+    ``analysis_type`` that failed for some datasets and left the family in place: each
+    failure records that analysis, whose sign-out it then gates (``MARK_ANALYSIS_KEY``).
 
     The family is left in place by an import that imported some datasets (a new family is
     deleted only when none imported), a failed update (it takes no snapshot: it skips what
@@ -2278,7 +2729,8 @@ async def _flag_family_import_incomplete(
     an earlier import's failures this import did not import again (``imported_scopes``),
     those of the same dataset under another scope too, each with the job that holds its
     error (``failed_scopes``; ``failed_jobs`` names each dataset's latest): the flag clears
-    only once each failure has been imported again, for its scope (``failures_left_after``).
+    only once each failure has been imported again, for its scope, by an import that can
+    complete it (``failures_left_after``).
 
     The import has ended, so its ``import_unfinished`` entry (``import_key``) goes in the
     same transaction: the family is never without one or the other. If the write fails,
@@ -2286,7 +2738,8 @@ async def _flag_family_import_incomplete(
     ``imported_scopes`` in the same transaction.
 
     Read back by report sign-out (``report_signout_service._import_incomplete_state``),
-    which refuses a flagged family unless the signer acknowledges it with a reason, and
+    which refuses a flagged family -- a sign-out of one of its analyses, for that analysis's
+    failures and those of no analysis -- unless the signer acknowledges it with a reason, and
     by the family pages, which warn while it is set. Keep the payload's keys in step.
     """
     try:
@@ -2296,6 +2749,7 @@ async def _flag_family_import_incomplete(
             failed_datasets=failed_datasets,
             imported_datasets=imported_datasets,
             job_id=job_id,
+            analysis_type=analysis_type,
             import_key=import_key,
             scopes=scopes,
             imported_scopes=imported_scopes or {},
@@ -2312,20 +2766,14 @@ async def _flag_family_import_incomplete(
             pass
 
 
-def family_sample_ids(bundle: FamilyPackageBundle) -> list[str]:
-    """The family's samples, as a package of an existing family must name them all."""
-    return [str(sample) for sample in bundle.ped.sample_ids]
-
-
 async def _mark_family_import_restoring(
     session: AsyncSession,
     family_context: FamilyMetadataContext,
     mark: ImportMark,
-    *,
-    family_samples: Collection[str] | None = None,
 ) -> None:
     """Before a failed overwrite's restore: this import's entry becomes the whole-family
-    one (``whole_family_entry``), read and written under the family row's lock. The restore
+    one (``whole_family_entry``, over the family's active members: those of every analysis it
+    holds, not only the package's), read and written under the family row's lock. The restore
     rewrites every table, whichever import wrote its rows, so a restore that fails part-way
     -- or a process that stops in it -- leaves the family marked until it has been
     imported again in full; one that puts the family back, or refuses to start, removes the
@@ -2344,7 +2792,7 @@ async def _mark_family_import_restoring(
             mark,
             imported=row.get("imported_scopes"),
             unfinished=read_unfinished_entries(row["unfinished"]),
-            family_samples=family_samples,
+            family_samples=row.get("family_samples"),
         )
         await _mark_family_import_unfinished(
             session, family_uuid=family_context.family_uuid, mark=mark, entry=entry
@@ -2370,7 +2818,6 @@ async def _flag_family_restore_failed(
     job_id: str | None,
     mark: ImportMark,
     scopes: Mapping[str, Any],
-    family_samples: Collection[str] | None = None,
 ) -> list[str] | None:
     """Flag a family whose failed overwrite's restore failed part-way (any way but
     refusing to start): ``failed_datasets`` (every dataset of the import) as failed and
@@ -2390,11 +2837,11 @@ async def _flag_family_restore_failed(
             failed_datasets=failed_datasets,
             imported_datasets=[],
             job_id=job_id,
+            analysis_type=mark.analysis_type,
             import_key=mark.key,
             scopes=scopes,
             imported_scopes={},
             keep=mark,
-            family_samples=family_samples,
         )
     except Exception:  # the flag write must not mask the import failure
         logger.warning(
@@ -2441,24 +2888,28 @@ async def _clear_family_import_incomplete(
     session: AsyncSession,
     family_context: FamilyMetadataContext,
     *,
+    analysis_type: str,
     import_key: str | None = None,
     rewritten: Mapping[str, Any] | None = None,
     imported: Mapping[str, Any] | None = None,
 ) -> ImportStateLeft | None:
-    """After a fully-successful (re)import: remove what of the ``import_incomplete`` flag
-    it imported again, and this import's ``import_unfinished`` entry (``import_key``).
+    """After a fully-successful (re)import of the package record ``analysis_type``: remove
+    what of the ``import_incomplete`` flag it imported again, and this import's
+    ``import_unfinished`` entry (``import_key``).
 
     The flag shrinks by each failure this import imported again, in any mode, for the
     scope the failure records (``imported``: the scope of each dataset it imported, as
-    ``dataset_scopes`` gives it), and goes with the last (``failures_left_after``); an
-    import that does not import a failed dataset, or not for each scope it failed for,
-    leaves it flagged.
+    ``dataset_scopes`` gives it), of its own analysis or of none (``_completes``), and goes
+    with the last (``failures_left_after``); an import that does not import a failed
+    dataset, or not for each scope it failed for, leaves it flagged, as does another
+    analysis's import.
 
     An earlier import's entry goes when this import completed what that one may have left
     partly written: every dataset it had not finished is one this import imported again,
     replacing all of what that one was writing (``rewritten``: as ``imported``, but only
-    for an ``overwrite``; an ``update`` replaces nothing, so passes none), or it had
-    finished them all. Any other entry stays. The whole-family entry of an import whose
+    for an ``overwrite``; an ``update`` replaces nothing, so passes none), an import of the
+    same analysis (``_completes``), or it had finished them all. Any other entry stays. The
+    whole-family entry of an import whose
     restore did not finish shrinks instead by what this import replaced, one dataset (and
     sample) at a time, and goes with the last (``whole_family_left``). Returns what is
     left, so the import can say why the family stays marked, or None when nothing could be
@@ -2495,12 +2946,16 @@ async def _clear_family_import_incomplete(
                     remaining[key] = left
                 continue
             scopes = entry["scopes"]
-            if all(_scope_covers(replaced.get(name), scopes.get(name)) for name in pending_datasets(entry)):
+            pending = pending_datasets(entry)
+            if not pending or (
+                _completes(analysis_type, entry[MARK_ANALYSIS_KEY])
+                and all(_scope_covers(replaced.get(name), scopes.get(name)) for name in pending)
+            ):
                 # What it had finished stays the family's: this import replaced the rest.
                 recorded.extend((name, scopes.get(name)) for name in sorted(set(entry["finished_datasets"])))
                 continue
             remaining[key] = entry
-        failures = failures_left_after(stored_flag, dict(imported or {}))
+        failures = failures_left_after(stored_flag, dict(imported or {}), analysis_type=analysis_type)
         holds = merged_imported_scopes(row.get("imported_scopes") if row is not None else None, recorded)
         await session.execute(
             text(
@@ -2678,6 +3133,8 @@ class FamilyWriteMark:
         return {
             "job_id": None,
             "at": self.at,
+            # Of no analysis: what an upload brought, or a deletion reached, is every analysis's.
+            MARK_ANALYSIS_KEY: None,
             "datasets": sorted({str(item["dataset"]) for item in self.items}),
             "finished_datasets": [],
             WHOLE_FAMILY_KEY: [dict(item) for item in self.items],
@@ -3218,7 +3675,7 @@ async def record_family_upload(
     if stored_flag is not None and _flag_failures(stored_flag):
         # Rewritten once it strikes a failure off: a dataset that failed for several
         # scopes stays, for the others.
-        failures = failures_left_after(stored_flag, {dataset: scope})
+        failures = failures_left_after(stored_flag, {dataset: scope}, analysis_type=None)
         if failures.changed:
             metadata = _with_import_flag(metadata)
             params["flag"] = json.dumps(failures.flag)
@@ -3241,7 +3698,8 @@ async def record_family_upload_failure(
     ``scope``, as ``small_variant_upload_scope`` gives them) is missing or partly written.
     The family is flagged import-incomplete for it, as an import that failed for a dataset
     flags it (``_write_import_failure``): merged with a flag already there, under no import
-    job, as an upload runs in none. The flag clears once the dataset has been brought
+    job, as an upload runs in none, and of no analysis, as what it brings is every
+    analysis's: it gates the sign-out of each (``MARK_ANALYSIS_KEY``). The flag clears once the dataset has been brought
     again, by an upload (``record_family_upload``) or an import. The upload's mark
     (``mark``: ``mark_family_upload``) goes in the same transaction, as an import's entry
     goes with its flag: the family is never without one or the other.
@@ -3258,6 +3716,8 @@ async def record_family_upload_failure(
             failed_datasets=[dataset],
             imported_datasets=(),
             job_id=None,
+            # Of no analysis: an upload's data is every analysis's.
+            analysis_type=None,
             import_key=mark.key if mark is not None else None,
             scopes={dataset: dict(scope)},
             imported_scopes={},
@@ -3357,19 +3817,154 @@ def _shown(described: tuple[str, str | None, str | None]) -> str:
     return f"{sex}, father {father or 'none'}, mother {mother or 'none'}"
 
 
+# A member's values an import of one of several analyses compares with the family's, named as a
+# message names them: its sex and parents (the pedigree), and its statuses.
+MEMBER_PEDIGREE_FIELDS: tuple[str, ...] = ("sex", "father_id", "mother_id")
+MEMBER_STATUS_FIELDS: tuple[str, ...] = ("clinical_status", "carrier_status", "carrier_type", "carrier_evidence")
+_MEMBER_VALUE_NAMES: dict[str, str] = {
+    "sex": "sex",
+    "father_id": "father",
+    "mother_id": "mother",
+    "clinical_status": "clinical status",
+    "carrier_status": "carrier status",
+    "carrier_type": "carrier type",
+    "carrier_evidence": "carrier evidence",
+}
+
+
+def _known_member_value(value: Any) -> bool:
+    """Whether a member's value is known: not unknown, none, or empty."""
+    if isinstance(value, Mapping):
+        return bool(value)
+    return value is not None and str(value).strip() not in {"", "0", "unknown", "und"}
+
+
+def _member_value_text(value: Any) -> str:
+    if isinstance(value, Mapping):
+        return json.dumps(value, sort_keys=True, default=str)
+    return str(value) if _known_member_value(value) else "unknown"
+
+
+@dataclass(frozen=True)
+class MemberValues:
+    """A member's values after an import of one of several analyses (``merge_member_values``):
+    the family's known ones kept, its unknown ones filled from the package (``merged``), with a
+    sentence for each known value the package states otherwise (``conflicts``) and for each it
+    fills (``filled``), each as ``(sample ID, sentence)``."""
+
+    merged: dict[str, Any]
+    conflicts: tuple[tuple[str, str], ...] = ()
+    filled: tuple[tuple[str, str], ...] = ()
+
+
+def merge_member_values(
+    sample_id: str, *, given: Mapping[str, Any], held: Mapping[str, Any], fields: Iterable[str]
+) -> MemberValues:
+    """A member's ``fields`` as an import of one of a family's several analyses leaves them (the
+    owner's decision of 2026-11-20): each value the family holds known (``held``) is kept, one it
+    holds unknown takes the package's (``given``), and a known value of the package that differs
+    from a known one of the family is a conflict, which refuses the import."""
+    merged: dict[str, Any] = {}
+    conflicts: list[tuple[str, str]] = []
+    filled: list[tuple[str, str]] = []
+    for field_name in fields:
+        wanted, kept = given.get(field_name), held.get(field_name)
+        merged[field_name] = kept
+        if not _known_member_value(wanted) or wanted == kept:
+            continue
+        name = _MEMBER_VALUE_NAMES.get(field_name, field_name)
+        if _known_member_value(kept):
+            conflicts.append(
+                (
+                    sample_id,
+                    f"{sample_id}'s {name} is {_member_value_text(wanted)} in the package, "
+                    f"{_member_value_text(kept)} in CoGA",
+                )
+            )
+        else:
+            merged[field_name] = wanted
+            filled.append((sample_id, f"{sample_id}'s {name}, unknown in CoGA, is {_member_value_text(wanted)} in the package"))
+    return MemberValues(merged=merged, conflicts=tuple(conflicts), filled=tuple(filled))
+
+
+@dataclass(frozen=True)
+class OtherAnalyses:
+    """What a family holds of analyses other than the one a package import is for
+    (``other_analyses_of``): the keys of their package records (``analyses``), and the members an
+    import of this analysis keeps though its package does not list them (``kept``). False when the
+    family holds no other analysis: the package is then the source of its pedigree."""
+
+    analyses: tuple[str, ...] = ()
+    kept: frozenset[str] = frozenset()
+
+    def __bool__(self) -> bool:
+        return bool(self.analyses)
+
+
+def _listed_members(record: Mapping[str, Any]) -> set[str]:
+    members = record.get("members")
+    return {str(member) for member in members if isinstance(member, str)} if isinstance(members, list) else set()
+
+
+async def other_analyses_of(session: AsyncSession, *, family_id: str, analysis_type: str | None) -> OtherAnalyses:
+    """The family's analyses other than ``analysis_type`` (its package records of other keys,
+    ``family_package_records``): a monogenic NIPT, for an import of the conventional NIPT of the
+    same pregnancy. With one, an import of ``analysis_type`` keeps every active member of the family
+    but those only its own analysis's record lists: the other packages' members, and those added
+    or renamed in the members editor, whom no record lists. Empty for a family that does not exist,
+    or holds no other analysis."""
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT f.metadata -> 'package_imports' AS package_imports,
+                       ARRAY(
+                           SELECT s.sample_id
+                           FROM family_members fm
+                           JOIN samples s ON s.id = fm.sample_id
+                           WHERE fm.family_id = f.id AND fm.active
+                           ORDER BY s.sample_id
+                       ) AS active_members
+                FROM families f
+                WHERE f.family_id = :family_id
+                """
+            ),
+            {"family_id": family_id},
+        )
+    ).mappings().first()
+    if row is None:
+        return OtherAnalyses()
+    records = family_package_records({PACKAGE_IMPORTS_KEY: _json_object(row.get("package_imports"))})
+    key = package_record_key(analysis_type)
+    analyses = tuple(sorted(analysis for analysis in records if analysis != key))
+    if not analyses:
+        return OtherAnalyses()
+    listed_by_others = set().union(*(_listed_members(records[analysis]) for analysis in analyses))
+    own_only = _listed_members(records.get(key) or {}) - listed_by_others
+    active = {str(sample_id) for sample_id in row.get("active_members") or ()}
+    return OtherAnalyses(analyses=analyses, kept=frozenset(active - own_only))
+
+
 @dataclass(frozen=True)
 class MemberDifferences:
     """How the members of a package differ from its family in CoGA (``family_member_differences``):
     the sample IDs of the package's members the family lacks (``added``) and of the family's
     members the package lacks (``missing``), and a sentence for each member whose sex or parents
-    differ (``changed``). False when they agree, or the family does not exist."""
+    differ (``changed``). For a family that holds another analysis, a member it holds is compared
+    value by value instead (``merge_member_values``): a sentence for each known value of the
+    package that differs from a known one of the family (``conflicting``, which refuses the import
+    whatever its mode) and for each unknown one it fills (``filled``); ``others`` names those
+    analyses. False when they agree, or the family does not exist."""
 
     added: tuple[str, ...] = ()
     missing: tuple[str, ...] = ()
     changed: tuple[tuple[str, str], ...] = ()
+    conflicting: tuple[tuple[str, str], ...] = ()
+    filled: tuple[tuple[str, str], ...] = ()
+    others: tuple[str, ...] = ()
 
     def __bool__(self) -> bool:
-        return bool(self.added or self.missing or self.changed)
+        return bool(self.added or self.missing or self.changed or self.conflicting or self.filled)
 
     @property
     def kept_by_an_update(self) -> bool:
@@ -3386,94 +3981,214 @@ class MemberDifferences:
         return [sentence for _sample_id, sentence in sorted(described)]
 
 
-async def members_of_other_analyses(session: AsyncSession, *, family_id: str, analysis_type: str | None) -> frozenset[str]:
-    """The members the packages of the family's other analyses listed (their package records'
-    ``members``, ``family_package_records``): those of a monogenic NIPT, for an import of the
-    conventional NIPT of the same pregnancy. An import of ``analysis_type`` keeps them, though
-    its package does not list them. Empty for a family that does not exist, or holds no other
-    analysis."""
-    row = (
-        await session.execute(
-            text("SELECT metadata -> 'package_imports' AS package_imports FROM families WHERE family_id = :family_id"),
-            {"family_id": family_id},
+# The issue of a package whose same-individual link names a sample the import cannot link, and
+# the warning of one whose link an update does not make.
+SAME_INDIVIDUAL_OUTSIDE = "package_same_individual_outside"
+SAME_INDIVIDUAL_NOT_MADE = "package_same_individual_not_made"
+
+
+def package_same_individual_links(bundle: FamilyPackageBundle) -> list[tuple[str, str]]:
+    """The package's same-individual links (``family.relationships.same_individual``), as pairs of
+    sample IDs as the package writes them."""
+    return [
+        (str(link["sample_id_a"]).strip(), str(link["sample_id_b"]).strip())
+        for link in _manifest_relationships(bundle.manifest)
+        if link["relationship_type"] == "same_individual"
+    ]
+
+
+@dataclass(frozen=True)
+class FamilySamplesHeld:
+    """What the family ``family_id`` holds of the samples a package's same-individual links name:
+    its active members' sample IDs (``members``) and its same-individual links between them
+    (``links``). Empty for a family that does not exist."""
+
+    family_id: str | None
+    members: frozenset[str] = frozenset()
+    links: tuple[tuple[str, str], ...] = ()
+
+
+async def family_samples_held(session: AsyncSession, *, family_id: str | None) -> FamilySamplesHeld:
+    """The family's active members and its same-individual links (``FamilySamplesHeld``)."""
+    if not family_id or identifier_problem(family_id) is not None:
+        return FamilySamplesHeld(family_id)
+    members = await session.execute(
+        text(
+            """
+            SELECT s.sample_id
+            FROM family_members fm
+            JOIN families f ON f.id = fm.family_id
+            JOIN samples s ON s.id = fm.sample_id
+            WHERE f.family_id = :family_id AND fm.active
+            """
+        ),
+        {"family_id": family_id},
+    )
+    links = await session.execute(
+        text(
+            """
+            SELECT sa.sample_id, sb.sample_id
+            FROM family_relationships fr
+            JOIN families f ON f.id = fr.family_id
+            JOIN samples sa ON sa.id = fr.sample_id_a
+            JOIN samples sb ON sb.id = fr.sample_id_b
+            WHERE f.family_id = :family_id AND fr.active AND fr.relationship_type = 'same_individual'
+            """
+        ),
+        {"family_id": family_id},
+    )
+    return FamilySamplesHeld(
+        family_id,
+        frozenset(str(row[0]) for row in members),
+        tuple((str(row[0]), str(row[1])) for row in links),
+    )
+
+
+def same_individual_outside(
+    links: Iterable[tuple[str, str]],
+    *,
+    package_ids: Collection[str],
+    held: FamilySamplesHeld,
+    kept: Collection[str] | None = None,
+) -> str | None:
+    """Why a package's same-individual ``links`` cannot be made: a sample one names is neither a
+    member of the package (``package_ids``) nor an active member of the family (the plasma of the
+    monogenic NIPT, whose package was not imported yet). ``kept``, for an overwrite: the members
+    the packages of the family's other analyses listed, the only members of the family it keeps
+    beside its own; a member neither lists is made inactive, and a link to it cannot be made
+    either. A sample is named as its ID is written, case included. None when every sample is
+    held."""
+    named = sorted({sample_id for link in links for sample_id in link if sample_id not in package_ids})
+    staying = held.members if kept is None else held.members & set(kept)
+    missing = [sample_id for sample_id in named if sample_id not in staying]
+    if not missing:
+        return None
+    family = f"family '{visible(held.family_id or '')}'"
+    shown = ", ".join(map(visible, missing))
+    one = len(missing) == 1
+    left_out = [sample_id for sample_id in missing if sample_id in held.members]
+    if left_out:
+        return (
+            f"The package links {shown} to one of its members as the same individual, but the overwrite makes "
+            f"{'that member' if one else 'those members'} of {family} inactive: neither this package nor "
+            "another analysis's lists "
+            f"{'it' if one else 'them'}. Add {'it' if one else 'them'} to the package, or take the link out."
         )
-    ).mappings().first()
-    records = row.get("package_imports") if row is not None else None
-    if isinstance(records, str):
-        records = json.loads(records)
-    key = package_record_key(analysis_type)
-    return frozenset(
-        str(member)
-        for analysis, record in family_package_records({PACKAGE_IMPORTS_KEY: records}).items()
-        if analysis != key and isinstance(record.get("members"), list)
-        for member in record["members"]
-        if isinstance(member, str)
+    other_case = sorted(
+        {
+            visible(held_id)
+            for held_id in [*held.members, *package_ids]
+            for sample_id in missing
+            if held_id.lower() == sample_id.lower()
+        }
+    )
+    return (
+        f"The package links {shown} to one of its members as the same individual, but {family} does not hold "
+        f"{'that sample' if one else 'those samples'}: import the package that lists "
+        f"{'it' if one else 'them'} first, or link the samples in the family's members editor "
+        "once both are in the family."
+        + (
+            f" A sample is named as its ID is written: the package or the family holds {', '.join(other_case)}."
+            if other_case
+            else ""
+        )
+    )
+
+
+def same_individual_not_made(
+    links: Iterable[tuple[str, str]], *, held: FamilySamplesHeld
+) -> list[tuple[str, str]]:
+    """The package's same-individual ``links`` between two samples the family holds already that
+    the family does not link (directly or through another sample): an update, which adds only the
+    links of the members it adds, does not make them; an overwrite does."""
+    person = person_of(held.links)
+    return [
+        (first, second)
+        for first, second in dict.fromkeys((min(link), max(link)) for link in links)
+        if first in held.members
+        and second in held.members
+        and person.get(first, first) != person.get(second, second)
+    ]
+
+
+def same_individual_not_made_message(links: list[tuple[str, str]], *, family_id: str) -> str:
+    """The warning that an update does not make the package's same-individual ``links``
+    (``same_individual_not_made``)."""
+    shown = "; ".join(f"{visible(first)} and {visible(second)}" for first, second in links)
+    return (
+        f"The package links {shown} as the same individual, and family '{visible(family_id)}' holds "
+        f"{'both samples' if len(links) == 1 else 'those samples'} without that link: an update adds only the "
+        "links of the members it adds. Link them in the family's members editor, or overwrite, which makes the "
+        "package's links the family's."
     )
 
 
 async def same_individual_outside_message(
-    session: AsyncSession, *, family_id: str | None, bundle: FamilyPackageBundle
+    session: AsyncSession, *, family_id: str | None, bundle: FamilyPackageBundle, overwrite: bool = False
 ) -> str | None:
-    """Why a package's same-individual links cannot be made: a sample one names is neither a
-    member of the package nor an active member of the family ``family_id`` (the plasma of the
-    monogenic NIPT, whose package was not imported yet). None when every sample is held."""
-    package_ids = {sample_id.strip().lower() for sample_id in bundle.ped.sample_ids}
-    named = sorted(
-        {
-            str(sample_id)
-            for link in _manifest_relationships(bundle.manifest)
-            if link["relationship_type"] == "same_individual"
-            for sample_id in (link["sample_id_a"], link["sample_id_b"])
-            if str(sample_id).strip().lower() not in package_ids
-        }
-    )
-    if not named:
+    """Why a package's same-individual links cannot be made (``same_individual_outside``), for an
+    import into the family ``family_id``, an ``overwrite`` or not. None when they can."""
+    links = package_same_individual_links(bundle)
+    if not links:
         return None
-    held: set[str] = set()
-    if family_id and identifier_problem(family_id) is None:
-        rows = await session.execute(
-            text(
-                """
-                SELECT s.sample_id
-                FROM family_members fm
-                JOIN families f ON f.id = fm.family_id
-                JOIN samples s ON s.id = fm.sample_id
-                WHERE f.family_id = :family_id AND fm.active
-                """
-            ),
-            {"family_id": family_id},
-        )
-        held = {str(row[0]).strip().lower() for row in rows}
-    missing = [sample_id for sample_id in named if sample_id.strip().lower() not in held]
-    if not missing:
-        return None
-    return (
-        f"The package links {', '.join(map(visible, missing))} to one of its members as the same individual, "
-        f"but family '{visible(family_id or '')}' does not hold "
-        f"{'that sample' if len(missing) == 1 else 'those samples'}: import the package that lists "
-        f"{'it' if len(missing) == 1 else 'them'} first, or link the samples in the family's members editor "
-        "once both are in the family."
+    kept = (
+        (await other_analyses_of(session, family_id=family_id, analysis_type=bundle.manifest.analysis_type)).kept
+        if overwrite and family_id
+        else None
     )
+    return same_individual_outside(
+        links,
+        package_ids={sample_id.strip() for sample_id in bundle.ped.sample_ids},
+        held=await family_samples_held(session, family_id=family_id),
+        kept=kept,
+    )
+
+
+async def _held_member_values(session: AsyncSession, *, family_id: str) -> dict[str, dict[str, Any]]:
+    """The statuses of the family's active members, by sample ID."""
+    rows = await session.execute(
+        text(
+            """
+            SELECT s.sample_id, fm.clinical_status, fm.carrier_status, fm.carrier_type, fm.carrier_evidence
+            FROM families f
+            JOIN family_members fm ON fm.family_id = f.id
+            JOIN samples s ON s.id = fm.sample_id
+            WHERE f.family_id = :family_id AND fm.active
+            """
+        ),
+        {"family_id": family_id},
+    )
+    return {str(row["sample_id"]): _held_member_statuses(dict(row)) for row in rows.mappings().all()}
 
 
 async def family_member_differences(
-    session: AsyncSession, *, family_id: str, ped: ParsedPed, analysis_type: str | None
+    session: AsyncSession,
+    *,
+    family_id: str,
+    ped: ParsedPed,
+    analysis_type: str | None,
+    members: Iterable[Mapping[str, Any]] | None = None,
 ) -> MemberDifferences:
-    """How the members of a package (``ped``, made of its ``family.add_members``) of
-    ``analysis_type`` differ from the family ``family_id`` as CoGA holds it
+    """How the members of a package (``ped``, made of its ``family.add_members``; ``members``, the
+    package's members with the statuses its manifest gives them, ``_package_members``, else read
+    from ``ped`` alone) of ``analysis_type`` differ from the family ``family_id`` as CoGA holds it
     (``ped_service.build_pedigree_text``): a member of the one the other lacks, or one whose sex or
-    parents differ. A member the package lacks that the package of another of the family's analyses
-    listed (``members_of_other_analyses``) is not missing: a family holds the monogenic and the
-    conventional NIPT of one pregnancy, each package listing its own members. Empty when the
-    family does not exist, or agrees. The package's members are the pedigree an import reads (the
-    owner's decision of 2026-11-10): an update adds the members the family lacks and changes none
-    it holds; an overwrite makes the package's members the pedigree of its analysis
-    (``take_package_pedigree``)."""
+    parents differ. Empty when the family does not exist, or agrees. The package's members are the
+    pedigree an import reads (the owner's decision of 2026-11-10): an update adds the members the
+    family lacks and changes none it holds; an overwrite makes the package's members the pedigree
+    of its analysis (``take_package_pedigree``).
+
+    A family that holds another analysis (``other_analyses_of``) is more than this package's
+    pedigree: a member the package lacks that the import keeps is not missing (the monogenic NIPT's
+    trio, for a conventional NIPT package that lists the plasma alone), and a member the family
+    holds keeps every value it knows (the owner's decision of 2026-11-20): its sex, parents and
+    statuses are compared value by value (``merge_member_values``), the package filling an unknown
+    one, and a known one it states otherwise refusing the import, whatever its mode."""
     if identifier_problem(family_id) is not None:
         return MemberDifferences()
     if await _fetch_existing_family(session, family_id=family_id) is None:
         return MemberDifferences()
-    kept = await members_of_other_analyses(session, family_id=family_id, analysis_type=analysis_type)
+    others = await other_analyses_of(session, family_id=family_id, analysis_type=analysis_type)
     try:
         stored_text = await ped_service.build_pedigree_text(session, family_id=family_id)
     except HTTPException:
@@ -3481,14 +4196,46 @@ async def family_member_differences(
     stored, _errors = _parse_ped_text_strict(stored_text) if stored_text.strip() else (None, [])
     held = {member.iid: _member_described(member) for member in (stored.members if stored is not None else [])}
     given = {member.iid: _member_described(member) for member in ped.members}
+    added = tuple(sorted(given.keys() - held.keys()))
+    missing = tuple(sorted(held.keys() - given.keys() - others.kept))
+    shared = sorted(held.keys() & given.keys())
+    if not others:
+        return MemberDifferences(
+            added=added,
+            missing=missing,
+            changed=tuple(
+                (sample_id, f"{sample_id} is {_shown(given[sample_id])} in the package, {_shown(held[sample_id])} in CoGA")
+                for sample_id in shared
+                if held[sample_id] != given[sample_id]
+            ),
+        )
+    package_members = {
+        str(member["sample_id"]): member for member in (members if members is not None else _ped_members_for_import(ped))
+    }
+    held_statuses = await _held_member_values(session, family_id=family_id)
+    conflicting: list[tuple[str, str]] = []
+    filled: list[tuple[str, str]] = []
+    for sample_id in shared:
+        values = merge_member_values(
+            sample_id,
+            given={
+                **dict(zip(MEMBER_PEDIGREE_FIELDS, given[sample_id])),
+                **{
+                    field_name: (package_members.get(sample_id) or {}).get(field_name)
+                    for field_name in MEMBER_STATUS_FIELDS
+                },
+            },
+            held={**dict(zip(MEMBER_PEDIGREE_FIELDS, held[sample_id])), **held_statuses.get(sample_id, {})},
+            fields=(*MEMBER_PEDIGREE_FIELDS, *MEMBER_STATUS_FIELDS),
+        )
+        conflicting.extend(values.conflicts)
+        filled.extend(values.filled)
     return MemberDifferences(
-        added=tuple(sorted(given.keys() - held.keys())),
-        missing=tuple(sorted(held.keys() - given.keys() - kept)),
-        changed=tuple(
-            (sample_id, f"{sample_id} is {_shown(given[sample_id])} in the package, {_shown(held[sample_id])} in CoGA")
-            for sample_id in sorted(held.keys() & given.keys())
-            if held[sample_id] != given[sample_id]
-        ),
+        added=added,
+        missing=missing,
+        conflicting=tuple(conflicting),
+        filled=tuple(filled),
+        others=others.analyses,
     )
 
 
@@ -3511,6 +4258,35 @@ def members_added_message(family_id: str, differences: MemberDifferences) -> str
     return (
         f"The package adds members to family '{family_id}': {_listed(list(differences.added))}. "
         "The import adds them to the family's pedigree."
+    )
+
+
+def _analyses_named(analyses: Iterable[str]) -> str:
+    return ", ".join(analyses) or "another analysis"
+
+
+def member_values_conflict_message(
+    family_id: str, others: OtherAnalyses | Iterable[str], conflicts: Iterable[tuple[str, str]]
+) -> str:
+    """The sentence that refuses an import of one of a family's several analyses whose package
+    states a known value of a member otherwise than the family: the member and both values."""
+    analyses = others.analyses if isinstance(others, OtherAnalyses) else tuple(others)
+    sentences = [sentence for _sample_id, sentence in sorted(conflicts)]
+    return (
+        f"The package gives members of family '{family_id}' values other than those CoGA holds: "
+        f"{_listed(sentences)}. The family holds another analysis ({_analyses_named(analyses)}), whose "
+        "members keep every value the family knows: an import, with update or overwrite, only fills "
+        "a value the family does not know. Correct the package, or change the member in the family's "
+        "members editor first."
+    )
+
+
+def members_filled_message(family_id: str, differences: MemberDifferences) -> str:
+    """The sentence that says which values a package fills of the members its family holds."""
+    sentences = [sentence for _sample_id, sentence in sorted(differences.filled)]
+    return (
+        f"The package gives members of family '{family_id}' values CoGA does not know yet: "
+        f"{_listed(sentences)}. The import fills them in, and keeps every value the family knows."
     )
 
 

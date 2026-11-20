@@ -1,3 +1,4 @@
+import { useVariantAnalysis } from './useVariantAnalysis';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -65,11 +66,17 @@ export const useFamilyDataPresence = ({
     queryFn: async () =>
       (await api.get(apiPath`/families/${familyId}/structural-variants${raw(presenceParams)}`)).data as VariantPage,
   });
+  // Of a family with several analyses with small variants, the one the page reads.
+  const analysis = useVariantAnalysis(familyId);
   const small = useQuery<Pick<VariantPage, 'total'>>({
-    queryKey: ['family', familyId, 'has-data', 'small-variants', projectId || null],
+    queryKey: ['family', familyId, 'has-data', 'small-variants', projectId || null, analysis],
     enabled,
     queryFn: async () =>
-      (await api.get(apiPath`/families/${familyId}/small-variants${raw(presenceParams)}`)).data as VariantPage,
+      (
+        await api.get(
+          apiPath`/families/${familyId}/small-variants${raw(presenceParams)}${raw(analysis ? `&analysis=${encodeURIComponent(analysis)}` : '')}`,
+        )
+      ).data as VariantPage,
   });
   const repeats = useQuery<Pick<FamilyRepeatExpansionTableOut, 'loci_count'>>({
     queryKey: ['family', familyId, 'has-data', 'repeat-expansions', projectId || null],

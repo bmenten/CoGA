@@ -19,6 +19,7 @@ import types
 
 import pytest
 
+from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
 from backend.app.services.clickhouse_variant_queries import (
     _call_is_confident_hom_ref,
     _child_parent_map,
@@ -250,6 +251,7 @@ def _sql_context(sex: str, assembly: str | None = "GRCh38") -> types.SimpleNames
         ],
         relationship_rows=[],
         sample_name_to_uuid={"PROBAND": "u-proband", "MOTHER": "u-mother"},
+        scope=WHOLE_FAMILY_SCOPE,
         assembly_name=assembly,
     )
 

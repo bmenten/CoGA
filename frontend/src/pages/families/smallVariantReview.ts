@@ -1,5 +1,6 @@
+import { analysisQuery } from '../../lib/familyAnalyses';
 import api from '../../lib/api';
-import { apiPath } from '../../lib/apiPath';
+import { apiPath, raw } from '../../lib/apiPath';
 import {
   type SmallVariant,
   type SmallVariantPage,
@@ -53,8 +54,13 @@ export const quickTagTogglePayload = (
   };
 };
 
-export const buildSmallVariantReviewPath = (familyId: string, variantId: string): string =>
-  apiPath`/families/${familyId}/small-variants/${variantId}/review`;
+/** The path a variant's review is saved to: of the analysis the page reads, when it names one
+ * (`variantAnalysisOf`), as a review is that analysis's. */
+export const buildSmallVariantReviewPath = (
+  familyId: string,
+  variantId: string,
+  analysis?: string | null,
+): string => apiPath`/families/${familyId}/small-variants/${variantId}/review${raw(analysisQuery(analysis))}`;
 
 export const hasReviewContent = (review: SmallVariantReview | null | undefined): boolean =>
   Boolean(review?.classification || review?.tags?.length || review?.note || review?.compound_het);

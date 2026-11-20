@@ -534,6 +534,14 @@ async def test_a_caller_is_told_whether_the_load_began_writing(stores) -> None:
 # --- a write that fails after the delete -------------------------------------------------
 
 
+def _failures(flag: dict) -> dict:
+    """Each failure the flag records, by its dataset: its scope, job and analysis."""
+    return {
+        name: [(item["scope"], item["job_id"], item["analysis_type"]) for item in items]
+        for name, items in flag["failed_scopes"].items()
+    }
+
+
 @pytest.mark.asyncio
 async def test_a_write_that_fails_after_the_delete_flags_the_family_for_the_callset(
     stores, monkeypatch
@@ -564,7 +572,8 @@ async def test_a_write_that_fails_after_the_delete_flags_the_family_for_the_call
     flag = database.committed["flag"]
     assert flag is not None
     assert (flag["failed_datasets"], flag["imported_datasets"]) == (["snv"], [])
-    assert flag["failed_scopes"] == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
+    # Of no analysis: what an upload brings is every analysis's.
+    assert _failures(flag) == {"snv": [({"source": "clair3", "samples": None}, None, None)]}
     assert flag["failed_jobs"] == {"snv": None} and flag["job_id"] is None
     assert database.commits == 1
     assert database.committed["imported"] == _IMPORTED
@@ -606,9 +615,7 @@ async def test_a_failed_write_of_imputed_genotypes_flags_the_haplotypes(stores) 
     assert database.committed["corrections"] == _STORED_CORRECTIONS
     flag = database.committed["flag"]
     assert flag["failed_datasets"] == ["haplotypes"]
-    assert flag["failed_scopes"] == {
-        "haplotypes": [{"scope": {"source": None, "samples": None}, "job_id": None}]
-    }
+    assert _failures(flag) == {"haplotypes": [({"source": None, "samples": None}, None, None)]}
 
 
 @pytest.mark.asyncio
@@ -635,6 +642,7 @@ async def test_a_failed_write_keeps_the_entry_of_a_restore_that_did_not_finish(s
     entry = {
         "job_id": "job-1",
         "at": "2026-10-01T09:00:00+00:00",
+        "analysis_type": "unspecified",
         "datasets": ["coverage"],
         "finished_datasets": [],
         "scopes": {},
@@ -646,7 +654,18 @@ async def test_a_failed_write_keeps_the_entry_of_a_restore_that_did_not_finish(s
         "imported_datasets": [],
         "job_id": "job-1",
         "failed_jobs": {"coverage": "job-1"},
-        "failed_scopes": {"coverage": [{"scope": {"source": None, "samples": ["S1"]}, "job_id": "job-1"}]},
+        "failed_analysis_types": {"coverage": ["unspecified"]},
+        "failed_scopes": {
+            "coverage": [
+                {
+                    "scope": {"source": None, "samples": ["S1"]},
+                    "job_id": "job-1",
+                    "analysis_type": "unspecified",
+                    "at": "2026-10-01T09:00:00+00:00",
+                    "imported_datasets": [],
+                }
+            ]
+        },
     }
     database = _Postgres(flag=copy.deepcopy(earlier), unfinished={"job-1": copy.deepcopy(entry)})
     stores.failing_insert = 1

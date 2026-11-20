@@ -253,6 +253,7 @@ def test_structural_variant_review_saves_are_chained_and_verify() -> None:
         CnvAcmgCriterion,
         StructuralVariantReviewUpdate,
     )
+    from backend.app.services.analysis_scope import AnalysisScope
     from backend.app.services.clinical_audit_service import (
         record_review_changes,
         verify_clinical_audit_chain,
@@ -292,7 +293,8 @@ def test_structural_variant_review_saves_are_chained_and_verify() -> None:
             async with sm() as s:
                 fam = await fresh_family(s, label)
                 await s.commit()
-            context = SimpleNamespace(family_uuid=fam, family_id=label, project_ids=[])
+            # A family that holds no analysis: its reviews are stored under none.
+            context = SimpleNamespace(family_uuid=fam, family_id=label, project_ids=[], scope=AnalysisScope())
             user = SimpleNamespace(id=None, username="sv-reviewer", email="svr@x.org", role="supervisor")
 
             for index, payload in enumerate(saves):
@@ -315,6 +317,7 @@ def test_structural_variant_review_saves_are_chained_and_verify() -> None:
                                 "tags": [],
                                 "note": None,
                             },
+                            analysis="",
                         )
                         await s.commit()
 
@@ -350,9 +353,10 @@ def test_structural_variant_review_saves_are_chained_and_verify() -> None:
                 "classification",  # CNV scoring cleared
                 "classification", "tags", "note",  # review deleted
             ]
-            assert all(row["metadata"] == {"modality": "sv"} for row in sv_rows)
+            # Each names the analysis whose review it is: none, for a family that holds none.
+            assert all(row["metadata"] == {"modality": "sv", "analysis": ""} for row in sv_rows)
             [small] = [row for row in rows if row["variant_id"] == "1-2000-C-T"]
-            assert small["metadata"] == {}
+            assert small["metadata"] == {"analysis": ""}
             rescored = sv_rows[3]["after"]
             assert rescored["cnv_class"] == "cnv_class_3" and rescored["cnv_point_total"] == 0.0
             assert rescored["cnv_criteria"] == [
@@ -388,6 +392,7 @@ def test_criterion_level_changes_are_chained_and_verify() -> None:
         CnvAcmgCriterion,
         StructuralVariantReviewUpdate,
     )
+    from backend.app.services.analysis_scope import AnalysisScope
     from backend.app.services.clinical_audit_service import (
         record_review_changes,
         verify_clinical_audit_chain,
@@ -454,11 +459,12 @@ def test_criterion_level_changes_are_chained_and_verify() -> None:
                 async with sm() as s:
                     await record_review_changes(
                         s, family_uuid=fam, family_identifier=label, variant_id="1-2000-C-T",
-                        user=user, existing=previous, new_state=state,
+                        user=user, existing=previous, new_state=state, analysis="",
                     )
                     await s.commit()
                 previous = state
-            context = SimpleNamespace(family_uuid=fam, family_id=label, project_ids=[])
+            # A family that holds no analysis: its reviews are stored under none.
+            context = SimpleNamespace(family_uuid=fam, family_id=label, project_ids=[], scope=AnalysisScope())
             for payload in sv_saves:
                 async with sm() as s:
                     await upsert_structural_variant_review(
@@ -632,6 +638,8 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
         # integral float to exercise the JSONB normalisation through the real writer.
         # The drift lists too: the drift gate's refusal lists them.
         return {
+            # The family holds no analysis: its record closes it whole.
+            "analysis_type": None,
             "drift": {"drifted_count": 0, "drifted": []},
             "structural_drift": {"drifted_count": 0, "drifted": []},
             # No repeat or Paraphase review and no finding without one (finding_review_pg).

@@ -79,7 +79,7 @@ def _stub_reads(monkeypatch, *, context: FamilyMetadataContext, sources: list[st
     """The QC's reads: the family's metadata context and record, its callsets, and the
     genotype sample ``sample(scope, limit, source)`` of a callset."""
 
-    async def _fake_context(session, *, family_identifier, user, project_id=None):
+    async def _fake_context(session, *, family_identifier, user, project_id=None, analysis=None):
         return context
 
     async def _fake_get_family(session, family_id, user):
@@ -867,6 +867,35 @@ def test_only_a_stored_ngsbits_call_of_a_known_sex_is_read() -> None:
     assert read(stored(inferred_sex="female", ratio_chry_chrx=float("nan"))) == (
         ReadSexCall("female")
     )
+
+
+def test_the_sex_call_of_a_family_of_several_analyses_is_read_in_a_fixed_order() -> None:
+    from backend.app.services.sample_integrity_qc import ReadSexCall
+
+    # A family's analyses are a set: its order varies from one process to the next. They are
+    # read sorted by key, then a package's that named none, each once.
+    assert sample_integrity_service.sex_call_analyses(frozenset({"short_read_wgs", "pgt", "long_read_wgs"})) == [
+        "long_read_wgs",
+        "pgt",
+        "short_read_wgs",
+        "unspecified",
+    ]
+    assert sample_integrity_service.sex_call_analyses({"unspecified", "pgt"}) == ["pgt", "unspecified"]
+    assert sample_integrity_service.sex_call_analyses([]) == ["unspecified"]
+
+    def call(sex: str, method: str = "ngs-bits SampleGender") -> dict:
+        return {"sex_check": {"method": method, "inferred_sex": sex}}
+
+    # Both analyses stored a call: the first in that order answers, whichever order the set gave.
+    both = {"sequencing_qc": {"short_read_wgs": call("female"), "long_read_wgs": call("male")}}
+    for held in (["short_read_wgs", "long_read_wgs"], ["long_read_wgs", "short_read_wgs"]):
+        analyses = sample_integrity_service.sex_call_analyses(held)
+        assert sample_integrity_service._read_sex_call(both, analyses) == ReadSexCall("male")
+    # A sex check that is not ngs-bits' is passed over for the next analysis's ngs-bits call.
+    other = {"sequencing_qc": {"long_read_wgs": call("female", method="peddy"), "short_read_wgs": call("male")}}
+    assert sample_integrity_service._read_sex_call(
+        other, sample_integrity_service.sex_call_analyses({"long_read_wgs", "short_read_wgs"})
+    ) == ReadSexCall("male")
 
 
 def _nipt_site(variant_id: str, *, father_state: str, father_dp: int | None, present: bool):

@@ -91,6 +91,7 @@ def _flag(failed: list[str], *, at: str = "2026-10-27T10:14:00+00:00") -> dict:
         "imported_datasets": ["coverage"],
         "job_id": _JOB_1,
         "failed_jobs": {name: _JOB_1 for name in failed},
+        "failed_analysis_types": {name: ["unspecified"] for name in failed},
     }
 
 
@@ -117,13 +118,13 @@ _Session = FirstSignoutSession
 def family(monkeypatch) -> _Family:
     state = _Family()
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
-    async def _manifest(session, *, family_id, user, project_id=None):
+    async def _manifest(session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+    async def _drift(session, *, family_id, user, project_id=None, analysis=None):
         return {
             "checked": len(state.drifted),
             "drifted_count": len(state.drifted),
@@ -136,20 +137,21 @@ def family(monkeypatch) -> _Family:
         }
 
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         return copy.deepcopy(state.qc)
 
-    async def _nothing_reported(session, family_uuid):
+    async def _nothing_reported(session, family_uuid, _scope=None):
         return []
 
     async def _sequencing_qc(session, context, scope=None):
         return {"analyses": {}}
 
-    async def _import_incomplete(session, family_uuid):
+    async def _import_incomplete(session, family_uuid, scope):
         return copy.deepcopy(state.import_incomplete)
 
-    async def _import_unfinished(session, family_uuid):
+    async def _import_unfinished(session, family_uuid, scope):
         return copy.deepcopy(state.import_unfinished)
 
     async def _package_source_change(session, family_uuid):
@@ -162,7 +164,9 @@ def family(monkeypatch) -> _Family:
     async def _writes_shared(session, family_uuid):
         return True
 
-    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None, scope=None):
+    async def _sections(
+        session, *, context, reported, reported_structural, shared_nipt=None, scope=None, finding_kinds=None
+    ):
         return copy.deepcopy(_SECTIONS)
 
     async def _code_free(session, code):
@@ -172,7 +176,7 @@ def family(monkeypatch) -> _Family:
         state.audited.append(kwargs)
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
-    monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
+    monkeypatch.setattr(rss, "analysis_annotation_manifest", _manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "_reported_reviews", _nothing_reported)
@@ -409,7 +413,13 @@ def test_an_import_failure_that_arose_after_the_dialog_is_refused_with_the_new_c
 
     # An import that stops part-way is a concern of the same gate.
     family.import_unfinished = {
-        _JOB_2: {"job_id": _JOB_2, "at": "2026-10-27T12:00:00+00:00", "datasets": ["coverage"], "finished_datasets": []}
+        _JOB_2: {
+            "job_id": _JOB_2,
+            "at": "2026-10-27T12:00:00+00:00",
+            "analysis_type": "unspecified",
+            "datasets": ["coverage"],
+            "finished_datasets": [],
+        }
     }
     status, stopped = _refusal(
         acknowledge_import_incomplete=True,

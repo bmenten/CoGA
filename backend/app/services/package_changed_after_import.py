@@ -76,7 +76,7 @@ from ..schemas import ImportDeliveryOut
 from .access_control import CurrentUser
 from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_package_fingerprint import PackageFolderTooLarge, PackageListing, package_listing
-from .family_package_records import PACKAGE_RECORDS_OF_A_FAMILY
+from .family_package_records import PACKAGE_RECORDS_OF_A_FAMILY, package_record_key
 from .family_package_source import local_family_package_folder
 from .import_watcher import GONE_AFTER_ROUNDS, IMPORT_INBOX_CHAIN, WATCHER_ACTOR, _names_in, get_import_delivery
 
@@ -329,17 +329,21 @@ async def _refused_delivery(session: AsyncSession, folder: str, fingerprint: str
 
 async def end_changes_no_family_names(session_factory: async_sessionmaker[AsyncSession]) -> int:
     """End the change of each changed or archived delivery no family's record names as its
-    reference any more: back to ``imported``, recorded with the reference the family's record
-    names now (a delivery of the family, or of the folder, imported with overwrite: resolution
-    ``overwritten``), or, when none does, ``not_named``. A delivery whose family's new reference
-    is still being imported (``queued``) is left to the round after its job's end: a failed
-    import that puts the family back puts its record back too. Returns how many ended."""
+    reference any more: back to ``imported``, recorded with the reference the family's record of
+    the delivery's analysis names now (a delivery of the family, or of the folder, imported with
+    overwrite: resolution ``overwritten``), or, when none does, ``not_named``. Only the record of
+    the analysis the delivery's package names (its key, ``package_record_key``) is read: the
+    reference of another of the family's analyses replaced nothing of it. A delivery whose
+    family's new reference is still being imported (``queued``) is left to the round after its
+    job's end: a failed import that puts the family back puts its record back too. Returns how
+    many ended."""
     async with session_factory() as session:
         rows = (
             await session.execute(
                 text(
                     f"""
-                    SELECT d.id::text AS id, d.folder_path, d.folder_name, d.package_fingerprint, d.family_id
+                    SELECT d.id::text AS id, d.folder_path, d.folder_name, d.package_fingerprint, d.family_id,
+                           d.package ->> 'analysis_type' AS analysis_type
                     FROM import_deliveries d
                     WHERE d.state = ANY(CAST(:raised AS text[]))
                       AND NOT EXISTS (SELECT 1 FROM {_FAMILY_RECORDS} WHERE {_REFERENCE_OF_A_FAMILY})
@@ -363,11 +367,17 @@ async def end_changes_no_family_names(session_factory: async_sessionmaker[AsyncS
                         SELECT d.id::text, f.family_id FROM import_deliveries d
                         JOIN ({_FAMILY_RECORDS}) ON {_REFERENCE_OF_A_FAMILY}
                         WHERE (d.folder_path = :folder OR f.family_id = :family_id) AND d.id <> CAST(:id AS uuid)
+                          AND r.analysis = :analysis
                         ORDER BY d.state_changed_at DESC
                         LIMIT 1
                         """
                     ),
-                    {"folder": row["folder_path"], "family_id": row["family_id"], "id": row["id"]},
+                    {
+                        "folder": row["folder_path"],
+                        "family_id": row["family_id"],
+                        "id": row["id"],
+                        "analysis": package_record_key(row.get("analysis_type")),
+                    },
                 )
             ).first()
             resolution: Resolution = "overwritten" if named is not None else "not_named"

@@ -17,8 +17,15 @@ Then:
   names it;
 * a structure edit that gives the two samples different sexes is refused (400), naming them;
 * the cNIPT result is served for ``PLASMA2``;
-* an overwrite of the conventional NIPT package that no longer names the link keeps it: it joins
-  that package's member to the monogenic NIPT's.
+* an overwrite of the conventional NIPT package that names the link again, while the family holds
+  a member added by hand (in neither package): the package's link and the family's are one link,
+  and the hand-added member is kept, as a family that holds another analysis keeps every member no
+  package record lists;
+* an overwrite of the conventional NIPT package that no longer names the link, again with a
+  member added by hand: the link stays, since it joins that package's member to the monogenic
+  NIPT's;
+* the link taken out in the members editor: an update of the package that names it does not make
+  it and warns of it (``package_same_individual_not_made``); an overwrite makes it.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -83,6 +90,50 @@ def _cnipt_manifest(family_id: str, plasma: str, entry: dict[str, Any], *, same_
     return manifest
 
 
+async def _active_members(sessionmaker: Any, family_id: str) -> list[str]:
+    from sqlalchemy import text
+
+    async with sessionmaker() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT s.sample_id
+                FROM family_members fm
+                JOIN families f ON f.id = fm.family_id
+                JOIN samples s ON s.id = fm.sample_id
+                WHERE f.family_id = :f AND fm.active
+                """
+            ),
+            {"f": family_id},
+        )
+        return sorted(str(row[0]) for row in rows)
+
+
+def _without_same_individual_links(relationships: list[dict[str, Any]]) -> dict[str, Any]:
+    """The family's relationships as a structure update names them, without its same-individual
+    links."""
+    return {
+        "parent_child": [
+            {
+                "parent": link["sample_id_a"],
+                "child": link["sample_id_b"],
+                "parent_role": link["role_a"] if link["role_a"] in ("father", "mother") else "parent",
+            }
+            for link in relationships
+            if link["relationship_type"] == "parent_child"
+        ],
+        "couples": [
+            {
+                "partners": [link["sample_id_a"], link["sample_id_b"]],
+                "context": (link.get("metadata") or {}).get("context"),
+            }
+            for link in relationships
+            if link["relationship_type"] == "couple"
+        ],
+        "same_individual": [],
+    }
+
+
 async def _import(sessionmaker: Any, admin: Any, project_id: str, root: Path, mode: str) -> dict[str, Any]:
     """The import's outcome; one refused before it writes anything raises ``ImportRefused``, which
     its job reports."""
@@ -101,8 +152,13 @@ async def _import(sessionmaker: Any, admin: Any, project_id: str, root: Path, mo
                 conflict_mode=mode,
             )
         except ImportRefused as refused:
-            return {"completed": False, "error": str(refused), "refused": True}
-    return {"completed": result.completed, "error": result.error, "refused": False}
+            return {"completed": False, "error": str(refused), "refused": True, "warnings": []}
+    return {
+        "completed": result.completed,
+        "error": result.error,
+        "refused": False,
+        "warnings": [(warning.code, warning.message) for warning in result.validation.warnings],
+    }
 
 
 async def _links(sessionmaker: Any, family_id: str) -> list[tuple[str, str, str, str]]:
@@ -192,10 +248,46 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         cnipt_result = await ac.get(f"/api/families/{family_id}/cnipt")
         out["cnipt_result"] = {"status": cnipt_result.status_code, "json": cnipt_result.json()}
 
-    # The conventional NIPT's package again, without the link, as an overwrite.
-    write_cnipt(None)
-    out["overwrite"] = await _import(sessionmaker, admin, project_id, cnipt, "overwrite")
-    out["links_after_overwrite"] = await _links(sessionmaker, family_id)
+        async def add_by_hand(sample_id: str) -> int:
+            added = await ac.put(
+                f"/api/families/{family_id}/structure",
+                json={"add_members": [{"sample_id": sample_id}], "change_reason": "e2e: a member added by hand"},
+            )
+            return added.status_code
+
+        # A member added by hand is in neither package: an overwrite of the conventional NIPT's
+        # package then differs from the family, takes the package's pedigree and keeps the member
+        # (the family holds another analysis).
+        hand1, hand2 = f"HAND1_{family_id}", f"HAND2_{family_id}"
+        out["hand1_added"] = await add_by_hand(hand1)
+        write_cnipt(plasma1)
+        out["overwrite_with_link"] = await _import(sessionmaker, admin, project_id, cnipt, "overwrite")
+        out["links_after_overwrite_with_link"] = await _links(sessionmaker, family_id)
+        out["members_after_overwrite_with_link"] = await _active_members(sessionmaker, family_id)
+
+        # The conventional NIPT's package again, without the link, as an overwrite.
+        out["hand2_added"] = await add_by_hand(hand2)
+        write_cnipt(None)
+        out["overwrite"] = await _import(sessionmaker, admin, project_id, cnipt, "overwrite")
+        out["links_after_overwrite"] = await _links(sessionmaker, family_id)
+        out["members_after_overwrite"] = await _active_members(sessionmaker, family_id)
+        out["hands"] = (hand1, hand2)
+
+        # The link taken out by hand; the package that names it, as an update and as an overwrite.
+        family = (await ac.get(f"/api/families/{family_id}")).json()
+        unlinked = await ac.put(
+            f"/api/families/{family_id}/structure",
+            json={
+                "relationships": _without_same_individual_links(family["relationships"]),
+                "change_reason": "e2e: the link taken out",
+            },
+        )
+        out["unlinked"] = {"status": unlinked.status_code, "links": await _links(sessionmaker, family_id)}
+    write_cnipt(plasma1)
+    out["update_naming_the_link"] = await _import(sessionmaker, admin, project_id, cnipt, "update")
+    out["links_after_update_naming_the_link"] = await _links(sessionmaker, family_id)
+    out["overwrite_naming_the_link"] = await _import(sessionmaker, admin, project_id, cnipt, "overwrite")
+    out["links_after_overwrite_naming_the_link"] = await _links(sessionmaker, family_id)
     return out
 
 
@@ -257,8 +349,46 @@ def test_the_cnipt_result_is_served_for_the_second_plasma(run) -> None:
     assert [sample["sample_id"] for sample in run["cnipt_result"]["json"]["samples"]] == [plasma2]
 
 
+def test_an_overwrite_naming_the_familys_link_again_takes_it_once(run) -> None:
+    # The hand-added member is missing from the package; the family holds another analysis, so
+    # the overwrite keeps it (a member no package record lists is kept) and takes the package's
+    # pedigree beside it: the package's link and the family's are one link, not a link twice.
+    assert run["hand1_added"] == 200
+    assert run["overwrite_with_link"]["completed"] is True, run["overwrite_with_link"]
+    _father, plasma1, _fetus, plasma2 = run["members"]
+    assert [(kind, {a, b}) for kind, a, b, _source in run["links_after_overwrite_with_link"]] == [
+        ("same_individual", {plasma1, plasma2})
+    ]
+    hand1, _hand2 = run["hands"]
+    assert hand1 in run["members_after_overwrite_with_link"]
+    assert set(run["members"]) <= set(run["members_after_overwrite_with_link"])
+
+
 def test_an_overwrite_without_the_link_keeps_the_link_to_the_other_analysiss_member(run) -> None:
+    assert run["hand2_added"] == 200
     assert run["overwrite"]["completed"] is True, run["overwrite"]
+    _hand1, hand2 = run["hands"]
+    # The overwrite kept the hand-added member (the family holds another analysis) and the link
+    # that joins the package's member to the monogenic NIPT's.
+    assert hand2 in run["members_after_overwrite"]
     assert [(kind, {a, b}) for kind, a, b, _source in run["links_after_overwrite"]] == [
         (kind, {a, b}) for kind, a, b, _source in run["links"]
+    ]
+
+
+def test_an_update_does_not_make_a_link_between_samples_the_family_holds_and_warns_and_an_overwrite_does(
+    run,
+) -> None:
+    _father, plasma1, _fetus, plasma2 = run["members"]
+    assert run["unlinked"] == {"status": 200, "links": []}
+    update = run["update_naming_the_link"]
+    assert update["completed"] is True, update
+    assert run["links_after_update_naming_the_link"] == []
+    [warning] = [message for code, message in update["warnings"] if code == "package_same_individual_not_made"]
+    assert f"links {min(plasma1, plasma2)} and {max(plasma1, plasma2)} as the same individual" in warning
+    assert "an update adds only the links of the members it adds" in warning
+    overwrite = run["overwrite_naming_the_link"]
+    assert overwrite["completed"] is True, overwrite
+    assert [(kind, {a, b}) for kind, a, b, _source in run["links_after_overwrite_naming_the_link"]] == [
+        ("same_individual", {plasma1, plasma2})
     ]

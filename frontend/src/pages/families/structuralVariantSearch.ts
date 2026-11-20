@@ -1,3 +1,4 @@
+import { ANALYSIS_PARAM, analysisQuery, smallVariantAnalyses, variantAnalysisOf, withAnalysisParam } from '../../lib/familyAnalyses';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
@@ -563,6 +564,13 @@ export const useStructuralVariantSearchState = ({
     [orderedMembers],
   );
   const defaultInitKeyRef = useRef<string | null>(null);
+  // The analysis a family with several analyses with small variants is read for: its SV list,
+  // like its small-variant list, is that analysis's own (the owner's decision of 2026-11-20).
+  const analyses = useMemo(() => smallVariantAnalyses(family?.metadata), [family?.metadata]);
+  const analysis = useMemo(
+    () => variantAnalysisOf(family?.metadata, locationSearch),
+    [family?.metadata, locationSearch],
+  );
 
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState(emptyFilters);
@@ -580,7 +588,7 @@ export const useStructuralVariantSearchState = ({
 
     const params = new URLSearchParams(locationSearch);
     const hasExplicitSearch = Array.from(params.keys()).some(
-      (key) => key !== 'project_id' && key !== 'page',
+      (key) => key !== 'project_id' && key !== 'page' && key !== ANALYSIS_PARAM,
     );
 
     // No deep-linked search: default to the standard Mendeliome SV view — the Mendeliome
@@ -674,7 +682,10 @@ export const useStructuralVariantSearchState = ({
     setSampleFilters(cloneSampleFilters(nextSampleFilters));
     setPage(nextPage);
     navigate({
-      search: buildStructuralVariantQueryParams(nextFilters, nextSampleFilters, nextPage, true).toString(),
+      search: withAnalysisParam(
+        buildStructuralVariantQueryParams(nextFilters, nextSampleFilters, nextPage, true),
+        analysis,
+      ).toString(),
     });
   };
 
@@ -769,19 +780,27 @@ export const useStructuralVariantSearchState = ({
     setSampleDraftFilters(cloneSampleFilters(resetSampleFilters));
     setSampleFilters(cloneSampleFilters(resetSampleFilters));
     setPage(1);
-    navigate({ search: '' });
+    navigate({ search: analysisQuery(analysis) });
+  };
+
+  // Read another of the family's analyses: the filters stay, the list starts on its first page.
+  const selectAnalysis = (next: string) => {
+    setPage(1);
+    navigate({
+      search: withAnalysisParam(buildStructuralVariantQueryParams(filters, sampleFilters, 1, true), next).toString(),
+    });
   };
 
   const requestQueryString = useMemo(
-    () => buildStructuralVariantQueryParams(filters, sampleFilters, page, true).toString(),
-    [filters, sampleFilters, page],
+    () => withAnalysisParam(buildStructuralVariantQueryParams(filters, sampleFilters, page, true), analysis).toString(),
+    [filters, sampleFilters, page, analysis],
   );
 
   const linkSearch = useMemo(() => {
-    const params = buildStructuralVariantQueryParams(filters, sampleFilters, page, false);
+    const params = withAnalysisParam(buildStructuralVariantQueryParams(filters, sampleFilters, page, false), analysis);
     const queryString = params.toString();
     return queryString ? `?${queryString}` : '';
-  }, [filters, sampleFilters, page]);
+  }, [filters, sampleFilters, page, analysis]);
 
   const activeFilterCount = useMemo(
     () => countActiveFilters(filters, sampleFilters),
@@ -827,6 +846,8 @@ export const useStructuralVariantSearchState = ({
   return {
     activeFilterChips,
     activeFilterCount,
+    analyses,
+    analysis,
     applyPreset,
     applySavedPreset,
     draftFilters,
@@ -844,6 +865,7 @@ export const useStructuralVariantSearchState = ({
     requestQueryString,
     sampleDraftFilters,
     sampleFilters,
+    selectAnalysis,
     setDraftFilterValue,
     toggleDraftFilterListValue,
   };

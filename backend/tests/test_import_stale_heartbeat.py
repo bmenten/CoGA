@@ -57,7 +57,14 @@ from backend.app.services import family_package_registration as registration
 from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_package_common import ImportRefused
-from backend.tests._family_import_fakes import admin_user, no_variant_copy, two_sample_context
+from backend.app.services.signout_scope import WHOLE_FAMILY
+from backend.tests._family_import_fakes import (
+    admin_user,
+    no_family_import_hold,
+    no_records_to_clear,
+    no_variant_copy,
+    two_sample_context,
+)
 from backend.tests._kept_manifest import kept_manifest
 
 FAMILY = "FAM001"
@@ -346,7 +353,9 @@ def job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Store:
         "get_current_user_by_id": user,
         "_ensure_family_from_ped": register,
         "hold_family_variant_writes": hold,
+        "hold_family_import": no_family_import_hold,
         "copy_variants_to_linked_projects": no_variant_copy,
+        "clear_analysis_import_records": no_records_to_clear,
         "_existing_package_entity_warnings": no_warnings,
         "build_family_metadata_context": nothing,
         "precompute_family_haplotype_lineage": nothing,
@@ -825,6 +834,7 @@ async def _sign_out_reads(job: _Store) -> dict[str, Any] | None:
     return await report_signout_service._import_incomplete_state(
         _FlagRead(job.incomplete),  # type: ignore[arg-type]
         FAMILY_UUID,
+        WHOLE_FAMILY,
     )
 
 
@@ -835,6 +845,7 @@ async def _unfinished_reads(job: _Store) -> dict[str, Any]:
     return await report_signout_service._import_unfinished_state(
         _FlagRead(job.unfinished or None),  # type: ignore[arg-type]
         FAMILY_UUID,
+        WHOLE_FAMILY,
     )
 
 

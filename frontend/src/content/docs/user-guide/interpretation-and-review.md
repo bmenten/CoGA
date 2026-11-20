@@ -1,5 +1,9 @@
 Record your interpretation as you go. Review state is kept per family: the same variant in two families
-has two separate records.
+has two separate records. In a family of several analyses (short-read and then long-read WGS of the same
+DNA), it is kept per analysis too: a review belongs to the analysis you review the variant in, and is in
+that analysis's signed version only. A variant both analyses hold has a review in each you review it in,
+each with its own classification, tags and note. A review made before the family held an analysis
+counts in each analysis until you review the variant there.
 
 ### On each variant
 

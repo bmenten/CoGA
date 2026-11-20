@@ -1761,6 +1761,11 @@ describe('FamilyDetailPage', () => {
     expect(second.value).toBe('PLASMA1');
     // The father is no choice: another known sex.
     expect([...second.options].map((option) => option.value)).toEqual(['', 'PLASMA1']);
+    // For the member being added, the choices follow the sex chosen for it.
+    const added = screen.getByLabelText('New member same individual as') as HTMLSelectElement;
+    expect([...added.options].map((option) => option.value)).toEqual(['', 'DAD', 'PLASMA1', 'PLASMA2']);
+    fireEvent.change(screen.getByLabelText('New member sex'), { target: { value: 'male' } });
+    expect([...added.options].map((option) => option.value)).toEqual(['', 'DAD']);
     fireEvent.change(second, { target: { value: '' } });
     expect((screen.getByLabelText('Same individual as PLASMA1') as HTMLSelectElement).value).toBe('');
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));

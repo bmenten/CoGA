@@ -22,10 +22,12 @@ application, then runs only the checks that fit it:
 | **Shallow-WGS PGT** | a member with the embryo role (imputed genotypes) | sex · **parentage** (embryos ↔ parents) · Mendelian errors |
 | **Monogenic NIPT (cfDNA)** | the family was created as a Monogenic NIPT family | **paternity** · **fetal sex** · **parent sex** · **cfDNA category check** |
 | **Conventional NIPT** | the family was created as a conventional NIPT family | none: ccnv's output holds no genotypes, and the fetal sex is known only from the analysis (ccnv's call, in the cNIPT result), as an embryo's is in PGT |
-| **Carrier couple** | two members, no parent–child link | sex · confirmation that the two are unrelated |
-| **Single targeted sample** | one sample | sex only |
+| **Carrier couple** | two people, no parent–child link | sex · confirmation that the two are unrelated |
+| **Single targeted sample** | one person | sex only |
 
-Any other family shape gets sex, relatedness and Mendelian checks where the data allows.
+Any other family shape gets sex, relatedness and Mendelian checks where the data allows. The shape
+counts people, not samples: two samples linked as the same individual are one person, so one person
+sampled twice is a single sample, and a couple with a partner sampled twice a carrier couple.
 
 Each call set is named by the caller that made it. The genotypes come from the family's direct calls:
 Clair3's, DeepVariant's, GATK HaplotypeCaller's or GATK Mutect2's, in that order, then any other
@@ -133,9 +135,11 @@ Each pair's inferred relationship is compared with the pedigree:
   (*Confirmed the same individual*), otherwise **fail** (*Recorded as the same individual but
   genotypes look … — possible sample swap.*).
 
-What the pedigree records of one of a person's samples is expected of the other too: its parent–child
-and sibling pairs, and the pair it makes with its co-parent. A sample without genotypes (a
-conventional NIPT plasma) has no relatedness check, so its link adds none.
+The pedigree is read per person: what it records between a sample of one person and a sample of
+another (parent and child, siblings, co-parents) is expected of every pair of their samples. A mother
+and her child each sampled twice give four parent–child pairs, and two children whose recorded
+mothers are two samples of one mother are siblings. A sample without genotypes (a conventional NIPT
+plasma) has no relatedness check, so its link adds none.
 
 A pair needs at least **1,000** shared sites; with fewer the result is a **warn**, not a false alarm.
 
@@ -286,9 +290,11 @@ each sample's pipeline reported, one column per measure:
   and `_imputed_concordance.csv`). They are read when the package's `qc` dataset is imported.
 
 Each analysis's values are judged against that analysis's cut-offs (**Admin → Sequencing QC
-thresholds**), metric by metric: the cut-off in the analysis's own profile, else in the profile the
-family names, else in the default profile. The text above the table names the profiles (*Judged
-against the cut-offs of Short-read WGS, else Default, metric by metric*). A value outside its cut-offs
+thresholds**), each warning and error cut-off on its own: from the analysis's own profile, else from
+the profile the family names, else from the default profile. A warning set alone in the analysis's
+profile keeps the default's error cut-off. The text above the table names the profiles (*Judged
+against the cut-offs of Short-read WGS, else Default, each warning and error cut-off on its own*). A
+value outside its cut-offs
 shows its verdict beside it (*32.1% · Warning*). The last column (**Seq. QC**) holds the sample's worst
 verdict, as the **Seq. QC** chip of the family page does. A sample sequenced in more than one analysis
 (short-read and then long-read WGS of the same DNA) shows each analysis's value and verdict, named by

@@ -486,7 +486,7 @@ def _mito_job(root: Path, vcf: str, annotation: str = _MUTSERVE_TSV) -> DatasetI
     (root / "PROBAND_snv_annot.txt").write_text(annotation, encoding="utf-8")
     return DatasetImportJob(
         session=_FakeSession(),  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=root),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=root, manifest=SimpleNamespace(analysis_type=None)),  # type: ignore[arg-type]
         dataset=ManifestDataset(
             per_sample={"PROBAND": {"vcf": "PROBAND.vcf", "annotation_tsv": "PROBAND_snv_annot.txt"}}
         ),
@@ -553,7 +553,7 @@ async def test_a_chrm_vcf_without_a_record_fails_the_dataset_before_any_samples_
     (root / "PROBAND.vcf").write_text(_HEADER, encoding="utf-8")
     job = DatasetImportJob(
         session=_FakeSession(),  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=root),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=root, manifest=SimpleNamespace(analysis_type=None)),  # type: ignore[arg-type]
         dataset=ManifestDataset(per_sample={"MOTHER": {"vcf": "MOTHER.vcf"}, "PROBAND": {"vcf": "PROBAND.vcf"}}),
         summary=FamilyImportDatasetSummary(dataset_type="mito", status="valid"),
         family_context=_context(),

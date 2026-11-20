@@ -26,8 +26,9 @@ analyst scores those criteria by hand. So the snapshot holds:
   the SV changes, as the annotation-set hash does for a small variant;
 * ``evidence_hash`` — the drift key: SHA-256 over ``evidence``;
 * ``versions`` — the annotation and reference versions they come from: those the
-  family's manifest records for its structural-variant callset (or for the pipeline run
-  that produced it), and the reference assembly and gene loci CoGA loaded (the gene loci
+  annotation manifest of the analysis whose call it is records for its structural-variant
+  callset (or for the pipeline run that produced it), and the reference assembly and gene
+  loci CoGA loaded (the gene loci
   give a directly uploaded SV its genes). Recorded for the audit, not compared: evidence
   that is unchanged under a new release has not drifted;
 * ``captured_at``.
@@ -43,8 +44,7 @@ from clickhouse_connect.driver.exceptions import ClickHouseError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import execute_clickhouse
-from .access_control import CurrentUser
-from .annotation_manifest_service import get_family_annotation_manifest
+from .annotation_manifest_service import call_annotation_manifest
 from .clickhouse_variant_queries import (
     _collect_annotations,
     _decode_json_payload,
@@ -106,8 +106,8 @@ def structural_evidence(record: StructuralVariantRecord) -> dict[str, Any]:
 
 
 def structural_evidence_versions(modules: Sequence[Any]) -> dict[str, str]:
-    """The annotation and reference versions an SV's evidence comes from, from a family's
-    annotation manifest (``get_family_annotation_manifest(...)["modules"]``)."""
+    """The annotation and reference versions an SV's evidence comes from, from an analysis's
+    annotation manifest (``annotation_manifest_service.analysis_manifest(...)["modules"]``)."""
     versions: dict[str, str] = {}
     for module in modules:
         if not isinstance(module, Mapping):
@@ -238,10 +238,13 @@ def _structural_record(row: Sequence[Any]) -> StructuralVariantRecord:
 
 
 async def read_structural_evidence_versions(
-    session: AsyncSession, *, context: FamilyMetadataContext, user: CurrentUser
+    session: AsyncSession, *, context: FamilyMetadataContext, record: StructuralVariantRecord
 ) -> dict[str, str]:
-    """The versions an SV of this family takes its evidence from, as its manifest says now."""
-    manifest = await get_family_annotation_manifest(session, family_id=context.family_id, user=user)
+    """The versions an SV call of this family (``record``) takes its evidence from, as the
+    annotation manifest of the analysis whose call it is (by its caller's source) says now."""
+    manifest = await call_annotation_manifest(
+        session, context, kind="structural_variants", stored_under=record.source
+    )
     return structural_evidence_versions(manifest.get("modules") or [])
 
 

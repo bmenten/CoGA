@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
+from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
 from backend.app.schemas import GeneLocation, GenePanelCreate, GenePanelUpdate, PanelAppImportRequest
 from backend.app.services import panel_metadata_service as pms
 from backend.app.services import variant_ranking_cache as vrc
@@ -989,7 +990,7 @@ def test_the_ranking_cache_key_moves_when_a_panelapp_reimport_changes_the_genes(
         inputs_hash, _base_hash = asyncio.run(
             vrc.compute_ranking_hashes(
                 db,
-                context=types.SimpleNamespace(assembly_name="GRCh38"),
+                context=types.SimpleNamespace(assembly_name="GRCh38", scope=WHOLE_FAMILY_SCOPE),
                 filters=SmallVariantQueryFilters(page=1, page_size=100, panel_id=panel_id),
                 patient_terms=["HP:0001250"],
                 variant_data_version="1:1",

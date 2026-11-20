@@ -232,6 +232,14 @@ def snap(tmp_path_factory, request) -> dict:
     return _harness.run_async(lambda: _collect(base, mp))
 
 
+def _scope_jobs(flag: dict) -> dict:
+    """Each failure the flag records, by its dataset, as its scope and job."""
+    return {
+        name: [{"scope": item["scope"], "job_id": item["job_id"]} for item in items]
+        for name, items in flag["failed_scopes"].items()
+    }
+
+
 def test_an_update_of_imputed_genotypes_imports_them_beside_the_direct_calls(snap) -> None:
     first, step = snap["steps"]["1_direct"], snap["steps"]["2_imputed_update"]
     assert first["job"]["status"] == "completed", first["job"]["error"]
@@ -260,7 +268,7 @@ def test_a_failed_import_of_imputed_genotypes_leaves_the_direct_calls(snap) -> N
     assert (step["family"]["clair3"], step["family"]["glimpse2"]) == (_VARIANTS, 0)
     flag = step["family"]["flag"]
     assert flag["failed_datasets"] == ["snv"]
-    assert flag["failed_scopes"] == {"snv": [{"scope": _IMPUTED, "job_id": step["job_id"]}]}
+    assert _scope_jobs(flag) == {"snv": [{"scope": _IMPUTED, "job_id": step["job_id"]}]}
     assert gate_refusal(step["signout"], "import_incomplete")["import_incomplete"]["failed_datasets"] == ["snv"]
 
 
@@ -270,7 +278,7 @@ def test_a_later_failure_for_the_other_callset_keeps_both(snap) -> None:
     assert (step["family"]["clair3"], step["family"]["glimpse2"]) == (0, 0)
     flag = step["family"]["flag"]
     # The direct calls' scope is kept beside the imputed genotypes'.
-    assert flag["failed_scopes"] == {
+    assert _scope_jobs(flag) == {
         "snv": [
             {"scope": _IMPUTED, "job_id": imputed["job_id"]},
             {"scope": _DIRECT, "job_id": step["job_id"]},
@@ -287,7 +295,7 @@ def test_the_direct_calls_imported_again_leave_the_imputed_genotypes_flagged(sna
     assert (step["family"]["clair3"], step["family"]["glimpse2"]) == (_VARIANTS, 0)
     # The flag still names the imputed genotypes.
     flag = step["family"]["flag"]
-    assert flag["failed_scopes"] == {"snv": [{"scope": _IMPUTED, "job_id": imputed["job_id"]}]}
+    assert _scope_jobs(flag) == {"snv": [{"scope": _IMPUTED, "job_id": imputed["job_id"]}]}
     # The job that holds the error left, as the pages and the sign-out name it.
     assert (flag["failed_jobs"], flag["job_id"]) == ({"snv": imputed["job_id"]}, imputed["job_id"])
     note = next(line for line in step["job"]["logs"] if "stays flagged import-incomplete" in line)

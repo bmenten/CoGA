@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import types
 
+from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE, AnalysisScope
 from backend.app.services import variant_ranking_cache as vrc
 from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
@@ -12,6 +13,7 @@ def _context():
     return types.SimpleNamespace(
         assembly_name="GRCh38",
         family_uuid="u1",
+        scope=WHOLE_FAMILY_SCOPE,
         affected_sample_names=["S1"],
         sample_rows=[],
         relationship_rows=[],
@@ -322,6 +324,7 @@ def test_the_pedigree_read_from_the_context_covers_each_members_sex() -> None:
     def context(sex: str):
         return types.SimpleNamespace(
             family_uuid="u1",
+            scope=WHOLE_FAMILY_SCOPE,
             affected_sample_names=[],
             sample_rows=[
                 {"sample_id": "PARTNER1", "role": "mother", "sex": sex},
@@ -386,6 +389,7 @@ def test_the_pedigree_signed_is_the_contexts_never_the_latest_structure_hash() -
     def context(affected: list[str]):
         return types.SimpleNamespace(
             family_uuid="u1",
+            scope=WHOLE_FAMILY_SCOPE,
             affected_sample_names=affected,
             sample_rows=[
                 {"sample_id": "S1", "role": "proband", "sex": "male", "affected": "S1" in affected},
@@ -409,3 +413,24 @@ def test_superset_candidates_are_read_without_their_rankings() -> None:
     columns = session.statements[0].split("SELECT", 1)[1].split("FROM", 1)[0]
     assert "ranking" not in {column.strip() for column in columns.split(",")}
     assert "inputs_hash" in columns and "provenance" in columns
+
+
+def test_a_ranking_of_one_analysis_is_never_served_for_another(monkeypatch) -> None:
+    # Short-read and then long-read WGS of the same DNA, each with a callset of its own: the
+    # same filters rank each analysis's own callset, under keys of their own, exact and superset.
+    _patch_db(monkeypatch)
+
+    def hashes(scope):
+        context = _context()
+        context.scope = scope
+        return asyncio.run(
+            vrc.compute_ranking_hashes(
+                None, context=context, filters=_default_filters(), patient_terms=[], variant_data_version="1:1"
+            )
+        )
+
+    short_read = AnalysisScope(analysis="short_read_wgs", left_out={"small_variants": frozenset({"deepvariant"})})
+    long_read = AnalysisScope(analysis="long_read_wgs", left_out={"small_variants": frozenset({"haplotypecaller"})})
+    (exact_sr, base_sr), (exact_lr, base_lr) = hashes(short_read), hashes(long_read)
+    assert exact_sr != exact_lr and base_sr != base_lr
+    assert hashes(short_read) == (exact_sr, base_sr)

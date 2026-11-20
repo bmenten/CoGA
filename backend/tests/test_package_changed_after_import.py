@@ -588,10 +588,12 @@ async def test_a_round_its_folder_is_missing_is_counted_and_a_delivery_decided_m
 
 class _Unnamed:
     """A session for ``end_changes_no_family_names``: the changed deliveries no family names, and
-    for each the delivery of its folder a family names now (``named``)."""
+    for each the delivery of its folder a family's record of the delivery's analysis names now
+    (``named``, by folder and analysis; a folder alone stands for the analysis ``unspecified``)."""
 
-    def __init__(self, rows: list[dict[str, Any]], named: dict[str, tuple[str, str]]) -> None:
-        self.rows, self.named = rows, named
+    def __init__(self, rows: list[dict[str, Any]], named: dict[Any, tuple[str, str]]) -> None:
+        self.rows = rows
+        self.named = {(key if isinstance(key, tuple) else (key, "unspecified")): value for key, value in named.items()}
 
     async def __aenter__(self) -> _Unnamed:
         return self
@@ -605,7 +607,8 @@ class _Unnamed:
             rows = self.rows
             return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
         if "JOIN (families" in sql:
-            named = self.named.get(str((params or {}).get("folder")))
+            assert "r.analysis = :analysis" in sql
+            named = self.named.get((str((params or {}).get("folder")), (params or {}).get("analysis")))
             return SimpleNamespace(first=lambda: named)
         return SimpleNamespace()
 
@@ -631,6 +634,36 @@ async def test_a_change_no_family_names_any_more_ends_naming_the_delivery_import
         ("not_named", None),
     ]
     assert recorded[0]["summary"] == "Delivery FAM1: the change of its folder ended, the family was imported again with overwrite"
+
+
+@pytest.mark.asyncio
+async def test_a_change_ends_naming_only_a_delivery_of_its_own_analysis(recorded: list[dict[str, Any]]) -> None:
+    # A family's conventional NIPT delivery changed; the family's monogenic NIPT was imported
+    # again with overwrite meanwhile, and its conventional NIPT later imported from another folder.
+    rows = [
+        {
+            "id": "d1",
+            "folder_path": "/imports/CNIPT/F1",
+            "folder_name": "F1",
+            "package_fingerprint": _A,
+            "family_id": "F1",
+            "analysis_type": "conventional_nipt",
+        },
+    ]
+    named = {("/imports/CNIPT/F1", "monogenic_nipt"): ("d2", "F1")}
+
+    await followed.end_changes_no_family_names(lambda: _Unnamed(rows, named))  # type: ignore[arg-type,return-value]
+    # The monogenic NIPT's reference replaced nothing of the conventional NIPT's delivery.
+    assert [(event["after"]["resolution"], event["after"]["imported_delivery_id"]) for event in recorded] == [
+        ("not_named", None)
+    ]
+
+    recorded.clear()
+    named[("/imports/CNIPT/F1", "conventional_nipt")] = ("d3", "F1")
+    await followed.end_changes_no_family_names(lambda: _Unnamed(rows, named))  # type: ignore[arg-type,return-value]
+    assert [(event["after"]["resolution"], event["after"]["imported_delivery_id"]) for event in recorded] == [
+        ("overwritten", "d3")
+    ]
 
 
 @pytest.mark.asyncio
@@ -723,7 +756,8 @@ class _Registration:
             return SimpleNamespace(scalar_one_or_none=lambda: previous)
         if sql.lstrip().startswith("UPDATE families") and params and "record" in params:
             self.written = {"key": params["record_key"], "record": json.loads(params["record"])}
-        return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: []))
+        # The family holds no other analysis, and no sample the package lists.
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [], first=lambda: None))
 
     async def commit(self) -> None:
         return None

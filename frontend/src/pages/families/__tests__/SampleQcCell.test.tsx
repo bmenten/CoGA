@@ -60,7 +60,8 @@ const metric = (overrides: Partial<SampleSequencingQcMetricOut> = {}): SampleSeq
   warn_value: 20,
   error_value: 10,
   verdict: 'warn',
-  profile_key: 'default',
+  warn_profile_key: 'default',
+  error_profile_key: 'default',
   ...overrides,
 });
 

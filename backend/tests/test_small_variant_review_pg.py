@@ -24,7 +24,13 @@ from backend.app.services import clinical_audit_service
 from backend.app.services import small_variant_review_pg
 from backend.app.services import small_variant_review_tags
 from backend.app.services import structural_variant_review_pg
+from backend.app.services.analysis_reviews import ScopedReview
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services.small_variant_review_acmg import _normalize_acmg_payload
+from backend.app.services.small_variant_review_repository import _review_document_has_any_content
+
+# A family that holds no analysis: its reviews are stored, and read, under none.
+_WHOLE = AnalysisScope()
 
 
 class _FakeResult:
@@ -69,8 +75,8 @@ def test_a_classification_filter_matches_a_review_whatever_the_case_of_its_label
         ]
     )
     for wanted in ("Likely pathogenic - class 4", "Likely Pathogenic - class 4", " likely PATHOGENIC - class 4 "):
-        assert asyncio.run(lister(session, family_uuid="f1", classifications=[wanted])) == {"1-200-A-G"}, wanted
-    assert asyncio.run(lister(session, family_uuid="f1", classifications=["vus - CLASS 3"])) == {"1-300-A-G"}
+        assert asyncio.run(lister(session, family_uuid="f1", scope=_WHOLE, classifications=[wanted])) == {"1-200-A-G"}, wanted
+    assert asyncio.run(lister(session, family_uuid="f1", scope=_WHOLE, classifications=["vus - CLASS 3"])) == {"1-300-A-G"}
 
 
 def test_a_compound_het_pair_classification_matches_whatever_its_case() -> None:
@@ -87,7 +93,7 @@ def test_a_compound_het_pair_classification_matches_whatever_its_case() -> None:
     )
     assert asyncio.run(
         small_variant_review_pg.list_matching_small_variant_review_ids(
-            session, family_uuid="f1", classifications=["Likely Pathogenic - class 4"]
+            session, family_uuid="f1", scope=_WHOLE, classifications=["Likely Pathogenic - class 4"]
         )
     ) == {"1-100-A-G"}
 
@@ -145,7 +151,7 @@ def test_a_classification_filter_keeps_a_review_by_the_class_it_shows(wanted, ke
     session = _RecordingSession(_SHOWN_CLASS_REVIEWS)
     assert asyncio.run(
         small_variant_review_pg.list_matching_small_variant_review_ids(
-            session, family_uuid="f1", classifications=[wanted]
+            session, family_uuid="f1", scope=_WHOLE, classifications=[wanted]
         )
     ) == kept
 
@@ -156,6 +162,7 @@ def test_a_classification_filter_with_several_classes_keeps_a_review_showing_any
         small_variant_review_pg.list_matching_small_variant_review_ids(
             session,
             family_uuid="f1",
+            scope=_WHOLE,
             # The P/LP/VUS quick choice.
             classifications=["Pathogenic - class 5", "Likely pathogenic - class 4", "VUS - class 3"],
         )
@@ -166,7 +173,7 @@ def test_a_classification_filter_with_a_tag_filter_needs_both() -> None:
     session = _RecordingSession(_SHOWN_CLASS_REVIEWS)
     assert asyncio.run(
         small_variant_review_pg.list_matching_small_variant_review_ids(
-            session, family_uuid="f1", classifications=["Likely pathogenic - class 4"], tags=["report"]
+            session, family_uuid="f1", scope=_WHOLE, classifications=["Likely pathogenic - class 4"], tags=["report"]
         )
     ) == {"1-100-A-G"}
 
@@ -202,6 +209,7 @@ async def test_get_small_variant_review_map_binds_variant_ids_as_one_array() -> 
     result = await small_variant_review_pg.get_small_variant_review_map(
         session,
         family_uuid="family-uuid",
+        scope=_WHOLE,
         variant_ids=["var-1", ""],
     )
 
@@ -285,7 +293,7 @@ async def test_a_review_list_selects_every_field_a_review_is_served_with() -> No
     session = _RecordingSession([_STORED_REVIEW])
 
     served = await small_variant_review_pg.get_small_variant_review_map(
-        session, family_uuid="family-uuid", variant_ids=["var-1"]
+        session, family_uuid="family-uuid", scope=_WHOLE, variant_ids=["var-1"]
     )
 
     recording = _ReadRecording(_STORED_REVIEW)
@@ -329,7 +337,7 @@ async def test_a_review_holding_only_an_acmg_record_counts_as_reviewed() -> None
     paired_only = {**acmg_only, "variant_id": "var-2", "acmg": None, "compound_het_partner_variant_ids": ["var-9"]}
 
     summary = await small_variant_review_pg.get_small_variant_review_summary(
-        _ProjectingSession([acmg_only, paired_only]), family_uuid="family-uuid"
+        _ProjectingSession([acmg_only, paired_only]), family_uuid="family-uuid", scope=_WHOLE
     )
 
     assert summary.reviewed_variant_count == 2
@@ -396,23 +404,23 @@ def _clear(monkeypatch, existing: dict, payload: SmallVariantReviewUpdate):
     async def _variant(**kwargs):
         return types.SimpleNamespace(variant_key=1, gene_symbols=[])
 
-    async def _fetch(session_, *, family_uuid, variant_id):
-        return existing
+    async def _fetch(session_, *, family_uuid, variant_id, scope):
+        return ScopedReview(own=existing)
 
-    async def _update(session_, **kwargs):
-        writes.append("update")
-        session.written = kwargs.get("fields")
-
-    async def _delete(session_, review_id):
-        writes.append("delete")
+    async def _write_own(session_, *, family_uuid, scope, reviews, fields, created_at):
+        # The family holds no analysis: no shared review to keep an emptied one for.
+        if _review_document_has_any_content(fields):
+            writes.append("update")
+            session.written = fields
+        elif reviews.own is not None:
+            writes.append("delete")
 
     async def _audit(session_, **kwargs):
         audits.append({**kwargs, "commits_before": session.commits})
 
     monkeypatch.setattr(small_variant_review_pg, "get_small_variant_family_record", _variant)
-    monkeypatch.setattr(small_variant_review_pg, "_fetch_review_row", _fetch)
-    monkeypatch.setattr(small_variant_review_pg, "_update_review_row", _update)
-    monkeypatch.setattr(small_variant_review_pg, "_delete_review_row", _delete)
+    monkeypatch.setattr(small_variant_review_pg, "_fetch_scoped_review", _fetch)
+    monkeypatch.setattr(small_variant_review_pg, "_write_own_review", _write_own)
     monkeypatch.setattr(small_variant_review_pg, "record_review_changes", _audit)
     context = types.SimpleNamespace(
         family_uuid="family-uuid",
@@ -421,6 +429,7 @@ def _clear(monkeypatch, existing: dict, payload: SmallVariantReviewUpdate):
         assembly_id="assembly-uuid",
         project_ids=[],
         affected_sample_names=[],
+        scope=_WHOLE,
     )
     user = types.SimpleNamespace(id=None, username="carol", email="carol@x.org", role="admin")
     asyncio.run(
@@ -672,7 +681,6 @@ def test_a_pair_save_keeps_a_pair_tag_the_review_holds(monkeypatch) -> None:
     monkeypatch.setattr(small_variant_review_pg, "variants_share_gene", lambda *args: True)
     monkeypatch.setattr(small_variant_review_pg, "has_affected_het_call", lambda *args: True)
     monkeypatch.setattr(small_variant_review_pg, "_clear_compound_het_group", _noop)
-    monkeypatch.setattr(small_variant_review_pg, "_insert_review_row", _noop)
 
     def pair(tags: list[str]) -> SmallVariantReviewUpdate:
         return SmallVariantReviewUpdate(

@@ -57,6 +57,7 @@ export type ApiContract = [
   Check<Fits<Api.ApiSampleIntegrityFetalSexCheck, Schema.SampleIntegrityFetalSexCheckOut>>,
   Check<Fits<Api.ApiSampleIntegrityCategoryQc, Schema.SampleIntegrityCategoryQcOut>>,
   Check<Fits<Api.ApiAnnotationModule, Schema.AnnotationModuleOut>>,
+  Check<Fits<Api.ApiAnalysisAnnotationManifest, Schema.AnalysisAnnotationManifestOut>>,
   Check<Fits<Api.ApiAnnotationManifest, Schema.AnnotationManifestOut>>,
   Check<Fits<Api.ApiClassificationDriftItem, Schema.ClassificationDriftItem>>,
   Check<Fits<Api.ApiClassificationDrift, Schema.ClassificationDriftOut>>,

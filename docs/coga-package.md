@@ -95,7 +95,7 @@ member's status unset without a word. Information of your own goes under `extra`
 | `files` | complete | every file of the package: `path` (in the folder, with `/`), `size` in bytes, and optionally `sha256` or `md5` | pipeline |
 | `qc` | no | the pipeline's QC: `status` (`pass`, `warn`, `fail`) and its `report`, a file of the package | pipeline |
 | `request_id` | no | the laboratory's request | samplesheet |
-| `reference` | no | the reference genome the run used (its FASTA's name); the family's annotation manifest records it as its Reference assembly | pipeline |
+| `reference` | no | the reference genome the run used (its FASTA's name); the annotation manifest of the package's analysis records it as its Reference assembly | pipeline |
 | `notes` | no | free text, shown with the delivery | pipeline |
 | `extra` | no | anything else, kept with the package and never read | pipeline |
 
@@ -119,7 +119,7 @@ member, also one without data of their own (a fetus).
 | `role` | no | `proband`, `father`, `mother`, `sibling`, `embryo` or `relative` |
 | `clinical_status` | no | `affected`, `unaffected` or `unknown` (left out: unknown) |
 | `carrier_status`, `carrier_type` | no | `carrier`, `not_carrier` or `unknown`; `obligate`, `proven`, `reported` or `inferred` |
-| `assay`, `assay_panel` | no | the sample's assay where it is not the family's (`nipt_cfdna` for a monogenic NIPT's maternal plasma, `cnipt_cfdna` for a conventional NIPT's) and its capture panel |
+| `assay`, `assay_panel` | no | the sample's assay where it is not the family's (`nipt_cfdna` for a monogenic NIPT's maternal plasma, `cnipt_cfdna` for a conventional NIPT's) and its capture panel, which CoGA keeps as the package's analysis's: a conventional NIPT's panel of the same plasma leaves the monogenic NIPT's artefact list as it was |
 | `hpo` | no | `present` and `absent`: HPO terms (`HP:0001250`) |
 | `related_to` | no | members this one is related to by an unknown degree (a PGT index on the mother's side) |
 | `same_individual_as` | no | other samples of the same person: a member of this package, or of another analysis's package the family already holds (a conventional NIPT's plasma names the monogenic NIPT's plasma of the same pregnancy) |
@@ -173,8 +173,10 @@ Reading the file ([coga_package.py](../backend/app/services/coga_package.py)):
   of the parent's sex where it is known;
 - a member's `same_individual_as` names each sample once (`package_same_individual_twice`) and
   not the member itself; a member of this file it names is not also its parent, child or
-  relative, and not of another known sex (`package_same_individual_invalid`). A sample the file
-  does not list is checked against the family below;
+  relative, and not of another known sex (`package_same_individual_invalid`). A sample is named as
+  its ID is written: one that differs from a member's ID only in case is refused
+  (`package_same_individual_invalid`). A sample the file does not list is checked against the
+  family below;
 - every dataset in `pipeline_used_pedigree` is one of the file's datasets.
 
 Against the folder and CoGA, when the import watcher reads the file
@@ -188,8 +190,11 @@ Against the folder and CoGA, when the import watcher reads the file
 - the package's validation with the manifest made from the file, and every file the import reads
   listed;
 - the family and samples CoGA already holds: a sample a `same_individual_as` names that the
-  file does not list is an active member of the family, or the delivery needs attention
-  (`package_same_individual_outside`), and its import is refused.
+  file does not list is an active member of the family (its ID written as the family holds it),
+  or the delivery needs attention (`package_same_individual_outside`), and its import is refused.
+  A link between two samples the family holds without it is a warning
+  (`package_same_individual_not_made`): an update does not make it, an overwrite does. Both are
+  checked again when the family changes, as when the package that lists the sample is imported.
 
 ## What can be changed in CoGA
 

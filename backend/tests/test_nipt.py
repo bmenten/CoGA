@@ -27,7 +27,8 @@ def _member(
     if assay:
         metadata["assays"] = [assay]
     if assay_panel:
-        metadata["assay_panel"] = assay_panel
+        # The capture panel the monogenic NIPT's package named, kept as that analysis's.
+        metadata["assay_panels"] = {"monogenic_nipt": assay_panel}
     return FamilyMemberOut(
         sample_id=sample_id,
         role=role,  # type: ignore[arg-type]
@@ -189,6 +190,20 @@ def test_nipt_assay_key_reads_panel_from_cfdna_metadata() -> None:
     trio = resolve_nipt_trio(family)
     assert trio is not None
     assert nipt_assay_key(family, trio) == "nipt_panel_v2"
+
+
+def test_nipt_assay_key_reads_the_monogenic_nipts_panel_only() -> None:
+    # One plasma, the sample of a monogenic NIPT on a capture panel and of a conventional NIPT
+    # whose package names a panel of its own: the artifact list is the monogenic NIPT's.
+    plasma = _member("cfdna-1", "mother", assay=NIPT_CFDNA_ASSAY)
+    plasma.sample_metadata["assay_panels"] = {"monogenic_nipt": "nipt_panel_v2", "conventional_nipt": "lowpass"}
+    family = _family([_member("father-1", "father"), plasma])
+    trio = resolve_nipt_trio(family)
+    assert trio is not None
+    assert nipt_assay_key(family, trio) == "nipt_panel_v2"
+    # The conventional NIPT's panel alone: the default scope.
+    plasma.sample_metadata["assay_panels"] = {"conventional_nipt": "lowpass"}
+    assert nipt_assay_key(family, trio) == DEFAULT_NIPT_ASSAY_KEY
 
 
 def test_family_member_out_exposes_sample_metadata() -> None:

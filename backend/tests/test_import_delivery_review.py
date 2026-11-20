@@ -267,6 +267,13 @@ async def test_a_delivery_whose_members_differ_from_its_family_is_queued_only_to
         ({"state": "needs_attention", "issues": [{"code": "existing_family"}]}, {}, 400),
         # The members differ, and the family does not exist: nothing a choice resolves.
         ({"state": "needs_attention", "issues": [{"code": "package_members_differ_from_family"}]}, {"conflict_mode": "overwrite"}, 409),
+        # A member's known value stated otherwise, in a family that holds another analysis: no
+        # choice imports it, an overwrite neither.
+        (
+            {"state": "needs_attention", "issues": [{"code": "existing_family"}, {"code": "package_member_values_conflict"}]},
+            {"conflict_mode": "overwrite"},
+            409,
+        ),
         ({}, {"conflict_mode": "update"}, 400),
         ({"warnings": [{"code": "optional_dataset_missing"}]}, {}, 400),
         ({"project_id": None}, {}, 409),

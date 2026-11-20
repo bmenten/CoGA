@@ -556,15 +556,37 @@ it with **Correct…** to the family's members, or have an administrator approve
 inactive). Either change is a new version of the family's structure, on its audit trail, and
 marks its analyses to be redone.
 
+**A family with another analysis.** A family can hold several analyses, each from a package of its
+own: the monogenic and the conventional NIPT of one pregnancy, or short-read and then long-read
+WGS. The package of one of them changes nothing the family already knows of the other's members:
+
+- The members its package does not list stay, the other analyses' and those added in **Edit
+  members**. *Overwrite* makes inactive only a member that only this analysis's earlier package
+  listed.
+- A member the family holds keeps its sex, parents, role, statuses and links. The package fills
+  in only what the family does not know yet (the delivery warns of it), and adds the members and
+  links the family lacks.
+- A package that says otherwise of a member (*affected* where the family says *unaffected*,
+  another father) needs attention and its import is refused, with *Update* and *Overwrite* alike,
+  before anything is written. The message names the member and both values: correct the package
+  with **Correct…**, or the member in **Edit members** first.
+- The capture panel a package names for a sample is kept per analysis: the conventional NIPT's
+  panel leaves the monogenic NIPT's artefact list as it was.
+
+Two imports of one family run one after the other: the second waits until the first has ended,
+and its log says so.
+
 **Two samples of one person.** A package may link a member to another sample of the same person with
 `same_individual_as`: a conventional NIPT's plasma names the monogenic NIPT's plasma of the same
 pregnancy when the two carry different sample IDs. The pedigree then draws them as one person, and
 Sample QC expects their genotypes identical. A sample the package does not list must already be an
-active member of the family; otherwise the delivery needs attention and its import is refused before
-anything is written. Import the monogenic NIPT's package first, or leave the link out and link the two
-samples afterwards in the family's **Family members** table (**Edit members**, column **Same
-individual**). *Update* adds the package's links of the members it adds, and *Overwrite* keeps such a
-link to another analysis's member.
+active member of the family, its ID written exactly as the family holds it; otherwise the delivery
+needs attention and its import is refused before anything is written. Import the monogenic NIPT's
+package first (the delivery is then checked again), or leave the link out and link the two samples
+afterwards in the family's **Family members** table (**Edit members**, column **Same individual**).
+*Update* adds the package's links of the members it adds; a link between two samples the family already
+holds is not made, and the delivery and the import warn of it. *Overwrite* makes the package's links the
+family's, and keeps such a link to another analysis's member.
 
 **An existing family imported into another project.** The family is linked to that **Project**
 too, and before its datasets the import gives the project the family's small and structural
@@ -729,13 +751,21 @@ Paraphase results are replaced.
 - **Analysis pipeline settings**: the pipeline's configuration (genome build, which caller produced
   what, VEP cache, repeat catalogue, stages run) is recorded at import, per analysis. It shows in a panel
   on the family page and in the same section of the family report: a family sequenced short-read and
-  then long-read has a panel of each run, named with its analysis. Tool versions are in the report's
-  provenance footer.
+  then long-read has a panel of each run, named with its analysis. In a family of several analyses
+  each panel names its analysis, and the report shows the run of the analysis it signs out. Tool
+  versions are in the report's provenance footer.
+- **Imported again**: an import of an analysis replaces what an earlier import of it recorded, its run
+  settings and each sample's sequencing QC and alignment. One the new package does not carry is gone,
+  not shown as current.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete*, and its report can be signed out only with an acknowledgement
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). The warning stays until an
   import has imported each failed dataset again, or an upload has brought it again, for each callset and
   each set of samples it failed for.
+  - Each failure records the analysis whose import it failed in. In a family of several analyses, the
+    warning names it (*failed for snv (long-read WGS)*), that analysis's sign-out needs the
+    acknowledgement and another analysis's does not, and only an import of the same analysis (or an
+    upload) imports it again: another analysis's import of the same dataset brings its own data.
   - An **update** will do. A dataset or sample it skips because its data is there is not imported again,
     and stays named.
   - A dataset imported with warnings counts. So does one the package carries nothing for that CoGA

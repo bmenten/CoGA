@@ -18,6 +18,14 @@ from ..schemas import (
     StructuralVariantReviewUpdate,
 )
 from . import cnv_acmg_points
+from .analysis_reviews import (
+    ScopedReview,
+    effective_reviews_with_content,
+    keeps_own_review,
+    scope_review_clause,
+    scoped_review,
+)
+from .analysis_scope import AnalysisScope
 from .clinical_audit_service import record_structural_review_changes
 from .family_metadata_context import FamilyMetadataContext
 from .access_control import CurrentUser, RecordNotVisible
@@ -154,17 +162,21 @@ def _serialize_preset(row: dict[str, Any]) -> StructuralVariantFilterPresetOut:
     )
 
 
-async def _fetch_review_row(
-    session: AsyncSession,
-    *,
-    family_uuid: str,
-    variant_id: str,
-) -> dict[str, Any] | None:
-    result = await session.execute(
-        text(
-            """
-            SELECT
+def _review_has_content(document: dict[str, Any]) -> bool:
+    """Whether an SV review holds anything: a classification, a tag, a note or a CNV scoring.
+    An empty one is no review (it hides a shared review: ``analysis_reviews``)."""
+    return bool(
+        str(document.get("classification") or "").strip()
+        or _normalize_tags(document.get("tags") or [])
+        or str(document.get("note") or "").strip()
+        or _has_stored_record(document.get("cnv_acmg"))
+    )
+
+
+# Every column a review read serves, with the analysis it is stored under.
+_REVIEW_COLUMNS = """
                 id::text AS id,
+                analysis,
                 variant_id,
                 classification,
                 tags,
@@ -176,15 +188,77 @@ async def _fetch_review_row(
                 cnv_evidence_snapshot,
                 updated_by,
                 updated_at
+"""
+
+
+async def _fetch_scoped_review(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    variant_id: str,
+    scope: AnalysisScope,
+) -> ScopedReview:
+    """The scope's own review of the SV (the one a save in it writes) and the shared one it
+    reads when it has none (``analysis_reviews.scoped_review``)."""
+    params: dict[str, Any] = {"family_id": family_uuid, "variant_id": variant_id}
+    belongs = scope_review_clause(scope, params)
+    result = await session.execute(
+        text(
+            f"""
+            SELECT {_REVIEW_COLUMNS}
             FROM structural_variant_reviews
             WHERE family_id = CAST(:family_id AS uuid)
               AND variant_id = :variant_id
+              AND {belongs}
             """
         ),
-        {"family_id": family_uuid, "variant_id": variant_id},
+        params,
     )
-    row = result.mappings().first()
-    return dict(row) if row is not None else None
+    return scoped_review((dict(row) for row in result.mappings().all()), scope)
+
+
+def _review_read(reviews: ScopedReview) -> dict[str, Any] | None:
+    """The review a save in a scope reads of an SV (its effective review), or None when it has
+    none or that review is empty."""
+    review = reviews.effective
+    return review if review is not None and _review_has_content(review) else None
+
+
+async def _effective_family_reviews(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    scope: AnalysisScope,
+    variant_ids: Sequence[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """By SV ID, the family's review the scope reads of each SV (of ``variant_ids``, or of
+    every SV), the empty ones left out (``analysis_reviews``).
+
+    The ids go as one text[] parameter, not one parameter per id (an expanding IN): a CSV
+    export reads up to 50,001 rows, and asyncpg refuses a statement with more than 32,767
+    parameters, so every export of a larger result failed before its row cap."""
+    params: dict[str, Any] = {"family_id": family_uuid}
+    belongs = scope_review_clause(scope, params)
+    of_variants = ""
+    if variant_ids is not None:
+        params["variant_ids"] = list(variant_ids)
+        of_variants = "AND variant_id = ANY(CAST(:variant_ids AS text[]))"
+    result = await session.execute(
+        text(
+            f"""
+            SELECT {_REVIEW_COLUMNS}
+            FROM structural_variant_reviews
+            WHERE family_id = CAST(:family_id AS uuid)
+              AND variant_id IS NOT NULL
+              {of_variants}
+              AND {belongs}
+            """
+        ),
+        params,
+    )
+    return effective_reviews_with_content(
+        (dict(row) for row in result.mappings().all()), scope, _review_has_content
+    )
 
 
 async def get_structural_variant_review_map(
@@ -192,51 +266,31 @@ async def get_structural_variant_review_map(
     *,
     family_uuid: str,
     variant_ids: Sequence[str],
+    scope: AnalysisScope,
 ) -> dict[str, SmallVariantReviewOut]:
+    """The review of each of these SVs the analysis ``scope`` reads: its own, else the shared
+    one (``analysis_reviews``)."""
     normalized_variant_ids = [str(variant_id).strip() for variant_id in variant_ids if str(variant_id).strip()]
     if not normalized_variant_ids:
         return {}
-    # The ids go as one text[] parameter, not one parameter per id (an expanding IN): a CSV
-    # export reads up to 50,001 rows, and asyncpg refuses a statement with more than 32,767
-    # parameters, so every export of a larger result failed before its row cap.
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                variant_id,
-                classification,
-                tags,
-                tag_metadata,
-                note,
-                cnv_acmg,
-                cnv_point_total,
-                cnv_class,
-                updated_by,
-                updated_at
-            FROM structural_variant_reviews
-            WHERE family_id = CAST(:family_id AS uuid)
-              AND variant_id = ANY(CAST(:variant_ids AS text[]))
-            """
-        ),
-        {"family_id": family_uuid, "variant_ids": normalized_variant_ids},
+    reviews = await _effective_family_reviews(
+        session, family_uuid=family_uuid, scope=scope, variant_ids=normalized_variant_ids
     )
-    return {
-        str(document["variant_id"]): _serialize_review(document)
-        for document in (dict(row) for row in result.mappings().all())
-        if document.get("variant_id") is not None
-    }
+    return {variant_id: _serialize_review(document) for variant_id, document in reviews.items()}
 
 
 async def list_matching_structural_variant_review_ids(
     session: AsyncSession,
     *,
     family_uuid: str,
+    scope: AnalysisScope,
     classifications: Sequence[str] | None = None,
     tags: Sequence[str] | None = None,
     has_notes: bool = False,
 ) -> set[str]:
     """The SVs of the family whose review the review filters keep: a classification, a review
-    tag, a saved note (each set filter must hold).
+    tag, a saved note (each set filter must hold). Each SV's review is the one the analysis
+    ``scope`` reads (``analysis_reviews``).
 
     A classification keeps a review by the class the SV table and cards show for it
     (``review_shows_class``, the small-variant filters' rule, the owner's decision of
@@ -250,21 +304,10 @@ async def list_matching_structural_variant_review_ids(
     normalized_tags = {value.strip() for value in (tags or []) if str(value).strip()}
     if not requested_classes and not normalized_tags and not has_notes:
         return set()
-    result = await session.execute(
-        text(
-            """
-            SELECT variant_id, classification, tags, note
-            FROM structural_variant_reviews
-            WHERE family_id = CAST(:family_id AS uuid)
-            """
-        ),
-        {"family_id": family_uuid},
-    )
     matching_ids: set[str] = set()
-    for document in (dict(row) for row in result.mappings().all()):
-        variant_id = str(document.get("variant_id") or "")
-        if not variant_id:
-            continue
+    for variant_id, document in (
+        await _effective_family_reviews(session, family_uuid=family_uuid, scope=scope)
+    ).items():
         matches_classification = not requested_classes or review_shows_class(
             document.get("classification"), document.get("tags"), requested_classes
         )
@@ -281,25 +324,17 @@ async def get_structural_variant_review_summary(
     session: AsyncSession,
     *,
     family_uuid: str,
+    scope: AnalysisScope,
 ) -> SmallVariantReviewSummaryOut:
-    result = await session.execute(
-        text(
-            """
-            SELECT variant_id, classification, tags, note
-            FROM structural_variant_reviews
-            WHERE family_id = CAST(:family_id AS uuid)
-            """
-        ),
-        {"family_id": family_uuid},
-    )
+    """The counts of the family's SV reviews in the analysis ``scope`` reads them for: its own
+    and the shared ones (``analysis_reviews``)."""
     reviewed_variant_ids: set[str] = set()
     noted_variant_ids: set[str] = set()
     tag_variant_ids: dict[str, set[str]] = {}
 
-    for document in (dict(row) for row in result.mappings().all()):
-        variant_id = str(document.get("variant_id") or "")
-        if not variant_id:
-            continue
+    for variant_id, document in (
+        await _effective_family_reviews(session, family_uuid=family_uuid, scope=scope)
+    ).items():
         if (
             str(document.get("classification") or "").strip()
             or str(document.get("note") or "").strip()
@@ -355,6 +390,12 @@ async def upsert_structural_variant_review(
     payload: StructuralVariantReviewUpdate,
     user: CurrentUser,
 ) -> SmallVariantReviewOut:
+    """Save the SV's review in the analysis the family's SVs are read for (``context.scope``):
+    the analysis's own review, stored under it (``analysis_reviews``). A family that holds
+    several analyses with SVs of their own names the analysis (``AnalysisNotNamed``, 422
+    otherwise). A save in an analysis that has no review of its own of the SV writes one, from
+    the shared review it read and the save's values; the shared review stays as it is."""
+    scope = context.scope.require_named()
     normalized_variant_id = str(variant_id).strip()
     if not normalized_variant_id:
         raise HTTPException(status_code=400, detail="Variant id is required")
@@ -378,18 +419,20 @@ async def upsert_structural_variant_review(
         )
         evidence_source = (
             sv_record,
-            await read_structural_evidence_versions(session, context=context, user=user),
+            await read_structural_evidence_versions(session, context=context, record=sv_record),
         )
-    # One save of this variant's review at a time, checked against the version the
-    # client loaded.
+    # One save of this variant's review at a time, in every analysis, checked against the
+    # version the client loaded: the review the analysis reads, its own else the shared one.
     await _lock_review(
         session, scope="strv", family_uuid=context.family_uuid, variant_id=normalized_variant_id
     )
-    existing = await _fetch_review_row(
+    reviews = await _fetch_scoped_review(
         session,
         family_uuid=context.family_uuid,
         variant_id=normalized_variant_id,
+        scope=scope,
     )
+    existing = _review_read(reviews)
     _raise_on_stale_review(payload, existing, _serialize_review)
     # Only a tag the save adds must be one the family may use, and only then is the
     # allowed-tag set (a GROUP BY/ARRAY_AGG join) resolved; one the review holds is
@@ -419,7 +462,8 @@ async def upsert_structural_variant_review(
 
     async def _audit(new_state: dict[str, Any] | None) -> None:
         # The before -> after of this save in the immutable clinical audit trail, on the
-        # family's hash chain and in this save's transaction, as for small variants.
+        # family's hash chain and in this save's transaction, as for small variants, naming
+        # the analysis whose review it is.
         await record_structural_review_changes(
             session,
             family_uuid=context.family_uuid,
@@ -428,6 +472,7 @@ async def upsert_structural_variant_review(
             user=user,
             existing=existing,
             new_state=new_state,
+            analysis=scope.review_analysis,
         )
 
     if (
@@ -437,9 +482,25 @@ async def upsert_structural_variant_review(
         and cnv_blob is None
     ):
         if existing is not None:
-            await session.execute(
-                text("DELETE FROM structural_variant_reviews WHERE id = CAST(:review_id AS uuid)"),
-                {"review_id": existing["id"]},
+            # The analysis's own review is deleted, or kept empty to hide a shared one.
+            await _write_own_review(
+                session,
+                context=context,
+                scope=scope,
+                reviews=reviews,
+                values={
+                    "variant_id": normalized_variant_id,
+                    "classification": None,
+                    "tags": [],
+                    "tag_metadata": {},
+                    "note": None,
+                    "cnv_acmg": None,
+                    "cnv_point_total": None,
+                    "cnv_class": None,
+                    "cnv_evidence_snapshot": None,
+                    "updated_by": user.username,
+                    "updated_at": now,
+                },
             )
             await _audit(None)
             await session.commit()
@@ -452,28 +513,90 @@ async def upsert_structural_variant_review(
         cnv_evidence_snapshot = None
     else:
         cnv_evidence_snapshot = (existing or {}).get("cnv_evidence_snapshot")
-    fields = {
-        "variant_id": normalized_variant_id,
-        "classification": normalized_classification,
-        "tags_json": _json_payload(normalized_tags),
-        "tag_metadata_json": _json_payload(
-            _merge_tag_metadata(
+    await _write_own_review(
+        session,
+        context=context,
+        scope=scope,
+        reviews=reviews,
+        values={
+            "variant_id": normalized_variant_id,
+            "classification": normalized_classification,
+            "tags": normalized_tags,
+            "tag_metadata": _merge_tag_metadata(
                 existing_metadata=(existing or {}).get("tag_metadata"),
                 previous_tags=(existing or {}).get("tags", []),
                 next_tags=normalized_tags,
                 username=user.username,
                 timestamp=now,
-            )
-        ),
-        "note": normalized_note,
-        "cnv_acmg_json": _cnv_json_or_none(cnv_blob),
-        "cnv_point_total": cnv_point_total,
-        "cnv_class": cnv_class,
-        "cnv_evidence_snapshot_json": _cnv_json_or_none(cnv_evidence_snapshot),
-        "updated_by": user.username,
-        "updated_at": now,
+            ),
+            "note": normalized_note,
+            "cnv_acmg": cnv_blob,
+            "cnv_point_total": cnv_point_total,
+            "cnv_class": cnv_class,
+            "cnv_evidence_snapshot": cnv_evidence_snapshot,
+            "updated_by": user.username,
+            "updated_at": now,
+        },
+    )
+    await _audit(
+        {
+            "classification": normalized_classification,
+            "tags": normalized_tags,
+            "note": normalized_note,
+            "cnv_acmg": cnv_blob,
+            "cnv_point_total": cnv_point_total,
+            "cnv_class": cnv_class,
+        }
+    )
+    await session.commit()
+    refreshed = (
+        await _fetch_scoped_review(
+            session,
+            family_uuid=context.family_uuid,
+            variant_id=normalized_variant_id,
+            scope=scope,
+        )
+    ).own
+    if refreshed is None:
+        raise HTTPException(status_code=500, detail="Review update failed")
+    return _serialize_review(refreshed)
+
+
+async def _write_own_review(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    scope: AnalysisScope,
+    reviews: ScopedReview,
+    values: dict[str, Any],
+) -> None:
+    """Write ``values`` as the scope's own review of an SV (``reviews``: its own and the shared
+    one): its own is updated, or stored when it has none; the shared review stays as it is. A
+    review that holds nothing is deleted, or kept empty when it hides a shared review that holds
+    something (``analysis_reviews.keeps_own_review``)."""
+    keep = keeps_own_review(reviews, _review_has_content, values)
+    if reviews.own is not None and not keep:
+        await session.execute(
+            text("DELETE FROM structural_variant_reviews WHERE id = CAST(:review_id AS uuid)"),
+            {"review_id": reviews.own["id"]},
+        )
+        return
+    if not keep:
+        return
+    fields = {
+        "variant_id": values["variant_id"],
+        "classification": values["classification"],
+        "tags_json": _json_payload(values["tags"]),
+        "tag_metadata_json": _json_payload(values["tag_metadata"]),
+        "note": values["note"],
+        "cnv_acmg_json": _cnv_json_or_none(values["cnv_acmg"]),
+        "cnv_point_total": values["cnv_point_total"],
+        "cnv_class": values["cnv_class"],
+        "cnv_evidence_snapshot_json": _cnv_json_or_none(values["cnv_evidence_snapshot"]),
+        "updated_by": values["updated_by"],
+        "updated_at": values["updated_at"],
     }
-    if existing is not None:
+    if reviews.own is not None:
         await session.execute(
             text(
                 """
@@ -492,65 +615,48 @@ async def upsert_structural_variant_review(
                 WHERE id = CAST(:review_id AS uuid)
                 """
             ),
-            {**fields, "review_id": existing["id"]},
+            {**fields, "review_id": reviews.own["id"]},
         )
-    else:
-        await session.execute(
-            text(
-                """
-                INSERT INTO structural_variant_reviews (
-                    family_id,
-                    variant_id,
-                    classification,
-                    tags,
-                    tag_metadata,
-                    note,
-                    cnv_acmg,
-                    cnv_point_total,
-                    cnv_class,
-                    cnv_evidence_snapshot,
-                    updated_by,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    CAST(:family_id AS uuid),
-                    :variant_id,
-                    :classification,
-                    CAST(:tags_json AS jsonb),
-                    CAST(:tag_metadata_json AS jsonb),
-                    :note,
-                    CAST(:cnv_acmg_json AS jsonb),
-                    :cnv_point_total,
-                    :cnv_class,
-                    CAST(:cnv_evidence_snapshot_json AS jsonb),
-                    :updated_by,
-                    :created_at,
-                    :updated_at
-                )
-                """
-            ),
-            {**fields, "family_id": context.family_uuid, "created_at": now},
-        )
-    await _audit(
-        {
-            "classification": normalized_classification,
-            "tags": normalized_tags,
-            "note": normalized_note,
-            "cnv_acmg": cnv_blob,
-            "cnv_point_total": cnv_point_total,
-            "cnv_class": cnv_class,
-        }
+        return
+    await session.execute(
+        text(
+            """
+            INSERT INTO structural_variant_reviews (
+                family_id,
+                analysis,
+                variant_id,
+                classification,
+                tags,
+                tag_metadata,
+                note,
+                cnv_acmg,
+                cnv_point_total,
+                cnv_class,
+                cnv_evidence_snapshot,
+                updated_by,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                CAST(:family_id AS uuid),
+                :analysis,
+                :variant_id,
+                :classification,
+                CAST(:tags_json AS jsonb),
+                CAST(:tag_metadata_json AS jsonb),
+                :note,
+                CAST(:cnv_acmg_json AS jsonb),
+                :cnv_point_total,
+                :cnv_class,
+                CAST(:cnv_evidence_snapshot_json AS jsonb),
+                :updated_by,
+                :updated_at,
+                :updated_at
+            )
+            """
+        ),
+        {**fields, "family_id": context.family_uuid, "analysis": scope.review_analysis},
     )
-    await session.commit()
-    refreshed = await _fetch_review_row(
-        session,
-        family_uuid=context.family_uuid,
-        variant_id=normalized_variant_id,
-    )
-    if refreshed is None:
-        raise HTTPException(status_code=500, detail="Review update failed")
-    return _serialize_review(refreshed)
 
 
 async def list_structural_variant_filter_presets(

@@ -27,6 +27,13 @@ writer starts while it reads, and it refuses rather than waits when a writer hol
 A writer that waited may find its family or sample deleted by the writer before it. It then
 writes nothing and answers 404, as it would have had it started after the delete.
 
+A package import holds one more lock, its family's import lock (:func:`hold_family_import`), from
+before its registration to its end: one import of a family at a time. It registers the family (its
+pedigree, its samples' metadata, its package record) before it takes the variant-write locks, so
+without it the imports of two analyses of one family could interleave, each writing from what it
+had read before the other wrote. Keyed by the family's ID, since a new family has no row yet, and
+held on a connection of its own, checked as the variant-write hold is.
+
 A lock held for a whole package import (:func:`hold_family_variant_writes`) lives on a
 connection of its own, and goes with it: Postgres releases it when the connection is lost,
 and nothing tells the import, which would go on writing beside the next writer. Such a
@@ -59,6 +66,8 @@ STRUCTURAL_VARIANTS = "structural_variants"
 VARIANT_TYPES: tuple[str, ...] = (SMALL_VARIANTS, STRUCTURAL_VARIANTS)
 
 _LOCK = text("SELECT pg_advisory_xact_lock(hashtext(:k))")
+# Exclusive and without waiting: False when another session holds the key.
+_TRY_LOCK = text("SELECT pg_try_advisory_xact_lock(hashtext(:k))")
 # Shared and without waiting: granted unless a writer (an exclusive holder) holds the key,
 # beside any number of other shared holders.
 _TRY_SHARE = text("SELECT pg_try_advisory_xact_lock_shared(hashtext(:k))")
@@ -198,6 +207,50 @@ def watch_family_variant_holds() -> Iterator[Callable[[], Awaitable[None]]]:
 
 
 @asynccontextmanager
+async def _held(
+    lock_session: AsyncSession, keys: frozenset[str], *, lost: str, what: str, owner: str
+) -> AsyncIterator[None]:
+    """Keep ``keys``, taken in ``lock_session``'s transaction, for the block: the task and the
+    tasks it starts in the block hold them (``_held_keys``), a ``watch_family_variant_holds``
+    block checks the connection (raising :class:`VariantWriteHoldLost` with ``lost`` when it is
+    gone), and the transaction ends with the block. ``what`` and ``owner`` name the locks and
+    their family in the line logged when that end fails."""
+    hold = _Hold(keys)
+    # One use of the lock's session at a time: a check from another task, or the end.
+    in_use = asyncio.Lock()
+
+    async def probe() -> None:
+        async with in_use:
+            if not hold.active:
+                return
+            try:
+                await lock_session.execute(_ALIVE)
+            except Exception as exc:
+                raise VariantWriteHoldLost(lost) from exc
+
+    hold.probe = probe
+    watched = _watched.get()
+    if watched is not None:
+        watched.append(hold)
+    token = _holds.set((*_holds.get(), hold))
+    try:
+        yield
+    finally:
+        # No check starts from here on; one already running ends before the rollback.
+        hold.active = False
+        if watched is not None:
+            watched.remove(hold)
+        _holds.reset(token)
+        async with in_use:
+            try:
+                await lock_session.rollback()
+            except Exception:  # the block's own outcome stands
+                # A connection whose rollback fails is discarded, and Postgres releases
+                # its locks with it.
+                logger.warning("Could not end the %s lock transaction of %s", what, owner, exc_info=True)
+
+
+@asynccontextmanager
 async def hold_family_variant_writes(
     family_uuid: str, *, samples: Collection[str] | None = None
 ) -> AsyncIterator[None]:
@@ -218,43 +271,51 @@ async def hold_family_variant_writes(
         return
     async with get_postgres_sessionmaker()() as lock_session:
         await lock_family_variant_writes(lock_session, family_uuid, VARIANT_TYPES, samples=samples)
-        hold = _Hold(keys)
-        # One use of the lock's session at a time: a check from another task, or the end.
-        in_use = asyncio.Lock()
-
-        async def probe() -> None:
-            async with in_use:
-                if not hold.active:
-                    return
-                try:
-                    await lock_session.execute(_ALIVE)
-                except Exception as exc:
-                    raise VariantWriteHoldLost(
-                        f"The connection that held family {family_uuid}'s variant-write locks "
-                        "was lost, and the locks with it."
-                    ) from exc
-
-        hold.probe = probe
-        watched = _watched.get()
-        if watched is not None:
-            watched.append(hold)
-        token = _holds.set((*_holds.get(), hold))
-        try:
+        async with _held(
+            lock_session,
+            keys,
+            lost=f"The connection that held family {family_uuid}'s variant-write locks was lost, and the locks with it.",
+            what="variant-write",
+            owner=f"family {family_uuid}",
+        ):
             yield
-        finally:
-            # No check starts from here on; one already running ends before the rollback.
-            hold.active = False
-            if watched is not None:
-                watched.remove(hold)
-            _holds.reset(token)
-            async with in_use:
-                try:
-                    await lock_session.rollback()
-                except Exception:  # the block's own outcome stands
-                    # A connection whose rollback fails is discarded, and Postgres releases
-                    # its locks with it.
-                    logger.warning(
-                        "Could not end the variant-write lock transaction of family %s",
-                        family_uuid,
-                        exc_info=True,
-                    )
+
+
+def family_import_lock_key(family_identifier: str) -> str:
+    return f"family-import:{family_identifier}"
+
+
+@asynccontextmanager
+async def hold_family_import(
+    family_identifier: str, *, waiting: Callable[[], Awaitable[None]] | None = None
+) -> AsyncIterator[None]:
+    """One package import of a family at a time, whichever worker or process runs it: hold the
+    family's import lock for the whole block, on a Postgres connection of its own, as
+    :func:`hold_family_variant_writes` holds the variant-write locks.
+
+    An import writes its family from its registration (the pedigree, the samples' metadata, its
+    package record) to its end (its datasets, a restore, a family it created removed again), and
+    takes the variant-write locks only after its registration has committed. So without this, the
+    imports of two analyses of one family (a monogenic and a conventional NIPT, each from a package
+    of its own) could interleave: one registering while the other's loaders write the samples'
+    metadata, or restoring, putting back its package record or removing the family it created
+    while the other registers into it. Keyed by the family's ID, which a new family has before it
+    has a row. ``waiting`` is awaited once when another import holds the lock, before this one
+    waits for it. Taken before any other lock of the family, by an import only."""
+    key = family_import_lock_key(family_identifier)
+    if key in _held_keys():
+        yield
+        return
+    async with get_postgres_sessionmaker()() as lock_session:
+        if not (await lock_session.execute(_TRY_LOCK, {"k": key})).scalar_one():
+            if waiting is not None:
+                await waiting()
+            await lock_session.execute(_LOCK, {"k": key})
+        async with _held(
+            lock_session,
+            frozenset({key}),
+            lost="The connection that held the family's import lock was lost, and the lock with it.",
+            what="import",
+            owner="the family of an import",
+        ):
+            yield

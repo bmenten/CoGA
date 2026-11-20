@@ -261,6 +261,14 @@ def files_after_commit(tmp_path_factory) -> dict[str, Any]:
         mp.undo()
 
 
+def _scope_jobs(flag: dict) -> dict:
+    """Each failure the flag records, by its dataset, as its scope and job."""
+    return {
+        name: [{"scope": item["scope"], "job_id": item["job_id"]} for item in items]
+        for name, items in flag["failed_scopes"].items()
+    }
+
+
 def test_the_family_is_made_with_its_members(files_after_commit) -> None:
     assert files_after_commit["created"] == 200
 
@@ -420,6 +428,7 @@ async def _flags_cleared(run: str) -> dict[str, Any]:
         None,
         at="2026-10-27T08:00:00+00:00",
         job_id=None,
+        analysis_type=None,
         failed=["repeats_trgt"],
         imported=[],
         scopes={"repeats_trgt": {"source": None, "samples": [child]}},
@@ -429,12 +438,14 @@ async def _flags_cleared(run: str) -> dict[str, Any]:
         flag,
         at="2026-10-27T09:00:00+00:00",
         job_id=None,
+        analysis_type=None,
         failed=["repeats_trgt"],
         imported=[],
         scopes={"repeats_trgt": {"source": None, "samples": [child, father]}},
         imported_scopes={},
     )
     stopped = ImportMark.begin(
+        analysis_type="unspecified",
         job_id=None, datasets=["coverage"], scopes={"coverage": {"source": None, "samples": [child]}}
     )
     out: dict[str, Any] = {"steps": {}, "names": names, "stopped": stopped.key}
@@ -525,7 +536,7 @@ def test_a_sample_deletion_strikes_the_sample_off_the_flag_and_the_stopped_impor
     # that stopped while writing the child's coverage alone is gone: no upload or import can
     # bring the child's data again.
     assert step["flag"]["failed_datasets"] == ["repeats_trgt"]
-    assert step["flag"]["failed_scopes"] == {
+    assert _scope_jobs(step["flag"]) == {
         "repeats_trgt": [{"scope": {"source": None, "samples": [father]}, "job_id": None}]
     }
     assert step["unfinished"] is None

@@ -16,6 +16,17 @@ The page opens with the **Phenotype priority (Exomiser-style)** preset on the **
 > low-quality call, or a variant an affected member does not carry is not shown. Press **Clear all
 > filters** before you conclude that a variant is not in the data.
 
+### A family with several analyses
+
+A family can hold several analyses, on the same DNA or on different samples of one person: short-read
+and then long-read WGS, for instance. Each stays apart. When two or more of them have small variants
+of their own, the page reads one analysis at a time: pick it in the list beside the family's name (the
+analysis imported last is shown first). The list, its counts, the filters, the ranking, the CSV
+export and the variant summary are that analysis's alone, and a review you save is that analysis's
+review: a variant both callsets hold has a review in each analysis, and each sign-out freezes its own.
+An inheritance filter reads the members the analysis sequenced. The **Structural variants** page
+offers the same choice, and the genome view reads the analysis the page you came from named.
+
 ### Filters and presets
 
 The filters sit under **Advanced filters**, closed when the page opens, one category to a row across
@@ -133,7 +144,9 @@ The card's columns:
   thresholds are seqr's, from ClinGen's calibration of the predictors; SpliceAI uses the cut-offs of
   CoGA's ACMG evaluation. pLI and Missense Z describe the gene and have no dot.
 
-*Expanded carrier screening* is for couples only. It keeps:
+*Expanded carrier screening* is for couples only. The couple is the two partners the family links as a
+couple, else its mother and father, else its two people. Two samples linked as the same individual are
+one person, never a couple: a family of one person sampled twice has no couple. It keeps:
 
 - the genes where both partners carry a rare (below 1%) high- or moderate-impact variant;
 - the variants a female partner carries on chrX outside the pseudo-autosomal regions, which put a son

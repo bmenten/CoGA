@@ -45,6 +45,9 @@ It refers to exactly one signed version: the one it rests on.
     structure change that clears its data.
 
   The warning shows on every family page until an import or an upload has brought those datasets again.
+  In a family of several analyses it names the analysis each failure or unfinished import was for: the
+  sign-out of an analysis is held only by its own imports' marks and by those of an upload, a deletion
+  or a package that named no analysis.
 - A **Package folder changed after import** warning at the top when a folder the family was imported
   from (one per analysis) has changed since its import, naming the analysis and the files added, removed
   or changed; or **Package folder
@@ -87,7 +90,8 @@ stops for seven things:
    checks, and warnings (which do not stop sign-out on their own). Each concern names the sample, pair
    or child it is about; your reason covers all of them.
 5. **An incomplete import** (*Import incomplete*): import what failed again, or acknowledge with a
-   reason.
+   reason. Only what the analysis you sign out failed to import or did not finish, and what names no
+   analysis, holds its sign-out.
    - After an import that stopped part-way, re-run it with **overwrite**: an update skips data that is
      already there, partly written data too.
    - After a failed overwrite that could not put the family's data back, import the whole family again
@@ -124,7 +128,9 @@ code names.
 **A family of several analyses.** A family that holds more than one analysis (the monogenic and the
 conventional NIPT of one pregnancy, or short-read and then long-read WGS) signs each out on its own.
 Its signed version freezes that analysis's data only, and the checks read that analysis's data only.
-Data no analysis claims as its own, such as an upload, count for every analysis. Sign out the
+Data no analysis claims as its own, such as an upload, count for every analysis. Its reported variants
+are those its own reviews tag *Report*: a variant reported in one analysis is not in another's signed
+version unless you review it there too. Sign out the
 monogenic NIPT on its NIPT report and every other analysis here. When several remain, pick one under
 *Analysis to sign out*; the button names it (**Sign out the conventional NIPT**). *Sign-out of each
 analysis* lists each analysis with its latest signed version, report code, signer and date, and
@@ -158,9 +164,10 @@ phenotype context, the audit trail — and never fills that in from current data
 
 Of a family of several analyses, the page opens on the latest signed version of the analyses it signs
 out. A signed version names its analysis (*Clinical report — signed version 2 of the conventional
-NIPT*), and its *latest* and its check are that analysis's. Where the analysis holds no repeat
-expansions or Paraphase results but another analysis does, the section says *Not part of this record*:
-the other analysis's record freezes them.
+NIPT*), and its *latest* and its check are that analysis's, as are its annotation versions. Where
+the repeat expansions or Paraphase results are another analysis's, the section holds none and says so
+of its analysis (*The short-read WGS had no repeat-expansion calls.*): the other analysis's record
+freezes them.
 **Print signed version N** prints it; **Download signed version N (JSON)** returns the record itself.
 *Signed versions* lists the earlier ones.
 

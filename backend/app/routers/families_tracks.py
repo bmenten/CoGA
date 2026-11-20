@@ -41,6 +41,7 @@ from ..services.finding_review_pg import (
     finding_review_summary,
     upsert_finding_review,
 )
+from ..services.small_variant_callsets import MITO_CALLSET
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.pgt_analysis import family_pgt_analysis
 from ..services.paraphase_pg import get_family_paraphase_table_response
@@ -228,14 +229,21 @@ async def get_family_mitochondrial_dna(
     family_id: str,
     project_id: str | None = None,
     count_only: bool = False,
+    analysis: str | None = Query(
+        default=None, max_length=64, description="The family's analysis whose chrM calls are read (analysis_type)."
+    ),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyMitoDNAAnalysisOut:
+    # Of a family with several analyses with small variants, the analysis named, else the one
+    # whose package holds the mtDNA calls (analysis_scope.py).
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
+        holding=("small_variants", MITO_CALLSET),
     )
     return await get_family_mitochondrial_analysis_response(
         session,

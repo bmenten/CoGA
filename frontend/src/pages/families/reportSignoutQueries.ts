@@ -26,29 +26,18 @@ export const useReportSignouts = (familyId: string | undefined) =>
   });
 
 /**
- * The latest signed version of one analysis (`analysisType`, as the page signs it out): each
- * analysis of a family that holds several is signed out on its own, in the family's one series of
- * versions. Null for an analysis never signed out; the family's latest when the page signs out
- * the whole family (`analysisType` null: a family of one analysis or none).
+ * The latest signed version of one analysis (`analysisType`; null for a family that holds none):
+ * each analysis of a family is signed out on its own, in the family's one series of versions, and
+ * the sign-out check compares that analysis's latest. A page that signs out a family of one
+ * analysis names it (`soleAnalysis`), so it never reads another analysis's record as its own.
+ * Null for an analysis never signed out. For a signed record (`analysisType` the one it names):
+ * the version that supersedes it, or itself.
  */
 export const latestSignoutOf = (
   list: ApiReportSignoutList | undefined,
   analysisType: string | null,
-): ReportSignoutSummary | null => {
-  if (!list) return null;
-  if (analysisType === null) return list.latest;
-  return list.latest_per_analysis.find((entry) => entry.analysis_type === analysisType) ?? null;
-};
-
-/**
- * The latest signed version of the analysis a signed record names (`analysisType`; null for the
- * record of a family that held none): the version that supersedes it, or itself.
- */
-export const latestSignoutOfRecord = (
-  list: ApiReportSignoutList | undefined,
-  analysisType: string | null,
 ): ReportSignoutSummary | null =>
-  list?.latest_per_analysis.find((entry) => entry.analysis_type === analysisType) ?? null;
+  (list?.latest_per_analysis ?? []).find((entry) => entry.analysis_type === analysisType) ?? null;
 
 /** The query string that names the analysis a request is of; none for the whole family. */
 const analysisQuery = (analysisType: string | null) =>

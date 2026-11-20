@@ -63,8 +63,8 @@ async def set_family_annotation_manifest_endpoint(
     family_id: str,
     payload: AnnotationManifestUpdate,
     session: AsyncSession = Depends(get_postgres_session),
-    # Admin only: every later sign-out freezes this manifest into the signed report.
-    # The replacement is recorded on the family's clinical audit chain.
+    # Admin only: every later sign-out of the analysis freezes this manifest into the signed
+    # report. The replacement is recorded on the family's clinical audit chain.
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> AnnotationManifestOut:
     # A replacement through the API is recorded as 'manual'.
@@ -74,6 +74,7 @@ async def set_family_annotation_manifest_endpoint(
             family_id=family_id,
             user=user,
             modules=payload.modules,
+            analysis_type=payload.analysis_type,
         )
     )
 
@@ -82,12 +83,15 @@ async def set_family_annotation_manifest_endpoint(
 async def get_family_classification_drift_endpoint(
     family_id: str,
     project_id: str | None = None,
+    analysis: str | None = Query(
+        default=None, max_length=64, description="The family's analysis whose evidence is read (analysis_type)."
+    ),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> ClassificationDriftOut:
     return ClassificationDriftOut.model_validate(
         await evaluate_classification_drift(
-            session, family_id=family_id, user=user, project_id=project_id
+            session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
         )
     )
 

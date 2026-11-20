@@ -162,3 +162,8 @@ class FamilyMitoDNAAnalysisOut(BaseModel):
     qc_notes: List[str] = Field(default_factory=list)
     heteroplasmy_threshold: float = 0.02
     homoplasmy_threshold: float = 0.95
+    # The analysis whose calls are read (of a family with several analyses, the one named or the
+    # one whose package holds the mtDNA calls), whose QC profile judges the samples' mtDNA QC and
+    # whose review a review saved from the page is; None for a family read whole whose mtDNA
+    # calls no package record lists (mitochondrial_analysis._mtdna_analysis).
+    analysis_type: Optional[str] = None

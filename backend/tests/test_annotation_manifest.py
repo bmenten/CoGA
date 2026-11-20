@@ -125,32 +125,44 @@ def test_a_shapeit5_header_adds_no_version_beside_the_pipeline_record() -> None:
     }
 
 
-def _patch_manifest_read(monkeypatch, *, row) -> None:
+def _patch_manifest_read(monkeypatch, *, rows, metadata=None) -> None:
     async def _context(session, *, family_identifier, user, project_id=None):
         return types.SimpleNamespace(
             family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38"
         )
 
-    async def _row(session, family_uuid):
-        return row
+    async def _rows(session, family_uuid):
+        return list(rows)
+
+    async def _metadata(session, family_uuid):
+        return dict(metadata or {})
 
     async def _no_platform(session, assembly_id):
         return {}
 
     monkeypatch.setattr(ams, "build_family_metadata_context", _context)
-    monkeypatch.setattr(ams, "_family_manifest_row", _row)
+    monkeypatch.setattr(ams, "_family_manifest_rows", _rows)
+    monkeypatch.setattr(ams, "_family_metadata", _metadata)
     monkeypatch.setattr(ams, "_platform_modules", _no_platform)
 
 
 def test_a_family_without_a_recorded_manifest_states_no_pipeline_layer(monkeypatch) -> None:
-    # The pipeline layer is the family_annotation_manifest row and nothing else.
-    _patch_manifest_read(monkeypatch, row=None)
+    # The pipeline layer is the family_annotation_manifest rows and nothing else.
+    _patch_manifest_read(monkeypatch, rows=[])
 
     out = asyncio.run(
         ams.get_family_annotation_manifest(session=None, family_id="FAM1", user=None)
     )
     assert out["family_id"] == "FAM1" and out["assembly"] == "GRCh38"
-    assert (out["source"], out["recorded_at"], out["recorded_by"], out["modules"]) == (None, None, None, [])
+    # A family that holds no analysis has one manifest, of no analysis.
+    [manifest] = out["analyses"]
+    assert manifest == {
+        "analysis_type": None,
+        "source": None,
+        "recorded_at": None,
+        "recorded_by": None,
+        "modules": [],
+    }
 
 
 @pytest.mark.parametrize(
@@ -168,14 +180,177 @@ def test_a_family_without_a_recorded_manifest_states_no_pipeline_layer(monkeypat
 def test_a_recorded_manifest_read_back_as_text_is_read_as_the_object_it_is(monkeypatch, stored, source) -> None:
     _patch_manifest_read(
         monkeypatch,
-        row={"modules": stored, "source": "pipeline", "recorded_at": None, "recorded_by": "importer"},
+        rows=[
+            {
+                "analysis_type": "unspecified",
+                "modules": stored,
+                "source": "pipeline",
+                "recorded_at": None,
+                "recorded_by": "importer",
+            }
+        ],
     )
 
     out = asyncio.run(ams.get_family_annotation_manifest(session=None, family_id="FAM1", user=None))
 
-    assert out["source"] == source
-    versions = {module["key"]: module["version"] for module in out["modules"]}
+    [manifest] = out["analyses"]
+    assert manifest["source"] == source
+    versions = {module["key"]: module["version"] for module in manifest["modules"]}
     assert versions == ({"clinvar": "2026-09"} if source == "pipeline" else {})
+
+
+# --- one manifest per analysis --------------------------------------------------------------
+# A family sequenced short-read and then long-read keeps each analysis's versions apart: the
+# long-read import never replaces the short-read analysis's VEP, ClinVar or caller, and the
+# short-read analysis's record never cites the long-read ones.
+
+
+def _row(analysis: str, modules: dict, source: str = "vcf_header", recorded_by: str | None = None) -> dict:
+    return {
+        "analysis_type": analysis,
+        "modules": modules,
+        "source": source,
+        "recorded_at": None,
+        "recorded_by": recorded_by or f"import of {analysis}",
+    }
+
+
+_SHORT_READ = _row(
+    "short_read_wgs",
+    {
+        "vep": {"version": "110", "by_modality": {"snv": "110"}},
+        "clinvar": {"version": "20240101", "by_modality": {"snv": "20240101"}},
+        "gatk": {"version": "4.5.0.0", "detail": "snv caller", "by_modality": {"snv": "4.5.0.0"}},
+    },
+)
+_LONG_READ = _row(
+    "long_read_wgs",
+    {
+        "vep": {"version": "112", "by_modality": {"snv": "112"}},
+        "deepvariant": {"version": "1.6.1", "detail": "snv caller", "by_modality": {"snv": "1.6.1"}},
+        "trgt": {"version": "1.2.0", "by_modality": {"repeats": "1.2.0"}},
+    },
+)
+_HELD = frozenset({"long_read_wgs", "short_read_wgs"})
+
+
+def _versions(manifest: dict) -> dict:
+    return {module["key"]: module["version"] for module in manifest["modules"]}
+
+
+def test_each_analysis_states_its_own_versions_and_not_the_others() -> None:
+    rows = [_LONG_READ, _SHORT_READ]
+    short_read = ams.analysis_manifest(rows, analysis="short_read_wgs", held=_HELD, platform_modules={})
+    long_read = ams.analysis_manifest(rows, analysis="long_read_wgs", held=_HELD, platform_modules={})
+    assert _versions(short_read) == {"vep": "110", "clinvar": "20240101", "gatk": "4.5.0.0"}
+    assert _versions(long_read) == {"vep": "112", "deepvariant": "1.6.1", "trgt": "1.2.0"}
+    assert (short_read["analysis_type"], short_read["recorded_by"]) == ("short_read_wgs", "import of short_read_wgs")
+    # The platform's reference layer is every analysis's.
+    platform = {"assembly": {"version": "GRCh38"}}
+    for analysis in _HELD:
+        manifest = ams.analysis_manifest(rows, analysis=analysis, held=_HELD, platform_modules=platform)
+        assert _versions(manifest)["assembly"] == "GRCh38"
+
+
+def test_an_uploads_versions_are_every_analysis_s_beneath_its_own() -> None:
+    # A single-file SV upload's versions (the row of no analysis): every analysis states them,
+    # its own release of a database winning, the versions per modality joined.
+    upload = _row(
+        "unspecified",
+        {
+            "clinvar": {"version": "20230601", "by_modality": {"sv": "20230601"}},
+            "sniffles": {"version": "2.2", "detail": "sv caller", "by_modality": {"sv": "2.2"}},
+        },
+    )
+    rows = [_LONG_READ, _SHORT_READ, upload]
+    short_read = ams.analysis_manifest(rows, analysis="short_read_wgs", held=_HELD, platform_modules={})
+    by_key = {module["key"]: module for module in short_read["modules"]}
+    assert by_key["clinvar"]["version"] == "20240101"
+    assert by_key["clinvar"]["by_modality"] == {"sv": "20230601", "snv": "20240101"}
+    assert by_key["sniffles"]["version"] == "2.2"
+    assert "deepvariant" not in by_key
+    # Where the versions came from: the analysis's own row's.
+    assert short_read["recorded_by"] == "import of short_read_wgs"
+
+
+def test_an_administrators_replacement_is_the_analysis_s_whole_manifest() -> None:
+    upload = _row("unspecified", {"sniffles": {"version": "2.2"}})
+    manual = _row("short_read_wgs", {"vep": {"version": "111"}}, source="manual", recorded_by="admin@example.org")
+    rows = [_LONG_READ, manual, upload]
+    short_read = ams.analysis_manifest(rows, analysis="short_read_wgs", held=_HELD, platform_modules={})
+    assert _versions(short_read) == {"vep": "111"}
+    assert short_read["source"] == "manual"
+    # Another analysis still states the upload's beneath its own.
+    long_read = ams.analysis_manifest(rows, analysis="long_read_wgs", held=_HELD, platform_modules={})
+    assert _versions(long_read)["sniffles"] == "2.2"
+
+
+def test_a_family_of_no_analysis_states_the_rows_of_none() -> None:
+    upload = _row("unspecified", {"vep": {"version": "110"}})
+    # The row of an analysis the family no longer holds is no analysis's either.
+    stale = _row("long_read_wgs", {"trgt": {"version": "1.2.0"}})
+    manifest = ams.analysis_manifest([stale, upload], analysis=None, held=frozenset(), platform_modules={})
+    assert manifest["analysis_type"] is None
+    assert _versions(manifest) == {"vep": "110", "trgt": "1.2.0"}
+    # A family of one analysis: its own row over the rows of none.
+    single = ams.analysis_manifest(
+        [_SHORT_READ, upload], analysis="short_read_wgs", held=frozenset({"short_read_wgs"}), platform_modules={}
+    )
+    assert _versions(single) == {"vep": "110", "clinvar": "20240101", "gatk": "4.5.0.0"}
+
+
+def test_the_family_manifest_holds_one_manifest_per_analysis_in_order(monkeypatch) -> None:
+    _patch_manifest_read(
+        monkeypatch,
+        rows=[_LONG_READ, _SHORT_READ],
+        metadata={"analysis_types": ["short_read_wgs", "long_read_wgs"]},
+    )
+    out = asyncio.run(ams.get_family_annotation_manifest(session=None, family_id="FAM1", user=None))
+    assert [manifest["analysis_type"] for manifest in out["analyses"]] == ["long_read_wgs", "short_read_wgs"]
+    assert _versions(out["analyses"][1]) == {"vep": "110", "clinvar": "20240101", "gatk": "4.5.0.0"}
+
+
+def test_a_sign_out_freezes_the_manifest_of_the_analysis_it_is_of(monkeypatch) -> None:
+    _patch_manifest_read(
+        monkeypatch,
+        rows=[_LONG_READ, _SHORT_READ],
+        metadata={"analysis_types": ["long_read_wgs", "short_read_wgs"]},
+    )
+    context = types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38")
+    out = asyncio.run(ams.analysis_annotation_manifest(None, context, analysis="short_read_wgs"))  # type: ignore[arg-type]
+    assert out["assembly"] == "GRCh38" and out["analysis_type"] == "short_read_wgs"
+    assert _versions(out) == {"vep": "110", "clinvar": "20240101", "gatk": "4.5.0.0"}
+
+
+def test_a_calls_manifest_is_that_of_the_analysis_whose_package_stored_it(monkeypatch) -> None:
+    def _record(datasets, snv_callset=None):
+        from backend.app.services.family_package_records import package_sources
+
+        return {"datasets": {name: {} for name in datasets}, "sources": package_sources(datasets, snv_callset)}
+
+    _patch_manifest_read(
+        monkeypatch,
+        rows=[_LONG_READ, _SHORT_READ, _row("unspecified", {"sniffles": {"version": "2.2"}})],
+        metadata={
+            "analysis_types": ["long_read_wgs", "short_read_wgs"],
+            "package_imports": {
+                "long_read_wgs": _record(["snv", "sv_needlr"], "deepvariant"),
+                "short_read_wgs": _record(["snv"], "haplotypecaller"),
+            },
+        },
+    )
+    context = types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38")
+
+    def _of(stored_under):
+        return _versions(
+            asyncio.run(
+                ams.call_annotation_manifest(None, context, kind="structural_variants", stored_under=stored_under)  # type: ignore[arg-type]
+            )
+        )
+
+    assert _of("needlr") == {"vep": "112", "deepvariant": "1.6.1", "trgt": "1.2.0", "sniffles": "2.2"}
+    # An uploaded SV's (a source no package lists): the versions of no analysis.
+    assert _of("web") == {"sniffles": "2.2"}
 
 
 def test_unknown_module_labels_are_not_renamed_by_title_casing() -> None:
@@ -381,7 +556,7 @@ def _manifest_user(role: str):
     )
 
 
-def _patch_replacement(monkeypatch, *, stored_row=None):
+def _patch_replacement(monkeypatch, *, stored_row=None, rows=None, metadata=None):
     session = _ManifestWriteSession()
     events: list[dict] = []
 
@@ -390,8 +565,13 @@ def _patch_replacement(monkeypatch, *, stored_row=None):
             family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38"
         )
 
-    async def _row(session_, family_uuid):
-        return stored_row
+    async def _rows(session_, family_uuid):
+        if rows is not None:
+            return list(rows)
+        return [{"analysis_type": "unspecified", **stored_row}] if stored_row else []
+
+    async def _metadata(session_, family_uuid):
+        return dict(metadata or {})
 
     async def _event(session_, **kwargs):
         # Snapshot what the transaction had done when the event was written.
@@ -401,7 +581,8 @@ def _patch_replacement(monkeypatch, *, stored_row=None):
         return {"family_id": "FAM1", "modules": []}
 
     monkeypatch.setattr(ams, "build_family_metadata_context", _context)
-    monkeypatch.setattr(ams, "_family_manifest_row", _row)
+    monkeypatch.setattr(ams, "_family_manifest_rows", _rows)
+    monkeypatch.setattr(ams, "_family_metadata", _metadata)
     monkeypatch.setattr(ams, "record_clinical_event", _event, raising=False)
     monkeypatch.setattr(ams, "get_family_annotation_manifest", _manifest)
     return session, events
@@ -445,12 +626,13 @@ def test_replacing_the_manifest_records_the_prior_and_new_modules(monkeypatch, r
     assert (event["family_uuid"], event["family_identifier"], event["variant_id"]) == ("u1", "FAM1", None)
     assert (event["actor"], event["actor_id"]) == (user.username, user.id)
     assert event["before"] == {
+        "analysis_type": None,
         "source": "vcf_header",
         "recorded_by": "import (vcf_header)",
         "recorded_at": "2026-09-01T00:00:00+00:00",
-        "modules": stored["modules"],
+        "modules": {"vep": {"version": "110", "cache": "110_GRCh38"}, "snpeff": {"version": "5.1"}},
     }
-    assert event["after"] == {"source": "manual", "modules": new_modules}
+    assert event["after"] == {"analysis_type": None, "source": "manual", "modules": new_modules}
     assert event["summary"] == (
         "Annotation manifest replaced (was vcf_header, now manual): "
         "VEP 110 → 112; SnpEff removed; ClinVar added"
@@ -471,8 +653,75 @@ def test_a_first_manifest_is_recorded_with_no_prior(monkeypatch) -> None:
             session, family_id="FAM1", user=_manifest_user("admin"), modules={"vep": "112"}
         )
     )
-    assert events[0]["before"] == {"source": None, "recorded_by": None, "recorded_at": None, "modules": {}}
+    assert events[0]["before"] == {
+        "analysis_type": None,
+        "source": None,
+        "recorded_by": None,
+        "recorded_at": None,
+        "modules": {},
+    }
     assert events[0]["summary"] == "Annotation manifest recorded (manual): VEP added"
+
+
+def test_a_replacement_in_a_family_of_several_analyses_names_the_analysis(monkeypatch) -> None:
+    metadata = {"analysis_types": ["long_read_wgs", "short_read_wgs"]}
+    session, events = _patch_replacement(monkeypatch, rows=[_LONG_READ, _SHORT_READ], metadata=metadata)
+    admin = _manifest_user("admin")
+    # Which analysis must be said, and must be one the family holds.
+    for asked in (None, "pgt"):
+        with pytest.raises(HTTPException) as excinfo:
+            asyncio.run(
+                ams.set_family_annotation_manifest(
+                    session, family_id="FAM1", user=admin, modules={"vep": "111"}, analysis_type=asked
+                )
+            )
+        assert excinfo.value.status_code == 422
+    assert session.statements == [] and events == []
+
+    asyncio.run(
+        ams.set_family_annotation_manifest(
+            session, family_id="FAM1", user=admin, modules={"vep": "111"}, analysis_type="short_read_wgs"
+        )
+    )
+    [event] = events
+    assert event["summary"] == (
+        "Annotation manifest of the short-read WGS replaced (was vcf_header, now manual): "
+        "GATK removed; VEP 110 → 111; ClinVar removed"
+    )
+    assert event["before"]["analysis_type"] == event["after"]["analysis_type"] == "short_read_wgs"
+    assert event["before"]["modules"] == _SHORT_READ["modules"]
+
+
+def test_a_replacement_writes_the_row_of_its_analysis_alone(monkeypatch) -> None:
+    session = _MergeSession()
+    metadata = {"analysis_types": ["long_read_wgs", "short_read_wgs"]}
+
+    async def _context(session_, *, family_identifier, user, project_id=None):
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38")
+
+    async def _rows(session_, family_uuid):
+        return [_LONG_READ, _SHORT_READ]
+
+    async def _metadata(session_, family_uuid):
+        return metadata
+
+    async def _nothing(*args, **kwargs):
+        return {}
+
+    session.commit = _nothing  # type: ignore[attr-defined]
+    monkeypatch.setattr(ams, "build_family_metadata_context", _context)
+    monkeypatch.setattr(ams, "_family_manifest_rows", _rows)
+    monkeypatch.setattr(ams, "_family_metadata", _metadata)
+    monkeypatch.setattr(ams, "record_clinical_event", _nothing, raising=False)
+    monkeypatch.setattr(ams, "get_family_annotation_manifest", _nothing)
+    asyncio.run(
+        ams.set_family_annotation_manifest(
+            session, family_id="FAM1", user=_manifest_user("admin"), modules={"vep": "111"}, analysis_type="long_read_wgs"
+        )
+    )
+    [(sql, params)] = [(sql, params) for sql, params in session.executed if "INSERT INTO" in sql]
+    assert "ON CONFLICT (family_id, analysis_type)" in sql
+    assert params["analysis"] == "long_read_wgs" and params["source"] == "manual"
 
 
 def test_the_replacement_summary_lists_at_most_six_changes() -> None:
@@ -509,11 +758,13 @@ class _MergeSession:
         self.executed.append((" ".join(str(statement).split()), dict(params or {})))
 
 
-def _patch_stored_row(monkeypatch, session: _MergeSession, row):
+def _patch_stored_row(monkeypatch, session: _MergeSession, row, read: list | None = None):
     statements_before_read: list[list[str]] = []
 
-    async def _row(session_, family_uuid):
+    async def _row(session_, family_uuid, analysis):
         statements_before_read.append([sql for sql, _ in session.executed])
+        if read is not None:
+            read.append(analysis)
         return row
 
     monkeypatch.setattr(ams, "_family_manifest_row", _row)
@@ -527,7 +778,7 @@ def test_an_import_takes_the_manifest_lock_before_it_reads_and_writes(monkeypatc
     )
     asyncio.run(
         ams.merge_vcf_header_provenance(
-            session, family_uuid="u1", assembly_id=None, modules={"vep": {"version": "111"}}
+            session, family_uuid="u1", assembly_id=None, modules={"vep": {"version": "111"}}, analysis="unspecified"
         )
     )
     lock_sql, lock_params = session.executed[0]
@@ -543,7 +794,7 @@ def test_an_import_still_leaves_a_manual_manifest_alone(monkeypatch) -> None:
     _patch_stored_row(monkeypatch, session, {"modules": {"vep": {"version": "112"}}, "source": "manual"})
     asyncio.run(
         ams.merge_vcf_header_provenance(
-            session, family_uuid="u1", assembly_id=None, modules={"vep": {"version": "111"}}
+            session, family_uuid="u1", assembly_id=None, modules={"vep": {"version": "111"}}, analysis="unspecified"
         )
     )
     assert [sql for sql, _ in session.executed] == [session.executed[0][0]]
@@ -566,3 +817,41 @@ def test_a_replacement_takes_the_same_manifest_lock(monkeypatch) -> None:
         )
     )
     assert recorded[0] == {"k": "fam-manifest:u1"}
+
+
+def test_an_import_writes_the_row_of_its_own_analysis(monkeypatch) -> None:
+    # The long-read import reads and writes the long-read analysis's row only: the short-read
+    # analysis's versions stay as its own import recorded them.
+    session = _MergeSession()
+    read: list = []
+    _patch_stored_row(monkeypatch, session, {"modules": {"vep": {"version": "112"}}, "source": "vcf_header"}, read)
+    asyncio.run(
+        ams.merge_vcf_header_provenance(
+            session,
+            family_uuid="u1",
+            assembly_id=None,
+            modules={"deepvariant": {"version": "1.6.1"}},
+            analysis="long_read_wgs",
+            modality="snv",
+        )
+    )
+    assert read == ["long_read_wgs"]
+    insert_sql, params = session.executed[1]
+    assert "ON CONFLICT (family_id, analysis_type)" in insert_sql
+    assert params["analysis"] == "long_read_wgs"
+    assert json.loads(params["modules"]) == {
+        "vep": {"version": "112"},
+        "deepvariant": {"version": "1.6.1", "by_modality": {"snv": "1.6.1"}},
+    }
+
+
+def test_an_upload_writes_the_row_of_no_analysis(monkeypatch) -> None:
+    session = _MergeSession()
+    read: list = []
+    _patch_stored_row(monkeypatch, session, None, read)
+    asyncio.run(
+        ams.merge_vcf_header_provenance(
+            session, family_uuid="u1", assembly_id=None, modules={"sniffles": {"version": "2.2"}}, analysis=""
+        )
+    )
+    assert read == ["unspecified"] and session.executed[1][1]["analysis"] == "unspecified"

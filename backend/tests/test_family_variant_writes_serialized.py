@@ -67,7 +67,9 @@ from backend.app.services.family_variant_write_lock import (
     STRUCTURAL_VARIANTS,
     VARIANT_TYPES,
     VariantWriteHoldLost,
+    family_import_lock_key,
     family_variant_lock_key,
+    hold_family_import,
     hold_family_variant_writes,
     lock_family_variant_writes,
     watch_family_variant_holds,
@@ -171,6 +173,18 @@ class _Session:
             self.postgres.shared[key] = self.postgres.shared.get(key, 0) + 1
             self.shared.append(key)
             self.postgres.log.append((self.name, "share", key))
+            return _Result([(True,)])
+        if "pg_try_advisory_xact_lock(" in sql:
+            # Exclusive, without waiting: refused while another session holds the key.
+            self.postgres.lock_statements.append((sql, dict(params)))
+            key = str(params["k"])
+            if key not in self.held:
+                if self.postgres.lock(key).locked() or self.postgres.shared.get(key):
+                    self.postgres.log.append((self.name, "lock refused", key))
+                    return _Result([(False,)])
+                await self.postgres.lock(key).acquire()
+                self.held.append(key)
+            self.postgres.log.append((self.name, "lock", key))
             return _Result([(True,)])
         if "pg_advisory_xact_lock" in sql:
             self.postgres.lock_statements.append((sql, dict(params)))
@@ -817,7 +831,7 @@ async def test_the_package_sv_datasets_hold_the_lock_until_their_sv_files_are_re
     monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", _nothing)
     job = DatasetImportJob(
         session=postgres.session("import"),  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=Path("/package"), ped=None),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=Path("/package"), ped=None, manifest=SimpleNamespace(analysis_type=None)),  # type: ignore[arg-type]
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type="sv", status="valid"),
         family_context=_family_context(),
@@ -1110,6 +1124,8 @@ async def test_the_package_import_holds_the_familys_locks_from_its_snapshot_unti
     assert result.error is not None and "snv" in result.error
     trace = postgres.trace("import lock", "upload MOTHER")
     assert trace[: trace.index("rewrite SVs") + 1] == [
+        # The family's import lock first, from before the registration to the import's end.
+        f"lock {family_variant_write_lock.family_import_lock_key('FAM')}",
         f"lock {_key(SMALL_VARIANTS)}",
         f"lock {_key(STRUCTURAL_VARIANTS)}",
         # Each project of the family gets the callsets it lacks under the locks, before the
@@ -1121,6 +1137,8 @@ async def test_the_package_import_holds_the_familys_locks_from_its_snapshot_unti
         "restore",
         "restore Postgres",
         "discard snapshot",
+        "rollback",
+        "close",
         "rollback",
         "close",
         f"lock {_key(STRUCTURAL_VARIANTS)}",
@@ -1222,6 +1240,81 @@ async def test_a_hold_inside_a_hold_of_the_same_family_takes_no_second_connectio
                 pass
 
     assert connections == ["import lock"]
+
+
+# --- One import of a family at a time ----------------------------------------
+# Two analyses of one family (a monogenic and a conventional NIPT, each from a package of its own)
+# imported by two workers: the second waits for the first from before its registration.
+
+
+@pytest.mark.asyncio
+async def test_a_second_import_of_a_family_waits_for_the_first_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
+    postgres = _Postgres()
+    names = iter(["first import", "second import", "other family"])
+    monkeypatch.setattr(family_variant_write_lock, "get_postgres_sessionmaker", lambda: lambda: postgres.session(next(names)))
+    first_holds, first_may_end = asyncio.Event(), asyncio.Event()
+    told: list[str] = []
+    events: list[str] = []
+
+    async def first() -> None:
+        async with hold_family_import("FAM1"):
+            events.append("first registers")
+            first_holds.set()
+            await first_may_end.wait()
+            events.append("first ends")
+
+    async def second() -> None:
+        await first_holds.wait()
+
+        async def waiting() -> None:
+            told.append("waiting")
+
+        async with hold_family_import("FAM1", waiting=waiting):
+            events.append("second registers")
+
+    running = [asyncio.create_task(first()), asyncio.create_task(second())]
+    await first_holds.wait()
+    await asyncio.sleep(0.05)
+    # The second import was told it waits, and has not begun.
+    assert told == ["waiting"] and events == ["first registers"]
+    # Another family's import does not wait.
+    async with asyncio.timeout(1):
+        async with hold_family_import("FAM2"):
+            events.append("other family registers")
+    first_may_end.set()
+    await asyncio.wait_for(asyncio.gather(*running), timeout=1)
+    assert events == ["first registers", "other family registers", "first ends", "second registers"]
+    key = family_import_lock_key("FAM1")
+    # The second import's try is refused, and it is granted the lock once the first's ends.
+    assert [entry for entry in postgres.log if entry[0] in ("first import", "second import")] == [
+        ("first import", "lock", key),
+        ("second import", "lock refused", key),
+        ("first import", "rollback"),
+        ("first import", "close"),
+        ("second import", "lock", key),
+        ("second import", "rollback"),
+        ("second import", "close"),
+    ]
+    assert not postgres.lock(key).locked()
+
+
+@pytest.mark.asyncio
+async def test_an_imports_hold_of_its_family_is_checked_as_its_variant_writes_are(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    postgres = _Postgres()
+    held = postgres.session("import lock")
+
+    async def connection_lost(_statement: Any, _params: Any = None) -> Any:
+        raise ConnectionError("server closed the connection")
+
+    monkeypatch.setattr(family_variant_write_lock, "get_postgres_sessionmaker", lambda: lambda: held)
+    with watch_family_variant_holds() as check:
+        async with hold_family_import("FAM1"):
+            await check()
+            held.execute = connection_lost  # type: ignore[method-assign]
+            with pytest.raises(VariantWriteHoldLost, match="import lock"):
+                await check()
 
 
 @pytest.mark.asyncio

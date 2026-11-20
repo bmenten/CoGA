@@ -26,6 +26,8 @@ from .clinical_audit_service import (
     record_compound_het_pair_changes,
     record_review_changes,
 )
+from .analysis_reviews import ScopedReview, effective_reviews_with_content, scope_review_clause
+from .analysis_scope import AnalysisScope
 from .family_metadata_context import FamilyMetadataContext
 from .access_control import CurrentUser
 from .review_pg_utils import (
@@ -47,14 +49,11 @@ from .small_variant_review_acmg import (
 )
 from .small_variant_review_repository import (
     _fetch_compound_het_group_rows,
-    _fetch_review_row,
     _fetch_review_rows_for_variants,
-    _insert_review_row,
-    _update_review_row,
-    _delete_review_row,
+    _fetch_scoped_review,
+    _write_own_review,
     _clear_compound_het_group,
     _compound_het_clear_payload,
-    _preserve_existing_compound_het,
     _document_has_compound_het_review,
     _review_document_has_any_content,
 )
@@ -125,18 +124,19 @@ def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
     )
 
 
-async def get_small_variant_review_summary(
-    session: AsyncSession,
-    *,
-    family_uuid: str,
-) -> SmallVariantReviewSummaryOut:
-    # Every column _review_document_has_any_content reads: a review that holds only an ACMG
-    # record, or only a compound-het pairing, is a reviewed variant too.
+async def _effective_family_reviews(
+    session: AsyncSession, *, family_uuid: str, scope: AnalysisScope
+) -> list[dict[str, Any]]:
+    """The family's reviews the scope reads, one per variant (``analysis_reviews``), the empty
+    ones left out: the columns the review summary and the review filters read."""
+    params: dict[str, Any] = {"family_id": family_uuid}
+    belongs = scope_review_clause(scope, params)
     result = await session.execute(
         text(
-            """
+            f"""
             SELECT
                 variant_id,
+                analysis,
                 classification,
                 tags,
                 note,
@@ -145,24 +145,38 @@ async def get_small_variant_review_summary(
                 compound_het_partner_variant_ids,
                 compound_het_tags,
                 compound_het_note,
-                compound_het_classification
+                compound_het_classification,
+                updated_at
             FROM small_variant_reviews
             WHERE family_id = CAST(:family_id AS uuid)
+              AND {belongs}
             """
         ),
-        {"family_id": family_uuid},
+        params,
     )
+    return list(
+        effective_reviews_with_content(
+            (dict(row) for row in result.mappings().all()), scope, _review_document_has_any_content
+        ).values()
+    )
+
+
+async def get_small_variant_review_summary(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    scope: AnalysisScope,
+) -> SmallVariantReviewSummaryOut:
+    """The counts of the family's reviews in the analysis ``scope`` reads them for: its own
+    and the shared ones (``analysis_reviews``)."""
+    # Every column _review_document_has_any_content reads: a review that holds only an ACMG
+    # record, or only a compound-het pairing, is a reviewed variant too.
     reviewed_variant_ids: set[str] = set()
     noted_variant_ids: set[str] = set()
     tag_variant_ids: dict[str, set[str]] = {}
-    for row in result.mappings().all():
-        document = dict(row)
-        variant_id = document.get("variant_id")
-        if variant_id is None:
-            continue
-        variant_key = str(variant_id)
-        if _review_document_has_any_content(document):
-            reviewed_variant_ids.add(variant_key)
+    for document in await _effective_family_reviews(session, family_uuid=family_uuid, scope=scope):
+        variant_key = str(document["variant_id"])
+        reviewed_variant_ids.add(variant_key)
         if str(document.get("note") or "").strip() or str(document.get("compound_het_note") or "").strip():
             noted_variant_ids.add(variant_key)
         for tag in _normalize_tags(document.get("tags", [])):
@@ -185,6 +199,7 @@ async def list_matching_small_variant_review_ids(
     session: AsyncSession,
     *,
     family_uuid: str,
+    scope: AnalysisScope,
     classifications: Sequence[str] | None = None,
     tags: Sequence[str] | None = None,
     has_notes: bool = False,
@@ -197,7 +212,8 @@ async def list_matching_small_variant_review_ids(
     its text, whatever the case. So *Likely pathogenic - class 4* keeps a review
     classified by its class tag alone, and not one whose text says another class beside that
     tag. The pair review is read alike, from its own text and tags. The Variant Explorer's filter
-    is the same rule in SQL (``_variant_ids_matching_reviews``).
+    is the same rule in SQL (``_variant_ids_matching_reviews``). Each variant's review is the
+    one the analysis ``scope`` reads (``analysis_reviews``).
     """
     requested_classes = set(review_class_filter(classifications))
     normalized_tags = {
@@ -206,26 +222,8 @@ async def list_matching_small_variant_review_ids(
     if not requested_classes and not normalized_tags and not has_notes:
         return set()
 
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                variant_id,
-                classification,
-                tags,
-                note,
-                compound_het_classification,
-                compound_het_tags,
-                compound_het_note
-            FROM small_variant_reviews
-            WHERE family_id = CAST(:family_id AS uuid)
-            """
-        ),
-        {"family_id": family_uuid},
-    )
     matching_ids: set[str] = set()
-    for row in result.mappings().all():
-        document = dict(row)
+    for document in await _effective_family_reviews(session, family_uuid=family_uuid, scope=scope):
         variant_id = str(document.get("variant_id") or "").strip()
         if not variant_id:
             continue
@@ -255,7 +253,11 @@ async def get_small_variant_review_map(
     *,
     family_uuid: str,
     variant_ids: Sequence[str],
+    scope: AnalysisScope,
 ) -> dict[str, SmallVariantReviewOut]:
+    """The review of each of these variants the analysis ``scope`` reads: its own, else the
+    shared one (``analysis_reviews``); a variant without one, or whose review is empty, has
+    none."""
     normalized_variant_ids = [
         str(variant_id).strip() for variant_id in variant_ids if str(variant_id).strip()
     ]
@@ -265,13 +267,21 @@ async def get_small_variant_review_map(
     # small variants (the tables, the report, NIPT, mtDNA) carries its reviews from here,
     # and the ACMG dialog opened from a list is seeded with what it carries.
     rows = await _fetch_review_rows_for_variants(
-        session, family_uuid=family_uuid, variant_ids=normalized_variant_ids
+        session, family_uuid=family_uuid, variant_ids=normalized_variant_ids, scope=scope
     )
     return {
-        str(document["variant_id"]): _serialize_review(document)
-        for document in rows
-        if document.get("variant_id") is not None
+        variant_id: _serialize_review(document)
+        for variant_id, document in effective_reviews_with_content(
+            rows, scope, _review_document_has_any_content
+        ).items()
     }
+
+
+def _review_read(reviews: ScopedReview | None) -> dict[str, Any] | None:
+    """The review a save in a scope reads of a variant (its effective review: the scope's own,
+    else the shared one), or None when it has none or that review is empty."""
+    review = reviews.effective if reviews is not None else None
+    return review if review is not None and _review_document_has_any_content(review) else None
 
 
 async def _reviews_a_pair_save_writes(
@@ -279,24 +289,25 @@ async def _reviews_a_pair_save_writes(
     *,
     family_uuid: str,
     variant_ids: Sequence[str],
-) -> tuple[set[str], dict[str, dict[str, Any]]]:
-    """The variants whose reviews a compound-het pair save may write, and the reviews of
-    ``variant_ids`` (the saved variant and its partner) as stored.
+    scope: AnalysisScope,
+) -> tuple[set[str], dict[str, ScopedReview]]:
+    """The variants whose reviews a compound-het pair save in the scope may write, and the
+    reviews of ``variant_ids`` (the saved variant and its partner) in the scope, as stored.
 
-    Those are the two variants, and every variant of a pair either is in: the save breaks
-    such a pair up, and ``_clear_compound_het_group`` rewrites each of its reviews.
+    Those are the two variants, and every variant of a pair either is in, in the scope: the
+    save breaks such a pair up, and ``_clear_compound_het_group`` writes each of its reviews.
     """
     writes = set(variant_ids)
-    reviews: dict[str, dict[str, Any]] = {}
+    reviews: dict[str, ScopedReview] = {}
     for variant_id in variant_ids:
-        review = await _fetch_review_row(session, family_uuid=family_uuid, variant_id=variant_id)
-        if review is None:
-            continue
+        review = await _fetch_scoped_review(
+            session, family_uuid=family_uuid, variant_id=variant_id, scope=scope
+        )
         reviews[variant_id] = review
-        group_id = review.get("compound_het_group_id")
+        group_id = (_review_read(review) or {}).get("compound_het_group_id")
         if group_id:
             members = await _fetch_compound_het_group_rows(
-                session, family_uuid=family_uuid, group_id=str(group_id)
+                session, family_uuid=family_uuid, group_id=str(group_id), scope=scope
             )
             writes.update(str(member["variant_id"]) for member in members)
     return writes, reviews
@@ -308,9 +319,10 @@ async def _lock_pair_save_reviews(
     family_uuid: str,
     variant_id: str,
     partner_variant_id: str | None,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    scope: AnalysisScope,
+) -> tuple[ScopedReview, ScopedReview | None]:
     """Lock every review a compound-het pair save writes; return the variant's and the
-    partner's review, read under their locks.
+    partner's reviews in the scope, read under their locks.
 
     A pair save writes the partner's review as well as the variant's, and breaking up a pair
     rewrites the review of each of its variants. Each such review is locked as a save of it
@@ -322,14 +334,14 @@ async def _lock_pair_save_reviews(
     """
     variant_ids = [variant_id] + ([partner_variant_id] if partner_variant_id else [])
     planned, _ = await _reviews_a_pair_save_writes(
-        session, family_uuid=family_uuid, variant_ids=variant_ids
+        session, family_uuid=family_uuid, variant_ids=variant_ids, scope=scope
     )
     for locked_variant_id in sorted(planned):
         await _lock_review(session, scope="svr", family_uuid=family_uuid, variant_id=locked_variant_id)
     writes, reviews = await _reviews_a_pair_save_writes(
-        session, family_uuid=family_uuid, variant_ids=variant_ids
+        session, family_uuid=family_uuid, variant_ids=variant_ids, scope=scope
     )
-    existing = reviews.get(variant_id)
+    existing = _review_read(reviews[variant_id])
     if not writes <= planned:
         raise HTTPException(
             status_code=409,
@@ -347,7 +359,7 @@ async def _lock_pair_save_reviews(
                 ),
             },
         )
-    return existing, reviews.get(partner_variant_id) if partner_variant_id else None
+    return reviews[variant_id], reviews.get(partner_variant_id) if partner_variant_id else None
 
 
 async def _commit_stored_review(
@@ -355,14 +367,17 @@ async def _commit_stored_review(
     *,
     family_uuid: str,
     variant_id: str,
+    scope: AnalysisScope,
 ) -> SmallVariantReviewOut:
-    """Commit a save, and return the variant's review as stored.
+    """Commit a save, and return the variant's review in the scope as stored: the scope's own.
 
     The review is read back in the save's transaction, before the commit: a save that did not
     store it is refused and commits nothing, the clinical audit events it wrote included.
     """
-    stored = await _fetch_review_row(session, family_uuid=family_uuid, variant_id=variant_id)
-    if stored is None:
+    stored = (
+        await _fetch_scoped_review(session, family_uuid=family_uuid, variant_id=variant_id, scope=scope)
+    ).own
+    if stored is None or not _review_document_has_any_content(stored):
         raise HTTPException(status_code=500, detail="Review update failed")
     await session.commit()
     return _serialize_review(stored)
@@ -386,6 +401,16 @@ async def upsert_small_variant_review(
     payload: SmallVariantReviewUpdate,
     user: CurrentUser,
 ) -> SmallVariantReviewOut:
+    """Save the variant's review in the analysis the family is read for (``context.scope``):
+    the analysis's own review, stored under it (``analysis_reviews``). A family that holds
+    several analyses with small variants of their own names the analysis (``AnalysisNotNamed``,
+    422 otherwise). A save in an analysis that has no review of its own of the variant writes
+    one, from the shared review it read and the save's values; the shared review stays as it
+    is."""
+    scope = context.scope.require_named()
+    # The analysis's own callset: the other analyses' are left out of the variant read, so the
+    # evidence a classification freezes is the analysis's own.
+    left_out_sources = scope.left_out_sources("small_variants")
     assembly_name = context.assembly_name
     variant = None
     if assembly_name:
@@ -393,6 +418,7 @@ async def upsert_small_variant_review(
             assembly_name=assembly_name,
             family_guid=context.family_uuid,
             variant_id=variant_id,
+            left_out_sources=left_out_sources,
         )
     if variant is None or not assembly_name:
         raise HTTPException(status_code=404, detail="Variant not found")
@@ -439,27 +465,33 @@ async def upsert_small_variant_review(
         if compound_het_payload is not None
         else None
     )
-    partner_existing: dict[str, Any] | None = None
-    # One save of this variant's review at a time; the version check below then sees
-    # every earlier save, so two reviewers never overwrite each other.
+    partner_reviews: ScopedReview | None = None
+    # One save of this variant's review at a time, in every analysis; the version check below
+    # then sees every earlier save, so two reviewers never overwrite each other.
     if compound_het_requested:
         # A pair save writes the partner's review, and the reviews of any pair it breaks
         # up, as well: each is locked too, and the partner's checked like the variant's.
-        existing, partner_existing = await _lock_pair_save_reviews(
+        reviews, partner_reviews = await _lock_pair_save_reviews(
             session,
             family_uuid=context.family_uuid,
             variant_id=variant_id,
             partner_variant_id=(
                 compound_het_partner_id if compound_het_partner_id != variant_id else None
             ),
+            scope=scope,
         )
     else:
         await _lock_review(session, scope="svr", family_uuid=context.family_uuid, variant_id=variant_id)
-        existing = await _fetch_review_row(
+        reviews = await _fetch_scoped_review(
             session,
             family_uuid=context.family_uuid,
             variant_id=variant_id,
+            scope=scope,
         )
+    # The reviews the client was shown, which the save is checked against and builds on: the
+    # analysis's own, else the shared one.
+    existing = _review_read(reviews)
+    partner_existing = _review_read(partner_reviews)
     _raise_on_stale_review(payload, existing, _serialize_review)
     if compound_het_payload is not None and compound_het_partner_id not in (None, variant_id):
         _raise_on_stale_review(
@@ -471,7 +503,9 @@ async def upsert_small_variant_review(
         )
     # Taken under the locks, after the reads: a review this save writes is never stamped
     # earlier than the version it replaces.
-    now = _save_time(existing, partner_existing)
+    now = _save_time(
+        existing, partner_existing, reviews.own, partner_reviews.own if partner_reviews is not None else None
+    )
     await _refuse_unknown_added_tags(normalized_tags, (existing or {}).get("tags"))
     compound_het_data: dict[str, Any] | None = None
     # The compound-het pair reviews this save records, removes or changes, each as the
@@ -509,6 +543,7 @@ async def upsert_small_variant_review(
                 assembly_name=assembly_name,
                 family_guid=context.family_uuid,
                 variant_id=compound_het_partner_id,
+                left_out_sources=left_out_sources,
             )
             if partner_variant is None:
                 raise HTTPException(status_code=404, detail="Compound-het partner variant not found")
@@ -562,6 +597,8 @@ async def upsert_small_variant_review(
                     session,
                     family_uuid=context.family_uuid,
                     group_id=str(group_id),
+                    scope=scope,
+                    now=now,
                     written_by_save=(variant_id, compound_het_partner_id),
                 )
 
@@ -614,28 +651,20 @@ async def upsert_small_variant_review(
                 "updated_by": user.username,
                 "updated_at": now,
             }
-            partner_document_payload = {
-                **partner_individual_data,
-                **partner_compound_het_data,
-            }
-            if partner_existing is None:
-                if _review_document_has_any_content(partner_document_payload):
-                    await _insert_review_row(
-                        session,
-                        family_uuid=context.family_uuid,
-                        fields=partner_document_payload,
-                        created_at=now,
-                    )
-            else:
-                merged_partner = {**partner_existing, **partner_document_payload}
-                if _review_document_has_any_content(merged_partner):
-                    await _update_review_row(
-                        session,
-                        review_id=partner_existing["id"],
-                        fields=merged_partner,
-                    )
-                else:
-                    await _delete_review_row(session, partner_existing["id"])
+            # The partner's own review in the analysis: its review as read, with the pair.
+            await _write_own_review(
+                session,
+                family_uuid=context.family_uuid,
+                scope=scope,
+                reviews=partner_reviews or ScopedReview(),
+                fields={
+                    **_compound_het_clear_payload(),
+                    **(partner_existing or {}),
+                    **partner_individual_data,
+                    **partner_compound_het_data,
+                },
+                created_at=now,
+            )
         else:
             if (
                 normalized_compound_het_classification is not None
@@ -654,6 +683,8 @@ async def upsert_small_variant_review(
                     session,
                     family_uuid=context.family_uuid,
                     group_id=existing["compound_het_group_id"],
+                    scope=scope,
+                    now=now,
                     written_by_save=(variant_id,),
                 )
             compound_het_data = _compound_het_clear_payload()
@@ -664,13 +695,16 @@ async def upsert_small_variant_review(
                 session,
                 family_uuid=context.family_uuid,
                 group_id=existing["compound_het_group_id"],
+                scope=scope,
+                now=now,
                 written_by_save=(variant_id,),
             )
         compound_het_data = _compound_het_clear_payload()
 
     async def _audit(new_state: dict[str, Any]) -> None:
         # The before -> after of this save in the immutable clinical audit trail (Phase 2),
-        # in the save's transaction: the variant's own review, then the pair reviews.
+        # in the save's transaction: the variant's own review, then the pair reviews, each
+        # naming the analysis whose review it is.
         await record_review_changes(
             session,
             family_uuid=context.family_uuid,
@@ -679,6 +713,7 @@ async def upsert_small_variant_review(
             user=user,
             existing=existing,
             new_state=new_state,
+            analysis=scope.review_analysis,
         )
         await record_compound_het_pair_changes(
             session,
@@ -686,6 +721,18 @@ async def upsert_small_variant_review(
             family_identifier=context.family_id,
             user=user,
             changes=pair_changes,
+            analysis=scope.review_analysis,
+        )
+
+    async def _write(fields: dict[str, Any]) -> None:
+        # The analysis's own review of the variant (``_write_own_review``).
+        await _write_own_review(
+            session,
+            family_uuid=context.family_uuid,
+            scope=scope,
+            reviews=reviews,
+            fields=fields,
+            created_at=now,
         )
 
     if (
@@ -704,8 +751,12 @@ async def upsert_small_variant_review(
             "tags": [],
             "note": None,
         }
-        if existing is not None and _document_has_compound_het_review(existing):
-            data = {
+        if existing is None:
+            return SmallVariantReviewOut(variant_id=variant_id, tags=[])
+        await _write(
+            {
+                **_compound_het_clear_payload(),
+                **existing,
                 "variant_key": variant.variant_key,
                 "variant_id": variant_id,
                 "classification": None,
@@ -718,19 +769,14 @@ async def upsert_small_variant_review(
                 "acmg_evidence_snapshot": None,
                 "updated_by": user.username,
                 "updated_at": now,
-                **_preserve_existing_compound_het(existing),
             }
-            await _update_review_row(
-                session,
-                review_id=existing["id"],
-                fields=data,
+        )
+        await _audit(cleared_state)
+        if _document_has_compound_het_review(existing):
+            return await _commit_stored_review(
+                session, family_uuid=context.family_uuid, variant_id=variant_id, scope=scope
             )
-            await _audit(cleared_state)
-            return await _commit_stored_review(session, family_uuid=context.family_uuid, variant_id=variant_id)
-        if existing is not None:
-            await _delete_review_row(session, existing["id"])
-            await _audit(cleared_state)
-            await session.commit()
+        await session.commit()
         return SmallVariantReviewOut(variant_id=variant_id, tags=[])
 
     data = {
@@ -755,8 +801,6 @@ async def upsert_small_variant_review(
     }
     if compound_het_data is not None:
         data.update(compound_het_data)
-    elif not compound_het_requested and existing is not None and _document_has_compound_het_review(existing):
-        data.update(_preserve_existing_compound_het(existing))
 
     # The before -> after state for the immutable clinical audit trail (Phase 2): the
     # classification text as stored, so a change sent through the API alone is audited too.
@@ -768,32 +812,13 @@ async def upsert_small_variant_review(
         "note": normalized_note,
     }
 
-    if existing is not None:
-        merged = {**existing, **data}
-        if _review_document_has_any_content(merged):
-            await _update_review_row(
-                session,
-                review_id=existing["id"],
-                fields=merged,
-            )
-            await _audit(new_state)
-            return await _commit_stored_review(session, family_uuid=context.family_uuid, variant_id=variant_id)
-        await _delete_review_row(session, existing["id"])
-        await _audit(new_state)
-        await session.commit()
-        return SmallVariantReviewOut(variant_id=variant_id, tags=[])
-
-    if _review_document_has_any_content(data):
-        await _insert_review_row(
-            session,
-            family_uuid=context.family_uuid,
-            fields={
-                **_compound_het_clear_payload(),
-                **data,
-            },
-            created_at=now,
+    # The review as read, with the save's values: a pair the save leaves out is kept.
+    fields = {**_compound_het_clear_payload(), **(existing or {}), **data}
+    await _write(fields)
+    await _audit(new_state)
+    if _review_document_has_any_content(fields):
+        return await _commit_stored_review(
+            session, family_uuid=context.family_uuid, variant_id=variant_id, scope=scope
         )
-        await _audit(new_state)
-        return await _commit_stored_review(session, family_uuid=context.family_uuid, variant_id=variant_id)
-
+    await session.commit()
     return SmallVariantReviewOut(variant_id=variant_id, tags=[])

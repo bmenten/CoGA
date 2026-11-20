@@ -61,6 +61,39 @@ UNNAMED_CALLER_MESSAGE = (
 )
 
 
+# A header line naming an imputation or statistical phasing tool, outside the lines that declare a
+# field, a filter or a contig (whose free text says nothing about the tool that wrote the file:
+# GATK describes its physical phasing there).
+_IMPUTATION_TOOL = re.compile(r"glimpse|beagle|impute|minimac|shapeit", re.IGNORECASE)
+_FIELD_DECLARATION = re.compile(r"##(INFO|FORMAT|FILTER|ALT|contig)=", re.IGNORECASE)
+
+AMBIGUOUS_CALLER_MESSAGE = (
+    "This small-variant VCF's header names its caller, but the file also holds imputed or "
+    "statistically phased genotypes (genotype posteriors, or an imputation or phasing tool in its "
+    "header). Name its callset (the dataset's source_format, or the callset of the upload): the "
+    "caller's name for its direct calls, glimpse2 for imputed genotypes."
+)
+
+
+def header_shows_imputation(lines: Iterable[str]) -> bool:
+    """Whether a VCF's ``##`` header lines show imputed or statistically phased genotypes: they
+    declare genotype posteriors (FORMAT ``GP``), or a line that declares no field names an
+    imputation or statistical phasing tool."""
+    return any(
+        line.startswith("##FORMAT=<ID=GP,")
+        or (not _FIELD_DECLARATION.match(line) and _IMPUTATION_TOOL.search(line) is not None)
+        for line in lines
+    )
+
+
+def is_family_vcf_callset(name: object) -> bool:
+    """Whether a family VCF of small variants may be stored as the callset ``name``: a caller's
+    direct calls, or GLIMPSE2's imputed genotypes. The mtDNA calls, a monogenic NIPT's
+    per-sample calls and SHAPEIT's phased markers are callsets read by rules of their own,
+    never a family VCF's."""
+    return is_direct_callset(name) or name == IMPUTED_CALLSETS[0]
+
+
 def is_callset_name(value: object) -> bool:
     """Whether ``value`` can name a callset (``CALLSET_NAME``, not ``AUTO``)."""
     return isinstance(value, str) and value != AUTO and CALLSET_NAME.fullmatch(value) is not None

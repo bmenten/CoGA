@@ -23,6 +23,10 @@ This separation matters clinically: in a recessive disorder a parent is often a 
 
 A review records, per variant and per family: the **class** (e.g. "VUS - class 3"), a list of **tags** and a **note**. For each tag CoGA also keeps *who* set it and *when*.
 
+**A review per analysis.** When a family holds several analyses (short-read and then long-read WGS of the same DNA), a review belongs to one analysis (the owner's decision of 2026-11-20): a variant reviewed in the short-read analysis is not in the long-read analysis's record unless it is reviewed there too. Each row names its analysis (`analysis`, empty for a review of a family without an analysis). A reading for analysis X reads, per variant, X's own review, else the shared one (stored under no analysis the family holds), never another analysis's. A save in X always writes X's own review, made from the review it read and the save's values; the shared review stays as it is. A save that empties X's review keeps it, empty, while a shared review of the variant holds something, so X reads the variant as not reviewed. A family with several analyses with small variants of their own names the analysis on every save (`analysis`), otherwise `422`. Each audit event of a review names the analysis (`metadata.analysis`). The Variant Explorer shows, per family, the tags and classes of every analysis's review.
+
+**Where in the code:** `backend/app/services/analysis_reviews.py`; `upsert_small_variant_review` in `small_variant_review_pg.py`.
+
 **Class labels in sentence case.** The class tags and the VUS levels are in sentence case: "Likely pathogenic - class 4", "VUS — hot" (the owner's decision). A tag is stored on a review as a key. The class text of a review is free text: a save stores it as sent, without leading or trailing whitespace (`_stored_classification` in `review_pg_utils.py`). The filters and the Variant Explorer read a class label regardless of case.
 
 **Which class a review shows.** One rule determines the class a review shows (`review_class_label` in `review_pg_utils.py`; in the frontend `normalizeReviewClassification`):
@@ -246,7 +250,7 @@ Every change to a review, of a small variant, an SV or a CNV, writes a before-an
 - the values the CNV evaluator reads: the type, the overlapping genes and their number, the pLI and the annotated inheritance;
 - the event itself: the caller, the chromosome, the start, the end, the length and the breakpoint partner;
 - a hash of the SV's full annotation, and the time;
-- the versions the evidence comes from: that of the SV callset in the family's annotation manifest, the reference assembly and the gene loci.
+- the versions the evidence comes from: that of the SV callset in the annotation manifest of the analysis whose call it is, the reference assembly and the gene loci.
 
 The evaluator does not read clinical CNVs, dosage scores or DGV; the analyst scores those criteria themselves. The genotypes are not in the snapshot. The drift key is `evidence_hash`, a SHA-256 over the evidence; the versions are recorded, not compared. The server refuses a CNV classification of an SV that is not in the family's data (`404`). If the family has no assembly, there is no SV store to read, and the classification is stored without a snapshot.
 

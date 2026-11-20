@@ -96,8 +96,8 @@ async def _seed(session_factory) -> tuple[str, str, str]:
         for variant_id, tags in _TAGS.items():
             await session.execute(
                 text(
-                    "INSERT INTO small_variant_reviews (family_id, variant_id, tags, updated_by) "
-                    "VALUES (CAST(:f AS uuid), :v, CAST(:t AS jsonb), 'reviewer')"
+                    "INSERT INTO small_variant_reviews (family_id, analysis, variant_id, tags, updated_by) "
+                    "VALUES (CAST(:f AS uuid), '', :v, CAST(:t AS jsonb), 'reviewer')"
                 ),
                 {"f": family, "v": variant_id, "t": json.dumps(tags)},
             )
@@ -217,8 +217,8 @@ def test_explorer_finds_and_shows_a_classification_whatever_the_case_of_its_labe
                 )
                 await session.execute(
                     text(
-                        "INSERT INTO small_variant_reviews (family_id, variant_id, classification, "
-                        "compound_het_classification, updated_by) VALUES (CAST(:f AS uuid), :v, :c, :p, 'reviewer')"
+                        "INSERT INTO small_variant_reviews (family_id, analysis, variant_id, classification, "
+                        "compound_het_classification, updated_by) VALUES (CAST(:f AS uuid), '', :v, :c, :p, 'reviewer')"
                     ),
                     {"f": family, "v": variant_id, "c": classification, "p": pair},
                 )
@@ -250,6 +250,7 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
     from sqlalchemy import text
 
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services.analysis_scope import AnalysisScope
     from backend.app.services.small_variant_review_pg import list_matching_small_variant_review_ids
 
     async def _scenario() -> None:
@@ -292,8 +293,8 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
                 )
                 await session.execute(
                     text(
-                        "INSERT INTO small_variant_reviews (family_id, variant_id, classification, tags, "
-                        "compound_het_tags, updated_by, updated_at) VALUES (CAST(:f AS uuid), :v, :c, "
+                        "INSERT INTO small_variant_reviews (family_id, analysis, variant_id, classification, tags, "
+                        "compound_het_tags, updated_by, updated_at) VALUES (CAST(:f AS uuid), '', :v, :c, "
                         "CAST(:t AS jsonb), CAST(:pt AS jsonb), 'reviewer', :u)"
                     ),
                     {
@@ -348,7 +349,7 @@ def test_explorer_shows_the_class_a_review_holds_by_its_tag_and_filters_as_the_f
                 family_search: set[str] = set()
                 for family in families:
                     family_search |= await list_matching_small_variant_review_ids(
-                        session, family_uuid=family, classifications=[wanted]
+                        session, family_uuid=family, scope=AnalysisScope(), classifications=[wanted]
                     )
                 assert set(explorer) == family_search, wanted
             kept, _capped = await svc._variant_ids_matching_reviews(
@@ -398,6 +399,7 @@ def test_the_classification_filters_keep_a_variant_by_the_class_its_review_shows
     from sqlalchemy import text
 
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services.analysis_scope import AnalysisScope
     from backend.app.services.clickhouse_family_variants import resolve_review_selection
     from backend.app.services.clickhouse_variant_storage import insert_small_variant_records
 
@@ -431,8 +433,8 @@ def test_the_classification_filters_keep_a_variant_by_the_class_its_review_shows
                 )
                 await session.execute(
                     text(
-                        "INSERT INTO small_variant_reviews (family_id, variant_id, classification, tags, "
-                        "compound_het_classification, compound_het_tags, updated_by) VALUES (CAST(:f AS uuid), "
+                        "INSERT INTO small_variant_reviews (family_id, analysis, variant_id, classification, tags, "
+                        "compound_het_classification, compound_het_tags, updated_by) VALUES (CAST(:f AS uuid), '', "
                         ":v, :c, CAST(:t AS jsonb), :pc, CAST(:pt AS jsonb), 'reviewer')"
                     ),
                     {
@@ -457,7 +459,9 @@ def test_the_classification_filters_keep_a_variant_by_the_class_its_review_shows
             async with session_factory() as session:
                 family_search: set[str] = set()
                 for family in families:
-                    selection = await resolve_review_selection(session, family, classifications=[wanted])
+                    selection = await resolve_review_selection(
+                        session, family, scope=AnalysisScope(), classifications=[wanted]
+                    )
                     family_search |= selection.include or set()
             exported = sorted(row.variant_id for row in (await _export(classifications=[wanted])).rows)
             assert sorted(family_search) == expected, wanted

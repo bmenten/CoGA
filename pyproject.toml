@@ -35,6 +35,7 @@ python_version = "3.12"
 files = [
     "backend/app/import_worker.py",
     "backend/app/services/acmg_points.py",
+    "backend/app/services/analysis_reviews.py",
     "backend/app/services/annotation_manifest_service.py",
     "backend/app/services/assembly_scope.py",
     "backend/app/services/ccnv_output.py",
@@ -96,6 +97,7 @@ files = [
     "backend/app/services/report_signout_service.py",
     "backend/app/services/review_pg_utils.py",
     "backend/app/services/roi_gene_lookup.py",
+    "backend/app/services/same_individual.py",
     "backend/app/services/sample_integrity_qc.py",
     "backend/app/services/sample_integrity_service.py",
     "backend/app/services/signed_record_cnipt.py",

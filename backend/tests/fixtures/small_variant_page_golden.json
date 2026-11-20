@@ -300,6 +300,9 @@
      ],
      "family_uuid": "family-uuid",
      "has_notes": false,
+     "scope": {
+      "__type": "AnalysisScope"
+     },
      "tags": null
     }
    ],
@@ -310,6 +313,9 @@
     ],
     {
      "family_uuid": "family-uuid",
+     "scope": {
+      "__type": "AnalysisScope"
+     },
      "tags": [
       "excluded"
      ]
@@ -2627,6 +2633,9 @@
      "classifications": null,
      "family_uuid": "family-uuid",
      "has_notes": false,
+     "scope": {
+      "__type": "AnalysisScope"
+     },
      "tags": [
       "report"
      ]
@@ -2660,6 +2669,9 @@
      "classifications": null,
      "family_uuid": "family-uuid",
      "has_notes": true,
+     "scope": {
+      "__type": "AnalysisScope"
+     },
      "tags": [
       "report"
      ]
@@ -2672,6 +2684,9 @@
     ],
     {
      "family_uuid": "family-uuid",
+     "scope": {
+      "__type": "AnalysisScope"
+     },
      "tags": [
       "excluded"
      ]

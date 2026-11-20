@@ -210,25 +210,33 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_raw_import_files_identity
     );
 
 -- ---------------------------------------------------------------------------
--- family_annotation_manifest — per-family upstream annotation provenance
+-- family_annotation_manifest — per-analysis upstream annotation provenance
 -- ---------------------------------------------------------------------------
 -- Phase 0 of clinical-grade traceability (see docs/clinical-traceability.md):
--- record, per family, which upstream annotation modules/versions produced its
--- annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, …) so a report can
--- state its provenance and a sign-out can freeze it.
+-- record, per analysis of a family, which upstream annotation modules/versions
+-- produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, …) so a
+-- report can state its provenance and a sign-out of that analysis can freeze it.
+--
+-- `analysis_type` is the analysis whose import recorded the row: the key of its
+-- package record (families.metadata.package_imports), 'unspecified' for a package
+-- that named none and for a single-file upload. A family sequenced short-read and
+-- then long-read keeps one row of each, so one analysis's import never replaces
+-- another's versions.
 --
 -- `modules` is a free-form map of moduleKey -> {version, ...} so new annotation
--- sources can be recorded without a schema change. One row per family (the
--- current manifest); history lives in the audit trail / report snapshots.
+-- sources can be recorded without a schema change. One row per family and
+-- analysis (the current manifest); history lives in the audit trail / report
+-- snapshots.
 CREATE TABLE IF NOT EXISTS family_annotation_manifest (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    family_id   UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
-    assembly_id UUID REFERENCES assemblies(id) ON DELETE SET NULL,
-    modules     JSONB NOT NULL DEFAULT '{}'::jsonb,
-    source      TEXT NOT NULL DEFAULT 'manual',   -- 'manifest' | 'vcf_header' | 'manual'
-    recorded_by TEXT,
-    recorded_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
-    UNIQUE (family_id)
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    family_id     UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+    analysis_type TEXT NOT NULL,
+    assembly_id   UUID REFERENCES assemblies(id) ON DELETE SET NULL,
+    modules       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    source        TEXT NOT NULL DEFAULT 'manual',   -- 'manifest' | 'vcf_header' | 'manual'
+    recorded_by   TEXT,
+    recorded_at   TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+    UNIQUE (family_id, analysis_type)
 );
 
 -- ---------------------------------------------------------------------------

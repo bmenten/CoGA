@@ -218,8 +218,17 @@ async def compute_ranking_hashes(
     }
     canonical = canonical_filters(filters)
     panel_agnostic_filters = {key: value for key, value in canonical.items() if key != "panel_id"}
+    # The analysis the family is read for, of a family with several (analysis_scope.py): its
+    # callsets and members are what the ranking read, so a ranking of one analysis is never
+    # served for another.
+    scope = context.scope
     common = {
         "algorithm": _ALGORITHM_VERSION,
+        "analysis": {
+            "analysis": scope.analysis,
+            "left_out_sources": sorted(scope.left_out_sources("small_variants")),
+            "left_out_members": sorted(scope.left_out_members),
+        },
         "assembly": getattr(context, "assembly_name", None),
         "variant_data": variant_data_version,
         "review": review_signature,

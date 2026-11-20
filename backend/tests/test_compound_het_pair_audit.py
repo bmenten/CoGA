@@ -19,6 +19,9 @@ from typing import Any
 
 from app.schemas import SmallVariantReviewUpdate
 from app.services import clinical_audit_service, small_variant_review_pg
+from app.services.analysis_reviews import ScopedReview
+from app.services.analysis_scope import AnalysisScope
+from app.services.small_variant_review_repository import _review_document_has_any_content
 
 A, B, X, Y = "1-100-A-G", "1-200-C-T", "1-300-G-A", "1-400-T-C"
 
@@ -78,22 +81,23 @@ def _save(monkeypatch, rows: dict[str, dict[str, Any]], payload: SmallVariantRev
     async def variant(*, variant_id: str, **_kwargs: Any) -> Any:
         return SimpleNamespace(variant_key=int(variant_id.split("-")[1]), gene_symbols=["GENE1"])
 
-    async def fetch(_session: Any, *, family_uuid: str, variant_id: str) -> dict[str, Any] | None:
+    async def fetch(_session: Any, *, family_uuid: str, variant_id: str, scope: Any) -> ScopedReview:
+        # A family that holds no analysis: each review is its own.
         row = rows.get(variant_id)
-        return copy.deepcopy(row) if row is not None else None
+        return ScopedReview(own=copy.deepcopy(row) if row is not None else None)
 
-    async def clear_group(_session: Any, *, family_uuid: str, group_id: str, written_by_save: Any = ()) -> None:
+    async def clear_group(
+        _session: Any, *, family_uuid: str, group_id: str, scope: Any, now: Any, written_by_save: Any = ()
+    ) -> None:
         cleared.append(group_id)
 
-    async def insert(_session: Any, *, family_uuid: str, fields: dict[str, Any], created_at: Any) -> None:
-        rows[fields["variant_id"]] = {"id": f"review-{fields['variant_id']}", **fields}
-
-    async def update(_session: Any, *, review_id: str, fields: dict[str, Any]) -> None:
-        rows[fields["variant_id"]] = {**fields, "id": review_id}
-
-    async def remove(_session: Any, review_id: str) -> None:
-        for variant_id in [key for key, row in rows.items() if row["id"] == review_id]:
-            rows.pop(variant_id)
+    async def write_own(
+        _session: Any, *, family_uuid: str, scope: Any, reviews: ScopedReview, fields: dict[str, Any], created_at: Any
+    ) -> None:
+        if _review_document_has_any_content(fields):
+            rows[fields["variant_id"]] = {**fields, "id": f"review-{fields['variant_id']}"}
+        else:
+            rows.pop(fields["variant_id"], None)
 
     async def record(_session: Any, **kwargs: Any) -> None:
         events.append({**kwargs, "commits_before": session.commits})
@@ -101,11 +105,9 @@ def _save(monkeypatch, rows: dict[str, dict[str, Any]], payload: SmallVariantRev
     monkeypatch.setattr(small_variant_review_pg, "get_small_variant_family_record", variant)
     monkeypatch.setattr(small_variant_review_pg, "variants_share_gene", lambda *_args: True)
     monkeypatch.setattr(small_variant_review_pg, "has_affected_het_call", lambda *_args: True)
-    monkeypatch.setattr(small_variant_review_pg, "_fetch_review_row", fetch)
+    monkeypatch.setattr(small_variant_review_pg, "_fetch_scoped_review", fetch)
     monkeypatch.setattr(small_variant_review_pg, "_clear_compound_het_group", clear_group)
-    monkeypatch.setattr(small_variant_review_pg, "_insert_review_row", insert)
-    monkeypatch.setattr(small_variant_review_pg, "_update_review_row", update)
-    monkeypatch.setattr(small_variant_review_pg, "_delete_review_row", remove)
+    monkeypatch.setattr(small_variant_review_pg, "_write_own_review", write_own)
     monkeypatch.setattr(clinical_audit_service, "record_clinical_event", record)
     context = SimpleNamespace(
         family_uuid="family-uuid",
@@ -113,6 +115,7 @@ def _save(monkeypatch, rows: dict[str, dict[str, Any]], payload: SmallVariantRev
         assembly_name="GRCh38",
         project_ids=[],
         affected_sample_names=["PROBAND"],
+        scope=AnalysisScope(),
     )
     user = SimpleNamespace(id="22222222-2222-2222-2222-222222222222", username="analyst-c", email="c@example.org")
     asyncio.run(
@@ -204,7 +207,8 @@ def test_recording_a_pair_is_a_clinical_audit_event_in_the_saves_transaction(mon
         "note": "in trans",
         "phase_status": "unknown",
     }
-    assert set(event["metadata"]) == {"compound_het_group_id"}
+    # The pair's group, and the analysis whose pair it is ('' for a family that holds none).
+    assert set(event["metadata"]) == {"compound_het_group_id", "analysis"}
     assert event["commits_before"] == 0  # written before the save commits
     assert cleared == []
 
@@ -219,7 +223,7 @@ def test_changing_a_pair_records_what_changed(monkeypatch) -> None:
     assert event["summary"] == f"Compound-het pair with {B}: classification Likely pathogenic → Pathogenic; tags added report"
     assert event["before"]["classification"] == "Likely pathogenic"
     assert event["after"]["classification"] == "Pathogenic"
-    assert event["metadata"] == {"compound_het_group_id": "g1"}
+    assert event["metadata"] == {"compound_het_group_id": "g1", "analysis": ""}
     assert cleared == []
 
 

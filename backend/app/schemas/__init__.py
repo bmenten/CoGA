@@ -395,6 +395,7 @@ from .sample_integrity import (
 )
 from .traceability import (
     AnnotationModuleOut,
+    AnalysisAnnotationManifestOut,
     AnnotationManifestOut,
     AnnotationManifestUpdate,
     ClassificationDriftItem,
@@ -805,6 +806,7 @@ __all__ = [
     "SampleIntegrityCategoryQcOut",
     "SampleIntegrityQcOut",
     "AnnotationModuleOut",
+    "AnalysisAnnotationManifestOut",
     "AnnotationManifestOut",
     "AnnotationManifestUpdate",
     "ClassificationDriftItem",

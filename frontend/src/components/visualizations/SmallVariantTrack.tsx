@@ -53,6 +53,9 @@ interface Props {
    */
   paternalSampleId?: string | null;
   maternalSampleId?: string | null;
+  /** Of a family with several analyses with small variants, the one the page reads
+   * (`variantAnalysisOf`); the track draws that analysis's calls alone. */
+  analysis?: string | null;
 }
 
 // Any call with an ALT allele — the backend reads these as genotype classes, so haploid
@@ -166,6 +169,7 @@ const SmallVariantTrack: React.FC<Props> = ({
   filters,
   paternalSampleId,
   maternalSampleId,
+  analysis = null,
 }) => {
   const pageSize = SMALL_VARIANT_TRACK_RESULT_LIMIT - 1;
   const regionInView = hasRegionInView(regionStart, regionEnd);
@@ -184,6 +188,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     queryKey: [
       'small-variants-track',
       familyId,
+      analysis,
       sampleId,
       chrom,
       regionStart,
@@ -203,6 +208,7 @@ const SmallVariantTrack: React.FC<Props> = ({
         track_result_limit: SMALL_VARIANT_TRACK_RESULT_LIMIT,
         ...requestFilters,
         ...(salientOnly ? { salient_only: true } : {}),
+        ...(analysis ? { analysis } : {}),
       };
       const res = await api.get(apiPath`/families/${familyId}/small-variants`, {
         params,

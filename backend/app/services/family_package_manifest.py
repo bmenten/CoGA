@@ -861,12 +861,22 @@ def _manifest_relationship_issues(
     relationship fails the validation rather than the writing of the family."""
     errors: list[FamilyImportValidationIssue] = []
     relationships = _manifest_relationships(manifest)
+    by_case = {sample_id.lower(): sample_id for sample_id in sample_ids}
     for relationship in relationships:
         for key in ("sample_id_a", "sample_id_b"):
             sample_id = relationship[key]
             if relationship["relationship_type"] == "same_individual":
                 # One of the two may be a member of another analysis's package: the import
-                # checks it against the family.
+                # checks it against the family. A sample is named as its ID is written.
+                if sample_id not in sample_ids and sample_id.lower() in by_case:
+                    errors.append(
+                        _issue(
+                            "manifest_same_individual_link_invalid",
+                            f"family.relationships.same_individual names '{sample_id}', which differs from "
+                            f"member '{by_case[sample_id.lower()]}' only in case",
+                            sample_id=sample_id,
+                        )
+                    )
                 continue
             if sample_id not in sample_ids:
                 errors.append(

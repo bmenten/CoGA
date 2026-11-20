@@ -92,7 +92,7 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
         sample_uuids: dict[str, str] = {}
         groups = [
             (default_cfdna, {"assays": ["nipt_cfdna"]}),
-            (panel_cfdna, {"assays": ["nipt_cfdna"], "assay_panel": "PANEL_X"}),
+            (panel_cfdna, {"assays": ["nipt_cfdna"], "assay_panels": {"monogenic_nipt": "PANEL_X"}}),
             (wgs, {}),
         ]
         for index, (samples, metadata) in enumerate(groups):

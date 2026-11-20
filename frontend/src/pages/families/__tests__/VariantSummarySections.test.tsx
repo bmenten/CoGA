@@ -175,7 +175,7 @@ describe('the small-variant section', () => {
     );
     expect(mockedGet).toHaveBeenCalledWith(
       '/families/F1/small-variant-statistics',
-      { params: undefined }
+      { params: {} }
     );
   });
 

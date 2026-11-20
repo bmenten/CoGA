@@ -23,11 +23,12 @@ aligned by index (same site at the same position in every sample's list).
 from __future__ import annotations
 
 import statistics
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Literal, TypeVar
 
 from .nipt_analysis import MIN_FETAL_SEX_SITES
+from .same_individual import person_of
 
 Genotype = tuple[int, int]
 Status = Literal["pass", "warn", "fail", "skip"]
@@ -706,57 +707,63 @@ def _pair_key(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a <= b else (b, a)
 
 
-def _same_individual_groups(pairs: Iterable[tuple[str, str]]) -> list[set[str]]:
-    """The people the same-individual links make: the samples the links join, directly or
-    through another sample."""
-    groups: list[set[str]] = []
-    for a, b in pairs:
-        joined = [group for group in groups if a in group or b in group]
-        merged = {a, b}.union(*joined)
-        groups = [group for group in groups if group not in joined] + [merged]
-    return groups
+def _sample_pairs(samples: Iterable[str]) -> Iterator[tuple[str, str]]:
+    """Every pair of ``samples``, each in sorted order."""
+    ordered = sorted(set(samples))
+    for i, a in enumerate(ordered):
+        for b in ordered[i + 1:]:
+            yield a, b
 
 
-# Of two relationships a person's samples carry to another sample, the one kept: the closer.
+# Of two relationships recorded between the samples of two people, the one kept: the closer.
 _CARRIED_RANK = {"parent-child": 0, "sibling": 1}
 
 
 def _with_same_individuals(
-    expected: dict[tuple[str, str], str], pairs: Iterable[tuple[str, str]]
+    expected: dict[tuple[str, str], str], links: Iterable[tuple[str, str]]
 ) -> dict[tuple[str, str], str]:
-    """The expected relationships with the family's same-individual links (the owner's decision
-    of 2026-11-20): two samples of one person are expected identical, and what the pedigree
-    records of one (its parent, its child, its sibling) is expected of the other."""
-    out = dict(expected)
-    for group in _same_individual_groups(pairs):
-        members = sorted(group)
-        for i, a in enumerate(members):
-            for b in members[i + 1:]:
-                out[_pair_key(a, b)] = SAME_INDIVIDUAL
-        carried: dict[str, str] = {}
-        for (a, b), relation in expected.items():
-            for inside, outside in ((a, b), (b, a)):
-                if inside in group and outside not in group:
-                    held = carried.get(outside)
-                    if held is None or _CARRIED_RANK.get(relation, 9) < _CARRIED_RANK.get(held, 9):
-                        carried[outside] = relation
-        for sample in members:
-            for outside, relation in carried.items():
-                out.setdefault(_pair_key(sample, outside), relation)
+    """The expected relationships read per person, with the family's same-individual ``links``
+    (the owner's decision of 2026-11-20): two samples of one person are expected identical, and
+    what the pedigree records between a sample of one person and a sample of another (a parent, a
+    child, a sibling) is expected of every pair of their samples. A mother and her child sampled
+    twice each: all four pairs of the mother's and the child's samples are parent and child."""
+    person = person_of(links)
+
+    def of(sample: str) -> str:
+        return person.get(sample, sample)
+
+    between: dict[tuple[str, str], str] = {}
+    for (a, b), relation in expected.items():
+        people = _pair_key(of(a), of(b))
+        held = between.get(people)
+        if people[0] != people[1] and (
+            held is None or _CARRIED_RANK.get(relation, 9) < _CARRIED_RANK.get(held, 9)
+        ):
+            between[people] = relation
+    out: dict[tuple[str, str], str] = {}
+    for a, b in _sample_pairs([*person, *(sample for pair in expected for sample in pair)]):
+        carried = SAME_INDIVIDUAL if of(a) == of(b) else between.get(_pair_key(of(a), of(b)))
+        if carried is not None:
+            out[(a, b)] = carried
     return out
 
 
 def _with_same_individual_pairs(
     pairs: set[tuple[str, str]], links: Iterable[tuple[str, str]]
 ) -> set[tuple[str, str]]:
-    """``pairs`` (co-parents) with each sample's place taken by the other samples of its person."""
-    out = set(pairs)
-    for group in _same_individual_groups(links):
-        for a, b in pairs:
-            for inside, outside in ((a, b), (b, a)):
-                if inside in group and outside not in group:
-                    out.update(_pair_key(sample, outside) for sample in group)
-    return out
+    """``pairs`` (co-parents) read per person: every pair of a sample of one co-parent and a
+    sample of the other."""
+    person = person_of(links)
+
+    def of(sample: str) -> str:
+        return person.get(sample, sample)
+
+    people = {_pair_key(of(a), of(b)) for a, b in pairs if of(a) != of(b)}
+    return {
+        (a, b)
+        for a, b in _sample_pairs([*person, *(sample for pair in pairs for sample in pair)])
+        if _pair_key(of(a), of(b)) in people
+    }
 
 
 def _sibling_pairs(parents_of: dict[str, dict[str, str]]) -> set[tuple[str, str]]:
@@ -777,14 +784,16 @@ def resolve_application(
     analysis_types: Iterable[str],
     roles: dict[str, str],
     parents_of: dict[str, dict[str, str]],
-    sample_count: int,
+    person_count: int,
 ) -> ApplicationKind:
     """Infer the application from the family's analysis types and its shape.
 
     Only monogenic and conventional NIPT are read from the analysis types; the rest from
     structure (the input files / pedigree the family was built from), per CoGA's design. A family
     holding both NIPTs of one pregnancy gets the monogenic NIPT's checks: the conventional NIPT
-    adds none (its profile runs no check).
+    adds none (its profile runs no check). ``person_count`` counts people, not samples: two
+    samples of one person (a same-individual link) are one, so one person sampled twice is a
+    single, and a couple with a partner sampled twice a couple.
     """
     types = {str(value).strip().lower() for value in analysis_types}
     if "monogenic_nipt" in types:
@@ -793,10 +802,10 @@ def resolve_application(
         return "cnipt"
     if any((role or "").strip().lower() == "embryo" for role in roles.values()):
         return "pgt"
-    if sample_count <= 1:
+    if person_count <= 1:
         return "single"
-    # A carrier couple (BEGECS): two members with no parent-child edge between them.
-    if sample_count == 2 and not parents_of:
+    # A carrier couple (BEGECS): two people with no parent-child edge between them.
+    if person_count == 2 and not parents_of:
         return "couple"
     if parents_of:
         return "wgs"
@@ -1088,7 +1097,14 @@ def evaluate_sample_integrity(
     for child, parents in spec.parents_of.items():
         for parent in parents.values():
             recorded[_pair_key(parent, child)] = "parent-child"
-    for a, b in _sibling_pairs(spec.parents_of):
+    # Siblings share a parent: a person, whichever of its samples each child records.
+    person = person_of(spec.same_individual)
+    for a, b in _sibling_pairs(
+        {
+            child: {role: person.get(parent, parent) for role, parent in parents.items()}
+            for child, parents in spec.parents_of.items()
+        }
+    ):
         recorded.setdefault(_pair_key(a, b), "sibling")
     expected = {
         pair: relation

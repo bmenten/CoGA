@@ -94,6 +94,8 @@ interface ChromosomeTrackAvailability {
 
 interface ChromosomeViewWorkspaceProps {
   familyId: string;
+  /** Of a family with several analyses with small variants, the one whose calls are drawn. */
+  variantAnalysis?: string | null;
   familyDisplayId: string;
   chrom: string;
   speciesName?: string;
@@ -183,6 +185,7 @@ const buildGeneJumpRegion = (profile: GeneJumpProfile): { chrom: string; start: 
 
 const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   familyId,
+  variantAnalysis = null,
   familyDisplayId,
   chrom,
   speciesName,
@@ -736,6 +739,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                           height={originRows ? SMALL_VARIANT_ORIGIN_TRACK_HEIGHT : SMALL_VARIANT_TRACK_HEIGHT}
                           paternalSampleId={paternalSampleId}
                           maternalSampleId={maternalSampleId}
+                          analysis={variantAnalysis}
                           filters={{
                             ...variantFilters,
                             ...(sampleFilterMap[member.sample_id]

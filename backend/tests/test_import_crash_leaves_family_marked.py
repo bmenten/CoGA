@@ -32,7 +32,13 @@ from backend.app.services import family_package_import as package_import
 from backend.app.services import family_package_registration as registration
 from backend.app.services import sv_gene_index_service, variant_ranking_cache
 from backend.app.services.access_control import CurrentUser
-from backend.tests._family_import_fakes import admin_user, no_variant_copy, two_sample_context
+from backend.tests._family_import_fakes import (
+    admin_user,
+    no_family_import_hold,
+    no_records_to_clear,
+    no_variant_copy,
+    two_sample_context,
+)
 from backend.tests._kept_manifest import kept_manifest
 
 FAMILY = "FAM001"
@@ -146,7 +152,9 @@ def family(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Family:
 
     monkeypatch.setattr(package_import, "_ensure_family_from_ped", register)
     monkeypatch.setattr(package_import, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(package_import, "hold_family_import", no_family_import_hold)
     monkeypatch.setattr(package_import, "copy_variants_to_linked_projects", no_variant_copy)
+    monkeypatch.setattr(package_import, "clear_analysis_import_records", no_records_to_clear)
     monkeypatch.setattr(package_import, "_existing_package_entity_warnings", no_warnings)
     monkeypatch.setattr(variant_ranking_cache, "clear_family_ranking_cache", nothing)
     monkeypatch.setattr(sv_gene_index_service, "clear_family_sv_gene_index", nothing)
@@ -323,10 +331,21 @@ async def test_an_import_that_fails_before_its_first_dataset_leaves_the_failure_
         yield  # pragma: no cover
 
     monkeypatch.setattr(package_import, "hold_family_variant_writes", hold_a_sample_was_deleted)
+    put_back: list[tuple[str, str]] = []
+
+    async def put_back_record(_session: Any, family_uuid: str, record_key: str) -> None:
+        family.events.append(("put back",))
+        put_back.append((family_uuid, record_key))
+
+    monkeypatch.setattr(package_import, "put_back_family_package_record", put_back_record)
 
     with pytest.raises(HTTPException):
         await _import(family)
 
+    # The existing family's package record of the analysis goes back as it was, before the flag:
+    # it names no delivery whose data the import never wrote.
+    assert put_back == [("family-uuid", "unspecified")]
+    assert family.events.index(("put back",)) < len(family.events)
     # It wrote none of its datasets: it failed, it did not stop part-way.
     assert family.unfinished == {}
     assert family.incomplete is not None

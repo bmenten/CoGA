@@ -24,6 +24,7 @@ import pytest
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services import nipt_service
 from backend.app.services import report_signout_service as rss
 from backend.app.services import sample_integrity_service
@@ -117,7 +118,7 @@ def _targets(*, y_mean: float = 108.0, x_mean: float = 1300.0) -> list[TargetCov
 def _sample_rows(*, assay_panel: str | None = "panel-v2") -> list[dict[str, Any]]:
     plasma_metadata: dict[str, Any] = {"assays": ["nipt_cfdna"]}
     if assay_panel:
-        plasma_metadata["assay_panel"] = assay_panel
+        plasma_metadata["assay_panels"] = {"monogenic_nipt": assay_panel}
     return [
         {"sample_id": FATHER, "role": "father", "sample_metadata": {}},
         {"sample_id": PLASMA, "role": "mother", "sample_metadata": plasma_metadata},
@@ -133,6 +134,7 @@ def _context(rows: list[dict[str, Any]] | None = None) -> SimpleNamespace:
         assembly_name="GRCh38",
         sample_name_to_uuid={FATHER: "father-uuid", PLASMA: "cfdna-uuid"},
         sample_rows=rows if rows is not None else _sample_rows(),
+        scope=AnalysisScope(),
     )
 
 
@@ -150,7 +152,7 @@ def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
             FamilyMemberOut(sample_id=FATHER, role="father", affected=False),
             FamilyMemberOut(
                 sample_id=PLASMA, role="mother", affected=False,
-                sample_metadata={"assays": ["nipt_cfdna"], "assay_panel": "panel-v2"},
+                sample_metadata={"assays": ["nipt_cfdna"], "assay_panels": {"monogenic_nipt": "panel-v2"}},
             ),
         ],
         metadata={"analysis_types": ["monogenic_nipt"]},
@@ -230,7 +232,7 @@ def _wire(
         track_reads.append(sorted(chromosomes))
         return {PLASMA: SampleCoverageTracks(contents=dict(coverage))} if coverage else {}
 
-    async def fake_context(_session, *, family_identifier, user, project_id=None):
+    async def fake_context(_session, *, family_identifier, user, project_id=None, analysis=None):
         return _context()
 
     async def fake_fetch(_context, filters, *, limit=None, include_variant_ids=None, exclude_variant_ids=(), **_kwargs):
@@ -868,7 +870,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     """Everything a sign-out snapshot reads besides the NIPT analysis (``_wire``) and the
     record's NIPT section: nothing to report on, the other sections empty."""
 
-    async def context(_session, *, family_identifier, user, project_id=None):
+    async def context(_session, *, family_identifier, user, project_id=None, analysis=None):
         return _sign_out_context()
 
     async def family(_session, _family_id, _user):
@@ -880,26 +882,26 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     async def no_sites(_context, *, scope, limit, source):
         return []
 
-    async def manifest(_session, *, family_id, user, project_id=None):
+    async def manifest(_session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": []}
 
-    async def no_drift(_session, *, family_id, user, project_id=None, left_out=None):
+    async def no_drift(_session, *, family_id, user, project_id=None, analysis=None):
         nothing = {"checked": 0, "drifted_count": 0, "drifted": []}
         return {**nothing, "structural": dict(nothing)}
 
-    async def reported(_session, _family_uuid):
+    async def reported(_session, _family_uuid, _scope=None):
         return [{"variant_id": "7-100-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
 
-    async def nothing_reported(_session, _family_uuid):
+    async def nothing_reported(_session, _family_uuid, _scope=None):
         return []
 
     async def sequencing_qc(_session, _context, _scope=None):
         return {"analyses": {}}
 
-    async def complete(_session, _family_uuid):
+    async def complete(_session, _family_uuid, _scope):
         return None
 
-    async def unfinished(_session, _family_uuid):
+    async def unfinished(_session, _family_uuid, _scope):
         return {}
 
     async def section(*_args, **_kwargs):
@@ -910,7 +912,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sample_integrity_service, "get_family_record", family)
     monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", nipt_callset)
     monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", no_sites)
-    monkeypatch.setattr(rss, "get_family_annotation_manifest", manifest)
+    monkeypatch.setattr(rss, "analysis_annotation_manifest", manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", no_drift)
     monkeypatch.setattr(rss, "_reported_reviews", reported)
     monkeypatch.setattr(rss, "_reported_structural_reviews", nothing_reported)
@@ -1066,7 +1068,7 @@ async def test_a_database_error_in_the_sample_qc_nipt_step_leaves_the_sign_out_r
     monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", nipt_artifact_pg.load_nipt_artifact_ids)
     reads_after_the_qc: list[str] = []
 
-    async def reported(session, _family_uuid):
+    async def reported(session, _family_uuid, _scope=None):
         # The sign-out's next statement, in the same transaction.
         await session.execute("SELECT variant_id FROM small_variant_reviews")
         reads_after_the_qc.append("reviews")

@@ -23,6 +23,10 @@ Die scheiding is klinisch belangrijk: bij een recessieve aandoening is een ouder
 
 Een review legt per variant en per familie vast: de **klasse** (bv. "VUS - class 3"), een lijst **tags** en een **notitie**. Per tag bewaart CoGA ook *wie* hem zette en *wanneer*.
 
+**Een review per analyse.** Houdt een familie meerdere analyses (eerst short-read en dan long-read WGS van hetzelfde DNA), dan hoort een review bij één analyse (beslissing van de eigenaar van 2026-11-20): een variant die in de short-read-analyse een review kreeg, staat niet in het record van de long-read-analyse, tenzij ook daar. Elke rij noemt haar analyse (`analysis`, leeg voor een review van een familie zonder analyse). Een lezing voor analyse X leest per variant de eigen review van X, anders de gedeelde (opgeslagen onder geen analyse die de familie houdt), nooit die van een andere analyse. Een opslag in X schrijft altijd de eigen review van X, gemaakt uit de gelezen review en de waarden van de opslag; de gedeelde review blijft zoals ze is. Een opslag die de review van X leegmaakt, houdt ze leeg bij zolang een gedeelde review van de variant iets bevat, zodat X de variant als niet beoordeeld leest. Een familie met meerdere analyses met eigen small variants noemt de analyse bij elke opslag (`analysis`), anders `422`. Elke auditgebeurtenis van een review noemt de analyse (`metadata.analysis`). De Variant Explorer toont per familie de tags en klassen van de review van elke analyse.
+
+**Waar in de code:** `backend/app/services/analysis_reviews.py`; `upsert_small_variant_review` in `small_variant_review_pg.py`.
+
 **Klasselabels in zinshoofdletters.** De klassetags en de VUS-niveaus staan in zinshoofdletters: "Likely pathogenic - class 4", "VUS — hot" (beslissing van de eigenaar). Een tag staat op een review als sleutel. De klassetekst van een review is vrije tekst: een opslag bewaart ze zoals verstuurd, zonder witruimte vooraan en achteraan (`_stored_classification` in `review_pg_utils.py`). De filters en de Variant Explorer lezen een klasselabel ongeacht hoofdletters.
 
 **Welke klasse een review toont.** Eén regel bepaalt de klasse die een review toont (`review_class_label` in `review_pg_utils.py`; in de frontend `normalizeReviewClassification`):
@@ -246,7 +250,7 @@ Elke wijziging van een review, van een small variant, een SV of een CNV, schrijf
 - de waarden die de CNV-evaluator leest: het type, de overlappende genen en hun aantal, de pLI en de geannoteerde overerving;
 - de gebeurtenis zelf: de caller, het chromosoom, het begin, het einde, de lengte en de breukpuntpartner;
 - een hash van de volledige annotatie van de SV, en het tijdstip;
-- de versies waar het bewijs vandaan komt: die van de SV-callset in het annotatiemanifest van de familie, de referentie-assembly en de genloci.
+- de versies waar het bewijs vandaan komt: die van de SV-callset in het annotatiemanifest van de analyse waarvan de call is, de referentie-assembly en de genloci.
 
 De evaluator leest geen klinische CNV's, dosagescores of DGV; die criteria scoort de analist zelf. De genotypes zitten niet in het snapshot. De driftsleutel is `evidence_hash`, een SHA-256 over het bewijs; de versies worden vastgelegd, niet vergeleken. Een CNV-classificatie van een SV die niet in de data van de familie zit, weigert de server (`404`). Heeft de familie geen assembly, dan is er geen SV-opslag om te lezen, en wordt de classificatie zonder snapshot bewaard.
 

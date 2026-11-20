@@ -95,7 +95,7 @@ async def sign_out_report_through_the_dialogs(
             sent = following
 
 
-async def no_finding_reviews(session: Any, context: Any, sections: Any) -> dict[str, Any]:
+async def no_finding_reviews(session: Any, context: Any, sections: Any, kinds: Any = None) -> dict[str, Any]:
     """``report_signout_service.finding_reviews_for_record`` for a test whose family holds no
     repeat or Paraphase call and no review of one: its record holds none, and nothing gates.
 

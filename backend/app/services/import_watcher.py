@@ -98,10 +98,20 @@ from .family_package_manifest import (
 )
 from .family_package_nipt import NIPT_VCF_COLUMN_WARNING
 from .family_package_registration import (
+    SAME_INDIVIDUAL_NOT_MADE,
+    SAME_INDIVIDUAL_OUTSIDE,
+    FamilySamplesHeld,
     _existing_package_entity_warnings,
+    _package_members,
     family_member_differences,
-    same_individual_outside_message,
+    family_samples_held,
+    member_values_conflict_message,
+    package_same_individual_links,
+    same_individual_not_made,
+    same_individual_not_made_message,
+    same_individual_outside,
     members_added_message,
+    members_filled_message,
     manifest_roi_issue,
     members_differ_message,
 )
@@ -546,11 +556,27 @@ async def assess_content(
         )
         # The package's members are the pedigree the import reads: an update adds the members the
         # family in CoGA lacks (a warning), and one that changes or lacks a member the family holds
-        # is corrected first, or overwrites the family's pedigree (an administrator's choice).
+        # is corrected first, or overwrites the family's pedigree (an administrator's choice). A
+        # family that holds another analysis keeps every value it knows of a member: a package that
+        # states one otherwise is corrected first, or the member in the members editor (no choice
+        # imports it); the values it fills are a warning.
         if bundle is not None and validation.family_id:
             differences = await family_member_differences(
-                session, family_id=validation.family_id, ped=bundle.ped, analysis_type=bundle.manifest.analysis_type
+                session,
+                family_id=validation.family_id,
+                ped=bundle.ped,
+                analysis_type=bundle.manifest.analysis_type,
+                members=_package_members(bundle),
             )
+            if differences.conflicting:
+                issues.append(
+                    _issue(
+                        "package_member_values_conflict",
+                        member_values_conflict_message(
+                            validation.family_id, differences.others, differences.conflicting
+                        ),
+                    )
+                )
             if not differences.kept_by_an_update:
                 issues.append(
                     _issue("package_members_differ_from_family", members_differ_message(validation.family_id, differences))
@@ -559,10 +585,22 @@ async def assess_content(
                 warnings.append(
                     _issue("package_adds_members", members_added_message(validation.family_id, differences))
                 )
-        if bundle is not None:
-            outside = await same_individual_outside_message(session, family_id=validation.family_id, bundle=bundle)
-            if outside is not None:
-                issues.append(_issue("package_same_individual_outside", outside))
+            if differences.filled and not differences.conflicting:
+                warnings.append(
+                    _issue("package_fills_member_values", members_filled_message(validation.family_id, differences))
+                )
+        links = package_same_individual_links(bundle) if bundle is not None else []
+        if bundle is not None and links:
+            # The package's same-individual links: one naming a sample the family does not hold
+            # is an issue, one an update does not make a warning. Checked again when the family
+            # changes (_coga_side_changed).
+            issue, warning = _same_individual_issues(
+                links,
+                package_ids=set(bundle.ped.sample_ids),
+                held=await family_samples_held(session, family_id=validation.family_id),
+            )
+            issues.extend([issue] if issue is not None else [])
+            warnings.extend([warning] if warning is not None else [])
         if project_id is not None:
             roi = await manifest_roi_issue(
                 session, roi_query=validation.metadata.get("roi"), project_id=project_id, family_id=validation.family_id
@@ -761,7 +799,9 @@ async def _coga_side_changed(session: AsyncSession, delivery: Mapping[Any, Any])
     assembly), and the family and samples its package holds (imported, or deleted). It compares
     only what the check read: the project when the package file could be read (the check named it
     unknown, kept its id, or went on to validate the package), the family and samples when it
-    validated the package. So a check that could not run, or a package file that could not be
+    validated the package, and the members its package's same-individual links name (a sample the
+    family did not hold, which the import of another analysis's package added since; a link an
+    update does not make). So a check that could not run, or a package file that could not be
     read, is never checked again: what it found holds until the folder changes."""
     codes = {str(item.get("code")) for item in _json_list(delivery["issues"]) if isinstance(item, dict)}
     # The project of the package as checked, or as corrected since; else the package file's.
@@ -780,7 +820,50 @@ async def _coga_side_changed(session: AsyncSession, delivery: Mapping[Any, Any])
         )
         if {str(issue.code) for issue in existing} != codes & _EXISTING_ISSUES:
             return True
+        links, package_ids = _same_individual_links_of(marker)
+        if links:
+            issue, warning = _same_individual_issues(
+                links,
+                package_ids=package_ids,
+                held=await family_samples_held(session, family_id=_text(validation.get("family_id"))),
+            )
+            warning_codes = {
+                str(item.get("code")) for item in _json_list(delivery.get("warnings")) if isinstance(item, dict)
+            }
+            if (issue is not None) != (SAME_INDIVIDUAL_OUTSIDE in codes) or (warning is not None) != (
+                SAME_INDIVIDUAL_NOT_MADE in warning_codes
+            ):
+                return True
     return False
+
+
+def _same_individual_links_of(package: Mapping[str, Any] | None) -> tuple[list[tuple[str, str]], set[str]]:
+    """The same-individual links of a package file as kept (``same_individual_as`` of its
+    members), and its members' sample IDs."""
+    members = [member for member in (package or {}).get("members") or [] if isinstance(member, dict)]
+    package_ids = {str(member.get("sample_id") or "").strip() for member in members} - {""}
+    links = [
+        (str(member.get("sample_id") or "").strip(), str(other).strip())
+        for member in members
+        for other in member.get("same_individual_as") or []
+    ]
+    return links, package_ids
+
+
+def _same_individual_issues(
+    links: list[tuple[str, str]], *, package_ids: set[str], held: FamilySamplesHeld
+) -> tuple[DeliveryIssue | None, DeliveryIssue | None]:
+    """The delivery's issue for the package's same-individual ``links``, a sample the family does
+    not hold (``same_individual_outside``), and its warning, a link an update does not make
+    (``same_individual_not_made``)."""
+    outside = same_individual_outside(links, package_ids=package_ids, held=held)
+    not_made = same_individual_not_made(links, held=held)
+    return (
+        _issue(SAME_INDIVIDUAL_OUTSIDE, outside) if outside is not None else None,
+        _issue(SAME_INDIVIDUAL_NOT_MADE, same_individual_not_made_message(not_made, family_id=held.family_id or ""))
+        if not_made
+        else None,
+    )
 
 
 async def _assess(
@@ -892,8 +975,8 @@ async def look_at_folder(
                     UPDATE import_deliveries
                     SET last_seen_at = now(), missing_rounds = 0
                     WHERE folder_path = :folder AND package_fingerprint = :fingerprint AND origin = 'watched'
-                    RETURNING id::text AS id, state, issues, project_id::text AS project_id, marker, validation,
-                              marker_sha256, run_id, family_id, package, package_check
+                    RETURNING id::text AS id, state, issues, warnings, project_id::text AS project_id, marker,
+                              validation, marker_sha256, run_id, family_id, package, package_check
                     """
                 ),
                 {"folder": str(folder), "fingerprint": fingerprint},

@@ -291,17 +291,21 @@ def test_a_replacement_is_recorded_as_manual_whatever_source_the_caller_sends(mo
             family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38"
         )
 
-    async def _no_row(session, family_uuid):
-        return None
+    async def _no_rows(session, family_uuid):
+        return []
+
+    async def _no_analysis(session, family_uuid):
+        return {}
 
     async def _event(session, **kwargs):
         events.append(kwargs)
 
     async def _manifest(session, *, family_id, user, project_id=None):
-        return {"family_id": "FAM1", "source": "manual", "modules": []}
+        return {"family_id": "FAM1", "analyses": [{"source": "manual", "modules": []}]}
 
     monkeypatch.setattr(ams, "build_family_metadata_context", _context)
-    monkeypatch.setattr(ams, "_family_manifest_row", _no_row)
+    monkeypatch.setattr(ams, "_family_manifest_rows", _no_rows)
+    monkeypatch.setattr(ams, "_family_metadata", _no_analysis)
     monkeypatch.setattr(ams, "record_clinical_event", _event)
     monkeypatch.setattr(ams, "get_family_annotation_manifest", _manifest)
 

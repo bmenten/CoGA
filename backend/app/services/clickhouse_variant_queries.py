@@ -50,6 +50,7 @@ from .genotypes import (
     clickhouse_genotype_condition,
     genotype_has_alt,
 )
+from .same_individual import person_of, persons, same_individual_pairs
 from .sex_chromosomes import (
     XY_CHROMOSOME_NAMES,
     SexChromosome,
@@ -1385,27 +1386,36 @@ def _carrier_partner_names(
     sample_rows: Sequence[dict[str, Any]],
     relationship_rows: Sequence[dict[str, Any]] | None = None,
 ) -> tuple[str, str] | None:
-    sample_names = {
+    """The couple of a carrier screen, a sample of each partner: the two a couple relationship
+    names; else the mother and the father; else the family's two people. Read per person (the
+    family's same-individual links, ``same_individual.persons``): two samples of one person are
+    never a couple, and a family of one person sampled twice has none."""
+    sample_names = [
         str(row.get("sample_id") or "").strip()
         for row in sample_rows
         if str(row.get("sample_id") or "").strip()
-    }
+    ]
+    person = person_of(same_individual_pairs(relationship_rows or []))
+
+    def two_people(left: str, right: str) -> bool:
+        return bool(left and right) and person.get(left, left) != person.get(right, right)
+
     for relationship in relationship_rows or []:
         if relationship.get("relationship_type") != "couple":
             continue
         left = str(relationship.get("sample_id_a") or "").strip()
         right = str(relationship.get("sample_id_b") or "").strip()
-        if left and right and left != right and left in sample_names and right in sample_names:
+        if two_people(left, right) and left in sample_names and right in sample_names:
             return left, right
-    mother = next((row.get("sample_id") for row in sample_rows if row.get("role") == "mother"), None)
-    father = next((row.get("sample_id") for row in sample_rows if row.get("role") == "father"), None)
-    if mother and father:
-        return str(mother), str(father)
-    if len(sample_rows) == 2:
-        left = str(sample_rows[0].get("sample_id") or "").strip()
-        right = str(sample_rows[1].get("sample_id") or "").strip()
-        if left and right and left != right:
-            return left, right
+    mother, father = (
+        next((str(row.get("sample_id") or "").strip() for row in sample_rows if row.get("role") == role), "")
+        for role in ("mother", "father")
+    )
+    if two_people(mother, father):
+        return mother, father
+    people = persons(sample_names, same_individual_pairs(relationship_rows or []))
+    if len(people) == 2:
+        return people[0][0], people[1][0]
     return None
 
 
@@ -1803,10 +1813,15 @@ def _structural_variant_out(
 def _family_affected_unaffected_sample_names(
     context: FamilyMetadataContext,
 ) -> tuple[list[str], list[str]]:
+    """The affected and the unaffected members' samples an inheritance mode reads, of the
+    analysis the family is read for: a member only another analysis's package lists (a person's
+    second sample, sequenced for that analysis) is neither required nor read, as the analysis's
+    callset holds no call of it (``AnalysisScope.left_out_members``)."""
+    left_out = context.scope.left_out_members
     affected_sample_names = [
         sample_name
         for sample_name in context.affected_sample_names
-        if sample_name in context.sample_name_to_uuid
+        if sample_name in context.sample_name_to_uuid and sample_name not in left_out
     ]
     affected_sample_set = set(affected_sample_names)
     unaffected_sample_names = [
@@ -1815,6 +1830,7 @@ def _family_affected_unaffected_sample_names(
         if str(row.get("sample_id") or "").strip()
         and str(row.get("clinical_status") or "").lower() == "unaffected"
         and str(row.get("sample_id") or "").strip() not in affected_sample_set
+        and str(row.get("sample_id") or "").strip() not in left_out
     ]
     return affected_sample_names, unaffected_sample_names
 
@@ -2183,6 +2199,7 @@ def _small_variant_where_clauses(
     if context.project_ids:
         where_clauses.append("e.project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
+    where_clauses.extend(_small_analysis_scope_clauses(context, filters, params=params))
     visible_sample_ids = _visible_clickhouse_sample_ids(context)
     if visible_sample_ids:
         where_clauses.append("hasAny(e.calls.sampleId, %(visible_sample_ids)s)")
@@ -2246,6 +2263,23 @@ def _small_variant_type_condition(variant_type: str | None, *, alias: str = "e")
     return None
 
 
+def _small_analysis_scope_clauses(
+    context: FamilyMetadataContext, filters: SmallVariantQueryFilters, *, params: dict[str, Any]
+) -> list[str]:
+    """The rows of the analysis the family is read for (``context.scope``): the callsets of the
+    family's other analyses are left out, so a variant both an analysis's and another's callset
+    hold is read from its own (analysis_scope.py). A reading that names one callset reads that
+    callset alone (``_small_callset_clauses``); any other reading of a family that holds several
+    analyses with small variants of their own names the analysis, or is refused."""
+    if (filters.source or "").strip():
+        return []
+    left_out = context.scope.require_named().left_out_sources("small_variants")
+    if not left_out:
+        return []
+    params["scope_left_out_sources"] = tuple(sorted(left_out))
+    return ["e.source NOT IN %(scope_left_out_sources)s"]
+
+
 def _small_callset_clauses(
     filters: SmallVariantQueryFilters,
     *,
@@ -2253,15 +2287,16 @@ def _small_callset_clauses(
     exclude_imputed: bool,
     alias: str = "e",
 ) -> list[str]:
-    """The callset filter on the rows ``alias``: the callset (``source``) found in the stored
-    text, as typed but for the spaces around it. Without one, ``exclude_imputed`` hides the
-    imputed callsets (GLIMPSE2, SHAPEIT), as the family page's list and count and the Variant
-    Explorer do by default; the phased-marker and sample-QC readers see every callset. A
-    blank callset asks nothing, so the imputed-callset default applies to it."""
+    """The callset filter on the rows ``alias``: the callset (``source``) named, whole, in any
+    case and but for the spaces around it, so one callset's name never selects another whose
+    name holds it (``deepvariant`` and ``deepvariant_sr``). Without one, ``exclude_imputed``
+    hides the imputed callsets (GLIMPSE2, SHAPEIT), as the family page's list and count and the
+    Variant Explorer do by default; the phased-marker and sample-QC readers see every callset.
+    A blank callset asks nothing, so the imputed-callset default applies to it."""
     source = (filters.source or "").strip()
     if source:
-        params["source"] = source
-        return [f"positionCaseInsensitive({alias}.source, %(source)s) > 0"]
+        params["source"] = source.lower()
+        return [f"lowerUTF8({alias}.source) = %(source)s"]
     if exclude_imputed:
         params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
         return [f"lowerUTF8({alias}.source) NOT IN %(imputed_sources)s"]
@@ -3389,12 +3424,18 @@ def _structural_variant_scope_clauses(
 ) -> tuple[list[str], dict[str, Any]]:
     """The family's SV rows (alias ``e``) a search reads before its regions and panel: the
     family's live rows in its projects with a call of a visible member, within the
-    search's chromosome and locus, and of its review selection."""
+    search's chromosome and locus, and of its review selection. A search that names one of the
+    family's analyses (``context.scope.asked``) leaves out the other analyses' SV sources
+    (analysis_scope.py)."""
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
     if context.project_ids:
         where_clauses.append("e.project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
+    left_out = context.scope.left_out_sources("structural_variants") if context.scope.asked else frozenset()
+    if left_out:
+        where_clauses.append("e.source NOT IN %(scope_left_out_sv_sources)s")
+        params["scope_left_out_sv_sources"] = tuple(sorted(left_out))
     visible_sample_ids = _visible_clickhouse_sample_ids(context)
     if visible_sample_ids:
         where_clauses.append("hasAny(e.calls.sampleId, %(visible_sample_ids)s)")

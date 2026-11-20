@@ -34,14 +34,16 @@ import {
 import type { ReportedClass } from './reportNarrative';
 import { NIPT_QUALITY_FAILURE_LABELS } from './NiptQcPanel';
 import {
+  failedDatasetWords,
   failuresByJob,
+  importedAnalysisWords,
   pendingDatasets,
   unfinishedWriter,
   WRITER_LABELS,
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import {
-  latestSignoutOfRecord,
+  latestSignoutOf,
   useReportSignoutCheck,
   useReportSignouts,
   useSignedVersionDownload,
@@ -272,7 +274,7 @@ const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
   }
   if (entry.wholeFamily) {
     // A failed overwrite whose restore did not finish, as the record froze it.
-    return `An import (begun ${formatReportTime(entry.at)})${
+    return `An import${importedAnalysisWords(entry.analysisType)} (begun ${formatReportTime(entry.at)})${
       entry.jobId ? `, import job ${entry.jobId},` : ''
     } had failed, and putting the family’s data back had not finished${
       pending.length
@@ -282,7 +284,7 @@ const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
         : ''
     }.`;
   }
-  return `An import (begun ${formatReportTime(entry.at)})${
+  return `An import${importedAnalysisWords(entry.analysisType)} (begun ${formatReportTime(entry.at)})${
     entry.jobId ? `, import job ${entry.jobId},` : ''
   } had begun writing the family’s data and had not finished${
     pending.length
@@ -811,19 +813,14 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
 };
 
 /**
- * A section of a kind of data the analysis a record closes does not hold, beside another analysis
- * of the family that does (signout_scope.py): said so, so that no section drops out of the signed
- * view without a trace.
+ * Whose calls a record's repeat and Paraphase sections hold: those of the analysis it closes (a
+ * family's analysis holds the calls stored under its own sources, signout_scope.py), or the
+ * family's samples' for a record of a family that holds no analysis.
  */
-const NotOfThisAnalysis: React.FC<{ title: string; what: string }> = ({ title, what }) => (
-  <section className="surface-card report-signed-checks">
-    <h2 className="report-audit-heading">{title}</h2>
-    <p className="report-paragraph">
-      Not part of this record: the analysis it closes holds no {what}. Another analysis of the family
-      holds them, and its own record freezes them.
-    </p>
-  </section>
-);
+const callsOfTheRecord = (record: SignedReport): string => {
+  const label = analysisLabel(record.analysisType);
+  return label ? `The ${label}` : 'The family’s samples';
+};
 
 /**
  * A monogenic NIPT family's NIPT results, as its record froze them. Any other family's record
@@ -1129,9 +1126,6 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
       }
     </RecordSectionBlock>
 
-    {record.repeatExpansions.state === 'absent' ? (
-      <NotOfThisAnalysis title="Repeat expansions" what="repeat-expansion calls" />
-    ) : (
     <RecordSectionBlock
       title="Repeat expansions"
       what="the repeat-expansion calls"
@@ -1166,16 +1160,12 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
               ))}
             </ul>
           ) : (
-            <p className="report-paragraph">The family’s samples had no repeat-expansion calls.</p>
+            <p className="report-paragraph">{callsOfTheRecord(record)} had no repeat-expansion calls.</p>
           )}
         </>
       )}
     </RecordSectionBlock>
-    )}
 
-    {record.paraphase.state === 'absent' ? (
-      <NotOfThisAnalysis title="Paraphase" what="Paraphase results" />
-    ) : (
     <RecordSectionBlock
       title="Paraphase"
       what="the Paraphase results"
@@ -1211,12 +1201,11 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
               ))}
             </ul>
           ) : (
-            <p className="report-paragraph">The family’s samples had no Paraphase results.</p>
+            <p className="report-paragraph">{callsOfTheRecord(record)} had no Paraphase results.</p>
           )}
         </>
       )}
     </RecordSectionBlock>
-    )}
 
     <CoverageTracksSection record={record} version={version} />
 
@@ -1397,7 +1386,7 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
               <p className="report-paragraph">
                 {sequencingQc.analyses.length > 1 ? `${analysisLabel(entry.analysis) ?? entry.analysis}: ` : ''}
                 {entry.profileLabels.length
-                  ? `judged against the cut-offs of ${entry.profileLabels.join(', else ')}, metric by metric.`
+                  ? `judged against the cut-offs of ${entry.profileLabels.join(', else ')}, each warning and error cut-off on its own.`
                   : 'no QC profile applied.'}
               </p>
               <ul className="report-signed-list">
@@ -1455,7 +1444,9 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
               <>
                 The family’s data was incomplete:{' '}
                 {failedImport.failedDatasets.length
-                  ? `${joinWithAnd(failedImport.failedDatasets)} failed to import`
+                  ? `${joinWithAnd(
+                      failedImport.failedDatasets.map((name) => failedDatasetWords(failedImport, name)),
+                    )} failed to import`
                   : 'which datasets failed was not recorded'}
                 {failedImport.importedDatasets.length
                   ? `; ${joinWithAnd(failedImport.importedDatasets)} did import`
@@ -1508,7 +1499,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
   // data (the owner's decision of 2026-11-19).
   const analysisType = detailQuery.data?.analysis_type ?? null;
   const analysisWords = analysisLabel(analysisType) ? ` of the ${analysisLabel(analysisType)}` : '';
-  const latest = detailQuery.data ? latestSignoutOfRecord(signouts.data, analysisType) : null;
+  const latest = detailQuery.data ? latestSignoutOf(signouts.data, analysisType) : null;
   const isLatest = latest ? latest.version === version : null;
   // Only the latest version can be compared with the family's current data.
   const check = useReportSignoutCheck(familyId, isLatest ? version : null, analysisType);
