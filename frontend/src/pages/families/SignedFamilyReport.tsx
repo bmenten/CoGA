@@ -22,7 +22,15 @@ import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import { analysisLabel } from '../../lib/familyAnalyses';
 import { CATEGORY_LABELS, depth, pct } from './niptClassification';
-import { boundValue, cniptTargetLabel, cniptVerdictLabel, HEADLINE_TARGETS, percent } from './cniptResult';
+import {
+  boundValue,
+  CNIPT_CLAIM_NOTE,
+  cniptTargetLabel,
+  cniptVerdictLabel,
+  HEADLINE_TARGETS,
+  OUTSIDE_CLAIM,
+  percent,
+} from './cniptResult';
 import type { ReportedClass } from './reportNarrative';
 import { NIPT_QUALITY_FAILURE_LABELS } from './NiptQcPanel';
 import {
@@ -882,17 +890,19 @@ const CniptSampleBody: React.FC<{ sample: SignedCniptSample }> = ({ sample }) =>
       <ul className="report-signed-list" aria-label={`Result of ${sample.sampleId}`}>
         {ordered.map((target) => (
           <li key={target.target}>
-            {cniptTargetLabel(target.target)}: {cniptVerdictLabel(target.verdict)}
+            {cniptTargetLabel(target.target)}
+            {target.claimed ? '' : ` (${OUTSIDE_CLAIM})`}: {cniptVerdictLabel(target.verdict)}
             {target.reasons.length ? ` — ${target.reasons.join('; ')}` : ''}
           </li>
         ))}
         {otherLowRisk.length ? (
           <li>
-            {otherLowRisk.length === 1 ? cniptTargetLabel(otherLowRisk[0].target) : `The ${otherLowRisk.length} other autosomes`}:
-            {' '}Low risk
+            {otherLowRisk.length === 1 ? cniptTargetLabel(otherLowRisk[0].target) : `The ${otherLowRisk.length} other autosomes`}
+            {` (${OUTSIDE_CLAIM})`}:{' '}Low risk
           </li>
         ) : null}
       </ul>
+      <p className="report-paragraph">{CNIPT_CLAIM_NOTE}</p>
       <ul className="report-signed-list">
         <li>
           Fetal fraction: {percent(ff.effective)} (effective){estimates.length ? `; ${estimates.join(', ')}` : ''}

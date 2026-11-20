@@ -1332,13 +1332,13 @@ describe('FamilyReportPage', () => {
           read_metrics: {},
           warnings: [],
           targets: [
-            { target: '1', verdict: 'low_risk', reasons: [] },
-            { target: '8', verdict: 'inconclusive', reasons: ['its origin is MATERNAL_MOSAIC'] },
-            { target: '13', verdict: 'low_risk', reasons: [] },
-            { target: '18', verdict: 'low_risk', reasons: [] },
-            { target: '21', verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'] },
-            { target: 'sex_chromosomes', verdict: 'low_risk', reasons: [] },
-            { target: 'segmental', verdict: 'low_risk', reasons: [] },
+            { target: '1', verdict: 'low_risk', reasons: [], claimed: false },
+            { target: '8', verdict: 'inconclusive', reasons: ['its origin is MATERNAL_MOSAIC'], claimed: false },
+            { target: '13', verdict: 'low_risk', reasons: [], claimed: true },
+            { target: '18', verdict: 'low_risk', reasons: [], claimed: true },
+            { target: '21', verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'], claimed: true },
+            { target: 'sex_chromosomes', verdict: 'low_risk', reasons: [], claimed: true },
+            { target: 'segmental', verdict: 'low_risk', reasons: [], claimed: false },
           ],
           findings: [],
           bounds: [
@@ -1370,9 +1370,9 @@ describe('FamilyReportPage', () => {
       'Chromosome 18 (T18): Low risk',
       'Chromosome 13 (T13): Low risk',
       'Sex chromosomes: Low risk',
-      'Segmental CNVs: Low risk',
-      'Chromosome 8: Inconclusive — its origin is MATERNAL_MOSAIC',
-      'The other autosome: Low risk',
+      'Segmental CNVs (outside the validated claim): Low risk',
+      'Chromosome 8 (outside the validated claim): Inconclusive — its origin is MATERNAL_MOSAIC',
+      'The other autosome (outside the validated claim): Low risk',
     ]);
     expect(block).toHaveTextContent('Maternal plasma CFDNA1 · fetal fraction 10.0% · fetal sex F');
     expect(block).toHaveTextContent(
@@ -2333,13 +2333,13 @@ describe('FamilyReportPage', () => {
           read_metrics: {},
           warnings: ['ccnv warns of a low fetal fraction'],
           targets: [
-            { target: '1', verdict: 'low_risk', reasons: [] },
-            { target: '2', verdict: 'low_risk', reasons: [] },
-            { target: '13', verdict: 'low_risk', reasons: [] },
-            { target: '18', verdict: 'low_risk', reasons: [] },
-            { target: '21', verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'] },
-            { target: 'sex_chromosomes', verdict: 'low_risk', reasons: [] },
-            { target: 'segmental', verdict: 'low_risk', reasons: [] },
+            { target: '1', verdict: 'low_risk', reasons: [], claimed: false },
+            { target: '2', verdict: 'low_risk', reasons: [], claimed: false },
+            { target: '13', verdict: 'low_risk', reasons: [], claimed: true },
+            { target: '18', verdict: 'low_risk', reasons: [], claimed: true },
+            { target: '21', verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'], claimed: true },
+            { target: 'sex_chromosomes', verdict: 'low_risk', reasons: [], claimed: true },
+            { target: 'segmental', verdict: 'low_risk', reasons: [], claimed: false },
           ],
           findings: [
             {
@@ -2377,8 +2377,8 @@ describe('FamilyReportPage', () => {
         'Chromosome 18 (T18): Low risk',
         'Chromosome 13 (T13): Low risk',
         'Sex chromosomes: Low risk',
-        'Segmental CNVs: Low risk',
-        'The 2 other autosomes: Low risk',
+        'Segmental CNVs (outside the validated claim): Low risk',
+        'The 2 other autosomes (outside the validated claim): Low risk',
       ]);
       expect(cnipt).toHaveTextContent(
         'Fetal fraction: 10.0% (effective); active 8.0% ± 0.5% (FUSED), FFY 0.0%, FFX 9.0%',

@@ -16,8 +16,10 @@ import {
   CNIPT_VERDICT_CHIP,
   CNIPT_VERDICT_LABEL,
   boundValue,
+  CNIPT_CLAIM_NOTE,
   cniptTargetLabel,
   orderCniptTargets,
+  OUTSIDE_CLAIM,
   percent,
 } from './cniptResult';
 
@@ -40,7 +42,10 @@ const TargetRows: React.FC<{ targets: readonly CniptTargetOut[] }> = ({ targets 
   <>
     {targets.map((target) => (
       <tr key={target.target}>
-        <th scope="row">{cniptTargetLabel(target.target)}</th>
+        <th scope="row">
+          {cniptTargetLabel(target.target)}
+          {target.claimed ? null : <div className="table-subtle">{OUTSIDE_CLAIM}</div>}
+        </th>
         <td>
           <VerdictChip verdict={target.verdict} />
         </td>
@@ -100,10 +105,13 @@ const CniptSampleResult: React.FC<{
             </tbody>
           </table>
         </div>
+        <p className="status-note" role="note">
+          {CNIPT_CLAIM_NOTE}
+        </p>
         <details className="cnipt-other-autosomes">
           <summary>
             Every other autosome ({others.length - flaggedOthers.length} low risk
-            {flaggedOthers.length ? `, ${flaggedOthers.length} listed above` : ''})
+            {flaggedOthers.length ? `, ${flaggedOthers.length} listed above` : ''}; {OUTSIDE_CLAIM})
           </summary>
           <div className="data-table-shell data-table-shell--fit">
             <table className="cnipt-targets-table">

@@ -19,7 +19,12 @@ vi.mock('../../../lib/reference', () => ({
   formatResolvedReferenceLabel: () => 'GRCh38',
 }));
 
-const lowRisk = (target: string) => ({ target, verdict: 'low_risk' as const, reasons: [] });
+const lowRisk = (target: string) => ({
+  target,
+  verdict: 'low_risk' as const,
+  reasons: [],
+  claimed: ['21', '18', '13'].includes(target),
+});
 
 const sample = (overrides: Partial<CniptSampleResultOut> = {}): CniptSampleResultOut => ({
   sample_id: 'CFDNA1',
@@ -36,13 +41,13 @@ const sample = (overrides: Partial<CniptSampleResultOut> = {}): CniptSampleResul
   targets: [
     ...Array.from({ length: 22 }, (_, index) => String(index + 1)).map((target) =>
       target === '21'
-        ? { target, verdict: 'high_risk' as const, reasons: ['|z| 9.0 ≥ 3, concordant with the fetal fraction, origin FETAL_CONSTITUTIONAL'] }
+        ? { target, verdict: 'high_risk' as const, reasons: ['|z| 9.0 ≥ 3, concordant with the fetal fraction, origin FETAL_CONSTITUTIONAL'], claimed: true }
         : target === '7'
-          ? { target, verdict: 'inconclusive' as const, reasons: ['|z| 2.7 is in the grey zone (2.5 to 3)'] }
+          ? { target, verdict: 'inconclusive' as const, reasons: ['|z| 2.7 is in the grey zone (2.5 to 3)'], claimed: false }
           : lowRisk(target),
     ),
-    { target: 'sex_chromosomes', verdict: 'low_risk', reasons: ['ccnv calls XX (confidence 99.9%)'] },
-    { target: 'segmental', verdict: 'low_risk', reasons: ['Segmental CNVs are assessed from 3 Mb.'] },
+    { target: 'sex_chromosomes', verdict: 'low_risk', reasons: ['ccnv calls XX (confidence 99.9%)'], claimed: true },
+    { target: 'segmental', verdict: 'low_risk', reasons: ['Segmental CNVs are assessed from 3 Mb.'], claimed: false },
   ],
   findings: [
     {
@@ -102,8 +107,9 @@ describe('FamilyCniptPage', () => {
     const result = await screen.findByRole('region', { name: 'Result of CFDNA1' });
     const [targets] = within(result).getAllByRole('table');
     const rows = within(targets).getAllByRole('row').slice(1);
-    // The headline targets, then the one other autosome that is not low risk.
-    expect(rows.map((row) => within(row).getByRole('rowheader').textContent)).toEqual([
+    // The headline targets, then the one other autosome that is not low risk; each target the
+    // intended purpose does not claim says so under its name.
+    expect(rows.map((row) => within(row).getByRole('rowheader').firstChild?.textContent)).toEqual([
       'Chromosome 21 (T21)',
       'Chromosome 18 (T18)',
       'Chromosome 13 (T13)',
@@ -111,11 +117,22 @@ describe('FamilyCniptPage', () => {
       'Segmental CNVs',
       'Chromosome 7',
     ]);
+    expect(rows.map((row) => within(row).queryByText('outside the validated claim') !== null)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+    ]);
+    expect(within(result).getByText(/The validated claim covers trisomies 21, 18 and 13/)).toBeInTheDocument();
     expect(within(rows[0]).getByText('High risk')).toBeInTheDocument();
     expect(within(rows[0]).getByText(/concordant with the fetal fraction/)).toBeInTheDocument();
     expect(within(rows[5]).getByText('Inconclusive')).toBeInTheDocument();
     // The other autosomes, folded.
-    expect(within(result).getByText(/Every other autosome \(18 low risk, 1 listed above\)/)).toBeInTheDocument();
+    expect(
+      within(result).getByText(/Every other autosome \(18 low risk, 1 listed above; outside the validated claim\)/),
+    ).toBeInTheDocument();
   });
 
   it('shows the plasma’s fetal fractions, sex, resolution and ccnv’s warnings', async () => {
@@ -153,7 +170,7 @@ describe('FamilyCniptPage', () => {
       sample({
         status: 'no_result',
         no_result_reasons: ['the fetal fraction (3.0%) is below 4.0%'],
-        targets: [{ target: '21', verdict: 'no_result', reasons: ['the fetal fraction (3.0%) is below 4.0%'] }],
+        targets: [{ target: '21', verdict: 'no_result', reasons: ['the fetal fraction (3.0%) is below 4.0%'], claimed: true }],
         findings: [],
       }),
     );

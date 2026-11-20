@@ -18,6 +18,10 @@ segmental CNVs. Each gets one result:
 - ``not_assessed``: segmental CNVs where ccnv's limits of detection say the fetal fraction cannot
   show them.
 
+Each target says whether the intended purpose claims it (``claimed``, ``CLAIMED_TARGETS``): the
+common trisomies and the sex chromosomes. The other autosomes and the segmental CNVs are shown
+outside the validated claim.
+
 The bounds are the laboratory's to set, on the QC thresholds page (profile
 ``nipt_conventional``, ``qc_threshold_service``), each change with its reason in the append-only
 history. Until QA sets one, the provisional value below applies, and the result says so for each
@@ -92,6 +96,10 @@ _SEVERITY: dict[str, int] = {"low_risk": 1, "inconclusive": 2, "high_risk": 3}
 AUTOSOMES = tuple(str(number) for number in range(1, 23))
 SEX_CHROMOSOMES_TARGET = "sex_chromosomes"
 SEGMENTAL_TARGET = "segmental"
+#: The targets the intended purpose claims (TF-01 §3.7, the owner's decision of 2026-11-20): the
+#: trisomies 21, 18 and 13 and the sex-chromosome aneuploidies. A change is a change of the
+#: intended purpose, under change control.
+CLAIMED_TARGETS = frozenset({"21", "18", "13", SEX_CHROMOSOMES_TARGET})
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,7 +466,7 @@ def evaluate_cnipt(
             "statement": resolution,
         },
         "warnings": warnings,
-        "targets": targets,
+        "targets": [{**target, "claimed": target["target"] in CLAIMED_TARGETS} for target in targets],
         "findings": findings,
         "bounds": [
             {

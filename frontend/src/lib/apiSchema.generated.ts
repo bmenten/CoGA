@@ -711,12 +711,14 @@ export interface CniptScaOut {
 
 /**
  * One target's result: an autosome (``1``…``22``), ``sex_chromosomes`` or ``segmental``,
- * with the reasons for it.
+ * with the reasons for it, and whether the intended purpose claims it (``claimed``: the
+ * trisomies 21, 18 and 13 and the sex chromosomes; the rest is shown outside the claim).
  */
 export interface CniptTargetOut {
   target: string;
   verdict: "high_risk" | "inconclusive" | "low_risk" | "no_result" | "not_assessed";
   reasons: string[];
+  claimed: boolean;
 }
 
 /** ClinGen 2019 copy-number classification (structural variants only). */
