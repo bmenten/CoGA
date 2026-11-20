@@ -29,10 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-from ..core.clickhouse import execute_clickhouse
-from .clickhouse_variant_ids import _small_table_name, _structural_table_name
 from .family_analysis_types import family_analysis_types
-from .family_metadata_context import FamilyMetadataContext
 from .family_package_records import (
     SOURCE_KINDS,
     family_package_records,
@@ -46,8 +43,6 @@ PGT_SECTION_ANALYSES = ("pgt", "monogenic_nipt")
 NIPT_SECTION_ANALYSES = ("monogenic_nipt",)
 CNIPT_SECTION_ANALYSES = ("conventional_nipt",)
 
-# The variants whose stored sources one ClickHouse read looks up.
-_CHUNK = 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,48 +144,3 @@ def analysis_listing_source(metadata: Mapping[str, Any] | None, kind: str, sourc
     ]
     return listing[0] if len(listing) == 1 else None
 
-
-async def stored_variant_sources(
-    context: FamilyMetadataContext, *, small_ids: Collection[str], structural_ids: Collection[str]
-) -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]]]:
-    """The sources the family's stored rows of each small variant (``small_ids``) and each
-    structural variant (``structural_ids``) are stored under, by variant ID; a variant with no
-    stored row is left out. Read from the ``entries`` tables, current rows only (``sign = 1``)."""
-    if not context.assembly_name:
-        return {}, {}
-    small: dict[str, set[str]] = {}
-    unique_small = sorted({str(value) for value in small_ids if value})
-    entries = _small_table_name(context.assembly_name, "entries")
-    for offset in range(0, len(unique_small), _CHUNK):
-        chunk = unique_small[offset : offset + _CHUNK]
-        rows = await execute_clickhouse(
-            f"""
-            SELECT variantId, groupUniqArray(source)
-            FROM {entries}
-            WHERE family_guid = %(family_guid)s AND sign = 1 AND variantId IN %(variant_ids)s
-            GROUP BY variantId
-            """,
-            {"family_guid": context.family_uuid, "variant_ids": tuple(chunk)},
-        )
-        for variant_id, sources in rows:
-            small.setdefault(str(variant_id), set()).update(str(source) for source in sources or [])
-    structural: dict[str, set[str]] = {}
-    unique_structural = sorted({str(value) for value in structural_ids if value})
-    sv_entries = _structural_table_name(context.assembly_name, "entries")
-    for offset in range(0, len(unique_structural), _CHUNK):
-        chunk = unique_structural[offset : offset + _CHUNK]
-        rows = await execute_clickhouse(
-            f"""
-            SELECT variantId, groupUniqArray(source)
-            FROM {sv_entries}
-            WHERE family_guid = %(family_guid)s AND sign = 1 AND variantId IN %(variant_ids)s
-            GROUP BY variantId
-            """,
-            {"family_guid": context.family_uuid, "variant_ids": tuple(chunk)},
-        )
-        for variant_id, sources in rows:
-            structural.setdefault(str(variant_id), set()).update(str(source) for source in sources or [])
-    return (
-        {key: frozenset(names) for key, names in small.items()},
-        {key: frozenset(names) for key, names in structural.items()},
-    )

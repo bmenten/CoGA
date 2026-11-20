@@ -9,13 +9,10 @@ import mark belongs to the analysis it records, or to every analysis when it rec
 
 from __future__ import annotations
 
-import asyncio
-import types
 from typing import Any
 
 import pytest
 
-from backend.app.services import signout_scope as scope_module
 from backend.app.services.family_package_records import PackageRecordShapeError, package_sources
 from backend.app.services.signout_scope import (
     CNIPT_SECTION_ANALYSES,
@@ -195,46 +192,3 @@ def test_a_record_not_in_the_shape_the_import_writes_stops_the_sign_out(record: 
         metadata = _two_nipts(**{"conventional_nipt" if own else "monogenic_nipt": record})
         with pytest.raises(PackageRecordShapeError):
             signout_scope(metadata, "conventional_nipt")
-
-
-# --- The sources the family's stored rows of its variants are stored under --------------------
-
-
-_CONTEXT = types.SimpleNamespace(family_uuid="u1", assembly_name="GRCh38")
-
-
-def test_the_stored_sources_are_read_from_the_current_rows_of_the_family(monkeypatch) -> None:
-    calls: list[tuple[str, dict[str, Any]]] = []
-
-    async def _execute(query: str, params: dict[str, Any]):
-        calls.append((" ".join(query.split()), params))
-        if "SV/entries" in query:
-            return [("1-100-900-DEL", ["ccnv", "web"])]
-        return [(variant_id, ["nipt"]) for variant_id in params["variant_ids"][:1]]
-
-    monkeypatch.setattr(scope_module, "_CHUNK", 2)
-    monkeypatch.setattr(scope_module, "execute_clickhouse", _execute)
-    small, structural = asyncio.run(
-        scope_module.stored_variant_sources(
-            _CONTEXT, small_ids=["1-30-G-A", "1-10-A-G", "1-20-C-T", "1-10-A-G", ""], structural_ids=["1-100-900-DEL"]
-        )
-    )
-    # Read in chunks, each variant once, its current rows only.
-    assert [params["variant_ids"] for _query, params in calls[:2]] == [("1-10-A-G", "1-20-C-T"), ("1-30-G-A",)]
-    assert all(params["family_guid"] == "u1" for _query, params in calls)
-    assert all("sign = 1" in query for query, _params in calls)
-    assert "`GRCh38/SNV_INDEL/entries`" in calls[0][0] and "`GRCh38/SV/entries`" in calls[2][0]
-    assert small == {"1-10-A-G": frozenset({"nipt"}), "1-30-G-A": frozenset({"nipt"})}
-    assert structural == {"1-100-900-DEL": frozenset({"ccnv", "web"})}
-
-
-def test_a_family_with_no_assembly_has_no_stored_sources(monkeypatch) -> None:
-    async def _must_not_read(query: str, params: dict[str, Any]):
-        raise AssertionError("no ClickHouse read for a family without an assembly")
-
-    monkeypatch.setattr(scope_module, "execute_clickhouse", _must_not_read)
-    context = types.SimpleNamespace(family_uuid="u1", assembly_name=None)
-    assert asyncio.run(scope_module.stored_variant_sources(context, small_ids=["1-1-A-G"], structural_ids=[])) == (
-        {},
-        {},
-    )
