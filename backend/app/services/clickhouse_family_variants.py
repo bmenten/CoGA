@@ -22,6 +22,7 @@ from ..core.csv_export import TRUNCATED_BY_CANDIDATE_LIMIT, TRUNCATED_BY_ROW_LIM
 from ..core.sql import require_uuid
 from ..schemas import (
     FamilyGenePhenotypeScoreOut,
+    MemberWithoutCallsOut,
     PhenotypeTermRefOut,
     SmallVariantGroupOut,
     SmallVariantSampleSummaryOut,
@@ -150,7 +151,7 @@ from .clickhouse_variant_storage import (
     get_family_small_variant_data_version,
     get_family_structural_variant_data_version,
 )
-from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
+from .genotypes import ALT_CLASSES, HET, HOM_ALT, HOM_REF, clickhouse_genotype_condition
 from .sample_integrity_qc import MIN_GENOTYPE_QUALITY
 
 logger = logging.getLogger(__name__)
@@ -1944,6 +1945,93 @@ def _genotype_site_rows(
 def _below_genotype_quality(gq: float | None) -> bool:
     """Whether a call's GQ is below ``MIN_GENOTYPE_QUALITY``; a call without one is not."""
     return gq is not None and gq < MIN_GENOTYPE_QUALITY
+
+
+# How many of the read callsets' sites ``family_members_without_calls`` reads. A member whose
+# sample a callset holds has a called genotype at nearly every site of a joint callset, and at
+# its own variant sites (a third of the family's sites or more) in a callset of one file per
+# sample: at this many sites, not one of them is a call of its only when it holds none.
+MEMBERS_WITHOUT_CALLS_SITES = 2_000
+
+
+async def family_members_without_calls(
+    context: FamilyMetadataContext, *, source: str | None
+) -> list[MemberWithoutCallsOut]:
+    """The members of the analysis the family's small-variant list reads (``context.scope``)
+    whose sample holds no call in the callsets it reads: the callset ``source`` names, else the
+    analysis's directly called callsets, as the list reads them. A proband-only long-read
+    callset whose package lists the parents (the owner's decision of 2026-11-20: the list says
+    so, and the inheritance filter keeps reading their missing calls as no ALT allele).
+
+    The members are the family's active members but those only another analysis's package lists
+    (``AnalysisScope.left_out_members``), whose calls the list does not read. A member holds a
+    call when it has a called genotype (``0/0``, ``0/1``, ``1/1``, a haploid call) at one of a
+    fixed sample of the read rows (``MEMBERS_WITHOUT_CALLS_SITES``), the rows with the smallest
+    storage keys, as sample-integrity QC samples them (``fetch_genotype_site_sample``): a key is
+    a digest unrelated to the position, so the sample spreads over the genome, and identical data
+    gives the identical answer. A no-call (``./.``) is no call: an inheritance filter reads it as
+    no ALT allele too. Empty when the read callsets hold no row of the family, as the list then
+    holds no variant. Each member says how an inheritance filter reads it
+    (``MemberWithoutCallsOut.inheritance_reading``)."""
+    left_out = context.scope.left_out_members
+    members = [
+        row
+        for row in context.sample_rows
+        if str(row.get("sample_id") or "").strip() and str(row.get("sample_id")).strip() not in left_out
+    ]
+    if not context.assembly_name or not members:
+        return []
+    filters = SmallVariantQueryFilters(page=1, page_size=1, source=source)
+    where_clauses, params, _ = _small_query_filter_parts(context, filters, exclude_imputed=True)
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where = " AND ".join(where_clauses)
+    called = clickhouse_genotype_condition(
+        "gt", frozenset({HOM_ALT, HET, HOM_REF}), param="members_called_gts", params=params
+    )
+    query = f"""
+        SELECT count() AS sites,
+               groupUniqArrayArray(
+                   arrayFilter((sample_id, gt) -> {called}, sampled.sample_ids, sampled.sample_gts)
+               ) AS called_samples
+        FROM (
+            SELECT e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts
+            FROM {entries_table} AS e
+            WHERE {where}
+              -- The sample's largest key, found from the keys alone: only the sample's rows are
+              -- read with their calls, not every site of the family.
+              AND e.key <= (
+                  SELECT max(sample_key) FROM (
+                      SELECT e.key AS sample_key
+                      FROM {entries_table} AS e
+                      WHERE {where}
+                      ORDER BY e.key
+                      LIMIT %(members_sample_limit)s
+                  )
+              )
+            ORDER BY e.key, e.source, e.project_guid
+            LIMIT %(members_sample_limit)s
+        ) AS sampled
+    """
+    params["members_sample_limit"] = MEMBERS_WITHOUT_CALLS_SITES
+    rows = await _execute_clickhouse(query, params)
+    sites, called_samples = rows[0] if rows else (0, [])
+    if not int(sites or 0):
+        return []
+    with_calls = {_stored_sample_id(sample_id) for sample_id in called_samples or []}
+    affected, unaffected = _family_affected_unaffected_sample_names(context)
+    readings: dict[str, Literal["affected", "unaffected"]] = {
+        **{sample: "unaffected" for sample in unaffected},
+        **{sample: "affected" for sample in affected},
+    }
+    return [
+        MemberWithoutCallsOut(
+            sample_id=sample_id,
+            role=str(row.get("role") or "").strip() or None,
+            inheritance_reading=readings.get(sample_id),
+        )
+        for row in members
+        if (sample_id := str(row.get("sample_id")).strip()) not in with_calls
+    ]
 
 
 async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[str]:

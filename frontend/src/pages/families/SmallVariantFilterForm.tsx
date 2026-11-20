@@ -91,6 +91,11 @@ type SmallVariantFilterFormProps = Pick<
    */
   unappliedFiltersNote?: string | null;
   /**
+   * Said in the Inheritance section (the family small-variant page): how an inheritance filter
+   * reads the members without calls in the callsets the list reads (membersWithoutCalls.ts).
+   */
+  membersWithoutCallsNote?: string | null;
+  /**
    * Monogenic NIPT mode. When 'nipt', the genotype/inheritance subsection is
    * replaced by a maternal/fetal Categories subsection. The NIPT page passes the review
    * filters its list does not apply as `unsupportedFilters` (NIPT_UNSUPPORTED_FILTERS):
@@ -201,6 +206,7 @@ const SmallVariantFilterForm = ({
   familyAware = true,
   unsupportedFilters,
   unappliedFiltersNote = null,
+  membersWithoutCallsNote = null,
   mode = 'small-variant',
   categoryCounts = {},
   draftLocationProblems = null,
@@ -437,6 +443,7 @@ const SmallVariantFilterForm = ({
     handleSampleFieldChange,
     handleSectionToggle,
     members,
+    membersWithoutCallsNote,
     niptInheritancePresets,
     offers,
     openSections,

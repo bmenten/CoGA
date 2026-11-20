@@ -163,8 +163,12 @@ def test_small_variant_export_route_reports_a_partial_search(monkeypatch) -> Non
     async def _export(*_a, **_k):
         return cfv.VariantExport(rows=[], truncated_reason="candidate-limit", limit=50_000)
 
+    async def _no_members_without_calls(*_a, **_k):
+        return []
+
     monkeypatch.setattr(route, "build_family_metadata_context", _context)
     monkeypatch.setattr(route, "export_family_small_variants", _export)
+    monkeypatch.setattr(route, "family_members_without_calls", _no_members_without_calls)
     response = asyncio.run(
         route.export_family_small_variants_csv("F1", filters={}, session=None, user=None)
     )

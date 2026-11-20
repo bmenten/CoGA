@@ -35,6 +35,16 @@ Then:
   classification in each, each record holds its own; each review change's audit event names its
   analysis.
 
+A second family is sequenced short-read as a trio and then long-read for the proband alone, the
+long-read package's PED listing the parents (the owner's decision of 2026-11-20: the de novo /
+dominant filter keeps reading their missing calls as reference, and the list says so):
+
+* the long-read analysis's list names the parents as members without calls, each read by an
+  inheritance filter as unaffected; the short-read analysis's names none;
+* its de novo / dominant filter keeps a variant the short-read callset shows the mother passed on,
+  which the short-read analysis's filter leaves out;
+* its export names the parents in its last column, on every row; the short-read export's is empty.
+
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
 
@@ -54,7 +64,6 @@ from backend.tests._kept_manifest import kept_manifest
 
 pytestmark = pytest.mark.integration
 
-_COLUMNS = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}\t{}\t{}\n"
 _HEADERS = {
     "short_read_wgs": '##GATKCommandLine=<ID=HaplotypeCaller,CommandLine="HaplotypeCaller -R ref.fa",Version="4.5.0.0">\n',
     "long_read_wgs": "##DeepVariant_version=1.6.1\n",
@@ -78,11 +87,20 @@ SIGN_OUT = {
 
 
 def _package(
-    root: Path, family_id: str, analysis: str, trio: tuple[str, str, str], *, calls_of: str | None = None
+    root: Path,
+    family_id: str,
+    analysis: str,
+    trio: tuple[str, str, str],
+    *,
+    calls_of: str | None = None,
+    called: tuple[str, ...] | None = None,
 ) -> Path:
-    """The package of ``analysis``, its callset that of ``calls_of`` (default: its own)."""
+    """The package of ``analysis``, its callset that of ``calls_of`` (default: its own), with the
+    calls of ``called`` (default: the trio); its PED lists the trio whatever its callset holds."""
     proband, mother, father = trio
     caller = calls_of or analysis
+    columns = called or trio
+    genotypes = {proband: "0/1:30", mother: f"{_MOTHER_GT[caller]}:30", father: "0/0:30"}
     root.mkdir(parents=True)
     (root / "family.ped").write_text(
         f"{family_id}\t{proband}\t{father}\t{mother}\t1\t2\n"
@@ -90,9 +108,14 @@ def _package(
         f"{family_id}\t{father}\t0\t0\t1\t1\n",
         encoding="utf-8",
     )
-    lines = ["##fileformat=VCFv4.2\n", "##contig=<ID=chr1>\n", _HEADERS[caller], _COLUMNS.format(proband, mother, father)]
+    lines = [
+        "##fileformat=VCFv4.2\n",
+        "##contig=<ID=chr1>\n",
+        _HEADERS[caller],
+        "\t".join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", *columns]) + "\n",
+    ]
     lines += [
-        f"chr1\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\t.\tGT:DP\t0/1:30\t{_MOTHER_GT[caller]}:30\t0/0:30\n"
+        f"chr1\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\t.\tGT:DP\t" + "\t".join(genotypes[sample] for sample in columns) + "\n"
         for pos, ref, alt in _RECORDS[caller]
     ]
     (root / "family.vcf").write_text("".join(lines), encoding="utf-8")
@@ -262,6 +285,72 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     return out
 
 
+async def _exercise_proband_only(base: Path, family_id: str) -> dict[str, Any]:
+    """Short-read WGS of the trio, then long-read WGS of the proband alone whose PED lists the
+    parents: each analysis's members without calls, its de novo / dominant filter and its export."""
+    import csv
+    import io
+
+    from httpx import ASGITransport, AsyncClient
+
+    from backend.app.core.clickhouse import init_clickhouse_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.main import app
+    from backend.app.services import family_package_import as package_import
+    from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
+    from backend.tests.e2e import _harness
+    from backend.tests.e2e._harness import ensure_postgres_schema
+
+    await ensure_postgres_schema()
+    await init_clickhouse_schema()
+    await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
+    sessionmaker = get_postgres_sessionmaker()
+    async with sessionmaker() as session:
+        admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
+
+    trio = tuple(f"{role}_{family_id}" for role in ("PROBAND", "MOTHER", "FATHER"))
+    out: dict[str, Any] = {"trio": trio, "imports": {}}
+    for analysis, mode, called in (("short_read_wgs", "cancel", None), ("long_read_wgs", "update", trio[:1])):
+        root = _package(base / family_id / analysis, family_id, analysis, trio, called=called)  # type: ignore[arg-type]
+        async with sessionmaker() as session:
+            result = await package_import.execute_family_package_import(
+                session,
+                folder_path=str(root),
+                manifest_text=kept_manifest(root),
+                project_id=project_id,
+                dry_run=False,
+                user=admin,
+                conflict_mode=mode,
+            )
+        out["imports"][analysis] = {"completed": result.completed, "error": result.error}
+    if not all(item["completed"] for item in out["imports"].values()):
+        return out
+
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
+        ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
+        api = f"/api/families/{family_id}"
+        for analysis in ("short_read_wgs", "long_read_wgs"):
+            listed = await ac.get(f"{api}/small-variants", params={"page_size": 50, "analysis": analysis})
+            dominant = await ac.get(
+                f"{api}/small-variants",
+                params={"page_size": 50, "analysis": analysis, "inheritance": "de_novo_dominant"},
+            )
+            exported = await ac.get(
+                f"{api}/small-variants/export", params={"analysis": analysis, "inheritance": "de_novo_dominant"}
+            )
+            table = list(csv.reader(io.StringIO(exported.text)))
+            out[analysis] = {
+                "status": (listed.status_code, dominant.status_code, exported.status_code),
+                "members_without_calls": listed.json().get("members_without_calls"),
+                "de_novo_dominant": sorted(row["_id"] for row in dominant.json().get("variants", [])),
+                "dominant_members_without_calls": dominant.json().get("members_without_calls"),
+                "export_header": table[0] if table else [],
+                "export_last_column": [row[-1] for row in table[1:]],
+            }
+    return out
+
+
 async def _sign_out_both(ac: Any, api: str) -> dict[str, Any]:
     """Sign out each analysis; each record as served."""
     from backend.tests.e2e import _harness
@@ -287,6 +376,20 @@ def run(tmp_path_factory) -> dict[str, Any]:
     mp.setattr(settings, "family_import_roots", [str(base)])
     try:
         return _harness.run_async(lambda: _exercise(base, f"SRLR_{uuid4().hex[:8].upper()}"))
+    finally:
+        mp.undo()
+
+
+@pytest.fixture(scope="module")
+def proband_only(tmp_path_factory) -> dict[str, Any]:
+    from backend.app.core.config import settings
+    from backend.tests.e2e import _harness
+
+    base = tmp_path_factory.mktemp("proband_only_long_read")
+    mp = pytest.MonkeyPatch()
+    mp.setattr(settings, "family_import_roots", [str(base)])
+    try:
+        return _harness.run_async(lambda: _exercise_proband_only(base, f"SRPO_{uuid4().hex[:8].upper()}"))
     finally:
         mp.undo()
 
@@ -402,3 +505,44 @@ def test_the_family_keeps_the_run_record_of_each_analysis(run) -> None:
         "long_read_wgs": {"genome": "GRCh38", "snv_caller": "deepvariant"},
         "short_read_wgs": {"genome": "GRCh38", "snv_caller": "haplotypecaller"},
     }
+
+
+def test_a_proband_only_long_read_package_whose_ped_lists_the_parents_is_imported(proband_only) -> None:
+    for analysis, item in proband_only["imports"].items():
+        assert item["completed"] is True, (analysis, item)
+
+
+def test_the_long_read_list_names_the_parents_as_members_without_calls(proband_only) -> None:
+    proband, mother, father = proband_only["trio"]
+    short_read, long_read = proband_only["short_read_wgs"], proband_only["long_read_wgs"]
+    assert short_read["status"] == long_read["status"] == (200, 200, 200)
+    # The trio's short-read callset holds every member's calls.
+    assert short_read["members_without_calls"] == []
+    # The long-read callset holds the proband's alone: the parents its PED lists have none, and
+    # an inheritance filter reads each as an unaffected member. The list says so with the filter
+    # applied too.
+    expected = [
+        {"sample_id": father, "role": "father", "inheritance_reading": "unaffected"},
+        {"sample_id": mother, "role": "mother", "inheritance_reading": "unaffected"},
+    ]
+    assert long_read["members_without_calls"] == expected
+    assert long_read["dominant_members_without_calls"] == expected
+    assert proband not in {member["sample_id"] for member in long_read["members_without_calls"]}
+
+
+def test_the_de_novo_dominant_filter_still_reads_missing_parental_calls_as_reference(proband_only) -> None:
+    # The owner kept the filter as it is: the short-read callset shows the mother passed on both
+    # its variants, so its filter keeps none; the long-read callset holds no parental call, so its
+    # filter keeps both of its variants, the inherited 1-1000-A-G among them.
+    assert proband_only["short_read_wgs"]["de_novo_dominant"] == []
+    assert proband_only["long_read_wgs"]["de_novo_dominant"] == [BOTH, LONG_READ_ONLY]
+
+
+def test_the_export_names_the_members_without_calls_on_every_row(proband_only) -> None:
+    _proband, mother, father = proband_only["trio"]
+    long_read = proband_only["long_read_wgs"]
+    assert long_read["export_header"][-1] == "Members without calls"
+    assert long_read["export_last_column"] == [f"{father}; {mother}"] * 2
+    # The short-read export's column is empty: its filter kept no row, and its header still ends so.
+    assert proband_only["short_read_wgs"]["export_header"][-1] == "Members without calls"
+    assert proband_only["short_read_wgs"]["export_last_column"] == []

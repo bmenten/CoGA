@@ -133,6 +133,9 @@ def client(monkeypatch: pytest.MonkeyPatch):
     async def no_version(*_args: Any, **_kwargs: Any) -> None:
         return None
 
+    async def no_members_without_calls(*_args: Any, **_kwargs: Any) -> list[Any]:
+        return []
+
     async def search(*_args: Any, filters: Any, **_kwargs: Any) -> VariantPage:
         searched.append(filters.inheritance)
         return VariantPage(total=0, variants=[])
@@ -141,6 +144,7 @@ def client(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[dependencies.get_current_user] = current_user
     monkeypatch.setattr(route, "build_family_metadata_context", context)
     monkeypatch.setattr(route, "record_family_panel_use", no_panel)
+    monkeypatch.setattr(route, "family_members_without_calls", no_members_without_calls)
     monkeypatch.setattr(cfv, "_family_small_variant_data_version", no_version)
     monkeypatch.setattr(cfv, "_search_family_small_variants", search)
     with TestClient(app) as test_client:

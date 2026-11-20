@@ -626,6 +626,11 @@ export interface FilterSectionForm
   selectedHeldTagOptions: (selected: string[]) => FilterOption[];
   /** Draft location filters that cannot be read, shown under their fields. */
   draftLocationProblems?: LocationProblems | null;
+  /**
+   * The family small-variant page: how an inheritance filter reads the members without calls in
+   * the callsets the list reads (membersWithoutCalls.ts), said in the Inheritance section.
+   */
+  membersWithoutCallsNote?: string | null;
 }
 
 /**
@@ -817,6 +822,7 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
     handleGtToggle,
     handleSectionToggle,
     members,
+    membersWithoutCallsNote,
     openSections,
     sampleDraftFilters,
     setDraftFilterValue,
@@ -925,6 +931,11 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
       }
     >
       <div className="variant-filter-dropdown-content">
+        {membersWithoutCallsNote ? (
+          <p className="status-note" role="note">
+            {membersWithoutCallsNote}
+          </p>
+        ) : null}
         {carrierScreeningCouple ? (
           <label className="analysis-checkbox">
             <input

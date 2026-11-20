@@ -352,6 +352,85 @@ describe('FamilySmallVariantsPage', () => {
     expect(unnamed).toEqual([]);
   });
 
+  // Long-read WGS of the proband alone, whose package lists the parents: the list says they have
+  // no calls in it, and while the de novo / dominant filter is applied, that the filter cannot
+  // leave out variants inherited from them (the owner's decision of 2026-11-20).
+  it('names the members without calls in the analysis read, and warns while an inheritance filter reads them', async () => {
+    const record = (smallVariants: string[], registeredAt: string) => ({
+      sources: { small_variants: smallVariants, structural_variants: [], tracks: [], repeats: [], paraphase: [] },
+      registered_at: registeredAt,
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            members: TRIO,
+            projects: [],
+            metadata: {
+              analysis_types: ['long_read_wgs', 'short_read_wgs'],
+              package_imports: {
+                short_read_wgs: record(['haplotypecaller'], '2026-11-01T10:00:00'),
+                long_read_wgs: record(['deepvariant'], '2026-11-02T10:00:00'),
+              },
+            },
+          },
+        });
+      }
+      if (url === '/panels') return Promise.resolve({ data: [] });
+      if (url === '/families/F1/small-variant-filter-presets' || url === '/families/F1/small-variant-tags') {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({
+        data: {
+          variants: [],
+          total: 0,
+          members_without_calls: [
+            { sample_id: 'MOM', role: 'mother', inheritance_reading: 'unaffected' },
+            { sample_id: 'DAD', role: 'father', inheritance_reading: 'unaffected' },
+          ],
+        },
+      });
+    });
+    const warning =
+      'The parents (MOM and DAD) have no calls in the long-read WGS analysis: the inheritance filter reads their ' +
+      'missing calls as reference, so it cannot leave out variants inherited from them.';
+
+    renderPage('/families/F1/small-variants?analysis=long_read_wgs&inheritance=de_novo_dominant');
+
+    const note = await screen.findByRole('note', { name: 'Members without calls' });
+    expect(note).toHaveTextContent(warning);
+    expect(note).toHaveClass('status-note--warning');
+    // The Inheritance section says what the filter does with them.
+    fireEvent.click(screen.getByText('Inheritance'));
+    expect(screen.getAllByText(warning)).toHaveLength(2);
+  });
+
+  it('mentions the members without calls quietly while no inheritance filter is applied', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') return Promise.resolve({ data: { members: TRIO, projects: [] } });
+      if (url === '/panels') return Promise.resolve({ data: [] });
+      if (url === '/families/F1/small-variant-filter-presets' || url === '/families/F1/small-variant-tags') {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({
+        data: {
+          variants: [],
+          total: 0,
+          members_without_calls: [{ sample_id: 'DAD', role: 'father', inheritance_reading: 'unaffected' }],
+        },
+      });
+    });
+
+    renderPage('/families/F1/small-variants?impact=HIGH');
+
+    const note = await screen.findByRole('note', { name: 'Members without calls' });
+    expect(note).toHaveTextContent(
+      'DAD (father) has no calls in the callsets this list reads. An inheritance or genotype filter reads a ' +
+        'missing call as reference.',
+    );
+    expect(note).not.toHaveClass('status-note--warning');
+  });
+
   // The search runs within the linked project; with the catalogue failed it does not wait
   // for the project for good: it says the reference failed, and retries.
   it('says the reference failed, instead of loading for good, and runs the search on retry', async () => {

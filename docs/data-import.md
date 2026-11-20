@@ -1860,6 +1860,23 @@ own, and each stays apart from the others (the owner's decisions of 2026-11-20):
   analysis reads that analysis's SV sources alone (a family read without naming one keeps every
   SV: the conventional NIPT's ccnv calls beside a monogenic NIPT). The mtDNA page reads the
   analysis whose package holds the mtDNA calls; the monogenic NIPT page its own.
+- **The list names the members without calls.** A member an analysis's package lists but whose
+  sample its callset does not hold (long-read WGS of the proband alone, its PED listing the
+  parents) has no call in any row of that analysis. An inheritance filter reads a call it does not
+  find as no ALT allele: the de novo / dominant, homozygous recessive, X-linked and compound-het
+  filters read an unaffected member without calls as reference, so they cannot leave out a variant
+  inherited from that member, and keep no variant when an affected member has none. The filter is
+  kept as it is, and the list says so (the owner's decision of 2026-11-20): the small-variant
+  page's response names those members (`members_without_calls`, with each one's role and how an
+  inheritance filter reads it), the page warns while an inheritance filter that reads them is
+  applied and mentions them otherwise, the Inheritance section says what the filter does with
+  them, and the export names them in its last column (*Members without calls*), on every row.
+  CoGA finds them in a fixed sample of the rows the list reads, the 2,000 with the smallest
+  storage keys (`family_members_without_calls`, sampled as the Sample QC's genotypes are): a member
+  holds calls when it has a called genotype (`0/0`, `0/1`, `1/1`, a haploid call) at one of them;
+  a no-call (`./.`) is none. A member whose sample the callset holds has a called genotype at
+  nearly every site of a joint callset and at its own variant sites in a callset of one file per
+  sample, so the sample finds it.
 - **A review is the analysis's** it was made in; a sign-out freezes and checks its own analysis's
   data, reviews and evidence ([clinical-traceability.md](clinical-traceability.md)).
 

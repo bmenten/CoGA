@@ -90,7 +90,7 @@
 
 | ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
-| REQ-DIAG-001 | Apply pedigree/trio inheritance filtering (de-novo, dominant, recessive, compound-het) over observed genotypes. | C | H2 |
+| REQ-DIAG-001 | Apply pedigree/trio inheritance filtering (de-novo, dominant, recessive, compound-het) over observed genotypes. A call the filter does not find reads as no ALT allele: the family small-variant list and its export name the members of the analysis read whose samples hold no call in the callsets they read, with how the filter reads each, and the list warns of them while an inheritance filter that reads them is applied. | C | H2 |
 | REQ-DIAG-002 | Flag de-novo only when no parent who could have passed the allele on carries it: on autosomes, in the pseudo-autosomal regions and in a daughter, a full trio with both parents confidently hom-ref at the site; in a son on chrX/chrY outside the PARs (hemizygous), the parent who transmits that chromosome (the mother for X, the father for Y) confidently hom-ref and the other parent not carrying the ALT (the laboratory's decision, recorded on 2026-09-29). | C | H1, H2 |
 | REQ-DIAG-003 | Detect compound-heterozygous and SV second-hit (SNV + SV in the same gene). | C | H2 |
 | REQ-DIAG-004 | Ingest repeat-expansion (TRGT) calls and classify normal/intermediate/premutation/pathogenic against a locus catalog; premutation where the locus has a premutation range (FMR1 55–200 repeats, told from the 45–54 grey zone; owner's decision, 2026-10-07). | C | — |

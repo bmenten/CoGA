@@ -51,6 +51,7 @@ import {
 } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
 import { formatVariantTotal } from './smallVariantResultUtils';
+import { membersWithoutCallsNote } from './membersWithoutCalls';
 
 const formatSummaryCount = (value: number | undefined): string =>
   Math.max(value ?? 0, 0).toLocaleString();
@@ -241,6 +242,16 @@ const FamilySmallVariantsPage: React.FC = () => {
   const allVariantTotalIsEstimated =
     data?.unfiltered_total_is_estimated ??
     false;
+  // The members without calls in the callsets the list reads, whose missing calls an inheritance
+  // filter reads as reference (the owner's decision of 2026-11-20): a warning over the results
+  // while an inheritance mode that reads them is applied, a quieter mention otherwise, and in the
+  // Inheritance section what the filter does with them.
+  const withoutCallsNote = membersWithoutCallsNote(data?.members_without_calls, {
+    analysis,
+    inheritanceApplied: Boolean(filters.inheritance),
+  });
+  const inheritanceSectionNote =
+    membersWithoutCallsNote(data?.members_without_calls, { analysis, inheritanceApplied: true })?.text ?? null;
 
   const savePresetMutation = useMutation({
     mutationFn: async (payload: {
@@ -464,6 +475,7 @@ const FamilySmallVariantsPage: React.FC = () => {
           initialPreset={initialPreset}
           unsupportedFilters={SMALL_VARIANT_UNSUPPORTED_FILTERS}
           unappliedFiltersNote={unappliedFiltersNote}
+          membersWithoutCallsNote={inheritanceSectionNote}
           activeFilterChips={appliedFilterChips}
           applyPreset={applyPreset}
           applySavedPreset={applySavedPreset}
@@ -500,6 +512,16 @@ const FamilySmallVariantsPage: React.FC = () => {
           onRetry={() => void refetchPanels()}
           consequence="Panels cannot be chosen, and the default Mendeliome scope is not applied."
         />
+      ) : null}
+
+      {withoutCallsNote ? (
+        <p
+          className={`status-note${withoutCallsNote.tone === 'warning' ? ' status-note--warning' : ''}`}
+          role="note"
+          aria-label="Members without calls"
+        >
+          {withoutCallsNote.text}
+        </p>
       ) : null}
 
       <div className="variant-results-region">
