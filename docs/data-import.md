@@ -1757,11 +1757,38 @@ calls is named by the caller that made it
   starting with a letter, 2 to 32 characters (`CALLSET_NAME`).
 
 Which caller a pipeline runs can change with its preprocessing, so the name comes from the package,
-the upload or the file's header, never from the kind of analysis. So short-read and long-read WGS
-of the same DNA keep their calls apart: one family can hold both, each analysis imported from its
-own package (the second with update) and signed out on its own. Beside the direct callsets sit
+the upload or the file's header, never from the kind of analysis. Beside the direct callsets sit
 callsets read by rules of their own: the imputed genotypes (`glimpse2`, `shapeit`), the mtDNA calls
-(`mito`) and a monogenic NIPT pair's per-sample calls (`nipt`).
+(`mito`) and a monogenic NIPT pair's per-sample calls (`nipt`). A family VCF is stored as a direct
+callset or as `glimpse2`, never as `mito`, `nipt` or `shapeit` (`is_family_vcf_callset`; validation
+refuses it, `dataset_callset_invalid`).
+
+#### Several analyses in one family
+
+A family may hold several analyses, on the same DNA or on different samples of one person (linked
+as the same individual): short-read and then long-read WGS, a monogenic and a conventional NIPT of
+one pregnancy. Each is imported from its own package (the second with update) and signed out on its
+own, and each stays apart from the others (the owner's decisions of 2026-11-20):
+
+- **No two analyses share a storage source.** An import is refused before anything is written when
+  its package would store data under a source another analysis's package record lists
+  (`family_package_records.source_collisions`): a small-variant callset of the same caller (both
+  DeepVariant), or a dataset of a fixed source (`mito`, `trgt`, `paraphase`, the coverage BEDs'
+  `web`, `hificnv`, `needlr`…). The message names the source and the analysis that holds it: leave
+  that dataset out of the package, or, for small variants, name its caller differently
+  (`source_format`). So one analysis's import never replaces, skips or claims another's data.
+- **Each analysis is read on its own** ([analysis_scope.py](../backend/app/services/analysis_scope.py)).
+  A family with two or more analyses whose records list a small-variant callset of their own is
+  read one analysis at a time: its small-variant list, filters, counts, ranking, export,
+  statistics and the evidence and drift of its reviews read that analysis's callsets, and the
+  members only another analysis's package lists are neither required nor read by an inheritance
+  filter. The request names the analysis (`analysis=`); one that names none is refused (422). The
+  pages offer the analysis to read beside the family's name, the one imported last first. A
+  family whose one analysis holds small variants (a monogenic NIPT beside a conventional one) is
+  read as that analysis without naming it. The mtDNA page reads the analysis whose package holds
+  the mtDNA calls; the monogenic NIPT page its own.
+- **A review is the analysis's** it was made in; a sign-out freezes and checks its own analysis's
+  data, reviews and evidence ([clinical-traceability.md](clinical-traceability.md)).
 
 A package's `snv` dataset and an upload name their callset (`source_format`), and that name is used
 as given. With `auto`, the default, the loader reads it from the family VCF
@@ -1786,12 +1813,21 @@ as given. With `auto`, the default, the loader reads it from the family VCF
    dataset's `source_format`, or the upload's callset) and load the file again. Package validation
    refuses such a file before anything is written (`dataset_callset_unnamed`).
 
+A header that names a caller over imputed or statistically phased genotypes (genotype posteriors in
+the first record or declared in the header, or an imputation or phasing tool on a header line that
+declares no field: `header_shows_imputation`) is refused the same way (`AMBIGUOUS_CALLER_MESSAGE`),
+as Discover leaves it unnamed: stored as either, imputed genotypes would read as calls, or calls as
+imputed.
+
 The caller's version is recorded from the same header in the family's annotation manifest
 ([annotation-provenance.md](annotation-provenance.md)). A reader that reads one callset of a family
 (the Sample QC's genotypes, the ancestry estimate) takes the direct calls first (`clair3`,
 `deepvariant`, `haplotypecaller`, `mutect2`, then any other by name), then a monogenic NIPT's
-per-sample calls, then the imputed genotypes (`callset_preference`). The Sample QC of one
-analysis's sign-out chooses among that analysis's own callsets.
+per-sample calls, then the imputed genotypes (`callset_preference`). Of several callsets of the
+same kind, the Sample QC reads the one with calls for the most of its members, read at a fixed
+sample of its sites (`_choose_covering_source`): a short-read trio beside a long-read proband is
+checked on the trio's. The Sample QC of one analysis's sign-out chooses among that analysis's own
+callsets and checks its own members.
 
 ### Where each dataset lands
 

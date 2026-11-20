@@ -1,4 +1,3 @@
-import { useVariantAnalysis } from '../../pages/families/useVariantAnalysis';
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
@@ -54,6 +53,9 @@ interface Props {
    */
   paternalSampleId?: string | null;
   maternalSampleId?: string | null;
+  /** Of a family with several analyses with small variants, the one the page reads
+   * (`variantAnalysisOf`); the track draws that analysis's calls alone. */
+  analysis?: string | null;
 }
 
 // Any call with an ALT allele — the backend reads these as genotype classes, so haploid
@@ -167,6 +169,7 @@ const SmallVariantTrack: React.FC<Props> = ({
   filters,
   paternalSampleId,
   maternalSampleId,
+  analysis = null,
 }) => {
   const pageSize = SMALL_VARIANT_TRACK_RESULT_LIMIT - 1;
   const regionInView = hasRegionInView(regionStart, regionEnd);
@@ -181,8 +184,6 @@ const SmallVariantTrack: React.FC<Props> = ({
     }
     return nextFilters;
   }, [filters, sampleId]);
-  // Of a family with several analyses with small variants, the one the page reads.
-  const analysis = useVariantAnalysis(familyId);
   const { data: rawData, isLoading, isError, refetch } = useQuery<VariantPage>({
     queryKey: [
       'small-variants-track',

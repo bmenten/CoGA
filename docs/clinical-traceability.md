@@ -719,11 +719,11 @@ A sign-out of analysis X freezes and checks:
 
 | Part of the record | X's part |
 | --- | --- |
-| `reported_variants`, `reported_structural_variants`, their evidence drift (`drift`, `structural_drift`) and their descriptions (`variant_descriptions`) | the variants with a stored row (the ClickHouse `entries`) under a source of X's or of no other analysis's; a variant whose rows are gone counts in |
+| `reported_variants`, `reported_structural_variants`, their evidence drift (`drift`, `structural_drift`) and their descriptions (`variant_descriptions`) | the variants with a stored row (the ClickHouse `entries`) under a source of X's or of no other analysis's; a variant whose rows are gone counts in. Each small variant's description, genotypes and evidence now are read from X's own callsets (`analysis_scope.py`): a variant another analysis's callset holds too is described from X's |
 | `coverage_tracks` | the tracks of X's sources or of no other analysis's |
 | `repeat_expansions` and `paraphase`, with their reviews, `finding_review_drift` and `unreviewed_findings` (gate 7) | each section whole, only when X's record lists such sources or no other analysis's record does; otherwise the record holds neither the section nor its reviews |
 | `pgt_analysis`, `nipt`, `cnipt` | the PGT embryo calls for `pgt` or `monogenic_nipt`, the NIPT results for `monogenic_nipt`, the cNIPT results for `conventional_nipt`; a section of an application none of whose analyses the family holds goes to every analysis |
-| `sample_qc` | the QC of X's own application (the conventional NIPT runs no check), on genotypes from a callset of X's own |
+| `sample_qc` | the QC of X's own application (the conventional NIPT runs no check), of X's members (not a member only another analysis's package lists), on genotypes from a callset of X's own: of several of one kind, the one with calls for the most of them |
 | `sequencing_qc` | the sequencing QC X's own import recorded, and that of a package that named no analysis, each judged against its analysis's cut-offs |
 | `package_intake`, `package_source_changes` (gate 6) | X's own package record, and that of a package that named no analysis |
 | `import_incomplete`, `import_unfinished` (gate 5) | the datasets of X's record, or of no other analysis's record; a failed overwrite whose restore did not finish (`whole_family`) stays whole |
@@ -733,6 +733,14 @@ The gates read this snapshot, so each gate is the analysis's own: a drifted clas
 concern or a failed dataset of another analysis does not stop it. The sign-out check of X compares
 X's snapshot as a sign-out would freeze it now with X's latest record, and skips a section neither
 holds, so a change to another analysis's data leaves X's check matching.
+
+No two analyses of a family share a storage source: an import that would store data under a source
+another analysis's record lists is refused before it writes anything
+([data-import.md](data-import.md), *Several analyses in one family*). So "X's sources" and "another
+analysis's sources" never overlap, and no import of one analysis replaces, skips or claims another's
+data. The family's variant pages read one analysis at a time too (`analysis=`; a family with two
+or more analyses with small variants of their own names it, or the reading is refused), so what an
+analyst reviews is the analysis's own callset, as its sign-out freezes it.
 
 The family's report pages show its current data whole; a sign-out freezes the analysis's part of it.
 The NIPT report signs out the monogenic NIPT, and the Report page every other analysis (*The live

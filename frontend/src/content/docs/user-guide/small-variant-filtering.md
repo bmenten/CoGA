@@ -16,6 +16,16 @@ The page opens with the **Phenotype priority (Exomiser-style)** preset on the **
 > low-quality call, or a variant an affected member does not carry is not shown. Press **Clear all
 > filters** before you conclude that a variant is not in the data.
 
+### A family with several analyses
+
+A family can hold several analyses, on the same DNA or on different samples of one person: short-read
+and then long-read WGS, for instance. Each stays apart. When two or more of them have small variants
+of their own, the page reads one analysis at a time: pick it in the list beside the family's name (the
+analysis imported last is shown first). The list, its counts, the filters, the ranking, the CSV
+export and the variant summary are that analysis's alone, and a review you save is that analysis's
+review: a variant both callsets hold has a review in each analysis, and each sign-out freezes its own.
+An inheritance filter reads the members the analysis sequenced.
+
 ### Filters and presets
 
 The filters sit under **Advanced filters**, closed when the page opens, one category to a row across
