@@ -1272,10 +1272,12 @@ export interface FamilyRegionOfInterestUpdate {
  *
  * ``relative`` links a member to the family through another member (``sample_id_a``),
  * by a degree that is not known: a PGT index known to be on the mother's side, say.
+ * ``same_individual`` links two samples of one person (the plasma of a conventional NIPT
+ * with another sample ID than the monogenic NIPT's plasma of the same pregnancy).
  */
 export interface FamilyRelationshipOut {
   id: string;
-  relationship_type: "parent_child" | "couple" | "relative";
+  relationship_type: "parent_child" | "couple" | "relative" | "same_individual";
   sample_id_a: string;
   sample_id_b: string;
   role_a: string | null;
@@ -1379,12 +1381,22 @@ export interface FamilyStructureRelationshipsUpdate {
   parent_child?: FamilyStructureParentChildUpdate[];
   couples?: FamilyStructureCoupleUpdate[];
   relatives?: FamilyStructureRelativeUpdate[] | null;
+  same_individual?: FamilyStructureSameIndividualUpdate[] | null;
 }
 
 /** A member related to the family through another member, by an unknown degree. */
 export interface FamilyStructureRelativeUpdate {
   member: string;
   related_to: string;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Two samples of one person: the two plasmas of one pregnancy, say. The pedigree draws them
+ * as one person, and Sample QC expects their genotypes identical.
+ */
+export interface FamilyStructureSameIndividualUpdate {
+  samples: string[];
   metadata?: Record<string, unknown>;
 }
 

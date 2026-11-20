@@ -10,9 +10,11 @@ A family's graph is in three Postgres tables:
 
 - `family_members`: active membership, role, clinical and carrier status;
 - `samples`;
-- `family_relationships`: parent-child and couple edges, and links of unknown degree
-  (`relative`). `sample_id_a` is the parent, the first partner or the member a link of unknown
-  degree goes through; `sample_id_b` is the child, the second partner or the relative.
+- `family_relationships`: parent-child and couple edges, links of unknown degree
+  (`relative`), and links between two samples of one person (`same_individual`).
+  `sample_id_a` is the parent, the first partner or the member a link of unknown degree goes
+  through; `sample_id_b` is the child, the second partner or the relative. A same-individual
+  link has no direction: `sample_id_a` and `sample_id_b` are the person's two samples.
 
 After every change the family's PED text is rebuilt into `families.pedigree`, and the change
 adds a row to `family_structure_versions`. The family response does not serve that stored
@@ -30,10 +32,10 @@ Every pedigree change is kept twice; neither record can be edited or deleted:
 - **a `pedigree` event on the clinical audit trail**: who changed what and when, with the
   before and after values of each changed member (sex, role, affected status, carrier status,
   type and evidence, whether it is active, its father, mother and other parents, and its sample
-  ID when renamed), and of the couples and links of unknown degree when any of them changed. Its
-  summary names at most five changes (*Pedigree changed: P1 renamed P2: affected status unknown
-  → affected*); the event holds them all. Its metadata names the structure version, its hash and
-  the change's reason.
+  ID when renamed), and of the couples, links of unknown degree and same-individual links when
+  any of them changed. Its summary names at most five changes (*Pedigree changed: P1 renamed P2:
+  affected status unknown → affected*, *same individual PLASMA1 = PLASMA2 added*); the event
+  holds them all. Its metadata names the structure version, its hash and the change's reason.
 
 The edits on this page record both. So do:
 
@@ -77,9 +79,20 @@ These also refer to a member:
 The web interface has one editor of a family's members: the **Family members** table of the
 family page (`FamilyMembersCard.tsx`), which Admin → Family & sample data shows too. An
 administrator's **Edit members** turns each row into its fields (role, sex, father, mother,
-partner, related to, affected status, carrier status and type) and adds a row for a new member.
-The member dialog edits the same draft (`familyMembersDraft.ts`) and adds the sample ID and the
-HPO terms. **Save changes** sends the whole draft as one `PUT /families/{family_id}/structure`:
+partner, related to, same individual, affected status, carrier status and type) and adds a row
+for a new member. The member dialog edits the same draft (`familyMembersDraft.ts`) and adds the
+sample ID and the HPO terms.
+
+**Same individual** links the member to another sample of the same person: the plasma of a
+conventional NIPT under another sample ID than the monogenic NIPT's plasma of the same
+pregnancy, say. It offers the other members of the member's sex or of unknown sex. A choice
+replaces the member's link, so a person with three samples is linked one pair at a time. Read
+only, the table shows the column for a family that holds such a link. The table keeps a row per
+sample. The pedigree draws the person as one symbol labelled with all its IDs (*PLASMA1 /
+PLASMA2*), and Sample QC expects the samples' genotypes identical
+([sample-qc.md](../frontend/src/content/docs/sample-qc.md)).
+
+**Save changes** sends the whole draft as one `PUT /families/{family_id}/structure`:
 
 - every member as it stands, by its stored ID, with `new_sample_id` when it is renamed. The
   server writes only the members that changed. The editor never sends `carrier_evidence`, so the
@@ -121,6 +134,15 @@ old ID of one it renames (400).
   `related_to`) joins two different members once, and never two the family already links as
   parent and child or as a couple. A structure update without `relatives` keeps the family's
   links of unknown degree between active members; a list replaces them.
+- A same-individual link (`relationships.same_individual`: `samples`, the two sample IDs) joins
+  two different members once, and never two the family also links as parent and child, as a
+  couple or by an unknown degree. The links join samples into one person (A with B and B with C:
+  A, B and C). The samples of one person agree on their sex, clinical status and carrier status
+  (a value not known agrees with any) and have no other recorded father or mother. Otherwise the
+  change is refused (400: *PLASMA1 and PLASMA2 are linked as the same individual but their sex
+  differs (female, male)*), also when a member edit makes them disagree. A structure update
+  without `same_individual` keeps the family's same-individual links between active members; a
+  list replaces them. A renamed member keeps its links.
 - A father cannot be a member recorded as female, and a mother cannot be one recorded as
   male. A member of unknown sex may be either.
 - Removing a member makes them inactive. The sample row is kept for auditability.

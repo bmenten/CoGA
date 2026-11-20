@@ -15,6 +15,8 @@ import {
   parentCandidates,
   partnerOf,
   relativesOf,
+  sameIndividualCandidates,
+  sameIndividualOf,
   structureUpdateFromDraft,
   withMemberFields,
   withMemberRemoved,
@@ -23,6 +25,7 @@ import {
   withParent,
   withPartner,
   withRelatives,
+  withSameIndividual,
 } from '../familyMembersDraft';
 
 const link = (type: string, a: string, b: string, roleA = 'partner') => ({
@@ -212,5 +215,54 @@ describe('the family members draft', () => {
       ['INDEX1', 'mother'],
     ]);
     expect(withParent(draft, 'EMB1', 'mother', '').parentChild).toHaveLength(1);
+  });
+
+  it('links another sample of a member as the same person, of a sex that allows it', () => {
+    const stored = family();
+    stored.members = [
+      ...(stored.members ?? []),
+      { sample_id: 'MOTHER2', role: 'mother', affected: false, sex: 'female', clinical_status: 'unknown', carrier_status: 'unknown' },
+    ] as ApiFamilyRecord['members'];
+    const saved = draftFromFamily(stored);
+
+    // Not the father: the server refuses two known sexes that differ.
+    expect(sameIndividualCandidates(saved, 'MOTHER2').map((member) => member.sample_id)).toEqual([
+      'MOTHER',
+      'INDEX1',
+      'EMB1',
+    ]);
+    const draft = withSameIndividual(saved, 'MOTHER2', 'MOTHER');
+    expect(sameIndividualOf(draft, 'MOTHER')).toBe('MOTHER2');
+    expect(memberChanged(draft, saved, 'MOTHER')).toBe(true);
+    expect(structureUpdateFromDraft(draft, saved).relationships?.same_individual).toEqual([
+      { samples: ['MOTHER2', 'MOTHER'], metadata: {} },
+    ]);
+    // A member's choice replaces its link; a removed member's link is not sent, which leaves the
+    // links as stored.
+    expect(withSameIndividual(draft, 'MOTHER', '').sameIndividual).toEqual([]);
+    expect(structureUpdateFromDraft(withMemberRemoved(draft, 'MOTHER2'), saved).relationships).toBeNull();
+  });
+
+  it('reads a stored same-individual link and adds one with a new member', () => {
+    const stored = family();
+    stored.members = [
+      ...(stored.members ?? []),
+      { sample_id: 'MOTHER2', role: 'mother', affected: false, sex: 'female', clinical_status: 'unknown', carrier_status: 'unknown' },
+    ] as ApiFamilyRecord['members'];
+    stored.relationships = [
+      ...(stored.relationships ?? []),
+      link('same_individual', 'MOTHER', 'MOTHER2', ''),
+    ] as ApiFamilyRecord['relationships'];
+    const saved = draftFromFamily(stored);
+
+    expect(sameIndividualOf(saved, 'MOTHER2')).toBe('MOTHER');
+    expect(structureUpdateFromDraft(saved, saved).relationships).toBeNull();
+
+    const added = withNewMember(
+      saved,
+      { ...defaultNewMember, sample_id: 'MOTHER3', sex: 'female' },
+      { ...NO_NEW_MEMBER_RELATIONS, sameIndividual: 'MOTHER' },
+    );
+    expect(sameIndividualOf(added, 'MOTHER')).toBe('MOTHER2,MOTHER3');
   });
 });

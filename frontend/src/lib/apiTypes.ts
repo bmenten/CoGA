@@ -143,8 +143,11 @@ export interface ApiFamilyMemberBatchUpdateItem {
 
 export interface ApiFamilyRelationship {
   id: string;
-  /** `relative`: `sample_id_b` is related to the family through `sample_id_a`, by an unknown degree. */
-  relationship_type: 'parent_child' | 'couple' | 'relative';
+  /**
+   * `relative`: `sample_id_b` is related to the family through `sample_id_a`, by an unknown degree.
+   * `same_individual`: the two are samples of one person.
+   */
+  relationship_type: 'parent_child' | 'couple' | 'relative' | 'same_individual';
   sample_id_a: string;
   sample_id_b: string;
   role_a?: string | null;

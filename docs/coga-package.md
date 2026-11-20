@@ -122,6 +122,7 @@ member, also one without data of their own (a fetus).
 | `assay`, `assay_panel` | no | the sample's assay where it is not the family's (`nipt_cfdna` for a monogenic NIPT's maternal plasma, `cnipt_cfdna` for a conventional NIPT's) and its capture panel |
 | `hpo` | no | `present` and `absent`: HPO terms (`HP:0001250`) |
 | `related_to` | no | members this one is related to by an unknown degree (a PGT index on the mother's side) |
+| `same_individual_as` | no | other samples of the same person: a member of this package, or of another analysis's package the family already holds (a conventional NIPT's plasma names the monogenic NIPT's plasma of the same pregnancy) |
 
 For PGT-M, `family.pgt` gives the `inheritance_model` (`AD`, `AR`, `XLD`, `XLR` or
 `mitochondrial`), the `affected_parents` (whose condition the test is for) and the `indexes` (the
@@ -170,6 +171,10 @@ Reading the file ([coga_package.py](../backend/app/services/coga_package.py)):
 - every member the file names (a parent, a partner, a relative, an affected parent, an index, a
   dataset's per-sample entry) is one of its `members`, listed once; a parent is another member,
   of the parent's sex where it is known;
+- a member's `same_individual_as` names each sample once (`package_same_individual_twice`) and
+  not the member itself; a member of this file it names is not also its parent, child or
+  relative, and not of another known sex (`package_same_individual_invalid`). A sample the file
+  does not list is checked against the family below;
 - every dataset in `pipeline_used_pedigree` is one of the file's datasets.
 
 Against the folder and CoGA, when the import watcher reads the file
@@ -182,7 +187,9 @@ Against the folder and CoGA, when the import watcher reads the file
   may have read it);
 - the package's validation with the manifest made from the file, and every file the import reads
   listed;
-- the family and samples CoGA already holds.
+- the family and samples CoGA already holds: a sample a `same_individual_as` names that the
+  file does not list is an active member of the family, or the delivery needs attention
+  (`package_same_individual_outside`), and its import is refused.
 
 ## What can be changed in CoGA
 
@@ -204,7 +211,7 @@ The pipeline's file is never changed: CoGA keeps its bytes and their SHA-256.
 | --- | --- | --- |
 | Fixed: the pipeline's | `schema`, `pipeline`, `assembly`, `family.family_id`, every `sample_id`, `files`, `qc` | Not changed. A wrong value is a refused delivery and a new run or copy. |
 | Used by the pipeline | `sex`, `father`, `mother`, `couples` | Changed with a reason; refused while a dataset in `pipeline_used_pedigree` is in the import. Leave it out, or run the pipeline again. |
-| The laboratory's | `project` (of the same assembly), `analysis_type`, `role`, `clinical_status`, the carrier fields, `hpo`, `related_to`, `family.roi`, `family.pgt`, a dataset in or out of the import and its options (`vcf_sample`, `source_format`, `exclude_filters`, a coverage `content`, another listed file) | Changed with a reason. |
+| The laboratory's | `project` (of the same assembly), `analysis_type`, `role`, `clinical_status`, the carrier fields, `hpo`, `related_to`, `same_individual_as`, `family.roi`, `family.pgt`, a dataset in or out of the import and its options (`vcf_sample`, `source_format`, `exclude_filters`, a coverage `content`, another listed file) | Changed with a reason. |
 | A member added or removed | a whole member of `members` | Added with a reason when the package's files name the sample and no member is (a column of the phased family VCF: an affected relative read for segregation, a PGT index): the sample ID is the files', never typed. A member added in CoGA is removed again; a member the package delivered is not. A member added with parents, or removed, is a change of the pedigree the pipeline used (above). |
 
 A folder added by hand has no pipeline: CoGA made its package from the folder, so any member is

@@ -16,6 +16,13 @@ with the code. ccnv's own description of its methods: https://matthdsm.github.io
   NIPT of the same pregnancy may stand beside it. Its member is the maternal plasma, the mother of the
   pregnancy, whose assays then hold `cnipt_cfdna` (`sample.metadata.assays`); a fetus may be listed
   without data.
+- The cNIPT plasma may carry another sample ID than the monogenic NIPT's plasma of the same
+  pregnancy. The two samples are one person, linked as the same individual: by the package's
+  `same_individual_as` on the plasma, which names the monogenic NIPT's plasma (the family must
+  already hold it), or with **Same individual** in the family's members editor. The pedigree draws
+  the mother once, labelled with both IDs. The cNIPT plasma has no genotypes, so the link adds no
+  Sample QC check ([data-import.md](data-import.md#the-existing-familys-members),
+  [family-member-management.md](family-member-management.md#the-editor)).
 - The `ccnv` dataset names, per plasma, ccnv's bins, segments, calls VCF and QC file. How they are
   read, checked and stored: [data-import.md](data-import.md#conventional-nipt-ccnv)
   (`ccnv_output.py`, `family_package_ccnv.py`).

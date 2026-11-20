@@ -556,6 +556,16 @@ it with **Correct…** to the family's members, or have an administrator approve
 inactive). Either change is a new version of the family's structure, on its audit trail, and
 marks its analyses to be redone.
 
+**Two samples of one person.** A package may link a member to another sample of the same person with
+`same_individual_as`: a conventional NIPT's plasma names the monogenic NIPT's plasma of the same
+pregnancy when the two carry different sample IDs. The pedigree then draws them as one person, and
+Sample QC expects their genotypes identical. A sample the package does not list must already be an
+active member of the family; otherwise the delivery needs attention and its import is refused before
+anything is written. Import the monogenic NIPT's package first, or leave the link out and link the two
+samples afterwards in the family's **Family members** table (**Edit members**, column **Same
+individual**). *Update* adds the package's links of the members it adds, and *Overwrite* keeps such a
+link to another analysis's member.
+
 **An existing family imported into another project.** The family is linked to that **Project**
 too, and before its datasets the import gives the project the family's small and structural
 variants it does not hold yet. Whoever sees only that project sees all of them, not just what the

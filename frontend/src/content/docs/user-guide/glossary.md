@@ -73,6 +73,9 @@
   *viewer* (reads), *analyst* (also analyses), *supervisor* (also signs out), *superuser* (also every
   project, the configuration the analyses read and package import) and *admin* (the whole
   administration).
+- **Same individual** — two samples of one person, each under its own sample ID (the plasmas of a
+  monogenic and a conventional NIPT of one pregnancy). The pedigree draws them as one symbol, and Sample
+  QC expects their genotypes identical.
 - **Sign-out** — the analytical sign-off in CoGA, by a supervisor, a superuser or an administrator: it
   closes the analysis and freezes it into a signed version that can never change. The medical
   sign-off is given on the clinical report, in the EPD.

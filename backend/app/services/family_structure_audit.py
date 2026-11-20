@@ -414,6 +414,7 @@ def pedigree_state(
         }
     couples: list[dict[str, Any]] = []
     relatives: list[dict[str, Any]] = []
+    same_individuals: list[dict[str, Any]] = []
     for relationship in relationships:
         if not relationship.get("active", True):
             continue
@@ -436,12 +437,15 @@ def pedigree_state(
         elif kind == "relative":
             # sample_id_a is the member the link goes through, sample_id_b the relative.
             relatives.append({"member": sample_b, "related_to": sample_a, "metadata": metadata})
+        elif kind == "same_individual":
+            same_individuals.append({"samples": sorted([sample_a, sample_b]), "metadata": metadata})
     for member in state_members.values():
         member["parents"].sort()
     return {
         "members": state_members,
         "couples": sorted(couples, key=_canonical),
         "relatives": sorted(relatives, key=_canonical),
+        "same_individuals": sorted(same_individuals, key=_canonical),
     }
 
 
@@ -562,6 +566,7 @@ def pedigree_before_renames(state: Mapping[str, Any], renamed: Mapping[str, str]
         "members": members,
         "couples": _links_with_ids(state.get("couples") or [], ("partners",), old_id),
         "relatives": _links_with_ids(state.get("relatives") or [], ("member", "related_to"), old_id),
+        "same_individuals": _links_with_ids(state.get("same_individuals") or [], ("samples",), old_id),
     }
 
 
@@ -572,7 +577,7 @@ def _link_changes(
     key_of: Callable[[dict[str, Any]], tuple[str, ...]],
     name_of: Callable[[dict[str, Any]], str],
 ) -> list[str]:
-    """One phrase per couple or relative link added, removed or changed."""
+    """One phrase per couple, relative or same-individual link added, removed or changed."""
     old = {key_of(link): link for link in before}
     new = {key_of(link): link for link in after}
     phrases: list[str] = []
@@ -664,6 +669,20 @@ def diff_pedigree(
                 relatives_after,
                 key_of=lambda link: (str(link["member"]), str(link["related_to"])),
                 name_of=lambda link: f"relative {link['member']} (through {link['related_to']})",
+            )
+        )
+
+    same_before = _links_with_ids(before.get("same_individuals") or [], ("samples",), new_id)
+    same_after = list(after.get("same_individuals") or [])
+    if same_before != same_after:
+        changed_before["same_individuals"] = list(before.get("same_individuals") or [])
+        changed_after["same_individuals"] = same_after
+        phrases.extend(
+            _link_changes(
+                same_before,
+                same_after,
+                key_of=lambda link: tuple(sorted(str(sample) for sample in link["samples"])),
+                name_of=lambda link: f"same individual {' = '.join(sorted(str(sample) for sample in link['samples']))}",
             )
         )
     return phrases, changed_before, changed_after

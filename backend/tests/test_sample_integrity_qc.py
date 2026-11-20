@@ -695,6 +695,70 @@ def test_wgs_keeps_coparent_check_and_flags_consanguinity() -> None:
     assert coparent2[0].status == "fail" and "consanguinity" in coparent2[0].message.lower()
 
 
+# --- Two samples of one person (same-individual links) ------------------------
+
+
+def _trio_with_second_mother_sample(second_mother):
+    """A trio whose mother has a second sample, MOTHER2, linked as the same individual."""
+    father, mother, child = _trio(40)
+    spec = PedigreeSpec(
+        recorded_sex={"FATHER": "male", "MOTHER": "female", "MOTHER2": "female", "CHILD": "male"},
+        parents_of={"CHILD": {"father": "FATHER", "mother": "MOTHER"}},
+        same_individual=[("MOTHER2", "MOTHER")],
+    )
+    autosomal = {"FATHER": father, "MOTHER": mother, "MOTHER2": second_mother(mother), "CHILD": child}
+    return evaluate_sample_integrity(autosomal, {}, spec, profile=_WGS)
+
+
+def _pair(report, a: str, b: str):
+    [check] = [c for c in report.relatedness_checks if {c.sample_a, c.sample_b} == {a, b}]
+    return check
+
+
+def test_two_samples_of_one_person_are_expected_identical_and_in_each_others_place() -> None:
+    report = _trio_with_second_mother_sample(lambda mother: list(mother))
+
+    same = _pair(report, "MOTHER", "MOTHER2")
+    assert (same.expected_relationship, same.status) == ("same-individual", "pass")
+    assert same.message.startswith("Confirmed the same individual")
+    # What the pedigree records of the mother is expected of her second sample too: the child's
+    # parent, and the father's co-parent (no consanguinity).
+    child = _pair(report, "CHILD", "MOTHER2")
+    assert (child.expected_relationship, child.status) == ("parent-child", "pass")
+    coparent = _pair(report, "FATHER", "MOTHER2")
+    assert coparent.status == "pass" and "consanguinity" in coparent.message.lower()
+    assert all(check.status == "pass" for check in report.relatedness_checks)
+
+
+def test_a_second_sample_that_is_not_the_person_fails_as_a_possible_swap() -> None:
+    report = _trio_with_second_mother_sample(lambda _mother: _founder(random.Random(41)))
+
+    same = _pair(report, "MOTHER", "MOTHER2")
+    assert (same.expected_relationship, same.status) == ("same-individual", "fail")
+    assert "Recorded as the same individual but genotypes look unrelated" in same.message
+    assert "possible sample swap" in same.message
+    assert _pair(report, "CHILD", "MOTHER2").status == "fail"
+    assert report.overall_status == "fail"
+
+
+def test_a_same_individual_pair_with_too_few_sites_gates_the_sign_out() -> None:
+    qc = {
+        "relatedness_checks": [
+            {
+                "sample_a": "MOTHER",
+                "sample_b": "MOTHER2",
+                "expected_relationship": "same-individual",
+                "informative_sites": MIN_RELATEDNESS_SITES - 1,
+                "message": "Too few shared sites to assess relatedness.",
+            }
+        ]
+    }
+
+    assert report_signout_service._unverifiable_swap_checks(qc) == [
+        "Samples MOTHER and MOTHER2: too few shared sites to assess relatedness."
+    ]
+
+
 # --- The overall verdict: a check that could not run is a warning ------------
 
 # The sentence that closes the note naming the samples whose sex was not checked.

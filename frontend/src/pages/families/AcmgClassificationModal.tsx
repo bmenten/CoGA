@@ -18,6 +18,7 @@ import {
   fitCappedCriteria,
   parentageFromSampleQc,
   parentLinksFromRelationships,
+  personOfSamples,
   type AcmgCriterionCode,
   type AcmgCriterionDef,
   type AcmgGeneContext,
@@ -331,6 +332,8 @@ export default function AcmgClassificationModal({
   // Trio / segregation context: each member's genotype call for this variant, and who is
   // whose parent (the member roles cannot say: a grandparent is a 'father' or 'mother' too).
   const parentLinks = useMemo(() => parentLinksFromRelationships(relationships), [relationships]);
+  // Two samples of one person count once in cosegregation.
+  const personOf = useMemo(() => personOfSamples(relationships), [relationships]);
   const parentage = useMemo(
     () => (sampleQc && probandSampleId ? parentageFromSampleQc(probandSampleId, sampleQc) : undefined),
     [sampleQc, probandSampleId],
@@ -351,8 +354,9 @@ export default function AcmgClassificationModal({
       parentLinks,
       parentage,
       parentageUnavailable: sampleQcFailed,
+      personOf,
     }),
-    [members, variant, parentLinks, parentage, sampleQcFailed],
+    [members, variant, parentLinks, parentage, sampleQcFailed, personOf],
   );
 
   // External resource links (reuse the variant-card builder) + a smart PubMed search.

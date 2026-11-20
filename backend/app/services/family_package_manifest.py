@@ -827,6 +827,28 @@ def _manifest_relationships(manifest: PackageManifest) -> list[dict[str, Any]]:
                         "metadata": _metadata_dict(relative.get("metadata")),
                     }
                 )
+    # Two samples of one person: the plasma of a conventional NIPT under another sample ID than
+    # the monogenic NIPT's plasma of the same pregnancy, say. One may be a member of another
+    # analysis's package (``_manifest_relationship_issues``).
+    same_individual = relationships.get("same_individual")
+    if isinstance(same_individual, list):
+        for link in same_individual:
+            if not isinstance(link, dict):
+                continue
+            samples = _manifest_sample_id_list(link.get("samples"))
+            if len(samples) != 2:
+                continue
+            result.append(
+                {
+                    "relationship_type": "same_individual",
+                    "sample_id_a": samples[0],
+                    "sample_id_b": samples[1],
+                    "role_a": None,
+                    "role_b": None,
+                    "source": "manifest",
+                    "metadata": _metadata_dict(link.get("metadata")),
+                }
+            )
     return result
 
 
@@ -842,6 +864,10 @@ def _manifest_relationship_issues(
     for relationship in relationships:
         for key in ("sample_id_a", "sample_id_b"):
             sample_id = relationship[key]
+            if relationship["relationship_type"] == "same_individual":
+                # One of the two may be a member of another analysis's package: the import
+                # checks it against the family.
+                continue
             if sample_id not in sample_ids:
                 errors.append(
                     _issue(
@@ -857,7 +883,7 @@ def _manifest_relationship_issues(
     known_pairs = {
         frozenset((relationship["sample_id_a"], relationship["sample_id_b"]))
         for relationship in relationships
-        if relationship["relationship_type"] != "relative"
+        if relationship["relationship_type"] not in ("relative", "same_individual")
     }
     for member in ped.members if ped is not None else []:
         parents = [parent for parent in (member.pid, member.mid) if parent not in {"", "0"}]
@@ -883,6 +909,25 @@ def _manifest_relationship_issues(
             seen_relatives.add(pair)
             continue
         errors.append(_issue("manifest_relative_link_invalid", message, sample_id=member))
+    seen_same: set[frozenset[str]] = set()
+    for relationship in relationships:
+        if relationship["relationship_type"] != "same_individual":
+            continue
+        first, second = relationship["sample_id_a"], relationship["sample_id_b"]
+        pair = frozenset((first, second))
+        if first == second:
+            message = f"family.relationships.same_individual links '{first}' to itself"
+        elif pair in known_pairs or pair in seen_relatives:
+            message = (
+                f"family.relationships.same_individual links '{first}' and '{second}', who are "
+                "also recorded as relatives (parent and child, a couple, or of an unknown degree)"
+            )
+        elif pair in seen_same:
+            message = f"family.relationships.same_individual links '{first}' and '{second}' twice"
+        else:
+            seen_same.add(pair)
+            continue
+        errors.append(_issue("manifest_same_individual_link_invalid", message, sample_id=first))
     return errors
 
 

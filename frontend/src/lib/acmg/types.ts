@@ -187,6 +187,9 @@ export interface AcmgFamilyContext {
   parentage?: Record<string, AcmgParentageCheck>;
   // The Sample QC could not be loaded: parentage is unknown, not unconfirmed by a check.
   parentageUnavailable?: boolean;
+  // The person a sample is a sample of, for the samples the family's same-individual links join
+  // (pedigree.ts, personOfSamples): cosegregation (PP1/BS4) counts people, not samples.
+  personOf?: Record<string, string>;
 }
 
 // mtDNA locus category from the MT_LOCI map (drives mt-specific criteria).

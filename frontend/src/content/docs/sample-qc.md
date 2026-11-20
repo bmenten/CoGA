@@ -128,6 +128,14 @@ Each pair's inferred relationship is compared with the pedigree:
 - Recorded **siblings** that are not first degree → **fail**.
 - A pair expected to be **unrelated** that looks second or third degree → **warn**; first degree or
   duplicate → **fail** (duplicate, swap or consanguinity).
+- Two samples recorded as the **same individual** (two sample IDs of one person, such as the plasmas
+  of a monogenic and a conventional NIPT of one pregnancy) → **pass** when they look a duplicate
+  (*Confirmed the same individual*), otherwise **fail** (*Recorded as the same individual but
+  genotypes look … — possible sample swap.*).
+
+What the pedigree records of one of a person's samples is expected of the other too: its parent–child
+and sibling pairs, and the pair it makes with its co-parent. A sample without genotypes (a
+conventional NIPT plasma) has no relatedness check, so its link adds none.
 
 A pair needs at least **1,000** shared sites; with fewer the result is a **warn**, not a false alarm.
 
@@ -243,9 +251,10 @@ A sanity check on the shape of the category counts:
 
 The ring shows the worst of the person's checks, and a check that did not run counts as a warning. So a
 parent whose relatedness passed but whose sex could not be checked gets the amber ring, not the green
-one. A person without a ring was not assessed. Line and badge tell the verdicts apart, not only colour.
-The symbol keeps its clinical meaning (black for affected, the carrier half-fill in its carrier
-colour). Hover a symbol for the reason.
+one. A person drawn with several samples (samples linked as the same individual) gets the worst ring
+of its samples. A person without a ring was not assessed. Line and badge tell the verdicts apart, not
+only colour. The symbol keeps its clinical meaning (black for affected, the carrier half-fill in its
+carrier colour). Hover a symbol for the reason.
 
 **Per-sample table.** Recorded sex against genetic sex, and the Mendelian-error rate, coloured by
 status. The last column holds the person's verdict, rolled up as the ring is. Hover a cell for the
@@ -261,7 +270,8 @@ explanation. The genetic sex carries a mark for its verdict:
 **Relatedness matrix.** A sample × sample grid (lower half only; it is symmetric). Each cell shows the
 inferred relationship, the kinship φ and the IBS0. A pair that contradicts the pedigree — including
 parents who look related — is outlined: red for a fail, amber for a warning (for example parents who
-look second or third degree, or a pair with too few shared sites).
+look second or third degree, or a pair with too few shared sites). The legend reads a duplicate as
+*Duplicate / same individual / MZ twin*.
 
 **NIPT cards.** For a cfDNA family the page adds *Paternity*, *Fetal sex* and *cfDNA category QC*
 cards, and the parent-sex rows appear in the per-sample table.

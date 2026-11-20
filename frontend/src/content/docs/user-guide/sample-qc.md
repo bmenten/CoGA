@@ -25,7 +25,8 @@ of sites). A genotype with a quality (GQ) below 20 counts as a no-call.
 - **The verdict** at the top — the worst of the checks. A check that could not run counts as a
   warning, never as a pass. A note names each sample whose sex could not be checked.
 - **Pedigree & sample integrity** — each person's symbol carries a ring and a badge: green ✓ pass,
-  amber ! warning, red ✕ fail. A check that could not run counts as a warning here too. Hover a symbol
+  amber ! warning, red ✕ fail. A check that could not run counts as a warning here too. A person drawn
+  with several samples (linked as the same individual) carries the worst of its samples. Hover a symbol
   for the reason.
 - **Family members & per-sample checks** — recorded sex against genetic sex, and the Mendelian-error
   rate. The genetic sex carries green ✓ when it matches the record, red ✗ when it does not, amber !
@@ -38,7 +39,10 @@ of sites). A genotype with a quality (GQ) below 20 counts as a no-call.
   inferred relationship, kinship and IBS0. A pair that contradicts the pedigree, including parents who
   look related, is outlined: red for a fail, amber for a warning. A first-degree pair reads as
   parent–child when its IBS0 is below an eighth of the IBS0 of the family's unrelated parents, or
-  below a fixed 0.8% without them; otherwise as siblings. The pair's message gives the cut.
+  below a fixed 0.8% without them; otherwise as siblings. The pair's message gives the cut. Two samples
+  recorded as the same individual pass when their genotypes look a duplicate (*Duplicate / same
+  individual / MZ twin* in the legend), and fail otherwise: a possible sample swap. What the pedigree
+  records of one of them (its parents, children, siblings) is expected of the other too.
 - **Paternity**, **Fetal sex** and **cfDNA category QC** — for a cfDNA family.
 - **Sequencing & embryo QC** — under its own heading in the per-sample table: each sample's sequencing
   QC as its pipeline reported it, one column per measure. These are mean depth and alignment and, for a

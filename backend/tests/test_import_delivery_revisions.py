@@ -178,7 +178,14 @@ def test_a_correction_that_names_a_field_twice_a_member_coga_lacks_or_changes_no
 
 # --- members added and removed ---------------------------------------------------------------
 
-_RELATIVE = {"sample_id": "REL1", "sex": "male", "role": "relative", "clinical_status": "affected", "related_to": ["MOTHER"]}
+_RELATIVE = {
+    "sample_id": "REL1",
+    "sex": "male",
+    "role": "relative",
+    "clinical_status": "affected",
+    "related_to": ["MOTHER"],
+    "same_individual_as": [],
+}
 _OFFERED = revisions.MemberRule(addable=frozenset({"REL1"}), as_checked=frozenset({"FATHER1", "MOTHER", "EMB1"}))
 
 

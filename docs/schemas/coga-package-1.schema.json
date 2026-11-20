@@ -312,6 +312,15 @@
           },
           "title": "Related To",
           "type": "array"
+        },
+        "same_individual_as": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^(?!\\.\\.?$)[^\\s/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": "string"
+          },
+          "title": "Same Individual As",
+          "type": "array"
         }
       },
       "required": [

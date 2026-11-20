@@ -32,6 +32,9 @@ interface PackageMember {
   carrier_type?: string | null;
   hpo?: PackageHpo | null;
   related_to?: string[] | null;
+  // Another sample of the same person; corrected in the package's JSON (it may name a member of
+  // another analysis's package, which the form's choices do not hold).
+  same_individual_as?: string[] | null;
 }
 interface PackagePgt {
   inheritance_model?: string | null;
@@ -339,6 +342,7 @@ const MEMBER_FIELD_ORDER = [
   'assay_panel',
   'hpo',
   'related_to',
+  'same_individual_as',
 ];
 const inOrder = (
   value: Record<string, unknown>,

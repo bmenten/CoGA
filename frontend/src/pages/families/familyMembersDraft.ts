@@ -17,6 +17,7 @@ import {
   memberDraftFromFamilyMember,
   parentChildDraftsFromRelationships,
   relativeDraftsFromRelationships,
+  sameIndividualDraftsFromRelationships,
   sampleKey,
 } from './familyDetailHelpers';
 
@@ -39,6 +40,7 @@ export const draftFromFamily = (family: ApiFamilyRecord): FamilyMembersDraft => 
   parentChild: parentChildDraftsFromRelationships(family),
   couples: coupleDraftsFromRelationships(family),
   relatives: relativeDraftsFromRelationships(family),
+  sameIndividual: sameIndividualDraftsFromRelationships(family),
   baseVersion: family.structure_version?.version ?? null,
 });
 
@@ -85,6 +87,15 @@ export const relativesOf = (draft: FamilyMembersDraft, memberId: string): string
     .sort((left, right) => sampleKey(left).localeCompare(sampleKey(right)))
     .join(',');
 
+/** The other samples of the member's person (same-individual links), comma-joined and sorted. */
+export const sameIndividualOf = (draft: FamilyMembersDraft, memberId: string): string =>
+  draft.sameIndividual
+    .flatMap((link) =>
+      sameId(link.sampleA, memberId) ? [link.sampleB] : sameId(link.sampleB, memberId) ? [link.sampleA] : [],
+    )
+    .sort((left, right) => sampleKey(left).localeCompare(sampleKey(right)))
+    .join(',');
+
 /**
  * The value "both parents" stands for in a Related to choice: the family's father and mother,
  * when it has one of each, comma-joined as `relativesOf` joins them. Null otherwise.
@@ -116,6 +127,18 @@ export const parentCandidates = (
 /** The others still in the family: who may be the member's partner or a relative it goes through. */
 export const otherMembers = (draft: FamilyMembersDraft, memberId: string): StructureMemberDraft[] =>
   activeMembers(draft).filter((member) => !sameId(member.sample_id, memberId));
+
+/**
+ * The others that may be another sample of the member's person: those of its sex, or of one not
+ * known (the server refuses a link between two known sexes that differ, and the other fields it
+ * checks are named in its refusal).
+ */
+export const sameIndividualCandidates = (draft: FamilyMembersDraft, memberId: string): StructureMemberDraft[] => {
+  const sex = findMember(draft, memberId)?.sex ?? 'und';
+  return otherMembers(draft, memberId).filter(
+    (member) => sex === 'und' || member.sex === 'und' || member.sex === sex,
+  );
+};
 
 // --- Changes --------------------------------------------------------------------------------
 
@@ -179,11 +202,24 @@ export const withRelatives = (draft: FamilyMembersDraft, memberId: string, value
   ],
 });
 
+/**
+ * `otherId`: the other sample of the member's person, or empty for none. It replaces the
+ * member's same-individual links (a person with three samples is linked one pair at a time).
+ */
+export const withSameIndividual = (draft: FamilyMembersDraft, memberId: string, otherId: string): FamilyMembersDraft => ({
+  ...draft,
+  sameIndividual: [
+    ...draft.sameIndividual.filter((link) => !sameId(link.sampleA, memberId) && !sameId(link.sampleB, memberId)),
+    ...(otherId ? [{ id: nextLinkId('same-individual'), sampleA: memberId, sampleB: otherId }] : []),
+  ],
+});
+
 const withoutLinksOf = (draft: FamilyMembersDraft, sampleId: string): FamilyMembersDraft => ({
   ...draft,
   parentChild: draft.parentChild.filter((link) => !sameId(link.parent, sampleId) && !sameId(link.child, sampleId)),
   couples: draft.couples.filter((link) => !sameId(link.partnerA, sampleId) && !sameId(link.partnerB, sampleId)),
   relatives: draft.relatives.filter((link) => !sameId(link.member, sampleId) && !sameId(link.relatedTo, sampleId)),
+  sameIndividual: draft.sameIndividual.filter((link) => !sameId(link.sampleA, sampleId) && !sameId(link.sampleB, sampleId)),
 });
 
 /**
@@ -226,9 +262,17 @@ export interface NewMemberRelations {
   partner: string;
   /** Comma-joined, as `withRelatives` takes it. */
   related: string;
+  /** The other sample of the new member's person, as `withSameIndividual` takes it. */
+  sameIndividual: string;
 }
 
-export const NO_NEW_MEMBER_RELATIONS: NewMemberRelations = { father: '', mother: '', partner: '', related: '' };
+export const NO_NEW_MEMBER_RELATIONS: NewMemberRelations = {
+  father: '',
+  mother: '',
+  partner: '',
+  related: '',
+  sameIndividual: '',
+};
 
 export const withNewMember = (
   draft: FamilyMembersDraft,
@@ -254,6 +298,7 @@ export const withNewMember = (
   if (relations.mother) next = withParent(next, sampleId, 'mother', relations.mother);
   if (relations.partner) next = withPartner(next, sampleId, relations.partner);
   if (relations.related) next = withRelatives(next, sampleId, relations.related);
+  if (relations.sameIndividual) next = withSameIndividual(next, sampleId, relations.sameIndividual);
   return next;
 };
 
@@ -296,6 +341,11 @@ const draftLinks = (draft: FamilyMembersDraft): LinkKey[] => {
     ...draft.relatives
       .filter((row) => kept(row.member, row.relatedTo))
       .map((row) => link(`relative|${sampleKey(row.member)}|${sampleKey(row.relatedTo)}`, row.member, row.relatedTo)),
+    ...draft.sameIndividual
+      .filter((row) => kept(row.sampleA, row.sampleB))
+      .map((row) =>
+        link(`same|${[sampleKey(row.sampleA), sampleKey(row.sampleB)].sort().join('|')}`, row.sampleA, row.sampleB),
+      ),
   ];
 };
 
@@ -420,6 +470,9 @@ export const structureUpdateFromDraft = (
           relatives: draft.relatives
             .filter((link) => kept(link.member, link.relatedTo))
             .map((link) => ({ member: link.member, related_to: link.relatedTo, metadata: {} })),
+          same_individual: draft.sameIndividual
+            .filter((link) => kept(link.sampleA, link.sampleB))
+            .map((link) => ({ samples: [link.sampleA, link.sampleB], metadata: {} })),
         },
   };
 };

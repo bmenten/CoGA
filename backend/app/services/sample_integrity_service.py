@@ -192,7 +192,17 @@ def _build_pedigree_spec(context: FamilyMetadataContext) -> PedigreeSpec:
         if row.get("sample_id")
     }
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
-    return PedigreeSpec(recorded_sex=recorded_sex, parents_of=pedigree.parents_of, roles=pedigree.roles)
+    same_individual = [
+        (str(row["sample_id_a"]), str(row["sample_id_b"]))
+        for row in context.relationship_rows
+        if row.get("relationship_type") == "same_individual" and row.get("sample_id_a") and row.get("sample_id_b")
+    ]
+    return PedigreeSpec(
+        recorded_sex=recorded_sex,
+        parents_of=pedigree.parents_of,
+        roles=pedigree.roles,
+        same_individual=same_individual,
+    )
 
 
 # What the PGT pipeline's qc dataset stores of ngs-bits SampleGender

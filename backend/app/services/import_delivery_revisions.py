@@ -25,9 +25,9 @@ Which fields may change:
   (``pipeline_used_pedigree``) is in the import, the delivery needs attention
   (``package_pedigree_changed``, ``import_watcher._pedigree_change_issue``).
 - **The laboratory's**: the ``project``, the ``analysis_type``, a member's ``role``,
-  ``clinical_status``, carrier fields, ``hpo``, ``related_to``, ``assay`` and ``assay_panel``, the
-  family's ``roi`` and ``pgt``, and each dataset's entry (in or out of the import, its options,
-  another file the package lists).
+  ``clinical_status``, carrier fields, ``hpo``, ``related_to``, ``same_individual_as``, ``assay``
+  and ``assay_panel``, the family's ``roi`` and ``pgt``, and each dataset's entry (in or out of the
+  import, its options, another file the package lists).
 
 A correction is a list of changes, or the whole package as the person edited it
 (``package_changes``: the changes are what differs, field by field, and the same rules hold).
@@ -79,12 +79,22 @@ ChangeKind = Literal["laboratory", "pipeline_used"]
 # The states a delivery is corrected in: open, and its package read.
 REVISABLE_STATES = ("ready", "needs_attention")
 LABORATORY_MEMBER_FIELDS = frozenset(
-    {"role", "clinical_status", "carrier_status", "carrier_type", "hpo", "related_to", "assay", "assay_panel"}
+    {
+        "role",
+        "clinical_status",
+        "carrier_status",
+        "carrier_type",
+        "hpo",
+        "related_to",
+        "same_individual_as",
+        "assay",
+        "assay_panel",
+    }
 )
 PIPELINE_MEMBER_FIELDS = frozenset({"sex", "father", "mother"})
 _PGT_FIELDS = frozenset({"inheritance_model", "affected_parents", "indexes"})
 # Fields that are lists: set to nothing, they are empty.
-_LIST_FIELDS = frozenset({"related_to", "affected_parents", "indexes", "couples"})
+_LIST_FIELDS = frozenset({"related_to", "same_individual_as", "affected_parents", "indexes", "couples"})
 
 DELIVERY_REVISED = (
     "The delivery was corrected since you looked at it: look at it again, and correct or approve "

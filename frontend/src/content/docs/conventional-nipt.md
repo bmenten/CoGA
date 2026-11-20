@@ -16,6 +16,10 @@ estimates the fetal fraction and the fetal sex. CoGA imports its output, draws i
 
 A conventional NIPT family is imported from a package whose analysis is **cNIPT**
 (`analysis_type: conventional_nipt`). Its member is the maternal plasma, the mother of the pregnancy.
+When the family also holds the monogenic NIPT of the pregnancy under another sample ID for the plasma,
+the two plasmas are one person: link them as the same individual, in the package (`same_individual_as`)
+or with **Edit members** → **Same individual** on the family page. The pedigree then draws the mother
+once, labelled with both IDs.
 For it, CoGA reads ccnv's four files: the bins, the segments, the gain and loss calls, and the QC
 file. They must be one run's result: the calls state the QC file's fetal sex, fetal fraction and
 sex-chromosome call, and name the same sample, or the import refuses them.

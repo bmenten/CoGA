@@ -45,10 +45,12 @@ class FamilyRelationshipOut(BaseModel):
 
     ``relative`` links a member to the family through another member (``sample_id_a``),
     by a degree that is not known: a PGT index known to be on the mother's side, say.
+    ``same_individual`` links two samples of one person (the plasma of a conventional NIPT
+    with another sample ID than the monogenic NIPT's plasma of the same pregnancy).
     """
 
     id: ApiId
-    relationship_type: Literal["parent_child", "couple", "relative"]
+    relationship_type: Literal["parent_child", "couple", "relative", "same_individual"]
     sample_id_a: str
     sample_id_b: str
     role_a: Optional[str] = None
@@ -251,11 +253,21 @@ class FamilyStructureRelativeUpdate(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class FamilyStructureSameIndividualUpdate(BaseModel):
+    """Two samples of one person: the two plasmas of one pregnancy, say. The pedigree draws them
+    as one person, and Sample QC expects their genotypes identical."""
+
+    samples: List[str] = Field(min_length=2, max_length=2)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class FamilyStructureRelationshipsUpdate(BaseModel):
     parent_child: List[FamilyStructureParentChildUpdate] = Field(default_factory=list)
     couples: List[FamilyStructureCoupleUpdate] = Field(default_factory=list)
     # None keeps the family's links of unknown degree; a list replaces them.
     relatives: Optional[List[FamilyStructureRelativeUpdate]] = None
+    # None keeps the family's same-individual links; a list replaces them.
+    same_individual: Optional[List[FamilyStructureSameIndividualUpdate]] = None
 
 
 class FamilyStructureUpdate(BaseModel):

@@ -622,6 +622,22 @@ the family cannot take (a structure changed since the import read it, a new memb
 held by another family) refuses the import before its first dataset. The changed pedigree stays
 when a dataset then fails or the import is undone; the restore puts back the datasets.
 
+**Two samples of one person.** A package may link a member to a sample of another analysis's
+package (`same_individual_as`: a conventional NIPT's plasma under another sample ID than the
+monogenic NIPT's plasma of the same pregnancy). The family must then hold that sample as an active
+member. Otherwise the delivery needs attention (`package_same_individual_outside`) and the import
+is refused before anything is written: *The package links PLASMA1 to one of its members as the
+same individual, but family 'F' does not hold that sample: import the package that lists it first,
+or link the samples in the family's members editor once both are in the family.*
+
+- A package that makes a new family has its same-individual links checked as a structure edit
+  checks them: the samples of one person agree on sex, clinical and carrier status and parents
+  ([family-member-management.md](family-member-management.md#rules-checked-on-every-change)).
+- `update` adds the package's links that name a member it adds, and keeps the family's.
+- `overwrite` keeps a same-individual link of the family that joins a member of another
+  analysis's package to one this package lists, also when the package does not name it: the
+  link is no more this package's than the other's.
+
 **Projects.** An import into an existing family also links it to the job's `project_id`. Every
 project the family is linked to gets the small and structural variant callsets it holds none of,
 under the family's variant-write locks and before the import's snapshot, so the family's other
@@ -883,8 +899,9 @@ file, as JSON so that every ID stays text:
 
 - The file's `members` are the pedigree: each becomes a row of `family.add_members`, and no PED is
   read. Their carrier fields go under `family.members`, their HPO terms under `individuals`,
-  their assay under `samples`, the couples and the relatives under `family.relationships`. A
-  member without a `role` gets one from the pedigree, as a PED row does.
+  their assay under `samples`, the couples, the relatives and the same-individual links
+  (`same_individual_as`, each pair once) under `family.relationships`. A member without a `role`
+  gets one from the pedigree, as a PED row does.
 - A file that leaves out its `members` or its `datasets` has them proposed by Discover, from the
   folder, for the family the file names: the members from the folder's PED (or its per-sample
   folders), the datasets from its layout. The warnings `package_members_proposed` and
@@ -996,8 +1013,9 @@ SHA-256. The import reads the latest.
   each member's sex, parents, the member it is related to (`related_to`), role, clinical status,
   carrier fields and HPO terms, the members added or removed, and which datasets are in the
   import. The corrections so far are listed with it, and the package as `coga-package.json`
-  (**Download coga-package.json** saves it). The other fields (assays, couples and a dataset's
-  options) change through the API, and for a folder added by hand also with **Edit as JSON**.
+  (**Download coga-package.json** saves it). The other fields (assays, couples,
+  `same_individual_as` and a dataset's options) change through the API, and for a folder added by
+  hand also with **Edit as JSON**.
   **Package…** shows, with its corrections, the package of any other delivery but an `incomplete`
   one.
 - **`GET /family-imports/deliveries/{id}/package`** (superuser) gives the package as the import
@@ -1017,7 +1035,7 @@ SHA-256. The import reads the latest.
 
 | Fields | Rule |
 | --- | --- |
-| The laboratory's: the project, the analysis type, a member's role, clinical status, carrier fields, HPO terms, `related_to`, assay and panel, the family's region of interest and PGT details, each dataset's entry (in or out of the import, its options, another file the package lists) | changed freely |
+| The laboratory's: the project, the analysis type, a member's role, clinical status, carrier fields, HPO terms, `related_to`, `same_individual_as`, assay and panel, the family's region of interest and PGT details, each dataset's entry (in or out of the import, its options, another file the package lists) | changed freely |
 | Those the pipeline used: a member's sex and parents, and the couples | changed, but while a dataset the pipeline computed with them (`pipeline_used_pedigree`) is in the import, the delivery needs attention (`package_pedigree_changed`) and is not approved: leave those datasets out, or put the value back |
 | Every other field: the format, status and run, the assembly, the family ID, every sample ID, the files, the QC, the request, the reference, the notes and `extra` | the pipeline's: refused (400) |
 
@@ -1579,6 +1597,8 @@ family:                    # optional: member states, extra members and relation
     relatives:             # related through a member by an unknown degree
       - member: INDEX1
         related_to: [MOTHER]
+    same_individual:       # two samples of one person
+      - samples: [CFDNA1, PLASMA1]
 
 phenotypes:
   file: phenotypes.tsv
@@ -1683,6 +1703,14 @@ same one of the linked member's haplotypes, and is grey elsewhere (see
 since the family editor would refuse the family's every later edit: a member linked to itself;
 two members the PED or the manifest already records as parent and child or as a couple (a
 child's parents count as one); the same pair linked twice.
+
+`family.relationships.same_individual` links two samples of one person (`samples`, the two IDs):
+the plasmas of a monogenic and a conventional NIPT of one pregnancy under two sample IDs, say. The
+pedigree draws them as one symbol labelled with both IDs, and Sample QC expects their genotypes
+identical. One of the two may be a member of another analysis's package that the family already
+holds ([Two samples of one person](#the-existing-familys-members)). These links are errors
+(`manifest_same_individual_link_invalid`): a sample linked to itself; two members also linked as
+parent and child, as a couple or by an unknown degree; the same pair linked twice.
 
 `analysis_type: monogenic_nipt` marks a monogenic NIPT family (see
 [monogenic-nipt.md](monogenic-nipt.md)). Its `samples` entry for the maternal plasma says
@@ -2890,6 +2918,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `package_not_in_project_folder` | The package folder lies directly in the watched folder. Move it into the folder of its project (`<watched folder>/<project>/`), or refuse the delivery. |
 | `package_project_folder_differs` | The package lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
 | `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents); a member the package of another of the family's analyses listed is not lacking. An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the family's pedigree and keeps the other analyses' members. |
+| `package_same_individual_outside` | The package links a member to a sample as the same individual (`same_individual_as`), and that sample is neither in the package nor an active member of the family. Import the package that lists it first, or take the link out of the package ([Correcting a delivery](#correcting-a-delivery)) and link the samples in the family's members editor once both are in the family. |
 | `package_adds_members` (warning) | The package adds members to a family that exists. Update and overwrite add them to the family's pedigree: check that they belong to it. |
 | `package_files_without_checksum` (warning) | `coga-package.json` lists files without a `sha256` or `md5`. CoGA computed their SHA-256 (the import records it), but cannot check that the copy on the share is what the pipeline made. Acknowledge it to approve, or have the pipeline or its copy step write the checksums. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |

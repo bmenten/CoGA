@@ -71,6 +71,13 @@ def _member_sections(package: CogaPackage, members: list[PackageMember]) -> dict
     ]
     if relatives:
         relationships["relatives"] = relatives
+    # Each pair once: two members may each name the other.
+    pairs = dict.fromkeys(
+        tuple(sorted((member.sample_id, other))) for member in members for other in member.same_individual_as
+    )
+    same_individual = [{"samples": list(pair)} for pair in pairs]
+    if same_individual:
+        relationships["same_individual"] = same_individual
     if relationships:
         family["relationships"] = relationships
     sections: dict[str, Any] = {"family": family}

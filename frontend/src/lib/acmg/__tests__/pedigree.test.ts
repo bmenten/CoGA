@@ -5,7 +5,21 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { parentageFromSampleQc, parentLinksFromRelationships, parentsOf } from '../pedigree';
+import { parentageFromSampleQc, parentLinksFromRelationships, parentsOf, personOfSamples } from '../pedigree';
+
+describe('personOfSamples', () => {
+  it('names the person of each sample the same-individual links join by its first sample ID', () => {
+    const link = (a: string, b: string) => ({ relationship_type: 'same_individual', sample_id_a: a, sample_id_b: b });
+    expect(
+      personOfSamples([
+        link('PLASMA2', 'PLASMA1'),
+        link('PLASMA3', 'PLASMA2'),
+        { relationship_type: 'parent_child', sample_id_a: 'PLASMA1', sample_id_b: 'FETUS', role_a: 'mother', role_b: 'child' },
+      ]),
+    ).toEqual({ PLASMA1: 'PLASMA1', PLASMA2: 'PLASMA1', PLASMA3: 'PLASMA1' });
+    expect(personOfSamples(null)).toEqual({});
+  });
+});
 
 describe('parentLinksFromRelationships', () => {
   it('reads a parent-child link with the parent on either side', () => {
