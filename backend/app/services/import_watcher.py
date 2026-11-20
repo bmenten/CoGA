@@ -98,6 +98,7 @@ from .family_package_manifest import (
 )
 from .family_package_nipt import NIPT_VCF_COLUMN_WARNING
 from .family_package_registration import (
+    ROI_CONFLICT,
     SAME_INDIVIDUAL_NOT_MADE,
     SAME_INDIVIDUAL_OUTSIDE,
     FamilySamplesHeld,
@@ -106,6 +107,7 @@ from .family_package_registration import (
     family_member_differences,
     family_samples_held,
     member_values_conflict_message,
+    roi_conflict_message,
     package_same_individual_links,
     same_individual_not_made,
     same_individual_not_made_message,
@@ -601,6 +603,13 @@ async def assess_content(
             )
             issues.extend([issue] if issue is not None else [])
             warnings.extend([warning] if warning is not None else [])
+        if bundle is not None:
+            # A package of one of a family's analyses does not change the region another holds.
+            roi_conflict = await roi_conflict_message(
+                session, family_id=validation.family_id, bundle=bundle, project_id=project_id
+            )
+            if roi_conflict is not None:
+                issues.append(_issue(ROI_CONFLICT, roi_conflict))
         if project_id is not None:
             roi = await manifest_roi_issue(
                 session, roi_query=validation.metadata.get("roi"), project_id=project_id, family_id=validation.family_id

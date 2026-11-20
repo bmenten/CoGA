@@ -45,11 +45,12 @@ single-file upload). A family sequenced short-read and then long-read WGS keeps 
 writes its own analysis's row and leaves the other's, so the long-read import never replaces the
 short-read analysis's VEP, ClinVar, reference FASTA or caller.
 
-An analysis's manifest is its own row laid over the rows of no analysis the family holds (an
+An analysis's manifest is its own row laid over the row of no analysis (`unspecified`: an
 upload's, a package's that named none: their data is every analysis's, *One sign-out per analysis*,
 below). For a module both name, the analysis's own fields win and the versions per modality are
-joined. A row an admin replaced is that analysis's whole manifest. A family that holds no analysis
-has one manifest, of those rows.
+joined. The row of an analysis the family does not hold (an import that was put back) states
+nothing. A row an admin replaced is that analysis's whole manifest. A family that holds no analysis
+has one manifest, of the row of no analysis.
 
 An import and a replacement of one family take turns on one lock, so neither overwrites the other
 halfway. A replacement names the analysis whose manifest it replaces (`analysis_type`; required

@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_analysis_types import family_analysis_types
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
-from .family_package_records import ANALYSIS_LABELS, package_record_key
+from .family_package_records import ANALYSIS_LABELS, UNSPECIFIED_ANALYSIS, package_record_key
 from .hpo_service import get_loaded_hpo_release
 from .access_control import CurrentUser, is_admin_user
 from .signout_scope import analysis_listing_source
@@ -354,28 +354,26 @@ def _holds_modules(row: Mapping[str, Any]) -> bool:
 
 
 def _stated_rows(
-    rows: Sequence[Mapping[str, Any]], *, analysis: str | None, held: Collection[str]
+    rows: Sequence[Mapping[str, Any]], *, analysis: str | None
 ) -> list[Mapping[str, Any]]:
-    """The manifest rows a manifest of ``analysis`` states, of the family's ``rows`` (``held``:
-    the analyses the family holds), in the order they are laid over each other: each row of no
-    analysis the family holds (a single-file upload's, a package's that named none), by key, as
-    that data is every analysis's; then the analysis's own, which wins. An analysis's own row an
-    administrator replaced (``manual``) is stated alone: the replacement is the whole manifest
-    of that analysis. A row that records no module states nothing."""
+    """The manifest rows a manifest of ``analysis`` states, of the family's ``rows``, in the order they are laid over each other: the row of no
+    analysis (``UNSPECIFIED_ANALYSIS``: a single-file upload's, a package's that named none), as
+    that data is every analysis's; then the analysis's own, which wins. The row of an analysis
+    the family does not hold (an import that was put back, whose data are gone) states nothing.
+    An analysis's own row an administrator replaced (``manual``) is stated alone: the
+    replacement is the whole manifest of that analysis. A row that records no module states
+    nothing."""
     own_key = manifest_key(analysis)
     own = next((row for row in rows if row.get("analysis_type") == own_key), None)
     if own is not None and own.get("source") == _MANUAL_SOURCE:
         return [own]
-    shared = sorted(
-        (
-            row
-            for row in rows
-            if row.get("analysis_type") != own_key
-            and row.get("analysis_type") not in held
-            and _holds_modules(row)
-        ),
-        key=lambda row: str(row.get("analysis_type")),
-    )
+    shared = [
+        row
+        for row in rows
+        if row.get("analysis_type") == UNSPECIFIED_ANALYSIS
+        and row.get("analysis_type") != own_key
+        and _holds_modules(row)
+    ]
     return [*shared, *([own] if own is not None and _holds_modules(own) else [])]
 
 
@@ -404,14 +402,13 @@ def analysis_manifest(
     rows: Sequence[Mapping[str, Any]],
     *,
     analysis: str | None,
-    held: Collection[str],
     platform_modules: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """The manifest of one of the family's analyses (``analysis``; None for a family that holds
-    none), from the family's manifest ``rows`` and the analyses it holds (``held``): the modules
-    its rows state (``_stated_rows``) over the platform's reference layer, with where the row
-    stated last came from (the analysis's own, when it has one)."""
-    stated = _stated_rows(rows, analysis=analysis, held=held)
+    none), from the family's manifest ``rows``: the modules its rows state (``_stated_rows``)
+    over the platform's reference layer, with where the row stated last came from (the
+    analysis's own, when it has one)."""
+    stated = _stated_rows(rows, analysis=analysis)
     last: Mapping[str, Any] = stated[-1] if stated else {}
     return {
         "analysis_type": analysis,
@@ -438,7 +435,7 @@ async def get_family_annotation_manifest(
         "family_id": context.family_id,
         "assembly": context.assembly_name,
         "analyses": [
-            analysis_manifest(rows, analysis=analysis, held=held, platform_modules=platform_modules)
+            analysis_manifest(rows, analysis=analysis, platform_modules=platform_modules)
             for analysis in analyses
         ],
     }
@@ -449,12 +446,11 @@ async def analysis_annotation_manifest(
 ) -> dict[str, Any]:
     """The annotation manifest a sign-out of the family's ``analysis`` freezes (None: a family
     that holds none), with the family's assembly: that analysis's versions, never another's."""
-    held = family_analysis_types(await _family_metadata(session, context.family_uuid))
     rows = await _family_manifest_rows(session, context.family_uuid)
     platform_modules = await _platform_modules(session, context.assembly_id)
     return {
         "assembly": context.assembly_name,
-        **analysis_manifest(rows, analysis=analysis, held=held, platform_modules=platform_modules),
+        **analysis_manifest(rows, analysis=analysis, platform_modules=platform_modules),
     }
 
 
@@ -466,13 +462,11 @@ async def call_annotation_manifest(
     that of the one analysis the family holds whose package record lists that source, else that
     of no analysis (a single-file upload's call, or one of a package that named none)."""
     metadata = await _family_metadata(session, context.family_uuid)
-    held = family_analysis_types(metadata)
     rows = await _family_manifest_rows(session, context.family_uuid)
     platform_modules = await _platform_modules(session, context.assembly_id)
     return analysis_manifest(
         rows,
         analysis=analysis_listing_source(metadata, kind, stored_under),
-        held=held,
         platform_modules=platform_modules,
     )
 
@@ -719,7 +713,7 @@ async def set_family_annotation_manifest(
     await _lock_family_manifest(session, context.family_uuid)
     # What the analysis's manifest stated until now: the modules a sign-out of it froze.
     prior_rows = _stated_rows(
-        await _family_manifest_rows(session, context.family_uuid), analysis=analysis, held=held
+        await _family_manifest_rows(session, context.family_uuid), analysis=analysis
     )
     prior_last: Mapping[str, Any] = prior_rows[-1] if prior_rows else {}
     prior_modules = _stated_modules(prior_rows)

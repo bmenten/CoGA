@@ -684,3 +684,57 @@ def test_each_analysiss_qc_of_a_member_is_judged_by_its_own_cut_offs(monkeypatch
     # The same depth warns against the short-read cut-off and passes the long-read one.
     verdicts = {analysis: evaluation.verdict for analysis, evaluation in family.members[0].sequencing_qc.items()}
     assert verdicts == {"long_read_wgs": "pass", "short_read_wgs": "warn"}
+
+
+def test_a_package_of_another_analysis_keeps_the_family_s_region_of_interest(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A monogenic NIPT gave the family its region (a gene locus); a conventional NIPT package of
+    # the same pregnancy that names another is refused, one naming the same or none is not, and a
+    # family that holds no other analysis takes the package's (as a member's known values,
+    # the owner's decision of 2026-11-20).
+    held_roi = {"roi_query": "GENEA", "roi_label": "GENEA", "roi_chr": "chr7", "roi_start": 100, "roi_end": 200}
+    state: dict[str, Any] = {"others": registration.OtherAnalyses(analyses=("monogenic_nipt",)), "roi": held_roi}
+
+    async def others(_session: Any, *, family_id: str, analysis_type: str | None) -> Any:
+        return state["others"]
+
+    async def family_roi(_session: Any, _family_id: str) -> Any:
+        return state["roi"]
+
+    async def assembly(_session: Any, *, project_id: Any, family_id: Any) -> str:
+        return "assembly-uuid"
+
+    async def resolve(_session: Any, *, assembly_id: Any, query: str) -> Any:
+        loci = {"GENEA": ("7", 100, 200), "GENEB": ("chr9", 500, 900)}
+        if query not in loci:
+            return None
+        chrom, start, end = loci[query]
+        return {"query": query, "label": query, "chr": chrom, "start": start, "end": end}
+
+    monkeypatch.setattr(registration, "other_analyses_of", others)
+    monkeypatch.setattr(registration, "_family_roi_row", family_roi)
+    monkeypatch.setattr(registration, "_package_roi_assembly", assembly)
+    monkeypatch.setattr(registration, "_resolve_manifest_roi", resolve)
+
+    def package(roi: str | None) -> Any:
+        manifest = SimpleNamespace(analysis_type="conventional_nipt", family={"roi": roi} if roi else {}, roi=roi)
+        return SimpleNamespace(manifest=manifest)
+
+    monkeypatch.setattr(registration, "_manifest_roi_value", lambda manifest: manifest.roi)
+
+    def conflict(roi: str | None) -> str | None:
+        return asyncio.run(
+            registration.roi_conflict_message(None, family_id="F1", bundle=package(roi), project_id="p1")
+        )
+
+    refused = conflict("GENEB")
+    assert refused is not None
+    assert "GENEB (chr9:500-900)" in refused and "GENEA, chr7:100-200" in refused
+    # The same locus (named otherwise: 7 or chr7), none, or one that does not resolve: no conflict.
+    assert conflict("GENEA") is None
+    assert conflict(None) is None
+    assert conflict("NOT_A_GENE") is None
+    # A family without a region, or one holding no other analysis, takes the package's.
+    state["roi"] = None
+    assert conflict("GENEB") is None
+    state["roi"], state["others"] = held_roi, registration.OtherAnalyses()
+    assert conflict("GENEB") is None

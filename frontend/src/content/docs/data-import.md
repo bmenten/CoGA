@@ -708,7 +708,9 @@ Paraphase results are replaced.
   family's region of interest, so no embryo is called at a region the package does not name. The import
   warns (`manifest_roi_unresolved`) and names the region it cleared: set it on the family page. The dry
   run gives the same warning ahead; with no project and no existing family to look it up in, it says
-  the region was not checked (`manifest_roi_not_checked`).
+  the region was not checked (`manifest_roi_not_checked`). A family that holds another analysis keeps
+  its region: a package gives one only to a family without one, and one naming another locus is
+  refused before anything is written (`package_roi_conflict`).
 - A dataset type CoGA does not know is an error. A missing small-variant or structural-variant dataset is
   a warning; other missing datasets are simply absent.
 - A data file with nothing after its header, that the import would refuse for holding no record, is a

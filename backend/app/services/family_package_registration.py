@@ -1147,18 +1147,93 @@ async def manifest_roi_issue(
     )
 
 
+# The issue of a package that names another region of interest than the one a family holding
+# another analysis has (``roi_conflict_message``).
+ROI_CONFLICT = "package_roi_conflict"
+
+
+async def _family_roi_row(session: AsyncSession, family_id: str) -> dict[str, Any] | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT roi_query, roi_label, roi_chr, roi_start, roi_end
+                FROM families
+                WHERE family_id = :family_id
+                """
+            ),
+            {"family_id": family_id},
+        )
+    ).mappings().first()
+    return dict(row) if row is not None and row.get("roi_chr") is not None else None
+
+
+async def _keeps_family_roi(session: AsyncSession, *, family_id: str, bundle: FamilyPackageBundle) -> bool:
+    """Whether an import of ``bundle`` leaves the family's region of interest as it is: the
+    family holds another analysis and has a region (``roi_conflict_message``)."""
+    if not _manifest_roi_value(bundle.manifest):
+        return False
+    if not await other_analyses_of(session, family_id=family_id, analysis_type=bundle.manifest.analysis_type):
+        return False
+    return await _family_roi_row(session, family_id) is not None
+
+
+async def roi_conflict_message(
+    session: AsyncSession, *, family_id: str | None, bundle: FamilyPackageBundle, project_id: str | None
+) -> str | None:
+    """Why a package cannot be imported into the family ``family_id`` that holds another
+    analysis: its manifest names a region of interest that resolves to another locus than the
+    one the family holds. As a member's known values (the owner's decision of 2026-11-20), a
+    family holding another analysis keeps the region it has, and a package only gives one to a
+    family without one; a package that states another is refused before anything is written.
+    None when the family holds no other analysis, has no region, or the package names none, the
+    same one, or one that does not resolve (the import keeps the family's and warns)."""
+    roi_query = _manifest_roi_value(bundle.manifest)
+    if not roi_query or not family_id or identifier_problem(family_id) is not None:
+        return None
+    if not await other_analyses_of(session, family_id=family_id, analysis_type=bundle.manifest.analysis_type):
+        return None
+    held = await _family_roi_row(session, family_id)
+    if held is None:
+        return None
+    assembly_id = await _package_roi_assembly(session, project_id=project_id, family_id=family_id)
+    roi = await _resolve_manifest_roi(session, assembly_id=assembly_id, query=roi_query)
+    if roi is None:
+        return None
+    if (normalize_chromosome(str(roi["chr"])), int(roi["start"]), int(roi["end"])) == (
+        normalize_chromosome(str(held["roi_chr"])),
+        int(held["roi_start"]),
+        int(held["roi_end"]),
+    ):
+        return None
+    return (
+        f"The package names the region of interest {visible(roi_query)} ({roi['chr']}:{roi['start']}-{roi['end']}), "
+        f"but family '{visible(family_id)}' holds another analysis and its region is {_roi_text(held)}. "
+        "A package of one of its analyses does not change the family's region: correct the package's roi "
+        "(Correct…), or change the region on the family page first."
+    )
+
+
 async def _apply_manifest_roi(
     session: AsyncSession,
     *,
     bundle: FamilyPackageBundle,
     context: FamilyMetadataContext,
+    keep_family_roi: bool = False,
 ) -> FamilyImportValidationIssue | None:
     """Give the family the region of interest its manifest names. One that does not resolve
     clears the family's: the PGT calls and the NIPT coverage check read the family's
     region, and the one it had need not be the one this package names. The warning returned
-    then says so and names the region cleared; the import puts it in its result."""
+    then says so and names the region cleared; the import puts it in its result.
+    ``keep_family_roi``: the family holds another analysis and a region (``_keeps_family_roi``),
+    which it keeps whatever the manifest names."""
     roi_query = _manifest_roi_value(bundle.manifest)
     if not roi_query:
+        return None
+    # A family that holds another analysis keeps the region it has (``roi_conflict_message``
+    # refused one that states another before the import began): a package gives one only to a
+    # family without one, and one that does not resolve clears nothing.
+    if keep_family_roi:
         return None
     roi = await _resolve_manifest_roi(
         session,
@@ -2557,6 +2632,21 @@ async def _ensure_family_from_ped(
         shared = _shared_source_message(existing.get("metadata"), bundle)
         if shared is not None:
             raise ImportRefused(shared)
+        roi_conflict = await roi_conflict_message(
+            session, family_id=family_id, bundle=bundle, project_id=resolved_project_id
+        )
+        if roi_conflict is not None:
+            raise ImportRefused(roi_conflict)
+        # A member the package adds whose sample ID another family holds: refused here, before
+        # the family is marked, not when the pedigree takes the members (which would leave the
+        # import's datasets flagged as failed).
+        held_ids = {str(sample_id) for sample_id in existing.get("sample_ids") or []}
+        try:
+            await ped_service._ensure_sample_ids_are_available(
+                session, [sample_id for sample_id in bundle.ped.sample_ids if sample_id not in held_ids]
+            )
+        except HTTPException as refused:
+            raise ImportRefused(f"The package's members cannot be the family's: {refused.detail}") from None
         # The package's same-individual links between two members the family holds already,
         # which the family lacks: an overwrite makes them (the links are the package's), an
         # update does not and says so.
@@ -2627,7 +2717,12 @@ async def _ensure_family_from_ped(
         user=user,
         import_mode="new_family" if created else conflict_mode,
     )
-    roi_issue = await _apply_manifest_roi(session, bundle=bundle, context=context)
+    roi_issue = await _apply_manifest_roi(
+        session,
+        bundle=bundle,
+        context=context,
+        keep_family_roi=await _keeps_family_roi(session, family_id=context.family_id, bundle=bundle),
+    )
     if roi_issue is not None and warnings is not None:
         warnings.append(roi_issue)
     return context, created
