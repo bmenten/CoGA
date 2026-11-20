@@ -647,8 +647,13 @@ def _import_words(analysis_type: object) -> str:
 
 def _failed_dataset_words(name: str, analyses: Iterable[Any]) -> str:
     """A failed dataset as the gate message names it: with the analyses whose imports it
-    failed in, those it has a label for ("snv (long-read WGS)")."""
+    failed in, those it has a label for ("snv (long-read WGS)"), and an upload (a failure of no
+    analysis) beside them ("snv (long-read WGS, an upload)"). A dataset only uploads failed in
+    is named alone."""
+    analyses = list(analyses)
     labels = [ANALYSIS_LABELS[str(analysis)] for analysis in analyses if str(analysis) in ANALYSIS_LABELS]
+    if labels and any(analysis is None for analysis in analyses):
+        labels.append("an upload")
     return f"{name} ({', '.join(labels)})" if labels else name
 
 

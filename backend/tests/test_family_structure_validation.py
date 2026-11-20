@@ -274,6 +274,13 @@ def test_a_structure_update_without_same_individual_links_keeps_them_and_with_th
 
 def test_a_same_individual_link_is_one_link_whichever_sample_it_names_first() -> None:
     assert _relationship_key(_same("PLASMA1", "PLASMA2")) == _relationship_key(_same("plasma2", "PLASMA1"))
+    # What made a link is no part of it: a package's link saved over in the members editor is the
+    # same link, and writes no structure version.
+    for link in (
+        _same("PLASMA1", "PLASMA2"),
+        {"relationship_type": "parent_child", "sample_id_a": "MOTHER", "sample_id_b": "PROBAND", "role_a": "mother"},
+    ):
+        assert _relationship_key({**link, "source": "manifest"}) == _relationship_key({**link, "source": "manual"})
     payload = _link_payload([*_FETUS_PARENTS, _same("PLASMA1", "PLASMA2"), _same("PLASMA2", "PLASMA1")])
 
     assert [link.samples for link in payload.same_individual or []] == [["PLASMA1", "PLASMA2"]]

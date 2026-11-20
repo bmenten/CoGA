@@ -4928,6 +4928,14 @@ def test_a_family_of_one_analysis_is_checked_whole(monkeypatch) -> None:
     assert len(snapshot["package_source_changes"]) == 2
 
 
+def test_a_failed_dataset_names_the_analyses_and_an_upload_it_failed_in() -> None:
+    assert rss._failed_dataset_words("snv", ["long_read_wgs"]) == "snv (long-read WGS)"
+    assert rss._failed_dataset_words("snv", [None, "long_read_wgs"]) == "snv (long-read WGS, an upload)"
+    # Only uploads, or a package that named no analysis: the dataset alone.
+    assert rss._failed_dataset_words("snv", [None]) == "snv"
+    assert rss._failed_dataset_words("snv", ["unspecified"]) == "snv"
+
+
 def test_another_analysis_s_failure_leaves_an_analysis_s_frozen_flag_as_it_was() -> None:
     # What a sign-out of one analysis freezes of the flag is built from its own failures (and
     # those of no analysis) alone, so a later failure of another analysis, or the striking of
