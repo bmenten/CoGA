@@ -1130,6 +1130,7 @@ export interface FamilyMitoDNAAnalysisOut {
   qc_notes: string[];
   heteroplasmy_threshold: number;
   homoplasmy_threshold: number;
+  analysis: string | null;
 }
 
 /** Schema for families returned by the API. */

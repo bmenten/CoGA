@@ -1044,6 +1044,7 @@ async def get_family_mitochondrial_analysis_response(
             has_coverage=has_coverage,
             heteroplasmy_threshold=HETEROPLASMY_THRESHOLD,
             homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
+            analysis=context.scope.analysis if context.scope.left_out_sources("small_variants") else None,
         )
     member_by_sample = _member_meta(context)
     coverage_map, coverage_notes = await _coverage_by_sample(session, context)
@@ -1096,4 +1097,5 @@ async def get_family_mitochondrial_analysis_response(
         qc_notes=_family_qc_notes(samples, variant_rows, coverage_notes),
         heteroplasmy_threshold=HETEROPLASMY_THRESHOLD,
         homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
+        analysis=context.scope.analysis if context.scope.left_out_sources("small_variants") else None,
     )

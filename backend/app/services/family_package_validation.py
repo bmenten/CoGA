@@ -32,7 +32,7 @@ from .family_package_nipt import nipt_vcf_column_issue
 from .ccnv_output import CcnvOutputError, ccnv_vcf_header_problems
 from .family_package_ccnv import CCNV_DATASET, ccnv_entry_paths, ccnv_sample_issues, check_ccnv_track_header, read_ccnv_qc_file, read_ccnv_vcf_header
 from .nipt import CONVENTIONAL_NIPT_ANALYSIS_TYPE, MONOGENIC_NIPT_ANALYSIS_TYPE
-from .small_variant_callsets import UNNAMED_CALLER_MESSAGE, is_callset_name, is_direct_callset
+from .small_variant_callsets import is_callset_name, is_direct_callset, is_family_vcf_callset
 from .nipt_target_coverage import target_table_missing_columns
 from .coverage_content import COVERAGE_CONTENT_KEY, DECLARED_COVERAGE_CONTENTS
 
@@ -280,6 +280,17 @@ def _check_snv_callset_named(
                     dataset="snv",
                 )
             )
+        elif not is_family_vcf_callset(source_format):
+            errors.append(
+                _issue(
+                    "dataset_callset_invalid",
+                    f"The SNV dataset's family VCF cannot be stored as '{source_format}': a family VCF "
+                    "holds a caller's direct calls (named by its caller) or GLIMPSE2's imputed "
+                    "genotypes (glimpse2). The mtDNA calls, a monogenic NIPT's calls and SHAPEIT's "
+                    "phased markers are read by rules of their own.",
+                    dataset="snv",
+                )
+            )
         return
     if vcf_path is None:
         return
@@ -291,8 +302,8 @@ def _check_snv_callset_named(
     try:
         with vcf_path.open("rb") as handle:
             _detect_small_variant_format_from_upload(UploadFile(file=handle, filename=vcf_path.name), "auto")
-    except UnnamedCallerHTTPError:
-        errors.append(_issue("dataset_callset_unnamed", UNNAMED_CALLER_MESSAGE, dataset="snv"))
+    except UnnamedCallerHTTPError as refused:
+        errors.append(_issue("dataset_callset_unnamed", str(refused.detail), dataset="snv"))
     except Exception:  # noqa: BLE001 - a file that cannot be read is said by its own checks
         return
 

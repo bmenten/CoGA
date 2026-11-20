@@ -162,3 +162,6 @@ class FamilyMitoDNAAnalysisOut(BaseModel):
     qc_notes: List[str] = Field(default_factory=list)
     heteroplasmy_threshold: float = 0.02
     homoplasmy_threshold: float = 0.95
+    # The analysis whose calls are read, of a family with several analyses with small variants
+    # (analysis_scope.py); a review saved from the page is that analysis's. None otherwise.
+    analysis: Optional[str] = None

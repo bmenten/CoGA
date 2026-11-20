@@ -93,7 +93,13 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 from .clickhouse_variant_queries import NIPT_SMALL_VARIANT_SOURCE as _NIPT_SOURCE
-from .small_variant_callsets import UNNAMED_CALLER_MESSAGE, caller_from_vcf_header, is_callset_name
+from .small_variant_callsets import (
+    AMBIGUOUS_CALLER_MESSAGE,
+    UNNAMED_CALLER_MESSAGE,
+    caller_from_vcf_header,
+    header_shows_imputation,
+    is_callset_name,
+)
 from .vcf_call_metrics import record_filter_values, single_sample_call_metrics
 # Under the names this module's readers, per_sample_small_variants and the tests use.
 from .vcf_fields import field_int, parse_format as _parse_format, parse_info as _parse_info
@@ -318,9 +324,9 @@ def _detect_small_variant_format_from_upload(
     """The callset the upload's rows are stored as: ``format_hint`` as named, else
     (``auto``) the caller the VCF header names (``caller_from_vcf_header``), else imputed
     genotypes (``glimpse2``) when the first record carries genotype posteriors, or phased
-    genotypes in a file whose header or name says it was phased. A file that is neither is
-    refused (``UnnamedCallerError``, a 400): its callset is named by its caller, which CoGA
-    does not guess."""
+    genotypes in a file whose header or name says it was phased. A file that is neither, or a
+    caller's header over imputed or statistically phased genotypes, is refused
+    (``UnnamedCallerHTTPError``, a 400): its callset is named, never guessed."""
     if format_hint != "auto":
         if not is_callset_name(format_hint):
             raise HTTPException(status_code=400, detail="A callset is named in lower-case letters, digits and underscores")
@@ -336,9 +342,14 @@ def _detect_small_variant_format_from_upload(
         if len(parts) < 9:
             break
         caller = caller_from_vcf_header(header_lines)
-        if caller is not None:
-            return caller
         fmt = parts[8].split(":")
+        if caller is not None:
+            # A caller's header over imputed or statistically phased genotypes is refused, as
+            # Discover refuses it (family_package_discovery._direct_caller): stored as either,
+            # imputed genotypes would read as calls, or calls as imputed.
+            if "GP" in fmt or header_shows_imputation(header_lines):
+                raise UnnamedCallerHTTPError(AMBIGUOUS_CALLER_MESSAGE)
+            return caller
         if "GP" in fmt or (
             _has_phasing_source_hint(header_lines, file.filename)
             and _format_has_phased_gt(fmt, parts[9:])
@@ -349,11 +360,11 @@ def _detect_small_variant_format_from_upload(
 
 
 class UnnamedCallerHTTPError(HTTPException):
-    """A small-variant VCF whose caller neither the request nor its header names: refused
-    (400) with ``UNNAMED_CALLER_MESSAGE``."""
+    """A small-variant VCF whose callset neither the request nor its header names
+    unambiguously: refused (400) with ``UNNAMED_CALLER_MESSAGE``, or with ``detail``."""
 
-    def __init__(self) -> None:
-        super().__init__(status_code=400, detail=UNNAMED_CALLER_MESSAGE)
+    def __init__(self, detail: str = UNNAMED_CALLER_MESSAGE) -> None:
+        super().__init__(status_code=400, detail=detail)
 
 
 def _detect_structural_variant_format(

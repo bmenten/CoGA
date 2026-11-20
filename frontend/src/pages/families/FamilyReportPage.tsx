@@ -23,7 +23,7 @@ import {
   useReportSignouts,
   useSignedVersionDownload,
 } from './reportSignoutQueries';
-import { analysisLabel, reportPageAnalyses, separatelySignedAnalyses } from '../../lib/familyAnalyses';
+import { analysisLabel, analysisQuery, reportPageAnalyses, separatelySignedAnalyses } from '../../lib/familyAnalyses';
 import type { ApiReportSignoutList } from '../../lib/apiTypes';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import {
@@ -381,17 +381,6 @@ const LiveFamilyReport: React.FC = () => {
   // The build that renders the report, named in its footer (TF-15 §1).
   const reportBuild = useReportBuild();
 
-  // Evidence drift: classifications whose backing annotation changed since they
-  // were made — a sign-out guardrail against stale interpretations.
-  const { data: drift, isError: driftFailed, refetch: refetchDrift } = useQuery<ApiClassificationDrift>({
-    queryKey: ['family', familyId, 'classification-drift'],
-    enabled: Boolean(familyId),
-    queryFn: async () =>
-      (await api.get(apiPath`/families/${familyId}/classification-drift`)).data as ApiClassificationDrift,
-  });
-  // The small variants' drift and the structural variants' / CNVs' drift, in one banner.
-  const structuralDrift = drift?.structural?.drifted ?? [];
-  const driftCount = (drift?.drifted_count ?? 0) + (drift?.structural?.drifted_count ?? 0);
 
   // Immutable clinical audit trail (who classified / tagged / annotated what, when), read a
   // page at a time, most recent first. The page says when it shows only the most recent
@@ -443,6 +432,21 @@ const LiveFamilyReport: React.FC = () => {
       : pageAnalyses[0]
     : null;
   const signOutAnalysisLabel = analysisLabel(signOutAnalysis);
+
+  // Evidence drift: classifications whose backing annotation changed since they
+  // were made — a sign-out guardrail against stale interpretations. Of a family with several
+  // analyses, each variant's evidence now is read from the callset of the analysis signed out.
+  const { data: drift, isError: driftFailed, refetch: refetchDrift } = useQuery<ApiClassificationDrift>({
+    queryKey: ['family', familyId, 'classification-drift', signOutAnalysis],
+    enabled: Boolean(familyId) && Boolean(family),
+    queryFn: async () =>
+      (
+        await api.get(apiPath`/families/${familyId}/classification-drift${raw(analysisQuery(signOutAnalysis))}`)
+      ).data as ApiClassificationDrift,
+  });
+  // The small variants' drift and the structural variants' / CNVs' drift, in one banner.
+  const structuralDrift = drift?.structural?.drifted ?? [];
+  const driftCount = (drift?.drifted_count ?? 0) + (drift?.structural?.drifted_count ?? 0);
 
   // Does the live content below still match the latest signed version of the analysis this page
   // signs out? It says so, and what changed, but even a match does not make this page the signed

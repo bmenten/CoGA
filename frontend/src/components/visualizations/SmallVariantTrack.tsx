@@ -1,3 +1,4 @@
+import { useVariantAnalysis } from '../../pages/families/useVariantAnalysis';
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
@@ -180,10 +181,13 @@ const SmallVariantTrack: React.FC<Props> = ({
     }
     return nextFilters;
   }, [filters, sampleId]);
+  // Of a family with several analyses with small variants, the one the page reads.
+  const analysis = useVariantAnalysis(familyId);
   const { data: rawData, isLoading, isError, refetch } = useQuery<VariantPage>({
     queryKey: [
       'small-variants-track',
       familyId,
+      analysis,
       sampleId,
       chrom,
       regionStart,
@@ -203,6 +207,7 @@ const SmallVariantTrack: React.FC<Props> = ({
         track_result_limit: SMALL_VARIANT_TRACK_RESULT_LIMIT,
         ...requestFilters,
         ...(salientOnly ? { salient_only: true } : {}),
+        ...(analysis ? { analysis } : {}),
       };
       const res = await api.get(apiPath`/families/${familyId}/small-variants`, {
         params,

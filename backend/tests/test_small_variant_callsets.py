@@ -17,12 +17,15 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from backend.app.services.small_variant_callsets import (
+    AMBIGUOUS_CALLER_MESSAGE,
     UNNAMED_CALLER_MESSAGE,
     callset_label,
     callset_preference,
     caller_from_vcf_header,
+    header_shows_imputation,
     is_callset_name,
     is_direct_callset,
+    is_family_vcf_callset,
 )
 from backend.app.services.variant_upload_service import (
     UnnamedCallerHTTPError,
@@ -146,6 +149,38 @@ def test_a_package_snv_dataset_whose_caller_cannot_be_told_is_refused_before_any
     assert issues(unnamed, source_format="haplotypecaller") == []
     assert issues(unnamed, source_format="auto") == [("dataset_callset_unnamed", UNNAMED_CALLER_MESSAGE)]
     assert [code for code, _message in issues(unnamed, source_format="GATK HaplotypeCaller")] == ["dataset_callset_invalid"]
+    # A family VCF is never stored as a callset read by rules of its own.
+    for kept_apart in ("mito", "nipt", "shapeit"):
+        assert [code for code, _message in issues(unnamed, source_format=kept_apart)] == ["dataset_callset_invalid"]
+    assert issues(unnamed, source_format="glimpse2") == []
+    # A caller's header over imputed genotypes is refused as the upload refuses it.
+    ambiguous = tmp_path / "ambiguous.vcf"
+    ambiguous.write_text(
+        "##fileformat=VCFv4.2\n##DeepVariant_version=1.6.1\n" + _COLUMNS + "1\t100\t.\tA\tG\t.\tPASS\t.\tGT:GP\t0|1:0.1,0.8,0.1\n",
+        encoding="utf-8",
+    )
+    assert issues(ambiguous) == [("dataset_callset_unnamed", AMBIGUOUS_CALLER_MESSAGE)]
     # A file that cannot be read is said by its own checks.
     assert issues(tmp_path / "missing.vcf") == []
     assert issues(None) == []
+
+
+def test_a_caller_s_header_over_imputed_genotypes_names_no_callset() -> None:
+    deepvariant = "##fileformat=VCFv4.2\n##DeepVariant_version=1.6.1\n"
+    # Genotype posteriors in the record, or an imputation tool in the header.
+    posteriors = deepvariant + _COLUMNS + "1\t100\t.\tA\tG\t.\tPASS\t.\tGT:GP\t0|1:0.1,0.8,0.1\n"
+    glimpsed = deepvariant + "##GLIMPSE_phase_v2.0.0\n" + _COLUMNS + "1\t100\t.\tA\tG\t.\tPASS\t.\tGT\t0|1\n"
+    for text in (posteriors, glimpsed):
+        with pytest.raises(UnnamedCallerHTTPError) as refused:
+            _detect_small_variant_format_from_upload(_upload(text), "auto")
+        assert refused.value.detail == AMBIGUOUS_CALLER_MESSAGE
+    # A field declaration's text names no tool: GATK's description of its physical phasing.
+    assert not header_shows_imputation(['##FORMAT=<ID=PGT,Number=1,Type=String,Description="phased by shapeit-like reads">'])
+    assert header_shows_imputation(["##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Posteriors\">"])
+    assert header_shows_imputation(["##SHAPEIT_phase_common=v5"])
+
+
+def test_a_family_vcf_is_a_caller_s_calls_or_glimpse2_s_genotypes() -> None:
+    assert is_family_vcf_callset("haplotypecaller") and is_family_vcf_callset("glimpse2")
+    for name in ("mito", "nipt", "shapeit", "auto", "Clair 3"):
+        assert not is_family_vcf_callset(name)

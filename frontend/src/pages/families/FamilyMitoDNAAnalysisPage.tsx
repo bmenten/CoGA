@@ -617,7 +617,8 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
       if (!familyId) {
         throw new Error('Family id is required');
       }
-      const path = buildSmallVariantReviewPath(familyId, variantId);
+      // Saved to the analysis whose chrM calls the page read (of a family with several).
+      const path = buildSmallVariantReviewPath(familyId, variantId, mtDNA?.analysis);
       const body = withReviewVersion(payload, review);
       const res = resolvedProjectId
         ? await api.put(path, body, { params: { project_id: resolvedProjectId } })

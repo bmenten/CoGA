@@ -1,3 +1,4 @@
+import { ANALYSIS_PARAM, smallVariantAnalyses, variantAnalysisOf, withAnalysisParam } from '../../lib/familyAnalyses';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
@@ -1217,6 +1218,8 @@ export const buildSmallVariantQueryParams = (
   currentSampleFilters: Record<string, SmallVariantSampleFilter>,
   nextPage: number,
   projectId?: string,
+  // The analysis the family is read for, of a family with several (`variantAnalysisOf`).
+  analysis?: string | null,
 ) => {
   const params = new URLSearchParams({
     page: String(nextPage),
@@ -1226,6 +1229,7 @@ export const buildSmallVariantQueryParams = (
   if (projectId) {
     params.set('project_id', projectId);
   }
+  withAnalysisParam(params, analysis);
 
   setLocationParams(params, currentFilters);
   if (currentFilters.intervals) params.set('intervals', currentFilters.intervals);
@@ -1604,6 +1608,13 @@ export const useSmallVariantSearchState = ({
     [locationSearch],
   );
   const queryProjectId = resolvedProjectId || urlProjectId;
+  // The analysis a family with several analyses with small variants is read for: each is read
+  // on its own, its list, counts and reviews its own (the owner's decision of 2026-11-20).
+  const analyses = useMemo(() => smallVariantAnalyses(family?.metadata), [family?.metadata]);
+  const analysis = useMemo(
+    () => variantAnalysisOf(family?.metadata, locationSearch),
+    [family?.metadata, locationSearch],
+  );
 
   // Apply the fresh-open default (Phenotype-priority preset + Mendeliome panel) once
   // per family — keyed by the member set, since the family object has no stable id.
@@ -1615,7 +1626,7 @@ export const useSmallVariantSearchState = ({
 
     const params = new URLSearchParams(locationSearch);
     const hasExplicitSearch = Array.from(params.keys()).some(
-      (key) => key !== 'project_id' && key !== 'page',
+      (key) => key !== 'project_id' && key !== 'page' && key !== ANALYSIS_PARAM,
     );
 
     // No deep-linked search: default the page to the Phenotype-priority preset scoped
@@ -1755,7 +1766,16 @@ export const useSmallVariantSearchState = ({
         nextSampleFilters,
         nextPage,
         queryProjectId,
+        analysis,
       ).toString(),
+    });
+  };
+
+  // Read another of the family's analyses: the filters stay, the list starts on its first page.
+  const selectAnalysis = (next: string) => {
+    setPage(1);
+    navigate({
+      search: buildSmallVariantQueryParams(filters, sampleFilters, 1, queryProjectId, next).toString(),
     });
   };
 
@@ -1890,14 +1910,16 @@ export const useSmallVariantSearchState = ({
     setSampleFilters(cloneSampleFilters(resetSampleFilters));
     setPage(1);
     navigate({
-      search: queryProjectId
-        ? buildSmallVariantQueryParams(
-            emptyFilters,
-            resetSampleFilters,
-            1,
-            queryProjectId,
-          ).toString()
-        : '',
+      search:
+        queryProjectId || analysis
+          ? buildSmallVariantQueryParams(
+              emptyFilters,
+              resetSampleFilters,
+              1,
+              queryProjectId,
+              analysis,
+            ).toString()
+          : '',
     });
   };
 
@@ -1950,8 +1972,8 @@ export const useSmallVariantSearchState = ({
   };
 
   const requestQueryString = useMemo(
-    () => buildSmallVariantQueryParams(listFilters, sampleFilters, page, queryProjectId).toString(),
-    [listFilters, sampleFilters, page, queryProjectId],
+    () => buildSmallVariantQueryParams(listFilters, sampleFilters, page, queryProjectId, analysis).toString(),
+    [listFilters, sampleFilters, page, queryProjectId, analysis],
   );
 
   const goToPage = (nextPage: number) => {
@@ -1961,6 +1983,8 @@ export const useSmallVariantSearchState = ({
   return {
     activeFilterChips,
     activeFilterCount,
+    analyses,
+    analysis,
     applyPreset,
     applySavedPreset,
     draftFilters,
@@ -1977,6 +2001,7 @@ export const useSmallVariantSearchState = ({
     removeActiveFilterChip,
     requestQueryString,
     runSearch,
+    selectAnalysis,
     sampleDraftFilters,
     sampleFilters,
     searchReady,

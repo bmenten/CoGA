@@ -1224,7 +1224,9 @@ async def test_fetch_small_variant_rows_uses_entry_source_column(
     assert len(rows) == 1
     assert rows[0].source == "clair3"
     assert "annotation_version" in captured_queries[1]
-    assert "any(e.source) AS source" in captured_queries[0]
+    # Every column of a key from one stored row: the callset whose name sorts first.
+    assert "argMin(tuple(e.key, e.variantId," in captured_queries[0]
+    assert "e.source, e.rsid" in captured_queries[0] and "), e.source) AS picked" in captured_queries[0]
 
 
 def test_small_variant_where_clauses_excludes_imputed_when_requested() -> None:

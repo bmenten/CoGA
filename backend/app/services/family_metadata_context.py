@@ -147,10 +147,12 @@ async def build_family_metadata_context(
     user: CurrentUser,
     project_id: str | None = None,
     analysis: str | None = None,
+    holding: tuple[str, str] | None = None,
 ) -> FamilyMetadataContext:
     """The family ``family_identifier`` as ``user`` may read it. Its ``scope`` is the analysis
     ``analysis`` (one the family holds), or without one the analysis a reading of the family's
-    variants is about when that is unambiguous (``analysis_scope.analysis_scope``)."""
+    variants is about when that is unambiguous, or the one that holds ``holding``
+    (``analysis_scope.analysis_scope``)."""
     family_row = await get_accessible_family_mapping(session, family_identifier, user)
     family_uuid = str(family_row["id"])
     project_ids = visible_metadata_project_ids(family_row.get("project_ids"), user)
@@ -220,7 +222,7 @@ async def build_family_metadata_context(
         project_ids=None if project_id is not None else project_ids,
     )
     family_metadata = family_row.get("metadata")
-    scope = analysis_scope(family_metadata if isinstance(family_metadata, dict) else None, analysis)
+    scope = analysis_scope(family_metadata if isinstance(family_metadata, dict) else None, analysis, holding=holding)
     return FamilyMetadataContext(
         family_uuid=family_uuid,
         family_id=str(family_row["family_id"]),

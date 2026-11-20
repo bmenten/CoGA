@@ -51,6 +51,9 @@ _HEADERS = {
     "long_read_wgs": "##DeepVariant_version=1.6.1\n",
 }
 # Both callsets call 1-1000-A-G; only the short-read one 1-2000-C-T, only the long-read one 1-3000-G-A.
+# The short-read callset calls the (unaffected) mother heterozygous, the long-read one reference:
+# each analysis's list and inheritance filter read their own callset's calls.
+_MOTHER_GT = {"short_read_wgs": "0/1", "long_read_wgs": "0/0"}
 _RECORDS = {
     "short_read_wgs": [(1000, "A", "G"), (2000, "C", "T")],
     "long_read_wgs": [(1000, "A", "G"), (3000, "G", "A")],
@@ -78,7 +81,10 @@ def _package(
         encoding="utf-8",
     )
     lines = ["##fileformat=VCFv4.2\n", "##contig=<ID=chr1>\n", _HEADERS[caller], _COLUMNS.format(proband, mother, father)]
-    lines += [f"chr1\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\t.\tGT:DP\t0/1:30\t0/1:30\t0/0:30\n" for pos, ref, alt in _RECORDS[caller]]
+    lines += [
+        f"chr1\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\t.\tGT:DP\t0/1:30\t{_MOTHER_GT[caller]}:30\t0/0:30\n"
+        for pos, ref, alt in _RECORDS[caller]
+    ]
     (root / "family.vcf").write_text("".join(lines), encoding="utf-8")
     # The run's parameters (params_*.json), as Nextflow writes them.
     (root / "params.json").write_text(
@@ -190,7 +196,28 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             (entry["analysis_type"], (await ac.get(f"/api{entry['url']}")).text, (await ac.get(f"/api{entry['index_url']}")).text)
             for entry in manifest.json()
         ]
-        tagged = await ac.put(f"{api}/small-variants/{LONG_READ_ONLY}/review", json={"tags": ["report"]})
+        # Each analysis's small variants are read on their own: a reading that names none of the
+        # family's two analyses with small variants is refused.
+        unnamed = await ac.get(f"{api}/small-variants", params={"page_size": 50})
+        out["unnamed"] = (unnamed.status_code, unnamed.json().get("detail"))
+        out["lists"] = {}
+        for analysis in ("short_read_wgs", "long_read_wgs"):
+            listed = await ac.get(f"{api}/small-variants", params={"page_size": 50, "analysis": analysis})
+            dominant = await ac.get(
+                f"{api}/small-variants",
+                params={"page_size": 50, "analysis": analysis, "inheritance": "de_novo_dominant"},
+            )
+            out["lists"][analysis] = {
+                "status": listed.status_code,
+                "rows": sorted(
+                    (row["_id"], row["source"], {gt["sample"]: gt["gt"] for gt in row["genotypes"]}[trio[1]])
+                    for row in listed.json().get("variants", [])
+                ),
+                "de_novo_dominant": sorted(row["_id"] for row in dominant.json().get("variants", [])),
+            }
+        tagged = await ac.put(
+            f"{api}/small-variants/{LONG_READ_ONLY}/review", json={"tags": ["report"]}, params={"analysis": "long_read_wgs"}
+        )
         out["tagged"] = tagged.status_code
         for analysis in ("short_read_wgs", "long_read_wgs"):
             signed = await _harness.sign_out(ac, f"{api}/report/sign-out", {**SIGN_OUT, "analysis_type": analysis})
@@ -239,6 +266,23 @@ def test_each_callset_is_stored_under_its_callers_name(run) -> None:
         ("1-2000-C-T", "haplotypecaller"),
         ("1-3000-G-A", "deepvariant"),
     ]
+
+
+def test_the_list_of_a_family_with_two_callsets_is_read_one_analysis_at_a_time(run) -> None:
+    status, detail = run["unnamed"]
+    assert status == 422 and "name the analysis" in detail
+    short_read, long_read = run["lists"]["short_read_wgs"], run["lists"]["long_read_wgs"]
+    assert short_read["status"] == long_read["status"] == 200
+    # The variant both called is listed in each analysis with its own callset's calls.
+    assert short_read["rows"] == [("1-1000-A-G", "haplotypecaller", "0/1"), ("1-2000-C-T", "haplotypecaller", "0/1")]
+    assert long_read["rows"] == [("1-1000-A-G", "deepvariant", "0/0"), ("1-3000-G-A", "deepvariant", "0/0")]
+
+
+def test_an_inheritance_filter_reads_the_analysis_s_own_calls(run) -> None:
+    # The short-read callset calls the unaffected mother a carrier of every variant: none is de
+    # novo or dominant there. The long-read callset calls her reference: both its variants are.
+    assert run["lists"]["short_read_wgs"]["de_novo_dominant"] == []
+    assert run["lists"]["long_read_wgs"]["de_novo_dominant"] == ["1-1000-A-G", "1-3000-G-A"]
 
 
 def test_each_package_record_lists_its_own_callset(run) -> None:

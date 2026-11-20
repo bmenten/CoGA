@@ -1360,7 +1360,11 @@ async def _fetch_structural_variant_summary(
 async def _fetch_small_variant_summary(
     context: FamilyMetadataContext,
 ) -> SmallVariantSummaryOut | None:
-    if not context.assembly_name:
+    """The family's kept counts of its small variants (``family_variant_summary``,
+    ``family_sample_variant_summary``). They count every callset of the family: a reading of one
+    of several analyses (``context.scope`` leaving another's callsets out) gets none, as they
+    are not its own counts."""
+    if not context.assembly_name or context.scope.left_out_sources("small_variants"):
         return None
 
     family_variant_summary: SmallVariantSummaryOut | None = None
@@ -1520,45 +1524,37 @@ async def _fetch_small_variant_rows(
         exclude_imputed=True,
     )
     flag_columns = ""
+    flag_names = ""
     if segregation_flags:
         columns, flag_params = _small_segregation_flag_columns(context)
         _merge_params(params, flag_params)
-        flag_columns = "".join(f",\n            {column}" for column in columns)
-    # Collapse to one row per key with any() + GROUP BY e.key — exactly the grouping the
-    # count path (_count_small_variant_rows_bounded) uses, so the list and the deduped
-    # total always agree. The entries table is a CollapsingMergeTree and a lagged/partial
-    # ALTER…DELETE mutation or replica lag can transiently leave more than one sign=1 row
-    # per key; without the GROUP BY those would surface as duplicate rows in the page and
-    # drift the OFFSET boundaries. (any() aggregation mirrors _fetch_structural_variant_rows.)
+        flag_columns = "".join(f",\n                {column}" for column in columns)
+        flag_names = "".join(f", {column.rsplit(' AS ', 1)[1]}" for column in columns)
+    # One row per key, as the count path (_count_small_variant_rows_bounded) groups them, so the
+    # list and the deduped total always agree. A key the reading's callsets hold more than once
+    # (two callsets of the analysis read, or, transiently, a CollapsingMergeTree row an
+    # ALTER…DELETE mutation or replica lag left) is read from one stored row, whole: every
+    # column is taken from the row of the callset whose name sorts first (argMin over one
+    # tuple, which keeps a NULL as it is, as any() per column would not), so its calls, source
+    # and annotation are one callset's and the same on every read.
+    stored_columns = (
+        "e.key, e.variantId, e.annotation_version, e.annotationSetHash, e.chrom, e.pos, e.ref, e.alt, "
+        "e.source, e.rsid, e.filters, e.gene_symbols, e.calls.sampleId, e.calls.gt, e.calls.gq, "
+        "e.calls.dp, e.calls.ab, e.calls.af, e.calls.ad, e.calls.ps, e.qual, e.calls.filters, "
+        "e.calls.metrics"
+    )
     query = f"""
-        SELECT
-            any(e.key) AS key,
-            any(e.variantId) AS variant_id,
-            any(e.annotation_version) AS annotation_version,
-            any(e.annotationSetHash) AS annotation_set_hash,
-            any(e.chrom) AS chrom,
-            any(e.pos) AS pos,
-            any(e.ref) AS ref,
-            any(e.alt) AS alt,
-            any(e.source) AS source,
-            any(e.rsid) AS rsid,
-            any(e.filters) AS entry_filters,
-            any(e.gene_symbols) AS gene_symbols,
-            any(e.calls.sampleId) AS sample_ids,
-            any(e.calls.gt) AS sample_gts,
-            any(e.calls.gq) AS sample_gqs,
-            any(e.calls.dp) AS sample_dps,
-            any(e.calls.ab) AS sample_abs,
-            any(e.calls.af) AS sample_afs,
-            any(e.calls.ad) AS sample_ads,
-            any(e.calls.ps) AS sample_phase_sets,
-            any(e.qual) AS qual,
-            any(e.calls.filters) AS sample_filters,
-            any(e.calls.metrics) AS sample_metrics{flag_columns}
-        FROM {entries_table} AS e
-        WHERE {' AND '.join(where_clauses)}
-        GROUP BY e.key
-        ORDER BY any(e.xpos), key
+        SELECT untuple(picked){flag_names}
+        FROM (
+            SELECT
+                argMin(tuple({stored_columns}), e.source) AS picked,
+                any(e.xpos) AS xpos,
+                e.key AS key{flag_columns}
+            FROM {entries_table} AS e
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY e.key
+        )
+        ORDER BY xpos, key
     """
     query = _append_limit_offset(query, params, limit=limit, offset=offset)
     rows = await _execute_clickhouse(query, params)
@@ -2920,6 +2916,8 @@ async def _prioritized_small_variants_page(
         # while its panel still holds exactly this (_serve_subpanel_from_superset).
         "panel_members": panel_members,
         "filters": canonical_filters(filters),
+        # The analysis it ranked, of a family with several: the warm replays it for that one.
+        "analysis": context.scope.analysis,
     }
     cached = await get_cached_ranking(
         session, family_uuid=context.family_uuid, inputs_hash=inputs_hash
@@ -3149,6 +3147,17 @@ async def precompute_family_ranking_safe(
             stored_filters = provenance.get("filters") if isinstance(provenance, dict) else None
             if not stored_filters:
                 return  # nothing to replay yet — leave the first open as a (lazy) miss
+            # Replayed for the analysis it ranked (of a family with several analyses with small
+            # variants, analysis_scope.py).
+            ranked_analysis = provenance.get("analysis") if isinstance(provenance, dict) else None
+            if ranked_analysis is not None:
+                context = await build_family_metadata_context(
+                    session,
+                    family_identifier=family_identifier,
+                    user=user,
+                    project_id=project_id,
+                    analysis=str(ranked_analysis),
+                )
 
             filters = SmallVariantQueryFilters(**{**stored_filters, "page": 1, "page_size": 100})
             # Prepared as a live request prepares it, so the ranking goes under the key the

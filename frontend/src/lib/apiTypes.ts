@@ -861,6 +861,9 @@ export interface ApiFamilyMitoDNAAnalysis {
   qc_notes: string[];
   heteroplasmy_threshold: number;
   homoplasmy_threshold: number;
+  // The analysis whose chrM calls are read, of a family with several analyses with small
+  // variants; a review saved from the page is that analysis's. Null otherwise.
+  analysis?: string | null;
 }
 
 export interface ApiRepeatExpansionTrackItem {

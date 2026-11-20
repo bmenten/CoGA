@@ -27,7 +27,7 @@ from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files, 
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_ped_indexes, pgt_roi_phasing_issue, pgt_run_context
 from .family_package_source import _ensure_authorized_package_path, package_folder_link_issues, package_folder_path
-from .small_variant_callsets import caller_from_vcf_header
+from .small_variant_callsets import caller_from_vcf_header, header_shows_imputation
 
 
 # The file names Discover looks for, by dataset.
@@ -1095,10 +1095,6 @@ def _declared_filters(path: Path) -> set[str]:
 
 
 _FILTER_ID = re.compile(r"##FILTER=<ID=([^,>]+)")
-# The header lines that describe a field, a filter or a contig: their free text says
-# nothing about the tool that wrote the file.
-_FIELD_DECLARATION = re.compile(r"##(INFO|FORMAT|FILTER|ALT|contig)=", re.IGNORECASE)
-_IMPUTATION_TOOL = re.compile(r"glimpse|beagle|impute|minimac|shapeit", re.IGNORECASE)
 
 
 def _direct_caller(path: Path) -> str | None:
@@ -1111,9 +1107,7 @@ def _direct_caller(path: Path) -> str | None:
     other file, whose callset the delivery is asked to name."""
     lines = _vcf_meta_lines(path)
     caller = caller_from_vcf_header(lines)
-    if caller is None or any(line.startswith("##FORMAT=<ID=GP,") for line in lines):
-        return None
-    if any(_IMPUTATION_TOOL.search(line) for line in lines if not _FIELD_DECLARATION.match(line)):
+    if caller is None or header_shows_imputation(lines):
         return None
     return caller
 

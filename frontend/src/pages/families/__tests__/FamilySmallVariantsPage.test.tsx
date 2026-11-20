@@ -301,6 +301,57 @@ describe('FamilySmallVariantsPage', () => {
     expect(await screen.findByText(factText('Showing 7'))).toBeInTheDocument();
   });
 
+  // Short-read and then long-read WGS of the same DNA, each with a callset of its own: the list
+  // reads one analysis at a time, the one imported last first, and the analyst picks the other.
+  it('reads a family with two analyses with small variants one analysis at a time', async () => {
+    const record = (smallVariants: string[], registeredAt: string) => ({
+      sources: { small_variants: smallVariants, structural_variants: [], tracks: [], repeats: [], paraphase: [] },
+      registered_at: registeredAt,
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            members: TRIO,
+            projects: [],
+            metadata: {
+              analysis_types: ['long_read_wgs', 'short_read_wgs'],
+              package_imports: {
+                short_read_wgs: record(['haplotypecaller'], '2026-11-01T10:00:00'),
+                long_read_wgs: record(['deepvariant'], '2026-11-02T10:00:00'),
+              },
+            },
+          },
+        });
+      }
+      if (url === '/panels') return Promise.resolve({ data: [] });
+      if (url === '/families/F1/small-variant-filter-presets' || url === '/families/F1/small-variant-tags') {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({ data: { variants: [], total: 0 } });
+    });
+    renderPage();
+
+    const select = await screen.findByRole('combobox', { name: 'Analysis whose variants are shown' });
+    expect(select).toHaveValue('long_read_wgs');
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'short-read WGS',
+      'long-read WGS',
+    ]);
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringMatching(/small-variants\?.*analysis=long_read_wgs/));
+    });
+    fireEvent.change(select, { target: { value: 'short_read_wgs' } });
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringMatching(/small-variants\?.*analysis=short_read_wgs/));
+    });
+    // No request reads the family's small variants without naming the analysis.
+    const unnamed = apiMock.get.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.startsWith('/families/F1/small-variants?') && !url.includes('analysis='));
+    expect(unnamed).toEqual([]);
+  });
+
   // The search runs within the linked project; with the catalogue failed it does not wait
   // for the project for good: it says the reference failed, and retries.
   it('says the reference failed, instead of loading for good, and runs the search on retry', async () => {

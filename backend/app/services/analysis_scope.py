@@ -97,11 +97,31 @@ def analyses_with_small_variants(metadata: Mapping[str, Any] | None) -> list[str
     ]
 
 
-def analysis_scope(metadata: Mapping[str, Any] | None, analysis: str | None = None) -> AnalysisScope:
+def analysis_holding(metadata: Mapping[str, Any] | None, kind: str, source: str) -> str | None:
+    """The one analysis of the family whose package record lists ``source`` among its sources
+    of ``kind`` (the mtDNA calls, ``mito``), or None when no analysis it holds does. No two
+    analyses of a family share a source (``family_package_records.source_collisions``)."""
+    held = family_analysis_types(metadata)
+    holders = sorted(
+        key
+        for key, record in family_package_records(metadata).items()
+        if key in held and source in record_sources(record)[kind]
+    )
+    return holders[0] if len(holders) == 1 else None
+
+
+def analysis_scope(
+    metadata: Mapping[str, Any] | None,
+    analysis: str | None = None,
+    *,
+    holding: tuple[str, str] | None = None,
+) -> AnalysisScope:
     """The scope of a reading of the family (whose ``families.metadata`` is ``metadata``) for
     ``analysis``, which must be one it holds. Without one: the family's one analysis with small
     variants, else its one analysis, else the whole family; a family with several analyses with
-    small variants gives a scope that must still name one (``AnalysisScope.require_named``)."""
+    small variants is read for the analysis that holds ``holding`` (a kind and a source: the
+    mtDNA page reads the analysis with the mtDNA callset) when one does, and otherwise gives a
+    scope that must still name one (``AnalysisScope.require_named``)."""
     held = family_analysis_types(metadata)
     if analysis is not None:
         analysis = analysis.strip()
@@ -109,6 +129,9 @@ def analysis_scope(metadata: Mapping[str, Any] | None, analysis: str | None = No
             raise AnalysisNotNamed("This family holds no such analysis.")
     else:
         with_small = analyses_with_small_variants(metadata)
+        holder = analysis_holding(metadata, *holding) if holding is not None and len(with_small) > 1 else None
+        if holder is not None:
+            with_small = [holder]
         if len(with_small) > 1:
             return AnalysisScope(unnamed_among=tuple(with_small))
         if with_small:

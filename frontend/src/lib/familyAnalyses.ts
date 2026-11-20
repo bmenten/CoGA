@@ -48,3 +48,62 @@ export const niptReportAnalysis = (metadata: unknown): string | null =>
  */
 export const reportPageAnalyses = (metadata: unknown): string[] =>
   separatelySignedAnalyses(metadata).filter((type) => type !== 'monogenic_nipt');
+
+type PackageRecordLike = { sources?: { small_variants?: unknown }; registered_at?: unknown };
+
+/**
+ * The family's analyses whose package record lists a small-variant callset of its own, in the
+ * order they were imported (backend `analysis_scope.analyses_with_small_variants`). A family with
+ * two or more is read one analysis at a time: its small-variant list, filters, counts, export and
+ * reviews name the analysis (the owner's decision of 2026-11-20).
+ */
+export const smallVariantAnalyses = (metadata: unknown): string[] => {
+  const held = new Set(familyAnalysisTypes(metadata));
+  const records = (metadata as { package_imports?: unknown } | null | undefined)?.package_imports;
+  if (!records || typeof records !== 'object') return [];
+  return Object.entries(records as Record<string, PackageRecordLike>)
+    .filter(
+      ([key, record]) =>
+        held.has(key) &&
+        Array.isArray(record?.sources?.small_variants) &&
+        (record.sources?.small_variants as unknown[]).length > 0,
+    )
+    .sort(([keyA, a], [keyB, b]) => {
+      const order = String(a?.registered_at ?? '').localeCompare(String(b?.registered_at ?? ''));
+      return order !== 0 ? order : keyA.localeCompare(keyB);
+    })
+    .map(([key]) => key);
+};
+
+/** The URL search parameter, and API query parameter, that names the analysis a page reads. */
+export const ANALYSIS_PARAM = 'analysis';
+
+/**
+ * The analysis a page of the family's variants reads: of a family with two or more analyses with
+ * small variants (`smallVariantAnalyses`), the one the URL names, else the one imported last;
+ * null for any other family, which is read whole (or as its one analysis) without naming one.
+ */
+export const variantAnalysisOf = (metadata: unknown, search: string): string | null => {
+  const analyses = smallVariantAnalyses(metadata);
+  if (analyses.length < 2) return null;
+  const asked = new URLSearchParams(search).get(ANALYSIS_PARAM);
+  return asked && analyses.includes(asked) ? asked : analyses[analyses.length - 1];
+};
+
+/** `params` with the analysis a request reads set, when there is one to name. */
+export const withAnalysisParam = (params: URLSearchParams, analysis: string | null | undefined): URLSearchParams => {
+  if (analysis) params.set(ANALYSIS_PARAM, analysis);
+  return params;
+};
+
+/** `?analysis=…` for a request or link that names the analysis, or '' for none. */
+export const analysisQuery = (analysis: string | null | undefined): string =>
+  analysis ? `?${ANALYSIS_PARAM}=${encodeURIComponent(analysis)}` : '';
+
+/**
+ * The analysis the monogenic NIPT page reads and reviews the family's small variants for: the
+ * monogenic NIPT, named when the family holds another analysis with small variants of its own
+ * (the couple's carrier screening); null otherwise, where it is the family's one.
+ */
+export const niptVariantAnalysis = (metadata: unknown): string | null =>
+  smallVariantAnalyses(metadata).length > 1 && holdsAnalysis(metadata, 'monogenic_nipt') ? 'monogenic_nipt' : null;
