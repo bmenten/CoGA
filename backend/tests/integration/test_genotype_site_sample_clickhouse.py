@@ -240,7 +240,7 @@ def test_genotype_site_sample_against_clickhouse(monkeypatch: pytest.MonkeyPatch
         # The QC service on these rows (the Postgres side stubbed): the embryos read as siblings.
         current = {"context": ctx}
 
-        async def _fake_context(session, *, family_identifier, user, project_id=None):
+        async def _fake_context(session, *, family_identifier, user, project_id=None, analysis=None):
             return current["context"]
 
         async def _fake_get_family(session, family_id, user):

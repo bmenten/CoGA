@@ -18,9 +18,9 @@ Then:
 * a structure edit that gives the two samples different sexes is refused (400), naming them;
 * the cNIPT result is served for ``PLASMA2``;
 * an overwrite of the conventional NIPT package that names the link again, while the family holds
-  a member added by hand (in neither package, so the overwrite gives the family the package's
-  pedigree): the package's link and the family's are one link, the hand-added member is made
-  inactive;
+  a member added by hand (in neither package): the package's link and the family's are one link,
+  and the hand-added member is kept, as a family that holds another analysis keeps every member no
+  package record lists;
 * an overwrite of the conventional NIPT package that no longer names the link, again with a
   member added by hand: the link stays, since it joins that package's member to the monogenic
   NIPT's;
@@ -256,7 +256,8 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             return added.status_code
 
         # A member added by hand is in neither package: an overwrite of the conventional NIPT's
-        # package then differs from the family and gives it the package's pedigree.
+        # package then differs from the family, takes the package's pedigree and keeps the member
+        # (the family holds another analysis).
         hand1, hand2 = f"HAND1_{family_id}", f"HAND2_{family_id}"
         out["hand1_added"] = await add_by_hand(hand1)
         write_cnipt(plasma1)
@@ -349,8 +350,9 @@ def test_the_cnipt_result_is_served_for_the_second_plasma(run) -> None:
 
 
 def test_an_overwrite_naming_the_familys_link_again_takes_it_once(run) -> None:
-    # The hand-added member is missing from the package, so the overwrite gives the family the
-    # package's pedigree: the package's link and the family's are one link, not a link twice.
+    # The hand-added member is missing from the package; the family holds another analysis, so
+    # the overwrite keeps it (a member no package record lists is kept) and takes the package's
+    # pedigree beside it: the package's link and the family's are one link, not a link twice.
     assert run["hand1_added"] == 200
     assert run["overwrite_with_link"]["completed"] is True, run["overwrite_with_link"]
     _father, plasma1, _fetus, plasma2 = run["members"]
@@ -358,7 +360,7 @@ def test_an_overwrite_naming_the_familys_link_again_takes_it_once(run) -> None:
         ("same_individual", {plasma1, plasma2})
     ]
     hand1, _hand2 = run["hands"]
-    assert hand1 not in run["members_after_overwrite_with_link"]
+    assert hand1 in run["members_after_overwrite_with_link"]
     assert set(run["members"]) <= set(run["members_after_overwrite_with_link"])
 
 
@@ -366,9 +368,9 @@ def test_an_overwrite_without_the_link_keeps_the_link_to_the_other_analysiss_mem
     assert run["hand2_added"] == 200
     assert run["overwrite"]["completed"] is True, run["overwrite"]
     _hand1, hand2 = run["hands"]
-    # The overwrite gave the family the package's pedigree (the hand-added member is inactive),
-    # and kept the link that joins the package's member to the monogenic NIPT's.
-    assert hand2 not in run["members_after_overwrite"]
+    # The overwrite kept the hand-added member (the family holds another analysis) and the link
+    # that joins the package's member to the monogenic NIPT's.
+    assert hand2 in run["members_after_overwrite"]
     assert [(kind, {a, b}) for kind, a, b, _source in run["links_after_overwrite"]] == [
         (kind, {a, b}) for kind, a, b, _source in run["links"]
     ]

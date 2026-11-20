@@ -155,7 +155,8 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
         return _ctx_now()
 
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         return SampleIntegrityReport(overall_status="pass")
 
@@ -445,7 +446,8 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
         return _ctx_now()
 
     async def _qc(
-        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None
+        session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
+        analysis=None,
     ):
         return SampleIntegrityReport(overall_status="pass")
 

@@ -436,7 +436,9 @@ CASES: dict[str, _Case] = {
     ),
     "MNV": _case({MATERNAL_MNV}, variant_type="MNV"),
     "source": _case(ALL, source="clair3"),
-    "source, part of it in capitals": _case(ALL, source="CLAIR"),
+    "source in capitals": _case(ALL, source="CLAIR3"),
+    # A callset is named whole: part of its name selects none (deepvariant, deepvariant_sr).
+    "source, part of its name": _case(set(), source="clair"),
     "source, an imputed callset": _case({IMPUTED}, source="glimpse2"),
     "source with spaces around it": _case(ALL, source=" clair3 "),
     "source left blank": _case(ALL, source="  "),

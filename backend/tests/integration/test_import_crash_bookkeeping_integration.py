@@ -495,9 +495,17 @@ def test_a_restore_that_did_not_finish_lists_the_data_of_every_active_member() -
         context = SimpleNamespace(family_uuid=family_uuid, family_id=label)
         coverage = [{"source": None, "samples": [sample]} for sample in (father, plasma, old)]
         async with sm() as s:
-            await _clear_family_import_incomplete(s, context, imported={"coverage": {"source": None, "samples": [father, plasma, old]}})
+            await _clear_family_import_incomplete(
+                s,
+                context,
+                analysis_type="monogenic_nipt",
+                imported={"coverage": {"source": None, "samples": [father, plasma, old]}},
+            )
         own = ImportMark.begin(
-            job_id=str(uuid4()), datasets=["ccnv"], scopes={"ccnv": {"source": "ccnv", "samples": [cnipt]}}
+            analysis_type="conventional_nipt",
+            job_id=str(uuid4()),
+            datasets=["ccnv"],
+            scopes={"ccnv": {"source": "ccnv", "samples": [cnipt]}},
         )
         async with sm() as s:
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own)
