@@ -19,9 +19,12 @@ of its own:
 * ``repeat_expansions`` — each TRGT call of the family's samples, with its status as CoGA
   classifies it at sign-out and the thresholds and catalogue behind it; beside each allele its
   near-boundary warning, and per locus QA's record of TRGT's counting units there
-  (``repeat_count_units``), each as they stood at sign-out;
+  (``repeat_count_units``), each as they stood at sign-out. The record of one of a family's
+  analyses holds the calls when they are that analysis's, by the sources they are stored under
+  (``finding_kinds_held``), and no call otherwise;
 * ``paraphase`` — each Paraphase result of the family's samples, with its status as CoGA
-  classifies it at sign-out and the catalogue rule behind it;
+  classifies it at sign-out and the catalogue rule behind it; the record of one analysis, as
+  for the repeat calls;
 * ``coverage_tracks`` — each coverage track of the family's samples, per sample and caller:
   what it holds as the depth readers read it (read depth, a log2 ratio or unknown: a coverage
   BED what it declared), and the file(s) it was loaded from, from where and when
@@ -78,7 +81,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Iterable, Mapping, Sequence
+from typing import Any, Awaitable, Callable, Collection, Iterable, Mapping, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -907,6 +910,40 @@ async def package_intake(
 # --- The sections together ----------------------------------------------------------
 
 
+# The kinds of finding a record holds a section of whole (``SOURCE_KINDS``): the repeat calls
+# and the Paraphase results.
+REPEAT_FINDINGS = "repeats"
+PARAPHASE_FINDINGS = "paraphase"
+FINDING_KINDS = frozenset({REPEAT_FINDINGS, PARAPHASE_FINDINGS})
+# The one storage source of every Paraphase result (``family_package_records``): the results
+# table keeps none of its own.
+PARAPHASE_SOURCE = "paraphase"
+# The sources the family's repeat calls are stored under (``repeat_expansions.source``).
+_REPEAT_SOURCES = text(
+    "SELECT DISTINCT source FROM repeat_expansions WHERE family_id = CAST(:family_uuid AS uuid)"
+)
+
+
+async def finding_kinds_held(
+    session: AsyncSession, context: FamilyMetadataContext, scope: SignoutScope
+) -> frozenset[str]:
+    """The kinds of finding (``FINDING_KINDS``) whose calls are the analysis's a sign-out is of
+    (``scope``): those whose stored calls' sources it holds (``SignoutScope.holds``), each kind
+    whole. Every kind, for a sign-out of the whole family, and for a family holding none of a
+    kind's calls (a source that cannot be told is every analysis's)."""
+    if scope.whole:
+        return FINDING_KINDS
+    repeat_sources = (
+        await session.execute(_REPEAT_SOURCES, {"family_uuid": context.family_uuid})
+    ).scalars().all()
+    held: set[str] = set()
+    if scope.holds(REPEAT_FINDINGS, repeat_sources):
+        held.add(REPEAT_FINDINGS)
+    if scope.holds(PARAPHASE_FINDINGS, [PARAPHASE_SOURCE]):
+        held.add(PARAPHASE_FINDINGS)
+    return frozenset(held)
+
+
 async def build_record_sections(
     session: AsyncSession,
     *,
@@ -915,6 +952,7 @@ async def build_record_sections(
     reported_structural: Sequence[Mapping[str, Any]],
     shared_nipt: SharedNiptAnalysis | None = None,
     scope: SignoutScope = WHOLE_FAMILY,
+    finding_kinds: Collection[str] = FINDING_KINDS,
 ) -> dict[str, Any]:
     """Every section of ``RECORD_SECTIONS`` the family's record holds, keyed by its snapshot
     key: each one without an application, the PGT section of a PGT family (of a monogenic
@@ -925,8 +963,10 @@ async def build_record_sections(
     compound-het pair's (``report_signout_service._reported_reviews``).
 
     A sign-out of one of the family's analyses (``scope``, ``signout_scope``) holds that analysis's
-    sections only: the repeat and Paraphase sections when it holds such data, its coverage tracks,
-    its delivery, and the section of its own application."""
+    data only: the repeat and Paraphase sections with their calls when they are the analysis's
+    (``finding_kinds``, ``finding_kinds_held``) and without a call otherwise, as in the record of
+    a family that holds none, its coverage tracks, its delivery, and the section of its own
+    application."""
     descriptions = await _guarded(
         session,
         VARIANT_DESCRIPTIONS.unavailable,
@@ -952,18 +992,27 @@ async def build_record_sections(
             session, PACKAGE_INTAKE.unavailable, lambda: package_intake(session, context, scope)
         ),
     }
-    # The repeat calls and the Paraphase results are read whole: in the record of an analysis
-    # that holds such data (``SignoutScope.holds_kind``), as the reviews of their findings.
-    if scope.holds_kind("repeats"):
-        sections[REPEAT_EXPANSIONS.key] = await _guarded(
+    # The repeat calls and the Paraphase results are read whole, in the record of an analysis
+    # whose calls they are (``finding_kinds``); in another analysis's record the section holds
+    # no call, as that of a family without any. Every record holds both sections, so the record
+    # of an analysis signed out whole and its check once the family holds another analysis
+    # compare the same sections.
+    sections[REPEAT_EXPANSIONS.key] = await _guarded(
+        session,
+        REPEAT_EXPANSIONS.unavailable,
+        lambda: repeat_expansion_calls(
             session,
-            REPEAT_EXPANSIONS.unavailable,
-            lambda: repeat_expansion_calls(session, context),
-        )
-    if scope.holds_kind("paraphase"):
-        sections[PARAPHASE.key] = await _guarded(
-            session, PARAPHASE.unavailable, lambda: paraphase_results(session, context)
-        )
+            context,
+            None if REPEAT_FINDINGS in finding_kinds else FamilyRepeatExpansionTableOut(),
+        ),
+    )
+    sections[PARAPHASE.key] = await _guarded(
+        session,
+        PARAPHASE.unavailable,
+        lambda: paraphase_results(
+            session, context, None if PARAPHASE_FINDINGS in finding_kinds else FamilyParaphaseTableOut()
+        ),
+    )
     # Read outside a savepoint of its own: whether the record holds the key at all cannot be
     # frozen as unavailable.
     nipt = await is_nipt_family(session, context)

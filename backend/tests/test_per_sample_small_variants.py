@@ -295,6 +295,7 @@ async def _upload(files: list[PerSampleVcf], **kwargs: Any) -> dict[str, Any]:
         sample_contexts=_sample_contexts(),
         files=files,
         overwrite=True,
+        analysis="long_read_wgs",
         **{"source": "deepvariant", **kwargs},
     )
 

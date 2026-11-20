@@ -29,6 +29,7 @@ from ..schemas import (
 from ..schemas.tracks import RepeatReviewReason, RepeatStatus
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from .family_package_records import UNSPECIFIED_ANALYSIS
 from .stored_values import int_or_none as _as_int, json_object
 from .upload_safety import decode_upload_text
 from .family_package_common import (
@@ -1514,16 +1515,18 @@ async def store_trgt_sample_calls(
     sample_context: SampleMetadataContext,
     calls: TrgtSampleCalls,
     metadata: dict[str, Any],
+    analysis: str = UNSPECIFIED_ANALYSIS,
 ) -> dict[str, int | str]:
     """Store the calls ``read_trgt_sample_calls`` read, record the file on the sample and
-    the caller's version in the family's annotation manifest, and commit."""
+    the caller's version in the annotation manifest of ``analysis`` (a package import's;
+    a single-file upload belongs to none), and commit."""
     await _insert_repeat_expansion_batch(session, calls.records)
     await _update_sample_repeat_file(
         session,
         sample_uuid=sample_context.sample_uuid,
         filename=metadata.get("filename") or "uploaded.vcf",
     )
-    # Capture the TRGT caller version into the family's annotation manifest, as the
+    # Capture the TRGT caller version into the analysis's annotation manifest, as the
     # family-level path does. Long-read packages take this per-sample route (the
     # pipeline writes no joint TRGT VCF), so without it the repeat caller's version
     # would be missing from every long-read family's provenance record.
@@ -1534,6 +1537,7 @@ async def store_trgt_sample_calls(
         family_uuid=sample_context.family_uuid,
         assembly_id=getattr(sample_context, "assembly_id", None),
         modules=extract_header_provenance(calls.header_lines, modality="repeats").as_modules(),
+        analysis=analysis,
         modality="repeats",
     )
     await session.commit()
@@ -1552,11 +1556,12 @@ async def ingest_trgt_text(
     metadata: dict[str, Any],
     declared: str | None = None,
     replace: bool = False,
+    analysis: str = UNSPECIFIED_ANALYSIS,
 ) -> dict[str, int | str]:
     """One sample's TRGT calls, read from that sample's column of ``text_value``
-    (``read_trgt_sample_calls``) and stored. With ``replace`` the sample's stored TRGT calls
-    are deleted once the file has been read: a file that is refused leaves them as they
-    were."""
+    (``read_trgt_sample_calls``) and stored, the caller's version in the annotation manifest
+    of ``analysis``. With ``replace`` the sample's stored TRGT calls are deleted once the file
+    has been read: a file that is refused leaves them as they were."""
     calls = await read_trgt_sample_calls(
         session,
         sample_context=sample_context,
@@ -1567,7 +1572,7 @@ async def ingest_trgt_text(
     if replace:
         await clear_sample_repeat_expansions(session, sample_uuid=sample_context.sample_uuid)
     return await store_trgt_sample_calls(
-        session, sample_context=sample_context, calls=calls, metadata=metadata
+        session, sample_context=sample_context, calls=calls, metadata=metadata, analysis=analysis
     )
 
 
@@ -1577,9 +1582,11 @@ async def ingest_family_trgt_text(
     sample_contexts: dict[str, SampleMetadataContext],
     text_value: str,
     metadata: dict[str, Any],
+    analysis: str = UNSPECIFIED_ANALYSIS,
 ) -> dict[str, int | str]:
     """The TRGT calls of every family sample a column of the family VCF ``text_value``
-    names, each sample's in place of its stored TRGT calls. The whole file is read before
+    names, each sample's in place of its stored TRGT calls, the caller's version in the
+    annotation manifest of ``analysis``. The whole file is read before
     any of them is deleted: a file none of whose columns names a family sample, or with no
     record for a sample it names, is refused (400) with the stored calls as they were."""
     lines = text_value.splitlines()
@@ -1671,7 +1678,7 @@ async def ingest_family_trgt_text(
             filename=filename,
         )
     # Capture the TRGT caller version (and any tool versions in the header) into
-    # the family's annotation manifest (best-effort; joins this transaction).
+    # the analysis's annotation manifest (best-effort; joins this transaction).
     provenance_ctx = next(iter(matched_samples.values()), None)
     if provenance_ctx is not None:
         from .annotation_manifest_service import merge_vcf_header_provenance
@@ -1681,6 +1688,7 @@ async def ingest_family_trgt_text(
             family_uuid=provenance_ctx.family_uuid,
             assembly_id=getattr(provenance_ctx, "assembly_id", None),
             modules=extract_header_provenance(lines, modality="repeats").as_modules(),
+            analysis=analysis,
             modality="repeats",
         )
     await session.commit()

@@ -41,14 +41,15 @@ async def _events(session, label: str) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-async def _stored_manifest(session, family_uuid: str) -> dict:
+async def _stored_manifest(session, family_uuid: str, analysis: str = "unspecified") -> dict:
+    """The family's manifest row of one analysis (of none, ``unspecified``, by default)."""
     row = (
         await session.execute(
             text(
                 "SELECT source, modules FROM family_annotation_manifest "
-                "WHERE family_id = CAST(:f AS uuid)"
+                "WHERE family_id = CAST(:f AS uuid) AND analysis_type = :a"
             ),
-            {"f": family_uuid},
+            {"f": family_uuid, "a": analysis},
         )
     ).mappings().one()
     return dict(row)
@@ -91,7 +92,7 @@ def test_a_manifest_replacement_is_chained_and_atomic(monkeypatch) -> None:
                 await s.commit()
                 # The import's provenance, written by the real VCF-header path.
                 await ams.merge_vcf_header_provenance(
-                    s, family_uuid=family_uuid, assembly_id=None, modules=imported, modality="snv"
+                    s, family_uuid=family_uuid, assembly_id=None, modules=imported, analysis="unspecified", modality="snv"
                 )
                 await s.commit()
 
@@ -99,8 +100,9 @@ def test_a_manifest_replacement_is_chained_and_atomic(monkeypatch) -> None:
                 out = await ams.set_family_annotation_manifest(
                     s, family_id=label, user=admin, modules=replacement
                 )
-            assert out["source"] == "manual"
-            assert {m["key"]: m["version"] for m in out["modules"] if m["layer"] == "pipeline"} == {
+            [manifest] = out["analyses"]
+            assert manifest["source"] == "manual" and manifest["analysis_type"] is None
+            assert {m["key"]: m["version"] for m in manifest["modules"] if m["layer"] == "pipeline"} == {
                 "vep": "112", "gnomad": "4.1", "clinvar": "2026-09",
             }
 
@@ -114,7 +116,7 @@ def test_a_manifest_replacement_is_chained_and_atomic(monkeypatch) -> None:
                 assert {k: v["version"] for k, v in event["before"]["modules"].items()} == {
                     "vep": "110", "gnomad": "4.1",
                 }
-                assert event["after"] == {"source": "manual", "modules": replacement}
+                assert event["after"] == {"analysis_type": None, "source": "manual", "modules": replacement}
                 chain = await verify_clinical_audit_chain(s, label)
                 assert chain.verified and chain.rows_checked == 2, chain
                 stored = await _stored_manifest(s, family_uuid)
@@ -198,7 +200,7 @@ def test_an_import_cannot_overwrite_a_replacement_in_flight(monkeypatch) -> None
                 admin = await admin_account(s, f"manifest-admin-{uuid4()}")
                 await ams.merge_vcf_header_provenance(
                     s, family_uuid=family_uuid, assembly_id=None,
-                    modules={"vep": {"version": "110"}}, modality="snv",
+                    modules={"vep": {"version": "110"}}, analysis="unspecified", modality="snv",
                 )
                 await s.commit()
 
@@ -227,7 +229,7 @@ def test_an_import_cannot_overwrite_a_replacement_in_flight(monkeypatch) -> None
                 import_task = asyncio.create_task(
                     ams.merge_vcf_header_provenance(
                         imp, family_uuid=family_uuid, assembly_id=None,
-                        modules={"vep": {"version": "111"}}, modality="snv",
+                        modules={"vep": {"version": "111"}}, analysis="unspecified", modality="snv",
                     )
                 )
                 await _wait_until_blocked(sm, pid)
@@ -268,7 +270,7 @@ def test_a_replacement_waits_for_an_import_in_flight_and_records_it_as_the_prior
                 admin = await admin_account(s, f"manifest-admin-{uuid4()}")
                 await ams.merge_vcf_header_provenance(
                     s, family_uuid=family_uuid, assembly_id=None,
-                    modules={"vep": {"version": "110"}}, modality="snv",
+                    modules={"vep": {"version": "110"}}, analysis="unspecified", modality="snv",
                 )
                 await s.commit()
 
@@ -287,7 +289,7 @@ def test_a_replacement_waits_for_an_import_in_flight_and_records_it_as_the_prior
                 # An import has merged its versions but not committed yet.
                 await ams.merge_vcf_header_provenance(
                     imp, family_uuid=family_uuid, assembly_id=None,
-                    modules={"vep": {"version": "111"}}, modality="snv",
+                    modules={"vep": {"version": "111"}}, analysis="unspecified", modality="snv",
                 )
                 replace_task = asyncio.create_task(_replace())
                 await asyncio.wait_for(started.wait(), timeout=10)
@@ -303,6 +305,74 @@ def test_a_replacement_waits_for_an_import_in_flight_and_records_it_as_the_prior
                 assert event["before"]["source"] == "vcf_header"
         finally:
             await _finish(replace_task)
+            await close_postgres_engine()
+
+    asyncio.run(_run())
+
+
+# --- one manifest per analysis ---
+
+
+def test_each_analysis_keeps_its_own_manifest() -> None:
+    # A family sequenced short-read and then long-read: the long-read import writes its own
+    # analysis's row and leaves the short-read one's; a replacement of one analysis's manifest
+    # leaves the other's.
+    import json
+
+    from backend.app.core.postgres import (
+        close_postgres_engine,
+        get_postgres_sessionmaker,
+        init_postgres_schema,
+    )
+    from backend.app.services import annotation_manifest_service as ams
+
+    async def _run() -> None:
+        try:
+            await init_postgres_schema()
+            sm = get_postgres_sessionmaker()
+            label = f"manifest-analyses-{uuid4()}"
+            async with sm() as s:
+                family_uuid = await fresh_family(s, label)
+                admin = await admin_account(s, f"manifest-admin-{uuid4()}")
+                await s.execute(
+                    text("UPDATE families SET metadata = CAST(:m AS jsonb) WHERE id = CAST(:f AS uuid)"),
+                    {"f": family_uuid, "m": json.dumps({"analysis_types": ["long_read_wgs", "short_read_wgs"]})},
+                )
+                await ams.merge_vcf_header_provenance(
+                    s, family_uuid=family_uuid, assembly_id=None,
+                    modules={"vep": {"version": "110"}, "gatk": {"version": "4.5.0.0"}},
+                    analysis="short_read_wgs", modality="snv",
+                )
+                await s.commit()
+            async with sm() as s:
+                await ams.merge_vcf_header_provenance(
+                    s, family_uuid=family_uuid, assembly_id=None,
+                    modules={"vep": {"version": "112"}, "deepvariant": {"version": "1.6.1"}},
+                    analysis="long_read_wgs", modality="snv",
+                )
+                await s.commit()
+
+            async with sm() as s:
+                short_read = await _stored_manifest(s, family_uuid, "short_read_wgs")
+                long_read = await _stored_manifest(s, family_uuid, "long_read_wgs")
+                assert {k: v["version"] for k, v in short_read["modules"].items()} == {"vep": "110", "gatk": "4.5.0.0"}
+                assert {k: v["version"] for k, v in long_read["modules"].items()} == {"vep": "112", "deepvariant": "1.6.1"}
+
+            # A replacement must name the analysis of a family of several, and replaces its alone.
+            async with sm() as s:
+                out = await ams.set_family_annotation_manifest(
+                    s, family_id=label, user=admin, modules={"vep": {"version": "111"}}, analysis_type="short_read_wgs"
+                )
+            versions = {
+                entry["analysis_type"]: {m["key"]: m["version"] for m in entry["modules"] if m["layer"] == "pipeline"}
+                for entry in out["analyses"]
+            }
+            assert versions == {"long_read_wgs": {"vep": "112", "deepvariant": "1.6.1"}, "short_read_wgs": {"vep": "111"}}
+            async with sm() as s:
+                event = (await _events(s, label))[-1]
+                assert event["after"]["analysis_type"] == "short_read_wgs"
+                assert {k: v["version"] for k, v in event["before"]["modules"].items()} == {"vep": "110", "gatk": "4.5.0.0"}
+        finally:
             await close_postgres_engine()
 
     asyncio.run(_run())

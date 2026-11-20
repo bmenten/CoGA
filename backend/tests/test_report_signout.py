@@ -35,7 +35,7 @@ from backend.app.services.access_control import RecordNotVisible
 from backend.app.services.family_package_registration import ImportMarkShapeError
 from backend.app.services.nipt_quality_checks import PLASMA_PROFILE_VERDICTS
 from backend.app.services.report_code import parse_report_code, report_code
-from backend.app.services.signed_record_sections import RECORD_SECTIONS
+from backend.app.services.signed_record_sections import FINDING_KINDS, RECORD_SECTIONS
 from backend.app.services.family_package_records import package_sources
 from backend.app.services.signout_scope import WHOLE_FAMILY, ReviewsLeftOut, SignoutScope
 from backend.app.services.sample_integrity_qc import (
@@ -87,7 +87,9 @@ _REAL_PACKAGE_SOURCE_STATE = rss._package_source_changes_state
 
 @pytest.fixture(autouse=True)
 def _record_sections(monkeypatch):
-    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None, scope=None):
+    async def _sections(
+        session, *, context, reported, reported_structural, shared_nipt=None, scope=None, finding_kinds=None
+    ):
         return copy.deepcopy(_RECORD_SECTIONS)
 
     async def _code_free(session, code):
@@ -150,7 +152,7 @@ def _patch_common(
     async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
-    async def _manifest(session, *, family_id, user, project_id=None):
+    async def _manifest(session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
     async def _drift(session, *, family_id, user, project_id=None, left_out=None, analysis=None):
@@ -186,7 +188,7 @@ def _patch_common(
         return dict(import_unfinished or {})
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
-    monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
+    monkeypatch.setattr(rss, "analysis_annotation_manifest", _manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
     monkeypatch.setattr(rss, "_reported_reviews", _reviews)
     monkeypatch.setattr(rss, "_reported_structural_reviews", _no_structural_reviews)
@@ -854,7 +856,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
         async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
             return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
-        async def _manifest(session, *, family_id, user, project_id=None):
+        async def _manifest(session, context, *, analysis):
             return {
                 "assembly": "GRCh38",
                 "modules": [{"key": "clinvar", "version": "2026-05"}],
@@ -878,7 +880,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
             return SampleIntegrityReport(overall_status="pass")
 
         monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
-        monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
+        monkeypatch.setattr(rss, "analysis_annotation_manifest", _manifest)
         monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
         monkeypatch.setattr(rss, "_reported_reviews", _reviews)
         monkeypatch.setattr(rss, "_reported_structural_reviews", _no_structural_reviews)
@@ -1944,7 +1946,7 @@ def _patch_check(monkeypatch, *, reviews):
 def _no_finding_reviews(monkeypatch) -> None:
     # The repeat and Paraphase reviews (finding_review_pg), held constant: these checks are
     # about the other sections.
-    async def _findings(session, context, sections):
+    async def _findings(session, context, sections, kinds=None):
         return {
             "repeat_expansion_reviews": [],
             "paraphase_reviews": [],
@@ -3193,7 +3195,7 @@ _UNREVIEWED_REASON = "Both calls are outside the referral question; reviewed wit
 def _patch_unreviewed(monkeypatch, findings: list[dict]) -> None:
     _patch_common(monkeypatch, drifted_count=0)
 
-    async def _findings(session, context, sections):
+    async def _findings(session, context, sections, kinds=None):
         return {
             "repeat_expansion_reviews": [],
             "paraphase_reviews": [],
@@ -3324,10 +3326,10 @@ _HPO = {"hpo": {"version": "hp/releases/2026-06-06", "detail": "2026-06-06"}}
 def _patch_manifest(monkeypatch, platform: dict) -> None:
     """The live manifest: the family's pipeline versions over the given reference layer."""
 
-    async def _manifest(session, *, family_id, user, project_id=None):
+    async def _manifest(session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": ams._module_list(_CLINVAR, platform)}
 
-    monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
+    monkeypatch.setattr(rss, "analysis_annotation_manifest", _manifest)
 
 
 def test_signout_check_flags_an_hpo_ontology_loaded_after_sign_out(monkeypatch) -> None:
@@ -3617,7 +3619,9 @@ _PANEL = {
 
 
 def _with_sections(monkeypatch, **overrides) -> None:
-    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None, scope=None):
+    async def _sections(
+        session, *, context, reported, reported_structural, shared_nipt=None, scope=None, finding_kinds=None
+    ):
         return {**copy.deepcopy(_RECORD_SECTIONS), **copy.deepcopy(overrides)}
 
     monkeypatch.setattr(rss, "build_record_sections", _sections)
@@ -3638,8 +3642,13 @@ def _holds(monkeypatch, *analyses: str, package_imports: dict | None = None, lef
     async def _left_out(_session, _context, _scope):
         return left_out or ReviewsLeftOut()
 
+    async def _finding_kinds(_session, _context, _scope):
+        # The family holds no repeat call: both kinds are every analysis's.
+        return FINDING_KINDS
+
     monkeypatch.setattr(rss, "_family_metadata", _held)
     monkeypatch.setattr(rss, "reviews_left_out", _left_out)
+    monkeypatch.setattr(rss, "finding_kinds_held", _finding_kinds)
 
 
 def test_a_sign_out_names_the_analysis_it_closes() -> None:
@@ -4777,7 +4786,9 @@ def _scoped_patches(monkeypatch, seen: dict, *, left_out: ReviewsLeftOut) -> Non
         seen["qc"] = (analysis_types, genotype_source_held)
         return SampleIntegrityReport(overall_status="pass")
 
-    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None, scope=None):
+    async def _sections(
+        session, *, context, reported, reported_structural, shared_nipt=None, scope=None, finding_kinds=None
+    ):
         seen["sections"] = ([entry["variant_id"] for entry in reported], scope)
         return copy.deepcopy(_RECORD_SECTIONS)
 

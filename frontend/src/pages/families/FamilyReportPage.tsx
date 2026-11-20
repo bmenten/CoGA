@@ -9,7 +9,7 @@ import SignedFamilyReport from './SignedFamilyReport';
 import CniptReportSummary from './CniptReportSummary';
 import AnalysisSignouts from './AnalysisSignouts';
 import { isConventionalNipt } from './cniptResult';
-import { useAnnotationManifest } from './AnnotationProvenanceSummary';
+import { analysisManifest, useAnnotationManifest } from './AnnotationProvenanceSummary';
 import type {
   ApiClassificationDrift,
   ApiClassificationDriftItem,
@@ -23,7 +23,7 @@ import {
   useReportSignouts,
   useSignedVersionDownload,
 } from './reportSignoutQueries';
-import { analysisLabel, analysisQuery, reportPageAnalyses, separatelySignedAnalyses } from '../../lib/familyAnalyses';
+import { analysisLabel, analysisQuery, reportPageAnalyses, separatelySignedAnalyses, soleAnalysis } from '../../lib/familyAnalyses';
 import type { ApiReportSignoutList } from '../../lib/apiTypes';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import {
@@ -197,11 +197,12 @@ const useFamilyRecord = (familyId: string | undefined) =>
 
 /**
  * The signed version the Report page opens on: the latest of the analyses it signs out
- * (`reportPageAnalyses`) of a family that holds several, else the family's latest.
+ * (`reportPageAnalyses`) of a family that holds several, else that of the family's only analysis,
+ * or of no analysis for a family that holds none.
  */
 const reportPageLatest = (list: ApiReportSignoutList | undefined, metadata: unknown) => {
   const analyses = reportPageAnalyses(metadata);
-  if (!analyses.length) return list?.latest ?? null;
+  if (!analyses.length) return latestSignoutOf(list, soleAnalysis(metadata));
   return (
     analyses
       .map((analysisType) => latestSignoutOf(list, analysisType))
@@ -373,9 +374,11 @@ const LiveFamilyReport: React.FC = () => {
     },
   });
 
-  // Provenance footer: which annotation/reference modules + versions backed the report.
+  // Provenance footer: which annotation/reference modules + versions backed the report, per
+  // analysis (each analysis's data was built with its own).
   const { data: manifest, isError: manifestFailed, refetch: refetchManifest } =
     useAnnotationManifest(familyId);
+  const analysisManifests = manifest?.analyses ?? [];
   // The moment the report was produced.
   const generatedAt = useMemo(() => new Date(), []);
   // The build that renders the report, named in its footer (TF-15 §1).
@@ -432,6 +435,10 @@ const LiveFamilyReport: React.FC = () => {
       : pageAnalyses[0]
     : null;
   const signOutAnalysisLabel = analysisLabel(signOutAnalysis);
+  // The analysis whose records the page reads: the one it signs out, else the family's only one
+  // (or none), as the check resolves it, so a family of one analysis never reads another
+  // analysis's record as its latest.
+  const recordAnalysis = signOutAnalysis ?? soleAnalysis(family?.metadata);
 
   // Evidence drift: classifications whose backing annotation changed since they
   // were made — a sign-out guardrail against stale interpretations. Of a family with several
@@ -451,7 +458,7 @@ const LiveFamilyReport: React.FC = () => {
   // Does the live content below still match the latest signed version of the analysis this page
   // signs out? It says so, and what changed, but even a match does not make this page the signed
   // report. Read once the family is: until then the analysis is not known.
-  const latestSignout = family ? latestSignoutOf(signouts, signOutAnalysis) : null;
+  const latestSignout = family ? latestSignoutOf(signouts, recordAnalysis) : null;
   const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
     familyId,
     latestSignout?.version ?? null,
@@ -760,7 +767,13 @@ const LiveFamilyReport: React.FC = () => {
             {signedState === 'checking'
               ? `Checking this page against signed version ${latestSignout.version}…`
               : null}
-            {signedState === 'matches' ? `This page still matches signed version ${latestSignout.version}.` : null}
+            {signedState === 'matches'
+              ? heldAnalyses.length > 1 && signOutAnalysisLabel
+                ? // The page shows every analysis's data; the record holds the one analysis's only.
+                  `The ${signOutAnalysisLabel} data on this page still match signed version ${latestSignout.version}, ` +
+                  `which holds the ${signOutAnalysisLabel} data only: the other analyses’ data this page shows are not part of it.`
+                : `This page still matches signed version ${latestSignout.version}.`
+              : null}
             {signedState === 'changed' ? (
               <>
                 <strong>⚠ Changed since sign-out:</strong>{' '}
@@ -1233,12 +1246,26 @@ const LiveFamilyReport: React.FC = () => {
           Report generated {generatedAt.toISOString().replace('T', ' ').slice(0, 16)} UTC
         </p>
         <ReportSoftwareIdentity reportBuild={reportBuild} />
-        <p className="report-footer-versions">
-          <span className="report-footer-label">Modules &amp; versions:</span>{' '}
-          {manifestFailed
-            ? 'could not be loaded'
-            : (describeModuleVersions(manifest?.modules ?? []) ?? 'not recorded for this family')}
-        </p>
+        {manifestFailed || analysisManifests.length <= 1 ? (
+          <p className="report-footer-versions">
+            <span className="report-footer-label">Modules &amp; versions:</span>{' '}
+            {manifestFailed
+              ? 'could not be loaded'
+              : (describeModuleVersions(analysisManifest(manifest, null)?.modules ?? []) ??
+                'not recorded for this family')}
+          </p>
+        ) : (
+          // Each analysis's own versions: the page shows every analysis's data, each built with its
+          // own, and a sign-out of one freezes that analysis's.
+          analysisManifests.map((entry) => (
+            <p key={entry.analysis_type ?? ''} className="report-footer-versions">
+              <span className="report-footer-label">
+                Modules &amp; versions ({analysisLabel(entry.analysis_type) ?? entry.analysis_type}):
+              </span>{' '}
+              {describeModuleVersions(entry.modules) ?? 'not recorded for this analysis'}
+            </p>
+          ))
+        )}
       </footer>
     </div>
   );

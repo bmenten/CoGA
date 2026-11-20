@@ -390,11 +390,13 @@ async def upload_family_per_sample_small_variant_files(
     files: Sequence[PerSampleVcf],
     overwrite: bool,
     source: str,
+    analysis: str,
     exclude_filters: Sequence[str] | None = None,
     progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """Store ``files``, one VCF per sample, as the family's callset ``source``: direct calls,
-    named by their caller.
+    named by their caller. Their versions go into the annotation manifest of ``analysis``, the
+    package record's key of the import.
 
     The callset replaces the family's stored callset of that name (``overwrite``; else 409 when
     there is one). It must bring the file of every sample with calls in the stored one: a
@@ -547,6 +549,7 @@ async def upload_family_per_sample_small_variant_files(
             family_uuid=context.family_uuid,
             assembly_id=getattr(context, "assembly_id", None),
             modules=annotation_provenance,
+            analysis=analysis,
             modality="snv",
         )
         await session.commit()

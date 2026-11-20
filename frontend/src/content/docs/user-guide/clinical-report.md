@@ -162,9 +162,10 @@ phenotype context, the audit trail — and never fills that in from current data
 
 Of a family of several analyses, the page opens on the latest signed version of the analyses it signs
 out. A signed version names its analysis (*Clinical report — signed version 2 of the conventional
-NIPT*), and its *latest* and its check are that analysis's. Where the analysis holds no repeat
-expansions or Paraphase results but another analysis does, the section says *Not part of this record*:
-the other analysis's record freezes them.
+NIPT*), and its *latest* and its check are that analysis's, as are its annotation versions. Where
+the repeat expansions or Paraphase results are another analysis's, the section holds none and says so
+of its analysis (*The short-read WGS had no repeat-expansion calls.*): the other analysis's record
+freezes them.
 **Print signed version N** prints it; **Download signed version N (JSON)** returns the record itself.
 *Signed versions* lists the earlier ones.
 

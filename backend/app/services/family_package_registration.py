@@ -994,7 +994,7 @@ async def _record_package_reference(
     context: FamilyMetadataContext,
 ) -> None:
     """Record the reference genome the package names (its ``reference``, the FASTA the pipeline
-    aligned to) as the Reference assembly of the family's annotation manifest, under the modality
+    aligned to) as the Reference assembly of its analysis's annotation manifest, under the modality
     ``package``, beside the ``##reference`` its VCF headers give. The project names the build
     (GRCh38), the FASTA what the calls were made on (an analysis set, with or without ALT contigs,
     decoys or masked regions), and the manifest is frozen into every sign-out.
@@ -1013,6 +1013,7 @@ async def _record_package_reference(
         family_uuid=context.family_uuid,
         assembly_id=context.assembly_id,
         modules={"assembly": {"version": name, "detail": f"from {PACKAGE_FILE_NAME}"}},
+        analysis=package_record_key(bundle.manifest.analysis_type),
         modality="package",
         recorded_by=f"import ({PACKAGE_FILE_NAME})",
         source="manifest",

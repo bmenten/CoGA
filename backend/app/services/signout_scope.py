@@ -79,13 +79,6 @@ class SignoutScope:
         others = self.others.get(kind, frozenset())
         return any(name in own or name not in others for name in names)
 
-    def holds_kind(self, kind: str) -> bool:
-        """Whether the analysis holds a kind of data its record section reads whole (the repeat
-        calls, the Paraphase results): its own record lists a source of the kind, or no other
-        analysis's record does."""
-        if self.own is None:
-            return True
-        return bool(self.own.get(kind)) or not self.others.get(kind)
 
     def holds_record(self, key: object) -> bool:
         """Whether a package record (by its key in ``family_package_records``) is the analysis's:
@@ -136,6 +129,23 @@ def signout_scope(metadata: Mapping[str, Any] | None, analysis: str | None) -> S
         others={kind: frozenset(names) for kind, names in others.items()},
         held=held,
     )
+
+
+def analysis_listing_source(metadata: Mapping[str, Any] | None, kind: str, source: object) -> str | None:
+    """The analysis whose data an item of ``kind`` (``SOURCE_KINDS``) stored under ``source`` is:
+    the one analysis the family holds whose package record lists the source among its sources
+    of that kind; None when no such record lists it (data an upload added, or a package that named
+    no analysis: every analysis's) or several do (the analyses cannot be told apart)."""
+    name = str(source) if source is not None else ""
+    if not name:
+        return None
+    held = family_analysis_types(metadata)
+    listing = [
+        key
+        for key, record in family_package_records(metadata).items()
+        if key in held and name in record_sources(record).get(kind, frozenset())
+    ]
+    return listing[0] if len(listing) == 1 else None
 
 
 async def stored_variant_sources(

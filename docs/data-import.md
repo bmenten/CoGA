@@ -1718,8 +1718,8 @@ or none:
 
 `reference` is the reference genome the pipeline aligned to, the package file's `reference`. The
 import records its FASTA's name (without a path before it) as the Reference assembly of the
-family's annotation manifest, under the modality `package`, beside the `##reference` of its VCF
-headers ([annotation-provenance.md](annotation-provenance.md)).
+annotation manifest of the package's analysis, under the modality `package`, beside the
+`##reference` of its VCF headers ([annotation-provenance.md](annotation-provenance.md)).
 
 `metadata.pgt.affected_parents` names the parent whose condition the PGT tests for (the PGT
 pipeline's `affected_parent`, which Discover copies). `metadata.pgt.indexes` names the index, the
@@ -1892,8 +1892,8 @@ declares no field: `header_shows_imputation`) is refused the same way (`AMBIGUOU
 as Discover leaves it unnamed: stored as either, imputed genotypes would read as calls, or calls as
 imputed.
 
-The caller's version is recorded from the same header in the family's annotation manifest
-([annotation-provenance.md](annotation-provenance.md)). A reader that reads one callset of a family
+The caller's version is recorded from the same header in the annotation manifest of the
+package's analysis ([annotation-provenance.md](annotation-provenance.md)). A reader that reads one callset of a family
 (the Sample QC's genotypes, the ancestry estimate) takes the direct calls first (`clair3`,
 `deepvariant`, `haplotypecaller`, `mutect2`, then any other by name), then a monogenic NIPT's
 per-sample calls, then the imputed genotypes (`callset_preference`). Of several callsets of the
@@ -2839,8 +2839,8 @@ Sniffles2 files too.
   A rewrite that cannot put them back either, or a process that stops in it, leaves the family
   marked until each of those samples' files has been uploaded again with `overwrite`
   ([below](#the-mark-of-an-upload-that-did-not-finish)).
-- The caller the VCF header names is recorded in the family's annotation manifest
-  ([annotation-provenance.md](annotation-provenance.md)).
+- The caller the VCF header names is recorded in the annotation manifest of no analysis, which
+  every analysis of the family states ([annotation-provenance.md](annotation-provenance.md)).
 
 Deleting a sample's structural variants on **Admin → Family & sample data** removes its calls from
 every source, as does deleting the sample with its data. These deletes and an upload rewrite the

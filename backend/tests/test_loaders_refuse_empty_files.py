@@ -911,6 +911,7 @@ async def test_a_long_read_samples_snv_file_without_a_record_is_refused_before_t
                 per_sample_small_variants.PerSampleVcf(sample_id="S2", path=s2),
             ],
             overwrite=True,
+            analysis="long_read_wgs",
             source="deepvariant",
         )
 

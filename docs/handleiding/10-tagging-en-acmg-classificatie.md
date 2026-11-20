@@ -246,7 +246,7 @@ Elke wijziging van een review, van een small variant, een SV of een CNV, schrijf
 - de waarden die de CNV-evaluator leest: het type, de overlappende genen en hun aantal, de pLI en de geannoteerde overerving;
 - de gebeurtenis zelf: de caller, het chromosoom, het begin, het einde, de lengte en de breukpuntpartner;
 - een hash van de volledige annotatie van de SV, en het tijdstip;
-- de versies waar het bewijs vandaan komt: die van de SV-callset in het annotatiemanifest van de familie, de referentie-assembly en de genloci.
+- de versies waar het bewijs vandaan komt: die van de SV-callset in het annotatiemanifest van de analyse waarvan de call is, de referentie-assembly en de genloci.
 
 De evaluator leest geen klinische CNV's, dosagescores of DGV; die criteria scoort de analist zelf. De genotypes zitten niet in het snapshot. De driftsleutel is `evidence_hash`, een SHA-256 over het bewijs; de versies worden vastgelegd, niet vergeleken. Een CNV-classificatie van een SV die niet in de data van de familie zit, weigert de server (`404`). Heeft de familie geen assembly, dan is er geen SV-opslag om te lezen, en wordt de classificatie zonder snapshot bewaard.
 

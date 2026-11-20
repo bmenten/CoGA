@@ -880,7 +880,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     async def no_sites(_context, *, scope, limit, source):
         return []
 
-    async def manifest(_session, *, family_id, user, project_id=None):
+    async def manifest(_session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": []}
 
     async def no_drift(_session, *, family_id, user, project_id=None, left_out=None, analysis=None):
@@ -910,7 +910,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sample_integrity_service, "get_family_record", family)
     monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", nipt_callset)
     monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", no_sites)
-    monkeypatch.setattr(rss, "get_family_annotation_manifest", manifest)
+    monkeypatch.setattr(rss, "analysis_annotation_manifest", manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", no_drift)
     monkeypatch.setattr(rss, "_reported_reviews", reported)
     monkeypatch.setattr(rss, "_reported_structural_reviews", nothing_reported)

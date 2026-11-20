@@ -150,6 +150,14 @@ class DatasetImportJob:
     scope: Mapping[str, Any] | None = None
 
 
+    @property
+    def analysis(self) -> str:
+        """The key of the package record of the analysis the import is of
+        (``package_record_key``): its annotation manifest is the one the dataset's versions
+        go into."""
+        return package_record_key(self.bundle.manifest.analysis_type)
+
+
 DatasetImporter = Callable[[DatasetImportJob], Awaitable[FamilyImportDatasetSummary]]
 
 # One importer per manifest dataset type, registered where it is defined. A type
@@ -576,6 +584,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                         exclude_filters=exclude_filters,
                         check_before_replacing=check_before_replacing,
                         write_state=write_state,
+                        analysis=job.analysis,
                     )
             return await upload_family_small_variant_file(
                 session,
@@ -589,6 +598,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 exclude_filters=exclude_filters,
                 check_before_replacing=check_before_replacing,
                 write_state=write_state,
+                analysis=job.analysis,
             )
 
     try:
@@ -696,6 +706,7 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
                 progress=report_haplotype_progress,
                 check_before_replacing=conflict_mode != "overwrite",
                 write_state=write_state,
+                analysis=job.analysis,
             )
 
     try:
@@ -1091,6 +1102,7 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
         family_uuid=family_context.family_uuid,
         assembly_id=getattr(family_context, "assembly_id", None),
         modules=modules,
+        analysis=job.analysis,
         modality="cnv",
     )
     return summary.model_copy(
@@ -1207,6 +1219,7 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
         family_uuid=family_context.family_uuid,
         assembly_id=getattr(family_context, "assembly_id", None),
         modules=sv_modules,
+        analysis=job.analysis,
         modality="sv",
     )
     return summary.model_copy(
@@ -1596,6 +1609,7 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
                 sample_aliases=aliases,
                 overwrite_scope="samples",
                 record_filter=None if is_plasma else paternal_record_filter(plasma_positions),
+                analysis=job.analysis,
                 progress=(
                     partial(report_file_progress, sample_id=sample_id)
                     if job.progress is not None
@@ -1703,6 +1717,7 @@ async def _import_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSu
             files=files,
             overwrite=True,
             source=callset,
+            analysis=job.analysis,
             exclude_filters=exclude_filters,
             progress=report_progress if job.progress is not None else None,
         ),
@@ -2006,6 +2021,7 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
                         "uploaded_from": "family_package",
                         "family_vcf": _display_path(bundle.root, family_vcf_path),
                     },
+                    analysis=job.analysis,
                 )
         return summary.model_copy(
             update={
@@ -2067,6 +2083,7 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
                     metadata=metadata_of(vcf_path),
                     declared=declared,
                     replace=True,
+                    analysis=job.analysis,
                 )
     return summary.model_copy(
         update={
@@ -2614,6 +2631,7 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         family_uuid=family_context.family_uuid,
         assembly_id=getattr(family_context, "assembly_id", None),
         modules=cnv_modules,
+        analysis=job.analysis,
         modality="cnv",
     )
     skipped_tracks = [
@@ -2818,6 +2836,7 @@ async def _import_mito_calls(
                     sample_column=sample_column,
                     vep_annotations=mutserve_annotations,
                     overwrite_scope="samples",
+                    analysis=job.analysis,
                 )
             imported_any = True
             sample_results[sample_id] = result
@@ -3103,6 +3122,7 @@ async def _import_mito_structural_variants(
         family_uuid=family_context.family_uuid,
         assembly_id=getattr(family_context, "assembly_id", None),
         modules=extract_header_provenance(sv_lines, modality="sv").as_modules(),
+        analysis=job.analysis,
         modality="sv",
     )
     return {"processed": len(merged), "source": MITO_SV_SOURCE, "samples": per_sample}
@@ -3365,6 +3385,7 @@ async def _import_pipeline_info_dataset(job: DatasetImportJob) -> FamilyImportDa
             family_uuid=family_context.family_uuid,
             assembly_id=getattr(family_context, "assembly_id", None),
             modules=modules,
+            analysis=job.analysis,
             modality="pipeline",
             source="manifest",
         )

@@ -693,7 +693,7 @@ async def test_the_mothers_chrm_sv_file_under_the_childs_entry_fails_before_any_
     }
     job = family_package_datasets.DatasetImportJob(
         session=SimpleNamespace(),  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=tmp_path),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=tmp_path, manifest=SimpleNamespace(analysis_type=None)),  # type: ignore[arg-type]
         dataset=ManifestDataset(per_sample={"CHILD": {"vcf": "CHILD.vcf", "sv_vcf": "MOTHER_sv.vcf"}}),
         summary=FamilyImportDatasetSummary(dataset_type="mito", status="valid"),
         family_context=FamilyMetadataContext(
@@ -896,7 +896,7 @@ async def test_the_cnv_import_refuses_another_members_file_before_any_write(
     }
     job = family_package_datasets.DatasetImportJob(
         session=SimpleNamespace(),  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=Path("/package")),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=Path("/package"), manifest=SimpleNamespace(analysis_type=None)),  # type: ignore[arg-type]
         dataset=ManifestDataset(per_sample={"CHILD": {"vcf": "cnv/CHILD.vcf"}}),
         summary=FamilyImportDatasetSummary(dataset_type="cnv", status="valid"),
         family_context=FamilyMetadataContext(
@@ -968,7 +968,7 @@ async def test_the_cnv_import_records_hificnvs_version_from_its_header(monkeypat
     }
     job = family_package_datasets.DatasetImportJob(
         session=SimpleNamespace(),  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=Path("/package")),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=Path("/package"), manifest=SimpleNamespace(analysis_type="long_read_wgs")),  # type: ignore[arg-type]
         dataset=ManifestDataset(per_sample={"CHILD": {"vcf": "cnv/CHILD.vcf"}}),
         summary=FamilyImportDatasetSummary(dataset_type="cnv", status="valid"),
         family_context=FamilyMetadataContext(
@@ -991,6 +991,8 @@ async def test_the_cnv_import_records_hificnvs_version_from_its_header(monkeypat
     [record] = merged
     assert record["family_uuid"] == "family-uuid" and record["modality"] == "cnv"
     assert record["modules"] == {"hificnv": {"version": "v1.0.1-4de7d40", "detail": "cnv caller"}}
+    # Into the annotation manifest of the package's own analysis, beside another analysis's.
+    assert record["analysis"] == "long_read_wgs"
 
 
 @pytest.mark.parametrize(

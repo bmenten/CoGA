@@ -224,8 +224,8 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                 ).scalar_one()
                 await s.execute(
                     text(
-                        "INSERT INTO family_annotation_manifest (family_id, modules, source, recorded_by) "
-                        "VALUES (CAST(:f AS uuid), CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
+                        "INSERT INTO family_annotation_manifest (family_id, analysis_type, modules, source, recorded_by) "
+                        "VALUES (CAST(:f AS uuid), 'unspecified', CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
                     ),
                     {
                         "f": holder["uuid"],
@@ -532,8 +532,8 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 ).scalar_one()
                 await s.execute(
                     text(
-                        "INSERT INTO family_annotation_manifest (family_id, modules, source, recorded_by) "
-                        "VALUES (CAST(:f AS uuid), CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
+                        "INSERT INTO family_annotation_manifest (family_id, analysis_type, modules, source, recorded_by) "
+                        "VALUES (CAST(:f AS uuid), 'unspecified', CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
                     ),
                     {
                         "f": holder["uuid"],

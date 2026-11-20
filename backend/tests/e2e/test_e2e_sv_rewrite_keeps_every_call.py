@@ -296,14 +296,17 @@ def test_reactivated_member_sees_his_calls_again(run) -> None:
 def test_upload_records_its_caller_in_the_annotation_manifest(run) -> None:
     manifest = run["manifest"]
     assert manifest["status"] == 200, manifest["text"]
-    modules = {module["key"]: module for module in manifest["json"]["modules"]}
+    # The family's one analysis (the golden trio's package) states the upload's versions beside
+    # its own: an upload belongs to no analysis, so to every one.
+    [analysis] = manifest["json"]["analyses"]
+    modules = {module["key"]: module for module in analysis["modules"]}
     # The per-sample SV upload records its caller's provenance.
     assert modules["sniffles"]["version"] == "2.2"
     assert modules["sniffles"]["detail"] == "sv caller"
     assert modules["sniffles"]["by_modality"] == {"sv": "2.2"}
     # What the package import recorded is kept beside it.
-    before = json.loads(run["manifest_before"] or "{}")
-    assert set(before) <= set(modules)
+    before = {key for recorded in json.loads(run["manifest_before"]).values() for key in recorded}
+    assert before <= set(modules)
 
 
 def test_golden_trio_is_restored_for_later_modules(run) -> None:

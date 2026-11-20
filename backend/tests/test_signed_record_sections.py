@@ -40,7 +40,7 @@ from backend.app.schemas import (
 from backend.app.services import report_signout_service as rss
 from backend.app.services import signed_record_sections as srs
 from backend.app.services.pgt_embryo_qc import QC_THRESHOLDS, embryo_qc_verdict
-from backend.app.services.signout_scope import SignoutScope
+from backend.app.services.signout_scope import WHOLE_FAMILY, SignoutScope
 from backend.tests._query_results import MappingRows as _Result
 
 
@@ -925,19 +925,66 @@ def _germline_scope(analysis: str) -> SignoutScope:
     )
 
 
-def test_a_sign_out_of_an_analysis_without_repeat_or_paraphase_data_holds_neither_section(monkeypatch) -> None:
-    _stub_other_sections(monkeypatch)
+class _SourcesSession(_Session):
+    """``_Session`` that answers the read of the sources the family's repeat calls are stored
+    under (``finding_kinds_held``) with ``sources``."""
 
-    def _sections(analysis: str) -> dict[str, Any]:
+    def __init__(self, sources: list[str]) -> None:
+        super().__init__({"FROM repeat_loci": _CATALOGUE_ROWS})
+        self.sources = sources
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        if "SELECT DISTINCT source FROM repeat_expansions" in str(statement):
+            self.executed.append((str(statement), params))
+            return types.SimpleNamespace(scalars=lambda: types.SimpleNamespace(all=lambda: list(self.sources)))
+        return await super().execute(statement, params)
+
+
+def test_the_repeat_and_paraphase_calls_are_the_analysis_s_by_the_sources_they_are_stored_under() -> None:
+    def _held(analysis: str | None, sources: list[str]) -> frozenset[str]:
+        scope = WHOLE_FAMILY if analysis is None else _germline_scope(analysis)
+        return asyncio.run(srs.finding_kinds_held(_SourcesSession(sources), _context(), scope))
+
+    # The long-read package brought the TRGT calls and the Paraphase results.
+    assert _held("long_read_wgs", ["trgt"]) == {"repeats", "paraphase"}
+    assert _held("short_read_wgs", ["trgt"]) == frozenset()
+    # A family holding no repeat call: nothing to tell, every analysis's (an empty section).
+    assert _held("short_read_wgs", []) == {"repeats"}
+    # A sign-out of the whole family reads no sources.
+    session = _SourcesSession(["trgt"])
+    assert asyncio.run(srs.finding_kinds_held(session, _context(), WHOLE_FAMILY)) == srs.FINDING_KINDS
+    assert session.executed == []
+
+
+def test_every_record_holds_the_repeat_and_paraphase_sections_with_the_analysis_s_calls(monkeypatch) -> None:
+    async def _table(session, *, context):
+        return _repeat_table()
+
+    async def _paraphase(session, *, context):
+        return _paraphase_table()
+
+    monkeypatch.setattr(srs, "get_family_repeat_expansion_table_response", _table)
+    monkeypatch.setattr(srs, "get_family_paraphase_table_response", _paraphase)
+
+    def _sections(analysis: str | None) -> dict[str, Any]:
+        scope = WHOLE_FAMILY if analysis is None else _germline_scope(analysis)
+        session = _SourcesSession(["trgt"])
+        kinds = asyncio.run(srs.finding_kinds_held(session, _context(), scope))
         return asyncio.run(
             srs.build_record_sections(
-                _Session(), context=_context(), reported=[], reported_structural=[], scope=_germline_scope(analysis)
+                session, context=_context(), reported=[], reported_structural=[], scope=scope, finding_kinds=kinds
             )
         )
 
-    short_read, long_read = _sections("short_read_wgs"), _sections("long_read_wgs")
-    assert "repeat_expansions" not in short_read and "paraphase" not in short_read
-    assert "repeat_expansions" in long_read and "paraphase" in long_read
+    short_read, long_read, whole = _sections("short_read_wgs"), _sections("long_read_wgs"), _sections(None)
+    # The long-read analysis's record, as the whole family's, holds the calls.
+    assert [locus["locus_id"] for locus in long_read["repeat_expansions"]["loci"]] == ["HD_HTT"]
+    assert long_read["repeat_expansions"] == whole["repeat_expansions"]
+    assert long_read["paraphase"] == whole["paraphase"] and long_read["paraphase"]["genes"]
+    # The short-read analysis's holds both sections without a call: as a family that holds none,
+    # so its record signed whole before the long-read import still matches its check after it.
+    assert short_read["repeat_expansions"]["loci"] == [] and short_read["paraphase"]["genes"] == []
+    assert short_read["repeat_expansions"]["catalogue"] == whole["repeat_expansions"]["catalogue"]
     # Every other section is each analysis's.
     for key in ("variant_descriptions", "gene_panels", "reference_data", "coverage_tracks", "package_intake"):
         assert key in short_read and key in long_read, key

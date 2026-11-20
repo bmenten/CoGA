@@ -797,7 +797,7 @@ The provenance of a family's data, and the schema ledger:
 erDiagram
     families ||--o{ raw_import_files : "family_id (cascade)"
     samples |o--o{ raw_import_files : "sample_id (cascade)"
-    families ||--o| family_annotation_manifest : "family_id (cascade)"
+    families ||--o{ family_annotation_manifest : "family_id (cascade)"
     assemblies |o--o{ family_annotation_manifest : "assembly_id (set null)"
 
     raw_import_files {
@@ -810,7 +810,8 @@ erDiagram
     }
     family_annotation_manifest {
         uuid id PK
-        uuid family_id FK, UK
+        uuid family_id FK, UK "unique with analysis_type"
+        text analysis_type UK "the analysis whose import recorded it"
         uuid assembly_id FK
         jsonb modules
         text source "manifest, vcf_header or manual"
@@ -897,7 +898,7 @@ erDiagram
 | `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked; a value Postgres cannot store is escaped, and each event is stored once, under its `event_id` (below) |
 | `ui_events` | **append-only** log of UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped and stored once like `audit_log_events`; the browser's time of each, within bounds (below). Not hash-chained (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below); an uploaded coverage BED's `metadata.content` says what it was declared to hold |
-| `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
+| `family_annotation_manifest` | per analysis of a family (`analysis_type`: its package record's key, `unspecified` for a package that named none and for a single-file upload), the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`); one row per family and analysis |
 | `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, phenotype changes, compound-het pair reviews, pedigree changes, a family's deletion (its last event), the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after; one chain per family, and chains of their own for the NIPT artifact list (`system:nipt-artifacts`), the repeat loci's counting-unit record (`system:repeat-loci`) and the deliveries of the watched import folders (`system:import-inbox`, by `system:import-watcher`) |
 | `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot, which names the analysis it closes (`snapshot.analysis_type`, null for a family that holds none: each of a family's analyses is signed out on its own, in the family's one series of versions); its report code is made from the family identifier, the version and the content hash, so no column holds it ([clinical-traceability.md](clinical-traceability.md#the-report-code)). Versions are numbered per family identifier, on across every family made under it, and unique per identifier (`uq_report_signouts_family_identifier_version`) |
 | `integrity_anchors` | **append-only**, signed snapshots of every hash chain's head |

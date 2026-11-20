@@ -9,6 +9,16 @@ export const familyAnalysisTypes = (metadata: unknown): string[] => {
   return Array.isArray(types) ? types.filter((value): value is string => typeof value === 'string') : [];
 };
 
+/**
+ * The analysis a sign-out of the family, or its check, is of when the page names none: the
+ * family's only analysis, or null for a family that holds none or several (backend
+ * `report_signout_service.resolve_signout_analysis`, which asks for one of several).
+ */
+export const soleAnalysis = (metadata: unknown): string | null => {
+  const types = familyAnalysisTypes(metadata);
+  return types.length === 1 ? types[0] : null;
+};
+
 /** Whether a family's metadata holds the analysis `type`. */
 export const holdsAnalysis = (metadata: unknown, type: string): boolean => familyAnalysisTypes(metadata).includes(type);
 

@@ -1,14 +1,15 @@
 # Annotation and tool provenance
 
-For every family, CoGA records which tool and database versions produced its data: the
-variant callers (DeepVariant, GATK, Sniffles, Spectre, TRGT, …), the annotation
+For every analysis of a family, CoGA records which tool and database versions produced its
+data: the variant callers (DeepVariant, GATK, Sniffles, Spectre, TRGT, …), the annotation
 engine (VEP, snpEff, bcftools) and the reference databases it names (gnomAD, ClinVar,
 dbNSFP, SpliceAI, dbSNP, GENCODE, …). The versions are read from the input files at import,
-kept per family, shown on the filter pages and the report, and frozen into every sign-out.
+kept per analysis, shown on the filter pages and the report, and frozen into every sign-out of
+that analysis.
 
 A result must be traceable to exactly what produced it (IVDR Annex I §16.1; see
 [TF-09](regulatory/TF-09-verification-validation.md), "Traceerbaarheid"). This record is the
-per-family annotation manifest of [clinical-traceability.md](clinical-traceability.md); this
+per-analysis annotation manifest of [clinical-traceability.md](clinical-traceability.md); this
 page covers how it is captured.
 
 ## What is captured
@@ -91,18 +92,27 @@ from VEP's cache (`CLIN_SIG`) only when no such file was annotated
 
 ## How it is stored
 
-One row per family in `family_annotation_manifest`
+One row per family and analysis in `family_annotation_manifest`
 ([04_traceability.sql](../backend/db/schema/postgres/04_traceability.sql)):
 
 | Column | Meaning |
 | --- | --- |
+| `analysis_type` | the analysis whose import wrote the row: the key of its package record (`short_read_wgs`, `long_read_wgs`, `monogenic_nipt`…), or `unspecified` for a package that named no analysis and for a single-file upload |
 | `modules` (JSON) | `{ moduleKey: { version, detail, by_modality } }`, one entry per tool or database |
 | `source` | `vcf_header` (from headers), `manifest` (from the package) or `manual` (an admin's replacement through the API) |
 | `recorded_by`, `recorded_at` | who or what wrote it, and when |
 | `assembly_id` | the family's assembly |
 
+A family sequenced short-read and then long-read WGS of the same DNA keeps a row of each: the
+long-read import writes the long-read row and leaves the short-read one as its own import recorded
+it. What an analysis's manifest states is its own row laid over the rows of no analysis the family
+holds (an upload's data, or a package's that named none, is every analysis's): for a module both
+name, the analysis's own fields win and the versions per modality are joined. An analysis's row an
+admin replaced is that analysis's whole manifest. A family that holds no analysis has one
+manifest, of those rows.
+
 The parser normalises module keys (`vep`, `deepvariant`, `gnomad`, `clinvar`, …), so versions
-from different input files merge into one manifest. The variant caller is tagged with its input
+from different input files of one analysis merge into its manifest. The variant caller is tagged with its input
 (`detail: "snv caller"`, `"sv caller"`, `"repeats caller"`), so a family can list several
 callers.
 
@@ -115,24 +125,29 @@ the SV annotator GENCODE 45. So each module keeps `by_modality` (for example
 All in `merge_vcf_header_provenance`
 ([annotation_manifest_service.py](../backend/app/services/annotation_manifest_service.py)):
 
+- **An import writes its own analysis's row.** A package's datasets write the row of the
+  package's analysis (`DatasetImportJob.analysis`); a single-file upload writes the row of no
+  analysis. Another analysis's row is never read or written.
 - **A re-import refreshes.** Newly read versions replace the old ones key by key. Modules the
   new input does not mention are kept, so re-importing only the SV file keeps the SNV-derived
-  versions. The manifest always reflects the latest import.
+  versions. An analysis's manifest always reflects its latest import.
 - **The ClinVar modules are replaced whole.** A new `clinvar` or `clinvar_vep_cache` module
   replaces the stored version and detail together, and one without a version drops its
   modality's entry in `by_modality`. Merged field by field, an earlier import's cache release
   would stay beside a ClinVar file named without a date, and read as that file's release.
-- **A manual manifest is never overwritten.** Once an admin has replaced it through
-  `PUT /families/{family_id}/annotation-manifest` (`source='manual'`), imports leave it alone.
+- **A manual manifest is never overwritten.** Once an admin has replaced an analysis's manifest
+  through `PUT /families/{family_id}/annotation-manifest` (`source='manual'`; the request names
+  the analysis, `analysis_type`, which a family that holds several must), imports of that
+  analysis leave it alone.
 - **An import and a replacement take turns.** Both take the family's manifest lock before
-  reading the row; an import holds it until it commits. So a replacement cannot land between an
+  reading its rows; an import holds it until it commits. So a replacement cannot land between an
   import's read and write, and waits while an import of the same family runs.
 - **It commits with the data.** The write runs in a savepoint inside the import's transaction:
   the provenance is stored exactly when its data is, and a provenance failure cannot roll back
   an import.
 - **History lives in the sign-outs and the audit trail.** The table holds only the current
-  manifest. Each sign-out freezes a copy into its content-hashed snapshot; each replacement goes
-  to the clinical audit trail with the manifest it replaced
+  manifests. Each sign-out freezes a copy of its analysis's into its content-hashed snapshot; each
+  replacement goes to the clinical audit trail, naming its analysis, with the manifest it replaced
   ([clinical-traceability.md](clinical-traceability.md)).
 
 The manifest names versions; it does not detect change. That is the job of the
@@ -178,13 +193,19 @@ VEP's `assembly`), per input where they differ (`GRCh38_no_alt.fa (package), hg3
 
 - **Filter pages.** `AnnotationProvenanceSummary.tsx` shows "Annotation versions" at the
   bottom of the small-variant and structural-variant pages: that input's versions, the shared
-  reference modules and the source (for example "from VCF headers").
-- **Report.** `FamilyReportPage.tsx` shows the full list ("Modules & versions"), with the
-  per-input values where they differ (for example `GENCODE 49 (snv), 45 (sv)`); sign-out
-  freezes it.
-- **API.** `GET /families/{family_id}/annotation-manifest` returns the merged list.
-  `PUT /families/{family_id}/annotation-manifest` lets an admin replace it, recorded as
+  reference modules and the source (for example "from VCF headers"). Of a family that holds
+  several analyses it shows a line per analysis, named (*Annotation versions — short-read WGS*).
+- **Report.** `FamilyReportPage.tsx` shows the full list ("Modules & versions"), a line per
+  analysis when the family holds several, with the per-input values where they differ (for
+  example `GENCODE 49 (snv), 45 (sv)`); a sign-out of an analysis freezes its list. Each
+  analysis's pipeline settings show its own tool versions.
+- **API.** `GET /families/{family_id}/annotation-manifest` returns the merged list of each
+  analysis the family holds (`analyses`, one of no analysis for a family that holds none).
+  `PUT /families/{family_id}/annotation-manifest` lets an admin replace one analysis's, recorded as
   `source='manual'` whatever `source` the request sends.
+- **SV evidence.** A CNV classification freezes the versions its SV comes from: those of the
+  manifest of the analysis whose package record lists the SV's caller, or of no analysis for an
+  uploaded SV (`structural_variant_evidence.read_structural_evidence_versions`).
 
 ## Limitations
 
@@ -203,6 +224,8 @@ VEP's `assembly`), per input where they differ (`GRCh38_no_alt.fa (package), hg3
   or an admin's replacement, can state it.
 - Of several files of one dataset (a per-sample dataset's VCFs), the first file's version of a
   tool is kept (`merge_module_maps`); within one header, every version is.
+- An SV whose caller the package records of two analyses both list (DeepVariant in both) cannot
+  be told to one of them: its CNV classification freezes the versions of no analysis.
 
 ## Tests
 
@@ -214,7 +237,12 @@ VEP's `assembly`), per input where they differ (`GRCh38_no_alt.fa (package), hg3
   rules (a re-import whose header names a tool only in a command line keeps its recorded
   version; a SHAPEIT5 header adds no version beside the pipeline record's), the module list,
   the reference modules with their `unavailable` states, the replacement's audit event and the
-  lock both writers take.
+  lock both writers take; one manifest per analysis (an import writes its own analysis's row, an
+  upload the row of none; each analysis states its own versions over the rows of none; an
+  admin's replacement names its analysis and is that analysis's whole manifest).
+- [e2e/test_e2e_annotation_manifest_per_analysis.py](../backend/tests/e2e/test_e2e_annotation_manifest_per_analysis.py):
+  short-read then long-read WGS of one family; the short-read record keeps its versions and its
+  check matches after the long-read import; the long-read record states its own.
 - [integration/test_hpo_release_provenance.py](../backend/tests/integration/test_hpo_release_provenance.py):
   the HPO release read from a real database, after a re-import of an older release and after an
   import without one.
