@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Annotated, Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
@@ -55,6 +55,13 @@ from .query_params import FiniteThreshold
 
 router = APIRouter()
 
+# The analysis of the family whose variants a request reads or reviews (analysis_scope.py): named
+# when the family holds several analyses with small variants of their own.
+AnalysisParam = Annotated[
+    str | None,
+    Query(max_length=64, description="The family's analysis to read or review (analysis_type)."),
+]
+
 
 @router.get(
     "/{family_id}/small-variant-review-summary",
@@ -62,6 +69,7 @@ router = APIRouter()
 )
 async def get_family_small_variant_review_summary(
     family_id: str,
+    analysis: AnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> SmallVariantReviewSummaryOut:
@@ -69,6 +77,7 @@ async def get_family_small_variant_review_summary(
         session,
         family_identifier=family_id,
         user=user,
+        analysis=analysis,
     )
     return await get_small_variant_review_summary(
         session,
@@ -239,6 +248,7 @@ async def get_family_small_variants(
     track_mode: bool = False,
     track_result_limit: int | None = None,
     count_only: bool = False,
+    analysis: AnalysisParam = None,
     filters: Dict[str, Any] = Depends(_family_small_variant_filters),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -248,6 +258,7 @@ async def get_family_small_variants(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
     )
     # A panel the search applies goes on the family's clinical audit trail first (REQ-CARR-003).
     await record_family_panel_use(
@@ -273,15 +284,18 @@ async def get_family_small_variants(
 async def get_family_small_variant_statistics_route(
     family_id: str,
     project_id: str | None = None,
+    analysis: AnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilySmallVariantStatisticsOut:
-    """The variant summary's statistics of the family's small variants (PROD-1)."""
+    """The variant summary's statistics of the family's small variants (PROD-1), of the analysis
+    the family is read for."""
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
     )
     # A monogenic NIPT family's plasma and father: their GT is not their genotype.
     trio = nipt_trio_of(context) if await is_nipt_family(session, context) else None
@@ -392,6 +406,7 @@ async def export_family_small_variants_csv(
     project_id: str | None = None,
     prioritize: bool = False,
     rank_by: RankBy = RANK_BY_COMBINED_SCORE,
+    analysis: AnalysisParam = None,
     filters: Dict[str, Any] = Depends(_family_small_variant_filters),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -409,6 +424,7 @@ async def export_family_small_variants_csv(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
     )
     await record_family_panel_use(
         session,
@@ -599,6 +615,7 @@ async def upsert_small_variant_review(
     variant_id: str,
     payload: SmallVariantReviewUpdate,
     project_id: str | None = None,
+    analysis: AnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> SmallVariantReviewOut:
@@ -607,6 +624,7 @@ async def upsert_small_variant_review(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
     )
     return await upsert_small_variant_review_record(
         session,

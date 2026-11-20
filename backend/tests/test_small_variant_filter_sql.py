@@ -129,9 +129,10 @@ def test_a_variant_type_that_names_none_asks_nothing() -> None:
 
 
 def test_the_sql_reads_a_callset_and_an_rsid_without_the_spaces_around_them() -> None:
-    clauses, params = _where(source=" clair3 ", rsid=" rs1001 ")
+    clauses, params = _where(source=" Clair3 ", rsid=" rs1001 ")
+    # The callset named whole, in any case: never another whose name holds it.
     assert (params["source"], params["rsid"]) == ("clair3", "rs1001")
-    assert "positionCaseInsensitive(e.source, %(source)s) > 0" in clauses
+    assert "lowerUTF8(e.source) = %(source)s" in clauses
 
 
 def test_a_blank_callset_or_rsid_asks_nothing() -> None:

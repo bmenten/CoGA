@@ -40,6 +40,7 @@ from .services.gene_info_jobs_pg import (
     stop_gene_reference_worker,
 )
 from .services.access_control import RecordNotVisible
+from .services.analysis_scope import AnalysisNotNamed
 from .services.family_variant_filters import SampleFilterError
 from .services.family_package_import import (
     drop_orphaned_import_backups,
@@ -235,6 +236,15 @@ async def _refuse_unreadable_sample_filter(request: Request, exc: Exception) -> 
 
 
 app.add_exception_handler(SampleFilterError, _refuse_unreadable_sample_filter)
+
+
+async def _refuse_unnamed_analysis(request: Request, exc: Exception) -> JSONResponse:
+    # A reading or a review of a family's variants that must name one of its analyses and does
+    # not, or names one it does not hold (analysis_scope.py): the caller's error.
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+app.add_exception_handler(AnalysisNotNamed, _refuse_unnamed_analysis)
 
 
 async def _answer_record_not_visible(request: Request, exc: Exception) -> Response:

@@ -2183,6 +2183,7 @@ def _small_variant_where_clauses(
     if context.project_ids:
         where_clauses.append("e.project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
+    where_clauses.extend(_small_analysis_scope_clauses(context, filters, params=params))
     visible_sample_ids = _visible_clickhouse_sample_ids(context)
     if visible_sample_ids:
         where_clauses.append("hasAny(e.calls.sampleId, %(visible_sample_ids)s)")
@@ -2246,6 +2247,23 @@ def _small_variant_type_condition(variant_type: str | None, *, alias: str = "e")
     return None
 
 
+def _small_analysis_scope_clauses(
+    context: FamilyMetadataContext, filters: SmallVariantQueryFilters, *, params: dict[str, Any]
+) -> list[str]:
+    """The rows of the analysis the family is read for (``context.scope``): the callsets of the
+    family's other analyses are left out, so a variant both an analysis's and another's callset
+    hold is read from its own (analysis_scope.py). A reading that names one callset reads that
+    callset alone (``_small_callset_clauses``); any other reading of a family that holds several
+    analyses with small variants of their own names the analysis, or is refused."""
+    if (filters.source or "").strip():
+        return []
+    left_out = context.scope.require_named().left_out_sources("small_variants")
+    if not left_out:
+        return []
+    params["scope_left_out_sources"] = tuple(sorted(left_out))
+    return ["e.source NOT IN %(scope_left_out_sources)s"]
+
+
 def _small_callset_clauses(
     filters: SmallVariantQueryFilters,
     *,
@@ -2253,15 +2271,16 @@ def _small_callset_clauses(
     exclude_imputed: bool,
     alias: str = "e",
 ) -> list[str]:
-    """The callset filter on the rows ``alias``: the callset (``source``) found in the stored
-    text, as typed but for the spaces around it. Without one, ``exclude_imputed`` hides the
-    imputed callsets (GLIMPSE2, SHAPEIT), as the family page's list and count and the Variant
-    Explorer do by default; the phased-marker and sample-QC readers see every callset. A
-    blank callset asks nothing, so the imputed-callset default applies to it."""
+    """The callset filter on the rows ``alias``: the callset (``source``) named, whole, in any
+    case and but for the spaces around it, so one callset's name never selects another whose
+    name holds it (``deepvariant`` and ``deepvariant_sr``). Without one, ``exclude_imputed``
+    hides the imputed callsets (GLIMPSE2, SHAPEIT), as the family page's list and count and the
+    Variant Explorer do by default; the phased-marker and sample-QC readers see every callset.
+    A blank callset asks nothing, so the imputed-callset default applies to it."""
     source = (filters.source or "").strip()
     if source:
-        params["source"] = source
-        return [f"positionCaseInsensitive({alias}.source, %(source)s) > 0"]
+        params["source"] = source.lower()
+        return [f"lowerUTF8({alias}.source) = %(source)s"]
     if exclude_imputed:
         params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
         return [f"lowerUTF8({alias}.source) NOT IN %(imputed_sources)s"]

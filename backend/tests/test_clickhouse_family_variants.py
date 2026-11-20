@@ -1255,7 +1255,7 @@ def test_small_variant_where_clauses_explicit_source_overrides_exclusion() -> No
         SmallVariantQueryFilters(page=1, page_size=1, source="glimpse2"),
         exclude_imputed=True,
     )
-    assert "positionCaseInsensitive(e.source, %(source)s) > 0" in clauses
+    assert "lowerUTF8(e.source) = %(source)s" in clauses
     assert not any("imputed_sources" in clause for clause in clauses)
     assert params["source"] == "glimpse2"
     assert "imputed_sources" not in params
@@ -3092,7 +3092,7 @@ async def test_genotype_site_sample_takes_the_smallest_keys_over_every_autosome(
     # Family-scoped and parameterised like every small-variant read.
     assert "e.family_guid = %(family_guid)s" in query and params["family_guid"] == "family-uuid"
     assert "e.sign = 1" in query
-    assert "positionCaseInsensitive(e.source, %(source)s) > 0" in query
+    assert "lowerUTF8(e.source) = %(source)s" in query
     assert params["source"] == "glimpse2"
     rendered_query, _ = bind_query(query, params)
     assert "%(" not in rendered_query

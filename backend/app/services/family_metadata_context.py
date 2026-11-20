@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import uuid_list_bindparam, uuid_values
 from .haplotype_phase_correction import FAMILY_METADATA_KEY as PHASE_CORRECTIONS_KEY, corrections_from_metadata
+from .analysis_scope import WHOLE_FAMILY_SCOPE, AnalysisScope, analysis_scope
 from .metadata_service import get_accessible_family_mapping, get_accessible_sample_mapping
 from .access_control import CurrentUser, visible_metadata_project_ids
 
@@ -29,6 +30,8 @@ class FamilyMetadataContext:
     phase_corrections: list[dict[str, Any]] = field(default_factory=list)
     # The family's region of interest as (chromosome, start, end), when it has one.
     roi: tuple[str, int, int] | None = None
+    # Which of the family's analyses its variants are read and reviewed for (analysis_scope.py).
+    scope: AnalysisScope = WHOLE_FAMILY_SCOPE
 
 
 @dataclass(slots=True)
@@ -143,7 +146,11 @@ async def build_family_metadata_context(
     family_identifier: str,
     user: CurrentUser,
     project_id: str | None = None,
+    analysis: str | None = None,
 ) -> FamilyMetadataContext:
+    """The family ``family_identifier`` as ``user`` may read it. Its ``scope`` is the analysis
+    ``analysis`` (one the family holds), or without one the analysis a reading of the family's
+    variants is about when that is unambiguous (``analysis_scope.analysis_scope``)."""
     family_row = await get_accessible_family_mapping(session, family_identifier, user)
     family_uuid = str(family_row["id"])
     project_ids = visible_metadata_project_ids(family_row.get("project_ids"), user)
@@ -213,6 +220,7 @@ async def build_family_metadata_context(
         project_ids=None if project_id is not None else project_ids,
     )
     family_metadata = family_row.get("metadata")
+    scope = analysis_scope(family_metadata if isinstance(family_metadata, dict) else None, analysis)
     return FamilyMetadataContext(
         family_uuid=family_uuid,
         family_id=str(family_row["family_id"]),
@@ -232,6 +240,7 @@ async def build_family_metadata_context(
         affected_sample_names=affected_sample_names,
         assembly_id=assembly_id,
         assembly_name=assembly_name,
+        scope=scope,
     )
 
 
