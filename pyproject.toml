@@ -96,6 +96,7 @@ files = [
     "backend/app/services/report_signout_service.py",
     "backend/app/services/review_pg_utils.py",
     "backend/app/services/roi_gene_lookup.py",
+    "backend/app/services/same_individual.py",
     "backend/app/services/sample_integrity_qc.py",
     "backend/app/services/sample_integrity_service.py",
     "backend/app/services/signed_record_cnipt.py",

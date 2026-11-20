@@ -35,6 +35,7 @@ from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageValidat
 from backend.app.services import import_watcher as watcher
 from backend.app.services import package_changed_after_import
 from backend.app.services.family_package_fingerprint import PackageFingerprint, PackageListing
+from backend.app.services.family_package_registration import FamilySamplesHeld
 from backend.app.services.coga_package import PACKAGE_FILE_NAME, CogaPackage
 
 
@@ -683,6 +684,44 @@ async def test_a_family_imported_or_deleted_since_the_check_is_a_change(monkeypa
 
     _coga(monkeypatch, project=("p1", "GRCh38"))
     assert await watcher._coga_side_changed(_Session([]), existing) is True
+
+
+@pytest.mark.asyncio
+async def test_a_sample_a_same_individual_link_names_added_to_the_family_since_the_check_is_a_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The conventional NIPT's delivery, checked before the monogenic NIPT's package added PLASMA1.
+    _coga(monkeypatch, project=("p1", "GRCh38"), existing=("existing_family",))
+    package = {
+        "project": "NIPT",
+        "assembly": "GRCh38",
+        "members": [{"sample_id": "PLASMA2", "same_individual_as": ["PLASMA1"]}],
+    }
+    waiting = _seen(
+        project_id="p1",
+        issues=[{"code": "existing_family"}, {"code": "package_same_individual_outside"}],
+        effective=package,
+        validation={"family_id": "FAM1", "sample_ids": ["PLASMA2"]},
+    )
+    held: dict[str, FamilySamplesHeld] = {"now": FamilySamplesHeld("FAM1", frozenset({"FATHER"}))}
+
+    async def samples_held(_session: Any, *, family_id: str | None) -> FamilySamplesHeld:
+        return held["now"]
+
+    monkeypatch.setattr(watcher, "family_samples_held", samples_held)
+    assert await watcher._coga_side_changed(_Session([]), waiting) is False
+
+    # The monogenic NIPT's package added PLASMA1: the issue no longer holds.
+    held["now"] = FamilySamplesHeld("FAM1", frozenset({"FATHER", "PLASMA1", "PLASMA2"}), (("PLASMA1", "PLASMA2"),))
+    assert await watcher._coga_side_changed(_Session([]), waiting) is True
+
+    # Linked, and checked so: no change. The link taken out by hand: an update would not make it.
+    linked = {**waiting, "issues": [{"code": "existing_family"}]}
+    assert await watcher._coga_side_changed(_Session([]), linked) is False
+    held["now"] = FamilySamplesHeld("FAM1", frozenset({"FATHER", "PLASMA1", "PLASMA2"}))
+    assert await watcher._coga_side_changed(_Session([]), linked) is True
+    warned = {**linked, "warnings": [{"code": "package_same_individual_not_made"}]}
+    assert await watcher._coga_side_changed(_Session([]), warned) is False
 
 
 @pytest.mark.asyncio

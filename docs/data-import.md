@@ -625,18 +625,27 @@ when a dataset then fails or the import is undone; the restore puts back the dat
 **Two samples of one person.** A package may link a member to a sample of another analysis's
 package (`same_individual_as`: a conventional NIPT's plasma under another sample ID than the
 monogenic NIPT's plasma of the same pregnancy). The family must then hold that sample as an active
-member. Otherwise the delivery needs attention (`package_same_individual_outside`) and the import
-is refused before anything is written: *The package links PLASMA1 to one of its members as the
-same individual, but family 'F' does not hold that sample: import the package that lists it first,
-or link the samples in the family's members editor once both are in the family.*
+member, its ID written as the family holds it (case included). Otherwise the delivery needs
+attention (`package_same_individual_outside`) and the import is refused before anything is
+written: *The package links PLASMA1 to one of its members as the same individual, but family 'F'
+does not hold that sample: import the package that lists it first, or link the samples in the
+family's members editor once both are in the family.* The delivery is checked again when the
+family changes, so the import of the package that lists the sample clears it.
 
 - A package that makes a new family has its same-individual links checked as a structure edit
   checks them: the samples of one person agree on sex, clinical and carrier status and parents
   ([family-member-management.md](family-member-management.md#rules-checked-on-every-change)).
-- `update` adds the package's links that name a member it adds, and keeps the family's.
-- `overwrite` keeps a same-individual link of the family that joins a member of another
-  analysis's package to one this package lists, also when the package does not name it: the
-  link is no more this package's than the other's.
+- `update` adds the package's links that name a member it adds, and keeps the family's. A link
+  the package names between two samples the family holds already, which the family does not
+  link, is not made: the delivery's check and the import warn of it
+  (`package_same_individual_not_made`).
+- `overwrite` makes the package's links the family's, a link between two samples it holds
+  already included (also when no member differs). It keeps a same-individual link of the family
+  that joins a member of another analysis's package to one this package lists, also when the
+  package does not name it: the link is no more this package's than the other's. The package's
+  link and the family's of one pair are one link, whatever made each. A link to a member the
+  overwrite makes inactive (one neither this package nor another analysis's lists, added by
+  hand) is refused before anything is written (`package_same_individual_outside`).
 
 **Projects.** An import into an existing family also links it to the job's `project_id`. Every
 project the family is linked to gets the small and structural variant callsets it holds none of,
@@ -1710,7 +1719,8 @@ pedigree draws them as one symbol labelled with both IDs, and Sample QC expects 
 identical. One of the two may be a member of another analysis's package that the family already
 holds ([Two samples of one person](#the-existing-familys-members)). These links are errors
 (`manifest_same_individual_link_invalid`): a sample linked to itself; two members also linked as
-parent and child, as a couple or by an unknown degree; the same pair linked twice.
+parent and child, as a couple or by an unknown degree; the same pair linked twice; a sample whose
+ID differs from a member's only in case (a sample is named as its ID is written).
 
 `analysis_type: monogenic_nipt` marks a monogenic NIPT family (see
 [monogenic-nipt.md](monogenic-nipt.md)). Its `samples` entry for the maternal plasma says
@@ -2956,7 +2966,8 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `package_not_in_project_folder` | The package folder lies directly in the watched folder. Move it into the folder of its project (`<watched folder>/<project>/`), or refuse the delivery. |
 | `package_project_folder_differs` | The package lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
 | `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents); a member the package of another of the family's analyses listed is not lacking. An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the family's pedigree and keeps the other analyses' members. |
-| `package_same_individual_outside` | The package links a member to a sample as the same individual (`same_individual_as`), and that sample is neither in the package nor an active member of the family. Import the package that lists it first, or take the link out of the package ([Correcting a delivery](#correcting-a-delivery)) and link the samples in the family's members editor once both are in the family. |
+| `package_same_individual_outside` | The package links a member to a sample as the same individual (`same_individual_as`), and that sample is neither in the package nor an active member of the family (its ID written as the family holds it, case included), or, for an overwrite, a member the overwrite makes inactive. Import the package that lists it first, or take the link out of the package ([Correcting a delivery](#correcting-a-delivery)) and link the samples in the family's members editor once both are in the family. |
+| `package_same_individual_not_made` (warning) | The package links two samples the family holds already as the same individual, and the family does not link them. An update does not make the link: link them in the family's members editor, or overwrite, which makes the package's links the family's. |
 | `package_adds_members` (warning) | The package adds members to a family that exists. Update and overwrite add them to the family's pedigree: check that they belong to it. |
 | `package_files_without_checksum` (warning) | `coga-package.json` lists files without a `sha256` or `md5`. CoGA computed their SHA-256 (the import records it), but cannot check that the copy on the share is what the pipeline made. Acknowledge it to approve, or have the pipeline or its copy step write the checksums. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |

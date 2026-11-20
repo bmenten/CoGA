@@ -173,8 +173,10 @@ Reading the file ([coga_package.py](../backend/app/services/coga_package.py)):
   of the parent's sex where it is known;
 - a member's `same_individual_as` names each sample once (`package_same_individual_twice`) and
   not the member itself; a member of this file it names is not also its parent, child or
-  relative, and not of another known sex (`package_same_individual_invalid`). A sample the file
-  does not list is checked against the family below;
+  relative, and not of another known sex (`package_same_individual_invalid`). A sample is named as
+  its ID is written: one that differs from a member's ID only in case is refused
+  (`package_same_individual_invalid`). A sample the file does not list is checked against the
+  family below;
 - every dataset in `pipeline_used_pedigree` is one of the file's datasets.
 
 Against the folder and CoGA, when the import watcher reads the file
@@ -188,8 +190,11 @@ Against the folder and CoGA, when the import watcher reads the file
 - the package's validation with the manifest made from the file, and every file the import reads
   listed;
 - the family and samples CoGA already holds: a sample a `same_individual_as` names that the
-  file does not list is an active member of the family, or the delivery needs attention
-  (`package_same_individual_outside`), and its import is refused.
+  file does not list is an active member of the family (its ID written as the family holds it),
+  or the delivery needs attention (`package_same_individual_outside`), and its import is refused.
+  A link between two samples the family holds without it is a warning
+  (`package_same_individual_not_made`): an update does not make it, an overwrite does. Both are
+  checked again when the family changes, as when the package that lists the sample is imported.
 
 ## What can be changed in CoGA
 

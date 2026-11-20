@@ -296,3 +296,106 @@ def test_a_new_family_from_a_package_is_refused_a_link_between_samples_that_disa
         refuse_package_same_individual_conflicts(members, [_same("PLASMA1", "PLASMA2")])
 
     assert "their sex differs (female, male)" in str(exc.value.detail)
+
+
+def _from(source: str, link: dict[str, object]) -> dict[str, object]:
+    return {**link, "source": source, "metadata": {}}
+
+
+def test_an_overwrite_naming_the_familys_links_again_takes_each_once() -> None:
+    # An overwrite gives the payload the package's links (source "manifest") and the family's
+    # links it keeps (as a structure edit stored them, "manual"): one pair is one link whatever
+    # its source, so the update is not refused as naming it twice.
+    members = _pregnancy()
+    package = [_from("manifest", _same("PLASMA2", "PLASMA1")), *(_from("manifest", link) for link in _FETUS_PARENTS)]
+    family = [_from("manual", _same("PLASMA1", "PLASMA2")), *(_from("manual", link) for link in _FETUS_PARENTS)]
+
+    payload = _link_payload([*package, *family])
+
+    assert [link.samples for link in payload.same_individual or []] == [["PLASMA2", "PLASMA1"]]
+    assert [(link.parent, link.child) for link in payload.parent_child] == [("FATHER", "FETUS"), ("PLASMA1", "FETUS")]
+    update = FamilyStructureUpdate(relationships=payload)
+    rows = _relationship_rows_from_payload(update, target_members=members, current_relationships=family)
+    _validate_relationship_graph(rows, target_members=members)
+
+
+@pytest.mark.parametrize(
+    ("relationships", "detail"),
+    [
+        (
+            # Through PLASMA3, PLASMA1 and PLASMA2 are one person: not also parent and child.
+            [_same("PLASMA1", "PLASMA3"), _same("PLASMA3", "PLASMA2"), _parent_child("PLASMA1", "PLASMA2", "mother")],
+            "PLASMA1 and PLASMA2 are linked as the same individual and also as relatives",
+        ),
+        (
+            # PLASMA1 is the fetus's mother, and PLASMA2, the same person, the fetus's child.
+            [*_FETUS_PARENTS, _same("PLASMA1", "PLASMA2"), _parent_child("FETUS", "PLASMA2", "parent")],
+            "Parent-child relationships contain a cycle",
+        ),
+        (
+            # The fetus's two parents are two samples of one person, each of unknown sex.
+            [
+                _parent_child("PLASMA3", "FETUS", "father"),
+                _parent_child("GRANDFATHER3", "FETUS", "mother"),
+                _same("PLASMA3", "GRANDFATHER3"),
+            ],
+            "FETUS's parents PLASMA3 and GRANDFATHER3 are linked as the same individual",
+        ),
+        (
+            # A parent role on one sample, another person's on the other: three parents.
+            [
+                _parent_child("GRANDFATHER1", "PLASMA1", "father"),
+                _parent_child("PLASMA3", "PLASMA1", "parent"),
+                _parent_child("GRANDFATHER3", "PLASMA2", "parent"),
+                _same("PLASMA1", "PLASMA2"),
+            ],
+            "more than two parents are recorded for them",
+        ),
+        (
+            # One person recorded as the father of one sample and the mother of the other.
+            [
+                _parent_child("PLASMA3", "PLASMA1", "father"),
+                _parent_child("GRANDFATHER3", "PLASMA2", "mother"),
+                _same("PLASMA3", "GRANDFATHER3"),
+                _same("PLASMA1", "PLASMA2"),
+            ],
+            "one person is recorded as their father and their mother",
+        ),
+    ],
+)
+def test_a_same_individual_link_is_read_over_the_whole_person(relationships: list[dict[str, object]], detail: str) -> None:
+    members = {**_pregnancy(), "grandfather3": _member("GRANDFATHER3", "und")}
+
+    with pytest.raises(HTTPException) as exc:
+        _validate_relationship_graph(relationships, target_members=members)
+
+    assert exc.value.status_code == 400
+    assert detail in str(exc.value.detail)
+
+
+def test_two_samples_of_one_child_may_record_two_samples_of_one_mother() -> None:
+    members = {**_pregnancy(), "fetus2": _member("FETUS2", "und")}
+    _validate_relationship_graph(
+        [
+            *_FETUS_PARENTS,
+            _parent_child("FATHER", "FETUS2", "father"),
+            _parent_child("PLASMA2", "FETUS2", "mother"),
+            _same("PLASMA1", "PLASMA2"),
+            _same("FETUS", "FETUS2"),
+        ],
+        target_members=members,
+    )
+
+
+def test_a_new_family_from_a_package_is_refused_samples_of_one_person_recorded_as_relatives() -> None:
+    members = [
+        {"sample_id": sample_id, "sex": "female", "clinical_status": "unknown", "carrier_status": "unknown"}
+        for sample_id in ("PLASMA1", "PLASMA2", "PLASMA3")
+    ]
+    with pytest.raises(HTTPException) as exc:
+        refuse_package_same_individual_conflicts(
+            members,
+            [_same("PLASMA1", "PLASMA3"), _same("PLASMA3", "PLASMA2"), _parent_child("PLASMA1", "PLASMA2", "mother")],
+        )
+
+    assert "PLASMA1 and PLASMA2 are linked as the same individual and also as relatives" in str(exc.value.detail)

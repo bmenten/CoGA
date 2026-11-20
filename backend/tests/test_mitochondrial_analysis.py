@@ -12,6 +12,8 @@ All samples and values are synthetic.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from backend.app.schemas import MitoDNACoverageOut, SmallVariantReviewOut
@@ -452,6 +454,28 @@ async def test_maternal_transmission_follows_the_mother_the_pedigree_links_to_th
     ]
 
     assert await _transmissions(monkeypatch, context, [record]) == [expected]
+
+
+@pytest.mark.asyncio
+async def test_the_mothers_second_sample_is_read_as_the_mother(monkeypatch: pytest.MonkeyPatch) -> None:
+    # MOM2 is a second sample of the mother (a same-individual link), of another tissue whose
+    # heteroplasmy the first sample does not show: the proband's variant is seen in her.
+    base = _three_generation_context()
+    mom = next(row for row in base.sample_rows if row["sample_id"] == "MOM")
+    context = replace(
+        base,
+        sample_rows=[*base.sample_rows, {**mom, "sample_uuid": "uuid-MOM2", "sample_id": "MOM2"}],
+        sample_uuid_to_name={**base.sample_uuid_to_name, "uuid-MOM2": "MOM2"},
+        sample_name_to_uuid={**base.sample_name_to_uuid, "MOM2": "uuid-MOM2"},
+        relationship_rows=[
+            *base.relationship_rows,
+            {"relationship_type": "same_individual", "sample_id_a": "MOM2", "sample_id_b": "MOM"},
+        ],
+    )
+    record = _mt_record()
+    record.calls = [_call(sample_id, "0/1" if sample_id in {"PROBAND", "MOM2"} else "0/0") for sample_id in context.sample_name_to_uuid]
+
+    assert await _transmissions(monkeypatch, context, [record]) == ["maternal_shared"]
 
 
 @pytest.mark.asyncio

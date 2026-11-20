@@ -231,6 +231,34 @@ class TestWhoTheCoupleIs:
         rows = [{"sample_id": "A", "role": "other"}, {"sample_id": "B", "role": "other"}]
         assert _carrier_partner_names(rows) == ("A", "B")
 
+    def test_two_samples_of_one_person_are_not_a_couple(self) -> None:
+        rows = [{"sample_id": "A", "role": "proband"}, {"sample_id": "A2", "role": "relative"}]
+        same = [{"relationship_type": "same_individual", "sample_id_a": "A2", "sample_id_b": "A"}]
+        assert _carrier_partner_names(rows, same) is None
+        record = SmallVariantRecord(
+            variant_key=None,
+            variant_id="v",
+            chr="7",
+            start=117_500_000,
+            end=117_500_000,
+            ref="A",
+            alt="G",
+            source="clair3",
+            rsid=None,
+            filters=[],
+            gene_symbols=["CFTR"],
+            annotations=[{"gene": "CFTR"}],
+            calls=[_call("A", "0/1"), _call("A2", "0/1")],
+        )
+        assert _filter_expanded_carrier_screening([record], rows, same) == []
+
+    def test_a_couple_with_a_partner_sampled_twice_is_the_couple(self) -> None:
+        rows = [{"sample_id": "A", "role": "other"}, {"sample_id": "A2", "role": "other"}, {"sample_id": "B", "role": "other"}]
+        same = [{"relationship_type": "same_individual", "sample_id_a": "A", "sample_id_b": "A2"}]
+        assert _carrier_partner_names(rows, same) == ("A", "B")
+        # Without the link, three samples are no couple.
+        assert _carrier_partner_names(rows) is None
+
     def test_no_couple_means_no_finding(self) -> None:
         rows = [{"sample_id": "A", "role": "proband"}, {"sample_id": "B", "role": "sibling"}, {"sample_id": "C"}]
         assert _carrier_partner_names(rows) is None

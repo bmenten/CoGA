@@ -50,6 +50,7 @@ from .family_structure_audit import (
 from .family_identifiers import visible
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_family_record
+from .same_individual import person_of, same_individual_groups
 from .access_control import CurrentUser
 from .ped_service import (
     _phenotype_code_from_clinical_status,
@@ -678,17 +679,12 @@ def _validate_relationship_graph(
             status_code=400,
             detail=f"{sample_a} and {sample_b} are already linked as parent and child or as a couple",
         )
-    # Two samples of one person are not also related to each other.
-    for edge_key in sorted(same_individual_edges & (known_pairs | relative_edges)):
-        sample_a, sample_b = (target_members[key]["sample_id"] for key in edge_key)
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"{sample_a} and {sample_b} are linked as the same individual and also as relatives "
-                "(parent and child, a couple, or of an unknown degree)"
-            ),
-        )
-    _refuse_same_individual_conflicts(same_individual_edges, target_members=target_members, parents_by_child=parents_by_child)
+    _refuse_same_individual_conflicts(
+        same_individual_edges,
+        target_members=target_members,
+        parents_by_child=parents_by_child,
+        related_pairs=known_pairs | relative_edges,
+    )
 
     for child_key, parents in parents_by_child.items():
         if len(parents) > 2:
@@ -700,24 +696,47 @@ def _validate_relationship_graph(
             child = target_members[child_key]["sample_id"]
             raise HTTPException(status_code=400, detail=f"{child} has duplicate father or mother relationships")
 
+    _refuse_parent_cycles(
+        children_by_parent,
+        target_members=target_members,
+        person=person_of(same_individual_edges),
+    )
+
+
+def _refuse_parent_cycles(
+    children_by_parent: Mapping[str, Collection[str]],
+    *,
+    target_members: Mapping[str, Mapping[str, Any]],
+    person: Mapping[str, str],
+) -> None:
+    """Refuse parent-child links that come back to where they start, read per person (``person``:
+    a sample by the person it is, its same-individual links read): A parent of C and C parent of
+    B, where A and B are one person, is a person who is their own grandparent. Raises 400."""
+
+    def of(key: str) -> str:
+        return person.get(key, key)
+
+    children_of: dict[str, set[str]] = defaultdict(set)
+    for parent_key, child_keys in children_by_parent.items():
+        children_of[of(parent_key)].update(of(child_key) for child_key in child_keys)
     visiting: set[str] = set()
     visited: set[str] = set()
 
-    def visit(sample_key: str) -> None:
-        if sample_key in visiting:
-            sample_id = target_members[sample_key]["sample_id"]
+    def visit(person_key: str) -> None:
+        if person_key in visiting:
+            sample_id = target_members[person_key]["sample_id"]
             raise HTTPException(status_code=400, detail=f"Parent-child relationships contain a cycle near {sample_id}")
-        if sample_key in visited:
+        if person_key in visited:
             return
-        visiting.add(sample_key)
-        for child_key in children_by_parent.get(sample_key, []):
+        visiting.add(person_key)
+        for child_key in sorted(children_of.get(person_key, ())):
             visit(child_key)
-        visiting.remove(sample_key)
-        visited.add(sample_key)
+        visiting.remove(person_key)
+        visited.add(person_key)
 
     for member_key in target_members:
         if target_members[member_key].get("active"):
-            visit(member_key)
+            visit(of(member_key))
 
 
 # What a same-individual link says the two samples share: one person has one sex, one phenotype and
@@ -725,23 +744,8 @@ def _validate_relationship_graph(
 _PERSON_FIELDS = (("sex", "sex", "und"), ("clinical status", "clinical_status", "unknown"), ("carrier status", "carrier_status", "unknown"))
 
 
-def same_individual_groups(pairs: Collection[tuple[str, str]]) -> list[list[str]]:
-    """The people the same-individual links make: each group of samples the links join, directly
-    or through another sample (A with B and B with C: A, B and C), in sorted order."""
-    parent: dict[str, str] = {}
-
-    def root(item: str) -> str:
-        while parent.setdefault(item, item) != item:
-            parent[item] = parent[parent[item]]
-            item = parent[item]
-        return item
-
-    for first, second in pairs:
-        parent[root(first)] = root(second)
-    groups: dict[str, list[str]] = defaultdict(list)
-    for item in list(parent):
-        groups[root(item)].append(item)
-    return sorted(sorted(group) for group in groups.values())
+def _named_samples(samples: Sequence[str]) -> str:
+    return f"{', '.join(samples[:-1])} and {samples[-1]}"
 
 
 def _refuse_same_individual_conflicts(
@@ -749,13 +753,51 @@ def _refuse_same_individual_conflicts(
     *,
     target_members: Mapping[str, Mapping[str, Any]],
     parents_by_child: Mapping[str, Sequence[Mapping[str, Any]]],
+    related_pairs: Collection[tuple[str, ...]],
 ) -> None:
     """Refuse a same-individual link between samples that differ on what the person is (the
-    owner's decision of 2026-11-20): another known sex, clinical status or carrier status, or
-    another recorded father or mother. Checked over each group the links join."""
+    owner's decision of 2026-11-20), read over each group the links join (``edges``, of sample
+    keys), directly or through another sample:
+
+    - two samples of one person also recorded as relatives (``related_pairs``: parent and child,
+      a couple, or of an unknown degree);
+    - a child whose two recorded parents are samples of one person;
+    - another known sex, clinical status or carrier status;
+    - another recorded father or mother, a person recorded as both, or more than two parents.
+
+    A parent is read as the person it is: the two mothers recorded for two samples of one child
+    may be two samples of one mother. Raises 400."""
+    person = person_of(edges)
+
+    def of(key: str) -> str:
+        return person.get(key, key)
+
+    def sample_id(key: str) -> str:
+        return str(target_members[key]["sample_id"])
+
+    for low_key, high_key in sorted(related_pairs):
+        if of(low_key) == of(high_key):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{sample_id(low_key)} and {sample_id(high_key)} are linked as the same individual and also as "
+                    "relatives (parent and child, a couple, or of an unknown degree)"
+                ),
+            )
+    for child_key, parents in sorted(parents_by_child.items()):
+        parent_keys = [_sample_key(str(parent["sample_id"])) for parent in parents]
+        for index, parent_key in enumerate(parent_keys):
+            other_key = next((key for key in parent_keys[index + 1:] if of(key) == of(parent_key)), None)
+            if other_key is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"{sample_id(child_key)}'s parents {sample_id(parent_key)} and {sample_id(other_key)} "
+                        "are linked as the same individual"
+                    ),
+                )
     for group in same_individual_groups(edges):
-        samples = [str(target_members[key]["sample_id"]) for key in group]
-        named = f"{', '.join(samples[:-1])} and {samples[-1]}"
+        named = _named_samples([sample_id(key) for key in group])
         for label, field, unknown in _PERSON_FIELDS:
             known = {str(target_members[key].get(field) or unknown) for key in group} - {unknown}
             if len(known) > 1:
@@ -763,18 +805,28 @@ def _refuse_same_individual_conflicts(
                     status_code=400,
                     detail=f"{named} are linked as the same individual but their {label} differs ({', '.join(sorted(known))})",
                 )
-        for role in ("father", "mother"):
-            parents = {
-                _sample_key(str(parent["sample_id"]))
-                for key in group
-                for parent in parents_by_child.get(key, ())
-                if parent.get("role") == role
-            }
-            if len(parents) > 1:
+        recorded = [
+            (of(_sample_key(str(parent["sample_id"]))), str(parent.get("role") or "parent"))
+            for key in group
+            for parent in parents_by_child.get(key, ())
+        ]
+        by_role = {role: {parent for parent, held in recorded if held == role} for role in ("father", "mother")}
+        for role, parents_in_role in by_role.items():
+            if len(parents_in_role) > 1:
                 raise HTTPException(
                     status_code=400,
                     detail=f"{named} are linked as the same individual but another {role} is recorded for each",
                 )
+        if by_role["father"] & by_role["mother"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{named} are linked as the same individual but one person is recorded as their father and their mother",
+            )
+        if len({parent for parent, _role in recorded}) > 2:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{named} are linked as the same individual but more than two parents are recorded for them",
+            )
 
 
 def refuse_package_same_individual_conflicts(
@@ -782,17 +834,31 @@ def refuse_package_same_individual_conflicts(
 ) -> None:
     """The same-individual links of a package that makes a new family (``members`` and
     ``relationships`` as ``family_package_registration`` makes them), checked as an edit checks
-    them (``_refuse_same_individual_conflicts``). Raises 400."""
+    them (``_refuse_same_individual_conflicts``, and the parent-child links read per person,
+    ``_refuse_parent_cycles``). Raises 400."""
     target_members = {_sample_key(str(member["sample_id"])): {**member, "active": True} for member in members}
     edges: set[tuple[str, str]] = set()
+    related_pairs: set[tuple[str, ...]] = set()
     parents_by_child: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    children_by_parent: dict[str, list[str]] = defaultdict(list)
     for link in relationships:
         key_a, key_b = _sample_key(str(link["sample_id_a"])), _sample_key(str(link["sample_id_b"]))
-        if link.get("relationship_type") == SAME_INDIVIDUAL and {key_a, key_b} <= target_members.keys():
-            edges.add((min(key_a, key_b), max(key_a, key_b)))
-        elif link.get("relationship_type") == "parent_child":
+        if not {key_a, key_b} <= target_members.keys() or key_a == key_b:
+            continue
+        pair = (min(key_a, key_b), max(key_a, key_b))
+        if link.get("relationship_type") == SAME_INDIVIDUAL:
+            edges.add(pair)
+            continue
+        related_pairs.add(pair)
+        if link.get("relationship_type") == "parent_child":
             parents_by_child[key_b].append({"sample_id": link["sample_id_a"], "role": link.get("role_a") or "parent"})
-    _refuse_same_individual_conflicts(edges, target_members=target_members, parents_by_child=parents_by_child)
+            children_by_parent[key_a].append(key_b)
+    if not edges:
+        return
+    _refuse_same_individual_conflicts(
+        edges, target_members=target_members, parents_by_child=parents_by_child, related_pairs=related_pairs
+    )
+    _refuse_parent_cycles(children_by_parent, target_members=target_members, person=person_of(edges))
 
 
 def _pedigree_text_from_target(
@@ -1446,18 +1512,28 @@ async def _update_family_structure(
     )
 
 
+def _link_identity(relationship: Mapping[str, Any]) -> tuple[str, ...]:
+    """What makes two relationship rows one link, as ``_validate_relationship_graph`` counts
+    them: a parent and its child, or the unordered pair of a couple, of a link of unknown degree
+    or of two samples of one person. Whatever their source, roles and metadata: the package's
+    link and the family's of one pair are one link."""
+    kind = str(relationship.get("relationship_type") or "")
+    ends = (_sample_key(str(relationship.get("sample_id_a"))), _sample_key(str(relationship.get("sample_id_b"))))
+    return (kind, *ends) if kind == "parent_child" else (kind, *sorted(ends))
+
+
 def _link_payload(
     links: Sequence[Mapping[str, Any]],
 ) -> FamilyStructureRelationshipsUpdate:
     """Relationship rows (``relationship_type``, ``sample_id_a``/``_b``, ``role_a``, ``metadata``)
-    as a structure update names them, each link once."""
+    as a structure update names them, each link once (``_link_identity``): its first row."""
     parent_child: list[FamilyStructureParentChildUpdate] = []
     couples: list[FamilyStructureCoupleUpdate] = []
     relatives: list[FamilyStructureRelativeUpdate] = []
     same_individual: list[FamilyStructureSameIndividualUpdate] = []
-    seen: set[tuple[Any, ...]] = set()
+    seen: set[tuple[str, ...]] = set()
     for link in links:
-        key = _relationship_key(dict(link))
+        key = _link_identity(link)
         if key in seen:
             continue
         seen.add(key)

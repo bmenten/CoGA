@@ -85,12 +85,13 @@ sample ID and the HPO terms.
 
 **Same individual** links the member to another sample of the same person: the plasma of a
 conventional NIPT under another sample ID than the monogenic NIPT's plasma of the same
-pregnancy, say. It offers the other members of the member's sex or of unknown sex. A choice
-replaces the member's link, so a person with three samples is linked one pair at a time. Read
-only, the table shows the column for a family that holds such a link. The table keeps a row per
-sample. The pedigree draws the person as one symbol labelled with all its IDs (*PLASMA1 /
-PLASMA2*), and Sample QC expects the samples' genotypes identical
-([sample-qc.md](../frontend/src/content/docs/sample-qc.md)).
+pregnancy, say. It offers the other members of the member's sex or of unknown sex (for the row
+that adds a member, of the sex chosen for it). A choice replaces the member's link, so a person
+with three samples is linked one pair at a time. Read only, the table shows the column for a
+family that holds such a link. The table keeps a row per sample. The pedigree draws the person as
+one symbol labelled with all its IDs (*PLASMA1 / PLASMA2*), with the sex, clinical status, carrier
+status and parents any of its samples records, and Sample QC expects the samples' genotypes
+identical ([sample-qc.md](../frontend/src/content/docs/sample-qc.md)).
 
 **Save changes** sends the whole draft as one `PUT /families/{family_id}/structure`:
 
@@ -135,14 +136,22 @@ old ID of one it renames (400).
   parent and child or as a couple. A structure update without `relatives` keeps the family's
   links of unknown degree between active members; a list replaces them.
 - A same-individual link (`relationships.same_individual`: `samples`, the two sample IDs) joins
-  two different members once, and never two the family also links as parent and child, as a
-  couple or by an unknown degree. The links join samples into one person (A with B and B with C:
-  A, B and C). The samples of one person agree on their sex, clinical status and carrier status
-  (a value not known agrees with any) and have no other recorded father or mother. Otherwise the
-  change is refused (400: *PLASMA1 and PLASMA2 are linked as the same individual but their sex
-  differs (female, male)*), also when a member edit makes them disagree. A structure update
-  without `same_individual` keeps the family's same-individual links between active members; a
-  list replaces them. A renamed member keeps its links.
+  two different members once. The links join samples into one person (A with B and B with C:
+  A, B and C), and the rules read the pedigree per person:
+  - no two samples of one person are also linked as parent and child, as a couple or by an
+    unknown degree, directly or through another of its samples;
+  - the samples of one person agree on their sex, clinical status and carrier status (a value not
+    known agrees with any);
+  - a parent is read as the person it is: the samples of one person have one father and one
+    mother, no person is both, and they have no more than two parents (a `parent` link counted
+    too). Two samples of a child may each record another sample of one mother;
+  - a child's two parents are two people, and parent-child links read per person form no cycle
+    (no one is the mother and the daughter of one person).
+
+  Otherwise the change is refused (400: *PLASMA1 and PLASMA2 are linked as the same individual
+  but their sex differs (female, male)*), also when a member edit makes them disagree. A
+  structure update without `same_individual` keeps the family's same-individual links between
+  active members; a list replaces them. A renamed member keeps its links.
 - A father cannot be a member recorded as female, and a mother cannot be one recorded as
   male. A member of unknown sex may be either.
 - Removing a member makes them inactive. The sample row is kept for auditability.

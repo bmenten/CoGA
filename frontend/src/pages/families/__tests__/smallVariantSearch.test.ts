@@ -18,6 +18,7 @@ import {
   heldTagOptions,
   niptAppliesFilterChip,
   normalizeReviewClassification,
+  resolveCarrierScreeningCoupleMembers,
   resolveSampleFiltersFromPreset,
   serializePresetFilters,
   smallVariantAppliesFilterChip,
@@ -46,6 +47,33 @@ const defaultSampleFilter = (): SmallVariantSampleFilter => ({
   dp: '',
   af: '',
   ad_alt: '',
+});
+
+describe('the couple of a carrier screen', () => {
+  const member = (sample_id: string, role = 'relative') => ({ sample_id, role }) as unknown as FamilyMember;
+  const same = (a: string, b: string) => ({
+    id: `same-${a}-${b}`,
+    relationship_type: 'same_individual' as const,
+    sample_id_a: a,
+    sample_id_b: b,
+    role_a: null,
+    role_b: null,
+    source: 'manual',
+    metadata: {},
+  });
+
+  it('reads two samples of one person as one person, never a couple', () => {
+    const members = [member('A', 'proband'), member('A2')];
+    expect(resolveCarrierScreeningCoupleMembers(members)?.right.sample_id).toBe('A2');
+    expect(resolveCarrierScreeningCoupleMembers(members, [same('A2', 'A')])).toBeNull();
+  });
+
+  it('takes a couple with a partner sampled twice as the couple', () => {
+    const members = [member('A'), member('A2'), member('B')];
+    expect(resolveCarrierScreeningCoupleMembers(members)).toBeNull();
+    const couple = resolveCarrierScreeningCoupleMembers(members, [same('A', 'A2')]);
+    expect([couple?.left.sample_id, couple?.right.sample_id]).toEqual(['A', 'B']);
+  });
 });
 
 describe('smallVariantSearch preset helpers', () => {

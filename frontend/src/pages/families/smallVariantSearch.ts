@@ -30,6 +30,7 @@ import {
 import { intervalListProblems, parseGeneOrRegionInput } from '../../lib/variantSearch';
 import { reviewTagLabel } from '../../lib/reviewTags';
 import type { AcmgMitoContext } from '../../lib/acmg';
+import { personOfSamples } from '../../lib/acmg';
 import {
   RANK_BY_VARIANT_SCORE,
   prioritizationChipLabel,
@@ -898,15 +899,23 @@ const sampleFiltersEqual = (
   );
 };
 
+/**
+ * The couple of a carrier screen, a sample of each partner, as the backend finds it
+ * (`_carrier_partner_names`): the two a couple link names; else the mother and the father; else the
+ * family's two people. Two samples linked as the same individual are one person, never a couple.
+ */
 export const resolveCarrierScreeningCoupleMembers = (
   members: FamilyMember[],
   relationships: SmallVariantFamily['relationships'] = [],
 ) => {
   const memberMap = new Map(members.map((member) => [member.sample_id, member]));
+  const personOf = personOfSamples(relationships);
+  const person = (sampleId: string): string => personOf[sampleId] ?? sampleId;
   const couple = relationships?.find((relationship) => (
     relationship.relationship_type === 'couple' &&
     memberMap.has(relationship.sample_id_a) &&
-    memberMap.has(relationship.sample_id_b)
+    memberMap.has(relationship.sample_id_b) &&
+    person(relationship.sample_id_a) !== person(relationship.sample_id_b)
   ));
   if (couple) {
     return {
@@ -917,15 +926,17 @@ export const resolveCarrierScreeningCoupleMembers = (
 
   const mother = members.find((member) => member.role === 'mother') || null;
   const father = members.find((member) => member.role === 'father') || null;
-  if (mother && father) {
+  if (mother && father && person(mother.sample_id) !== person(father.sample_id)) {
     return { left: mother, right: father };
   }
 
-  if (members.length === 2) {
-    const [left, right] = members;
-    if (left.sample_id !== right.sample_id) {
-      return { left, right };
-    }
+  const people = new Map<string, FamilyMember>();
+  members.forEach((member) => {
+    if (!people.has(person(member.sample_id))) people.set(person(member.sample_id), member);
+  });
+  if (people.size === 2) {
+    const [left, right] = [...people.values()];
+    return { left, right };
   }
 
   return null;
