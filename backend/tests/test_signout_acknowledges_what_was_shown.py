@@ -117,13 +117,13 @@ _Session = FirstSignoutSession
 def family(monkeypatch) -> _Family:
     state = _Family()
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
     async def _manifest(session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+    async def _drift(session, *, family_id, user, project_id=None, left_out=None, analysis=None):
         return {
             "checked": len(state.drifted),
             "drifted_count": len(state.drifted),

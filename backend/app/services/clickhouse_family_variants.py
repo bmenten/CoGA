@@ -1949,13 +1949,25 @@ def _below_genotype_quality(gq: float | None) -> bool:
 
 
 async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[str]:
-    """Distinct small-variant callset ``source`` values for the family (e.g.
-    ``glimpse2``, ``clair3``). Lets sample-integrity QC pick the right genotype
-    source for the application without hard-coding it."""
+    """The family's small-variant callsets (``source``: ``glimpse2``, ``clair3``…) that hold
+    a call of one of its members, sorted. Sample-integrity QC picks the callset it reads from
+    them. Of a context scoped to one of the family's analyses (``context.scope``), the other
+    analyses' callsets are left out; a family that holds several analyses and is read for none
+    lists them all, as listing reads no variant."""
     if not context.assembly_name:
         return []
-    filters = SmallVariantQueryFilters(page=1, page_size=1)
-    where_clauses, params, _ = _small_query_filter_parts(context, filters)
+    visible_ids = _visible_clickhouse_sample_ids(context)
+    if not visible_ids:
+        return []
+    where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1", "hasAny(e.calls.sampleId, %(visible_ids)s)"]
+    params: dict[str, Any] = {"family_guid": context.family_uuid, "visible_ids": visible_ids}
+    if context.project_ids:
+        where_clauses.append("e.project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(context.project_ids)
+    left_out = context.scope.left_out_sources("small_variants")
+    if left_out:
+        where_clauses.append("e.source NOT IN %(left_out_sources)s")
+        params["left_out_sources"] = tuple(sorted(left_out))
     entries_table = _small_table_name(context.assembly_name, "entries")
     query = f"""
         SELECT DISTINCT e.source AS source
@@ -1964,7 +1976,7 @@ async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[s
         LIMIT 50
     """
     rows = await _execute_clickhouse(query, params)
-    return [str(row[0]) for row in rows if row[0]]
+    return sorted(str(row[0]) for row in rows if row[0])
 
 
 async def _small_variant_present_sample_names(

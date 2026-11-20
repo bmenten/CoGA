@@ -451,7 +451,7 @@ def test_the_drift_check_reports_each_sv_classification_whose_evidence_moved(mon
 
 
 def test_the_family_drift_carries_the_sv_classifications_beside_the_small_variants(monkeypatch) -> None:
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _CONTEXT
 
     monkeypatch.setattr(cds, "build_family_metadata_context", _ctx)

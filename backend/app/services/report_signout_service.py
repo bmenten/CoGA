@@ -57,6 +57,7 @@ from .assembly_scope import is_validated_assembly, off_scope_message, validated_
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import audit_actor, compound_het_pair_state, record_clinical_event
 from .family_analysis_types import family_analysis_types
+from .analysis_scope import analysis_scope
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .finding_review_pg import (
     FINDING_DRIFT_SECTION,
@@ -1329,12 +1330,16 @@ async def build_report_snapshot(
     # whole family, for a family of one analysis or none.
     scope = await family_signout_scope(session, context.family_uuid, analysis_type)
     analysis = scope.analysis
+    # The variants the record describes are read from the analysis's own callsets
+    # (analysis_scope.py): a variant another analysis's callset holds too is described, and its
+    # evidence read, from the analysis signed out.
+    context.scope = analysis_scope(await _family_metadata(session, context.family_uuid), analysis)
     left_out = await reviews_left_out(session, context, scope)
     manifest = await get_family_annotation_manifest(
         session, family_id=family_id, user=user, project_id=project_id
     )
     drift = await evaluate_classification_drift(
-        session, family_id=family_id, user=user, project_id=project_id, left_out=left_out
+        session, family_id=family_id, user=user, project_id=project_id, left_out=left_out, analysis=analysis
     )
     # A monogenic NIPT family's analysis, over its whole callset, is computed once: the
     # Sample QC's NIPT checks and the record's NIPT section below read the same values.

@@ -4,6 +4,7 @@ import asyncio
 import types
 from datetime import datetime, timezone
 
+from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
 from backend.app.services import classification_drift_service as cds
 from backend.app.services.signout_scope import ReviewsLeftOut
 from backend.app.services.small_variant_review_acmg import build_evidence_snapshot
@@ -80,9 +81,10 @@ def test_diff_missing_hash_is_unknown_not_false_current() -> None:
 
 
 def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None:
-    async def _context(session, *, family_identifier, user, project_id=None):
+    async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(
-            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
+            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID,
+            scope=WHOLE_FAMILY_SCOPE,
         )
 
     class _Result:
@@ -124,7 +126,7 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
         "2-200-C-T": _record("SAME", None, version="v1"),
     }
 
-    async def _current(*, assembly_name, family_guid, variant_id):
+    async def _current(*, assembly_name, family_guid, variant_id, left_out_sources=()):
         return current_by_variant[variant_id]
 
     monkeypatch.setattr(cds, "build_family_metadata_context", _context)
@@ -144,7 +146,7 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
     # A family without a resolved assembly has no variant to compare a classification with:
     # each reads as missing, never as current (it gates the sign-out, which refuses such a
     # family anyway), and no variant is looked up.
-    async def _no_assembly(session, *, family_identifier, user, project_id=None):
+    async def _no_assembly(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name=None, assembly_id=None)
 
     async def _never(**_kwargs):
@@ -447,9 +449,10 @@ def test_a_missing_variant_keeps_its_frozen_values() -> None:
 
 
 def test_evaluate_classification_drift_names_the_moved_value(monkeypatch) -> None:
-    async def _context(session, *, family_identifier, user, project_id=None):
+    async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(
-            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
+            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID,
+            scope=WHOLE_FAMILY_SCOPE,
         )
 
     rows = [
@@ -486,7 +489,7 @@ def test_evaluate_classification_drift_names_the_moved_value(monkeypatch) -> Non
         "2-200-C-T": _annotated("h9", _MANE),
     }
 
-    async def _current(*, assembly_name, family_guid, variant_id):
+    async def _current(*, assembly_name, family_guid, variant_id, left_out_sources=()):
         return current_by_variant[variant_id]
 
     async def _structural(session, context, *, left_out=()):
@@ -818,9 +821,10 @@ def test_a_consequence_or_constraint_group_that_cannot_be_read_is_unknown() -> N
 
 
 def test_evaluate_classification_drift_reads_the_genes_missense_z_in_one_query(monkeypatch) -> None:
-    async def _context(session, *, family_identifier, user, project_id=None):
+    async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(
-            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
+            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID,
+            scope=WHOLE_FAMILY_SCOPE,
         )
 
     other_gene = _csq(transcript="ENST00000000009", mane=True, gene="GENE2", gene_id="ENSG00000000002")
@@ -860,7 +864,7 @@ def test_evaluate_classification_drift_reads_the_genes_missense_z_in_one_query(m
         "3-300-G-A": _annotated("h3", stop_gained),
     }
 
-    async def _current(*, assembly_name, family_guid, variant_id):
+    async def _current(*, assembly_name, family_guid, variant_id, left_out_sources=()):
         return current_by_variant[variant_id]
 
     async def _structural(session, context, *, left_out=()):
@@ -902,9 +906,10 @@ def test_a_snapshot_that_is_not_a_json_object_reads_as_unknown_not_skipped(monke
     # once its variant is gone, as an unreadable SV/CNV snapshot does, and the sign-out gate
     # asks for it to be acknowledged. Skipped, it would clear the drift gate unexamined
     #.
-    async def _context(session, *, family_identifier, user, project_id=None):
+    async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(
-            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
+            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID,
+            scope=WHOLE_FAMILY_SCOPE,
         )
 
     def _review(variant_id: str, snapshot) -> dict:
@@ -919,7 +924,7 @@ def test_a_snapshot_that_is_not_a_json_object_reads_as_unknown_not_skipped(monke
     reviews = [_review("1-100-A-G", ["h1"]), _review("2-200-C-T", "h2"), _review("3-300-G-A", 7)]
     current_by_variant = {"1-100-A-G": _annotated("h1", _MANE), "2-200-C-T": None, "3-300-G-A": _record("h3")}
 
-    async def _current(*, assembly_name, family_guid, variant_id):
+    async def _current(*, assembly_name, family_guid, variant_id, left_out_sources=()):
         return current_by_variant[variant_id]
 
     async def _structural(session, context, *, left_out=()):

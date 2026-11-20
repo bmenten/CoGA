@@ -146,13 +146,13 @@ def _patch_common(
     import_incomplete=None,
     import_unfinished=None,
 ):
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
     async def _manifest(session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+    async def _drift(session, *, family_id, user, project_id=None, left_out=None, analysis=None):
         return {
             "checked": drifted_count,
             "drifted_count": drifted_count,
@@ -222,7 +222,7 @@ def test_sign_out_is_refused_below_supervisor_before_any_gate(monkeypatch, role:
     _patch_common(monkeypatch, drifted_count=0)
     checked: list[str] = []
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         checked.append(family_identifier)
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="T2T-CHM13v2.0", sample_rows=[])
 
@@ -258,7 +258,7 @@ def test_a_supervisor_and_above_sign_out(monkeypatch, role: str) -> None:
 def _patch_off_scope(monkeypatch, assembly_name):
     _patch_common(monkeypatch, drifted_count=0)
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name=assembly_name, sample_rows=[])
 
     async def _must_not_build(*args, **kwargs):
@@ -313,7 +313,7 @@ def test_a_validated_assembly_is_configured_not_hard_coded(monkeypatch) -> None:
     monkeypatch.setattr(settings, "validated_assemblies", ["GRCh38", "T2T-CHM13v2.0"])
     _patch_common(monkeypatch, drifted_count=0)
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="T2T-CHM13v2.0", sample_rows=[])
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
@@ -600,7 +600,7 @@ def _sign_out_two_families(monkeypatch) -> _SignoutTable:
     _patch_common(monkeypatch, drifted_count=0)
     family = {"uuid": "u1"}
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(family_uuid=family["uuid"], family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
     async def _complete_import(session, family_uuid):
@@ -849,7 +849,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
     ]
 
     def _patch(drift_rows):
-        async def _ctx(session, *, family_identifier, user, project_id=None):
+        async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
             return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
         async def _manifest(session, *, family_id, user, project_id=None):
@@ -858,7 +858,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
                 "modules": [{"key": "clinvar", "version": "2026-05"}],
             }
 
-        async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+        async def _drift(session, *, family_id, user, project_id=None, left_out=None, analysis=None):
             return {
                 "checked": len(drift_rows),
                 "drifted_count": len(drift_rows),
@@ -1798,7 +1798,7 @@ def _patch_qc_thresholds(monkeypatch, resolver) -> None:
     monkeypatch.setattr(qts, "resolve_analysis_qc_thresholds", resolver)
 
     # A family whose samples recorded sequencing QC, whose cut-offs are then resolved.
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _qc_context()
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
@@ -3376,7 +3376,7 @@ def _patch_sv(monkeypatch, *, reported: list, structural_drifted: list, small_dr
     """A family whose reported SVs and SV/CNV drift are given; nothing else drifted."""
     _patch_common(monkeypatch, drifted_count=small_drifted)
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+    async def _drift(session, *, family_id, user, project_id=None, left_out=None, analysis=None):
         return {
             "checked": small_drifted,
             "drifted_count": small_drifted,
@@ -4458,7 +4458,7 @@ def _code_row(**overrides) -> dict:
 def _visible_family(monkeypatch, *, family_uuid: str = _FAMILY_UUID, raises: Exception | None = None) -> list:
     asked: list = []
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         asked.append(family_identifier)
         if raises is not None:
             raise raises
@@ -4642,7 +4642,7 @@ def _scoped_patches(monkeypatch, seen: dict, *, left_out: ReviewsLeftOut) -> Non
     _patch_common(monkeypatch, drifted_count=0, import_incomplete=_NIPTS_INCOMPLETE, import_unfinished=_NIPTS_UNFINISHED)
     _holds(monkeypatch, "conventional_nipt", "monogenic_nipt", package_imports=_two_nipt_records(), left_out=left_out)
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+    async def _drift(session, *, family_id, user, project_id=None, left_out=None, analysis=None):
         seen["drift_left_out"] = left_out
         return {"checked": 0, "drifted_count": 0, "drifted": [], "structural": _NO_STRUCTURAL_DRIFT}
 

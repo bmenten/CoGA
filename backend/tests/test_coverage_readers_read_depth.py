@@ -468,7 +468,7 @@ async def _nipt_coverage(monkeypatch: pytest.MonkeyPatch, store: _CoverageStore)
     async def fake_family_record(_session, _family_id, _user):
         return family
 
-    async def fake_context(_session, *, family_identifier, user, project_id=None):
+    async def fake_context(_session, *, family_identifier, user, project_id=None, analysis=None):
         return FamilyMetadataContext(
             family_uuid="family-uuid",
             family_id="NIPT_FAMILY",

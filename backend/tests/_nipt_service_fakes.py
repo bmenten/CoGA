@@ -60,7 +60,9 @@ def wire_nipt_reads(
     async def family_record(_session: Any, _family_id: str, _user: Any) -> FamilyOut:
         return family
 
-    async def metadata_context(_session: Any, *, family_identifier: str, user: Any, project_id: Any = None) -> Any:
+    async def metadata_context(
+        _session: Any, *, family_identifier: str, user: Any, project_id: Any = None, analysis: Any = None
+    ) -> Any:
         return SimpleNamespace(
             assembly_id="assembly-uuid",
             assembly_name="GRCh38",

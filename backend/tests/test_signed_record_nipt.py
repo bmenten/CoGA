@@ -230,7 +230,7 @@ def _wire(
         track_reads.append(sorted(chromosomes))
         return {PLASMA: SampleCoverageTracks(contents=dict(coverage))} if coverage else {}
 
-    async def fake_context(_session, *, family_identifier, user, project_id=None):
+    async def fake_context(_session, *, family_identifier, user, project_id=None, analysis=None):
         return _context()
 
     async def fake_fetch(_context, filters, *, limit=None, include_variant_ids=None, exclude_variant_ids=(), **_kwargs):
@@ -868,7 +868,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     """Everything a sign-out snapshot reads besides the NIPT analysis (``_wire``) and the
     record's NIPT section: nothing to report on, the other sections empty."""
 
-    async def context(_session, *, family_identifier, user, project_id=None):
+    async def context(_session, *, family_identifier, user, project_id=None, analysis=None):
         return _sign_out_context()
 
     async def family(_session, _family_id, _user):
@@ -883,7 +883,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     async def manifest(_session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": []}
 
-    async def no_drift(_session, *, family_id, user, project_id=None, left_out=None):
+    async def no_drift(_session, *, family_id, user, project_id=None, left_out=None, analysis=None):
         nothing = {"checked": 0, "drifted_count": 0, "drifted": []}
         return {**nothing, "structural": dict(nothing)}
 

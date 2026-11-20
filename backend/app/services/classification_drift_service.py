@@ -201,13 +201,16 @@ async def evaluate_classification_drift(
     user: CurrentUser,
     project_id: str | None = None,
     left_out: ReviewsLeftOut | None = None,
+    analysis: str | None = None,
 ) -> dict[str, Any]:
     """The evidence drift of the family's classifications: the small variants', and the SV and
     CNV ones' (``structural``). ``left_out``: the reviews a sign-out of one of the family's
-    analyses leaves out, which are neither checked nor counted (``signout_scope``)."""
+    analyses leaves out, which are neither checked nor counted (``signout_scope``).
+    ``analysis``: the analysis whose callset each variant's evidence is read from now
+    (analysis_scope.py)."""
     left_out = left_out or ReviewsLeftOut()
     context = await build_family_metadata_context(
-        session, family_identifier=family_id, user=user, project_id=project_id
+        session, family_identifier=family_id, user=user, project_id=project_id, analysis=analysis
     )
     rows = (
         await session.execute(
@@ -242,6 +245,7 @@ async def evaluate_classification_drift(
                 assembly_name=context.assembly_name,
                 family_guid=context.family_uuid,
                 variant_id=row["variant_id"],
+                left_out_sources=context.scope.left_out_sources("small_variants"),
             )
         compared.append((row, snapshot, current_record))
     # The genes' missense Z as the variant list serves it now, read at once for every variant
