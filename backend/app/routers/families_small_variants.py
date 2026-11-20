@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Annotated, Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
@@ -24,6 +25,7 @@ from ..schemas import (
 from ..services.clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
     export_family_small_variants,
+    family_members_without_calls,
     get_family_small_variants_page as get_family_small_variants_clickhouse,
 )
 from ..services.family_metadata_context import build_family_metadata_context, family_sample_contexts
@@ -267,7 +269,7 @@ async def get_family_small_variants(
     await record_family_panel_use(
         session, context=context, panel_id=filters.get("panel_id"), user=user, search="small_variants"
     )
-    return await get_family_small_variants_clickhouse(
+    result = await get_family_small_variants_clickhouse(
         session,
         context=context,
         page=page,
@@ -281,6 +283,11 @@ async def get_family_small_variants(
         count_only=count_only,
         **filters,
     )
+    if not track_mode and not count_only:
+        # The list names the members without calls in the callsets it reads, whose missing calls
+        # an inheritance filter reads as no ALT allele (the owner's decision of 2026-11-20).
+        result.members_without_calls = await family_members_without_calls(context, source=filters.get("source"))
+    return result
 
 
 @router.get("/{family_id}/small-variant-statistics", response_model=FamilySmallVariantStatisticsOut)
@@ -305,6 +312,9 @@ async def get_family_small_variant_statistics_route(
     nipt_samples = (trio[0].cfdna_sample_id, trio[0].father_sample_id) if trio is not None else ()
     return await get_family_small_variant_statistics(context, nipt_samples=nipt_samples)
 
+
+# The export's column of the members without calls (family_members_without_calls).
+_MEMBERS_WITHOUT_CALLS_FIELD = "members_without_calls"
 
 # CSV column order for the family small-variant export. Mirrors the on-screen
 # table plus the extra annotation fields that don't fit in the UI.
@@ -341,8 +351,8 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("genotypes", "Genotypes"),
     # The transcript the annotation filters held on, when the row's transcript (the
     # variant's primary one, which the columns above describe) does not meet them,
-    # with that transcript's values of the columns above; empty otherwise. Last,
-    # so every column before them keeps its place.
+    # with that transcript's values of the columns above; empty otherwise. After the
+    # row's own columns, so every column before them keeps its place.
     ("filter_transcript.transcript_id", "Filter-matched transcript"),
     ("filter_transcript.gene", "Filter-matched gene"),
     ("filter_transcript.impact", "Filter-matched impact"),
@@ -354,6 +364,10 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("filter_transcript.spliceai_max", "Filter-matched SpliceAI"),
     ("filter_transcript.sift", "Filter-matched SIFT"),
     ("filter_transcript.polyphen", "Filter-matched PolyPhen"),
+    # The members of the analysis read whose samples hold no call in the callsets the file is
+    # read from (family_members_without_calls), the same on every row: an inheritance filter
+    # read their missing calls as no ALT allele, so the file says so wherever it is sent.
+    (_MEMBERS_WITHOUT_CALLS_FIELD, "Members without calls"),
 ]
 
 _FILTER_TRANSCRIPT_FIELD = "filter_transcript."
@@ -367,7 +381,11 @@ PRIORITY_EXPORT_COLUMNS: list[tuple[str, str]] = [
 ]
 
 
-def _family_export_cell(variant: VariantOut, field: str) -> str:
+def _family_export_cell(variant: VariantOut, field: str, members_without_calls: str = "") -> str:
+    """The text of ``variant``'s cell of the export column ``field``; the column of the members
+    without calls holds ``members_without_calls``, the same on every row."""
+    if field == _MEMBERS_WITHOUT_CALLS_FIELD:
+        return members_without_calls
     if field.startswith(_FILTER_TRANSCRIPT_FIELD):
         transcript = variant.filter_transcript
         value = (
@@ -443,6 +461,11 @@ async def export_family_small_variants_csv(
         rank_by=rank_by,
         **filters,
     )
+    # The members without calls in the callsets the file is read from, named on every row.
+    without_calls = "; ".join(
+        member.sample_id
+        for member in await family_members_without_calls(context, source=filters.get("source"))
+    )
 
     # When prioritizing, prepend the scores and rank so the CSV matches the ranked
     # on-screen order and carries the score it follows.
@@ -452,7 +475,7 @@ async def export_family_small_variants_csv(
         else _FAMILY_EXPORT_COLUMNS
     )
     return StreamingResponse(
-        iter([csv_document(columns, export.rows, _family_export_cell)]),
+        iter([csv_document(columns, export.rows, partial(_family_export_cell, members_without_calls=without_calls))]),
         media_type="text/csv",
         headers=export_response_headers(
             f"family-{family_id}-small-variants",

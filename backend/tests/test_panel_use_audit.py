@@ -283,9 +283,13 @@ def order(monkeypatch) -> list[str]:
     from backend.app.routers import families_small_variants as small
     from backend.app.routers import families_structural_variants as structural
 
+    async def _no_members_without_calls(context, *, source):
+        return []
+
     for module in (small, structural):
         monkeypatch.setattr(module, "build_family_metadata_context", _ctx)
         monkeypatch.setattr(module, "record_family_panel_use", _record)
+    monkeypatch.setattr(small, "family_members_without_calls", _no_members_without_calls)
     return steps
 
 

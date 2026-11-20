@@ -419,6 +419,21 @@ class StructuralVariantSampleCountsOut(BaseModel):
     by_type: Dict[str, int] = Field(default_factory=dict)
 
 
+class MemberWithoutCallsOut(BaseModel):
+    """A member of the analysis a family's small-variant list reads whose sample holds no call
+    in the callsets the list reads (``family_members_without_calls``): a proband-only long-read
+    callset whose package lists the parents. An inheritance filter reads a call it does not find
+    as no ALT allele."""
+
+    sample_id: str
+    role: Optional[str] = None
+    # How an inheritance filter reads the member: "unaffected" (its missing calls pass the
+    # filter's "no ALT call" rules as reference, so the filter cannot leave out a variant the
+    # member carries), "affected" (the filter needs the member's ALT call, so it keeps no
+    # variant), or None (the filter does not read a member of unknown status).
+    inheritance_reading: Optional[Literal["affected", "unaffected"]] = None
+
+
 class VariantPage(BaseModel):
     total: int
     total_is_estimated: bool = False
@@ -449,6 +464,10 @@ class VariantPage(BaseModel):
     variant_groups: List[SmallVariantGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None
     small_variant_summary: Optional[SmallVariantSummaryOut] = None
+    # The family small-variant list's members without calls in the callsets it reads, of the
+    # analysis it reads (``family_members_without_calls``); empty when every member holds calls.
+    # None where the response did not read them: a track's page, a presence check, another list.
+    members_without_calls: Optional[List[MemberWithoutCallsOut]] = None
 
 
 class SmallVariantUploadResult(BaseModel):

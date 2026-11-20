@@ -88,7 +88,7 @@ def test_family_export_columns_are_resolvable() -> None:
     # field reads as an empty cell (getattr's default), so each one must name what a row
     # holds: a field of the variant, of the filter-matched transcript, or a computed one.
     row = _variant()
-    computed = {"classification", "classification_text", "tags", "genotypes"}
+    computed = {"classification", "classification_text", "tags", "genotypes", "members_without_calls"}
     for field, label in _FAMILY_EXPORT_COLUMNS:
         assert label.strip()
         assert isinstance(_family_export_cell(row, field), str)
@@ -158,14 +158,14 @@ def test_family_export_names_the_transcript_the_filters_held_on() -> None:
         "tolerated(0.2)",
         "benign(0.1)",
     )
-    # ...and the filter-matched transcript follows, after every other column.
+    # ...and the filter-matched transcript follows, after the row's own columns.
     assert labels[: labels.index("Genotypes") + 1] == [
         "Chromosome", "Start", "End", "Type", "Ref", "Alt", "rsID", "Gene", "Gene ID",
         "Transcript", "Impact", "Effect", "HGVSg", "HGVSc", "HGVSp", "ClinVar", "gnomAD AF",
         "gnomAD hom", "CADD", "REVEL", "SpliceAI", "SIFT", "PolyPhen", "Classification",
         "Classification text", "Tags", "Genotypes",
     ]
-    assert {label: cells[label] for label in labels[labels.index("Genotypes") + 1 :]} == {
+    assert {label: cells[label] for label in labels[labels.index("Genotypes") + 1 : -1]} == {
         "Filter-matched transcript": "ENST_SYN51_2",
         "Filter-matched gene": "BRCA1",
         "Filter-matched impact": "MODERATE",
@@ -178,6 +178,21 @@ def test_family_export_names_the_transcript_the_filters_held_on() -> None:
         "Filter-matched SIFT": "deleterious(0.02)",
         "Filter-matched PolyPhen": "probably_damaging(0.95)",
     }
+
+
+def test_family_export_names_the_members_without_calls_on_every_row_last() -> None:
+    # A proband-only callset whose package lists the parents: an inheritance filter read their
+    # missing calls as no ALT allele, so the file names them in its last column, on every row;
+    # the column is empty when every member holds calls.
+    labels = [label for _field, label in _FAMILY_EXPORT_COLUMNS]
+    field, label = _FAMILY_EXPORT_COLUMNS[-1]
+    assert label == "Members without calls" and labels.count(label) == 1
+    assert _family_export_cell(_variant(), field, members_without_calls="MOTHER; FATHER1") == "MOTHER; FATHER1"
+    assert _family_export_cell(_variant(), field) == ""
+    # No other column reads it.
+    assert {
+        _family_export_cell(_variant(), other, members_without_calls="MOTHER") for other, _ in _FAMILY_EXPORT_COLUMNS[:-1]
+    }.isdisjoint({"MOTHER"})
 
 
 def test_family_export_leaves_the_filter_columns_empty_when_the_row_s_transcript_met_them() -> None:

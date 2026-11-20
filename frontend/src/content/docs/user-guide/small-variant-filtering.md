@@ -27,6 +27,15 @@ review: a variant both callsets hold has a review in each analysis, and each sig
 An inheritance filter reads the members the analysis sequenced. The **Structural variants** page
 offers the same choice, and the genome view reads the analysis the page you came from named.
 
+A member the analysis's package lists can still have no calls in it: long-read WGS of the proband
+alone whose package lists the parents. A note above the results names such members. An inheritance
+filter reads a call it does not find as reference, so while one is applied the note warns, for
+instance: *The parents (MOTHER and FATHER1) have no calls in the long-read WGS analysis: the
+inheritance filter reads their missing calls as reference, so it cannot leave out variants inherited
+from them.* An affected member without calls leaves the filter no variant at all. The
+**Inheritance** row says the same, and the CSV export names those members in its last column,
+*Members without calls*.
+
 ### Filters and presets
 
 The filters sit under **Advanced filters**, closed when the page opens, one category to a row across

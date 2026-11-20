@@ -2310,6 +2310,18 @@ export interface ManualPedMemberCreate {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * A member of the analysis a family's small-variant list reads whose sample holds no call
+ * in the callsets the list reads (``family_members_without_calls``): a proband-only long-read
+ * callset whose package lists the parents. An inheritance filter reads a call it does not find
+ * as no ALT allele.
+ */
+export interface MemberWithoutCallsOut {
+  sample_id: string;
+  role: string | null;
+  inheritance_reading: "affected" | "unaffected" | null;
+}
+
 /** One autosome of a child and both its parents, in one callset. */
 export interface MendelianChromosomeOut {
   chrom: string;
@@ -4975,6 +4987,7 @@ export interface VariantPage {
   variant_groups: SmallVariantGroupOut[];
   summary: Record<string, Record<string, number>> | null;
   small_variant_summary: SmallVariantSummaryOut | null;
+  members_without_calls: MemberWithoutCallsOut[] | null;
 }
 
 export interface VariantPriorityOut {

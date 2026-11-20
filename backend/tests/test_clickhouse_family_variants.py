@@ -17,6 +17,7 @@ from backend.app.services.clickhouse_family_variants import (
     _prioritized_structural_variants_page,
     export_family_small_variants,
     export_family_structural_variants,
+    family_members_without_calls,
     fetch_genotype_site_sample,
     get_family_small_variants_page,
     get_family_structural_variants_page,
@@ -3177,6 +3178,111 @@ async def test_genotype_site_sample_reads_chrx_outside_the_pseudoautosomal_regio
         153_925_835,
         154_259_566,
     )
+
+
+# --- The members without calls in the callsets the list reads ----------------------
+
+
+@pytest.mark.asyncio
+async def test_members_without_calls_are_those_no_sampled_site_holds_a_called_genotype_of(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A proband-only long-read callset whose package lists the parents: the parents hold no
+    # call, and each says how an inheritance filter reads it. The sibling of unknown status is
+    # not read by one; a member only another analysis's package lists is not this analysis's.
+    from backend.app.services.analysis_scope import AnalysisScope
+
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        return [(2_000, ["PROBAND"])]
+
+    monkeypatch.setattr(_cfv, "_execute_clickhouse", fake_execute_clickhouse)
+    base = _family_context()
+    rows = [dict(row) for row in base.sample_rows]
+    rows[3]["clinical_status"] = "unknown"
+    rows.append({"sample_id": "PROBAND_SR", "role": "proband", "clinical_status": "affected", "sex": "male"})
+    context = dataclasses.replace(
+        base,
+        sample_rows=rows,
+        sample_name_to_uuid={**base.sample_name_to_uuid, "PROBAND_SR": "sample-proband-sr"},
+        scope=AnalysisScope(
+            analysis="long_read_wgs",
+            left_out={"small_variants": frozenset({"deepvariant_sr"})},
+            left_out_members=frozenset({"PROBAND_SR"}),
+            asked=True,
+            held=frozenset({"long_read_wgs", "short_read_wgs"}),
+        ),
+    )
+
+    members = await family_members_without_calls(context, source=None)
+
+    assert [(m.sample_id, m.role, m.inheritance_reading) for m in members] == [
+        ("MOM", "mother", "unaffected"),
+        ("DAD", "father", "unaffected"),
+        ("SIB", "sibling", None),
+    ]
+    query, params = queries[0]
+    # The analysis's own callsets, the imputed ones left out as the list leaves them out.
+    assert "e.source NOT IN %(scope_left_out_sources)s" in query
+    assert params["scope_left_out_sources"] == ("deepvariant_sr",)
+    assert "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in query
+    # A fixed sample: the smallest keys, found from the keys first.
+    assert "ORDER BY e.key, e.source, e.project_guid" in query
+    assert "AND e.key <= (" in query and "SELECT max(sample_key)" in query
+    assert query.count("LIMIT %(members_sample_limit)s") == 2
+    assert params["members_sample_limit"] == _cfv.MEMBERS_WITHOUT_CALLS_SITES
+    # A called genotype is a call; a no-call is none.
+    assert "arrayFilter((sample_id, gt) ->" in query and "members_called_gts" in params
+    assert "e.family_guid = %(family_guid)s" in query and "e.sign = 1" in query
+    rendered_query, _ = bind_query(query, params)
+    assert "%(" not in rendered_query
+
+
+@pytest.mark.asyncio
+async def test_members_without_calls_read_the_callset_the_list_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An affected member without calls: the filter needs its ALT call, and says so.
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        return [(12, ["MOM", "DAD", "SIB", "UNKNOWN_COLUMN"])]
+
+    monkeypatch.setattr(_cfv, "_execute_clickhouse", fake_execute_clickhouse)
+
+    members = await family_members_without_calls(_family_context(), source="glimpse2")
+
+    assert [(m.sample_id, m.inheritance_reading) for m in members] == [("PROBAND", "affected")]
+    query, params = queries[0]
+    assert "lowerUTF8(e.source) = %(source)s" in query and params["source"] == "glimpse2"
+    assert "imputed_sources" not in params
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result", [[(0, [])], []])
+async def test_members_without_calls_say_nothing_of_callsets_that_hold_no_row(
+    monkeypatch: pytest.MonkeyPatch, result: list[tuple[int, list[str]]]
+) -> None:
+    # No row of the family in the callsets read: the list holds no variant, and no member is
+    # named as without calls.
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        return result
+
+    monkeypatch.setattr(_cfv, "_execute_clickhouse", fake_execute_clickhouse)
+    assert await family_members_without_calls(_family_context(), source=None) == []
+
+
+@pytest.mark.asyncio
+async def test_members_without_calls_without_an_assembly_or_a_member_read_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        raise AssertionError("no query without an assembly or a member")
+
+    monkeypatch.setattr(_cfv, "_execute_clickhouse", fake_execute_clickhouse)
+    assert await family_members_without_calls(dataclasses.replace(_family_context(), assembly_name=None), source=None) == []
+    assert await family_members_without_calls(dataclasses.replace(_family_context(), sample_rows=[]), source=None) == []
 
 
 @pytest.mark.asyncio
