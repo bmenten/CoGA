@@ -10,8 +10,10 @@ file comes first, in the folder the family's import read:
 
 * the reads are served at ``/cram/<family>/<sample>.cram`` whatever the file is called, with the
   recorded index or the one beside them, never an index a layout probe found elsewhere;
-* the layouts in the family's folders stay the fallback when nothing usable is recorded or the
-  recorded file is gone;
+* a recorded alignment or QC report is served from its analysis's package folder alone: one that
+  is gone, or not usable, is missing, never looked for in the family's folders or another
+  analysis's package, which could hold another analysis's file of that name; the layouts in the
+  family's folders serve only a sample no import recorded an alignment of;
 * a recorded path is data: one that leaves the package (``..``, an absolute path, a symlink into
   another package) or lacks its file's extension names no file;
 * the package folder is data too: it is used only when it lies, symlinks resolved, below an
@@ -69,7 +71,7 @@ def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (root / "families").mkdir(parents=True)
     _write(root / "share" / "PKG1", PACKAGE_FILES)
     _write(root / "share" / "PKG2", OTHER_PACKAGE_FILES)
-    for module in (cram, signal_tracks, family_qc_reports):
+    for module in (cram, signal_tracks):
         monkeypatch.setattr(module, "DATA_DIR", root)
     monkeypatch.setattr(settings, "family_import_roots", [str(root / "families"), str(root / "share")])
     monkeypatch.setattr(settings, "secret_key", "k" * 64)
@@ -237,8 +239,53 @@ async def test_a_sample_sequenced_short_and_long_read_serves_each_alignment_from
     # An analysis that recorded no alignment of the sample serves none, nor one found elsewhere.
     _write(data / "families" / "F1", {"bams/S1.cram": "copied reads of S1", "bams/S1.cram.crai": "copied index of S1"})
     assert (await _cram_answers(session, analysis="monogenic_nipt"))["cram"] == 404
-    # Without an analysis, only the family's folders are read.
-    assert (await _cram_answers(session, analysis=None))["cram"] == "copied reads of S1"
+    # Nor is a sample whose alignments are recorded per analysis served from the family's folders
+    # without one: which analysis's reads they hold is not known.
+    assert (await _cram_answers(session, analysis=None))["cram"] == 404
+
+
+@pytest.mark.asyncio
+async def test_an_analysis_whose_recorded_reads_are_gone_never_serves_the_other_analysis_reads(
+    data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # S1 was sequenced short-read (PKG-SR on the share) and long-read, the long-read package
+    # imported from the family's own package folder <data>/families/F1, a layout the endpoints
+    # read. PKG-SR is moved away: its reads are gone.
+    long_read = data / "families" / "F1"
+    _write(long_read, {"bams/S1.cram": "long reads of S1", "bams/S1.cram.crai": "long index of S1"})
+    _members(monkeypatch, "F1", "S1")
+    session = _TwoAnalyses(data)
+    session.rows = [
+        ("S1", "short_read_wgs", _alignment(path="bams/S1.cram", index_path="bams/S1.cram.crai"), str(data / "share" / "PKG-SR")),
+        ("S1", ANALYSIS, _alignment(path="bams/S1.cram", index_path="bams/S1.cram.crai"), str(long_read)),
+    ]
+
+    short_read = await _cram_answers(session, analysis="short_read_wgs")
+    long_reads = await _cram_answers(session, analysis=ANALYSIS)
+
+    # The manifest lists the long-read alignment alone, under its analysis; the short-read
+    # analysis's URLs answer 404, never with the long-read reads under the short-read name.
+    assert short_read["manifest"] == [
+        ("cram", f"/cram/F1/S1.cram{QUERY}", f"/cram/F1/S1.cram.crai{QUERY}"),
+    ]
+    assert {key: short_read[key] for key in ("cram", "crai", "head", "bam")} == {
+        "cram": 404, "crai": 404, "head": 404, "bam": 404,
+    }
+    assert (long_reads["cram"], long_reads["crai"]) == ("long reads of S1", "long index of S1")
+
+
+@pytest.mark.asyncio
+async def test_a_sample_whose_recorded_alignment_is_unusable_is_not_served_from_the_familys_folders(
+    data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The recorded package folder lies outside the import roots; the family's folder holds a copy
+    # of some analysis's reads. Which analysis's is not known: the manifest lists nothing.
+    _write(data / "families" / "F1", {"bams/S1.cram": "copied reads of S1", "bams/S1.cram.crai": "copied index of S1"})
+    _members(monkeypatch, "F1", "S1")
+    session = _Session({"S1": _alignment()}, str(data.parent / "outside" / "PKG1"))
+
+    assert await _cram_answers(session) == NOTHING
+    assert (await _cram_answers(session, analysis=None))["cram"] == 404
 
 
 @pytest.mark.asyncio
@@ -293,7 +340,7 @@ async def test_a_recorded_cram_is_never_paired_with_a_probed_index(data: Path, m
 
 
 @pytest.mark.asyncio
-async def test_the_layouts_serve_a_sample_whose_recorded_reads_are_gone(
+async def test_a_sample_whose_recorded_reads_are_gone_is_not_served_from_the_layouts(
     data: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (data / "share" / "PKG1" / "bams" / "S1.markdup.cram").unlink()
@@ -301,12 +348,23 @@ async def test_the_layouts_serve_a_sample_whose_recorded_reads_are_gone(
     _members(monkeypatch, "F1", "S1")
     session = _Session({"S1": _alignment()}, _package(data))
 
-    answers = await _cram_answers(session)
+    assert await _cram_answers(session) == NOTHING
+
+
+@pytest.mark.asyncio
+async def test_the_layouts_serve_a_sample_no_import_recorded_an_alignment_of(
+    data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(data / "families" / "F1", {"bams/S1.cram": "copied reads of S1", "bams/S1.cram.crai": "copied index of S1"})
+    _members(monkeypatch, "F1", "S1")
+    session = _Session({}, _package(data))
+
+    answers = await _cram_answers(session, analysis=None)
 
     assert (answers["cram"], answers["crai"], answers["manifest"]) == (
         "copied reads of S1",
         "copied index of S1",
-        [("cram", f"/cram/F1/S1.cram{QUERY}", f"/cram/F1/S1.cram.crai{QUERY}")],
+        [("cram", "/cram/F1/S1.cram", "/cram/F1/S1.cram.crai")],
     )
 
 
@@ -553,6 +611,21 @@ async def test_a_qc_report_out_of_the_package_is_not_served(
     _write(data.parent / "outside" / "PKG2", OTHER_PACKAGE_FILES)
     _members(monkeypatch, "F1", "S1")
     session = _Session({"S1": {"sequencing_qc": {ANALYSIS: {"report": relative}}}}, os.path.normpath(data / folder))
+
+    assert await _report(session) == 404
+
+
+@pytest.mark.asyncio
+async def test_a_qc_report_gone_from_its_package_is_not_looked_for_in_the_familys_folders(
+    data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The long-read package's report is gone; the family's package folder holds a report of that
+    # name, another analysis's. Served, it would read as this analysis's report.
+    (data / "share" / "PKG1" / "qc" / "S1.html").unlink()
+    _write(data / "families" / "F1", {"qc/S1.html": "the other analysis's report of S1"})
+    _write(data / "F1", {"qc/S1.html": "a report of S1 in the flat folder"})
+    _members(monkeypatch, "F1", "S1")
+    session = _Session({"S1": {"sequencing_qc": {ANALYSIS: {"report": "qc/S1.html"}}}}, _package(data))
 
     assert await _report(session) == 404
 

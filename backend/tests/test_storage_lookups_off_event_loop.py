@@ -62,7 +62,7 @@ def test_the_qc_report_routes_read_the_file_system_off_the_event_loop(
     report_file.write_text("<html></html>")
     lookups: list[int] = []
 
-    def resolve(family_id: str, relative_path: str, package_folder: object = None) -> Path:
+    def resolve(relative_path: str, package_folder: object) -> Path:
         lookups.append(threading.get_ident())
         return report_file
 

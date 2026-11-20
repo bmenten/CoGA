@@ -306,6 +306,38 @@ def test_a_samples_alignment_and_qc_of_each_analysis_are_kept_beside_each_other(
     }
 
 
+def test_an_import_clears_only_its_own_analysis_entries_with_the_analysis_bound() -> None:
+    from backend.app.services import family_package_qc
+
+    class _Recording:
+        def __init__(self) -> None:
+            self.statements: list[tuple[str, dict[str, Any]]] = []
+            self.committed = False
+
+        async def execute(self, statement: Any, params: Any = None) -> Any:
+            self.statements.append((" ".join(str(statement).split()), dict(params or {})))
+            return SimpleNamespace()
+
+        async def commit(self) -> None:
+            self.committed = True
+
+    session = _Recording()
+    analysis = "long_read_wgs'; DROP TABLE samples; --"
+    asyncio.run(
+        family_package_qc.clear_analysis_import_records(session, family_uuid="family-uuid", analysis=analysis)  # type: ignore[arg-type]
+    )
+
+    (family_sql, family_params), (samples_sql, samples_params) = session.statements
+    # The run parameters of the analysis, on its family; each of its samples' QC and alignment.
+    assert family_sql.startswith("UPDATE families SET metadata = metadata #- ARRAY['pipeline', CAST(:analysis AS text)]")
+    assert "#- ARRAY['sequencing_qc', CAST(:analysis AS text)] #- ARRAY['alignments', CAST(:analysis AS text)]" in samples_sql
+    assert "WHERE family_id = CAST(:family_uuid AS uuid)" in samples_sql
+    # The analysis is a bound parameter, never part of the statement.
+    assert family_params == samples_params == {"family_uuid": "family-uuid", "analysis": analysis}
+    assert "DROP TABLE" not in family_sql + samples_sql
+    assert session.committed
+
+
 def test_each_analysiss_qc_of_a_member_is_judged_by_its_own_cut_offs(monkeypatch: pytest.MonkeyPatch) -> None:
     from datetime import datetime, timezone
 
@@ -316,7 +348,9 @@ def test_each_analysiss_qc_of_a_member_is_judged_by_its_own_cut_offs(monkeypatch
         warn = {"short_read_wgs": 30.0, "long_read_wgs": 15.0}[analysis]
         return {
             "profiles": [{"key": analysis, "label": analysis}],
-            "thresholds": {"depth.mean_depth": {"warn_value": warn, "error_value": None, "profile_key": analysis}},
+            "thresholds": {
+                "depth.mean_depth": {"warn_value": warn, "error_value": None, "warn_profile_key": analysis, "error_profile_key": None}
+            },
         }
 
     monkeypatch.setattr(qc_threshold_service, "resolve_analysis_qc_thresholds", resolve)

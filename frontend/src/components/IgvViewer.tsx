@@ -19,9 +19,11 @@ interface IgvViewerProps {
   /** The IGV genome of the family's assembly (`mapAssemblyToIgvGenome`); never a default. */
   genome: string;
   locus?: string;
+  /** The family holds several analyses: each alignment track names the analysis whose reads it holds. */
+  severalAnalyses?: boolean;
 }
 
-const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locus }) => {
+const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locus, severalAnalyses = false }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const browserRef = useRef<DestroyableIgvBrowser | null>(null);
   const createSeqRef = useRef(0);
@@ -147,7 +149,7 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
         // session's token. An absolute URL is fetched as given, and never gets the token.
         const alignments = manifestResponse.data as AlignmentManifestEntryOut[];
         const alignmentTracks = alignments.map((entry) => ({
-          name: alignmentTrackName(entry, alignments),
+          name: alignmentTrackName(entry, alignments, severalAnalyses),
           type: 'alignment',
           format: entry.format,
           url: resolveApiUrl(entry.url, base),
@@ -263,7 +265,7 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
     // a caller may pass a new array holding the same ids. The helpers it calls act on
     // refs, so their identity does not matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [familyId, genome, locus, retrySeq, JSON.stringify(sampleIds)]);
+  }, [familyId, genome, locus, retrySeq, severalAnalyses, JSON.stringify(sampleIds)]);
 
   return (
     <>

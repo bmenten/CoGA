@@ -2,7 +2,7 @@ import React from 'react';
 
 import type { ApiAnnotationModule } from '../../lib/apiTypes';
 import { useAnnotationManifest } from './AnnotationProvenanceSummary';
-import { analysisLabel } from '../../lib/familyAnalyses';
+import { analysisLabel, familyAnalysisTypes } from '../../lib/familyAnalyses';
 
 /**
  * Settings of the upstream analysis pipeline, recorded per family at package import
@@ -182,24 +182,36 @@ interface PipelineSettingsPanelProps {
    * workspace has to say where versions live instead.
    */
   variant?: 'workspace' | 'report';
-  /** The analysis whose run record this is, named in the heading; unset for a family of one. */
+  /** The analysis whose run record this is, named in the heading; unset for a family of one analysis. */
   analysis?: string;
   /** Lists the tools and utilities no run parameter names (default): one panel of several does. */
   listOtherTools?: boolean;
 }
 
 /**
- * The family's pipeline settings: one panel per analysis whose package carried a run record,
- * each named with its analysis when there are several, the tool versions no parameter names
- * listed once (in the last); one unnamed panel otherwise.
+ * The family's pipeline settings: one panel per analysis whose package carried a run record, the
+ * tool versions no parameter names listed once (in the last). Each panel is named with its
+ * analysis whenever the family holds several analyses, or holds the run record of more than one,
+ * so a family's one run record never reads as another analysis's; one unnamed panel otherwise.
+ *
+ * `analysis` is the analysis the Report page shows and signs out, of a family that holds several:
+ * only its own run record is shown then, and a package's that named none, as its sign-out holds
+ * them (backend `signout_scope.holds_record`); its panel is named even when its package carried
+ * no run record.
  */
 export const PipelineRunsPanels: React.FC<{
   familyId?: string;
   metadata: Record<string, unknown> | undefined;
   variant?: 'workspace' | 'report';
-}> = ({ familyId, metadata, variant }) => {
-  const runs = pipelineRunsFromMetadata(metadata);
-  if (runs.length <= 1) {
+  analysis?: string | null;
+}> = ({ familyId, metadata, variant, analysis = null }) => {
+  const held = familyAnalysisTypes(metadata);
+  const recorded = pipelineRunsFromMetadata(metadata);
+  const runs = analysis ? recorded.filter(([key]) => key === analysis || !held.includes(key)) : recorded;
+  if (analysis && !runs.length) {
+    return <PipelineSettingsPanel familyId={familyId} settings={undefined} variant={variant} analysis={analysis} />;
+  }
+  if (runs.length === 0 || (runs.length === 1 && held.length <= 1)) {
     return <PipelineSettingsPanel familyId={familyId} settings={runs[0]?.[1]} variant={variant} />;
   }
   return (
@@ -372,7 +384,7 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
     </>
   );
 
-  // Named with its analysis when the family holds the run record of more than one.
+  // Named with its analysis when the family holds several analyses or several run records.
   const heading = analysis
     ? `Analysis pipeline settings — ${analysisLabel(analysis) ?? analysis}`
     : 'Analysis pipeline settings';

@@ -132,10 +132,12 @@ page is an administrator's alone.
     is neither downloaded nor verified. A refused **Verify** says why.
 - **Family statuses** — the workflow statuses analysts give a case.
 - **Sequencing QC thresholds** — the warning and error cut-offs per assay behind the **Seq. QC** chip.
-  None ship by default. Each metric of an analysis is judged by the cut-off in the analysis's own
-  profile, else in the profile the family names, else in the default profile. A metric without a
-  cut-off reads as *not assessed*, and a sample with no cut-off for any of its metrics shows *Not run*
-  on the chip.
+  None ship by default. Each metric of an analysis is judged by its warning and its error cut-off,
+  each taken on its own from the analysis's own profile, else from the profile the family names, else
+  from the default profile: a warning set alone in the analysis's profile keeps the default's error
+  cut-off. The mtDNA QC is judged by the profile of the analysis whose import holds the mtDNA calls.
+  A metric without a cut-off reads as *not assessed*, and a sample with no cut-off for any of its
+  metrics shows *Not run* on the chip.
 - **Package import** — check, correct and approve the deliveries, and follow their imports (see
   [Case setup and data import](#case-setup)). A superuser imports too; only an administrator
   overwrites an existing family.

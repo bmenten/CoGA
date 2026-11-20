@@ -65,7 +65,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     from backend.app.core.config import settings
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
-    from backend.app.routers import cram, family_qc_reports, signal_tracks
+    from backend.app.routers import cram, signal_tracks
     from backend.tests.e2e import _harness
 
     family, sample = f"SHAREPKG{run}", f"SHAREPKG{run}_PROBAND"
@@ -79,7 +79,8 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
 
     out: dict[str, Any] = {"files": files, "family": family, "sample": sample}
-    routers = (cram, signal_tracks, family_qc_reports)
+    # The QC report is read in its analysis's package folder alone: no data directory of its own.
+    routers = (cram, signal_tracks)
     saved = [router.DATA_DIR for router in routers], settings.family_import_roots
     for router in routers:
         router.DATA_DIR = data

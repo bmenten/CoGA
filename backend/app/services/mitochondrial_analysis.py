@@ -6,6 +6,7 @@ import re
 from typing import Any, Iterable, Literal, Protocol, Sequence
 from urllib.parse import quote
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
@@ -39,7 +40,9 @@ from .coverage_read_depth import (
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype
-from .qc_threshold_service import evaluate_metric, resolve_family_qc_thresholds
+from .family_package_common import MITO_SOURCE, MITO_SV_SOURCE
+from .family_package_records import PACKAGE_IMPORTS_KEY, analyses_writing
+from .qc_threshold_service import evaluate_metric, resolve_analysis_qc_thresholds
 from .same_individual import same_individual_groups, same_individual_pairs
 from .small_variant_review_pg import get_small_variant_review_map
 from .stored_values import int_or_none as _int
@@ -897,9 +900,10 @@ def _sample_qc(
 ) -> MitoDNAQcOut:
     """Mitochondrial QC verdict for one sample.
 
-    The depth and contamination cut-offs come from the family's QC threshold profile
-    (**Admin → Sequencing QC Thresholds**, metric keys ``mtdna.mean_depth`` and
-    ``mtdna.contamination``), not from constants: a QC cut-off is lab configuration, and
+    The depth and contamination cut-offs come from the QC threshold profiles (**Admin →
+    Sequencing QC Thresholds**, metric keys ``mtdna.mean_depth`` and ``mtdna.contamination``;
+    each bound from the profile of the analysis that holds the mtDNA calls, else the family's,
+    else the default: ``_mtdna_analysis``), not from constants: a QC cut-off is lab configuration, and
     one hard-coded here while every other cut-off is admin-settable would mean two
     mitochondrial-depth rules, one of them invisible and unchangeable.
 
@@ -1043,6 +1047,30 @@ async def _attach_reviews(
         variant.review = review_map.get(variant.variant_id)
 
 
+_PACKAGE_RECORDS = text("SELECT metadata -> 'package_imports' FROM families WHERE id = CAST(:family_uuid AS uuid)")
+
+
+async def _mtdna_analysis(session: AsyncSession | None, family_uuid: str) -> str | None:
+    """The analysis whose import holds the family's mtDNA calls: the one whose package record
+    lists the mitochondrial callsets among the sources it wrote (``mito`` small variants,
+    ``mito_sv`` structural variants). Its QC profile judges the ``mtdna.*`` metrics, bound by
+    bound with the family's and the default profile (``resolve_analysis_qc_thresholds``), and
+    the page names it. None when no package record lists them (no package import, or none with
+    the mitochondrial dataset) or more than one does, which leaves the family's profile and the
+    default; and without a session (presence probes), when nothing is read."""
+    if session is None:
+        return None
+    records = (await session.execute(_PACKAGE_RECORDS, {"family_uuid": family_uuid})).scalar_one_or_none()
+    metadata = {PACKAGE_IMPORTS_KEY: _metadata_dict(records)}
+    analyses = sorted(
+        {
+            *analyses_writing(metadata, "small_variants", MITO_SOURCE),
+            *analyses_writing(metadata, "structural_variants", MITO_SV_SOURCE),
+        }
+    )
+    return analyses[0] if len(analyses) == 1 else None
+
+
 async def get_family_mitochondrial_analysis_response(
     session: AsyncSession,
     *,
@@ -1063,14 +1091,16 @@ async def get_family_mitochondrial_analysis_response(
             has_coverage=has_coverage,
             heteroplasmy_threshold=HETEROPLASMY_THRESHOLD,
             homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
-            analysis=context.scope.analysis if context.scope.left_out_sources("small_variants") else None,
         )
     member_by_sample = _member_meta(context)
     coverage_map, coverage_notes = await _coverage_by_sample(session, context)
-    # Resolved once per request, not per sample: every member of a family shares its
-    # threshold profile.
-    resolved_thresholds = await resolve_family_qc_thresholds(
-        session, family_uuid=context.family_uuid
+    # Resolved once per request, not per sample: the family's mtDNA calls are one analysis's,
+    # judged by that analysis's cut-offs, as its sequencing QC is.
+    # The analysis read (named, or the one holding the mtDNA calls), else the one whose package
+    # record lists the mtDNA calls.
+    analysis = context.scope.analysis or await _mtdna_analysis(session, context.family_uuid)
+    resolved_thresholds = await resolve_analysis_qc_thresholds(
+        session, family_uuid=context.family_uuid, analysis=analysis
     )
     samples = _sample_outs(
         context,
@@ -1116,5 +1146,5 @@ async def get_family_mitochondrial_analysis_response(
         qc_notes=_family_qc_notes(samples, variant_rows, coverage_notes),
         heteroplasmy_threshold=HETEROPLASMY_THRESHOLD,
         homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
-        analysis=context.scope.analysis if context.scope.left_out_sources("small_variants") else None,
+        analysis_type=analysis,
     )

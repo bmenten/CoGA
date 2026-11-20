@@ -16,6 +16,7 @@ import FamilyCaseHeader from './FamilyCaseHeader';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
+import { analysisLabel, familyAnalysisTypes } from '../../lib/familyAnalyses';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { getErrorMessage } from '../../lib/errorMessage';
 import AcmgClassificationModal, { type AcmgModalVariant } from './AcmgClassificationModal';
@@ -566,6 +567,11 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     () => (mtDNA?.samples || []).filter((sample) => sample.qc.status === 'warn' || sample.qc.status === 'fail').length,
     [mtDNA?.samples],
   );
+  // Of a family that holds several analyses, the one whose import holds the mtDNA calls, named.
+  const mtDNAAnalysis =
+    familyAnalysisTypes(family?.metadata).length > 1 && mtDNA?.analysis_type
+      ? (analysisLabel(mtDNA.analysis_type) ?? mtDNA.analysis_type)
+      : null;
   const openMitomapVariant = useCallback((variant: ApiMitoDNAVariant) => {
     const query = variant.annotation.mitomap_query || variant.label;
     if (navigator.clipboard?.writeText) {
@@ -618,7 +624,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
         throw new Error('Family id is required');
       }
       // Saved to the analysis whose chrM calls the page read (of a family with several).
-      const path = buildSmallVariantReviewPath(familyId, variantId, mtDNA?.analysis);
+      const path = buildSmallVariantReviewPath(familyId, variantId, mtDNA?.analysis_type);
       const body = withReviewVersion(payload, review);
       const res = resolvedProjectId
         ? await api.put(path, body, { params: { project_id: resolvedProjectId } })
@@ -803,6 +809,12 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
             text="Mothers and children are grouped together as the maternal line; fathers are shown apart from it."
           />
         </div>
+        {mtDNAAnalysis ? (
+          <p className="catalog-card-copy" data-testid="mtdna-analysis">
+            The mtDNA calls are the {mtDNAAnalysis} analysis&apos;s: its import holds them, and its QC cut-offs judge
+            the mtDNA QC.
+          </p>
+        ) : null}
 
         {/* One compact row per sample, the maternal line first and the father apart. */}
         <div className="data-table-shell data-table-shell--fit">

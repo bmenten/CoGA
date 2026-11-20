@@ -29,9 +29,10 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 # `<data>/<family>/<sample>.cram`, or an imported family package's own pipeline layout
 # (`<data>/families/<family>/bams/<sample>.cram`), so the files need not be copied or
 # symlinked after import. A file is found only inside the family's own folders: see
-# _alignment_candidate_paths. These are the fallback: where the alignments import recorded
-# the reads, in the package folder the family's import read, comes first
-# (_local_alignment_path), so a package on a mounted share or bucket is served where it lies.
+# _alignment_candidate_paths. They serve only a sample no import recorded an alignment of: a
+# recorded alignment is served from the package folder of the analysis whose import recorded
+# it, and from nowhere else (_local_alignment_path), so a package on a mounted share or bucket
+# is served where it lies, and one analysis's reads never stand in for another's.
 _ALIGNMENT_LAYOUTS: tuple[tuple[str, str], ...] = (
     ("", ""),  # <data>/<family>/<sample>.cram
     (PACKAGES_FOLDER, "bams"),  # <data>/families/<family>/bams/<sample>.cram
@@ -140,25 +141,27 @@ def _recorded_local_alignment(value: object, package_folder: object) -> _Recorde
     )
 
 
-def _recorded_local_alignments(rows: list[tuple[Any, ...]]) -> dict[tuple[str, str], _RecordedAlignment]:
+def _recorded_local_alignments(
+    rows: list[tuple[Any, ...]],
+) -> dict[tuple[str, str], _RecordedAlignment | None]:
     """``_recorded_local_alignment`` of each ``(sample_id, analysis, alignment, package
-    folder)`` row that has a usable one, by sample and analysis. Blocking."""
-    recorded: dict[tuple[str, str], _RecordedAlignment] = {}
-    for sample_id, analysis, value, package_folder in rows:
-        alignment = _recorded_local_alignment(value, package_folder)
-        if alignment is not None:
-            recorded[(str(sample_id), str(analysis))] = alignment
-    return recorded
+    folder)`` row, by sample and analysis: None for one that is not usable. Blocking."""
+    return {
+        (str(sample_id), str(analysis)): _recorded_local_alignment(value, package_folder)
+        for sample_id, analysis, value, package_folder in rows
+    }
 
 
 async def _recorded_alignments(
     session: AsyncSession, sample_ids: list[str]
-) -> dict[tuple[str, str], _RecordedAlignment]:
+) -> dict[tuple[str, str], _RecordedAlignment | None]:
     """Where each analysis's import recorded each sample's alignment, by sample and analysis
     (``samples.metadata.alignments``, keyed as the family's package records are): a file in
-    that analysis's package folder, such as a package on a mounted share or bucket. A sample
-    sequenced short-read and then long-read has one of each. Callers check first that the
-    samples belong to the family and the user may read it.
+    that analysis's package folder, such as a package on a mounted share or bucket; None for a
+    record that is not usable (``_recorded_local_alignment``). A sample sequenced short-read and
+    then long-read has one of each. A sample with any record is served from its records alone,
+    never from the family's folders. Callers check first that the samples belong to the family
+    and the user may read it.
     """
     if not sample_ids:
         return {}
@@ -208,15 +211,17 @@ def _local_alignment_path(
 ) -> Path | None:
     """The file to serve as ``<sample>.<ext><suffix>``, or ``None``.
 
-    The location the import recorded comes first (a package is read where it lies, on a
-    mounted share or bucket too, and keeps its reads there), and when its alignment is on disk
-    it alone answers for the sample: alignment and index both come from it, never an index a
-    layout probe found elsewhere (IGV would read the reads at the wrong offsets), and the other
-    format is not probed for. The layouts in the family's own folders are the fallback when
-    nothing usable was recorded or the recorded file is gone.
+    An alignment an analysis's import recorded (``recorded``) is read where it lies, in that
+    analysis's package folder (on a mounted share or bucket too), and from nowhere else: the
+    alignment and its index both come from it, never an index a layout probe found elsewhere
+    (IGV would read the reads at the wrong offsets), and the other format is not probed for.
+    When its file is gone it is missing: the layouts in the family's folders could hold
+    another analysis's reads, which would be shown under this analysis's name. Without a
+    record (a sample no import recorded an alignment of), the layouts in the family's own
+    folders are read.
     """
-    if recorded is not None and os.path.isfile(recorded.location):
-        if ext != recorded.format:
+    if recorded is not None:
+        if ext != recorded.format or not os.path.isfile(recorded.location):
             return None
         return _recorded_local_index(recorded) if suffix else Path(recorded.location)
     return _alignment_path(family_id, sample_id, ext, suffix)
@@ -312,11 +317,18 @@ async def _accessible_recorded_alignment(
     ``analysis`` recorded them; None without an analysis, for an alignment found in the
     family's folders. The check runs first, so nothing about a sample the user may not see
     is read, and a failure answers before any file is looked up. An analysis that recorded
-    no alignment of the sample answers 404: its reads are never looked for elsewhere."""
+    no usable alignment of the sample answers 404: its reads are never looked for elsewhere.
+    Without an analysis, a sample whose alignment an import recorded answers 404 too: the
+    family's folders serve only a sample no import recorded one of, as the manifest lists it."""
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    records = await _recorded_alignments(session, [sample_id])
     if analysis is None:
+        if any(sample == sample_id for sample, _recorded_analysis in records):
+            raise HTTPException(
+                status_code=404, detail="The sample's alignments are recorded per analysis: name the analysis"
+            )
         return None
-    recorded = (await _recorded_alignments(session, [sample_id])).get((sample_id, analysis))
+    recorded = records.get((sample_id, analysis))
     if recorded is None:
         raise HTTPException(status_code=404, detail="No alignment of this analysis is recorded for the sample")
     return recorded
@@ -344,13 +356,13 @@ async def get_alignment_manifest(
         ordered_samples.append(sample_id)
     # One query for where each analysis's import recorded every requested sample's reads.
     recorded = await _recorded_alignments(session, ordered_samples)
-    # Each sample's alignment of each analysis that recorded one, in the analyses' order; a
-    # sample none recorded, the one found in the family's folders.
+    # Each sample's alignment of each analysis that recorded a usable one, in the analyses'
+    # order; only a sample no analysis recorded one of, the one found in the family's folders.
     wanted: list[tuple[str, str | None]] = []
     for sample_id in ordered_samples:
-        analyses = sorted(analysis for sample, analysis in recorded if sample == sample_id)
-        if analyses:
-            wanted.extend((sample_id, analysis) for analysis in analyses)
+        records = {analysis: entry for (sample, analysis), entry in recorded.items() if sample == sample_id}
+        if records:
+            wanted.extend((sample_id, analysis) for analysis in sorted(records) if records[analysis] is not None)
         else:
             wanted.append((sample_id, None))
     # Resolving each alignment does several blocking file-system look-ups, on a share or a

@@ -290,9 +290,11 @@ each sample's pipeline reported, one column per measure:
   and `_imputed_concordance.csv`). They are read when the package's `qc` dataset is imported.
 
 Each analysis's values are judged against that analysis's cut-offs (**Admin → Sequencing QC
-thresholds**), metric by metric: the cut-off in the analysis's own profile, else in the profile the
-family names, else in the default profile. The text above the table names the profiles (*Judged
-against the cut-offs of Short-read WGS, else Default, metric by metric*). A value outside its cut-offs
+thresholds**), each warning and error cut-off on its own: from the analysis's own profile, else from
+the profile the family names, else from the default profile. A warning set alone in the analysis's
+profile keeps the default's error cut-off. The text above the table names the profiles (*Judged
+against the cut-offs of Short-read WGS, else Default, each warning and error cut-off on its own*). A
+value outside its cut-offs
 shows its verdict beside it (*32.1% · Warning*). The last column (**Seq. QC**) holds the sample's worst
 verdict, as the **Seq. QC** chip of the family page does. A sample sequenced in more than one analysis
 (short-read and then long-read WGS of the same DNA) shows each analysis's value and verdict, named by

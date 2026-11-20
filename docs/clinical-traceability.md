@@ -1119,7 +1119,8 @@ nothing else (`frontend/src/pages/families/signedReportRecord.ts` reads it). It 
   why, by whom and when); and the reference-data releases;
 - the drift, Sample QC, sequencing QC and import state, with the acknowledgements; the sequencing
   QC per analysis the record holds, named when it holds several, with the profiles its cut-offs
-  came from (*judged against the cut-offs of Short-read WGS, else Default, metric by metric*);
+  came from (*judged against the cut-offs of Short-read WGS, else Default, each warning and error
+  cut-off on its own*);
 - in the footer, with the report code, the frozen modules and beside them the reference-data
   releases and the coverage tracks (*Coverage tracks as signed: S1 coverage BED (package) — read
   depth; S1 WisecondorX (package) — log2 ratio; …*);
@@ -1315,12 +1316,13 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   chromosomes a depth check read: the mtDNA coverage reads a track only where it has rows on chrM,
   the NIPT coverage check its targets' chromosomes, and a sample with two read-depth tracks is read
   from its coverage BED. The mtDNA coverage and its verdict are not frozen.
-- An analysis's sequencing QC is judged, metric by metric, against the cut-off QA set in the
-  analysis's own profile, else in the profile the family names, else in the default profile
-  ([database.md](database.md), *Sequencing-QC limits*). So a cut-off QA set on the family's or the
-  default profile still judges an analysis whose own profile sets none for that metric, and a
-  short-read and a long-read analysis of one family can be judged by the same cut-off. The record
-  names the profile each cut-off came from.
+- An analysis's sequencing QC is judged with each warning and error cut-off on its own: each comes
+  from the analysis's own profile, else from the profile the family names, else from the default
+  profile ([database.md](database.md), *Sequencing-QC limits*). So a cut-off QA set on the family's
+  or the default profile still judges an analysis whose own profile sets none for that bound (a
+  warning set alone in the analysis's profile keeps the default's error cut-off), and a short-read
+  and a long-read analysis of one family can be judged by the same cut-off. The record names the
+  profile each bound came from.
 
 **Sign-out and the EPD**
 

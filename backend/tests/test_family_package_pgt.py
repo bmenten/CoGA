@@ -1422,8 +1422,8 @@ async def test_an_embryo_only_in_the_family_tables_gets_a_verdict_on_its_pgt_met
         return {
             "profiles": [{"key": "pgt", "label": "PGT"}, {"key": "default", "label": "Default"}],
             "thresholds": {
-                "pgt.allele_dropout_rate": {"warn_value": 10.0, "error_value": 15.0, "profile_key": "pgt"},
-                "pgt.mendelian_concordance_imputed": {"warn_value": 95.0, "error_value": 90.0, "profile_key": "pgt"},
+                "pgt.allele_dropout_rate": {"warn_value": 10.0, "error_value": 15.0, "warn_profile_key": "pgt", "error_profile_key": "pgt"},
+                "pgt.mendelian_concordance_imputed": {"warn_value": 95.0, "error_value": 90.0, "warn_profile_key": "pgt", "error_profile_key": "pgt"},
             },
         }
 
@@ -1458,7 +1458,7 @@ async def test_an_embryo_only_in_the_family_tables_gets_a_verdict_on_its_pgt_met
     ]
     assert served.breached == ["pgt.allele_dropout_rate"]
     assert [profile.label for profile in served.profiles] == ["PGT", "Default"]
-    assert served.metrics[0].profile_key == "pgt"
+    assert (served.metrics[0].warn_profile_key, served.metrics[0].error_profile_key) == ("pgt", "pgt")
 
 
 @pytest.mark.asyncio

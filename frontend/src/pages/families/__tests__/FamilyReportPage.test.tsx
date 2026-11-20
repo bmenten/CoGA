@@ -1524,9 +1524,9 @@ describe('FamilyReportPage', () => {
             PROBAND: {
               verdict: 'warn',
               metrics: [
-                { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', profile_key: 'default' },
+                { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', warn_profile_key: 'default', error_profile_key: 'default' },
                 // A value without a cut-off: shown as frozen, not judged.
-                { metric_key: 'pgt.allele_dropout_rate', label: 'Allele drop-out (ADO)', unit: '%', value: 17.46, warn_value: null, error_value: null, verdict: 'skip', profile_key: null },
+                { metric_key: 'pgt.allele_dropout_rate', label: 'Allele drop-out (ADO)', unit: '%', value: 17.46, warn_value: null, error_value: null, verdict: 'skip', warn_profile_key: null, error_profile_key: null },
               ],
               breached: ['mean_coverage'],
             },

@@ -238,11 +238,10 @@ async def _mito_response(
     async def no_reviews(_session, *, family_uuid, variant_ids):
         return {}
 
-    async def thresholds(_session, *, family_uuid):
+    async def thresholds(_session, *, family_uuid, analysis):
         # The lab's limits: below 300x warns, below 250x fails.
         return {
-            "profile_key": "default",
-            "profile_label": "Default",
+            "profiles": [{"key": "default", "label": "Default"}],
             "thresholds": {"mtdna.mean_depth": {"warn_value": 300.0, "error_value": 250.0}},
         }
 
@@ -250,7 +249,7 @@ async def _mito_response(
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_records)
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_structural_variants", no_structural_variants)
     monkeypatch.setattr(mitochondrial_analysis, "get_small_variant_review_map", no_reviews)
-    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", thresholds)
+    monkeypatch.setattr(mitochondrial_analysis, "resolve_analysis_qc_thresholds", thresholds)
     return await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
         None,  # type: ignore[arg-type]
         context=_trio_context(),

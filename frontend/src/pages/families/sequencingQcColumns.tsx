@@ -58,7 +58,8 @@ export const sequencingQcColumns = (members: ApiFamilyRecord['members']): Sequen
 
 /**
  * What the sequencing QC was judged against, for the text above the table: each analysis's QC
- * profiles (its own, else the family's named one, else the default, metric by metric), and the
+ * profiles (its own, else the family's named one, else the default, each warning and error
+ * cut-off on its own), and the
  * measures no member's value of was judged (no cut-off is set for them).
  */
 export const sequencingQcNote = (members: ApiFamilyRecord['members'], columns: SequencingQcColumn[]): string => {
@@ -85,7 +86,7 @@ export const sequencingQcNote = (members: ApiFamilyRecord['members'], columns: S
     'Sequencing & embryo QC as the pipeline reported it: coverage and alignment, and for each embryo its allele ' +
       'drop-out (ADO) and drop-in (ADI) and its Mendelian concordance with its parents before and after imputation.',
     profiles.length
-      ? `Judged against the cut-offs of ${profiles.join('; ')}, metric by metric.`
+      ? `Judged against the cut-offs of ${profiles.join('; ')}, each warning and error cut-off on its own.`
       : 'No QC profile applies to this family.',
     unjudged.length
       ? `No cut-off is set for ${unjudged.map((column) => column.name).join(', ')}: those values are shown, not judged.`

@@ -17,7 +17,7 @@ import functools
 import logging
 import math
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -245,18 +245,26 @@ def _stored_ratio(value: object) -> float | None:
 
 def _read_sex_call(sample_metadata: object, analyses: Sequence[str]) -> ReadSexCall | None:
     """The sex the pipeline's ngs-bits read off a sample's chrY/chrX read ratio, from what
-    the ``qc`` dataset of one of ``analyses`` (the analyses the QC is run for, in order)
-    stored on the sample (``samples.metadata.sequencing_qc``, per analysis); None without one,
-    or when what is stored is not an ngs-bits call (the message the check gives names
+    the ``qc`` dataset of one of ``analyses`` stored on the sample
+    (``samples.metadata.sequencing_qc``, per analysis): the first of ``analyses``, in their
+    order (the analyses the QC is run for, sorted by key, then a package's that named none),
+    whose QC holds an ngs-bits call. None without one (the message the check gives names
     ngs-bits)."""
     by_analysis = sample_metadata.get("sequencing_qc") if isinstance(sample_metadata, dict) else None
     if not isinstance(by_analysis, dict):
         return None
     recorded = [by_analysis.get(analysis) for analysis in analyses]
     stored = next(
-        (qc["sex_check"] for qc in recorded if isinstance(qc, dict) and isinstance(qc.get("sex_check"), dict)), None
+        (
+            qc["sex_check"]
+            for qc in recorded
+            if isinstance(qc, dict)
+            and isinstance(qc.get("sex_check"), dict)
+            and qc["sex_check"].get("method") == _NGSBITS_SEX_METHOD
+        ),
+        None,
     )
-    if not isinstance(stored, dict) or stored.get("method") != _NGSBITS_SEX_METHOD:
+    if stored is None:
         return None
     inferred = stored.get("inferred_sex")
     if not isinstance(inferred, str) or inferred.strip().lower() not in _READ_SEXES:
@@ -267,6 +275,15 @@ def _read_sex_call(sample_metadata: object, analyses: Sequence[str]) -> ReadSexC
         reads_chrx=_stored_count(stored.get("reads_chrx")),
         ratio_chry_chrx=_stored_ratio(stored.get("ratio_chry_chrx")),
     )
+
+
+def sex_call_analyses(analyses: Iterable[str]) -> list[str]:
+    """The analyses whose sequencing QC the sex check reads an ngs-bits call from, in the order
+    they are read (``_read_sex_call``: the first holding one answers): ``analyses``, those the QC
+    is run for, sorted by key, then a package's that named none (``UNSPECIFIED_ANALYSIS``). Sorted,
+    so a family whose analyses each stored a call is sexed from the same analysis's call in every
+    process: a family's analyses are a set, whose order varies from one process to the next."""
+    return list(dict.fromkeys([*sorted(analyses), UNSPECIFIED_ANALYSIS]))
 
 
 def _read_sex_calls(context: FamilyMetadataContext, analyses: Sequence[str]) -> dict[str, ReadSexCall]:
@@ -418,9 +435,7 @@ async def get_family_sample_integrity_qc(
     types = (
         family_analysis_types(getattr(family, "metadata", None)) if analysis_types is None else analysis_types
     )
-    # The analyses whose sequencing QC the checks read (the ngs-bits sex call): those QC'd, then
-    # a package's that named none (family_package_records).
-    qc_analyses = [*types, UNSPECIFIED_ANALYSIS]
+    qc_analyses = sex_call_analyses(types)
 
     spec = _build_pedigree_spec(context)
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)

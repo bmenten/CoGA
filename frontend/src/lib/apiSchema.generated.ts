@@ -1130,7 +1130,7 @@ export interface FamilyMitoDNAAnalysisOut {
   qc_notes: string[];
   heteroplasmy_threshold: number;
   homoplasmy_threshold: number;
-  analysis: string | null;
+  analysis_type: string | null;
 }
 
 /** Schema for families returned by the API. */
@@ -4269,7 +4269,8 @@ export interface SampleSequencingQcMetricOut {
   warn_value: number | null;
   error_value: number | null;
   verdict: "pass" | "warn" | "fail" | "skip";
-  profile_key: string | null;
+  warn_profile_key: string | null;
+  error_profile_key: string | null;
 }
 
 export interface SegmentalDuplicationOut {

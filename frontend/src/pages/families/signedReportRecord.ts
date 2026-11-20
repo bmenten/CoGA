@@ -409,8 +409,10 @@ export interface SignedSequencingQcMetric {
   errorValue: number | null;
   /** `lower_is_worse` or `higher_is_worse`, as the evaluation served it. */
   direction: string | null;
-  /** The profile whose cut-off judged it (the analysis's own, the family's named one, the default). */
-  profileKey: string | null;
+  /** The profile each bound came from (the analysis's own, the family's named one, the default):
+   *  each falls back on its own, so the two may differ. */
+  warnProfileKey: string | null;
+  errorProfileKey: string | null;
 }
 
 export interface SignedSequencingQcSample {
@@ -1561,7 +1563,8 @@ const parseSequencingQcSamples = (value: unknown): SignedSequencingQcSample[] =>
             warnValue: number(metric.warn_value),
             errorValue: number(metric.error_value),
             direction: text(metric.direction),
-            profileKey: text(metric.profile_key),
+            warnProfileKey: text(metric.warn_profile_key),
+            errorProfileKey: text(metric.error_profile_key),
           }),
         );
         return {

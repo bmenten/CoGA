@@ -192,6 +192,18 @@ def family_package_records(metadata: Mapping[str, Any] | None) -> dict[str, dict
     return {str(key): dict(record) for key, record in records.items() if isinstance(record, Mapping)}
 
 
+def analyses_writing(metadata: Mapping[str, Any] | None, kind: str, source: str) -> list[str]:
+    """The analyses, sorted, whose package record lists ``source`` among the sources of ``kind``
+    its import wrote (``SOURCES_KEY``): those whose data of that source the family holds."""
+    analyses: list[str] = []
+    for key, record in family_package_records(metadata).items():
+        sources = record.get(SOURCES_KEY)
+        names = sources.get(kind) if isinstance(sources, Mapping) else None
+        if isinstance(names, list) and source in names:
+            analyses.append(key)
+    return sorted(analyses)
+
+
 def record_folder(record: Mapping[str, Any] | None) -> str | None:
     """The folder a package record's import read, or None."""
     folder = (record or {}).get("folder_path")

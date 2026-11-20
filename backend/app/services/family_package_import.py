@@ -61,6 +61,7 @@ from .family_package_common import (
     _json_list,
 )
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
+from .family_package_qc import clear_analysis_import_records
 from .family_package_records import package_record_key
 from .family_package_source import package_folder_path
 from .raw_import_files_pg import unlink_managed_files
@@ -759,6 +760,17 @@ async def _import_family_datasets(
             )
             clickhouse_snapshot = None
             postgres_snapshot = None
+
+    # What an earlier import of this analysis recorded under its key (its run parameters, each
+    # sample's sequencing QC and alignment) goes before the first dataset, so what the family
+    # shows of the analysis is this package's: one it does not carry is not left as current.
+    # After the snapshot, so an import that is undone puts them back with its package record.
+    if not family_created:
+        await clear_analysis_import_records(
+            session,
+            family_uuid=family_context.family_uuid,
+            analysis=package_record_key(bundle.manifest.analysis_type),
+        )
 
     package_changed = False
     reference_recorded = False
