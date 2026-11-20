@@ -917,19 +917,22 @@ def _pedigree_text_from_target(
 
 
 def _relationship_key(relationship: dict[str, Any]) -> tuple[Any, ...]:
+    """What a link is, for telling whether a change of the family's pedigree changes its links:
+    its type, its samples and roles, and its metadata. Not what made it (``source``): saving the
+    members editor over a package's links, or a package naming a link the editor made, is no
+    change, and writes no structure version."""
     metadata_key = json.dumps(relationship.get("metadata") or {}, sort_keys=True, default=str)
     if relationship.get("relationship_type") == SAME_INDIVIDUAL:
         sample_keys = sorted([
             _sample_key(str(relationship.get("sample_id_a"))),
             _sample_key(str(relationship.get("sample_id_b"))),
         ])
-        return (SAME_INDIVIDUAL, *sample_keys, relationship.get("source") or "manual", metadata_key)
+        return (SAME_INDIVIDUAL, *sample_keys, metadata_key)
     if relationship.get("relationship_type") == "relative":
         return (
             "relative",
             _sample_key(str(relationship.get("sample_id_a"))),
             _sample_key(str(relationship.get("sample_id_b"))),
-            relationship.get("source") or "manual",
             metadata_key,
         )
     if relationship.get("relationship_type") == "couple":
@@ -937,13 +940,12 @@ def _relationship_key(relationship: dict[str, Any]) -> tuple[Any, ...]:
             _sample_key(str(relationship.get("sample_id_a"))),
             _sample_key(str(relationship.get("sample_id_b"))),
         ])
-        return ("couple", *partner_keys, relationship.get("source") or "manual", metadata_key)
+        return ("couple", *partner_keys, metadata_key)
     return (
         "parent_child",
         _sample_key(str(relationship.get("sample_id_a"))),
         _sample_key(str(relationship.get("sample_id_b"))),
         relationship.get("role_a") or "parent",
-        relationship.get("source") or "manual",
         metadata_key,
     )
 

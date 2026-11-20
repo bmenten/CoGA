@@ -453,8 +453,8 @@ again. Deleting a sample also removes that sample's items from the warning, and 
 stopped import's warning names of that sample alone: nothing of a sample that is gone can be missing.
 
 In a family of several analyses, *Import incomplete* names the analysis each failed dataset and each
-unfinished import was for (*failed for snv (long-read WGS)*, *A family-package import of the
-long-read WGS data*), and says that each analysis's sign-out is held only by what its own imports
+unfinished import was for (*failed for snv (long-read WGS)*, and *an upload* beside it when an upload
+failed for it too; *A family-package import of the long-read WGS data*), and says that each analysis's sign-out is held only by what its own imports
 left and by what names no analysis. Only an import of the same analysis, or an upload, completes
 what an analysis's import left: another analysis's import brings its own QC and alignments, not that
 analysis's.

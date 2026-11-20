@@ -592,7 +592,7 @@ describe('the analysis each mark is of', () => {
 
     const banner = screen.getByRole('alert');
     expect(banner).toHaveTextContent(
-      /A family-package import \(2026-09-12 10:14 UTC\) failed for qc \(long-read WGS, short-read WGS\) and snv \(long-read WGS\); coverage did import\./,
+      /A family-package import \(2026-09-12 10:14 UTC\) failed for qc \(long-read WGS, short-read WGS, an upload\) and snv \(long-read WGS\); coverage did import\./,
     );
     expect(banner).toHaveTextContent(
       `A family-package import of the short-read WGS data (2026-10-02 09:12 UTC), import job ${STOPPED_JOB}, began writing`,
@@ -610,10 +610,13 @@ describe('the analysis each mark is of', () => {
   it('reads the analyses as written, and names those it has a name for', () => {
     const read = importIncompleteFromMetadata(SEVERAL)!;
     expect(read.failedAnalysisTypes).toEqual(SEVERAL.import_incomplete.failed_analysis_types);
-    expect(failedDatasetWords(read, 'qc')).toBe('qc (long-read WGS, short-read WGS)');
+    expect(failedDatasetWords(read, 'qc')).toBe('qc (long-read WGS, short-read WGS, an upload)');
     // A package that named no analysis, or an upload: no name.
     const plain = importIncompleteFromMetadata({ import_incomplete: FLAG })!;
     expect(failedDatasetWords(plain, 'snv')).toBe('snv');
+    // An upload's failure beside an analysis's is named too.
+    const mixed = { ...read, failedAnalysisTypes: { snv: [null, 'long_read_wgs'] } };
+    expect(failedDatasetWords(mixed, 'snv')).toBe('snv (long-read WGS, an upload)');
     expect(importUnfinishedFromMetadata(SEVERAL)[0].analysisType).toBe('short_read_wgs');
     expect(importedAnalysisWords('long_read_wgs')).toBe(' of the long-read WGS data');
     expect(importedAnalysisWords('unspecified')).toBe('');

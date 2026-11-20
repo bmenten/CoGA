@@ -80,12 +80,16 @@ const isAnalysisList = (value: unknown): value is (string | null)[] =>
 
 /**
  * A failed dataset as a page names it: with the analyses whose imports it failed in, those
- * the pages have a name for ("snv (long-read WGS)").
+ * the pages have a name for ("snv (long-read WGS)"), and an upload beside them ("snv (long-read
+ * WGS, an upload)"). A dataset only uploads failed in is named alone.
  */
 export const failedDatasetWords = (flag: FamilyImportIncomplete, name: string): string => {
-  const labels = (flag.failedAnalysisTypes[name] ?? [])
+  const analyses = flag.failedAnalysisTypes[name] ?? [];
+  const labels = analyses
     .map((analysis) => analysisLabel(analysis))
     .filter((label): label is string => label !== null);
+  // An upload's failure (of no analysis) beside an analysis's is named too.
+  if (labels.length && analyses.some((analysis) => analysis === null)) labels.push('an upload');
   return labels.length ? `${name} (${labels.join(', ')})` : name;
 };
 

@@ -765,7 +765,8 @@ Paraphase results are replaced.
   import has imported each failed dataset again, or an upload has brought it again, for each callset and
   each set of samples it failed for.
   - Each failure records the analysis whose import it failed in. In a family of several analyses, the
-    warning names it (*failed for snv (long-read WGS)*), that analysis's sign-out needs the
+    warning names it (*failed for snv (long-read WGS)*; *an upload* beside it when an upload failed
+    for it too), that analysis's sign-out needs the
     acknowledgement and another analysis's does not, and only an import of the same analysis (or an
     upload) imports it again: another analysis's import of the same dataset brings its own data.
   - An **update** will do. A dataset or sample it skips because its data is there is not imported again,
