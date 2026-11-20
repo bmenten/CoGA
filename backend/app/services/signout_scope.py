@@ -5,15 +5,17 @@ conventional NIPT of one pregnancy, or short-read and then long-read WGS of the 
 analysis is signed out on its own, and its sign-out freezes and checks that analysis's data only
 (the owner's decisions of 2026-11-19): its reported variants and their evidence drift, its repeat
 and Paraphase findings with their reviews, its coverage tracks, its application's section and
-Sample QC, its package's delivery and changes, and what its imports left unfinished. A family of one
-analysis, or of none, is signed out whole.
+Sample QC, its package's delivery and changes, and what its imports left unfinished or failed to
+import. A family of one analysis, or of none, is signed out whole.
 
 What is an analysis's data is read from the family's package records (``family_package_records``):
 each lists the storage sources its import wrote, per kind of data (``SOURCES_KEY``), and its
 datasets. An item belongs to the analysis when one of its sources is the analysis's own or is
 claimed by no other analysis the family holds. So data an upload or an analyst added, or a package
 that named no analysis, belongs to every analysis, and each sign-out freezes and checks it; and so
-does a reported variant whose sources cannot be told (its stored rows are gone).
+does a reported variant whose sources cannot be told (its stored rows are gone). An import mark
+(``family_package_registration``) records the analysis of the import that left it, and belongs to
+that analysis; one an upload or a deletion left records none, and belongs to every analysis.
 """
 
 from __future__ import annotations
@@ -32,7 +34,6 @@ from .family_metadata_context import FamilyMetadataContext
 from .family_package_records import (
     SOURCE_KINDS,
     family_package_records,
-    record_datasets,
     record_sources,
 )
 
@@ -58,9 +59,6 @@ class SignoutScope:
     own: Mapping[str, frozenset[str]] | None = None
     # The sources the records of the family's other analyses list, per kind.
     others: Mapping[str, frozenset[str]] = field(default_factory=dict)
-    # The datasets the analysis's own record lists, and those the other analyses' records list.
-    own_datasets: frozenset[str] = frozenset()
-    other_datasets: frozenset[str] = frozenset()
     # The family's analyses.
     held: frozenset[str] = frozenset()
 
@@ -89,19 +87,21 @@ class SignoutScope:
             return True
         return bool(self.own.get(kind)) or not self.others.get(kind)
 
-    def holds_dataset(self, name: object) -> bool:
-        """Whether a package dataset (by its type: ``snv``, ``ccnv``…) is the analysis's: its own
-        record lists it, or no other analysis's record does."""
-        if self.own is None:
-            return True
-        return str(name) in self.own_datasets or str(name) not in self.other_datasets
-
     def holds_record(self, key: object) -> bool:
         """Whether a package record (by its key in ``family_package_records``) is the analysis's:
         its own, or one of no analysis the family holds (a package that named none)."""
         if self.own is None:
             return True
         return str(key) == self.analysis or str(key) not in self.held
+
+    def holds_mark(self, analysis_type: str | None) -> bool:
+        """Whether an import mark (an ``import_unfinished`` entry, a failure of the
+        ``import_incomplete`` flag) is the analysis's, by the analysis it records
+        (``family_package_registration.MARK_ANALYSIS_KEY``): the package record of the import
+        that left it -- the analysis's own, or one of no analysis the family holds
+        (``holds_record``) -- or none, for an upload's or a deletion's. The dataset a mark names
+        cannot say whose it is: analyses share dataset types (``snv``, ``qc``…)."""
+        return analysis_type is None or self.holds_record(analysis_type)
 
     def holds_application(self, analyses: Collection[str]) -> bool:
         """Whether the record section of an application read for ``analyses`` (the NIPT results:
@@ -124,22 +124,16 @@ def signout_scope(metadata: Mapping[str, Any] | None, analysis: str | None) -> S
         return SignoutScope(analysis=analysis)
     own: dict[str, frozenset[str]] = {kind: frozenset() for kind in SOURCE_KINDS}
     others: dict[str, set[str]] = {kind: set() for kind in SOURCE_KINDS}
-    own_datasets: frozenset[str] = frozenset()
-    other_datasets: set[str] = set()
     for key, record in family_package_records(metadata).items():
         if key == analysis:
             own = record_sources(record)
-            own_datasets = record_datasets(record)
         elif key in held:
             for kind, names in record_sources(record).items():
                 others[kind].update(names)
-            other_datasets.update(record_datasets(record))
     return SignoutScope(
         analysis=analysis,
         own=own,
         others={kind: frozenset(names) for kind, names in others.items()},
-        own_datasets=own_datasets,
-        other_datasets=frozenset(other_datasets),
         held=held,
     )
 

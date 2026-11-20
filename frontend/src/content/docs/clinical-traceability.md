@@ -269,10 +269,15 @@ is signed out on its own, and its signed version freezes and checks that analysi
   conventional NIPT, the embryo calls for PGT or the monogenic NIPT;
 - its Sample QC, on genotypes of its own (the conventional NIPT runs no check);
 - its sequencing QC, judged against its own cut-offs;
-- its package's delivery and package-folder changes, and what its imports left incomplete.
+- its package's delivery and package-folder changes, and what its own imports failed to import or
+  did not finish. Both packages of short-read and long-read WGS carry small variants, QC and
+  alignments, so CoGA records with each failure and each unfinished import the analysis it was
+  for: a failed long-read import does not hold the short-read sign-out.
 
 Data that no analysis claims as its own (an upload, an analyst's addition, a package that named no
-analysis) count in every analysis's sign-out. The gene panels and the versions are frozen whole.
+analysis) count in every analysis's sign-out, and so does what such a write failed to bring or did
+not finish. An overwrite whose putting back did not finish counts in every analysis's sign-out: it
+rewrote the whole family's data. The gene panels and the versions are frozen whole.
 Each sign-out check reads the analysis's own data, so a drifted classification, a Sample QC concern
 or a failed dataset of another analysis does not stop it.
 
@@ -434,6 +439,13 @@ Three kinds of write also mark the family before they write, and remove the mark
 Upload or import again, with **overwrite**, what the warning names: each part goes as it is brought
 again. Deleting a sample also removes that sample's items from the warning, and what a failed or
 stopped import's warning names of that sample alone: nothing of a sample that is gone can be missing.
+
+In a family of several analyses, *Import incomplete* names the analysis each failed dataset and each
+unfinished import was for (*failed for snv (long-read WGS)*, *A family-package import of the
+long-read WGS data*), and says that each analysis's sign-out is held only by what its own imports
+left and by what names no analysis. Only an import of the same analysis, or an upload, completes
+what an analysis's import left: another analysis's import brings its own QC and alignments, not that
+analysis's.
 
 CoGA writes each of these marks in one shape. If a family's marks are not in that shape, *Import
 incomplete* says so and names nothing: the family's data may be missing or partly written, and signing

@@ -419,12 +419,16 @@ item below (*One sign-out per analysis*).
   analysis; a record of a family of one analysis or none holds every analysis's.
 - **Import state:**
   - `import_incomplete`: null when the family's data imported completely; otherwise the failed and
-    the imported datasets, when, and the import job;
+    the imported datasets, when, the import job, the job of each failed dataset (`failed_jobs`) and
+    the analyses its failures are of (`failed_analysis_types`: each the key of the package record
+    of the import it failed in, null for a single-file upload's);
   - `import_unfinished`, the imports that stopped part-way: empty when there are none; otherwise
-    for each its import job, when it began, its datasets and those it finished. For a failed
-    overwrite whose restore did not finish, that is every dataset of the family still to import
-    again, none finished; for a single-file upload or a deletion that did not finish, no job, under
-    its `upload-…` or `deletion-…` key.
+    for each its import job, when it began, the analysis it is of (`analysis_type`), its datasets
+    and those it finished. For a failed overwrite whose restore did not finish, that is every
+    dataset of the family still to import again, none finished; for a single-file upload or a
+    deletion that did not finish, no job and no analysis, under its `upload-…` or `deletion-…` key.
+  - A record of one of a family's analyses holds only that analysis's marks and those of no
+    analysis (*One sign-out per analysis*, below).
 - **Package folders** (`package_source_changes`, gate 6): a family holds one package record per
   analysis it was imported for (the monogenic and the conventional NIPT of one pregnancy each have
   their own), and CoGA serves each analysis's source files from the folder its record names. The
@@ -711,9 +715,16 @@ checks that analysis's data only (the owner's decisions of 2026-11-19;
   analysis X when one of its sources is X's own or is claimed by no other analysis the family holds.
   So the data of an upload, of an analyst's addition or of a package that named no analysis belong
   to every analysis, and each sign-out freezes and checks them.
-- **A record not in the import's shape.** A package record whose `sources` or `datasets` are not in
-  the shape the import writes them stops the sign-out (`PackageRecordShapeError`): it does not guess
-  which data are the analysis's.
+- **Whose import mark.** The analyses of a family share dataset types (both a short-read and a
+  long-read package carry `snv`, `qc`, `alignments`), so the dataset an import mark names cannot
+  say whose it is. Each mark records the analysis it is of (`analysis_type`): an import's entry in
+  `import_unfinished` and each failure of its `import_incomplete` flag, the key of its package's
+  record (`unspecified` for a package that named no analysis); an upload's or a deletion's mark,
+  none. A mark of X, or of no analysis the family holds, or of none, is X's
+  (`SignoutScope.holds_mark`).
+- **A record not in the import's shape.** A package record whose `sources` are not in the shape the
+  import writes them stops the sign-out (`PackageRecordShapeError`): it does not guess which data
+  are the analysis's.
 
 A sign-out of analysis X freezes and checks:
 
@@ -726,7 +737,7 @@ A sign-out of analysis X freezes and checks:
 | `sample_qc` | the QC of X's own application (the conventional NIPT runs no check), of X's members (not a member only another analysis's package lists), on genotypes from a callset of X's own: of several of one kind, the one with calls for the most of them |
 | `sequencing_qc` | the sequencing QC X's own import recorded, and that of a package that named no analysis, each judged against its analysis's cut-offs |
 | `package_intake`, `package_source_changes` (gate 6) | X's own package record, and that of a package that named no analysis |
-| `import_incomplete`, `import_unfinished` (gate 5) | the datasets of X's record, or of no other analysis's record; a failed overwrite whose restore did not finish (`whole_family`) stays whole |
+| `import_incomplete`, `import_unfinished` (gate 5) | the marks of X's imports and of no analysis: the flag's failures of X or of none, with the time, job and imported datasets of the latest of them, and the entries of X or of none; the entry of a failed overwrite whose restore did not finish (`whole_family`), whichever analysis's import it was, as the restore rewrote the whole family's rows |
 | `gene_panels`, `reference_data`, `modules` | whole (`reference_data` for the genes the record describes) |
 
 The gates read this snapshot, so each gate is the analysis's own: a drifted classification, a QC
@@ -941,6 +952,16 @@ family page shows *Import incomplete* while one is set.
   from it what it brought again. Deleting a sample removes that sample's items, and the sample from
   the import-incomplete flag's failures and from a stopped import's entry; each goes once it names
   nothing else.
+- **Whose mark, in a family of several analyses.** Each mark records the analysis it is of
+  (`analysis_type`): a package import's flag failures and entry, the key of its package's record;
+  an upload's or a deletion's mark, none. A sign-out of one analysis is held by that analysis's
+  marks and by those of no analysis, never by another analysis's: a failed `snv` of the long-read
+  import does not hold the short-read sign-out, whose package carries an `snv` dataset too. A
+  restore that did not finish holds every analysis's sign-out, as it rewrote the whole family's
+  rows. Only an import of the same analysis, or an upload, completes a mark of an analysis: each
+  analysis's sequencing QC, alignments and pipeline record are its own, so another analysis's
+  import of the same dataset for the same samples brings none of them again. The gate, its dialog,
+  the family pages and the signed record name the analysis of each mark.
 
 **6. Package folder changed after its import** (REQ-TRACE-018; owner decisions of 2026-11-11). A
 family holds one package record per analysis it was imported for, and CoGA shows each analysis's

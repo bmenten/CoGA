@@ -3,8 +3,8 @@
 A family holding the monogenic and the conventional NIPT of one pregnancy, or short-read and then
 long-read WGS of the same DNA, signs out each analysis on its own, and each sign-out freezes and
 checks that analysis's data only (the owner's decisions of 2026-11-19). The data of an analysis are
-read from its package record's sources and datasets; data no other analysis claims belong to every
-analysis.
+read from its package record's sources; data no other analysis claims belong to every analysis. An
+import mark belongs to the analysis it records, or to every analysis when it records none.
 """
 
 from __future__ import annotations
@@ -58,7 +58,8 @@ def test_a_family_of_one_analysis_or_none_is_signed_out_whole() -> None:
         scope = signout_scope(metadata, analysis)
         assert scope.whole and scope.analysis == analysis
         assert scope.holds("small_variants", ["anything"])
-        assert scope.holds_kind("repeats") and scope.holds_dataset("snv") and scope.holds_record("x")
+        assert scope.holds_kind("repeats") and scope.holds_record("x")
+        assert scope.holds_mark("conventional_nipt") and scope.holds_mark(None)
         assert scope.holds_application(CNIPT_SECTION_ANALYSES)
     assert WHOLE_FAMILY.whole and WHOLE_FAMILY.analysis is None
 
@@ -85,12 +86,9 @@ def test_data_no_other_analysis_claims_belong_to_every_analysis() -> None:
         assert scope.holds("small_variants", ["upload"])
         # A variant whose stored rows are gone, whose sources cannot be told.
         assert scope.holds("small_variants", []) and scope.holds("small_variants", [None, ""])
-        # A dataset no record lists.
-        assert scope.holds_dataset("mito")
     # A package that named no analysis claims nothing: its sources are every analysis's.
     metadata = _two_nipts(unspecified=_record(["sv_needlr"]))
     assert signout_scope(metadata, "conventional_nipt").holds("structural_variants", ["needlr"])
-    assert signout_scope(metadata, "conventional_nipt").holds_dataset("sv_needlr")
 
 
 def test_a_kind_read_whole_is_the_analysis_s_when_it_or_no_other_holds_it() -> None:
@@ -118,7 +116,29 @@ def test_an_analysis_with_no_package_record_holds_what_no_other_claims() -> None
     scope = signout_scope(metadata, "conventional_nipt")
     assert not scope.holds("small_variants", ["nipt"])
     assert scope.holds("structural_variants", ["ccnv"])
-    assert not scope.holds_dataset("snv") and scope.holds_dataset("ccnv")
+
+
+def test_an_import_mark_is_the_analysis_s_it_records_or_every_analysis_s() -> None:
+    metadata = {
+        "analysis_types": ["long_read_wgs", "short_read_wgs"],
+        "package_imports": {
+            "long_read_wgs": _record(["snv", "qc"], "deepvariant"),
+            "short_read_wgs": _record(["snv", "qc"], "haplotypecaller"),
+        },
+    }
+    short_read = signout_scope(metadata, "short_read_wgs")
+    long_read = signout_scope(metadata, "long_read_wgs")
+    # Both analyses list snv and qc: a mark is told apart by the analysis it records, never by
+    # the dataset it names.
+    assert short_read.holds_mark("short_read_wgs") and not short_read.holds_mark("long_read_wgs")
+    assert long_read.holds_mark("long_read_wgs") and not long_read.holds_mark("short_read_wgs")
+    # An upload's or a deletion's mark records none; a package that named no analysis records
+    # `unspecified`, which the family never holds: each is every analysis's.
+    for scope in (short_read, long_read):
+        assert scope.holds_mark(None) and scope.holds_mark("unspecified")
+    # A mark of an analysis the family no longer holds (its import was put back) holds every
+    # analysis's sign-out: the safe side.
+    assert short_read.holds_mark("pgt") and long_read.holds_mark("pgt")
 
 
 def test_package_records_and_application_sections_by_analysis() -> None:
@@ -146,8 +166,6 @@ def test_package_records_and_application_sections_by_analysis() -> None:
         {"datasets": {}, "sources": {"tracks": ["ccnv"]}},
         {"datasets": {}, "sources": {**package_sources([], None), "tracks": "ccnv"}},
         {"datasets": {}, "sources": {**package_sources([], None), "tracks": [1]}},
-        {"datasets": ["ccnv"], "sources": package_sources(["ccnv"], None)},
-        {"sources": package_sources(["ccnv"], None)},
     ],
 )
 def test_a_record_not_in_the_shape_the_import_writes_stops_the_sign_out(record: dict[str, Any]) -> None:

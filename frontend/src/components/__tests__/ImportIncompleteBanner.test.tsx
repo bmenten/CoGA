@@ -7,7 +7,9 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import ImportIncompleteBanner, {
+  failedDatasetWords,
   failuresByJob,
+  importedAnalysisWords,
   importIncompleteFromMetadata,
   importMarksFromMetadata,
   ImportMarkShapeError,
@@ -16,8 +18,16 @@ import ImportIncompleteBanner, {
   unfinishedWriter,
 } from '../ImportIncompleteBanner';
 
+/** One failure of a flag as family_package_registration._flag_payload writes it. */
+const failure = (
+  scope: { source: string | null; samples: string[] | null },
+  jobId: string | null,
+  analysisType: string | null = 'unspecified',
+) => ({ scope, job_id: jobId, analysis_type: analysisType, at: '2026-09-12T10:14:00.123456+00:00', imported_datasets: [] });
+
 // As family_package_registration._flag_payload writes it: each failed dataset with the job
-// that holds its error, and each failure's scope.
+// that holds its error and the analyses its failures are of (the package named none), and
+// each failure.
 const FLAG_JOB = '3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b';
 const FLAG = {
   at: '2026-09-12T10:14:00.123456+00:00',
@@ -25,9 +35,10 @@ const FLAG = {
   imported_datasets: ['coverage'],
   job_id: FLAG_JOB,
   failed_jobs: { snv: FLAG_JOB, sv: FLAG_JOB },
+  failed_analysis_types: { snv: ['unspecified'], sv: ['unspecified'] },
   failed_scopes: {
-    snv: [{ scope: { source: 'clair3', samples: null }, job_id: FLAG_JOB }],
-    sv: [{ scope: { source: null, samples: null }, job_id: FLAG_JOB }],
+    snv: [failure({ source: 'clair3', samples: null }, FLAG_JOB)],
+    sv: [failure({ source: null, samples: null }, FLAG_JOB)],
   },
 };
 // As family_package_registration.ImportMark writes it: stopped inside haplotypes.
@@ -36,6 +47,7 @@ const UNFINISHED = {
   [STOPPED_JOB]: {
     job_id: STOPPED_JOB,
     at: '2026-10-02T09:12:00.5+00:00',
+    analysis_type: 'unspecified',
     datasets: ['apcad', 'haplotypes', 'qdnaseq'],
     finished_datasets: ['apcad', 'qdnaseq'],
     scopes: {
@@ -66,6 +78,10 @@ const OTHER_FLAGS: [string, unknown][] = [
   ['failed_jobs missing a failed dataset', { ...FLAG, failed_jobs: { snv: FLAG_JOB } }],
   ['failed_jobs naming a dataset that did not fail', { ...FLAG, failed_jobs: { ...FLAG.failed_jobs, coverage: FLAG_JOB } }],
   ['a failed dataset’s job that is no text', { ...FLAG, failed_jobs: { snv: FLAG_JOB, sv: 7 } }],
+  ['a flag without the analyses of its failures', without(FLAG, 'failed_analysis_types')],
+  ['analyses missing a failed dataset', { ...FLAG, failed_analysis_types: { snv: ['unspecified'] } }],
+  ['a failed dataset with no analysis listed', { ...FLAG, failed_analysis_types: { snv: ['unspecified'], sv: [] } }],
+  ['an analysis that is no name', { ...FLAG, failed_analysis_types: { snv: ['unspecified'], sv: [''] } }],
 ];
 const OTHER_UNFINISHED: [string, unknown][] = [
   ['text', 'garbage'],
@@ -80,6 +96,8 @@ const OTHER_UNFINISHED: [string, unknown][] = [
   ['datasets that are no list', { k: { ...UNFINISHED[STOPPED_JOB], datasets: 'snv' } }],
   ['finished datasets that are no list', { k: { ...UNFINISHED[STOPPED_JOB], finished_datasets: null } }],
   ['whole_family that is neither its items nor true', { k: { ...UNFINISHED[STOPPED_JOB], whole_family: 'yes' } }],
+  ['an entry without the analysis it is of', { k: without(UNFINISHED[STOPPED_JOB], 'analysis_type') }],
+  ['an analysis that is no name', { k: { ...UNFINISHED[STOPPED_JOB], analysis_type: '' } }],
 ];
 // As family_package_registration records them after an overwrite that failed and whose
 // restore did not finish: the flag names the import's datasets as failed, and its entry
@@ -91,9 +109,10 @@ const RESTORE_FLAG = {
   imported_datasets: [],
   job_id: RESTORE_JOB,
   failed_jobs: { coverage: RESTORE_JOB, snv: RESTORE_JOB },
+  failed_analysis_types: { coverage: ['unspecified'], snv: ['unspecified'] },
   failed_scopes: {
-    coverage: [{ scope: { source: null, samples: ['S1'] }, job_id: RESTORE_JOB }],
-    snv: [{ scope: { source: 'auto', samples: null }, job_id: RESTORE_JOB }],
+    coverage: [failure({ source: null, samples: ['S1'] }, RESTORE_JOB)],
+    snv: [failure({ source: 'auto', samples: null }, RESTORE_JOB)],
   },
 };
 const SV_CALLS = { dataset: 'sv_needlr', scope: { source: null, samples: null } };
@@ -101,6 +120,7 @@ const WHOLE_FAMILY = {
   [RESTORE_JOB]: {
     job_id: RESTORE_JOB,
     at: '2026-10-13T09:00:00+00:00',
+    analysis_type: 'unspecified',
     datasets: ['coverage', 'snv', 'sv_needlr'],
     finished_datasets: [],
     whole_family: [
@@ -119,6 +139,7 @@ const UPLOAD_MARK = {
   [UPLOAD_KEY]: {
     job_id: null,
     at: '2026-10-14T08:30:00+00:00',
+    analysis_type: null,
     datasets: ['sv_sniffles'],
     finished_datasets: [],
     whole_family: [
@@ -132,6 +153,7 @@ const DELETION_MARK = {
   [DELETION_KEY]: {
     job_id: null,
     at: '2026-10-14T09:00:00+00:00',
+    analysis_type: null,
     datasets: ['cnv', 'sv_needlr'],
     finished_datasets: [],
     whole_family: [
@@ -204,9 +226,10 @@ describe('ImportIncompleteBanner', () => {
       ...FLAG,
       job_id: null,
       failed_jobs: { snv: null, sv: null },
+      failed_analysis_types: { snv: [null], sv: [null] },
       failed_scopes: {
-        snv: [{ scope: { source: 'clair3', samples: null }, job_id: null }],
-        sv: [{ scope: { source: null, samples: null }, job_id: null }],
+        snv: [failure({ source: 'clair3', samples: null }, null, null)],
+        sv: [failure({ source: null, samples: null }, null, null)],
       },
     };
     render(<ImportIncompleteBanner metadata={{ import_incomplete: uploads }} />);
@@ -348,6 +371,7 @@ describe('importUnfinishedFromMetadata', () => {
     const later = {
       job_id: 'job-2',
       at: '2026-10-02T11:00:00+00:00',
+      analysis_type: 'long_read_wgs',
       datasets: ['snv'],
       finished_datasets: [],
       scopes: { snv: { source: 'clair3', samples: null } },
@@ -357,11 +381,20 @@ describe('importUnfinishedFromMetadata', () => {
         key: STOPPED_JOB,
         jobId: STOPPED_JOB,
         at: UNFINISHED[STOPPED_JOB].at,
+        analysisType: 'unspecified',
         datasets: ['apcad', 'haplotypes', 'qdnaseq'],
         finishedDatasets: ['apcad', 'qdnaseq'],
         wholeFamily: false,
       },
-      { key: 'job-2', jobId: 'job-2', at: later.at, datasets: ['snv'], finishedDatasets: [], wholeFamily: false },
+      {
+        key: 'job-2',
+        jobId: 'job-2',
+        at: later.at,
+        analysisType: 'long_read_wgs',
+        datasets: ['snv'],
+        finishedDatasets: [],
+        wholeFamily: false,
+      },
     ]);
   });
 
@@ -386,6 +419,7 @@ describe('importUnfinishedFromMetadata', () => {
         key: UPLOAD_KEY,
         jobId: null,
         at: UPLOAD_MARK[UPLOAD_KEY].at,
+        analysisType: null,
         datasets: ['sv_sniffles'],
         finishedDatasets: [],
         wholeFamily: false,
@@ -394,6 +428,7 @@ describe('importUnfinishedFromMetadata', () => {
         key: DELETION_KEY,
         jobId: null,
         at: DELETION_MARK[DELETION_KEY].at,
+        analysisType: null,
         datasets: ['cnv', 'sv_needlr'],
         finishedDatasets: [],
         wholeFamily: false,
@@ -419,6 +454,7 @@ describe('importUnfinishedFromMetadata', () => {
       key: RESTORE_JOB,
       jobId: RESTORE_JOB,
       at: WHOLE_FAMILY[RESTORE_JOB].at,
+      analysisType: 'unspecified',
       datasets: ['coverage', 'snv', 'sv_needlr'],
       finishedDatasets: [],
       wholeFamily: true,
@@ -460,6 +496,7 @@ describe('importIncompleteFromMetadata', () => {
       // A flag naming one job: it holds every dataset's error.
       failedJobs: { snv: FLAG.job_id, sv: FLAG.job_id },
       withoutJob: [],
+      failedAnalysisTypes: { snv: ['unspecified'], sv: ['unspecified'] },
     });
     // As the sign-out freezes it: without failed_scopes, read the same.
     const frozen = without(FLAG, 'failed_scopes');
@@ -491,9 +528,10 @@ describe('importIncompleteFromMetadata', () => {
         ...FLAG,
         job_id: null,
         failed_jobs: { snv: null, sv: null },
+        failed_analysis_types: { snv: [null], sv: [null] },
         failed_scopes: {
-          snv: [{ scope: { source: 'clair3', samples: null }, job_id: null }],
-          sv: [{ scope: { source: null, samples: null }, job_id: null }],
+          snv: [failure({ source: 'clair3', samples: null }, null, null)],
+          sv: [failure({ source: null, samples: null }, null, null)],
         },
       },
     });
@@ -523,5 +561,62 @@ describe('importMarksFromMetadata', () => {
     expect(importMarksFromMetadata({ import_incomplete: true })).toBe('unreadable');
     expect(importMarksFromMetadata({ import_incomplete: false, import_unfinished: UNFINISHED })).toBe('unreadable');
     expect(importMarksFromMetadata({ import_incomplete: FLAG, import_unfinished: 'garbage' })).toBe('unreadable');
+  });
+});
+
+// A family of several analyses (short-read and then long-read WGS of the same DNA) shares dataset
+// types: each mark names the analysis it is of, whose sign-out it holds.
+describe('the analysis each mark is of', () => {
+  const SEVERAL = {
+    analysis_types: ['long_read_wgs', 'short_read_wgs'],
+    import_incomplete: {
+      ...FLAG,
+      failed_datasets: ['qc', 'snv'],
+      failed_jobs: { qc: FLAG_JOB, snv: FLAG_JOB },
+      // The long-read import failed for snv; qc failed in both analyses' imports and in an upload.
+      failed_analysis_types: { qc: [null, 'long_read_wgs', 'short_read_wgs'], snv: ['long_read_wgs'] },
+      failed_scopes: {
+        qc: [
+          failure({ source: null, samples: ['S1'] }, null, null),
+          failure({ source: null, samples: ['S1'] }, FLAG_JOB, 'long_read_wgs'),
+          failure({ source: null, samples: ['S1'] }, FLAG_JOB, 'short_read_wgs'),
+        ],
+        snv: [failure({ source: 'deepvariant', samples: null }, FLAG_JOB, 'long_read_wgs')],
+      },
+    },
+    import_unfinished: { [STOPPED_JOB]: { ...UNFINISHED[STOPPED_JOB], analysis_type: 'short_read_wgs' } },
+  };
+
+  it('names the analysis of each failed dataset and unfinished import', () => {
+    render(<ImportIncompleteBanner metadata={SEVERAL} />);
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(
+      /A family-package import \(2026-09-12 10:14 UTC\) failed for qc \(long-read WGS, short-read WGS\) and snv \(long-read WGS\); coverage did import\./,
+    );
+    expect(banner).toHaveTextContent(
+      `A family-package import of the short-read WGS data (2026-10-02 09:12 UTC), import job ${STOPPED_JOB}, began writing`,
+    );
+    expect(banner).toHaveTextContent(
+      'Sign-out needs this acknowledged with a reason. Each analysis’s sign-out is held only by what its own imports left and by what names no analysis; a restore that did not finish holds every analysis’s.',
+    );
+  });
+
+  it('says nothing of analyses in a family of one', () => {
+    render(<ImportIncompleteBanner metadata={{ ...SEVERAL, analysis_types: ['short_read_wgs'] }} />);
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/Each analysis’s sign-out/);
+  });
+
+  it('reads the analyses as written, and names those it has a name for', () => {
+    const read = importIncompleteFromMetadata(SEVERAL)!;
+    expect(read.failedAnalysisTypes).toEqual(SEVERAL.import_incomplete.failed_analysis_types);
+    expect(failedDatasetWords(read, 'qc')).toBe('qc (long-read WGS, short-read WGS)');
+    // A package that named no analysis, or an upload: no name.
+    const plain = importIncompleteFromMetadata({ import_incomplete: FLAG })!;
+    expect(failedDatasetWords(plain, 'snv')).toBe('snv');
+    expect(importUnfinishedFromMetadata(SEVERAL)[0].analysisType).toBe('short_read_wgs');
+    expect(importedAnalysisWords('long_read_wgs')).toBe(' of the long-read WGS data');
+    expect(importedAnalysisWords('unspecified')).toBe('');
+    expect(importedAnalysisWords(null)).toBe('');
   });
 });

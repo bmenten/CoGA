@@ -332,6 +332,7 @@ def _whole_family_entry() -> dict[str, Any]:
     """The entry a restore that failed part-way left: the family's coverage, and S1's TRGT
     calls an upload brought, are still to be brought again."""
     mark = registration.ImportMark.begin(
+        analysis_type="unspecified",
         job_id="job-1", datasets=["coverage"], scopes={"coverage": {"source": None, "samples": ["S1"]}}
     )
     return {
@@ -352,7 +353,18 @@ def _repeats_failed() -> dict[str, Any]:
         "imported_datasets": [],
         "job_id": "job-0",
         "failed_jobs": {"repeats_trgt": "job-0"},
-        "failed_scopes": {"repeats_trgt": [{"scope": _REPEATS_S1, "job_id": "job-0"}]},
+        "failed_analysis_types": {"repeats_trgt": ["unspecified"]},
+        "failed_scopes": {
+            "repeats_trgt": [
+                {
+                    "scope": _REPEATS_S1,
+                    "job_id": "job-0",
+                    "analysis_type": "unspecified",
+                    "at": "2026-10-10T09:00:00+00:00",
+                    "imported_datasets": [],
+                }
+            ]
+        },
     }
 
 

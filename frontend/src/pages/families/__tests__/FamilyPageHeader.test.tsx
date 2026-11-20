@@ -109,7 +109,18 @@ describe('FamilyPageHeader', () => {
             imported_datasets: ['sv'],
             job_id: 'job-1',
             failed_jobs: { snv: 'job-1' },
-            failed_scopes: { snv: [{ scope: { source: 'auto', samples: null }, job_id: 'job-1' }] },
+            failed_analysis_types: { snv: ['unspecified'] },
+            failed_scopes: {
+              snv: [
+                {
+                  scope: { source: 'auto', samples: null },
+                  job_id: 'job-1',
+                  analysis_type: 'unspecified',
+                  at: '2026-09-12T10:14:00+00:00',
+                  imported_datasets: ['sv'],
+                },
+              ],
+            },
           },
         },
       },
@@ -131,6 +142,7 @@ describe('FamilyPageHeader', () => {
             'job-1': {
               job_id: 'job-1',
               at: '2026-09-13T08:00:00+00:00',
+              analysis_type: 'unspecified',
               datasets: ['snv'],
               finished_datasets: [],
               scopes: { snv: { source: 'auto', samples: null } },

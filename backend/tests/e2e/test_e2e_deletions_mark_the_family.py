@@ -208,6 +208,14 @@ def run(tmp_path_factory) -> dict[str, Any]:
         mp.undo()
 
 
+def _scope_jobs(flag: dict) -> dict:
+    """Each failure the flag records, by its dataset, as its scope and job."""
+    return {
+        name: [{"scope": item["scope"], "job_id": item["job_id"]} for item in items]
+        for name, items in flag["failed_scopes"].items()
+    }
+
+
 def test_the_trio_and_its_data_are_uploaded(run) -> None:
     for name in ("ped", "clair3", "sv_child", "sv_father", "bed"):
         assert run["steps"][name]["status"] == 200, run["steps"][name]["text"]
@@ -429,6 +437,6 @@ def test_an_snv_overwrite_whose_file_is_refused_without_a_backup_keeps_the_calls
     # The import failed for the dataset, and says so.
     flag = step["family"]["flag"]
     assert flag["failed_datasets"] == ["snv"]
-    assert flag["failed_scopes"] == {
+    assert _scope_jobs(flag) == {
         "snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": step["job_id"]}]
     }

@@ -101,7 +101,7 @@ def package_sources(dataset_types: Iterable[str], snv_callset: str | None) -> di
 
 
 class PackageRecordShapeError(ValueError):
-    """A package record whose sources or datasets are not in the shape the import writes them:
+    """A package record whose sources are not in the shape the import writes them:
     what reads them stops rather than guess which data are the analysis's."""
 
 
@@ -118,15 +118,6 @@ def record_sources(record: Mapping[str, Any]) -> dict[str, frozenset[str]]:
     ):
         raise PackageRecordShapeError("A package record's sources are not in the shape the import writes.")
     return {kind: frozenset(names) for kind, names in sources.items()}
-
-
-def record_datasets(record: Mapping[str, Any]) -> frozenset[str]:
-    """The dataset types a package record lists. Raises ``PackageRecordShapeError`` when they
-    are not in the shape the import writes."""
-    datasets = record.get("datasets")
-    if not isinstance(datasets, Mapping):
-        raise PackageRecordShapeError("A package record's datasets are not in the shape the import writes.")
-    return frozenset(str(name) for name in datasets)
 
 
 # How a message names the data of each kind.

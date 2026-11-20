@@ -896,10 +896,10 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     async def sequencing_qc(_session, _context, _scope=None):
         return {"analyses": {}}
 
-    async def complete(_session, _family_uuid):
+    async def complete(_session, _family_uuid, _scope):
         return None
 
-    async def unfinished(_session, _family_uuid):
+    async def unfinished(_session, _family_uuid, _scope):
         return {}
 
     async def section(*_args, **_kwargs):

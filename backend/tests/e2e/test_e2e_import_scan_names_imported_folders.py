@@ -76,6 +76,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
             None,
             at="2026-10-01T09:00:00+00:00",
             job_id=None,
+            analysis_type=None,
             failed=["snv"],
             imported=[],
             scopes={"snv": {"source": "clair3", "samples": None}},

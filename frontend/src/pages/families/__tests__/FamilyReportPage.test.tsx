@@ -4088,13 +4088,31 @@ describe('FamilyReportPage', () => {
       imported_datasets: ['coverage'],
       job_id: IMPORT_JOB_ID,
       failed_jobs: { snv: IMPORT_JOB_ID, sv: IMPORT_JOB_ID },
+      // The package named no analysis.
+      failed_analysis_types: { snv: ['unspecified'], sv: ['unspecified'] },
     };
     // As the import writes it in the family's metadata: each failure with its scope too.
     const STORED_IMPORT_FLAG = {
       ...IMPORT_FLAG,
       failed_scopes: {
-        snv: [{ scope: { source: 'auto', samples: null }, job_id: IMPORT_JOB_ID }],
-        sv: [{ scope: { source: null, samples: null }, job_id: IMPORT_JOB_ID }],
+        snv: [
+          {
+            scope: { source: 'auto', samples: null },
+            job_id: IMPORT_JOB_ID,
+            analysis_type: 'unspecified',
+            at: IMPORT_FLAG.at,
+            imported_datasets: ['coverage'],
+          },
+        ],
+        sv: [
+          {
+            scope: { source: null, samples: null },
+            job_id: IMPORT_JOB_ID,
+            analysis_type: 'unspecified',
+            at: IMPORT_FLAG.at,
+            imported_datasets: ['coverage'],
+          },
+        ],
       },
     };
     const IMPORT_FINGERPRINT = 'e'.repeat(64);
@@ -4244,6 +4262,7 @@ describe('FamilyReportPage', () => {
                 failed_datasets: ['coverage', 'snv', 'sv'],
                 imported_datasets: [],
                 failed_jobs: { coverage: IMPORT_JOB_ID, snv: IMPORT_JOB_ID, sv: IMPORT_JOB_ID },
+                failed_analysis_types: { coverage: ['unspecified'], snv: ['unspecified'], sv: ['unspecified'] },
               },
               concerns_fingerprint: changedFingerprint,
               concerns_changed: true,
@@ -4343,6 +4362,7 @@ describe('FamilyReportPage', () => {
       [STOPPED_JOB_ID]: {
         job_id: STOPPED_JOB_ID,
         at: '2026-10-02T09:12:00+00:00',
+        analysis_type: 'unspecified',
         datasets: ['apcad', 'haplotypes', 'qdnaseq'],
         finished_datasets: ['apcad', 'qdnaseq'],
       },
@@ -4362,7 +4382,13 @@ describe('FamilyReportPage', () => {
               import_unfinished: {
                 ...UNFINISHED,
                 // Stopped after its last dataset had finished.
-                'job-2': { job_id: 'job-2', at: '2026-10-02T11:00:00+00:00', datasets: ['snv'], finished_datasets: ['snv'] },
+                'job-2': {
+                  job_id: 'job-2',
+                  at: '2026-10-02T11:00:00+00:00',
+                  analysis_type: 'unspecified',
+                  datasets: ['snv'],
+                  finished_datasets: ['snv'],
+                },
               },
             },
           },
@@ -4489,6 +4515,7 @@ describe('FamilyReportPage', () => {
       const restore = {
         job_id: 'job-r',
         at: '2026-10-13T09:00:00+00:00',
+        analysis_type: 'long_read_wgs',
         datasets: ['coverage', 'snv'],
         finished_datasets: [],
         whole_family: true,
@@ -4517,7 +4544,7 @@ describe('FamilyReportPage', () => {
       });
       expect(
         within(dialog).getByText(
-          'Restore not finished (import job job-r): coverage, snv may be partly written or missing, whichever import or upload wrote them',
+          'Restore not finished (import job job-r, long-read WGS): coverage, snv may be partly written or missing, whichever import or upload wrote them',
         ),
       ).toBeInTheDocument();
       unmount();
@@ -4536,7 +4563,7 @@ describe('FamilyReportPage', () => {
       await signedRecordCard();
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(checks).toHaveTextContent(
-        /import job job-r, had failed, and putting the family’s data back had not finished: coverage and snv may have been partly written or missing, whichever import or upload wrote them\./,
+        /An import of the long-read WGS data \(begun [^)]*\), import job job-r, had failed, and putting the family’s data back had not finished: coverage and snv may have been partly written or missing, whichever import or upload wrote them\./,
       );
       expect(checks).not.toHaveTextContent(/had begun writing the family’s data/);
     });
@@ -4570,12 +4597,14 @@ describe('FamilyReportPage', () => {
       [UPLOAD_KEY]: {
         job_id: null,
         at: '2026-10-14T08:30:00+00:00',
+        analysis_type: null,
         datasets: ['sv_sniffles'],
         finished_datasets: [],
       },
       [DELETION_KEY]: {
         job_id: null,
         at: '2026-10-14T09:00:00+00:00',
+        analysis_type: null,
         datasets: ['cnv', 'sv_needlr'],
         finished_datasets: [],
       },

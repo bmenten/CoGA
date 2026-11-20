@@ -45,6 +45,7 @@ from backend.app.services import (
     variant_upload_service,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from backend.app.services.signout_scope import WHOLE_FAMILY
 from backend.tests._family_import_state_fakes import FamilyImportState
 
 _FAMILY = FamilyMetadataContext(
@@ -469,7 +470,7 @@ _DELETION_KEY = "deletion-9f8e7d6c5b4a39281706f5e4d3c2b1a0"
 
 def _frozen(at: str, datasets: list[str]) -> dict[str, Any]:
     """An entry as the sign-out freezes it (``_import_unfinished_state``)."""
-    return {"job_id": None, "at": at, "datasets": datasets, "finished_datasets": []}
+    return {"job_id": None, "at": at, "analysis_type": None, "datasets": datasets, "finished_datasets": []}
 
 
 def test_the_gate_message_names_a_single_file_upload_that_did_not_finish() -> None:
@@ -492,6 +493,7 @@ def test_the_gate_message_names_a_deletion_and_an_import_apart() -> None:
             "job-1": {
                 "job_id": "job-1",
                 "at": "2026-10-13T09:00:00+00:00",
+                "analysis_type": "long_read_wgs",
                 "datasets": ["coverage"],
                 "finished_datasets": [],
             },
@@ -499,7 +501,10 @@ def test_the_gate_message_names_a_deletion_and_an_import_apart() -> None:
         },
     )
 
-    assert "an import (2026-10-13T09:00:00+00:00) stopped before it finished, so coverage" in message
+    assert (
+        "an import of this family's long-read WGS data (2026-10-13T09:00:00+00:00) stopped before it "
+        "finished, so coverage" in message
+    )
     assert (
         "Also, a deletion of this family's data (2026-10-14T09:00:00+00:00) did not finish, so cnv, "
         "sv_needlr may be partly written or missing." in message
@@ -521,10 +526,18 @@ async def test_the_sign_out_freezes_an_uploads_mark_as_an_unfinished_entry() -> 
         async def execute(self, *_args, **_kwargs):
             return SimpleNamespace(scalar_one_or_none=lambda: {mark.key: mark.entry()})
 
-    state = await report_signout_service._import_unfinished_state(_Session(), "family-uuid")  # type: ignore[arg-type]
+    state = await report_signout_service._import_unfinished_state(_Session(), "family-uuid", WHOLE_FAMILY)  # type: ignore[arg-type]
 
     # The snapshot's shape, its key kept: what wrote the entry is read from it again.
-    assert state == {mark.key: {"job_id": None, "at": mark.at, "datasets": ["sv_sniffles"], "finished_datasets": []}}
+    assert state == {
+        mark.key: {
+            "job_id": None,
+            "at": mark.at,
+            "analysis_type": None,
+            "datasets": ["sv_sniffles"],
+            "finished_datasets": [],
+        }
+    }
     assert family_package_registration.unfinished_entry_writer(mark.key) == "upload"
 
 
@@ -539,6 +552,7 @@ async def test_an_import_that_brings_an_uploads_data_again_strikes_it_off_the_ma
     left = await family_package_registration._clear_family_import_incomplete(
         database,  # type: ignore[arg-type]
         context,  # type: ignore[arg-type]
+        analysis_type="unspecified",
         import_key="job-2",
         rewritten={"snv": _CLAIR3},
         imported={"snv": _CLAIR3},

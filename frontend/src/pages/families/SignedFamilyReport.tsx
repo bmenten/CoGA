@@ -34,7 +34,9 @@ import {
 import type { ReportedClass } from './reportNarrative';
 import { NIPT_QUALITY_FAILURE_LABELS } from './NiptQcPanel';
 import {
+  failedDatasetWords,
   failuresByJob,
+  importedAnalysisWords,
   pendingDatasets,
   unfinishedWriter,
   WRITER_LABELS,
@@ -272,7 +274,7 @@ const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
   }
   if (entry.wholeFamily) {
     // A failed overwrite whose restore did not finish, as the record froze it.
-    return `An import (begun ${formatReportTime(entry.at)})${
+    return `An import${importedAnalysisWords(entry.analysisType)} (begun ${formatReportTime(entry.at)})${
       entry.jobId ? `, import job ${entry.jobId},` : ''
     } had failed, and putting the family’s data back had not finished${
       pending.length
@@ -282,7 +284,7 @@ const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
         : ''
     }.`;
   }
-  return `An import (begun ${formatReportTime(entry.at)})${
+  return `An import${importedAnalysisWords(entry.analysisType)} (begun ${formatReportTime(entry.at)})${
     entry.jobId ? `, import job ${entry.jobId},` : ''
   } had begun writing the family’s data and had not finished${
     pending.length
@@ -1455,7 +1457,9 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
               <>
                 The family’s data was incomplete:{' '}
                 {failedImport.failedDatasets.length
-                  ? `${joinWithAnd(failedImport.failedDatasets)} failed to import`
+                  ? `${joinWithAnd(
+                      failedImport.failedDatasets.map((name) => failedDatasetWords(failedImport, name)),
+                    )} failed to import`
                   : 'which datasets failed was not recorded'}
                 {failedImport.importedDatasets.length
                   ? `; ${joinWithAnd(failedImport.importedDatasets)} did import`

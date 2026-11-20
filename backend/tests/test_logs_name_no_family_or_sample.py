@@ -113,7 +113,7 @@ def _context() -> SimpleNamespace:
 
 
 def _mark() -> registration.ImportMark:
-    return registration.ImportMark.begin(job_id="job-1", datasets=["snv"])
+    return registration.ImportMark.begin(analysis_type="unspecified", job_id="job-1", datasets=["snv"])
 
 
 def _write_mark() -> registration.FamilyWriteMark:
@@ -131,7 +131,7 @@ _WRITES: dict[str, Callable[[_FailingSession], Awaitable[Any]]] = {
         session, _context(), import_key="job-1"  # type: ignore[arg-type]
     ),
     "the import-incomplete flag": lambda session: registration._flag_family_import_incomplete(
-        session, _context(), failed_datasets=["snv"], imported_datasets=[], scopes={}  # type: ignore[arg-type]
+        session, _context(), failed_datasets=["snv"], imported_datasets=[], scopes={}, analysis_type="unspecified"  # type: ignore[arg-type]
     ),
     "the restore's whole-family entry": lambda session: registration._mark_family_import_restoring(
         session, _context(), _mark()  # type: ignore[arg-type]
@@ -140,7 +140,7 @@ _WRITES: dict[str, Callable[[_FailingSession], Awaitable[Any]]] = {
         session, _context(), failed_datasets=["snv"], job_id="job-1", mark=_mark(), scopes={}  # type: ignore[arg-type]
     ),
     "the clear of a completed import": lambda session: fpi._clear_family_import_incomplete(
-        session, _context(), import_key="job-1"  # type: ignore[arg-type]
+        session, _context(), import_key="job-1", analysis_type="unspecified"  # type: ignore[arg-type]
     ),
     "the end of an upload's mark": lambda session: registration.end_family_write_mark(
         session, family_uuid=FAMILY_UUID, mark=_write_mark()  # type: ignore[arg-type]

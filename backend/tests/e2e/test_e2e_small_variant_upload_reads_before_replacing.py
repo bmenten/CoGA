@@ -270,6 +270,14 @@ def _held(step: dict[str, Any]) -> dict[str, Any]:
     return {key: step[key] for key in ("clair3", "glimpse2", "blocks", "block_records", "flag", "imported")}
 
 
+def _scope_jobs(flag: dict) -> dict:
+    """Each failure the flag records, by its dataset, as its scope and job."""
+    return {
+        name: [{"scope": item["scope"], "job_id": item["job_id"]} for item in items]
+        for name, items in flag["failed_scopes"].items()
+    }
+
+
 def test_the_family_and_both_callsets_are_uploaded(run) -> None:
     assert run["steps"]["ped"]["status"] == 200, run["steps"]["ped"]["text"]
     for name in ("clair3", "glimpse2"):
@@ -323,7 +331,7 @@ def test_a_write_that_fails_after_the_delete_flags_the_family_until_it_is_upload
     # warns, and sign-out needs it acknowledged.
     flag = failed["flag"]
     assert (flag["failed_datasets"], flag["imported_datasets"], flag["job_id"]) == (["snv"], [], None)
-    assert flag["failed_scopes"] == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
+    assert _scope_jobs(flag) == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
     page = run["family_page"]
     assert page["status"] == 200
     assert page["json"]["metadata"]["import_incomplete"] == flag
