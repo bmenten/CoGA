@@ -560,11 +560,13 @@ marks its analyses to be redone.
 `same_individual_as`: a conventional NIPT's plasma names the monogenic NIPT's plasma of the same
 pregnancy when the two carry different sample IDs. The pedigree then draws them as one person, and
 Sample QC expects their genotypes identical. A sample the package does not list must already be an
-active member of the family; otherwise the delivery needs attention and its import is refused before
-anything is written. Import the monogenic NIPT's package first, or leave the link out and link the two
-samples afterwards in the family's **Family members** table (**Edit members**, column **Same
-individual**). *Update* adds the package's links of the members it adds, and *Overwrite* keeps such a
-link to another analysis's member.
+active member of the family, its ID written exactly as the family holds it; otherwise the delivery
+needs attention and its import is refused before anything is written. Import the monogenic NIPT's
+package first (the delivery is then checked again), or leave the link out and link the two samples
+afterwards in the family's **Family members** table (**Edit members**, column **Same individual**).
+*Update* adds the package's links of the members it adds; a link between two samples the family already
+holds is not made, and the delivery and the import warn of it. *Overwrite* makes the package's links the
+family's, and keeps such a link to another analysis's member.
 
 **An existing family imported into another project.** The family is linked to that **Project**
 too, and before its datasets the import gives the project the family's small and structural

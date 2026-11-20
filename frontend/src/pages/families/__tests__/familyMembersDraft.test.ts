@@ -231,6 +231,12 @@ describe('the family members draft', () => {
       'INDEX1',
       'EMB1',
     ]);
+    // The member being added, not in the draft yet: by the sex chosen for it.
+    expect(sameIndividualCandidates(saved, '', 'male').map((member) => member.sample_id)).toEqual([
+      'FATHER1',
+      'EMB1',
+    ]);
+    expect(sameIndividualCandidates(saved, '').map((member) => member.sample_id)).toHaveLength(5);
     const draft = withSameIndividual(saved, 'MOTHER2', 'MOTHER');
     expect(sameIndividualOf(draft, 'MOTHER')).toBe('MOTHER2');
     expect(memberChanged(draft, saved, 'MOTHER')).toBe(true);

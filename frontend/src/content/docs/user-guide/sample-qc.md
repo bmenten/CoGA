@@ -17,6 +17,9 @@ The page first works out what kind of case it is and runs only the checks that f
 - **Carrier couple** — sex per partner, and that the two are unrelated.
 - **Single sample** — sex only.
 
+Two samples linked as the same individual count as one person here: one person sampled twice is a
+single sample, a couple with a partner sampled twice a carrier couple.
+
 The checks read the family's genotypes (*Read from* in the header names the call set and the number
 of sites). A genotype with a quality (GQ) below 20 counts as a no-call.
 
@@ -42,7 +45,8 @@ of sites). A genotype with a quality (GQ) below 20 counts as a no-call.
   below a fixed 0.8% without them; otherwise as siblings. The pair's message gives the cut. Two samples
   recorded as the same individual pass when their genotypes look a duplicate (*Duplicate / same
   individual / MZ twin* in the legend), and fail otherwise: a possible sample swap. What the pedigree
-  records of one of them (its parents, children, siblings) is expected of the other too.
+  records of a person (its parents, children, siblings, co-parent) is expected of each of its samples,
+  with each sample of the other person.
 - **Paternity**, **Fetal sex** and **cfDNA category QC** — for a cfDNA family.
 - **Sequencing & embryo QC** — under its own heading in the per-sample table: each sample's sequencing
   QC as its pipeline reported it, one column per measure. These are mean depth and alignment and, for a

@@ -465,6 +465,55 @@ test('draws two samples of one person as one symbol labelled with both', async (
   ).toBeInTheDocument();
 });
 
+test('draws a person of two samples with what either sample records', async () => {
+  // The mother's own sample records no sex and no status; her second sample does.
+  const { container } = render(
+    <Pedigree
+      rows={[
+        { fid: 'F1', iid: 'DAD', pid: '0', mid: '0', sex: '1', phen: '1' },
+        { fid: 'F1', iid: 'MOM', pid: '0', mid: '0', sex: '0', phen: '0' },
+        { fid: 'F1', iid: 'FETUS', pid: 'DAD', mid: 'MOM', sex: '0', phen: '0' },
+        { fid: 'F1', iid: 'MOM2', pid: '0', mid: '0', sex: '2', phen: '2' },
+      ]}
+      members={[
+        { sample_id: 'MOM', sex: 'und', clinical_status: 'unknown' },
+        { sample_id: 'MOM2', sex: 'female', clinical_status: 'affected' },
+      ]}
+      relationships={[{ relationship_type: 'same_individual', sample_id_a: 'MOM', sample_id_b: 'MOM2' }]}
+    />
+  );
+  await waitFor(() => expect(container.querySelector('[data-pedigree-node="MOM"]')).not.toBeNull());
+
+  const mom = container.querySelector('[data-pedigree-node="MOM"]');
+  expect(container.querySelector('[data-pedigree-label="MOM"]')?.textContent).toBe('MOM / MOM2');
+  // A circle (female), filled (affected): not the diamond and white fill of MOM's own row.
+  expect(mom?.querySelector('circle')?.getAttribute('fill')).toBe('black');
+  expect(screen.getByRole('img', { name: /1 member drawn with several samples, 1 affected/ })).toBeInTheDocument();
+});
+
+test('draws the carrier status of either sample of a person', async () => {
+  const { container } = render(
+    <Pedigree
+      rows={[
+        ...baseRows,
+        { fid: 'F1', iid: 'FETUS', pid: 'DAD', mid: 'MOM', sex: '0', phen: '0' },
+        { fid: 'F1', iid: 'MOM2', pid: '0', mid: '0', sex: '2', phen: '1' },
+      ]}
+      members={[
+        { sample_id: 'MOM', carrier_status: 'unknown' },
+        { sample_id: 'MOM2', carrier_status: 'carrier', carrier_type: 'obligate' },
+      ]}
+      relationships={[{ relationship_type: 'same_individual', sample_id_a: 'MOM2', sample_id_b: 'MOM' }]}
+    />
+  );
+  await waitFor(() => expect(container.querySelector('[data-pedigree-node="MOM"]')).not.toBeNull());
+
+  const mom = container.querySelector('[data-pedigree-node="MOM"]');
+  const halfFill = Array.from(mom?.querySelectorAll('path') ?? []).find((path) => !path.hasAttribute('data-qc-ring'));
+  expect(halfFill?.getAttribute('fill')).toBe('#2563eb');
+  expect(mom?.querySelector('title')?.textContent).toBe('Carrier (obligate)');
+});
+
 const labelExtents = (container: HTMLElement) => {
   const positions = pedigreePositions(container);
   return [...container.querySelectorAll('[data-pedigree-label]')].map((label) => {

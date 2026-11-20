@@ -1,7 +1,8 @@
 """Two samples of one person (a same-individual link) as a package gives them: the member field
 ``same_individual_as`` of ``coga-package.json``, what the import's manifest makes of it
 (``family.relationships.same_individual``), the relationship rows, and the checks that need no
-family. The checks against the family (a sample neither in the package nor in the family) are in
+family. The checks against what the family holds (a sample neither in the package nor in the family, a
+link an update does not make) are tested here on the family's samples as given, and end to end in
 ``test_e2e_same_individual_link.py``; those of the structure edit in
 ``test_family_structure_validation.py``."""
 
@@ -20,6 +21,12 @@ from backend.app.services.family_package_manifest import (
     _manifest_relationship_issues,
     _manifest_relationships,
     _parse_ped_text_strict,
+)
+from backend.app.services.family_package_registration import (
+    FamilySamplesHeld,
+    same_individual_not_made,
+    same_individual_not_made_message,
+    same_individual_outside,
 )
 
 
@@ -99,6 +106,14 @@ def test_two_members_naming_each_other_are_one_link() -> None:
             ],
             "PLASMA1 is also recorded as a relative of PLASMA2",
         ),
+        (
+            # A sample is named as its ID is written.
+            [
+                {"sample_id": "PLASMA1", "sex": "female"},
+                {"sample_id": "PLASMA2", "sex": "female", "same_individual_as": ["plasma1"]},
+            ],
+            "plasma1 differs from member PLASMA1 only in case",
+        ),
     ],
 )
 def test_a_same_individual_link_the_package_alone_shows_wrong_is_refused(
@@ -165,6 +180,8 @@ def test_the_manifest_makes_a_relationship_row_of_each_link() -> None:
             {"relatives": [{"member": "PLASMA2", "related_to": ["PLASMA1"]}]},
             [("manifest_same_individual_link_invalid", "PLASMA2")],
         ),
+        # A member named in another case is not that member, nor a sample outside the package.
+        ([{"samples": ["PLASMA2", "plasma1"]}], {}, [("manifest_same_individual_link_invalid", "plasma1")]),
     ],
 )
 def test_a_manifest_link_must_add_to_what_the_family_records(
@@ -176,3 +193,52 @@ def test_a_manifest_link_must_add_to_what_the_family_records(
 def test_the_field_is_the_laboratorys_to_correct_on_a_delivery() -> None:
     assert "same_individual_as" in revisions.LABORATORY_MEMBER_FIELDS
     assert "same_individual_as" not in revisions.PIPELINE_MEMBER_FIELDS
+
+
+# --- against what the family holds ------------------------------------------------------------
+
+_LINK = [("PLASMA2", "PLASMA1")]
+
+
+def test_a_link_to_a_sample_the_family_holds_can_be_made() -> None:
+    held = FamilySamplesHeld("FAM001", frozenset({"FATHER", "PLASMA1", "FETUS"}))
+
+    assert same_individual_outside(_LINK, package_ids={"PLASMA2"}, held=held) is None
+    # A member of the package is never outside it.
+    assert same_individual_outside([("PLASMA2", "PLASMA3")], package_ids={"PLASMA2", "PLASMA3"}, held=held) is None
+
+
+def test_a_link_to_a_sample_the_family_lacks_or_holds_in_another_case_cannot() -> None:
+    lacking = same_individual_outside(_LINK, package_ids={"PLASMA2"}, held=FamilySamplesHeld("FAM001"))
+    assert lacking is not None
+    assert "links PLASMA1 to one of its members as the same individual, but family 'FAM001' does not hold" in lacking
+
+    other_case = same_individual_outside(
+        _LINK, package_ids={"PLASMA2"}, held=FamilySamplesHeld("FAM001", frozenset({"plasma1"}))
+    )
+    assert other_case is not None
+    assert "A sample is named as its ID is written: the package or the family holds plasma1." in other_case
+
+
+def test_an_overwrite_cannot_link_a_member_it_makes_inactive() -> None:
+    # PLASMA1 was added by hand: neither this package nor another analysis's lists it.
+    held = FamilySamplesHeld("FAM001", frozenset({"FATHER", "PLASMA1", "PLASMA2"}))
+
+    assert same_individual_outside(_LINK, package_ids={"PLASMA2"}, held=held, kept={"PLASMA1"}) is None
+    message = same_individual_outside(_LINK, package_ids={"PLASMA2"}, held=held, kept={"FATHER"})
+    assert message is not None
+    assert "the overwrite makes that member of family 'FAM001' inactive" in message
+
+
+def test_an_update_does_not_make_a_link_between_two_samples_the_family_holds() -> None:
+    both = FamilySamplesHeld("FAM001", frozenset({"PLASMA1", "PLASMA2", "PLASMA3"}))
+
+    assert same_individual_not_made(_LINK, held=both) == [("PLASMA1", "PLASMA2")]
+    assert "an update adds only the links of the members it adds" in same_individual_not_made_message(
+        [("PLASMA1", "PLASMA2")], family_id="FAM001"
+    )
+    # Linked already, directly or through another sample; or one sample the update adds.
+    assert same_individual_not_made(_LINK, held=FamilySamplesHeld("FAM001", both.members, (("PLASMA1", "PLASMA2"),))) == []
+    through = FamilySamplesHeld("FAM001", both.members, (("PLASMA1", "PLASMA3"), ("PLASMA3", "PLASMA2")))
+    assert same_individual_not_made(_LINK, held=through) == []
+    assert same_individual_not_made(_LINK, held=FamilySamplesHeld("FAM001", frozenset({"PLASMA1"}))) == []

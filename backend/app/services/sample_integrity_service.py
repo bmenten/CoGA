@@ -37,6 +37,7 @@ from .metadata_service import get_family_record
 from .access_control import CurrentUser
 from .nipt import resolve_nipt_trio
 from .family_package_records import UNSPECIFIED_ANALYSIS
+from .same_individual import persons, same_individual_pairs
 from .small_variant_callsets import callset_preference
 from .sample_integrity_qc import (
     FetalSexCheck,
@@ -192,16 +193,11 @@ def _build_pedigree_spec(context: FamilyMetadataContext) -> PedigreeSpec:
         if row.get("sample_id")
     }
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
-    same_individual = [
-        (str(row["sample_id_a"]), str(row["sample_id_b"]))
-        for row in context.relationship_rows
-        if row.get("relationship_type") == "same_individual" and row.get("sample_id_a") and row.get("sample_id_b")
-    ]
     return PedigreeSpec(
         recorded_sex=recorded_sex,
         parents_of=pedigree.parents_of,
         roles=pedigree.roles,
-        same_individual=same_individual,
+        same_individual=same_individual_pairs(context.relationship_rows),
     )
 
 
@@ -396,7 +392,7 @@ async def get_family_sample_integrity_qc(
         analysis_types=types,
         roles=pedigree.roles,
         parents_of=pedigree.parents_of,
-        sample_count=len(samples),
+        person_count=len(persons(samples, spec.same_individual)),
     )
     profile = profile_for(application)
 

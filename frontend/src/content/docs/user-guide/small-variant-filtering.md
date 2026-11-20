@@ -133,7 +133,9 @@ The card's columns:
   thresholds are seqr's, from ClinGen's calibration of the predictors; SpliceAI uses the cut-offs of
   CoGA's ACMG evaluation. pLI and Missense Z describe the gene and have no dot.
 
-*Expanded carrier screening* is for couples only. It keeps:
+*Expanded carrier screening* is for couples only. The couple is the two partners the family links as a
+couple, else its mother and father, else its two people. Two samples linked as the same individual are
+one person, never a couple: a family of one person sampled twice has no couple. It keeps:
 
 - the genes where both partners carry a rare (below 1%) high- or moderate-impact variant;
 - the variants a female partner carries on chrX outside the pseudo-autosomal regions, which put a son

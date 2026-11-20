@@ -69,6 +69,7 @@ from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import family_managed_files, record_raw_import_file, store_managed_file
 from .roi_gene_lookup import roi_gene_region
+from .same_individual import person_of
 from .vcf_header_provenance import reference_name
 
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ImportRefused, ParsedPed, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path, manifest_text_sha256
@@ -2114,11 +2115,27 @@ async def _ensure_family_from_ped(
         differences = await family_member_differences(
             session, family_id=family_id, ped=bundle.ped, analysis_type=bundle.manifest.analysis_type
         )
-        if conflict_mode != "overwrite" and not differences.kept_by_an_update:
+        overwrite = conflict_mode == "overwrite"
+        if not overwrite and not differences.kept_by_an_update:
             raise ImportRefused(members_differ_message(family_id, differences))
-        outside = await same_individual_outside_message(session, family_id=family_id, bundle=bundle)
+        outside = await same_individual_outside_message(
+            session, family_id=family_id, bundle=bundle, overwrite=overwrite
+        )
         if outside is not None:
             raise ImportRefused(outside)
+        # The package's same-individual links between two members the family holds already,
+        # which the family lacks: an overwrite makes them (the links are the package's), an
+        # update does not and says so.
+        links = package_same_individual_links(bundle)
+        not_made = (
+            same_individual_not_made(links, held=await family_samples_held(session, family_id=family_id))
+            if links
+            else []
+        )
+        if not_made and not overwrite and warnings is not None:
+            warnings.append(
+                _issue(SAME_INDIVIDUAL_NOT_MADE, same_individual_not_made_message(not_made, family_id=family_id))
+            )
         if resolved_project_id is not None:
             # The family is linked to the import's project below: one on another assembly
             # than its stored variants is refused, as for a change of its projects, before
@@ -2134,10 +2151,8 @@ async def _ensure_family_from_ped(
             await _mark_family_import_unfinished(
                 session, family_uuid=str(existing["family_uuid"]), mark=import_mark
             )
-        if differences:
-            await _take_package_pedigree(
-                session, family_id=family_id, bundle=bundle, user=user, overwrite=conflict_mode == "overwrite"
-            )
+        if differences or (overwrite and not_made):
+            await _take_package_pedigree(session, family_id=family_id, bundle=bundle, user=user, overwrite=overwrite)
         if resolved_project_id is not None:
             await session.execute(
                 text(
@@ -3411,48 +3426,166 @@ async def members_of_other_analyses(session: AsyncSession, *, family_id: str, an
     )
 
 
-async def same_individual_outside_message(
-    session: AsyncSession, *, family_id: str | None, bundle: FamilyPackageBundle
-) -> str | None:
-    """Why a package's same-individual links cannot be made: a sample one names is neither a
-    member of the package nor an active member of the family ``family_id`` (the plasma of the
-    monogenic NIPT, whose package was not imported yet). None when every sample is held."""
-    package_ids = {sample_id.strip().lower() for sample_id in bundle.ped.sample_ids}
-    named = sorted(
-        {
-            str(sample_id)
-            for link in _manifest_relationships(bundle.manifest)
-            if link["relationship_type"] == "same_individual"
-            for sample_id in (link["sample_id_a"], link["sample_id_b"])
-            if str(sample_id).strip().lower() not in package_ids
-        }
+# The issue of a package whose same-individual link names a sample the import cannot link, and
+# the warning of one whose link an update does not make.
+SAME_INDIVIDUAL_OUTSIDE = "package_same_individual_outside"
+SAME_INDIVIDUAL_NOT_MADE = "package_same_individual_not_made"
+
+
+def package_same_individual_links(bundle: FamilyPackageBundle) -> list[tuple[str, str]]:
+    """The package's same-individual links (``family.relationships.same_individual``), as pairs of
+    sample IDs as the package writes them."""
+    return [
+        (str(link["sample_id_a"]).strip(), str(link["sample_id_b"]).strip())
+        for link in _manifest_relationships(bundle.manifest)
+        if link["relationship_type"] == "same_individual"
+    ]
+
+
+@dataclass(frozen=True)
+class FamilySamplesHeld:
+    """What the family ``family_id`` holds of the samples a package's same-individual links name:
+    its active members' sample IDs (``members``) and its same-individual links between them
+    (``links``). Empty for a family that does not exist."""
+
+    family_id: str | None
+    members: frozenset[str] = frozenset()
+    links: tuple[tuple[str, str], ...] = ()
+
+
+async def family_samples_held(session: AsyncSession, *, family_id: str | None) -> FamilySamplesHeld:
+    """The family's active members and its same-individual links (``FamilySamplesHeld``)."""
+    if not family_id or identifier_problem(family_id) is not None:
+        return FamilySamplesHeld(family_id)
+    members = await session.execute(
+        text(
+            """
+            SELECT s.sample_id
+            FROM family_members fm
+            JOIN families f ON f.id = fm.family_id
+            JOIN samples s ON s.id = fm.sample_id
+            WHERE f.family_id = :family_id AND fm.active
+            """
+        ),
+        {"family_id": family_id},
     )
-    if not named:
-        return None
-    held: set[str] = set()
-    if family_id and identifier_problem(family_id) is None:
-        rows = await session.execute(
-            text(
-                """
-                SELECT s.sample_id
-                FROM family_members fm
-                JOIN families f ON f.id = fm.family_id
-                JOIN samples s ON s.id = fm.sample_id
-                WHERE f.family_id = :family_id AND fm.active
-                """
-            ),
-            {"family_id": family_id},
-        )
-        held = {str(row[0]).strip().lower() for row in rows}
-    missing = [sample_id for sample_id in named if sample_id.strip().lower() not in held]
+    links = await session.execute(
+        text(
+            """
+            SELECT sa.sample_id, sb.sample_id
+            FROM family_relationships fr
+            JOIN families f ON f.id = fr.family_id
+            JOIN samples sa ON sa.id = fr.sample_id_a
+            JOIN samples sb ON sb.id = fr.sample_id_b
+            WHERE f.family_id = :family_id AND fr.active AND fr.relationship_type = 'same_individual'
+            """
+        ),
+        {"family_id": family_id},
+    )
+    return FamilySamplesHeld(
+        family_id,
+        frozenset(str(row[0]) for row in members),
+        tuple((str(row[0]), str(row[1])) for row in links),
+    )
+
+
+def same_individual_outside(
+    links: Iterable[tuple[str, str]],
+    *,
+    package_ids: Collection[str],
+    held: FamilySamplesHeld,
+    kept: Collection[str] | None = None,
+) -> str | None:
+    """Why a package's same-individual ``links`` cannot be made: a sample one names is neither a
+    member of the package (``package_ids``) nor an active member of the family (the plasma of the
+    monogenic NIPT, whose package was not imported yet). ``kept``, for an overwrite: the members
+    the packages of the family's other analyses listed, the only members of the family it keeps
+    beside its own; a member neither lists is made inactive, and a link to it cannot be made
+    either. A sample is named as its ID is written, case included. None when every sample is
+    held."""
+    named = sorted({sample_id for link in links for sample_id in link if sample_id not in package_ids})
+    staying = held.members if kept is None else held.members & set(kept)
+    missing = [sample_id for sample_id in named if sample_id not in staying]
     if not missing:
         return None
+    family = f"family '{visible(held.family_id or '')}'"
+    shown = ", ".join(map(visible, missing))
+    one = len(missing) == 1
+    left_out = [sample_id for sample_id in missing if sample_id in held.members]
+    if left_out:
+        return (
+            f"The package links {shown} to one of its members as the same individual, but the overwrite makes "
+            f"{'that member' if one else 'those members'} of {family} inactive: neither this package nor "
+            "another analysis's lists "
+            f"{'it' if one else 'them'}. Add {'it' if one else 'them'} to the package, or take the link out."
+        )
+    other_case = sorted(
+        {
+            visible(held_id)
+            for held_id in [*held.members, *package_ids]
+            for sample_id in missing
+            if held_id.lower() == sample_id.lower()
+        }
+    )
     return (
-        f"The package links {', '.join(map(visible, missing))} to one of its members as the same individual, "
-        f"but family '{visible(family_id or '')}' does not hold "
-        f"{'that sample' if len(missing) == 1 else 'those samples'}: import the package that lists "
-        f"{'it' if len(missing) == 1 else 'them'} first, or link the samples in the family's members editor "
+        f"The package links {shown} to one of its members as the same individual, but {family} does not hold "
+        f"{'that sample' if one else 'those samples'}: import the package that lists "
+        f"{'it' if one else 'them'} first, or link the samples in the family's members editor "
         "once both are in the family."
+        + (
+            f" A sample is named as its ID is written: the package or the family holds {', '.join(other_case)}."
+            if other_case
+            else ""
+        )
+    )
+
+
+def same_individual_not_made(
+    links: Iterable[tuple[str, str]], *, held: FamilySamplesHeld
+) -> list[tuple[str, str]]:
+    """The package's same-individual ``links`` between two samples the family holds already that
+    the family does not link (directly or through another sample): an update, which adds only the
+    links of the members it adds, does not make them; an overwrite does."""
+    person = person_of(held.links)
+    return [
+        (first, second)
+        for first, second in dict.fromkeys((min(link), max(link)) for link in links)
+        if first in held.members
+        and second in held.members
+        and person.get(first, first) != person.get(second, second)
+    ]
+
+
+def same_individual_not_made_message(links: list[tuple[str, str]], *, family_id: str) -> str:
+    """The warning that an update does not make the package's same-individual ``links``
+    (``same_individual_not_made``)."""
+    shown = "; ".join(f"{visible(first)} and {visible(second)}" for first, second in links)
+    return (
+        f"The package links {shown} as the same individual, and family '{visible(family_id)}' holds "
+        f"{'both samples' if len(links) == 1 else 'those samples'} without that link: an update adds only the "
+        "links of the members it adds. Link them in the family's members editor, or overwrite, which makes the "
+        "package's links the family's."
+    )
+
+
+async def same_individual_outside_message(
+    session: AsyncSession, *, family_id: str | None, bundle: FamilyPackageBundle, overwrite: bool = False
+) -> str | None:
+    """Why a package's same-individual links cannot be made (``same_individual_outside``), for an
+    import into the family ``family_id``, an ``overwrite`` or not. None when they can."""
+    links = package_same_individual_links(bundle)
+    if not links:
+        return None
+    kept = (
+        await members_of_other_analyses(session, family_id=family_id, analysis_type=bundle.manifest.analysis_type)
+        if overwrite and family_id
+        else None
+    )
+    return same_individual_outside(
+        links,
+        package_ids={sample_id.strip() for sample_id in bundle.ped.sample_ids},
+        held=await family_samples_held(session, family_id=family_id),
+        kept=kept,
     )
 
 

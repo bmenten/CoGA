@@ -131,14 +131,15 @@ export const otherMembers = (draft: FamilyMembersDraft, memberId: string): Struc
 /**
  * The others that may be another sample of the member's person: those of its sex, or of one not
  * known (the server refuses a link between two known sexes that differ, and the other fields it
- * checks are named in its refusal).
+ * checks are named in its refusal). `sex`: the sex of the member being added, which is not in
+ * the draft yet.
  */
-export const sameIndividualCandidates = (draft: FamilyMembersDraft, memberId: string): StructureMemberDraft[] => {
-  const sex = findMember(draft, memberId)?.sex ?? 'und';
-  return otherMembers(draft, memberId).filter(
-    (member) => sex === 'und' || member.sex === 'und' || member.sex === sex,
-  );
-};
+export const sameIndividualCandidates = (
+  draft: FamilyMembersDraft,
+  memberId: string,
+  sex: StructureMemberDraft['sex'] = findMember(draft, memberId)?.sex ?? 'und',
+): StructureMemberDraft[] =>
+  otherMembers(draft, memberId).filter((member) => sex === 'und' || member.sex === 'und' || member.sex === sex);
 
 // --- Changes --------------------------------------------------------------------------------
 

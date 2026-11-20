@@ -720,6 +720,7 @@ const FamilyMembersCard: React.FC<FamilyMembersCardProps> = ({
                     aria-label="New member same individual as"
                     draft={view}
                     memberId=""
+                    sex={newMember.sex}
                     value={newRelations.sameIndividual}
                     onChange={(sameIndividual) => setNewRelations((relations) => ({ ...relations, sameIndividual }))}
                     disabled={busy}

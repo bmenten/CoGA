@@ -484,17 +484,21 @@ def package_issues(package: CogaPackage) -> list[PackageIssue]:
 
 def _same_individual_issues(member: PackageMember, here: str, known: dict[str, PackageMember]) -> list[PackageIssue]:
     """A member's ``same_individual_as``: not itself, each once, and, for one this package lists,
-    not its parent or relative and of no other known sex. One the package does not list is checked
-    against the family when the package is imported."""
+    not its parent or relative and of no other known sex. A sample is named as its ID is written:
+    one that differs from a member's ID only in case is refused. One the package does not list is
+    checked against the family when the package is imported."""
     location = f"{here}.same_individual_as"
     issues = [
         PackageIssue("package_same_individual_twice", f"{location}: {sample_id} is named twice", location)
         for sample_id in _duplicates(member.same_individual_as)
     ]
+    by_case = {sample_id.lower(): sample_id for sample_id in known}
     for other_id in dict.fromkeys(member.same_individual_as):
         other = known.get(other_id)
         if other_id == member.sample_id:
             message = "a sample is not linked to itself"
+        elif other is None and other_id.lower() in by_case:
+            message = f"{other_id} differs from member {by_case[other_id.lower()]} only in case"
         elif other is None:
             continue
         elif other_id in (member.father, member.mother) or member.sample_id in (other.father, other.mother):

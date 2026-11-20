@@ -261,11 +261,69 @@ type MergedPedigreeInput = {
   samplesOf: Map<string, string[]>;
 };
 
+const isKnownPedCode = (code?: string | null): boolean => code === '1' || code === '2';
+
+/**
+ * The PED row of a person drawn as one symbol (`samples`, the samples it stands for): the row of
+ * the sample it is drawn as, with the first parent, the known sex and the known phenotype any of
+ * its samples' rows records. Its parents are named as they are drawn (`mapped`).
+ */
+const personRow = (
+  row: PedRow,
+  samples: string[] | undefined,
+  rowsById: Map<string, PedRow>,
+  mapped: (id: string) => string,
+): PedRow => {
+  const group = (samples ?? [row.iid]).map((id) => rowsById.get(id)).filter((held): held is PedRow => !!held);
+  const parent = (pick: (held: PedRow) => string): string =>
+    group.map((held) => trimId(pick(held))).find((id) => id && id !== '0') ?? '0';
+  const phenotypes = group.map((held) => held.phen);
+  return {
+    ...row,
+    pid: parent((held) => held.pid) === '0' ? '0' : mapped(parent((held) => held.pid)),
+    mid: parent((held) => held.mid) === '0' ? '0' : mapped(parent((held) => held.mid)),
+    sex: group.map((held) => held.sex).find(isKnownPedCode) ?? row.sex,
+    phen: phenotypes.includes('2') ? '2' : phenotypes.includes('1') ? '1' : row.phen,
+  };
+};
+
+/**
+ * The member a person drawn as one symbol stands for (`samples`, the samples it stands for): the
+ * member it is drawn as, with the known sex, clinical status and carrier status (and its carrier
+ * type) of any of its samples.
+ */
+const personMember = (
+  member: PedigreeMember,
+  samples: string[] | undefined,
+  membersById: Map<string, PedigreeMember>,
+): PedigreeMember => {
+  if (!samples) return member;
+  const group = samples
+    .map((id) => membersById.get(id))
+    .filter((held): held is PedigreeMember => !!held);
+  const affected = group.some((held) => isAffectedMember(held));
+  const carrier = group.find((held) => isCarrierStatus(held.carrier_status));
+  const notCarrier = group.find((held) => held.carrier_status === 'not_carrier' || held.carrier_status === false);
+  return {
+    ...member,
+    sex: group.find((held) => sexCodeFromMember(held) !== '0')?.sex ?? member.sex,
+    affected: affected || member.affected,
+    clinical_status: affected
+      ? 'affected'
+      : group.some((held) => held.clinical_status === 'unaffected')
+        ? 'unaffected'
+        : member.clinical_status,
+    carrier_status: (carrier ?? notCarrier)?.carrier_status ?? member.carrier_status,
+    carrier_type: carrier?.carrier_type ?? member.carrier_type,
+  };
+};
+
 /**
  * One person, one symbol (the owner's decision of 2026-11-20): the samples the same-individual
  * links join are drawn as one, under the sample with the most links in the pedigree (then the
  * first member), its label naming them all. Every other link and PED row that names one of them
- * names that sample instead.
+ * names that sample instead. The symbol draws what any of its samples records: one sample's
+ * unknown sex, status or parents never hides another's known one.
  */
 const mergeSameIndividuals = (
   rows: PedRow[],
@@ -325,12 +383,27 @@ const mergeSameIndividuals = (
     samplesOf.set(shown, [shown, ...others.sort((left, right) => left.localeCompare(right))]);
   });
   const mapped = (id: string): string => shownAs.get(trimId(id)) ?? id;
-  const drawn = (id: string): boolean => (shownAs.get(trimId(id)) ?? trimId(id)) === trimId(id);
+  const rowsById = new Map(rows.map((row) => [trimId(row.iid), row]));
+  const membersById = new Map(members.map((member) => [trimId(member.sample_id), member]));
+  // Each person once, under the sample it is drawn as, with what any of its samples records
+  // (two known values never differ: the server refuses such a link).
+  const mergedRows: PedRow[] = [];
+  rows.forEach((row) => {
+    const shown = mapped(trimId(row.iid));
+    if (shown !== trimId(row.iid) && rowsById.has(shown)) return;
+    if (mergedRows.some((merged) => merged.iid === shown)) return;
+    mergedRows.push(personRow({ ...row, iid: shown }, samplesOf.get(shown), rowsById, mapped));
+  });
+  const mergedMembers: PedigreeMember[] = [];
+  members.forEach((member) => {
+    const shown = mapped(trimId(member.sample_id));
+    if (shown !== trimId(member.sample_id) && membersById.has(shown)) return;
+    if (mergedMembers.some((merged) => merged.sample_id === shown)) return;
+    mergedMembers.push(personMember({ ...member, sample_id: shown }, samplesOf.get(shown), membersById));
+  });
   return {
-    rows: rows
-      .filter((row) => drawn(row.iid))
-      .map((row) => ({ ...row, pid: mapped(row.pid), mid: mapped(row.mid) })),
-    members: members.filter((member) => drawn(member.sample_id)),
+    rows: mergedRows,
+    members: mergedMembers,
     relationships: relationships
       .filter((relationship) => relationship.relationship_type !== 'same_individual')
       .map((relationship) => ({

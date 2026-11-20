@@ -40,6 +40,7 @@ from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype
 from .qc_threshold_service import evaluate_metric, resolve_family_qc_thresholds
+from .same_individual import same_individual_groups, same_individual_pairs
 from .small_variant_review_pg import get_small_variant_review_map
 from .stored_values import int_or_none as _int
 
@@ -576,6 +577,24 @@ def _maternal_transmission(
     return "family_private"
 
 
+def _parent_links_per_person(
+    parent_links: Sequence[tuple[str, str, str]], links: Sequence[tuple[str, str]]
+) -> list[tuple[str, str, str]]:
+    """``parent_links`` (child, parent, role) read per person, with the family's same-individual
+    ``links``: a link one sample of a child records to one sample of a parent holds for every
+    sample of each. The mother sampled twice is looked at in both samples, and the proband's
+    second sample is her child too."""
+    samples_of = {sample: group for group in same_individual_groups(links) for sample in group}
+    return list(
+        dict.fromkeys(
+            (child_sample, parent_sample, role)
+            for child, parent, role in parent_links
+            for child_sample in samples_of.get(child, [child])
+            for parent_sample in samples_of.get(parent, [parent])
+        )
+    )
+
+
 def _variant_out(
     record: SmallVariantRecord,
     *,
@@ -1064,7 +1083,7 @@ async def get_family_mitochondrial_analysis_response(
         sample.coverage.source is not None or sample.coverage.mean_depth is not None
         for sample in samples
     )
-    parent_links = _parent_child_links(context)
+    parent_links = _parent_links_per_person(_parent_child_links(context), same_individual_pairs(context.relationship_rows))
     # Members with any mtDNA data: a coverage track of read depth or call depth on some MT
     # record. A track of log2 ratios alone does not count (_mt_depth_sources).
     mtdna_samples = {

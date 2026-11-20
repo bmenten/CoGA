@@ -230,11 +230,14 @@ export const SameIndividualSelect: React.FC<
     draft: FamilyMembersDraft;
     memberId: string;
     value?: string;
+    /** For the member being added: its chosen sex, outside the draft. */
+    sex?: StructureMemberDraft['sex'];
     onChange: (otherId: string) => void;
   }
-> = ({ draft, memberId, value, onChange, ...props }) => {
+> = ({ draft, memberId, value, sex, onChange, ...props }) => {
   const current = value ?? sameIndividualOf(draft, memberId);
   const several = current.includes(',');
+  const candidates = sameIndividualCandidates(draft, memberId, sex);
   return (
     <select {...props} value={current} onChange={(event) => onChange(event.target.value)}>
       {several ? (
@@ -246,14 +249,14 @@ export const SameIndividualSelect: React.FC<
               .map((id) => labelFor(draft, id))
               .join(' and ')}
           </option>
-          {sameIndividualCandidates(draft, memberId).map((member) => (
+          {candidates.map((member) => (
             <option key={member.sample_id} value={member.sample_id}>
               {memberLabel(member)}
             </option>
           ))}
         </>
       ) : (
-        <MemberOptions draft={draft} candidates={sameIndividualCandidates(draft, memberId)} value={current} />
+        <MemberOptions draft={draft} candidates={candidates} value={current} />
       )}
     </select>
   );

@@ -50,6 +50,7 @@ from .genotypes import (
     clickhouse_genotype_condition,
     genotype_has_alt,
 )
+from .same_individual import person_of, persons, same_individual_pairs
 from .sex_chromosomes import (
     XY_CHROMOSOME_NAMES,
     SexChromosome,
@@ -1385,27 +1386,36 @@ def _carrier_partner_names(
     sample_rows: Sequence[dict[str, Any]],
     relationship_rows: Sequence[dict[str, Any]] | None = None,
 ) -> tuple[str, str] | None:
-    sample_names = {
+    """The couple of a carrier screen, a sample of each partner: the two a couple relationship
+    names; else the mother and the father; else the family's two people. Read per person (the
+    family's same-individual links, ``same_individual.persons``): two samples of one person are
+    never a couple, and a family of one person sampled twice has none."""
+    sample_names = [
         str(row.get("sample_id") or "").strip()
         for row in sample_rows
         if str(row.get("sample_id") or "").strip()
-    }
+    ]
+    person = person_of(same_individual_pairs(relationship_rows or []))
+
+    def two_people(left: str, right: str) -> bool:
+        return bool(left and right) and person.get(left, left) != person.get(right, right)
+
     for relationship in relationship_rows or []:
         if relationship.get("relationship_type") != "couple":
             continue
         left = str(relationship.get("sample_id_a") or "").strip()
         right = str(relationship.get("sample_id_b") or "").strip()
-        if left and right and left != right and left in sample_names and right in sample_names:
+        if two_people(left, right) and left in sample_names and right in sample_names:
             return left, right
-    mother = next((row.get("sample_id") for row in sample_rows if row.get("role") == "mother"), None)
-    father = next((row.get("sample_id") for row in sample_rows if row.get("role") == "father"), None)
-    if mother and father:
-        return str(mother), str(father)
-    if len(sample_rows) == 2:
-        left = str(sample_rows[0].get("sample_id") or "").strip()
-        right = str(sample_rows[1].get("sample_id") or "").strip()
-        if left and right and left != right:
-            return left, right
+    mother, father = (
+        next((str(row.get("sample_id") or "").strip() for row in sample_rows if row.get("role") == role), "")
+        for role in ("mother", "father")
+    )
+    if two_people(mother, father):
+        return mother, father
+    people = persons(sample_names, same_individual_pairs(relationship_rows or []))
+    if len(people) == 2:
+        return people[0][0], people[1][0]
     return None
 
 
