@@ -1,3 +1,4 @@
+import { analysisQuery, variantAnalysisOf } from '../../lib/familyAnalyses';
 import React, { useId, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -34,8 +35,10 @@ import { fetchFamilyReviewTags, quickTagTogglePayload, searchReadsReviews } from
 import { apiPath, raw } from '../../lib/apiPath';
 import { routePath } from '../../lib/routePath';
 
-const buildStructuralVariantReviewPath = (familyId: string, variantId: string): string =>
-  apiPath`/families/${familyId}/structural-variants/${variantId}/review`;
+// A review is the analysis's the page reads, of a family with several analyses with small
+// variants (`variantAnalysisOf`).
+const buildStructuralVariantReviewPath = (familyId: string, variantId: string, analysis: string | null): string =>
+  apiPath`/families/${familyId}/structural-variants/${variantId}/review${raw(analysisQuery(analysis))}`;
 
 const hasReviewContent = (review: StructuralVariantReview | null | undefined): boolean =>
   Boolean(review?.classification || review?.tags?.length || review?.note);
@@ -293,7 +296,11 @@ const FamilyStructuralVariantsPage: React.FC = () => {
       payload: StructuralVariantReviewSavePayload;
     }) => {
       if (!familyId) throw new Error('Family id is required');
-      const reviewPath = buildStructuralVariantReviewPath(familyId, variant._id);
+      const reviewPath = buildStructuralVariantReviewPath(
+        familyId,
+        variant._id,
+        variantAnalysisOf(familyData?.metadata, location.search),
+      );
       const body = withReviewVersion(payload, variant.review);
       const res = projectId
         ? await api.put(reviewPath, body, { params: { project_id: projectId } })
