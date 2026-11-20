@@ -240,15 +240,15 @@ def _versions(manifest: dict) -> dict:
 
 def test_each_analysis_states_its_own_versions_and_not_the_others() -> None:
     rows = [_LONG_READ, _SHORT_READ]
-    short_read = ams.analysis_manifest(rows, analysis="short_read_wgs", held=_HELD, platform_modules={})
-    long_read = ams.analysis_manifest(rows, analysis="long_read_wgs", held=_HELD, platform_modules={})
+    short_read = ams.analysis_manifest(rows, analysis="short_read_wgs", platform_modules={})
+    long_read = ams.analysis_manifest(rows, analysis="long_read_wgs", platform_modules={})
     assert _versions(short_read) == {"vep": "110", "clinvar": "20240101", "gatk": "4.5.0.0"}
     assert _versions(long_read) == {"vep": "112", "deepvariant": "1.6.1", "trgt": "1.2.0"}
     assert (short_read["analysis_type"], short_read["recorded_by"]) == ("short_read_wgs", "import of short_read_wgs")
     # The platform's reference layer is every analysis's.
     platform = {"assembly": {"version": "GRCh38"}}
     for analysis in _HELD:
-        manifest = ams.analysis_manifest(rows, analysis=analysis, held=_HELD, platform_modules=platform)
+        manifest = ams.analysis_manifest(rows, analysis=analysis, platform_modules=platform)
         assert _versions(manifest)["assembly"] == "GRCh38"
 
 
@@ -263,7 +263,7 @@ def test_an_uploads_versions_are_every_analysis_s_beneath_its_own() -> None:
         },
     )
     rows = [_LONG_READ, _SHORT_READ, upload]
-    short_read = ams.analysis_manifest(rows, analysis="short_read_wgs", held=_HELD, platform_modules={})
+    short_read = ams.analysis_manifest(rows, analysis="short_read_wgs", platform_modules={})
     by_key = {module["key"]: module for module in short_read["modules"]}
     assert by_key["clinvar"]["version"] == "20240101"
     assert by_key["clinvar"]["by_modality"] == {"sv": "20230601", "snv": "20240101"}
@@ -277,24 +277,29 @@ def test_an_administrators_replacement_is_the_analysis_s_whole_manifest() -> Non
     upload = _row("unspecified", {"sniffles": {"version": "2.2"}})
     manual = _row("short_read_wgs", {"vep": {"version": "111"}}, source="manual", recorded_by="admin@example.org")
     rows = [_LONG_READ, manual, upload]
-    short_read = ams.analysis_manifest(rows, analysis="short_read_wgs", held=_HELD, platform_modules={})
+    short_read = ams.analysis_manifest(rows, analysis="short_read_wgs", platform_modules={})
     assert _versions(short_read) == {"vep": "111"}
     assert short_read["source"] == "manual"
     # Another analysis still states the upload's beneath its own.
-    long_read = ams.analysis_manifest(rows, analysis="long_read_wgs", held=_HELD, platform_modules={})
+    long_read = ams.analysis_manifest(rows, analysis="long_read_wgs", platform_modules={})
     assert _versions(long_read)["sniffles"] == "2.2"
 
 
 def test_a_family_of_no_analysis_states_the_rows_of_none() -> None:
     upload = _row("unspecified", {"vep": {"version": "110"}})
-    # The row of an analysis the family no longer holds is no analysis's either.
+    # The row of an analysis the family no longer holds (its import put back, its data gone)
+    # states nothing: neither for a family of no analysis nor beneath another analysis's own.
     stale = _row("long_read_wgs", {"trgt": {"version": "1.2.0"}})
-    manifest = ams.analysis_manifest([stale, upload], analysis=None, held=frozenset(), platform_modules={})
+    manifest = ams.analysis_manifest([stale, upload], analysis=None, platform_modules={})
     assert manifest["analysis_type"] is None
-    assert _versions(manifest) == {"vep": "110", "trgt": "1.2.0"}
+    assert _versions(manifest) == {"vep": "110"}
+    beneath = ams.analysis_manifest(
+        [stale, _SHORT_READ], analysis="short_read_wgs", platform_modules={}
+    )
+    assert "trgt" not in _versions(beneath)
     # A family of one analysis: its own row over the rows of none.
     single = ams.analysis_manifest(
-        [_SHORT_READ, upload], analysis="short_read_wgs", held=frozenset({"short_read_wgs"}), platform_modules={}
+        [_SHORT_READ, upload], analysis="short_read_wgs", platform_modules={}
     )
     assert _versions(single) == {"vep": "110", "clinvar": "20240101", "gatk": "4.5.0.0"}
 

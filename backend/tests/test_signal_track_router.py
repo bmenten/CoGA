@@ -38,6 +38,25 @@ def test_a_missing_file_resolves_to_nothing(data_root: Path) -> None:
     assert signal_tracks._resolve_track_path("pacbio", "") is None
 
 
+def test_a_track_its_analysis_recorded_is_read_in_that_analysis_s_folder_alone(
+    data_root: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A family of two analyses: the long-read package folder recorded the track. Gone from
+    # there, it is missing, never taken from the family's folder, which holds a file of the same
+    # name (another analysis's).
+    imports = tmp_path_factory.mktemp("imports")
+    long_read = imports / "LR" / "pacbio"
+    (long_read / "cnv" / "HG002").mkdir(parents=True)
+    (long_read / "cnv" / "HG002" / "HG002.Sample0.depth.bw").write_bytes(b"long-read bigwig")
+    monkeypatch.setattr(signal_tracks, "local_family_package_folder", lambda folder: str(folder) if folder else None)
+    relative = "cnv/HG002/HG002.Sample0.depth.bw"
+    assert signal_tracks._resolve_track_path("pacbio", relative, str(long_read)) == long_read / relative
+    (long_read / relative).unlink()
+    assert signal_tracks._resolve_track_path("pacbio", relative, str(long_read)) is None
+    # A record that names no folder is read in the family's own folder.
+    assert signal_tracks._resolve_track_path("pacbio", relative) == data_root / "families/pacbio" / relative
+
+
 @pytest.mark.parametrize(
     "relative_path",
     [

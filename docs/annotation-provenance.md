@@ -105,11 +105,12 @@ One row per family and analysis in `family_annotation_manifest`
 
 A family sequenced short-read and then long-read WGS of the same DNA keeps a row of each: the
 long-read import writes the long-read row and leaves the short-read one as its own import recorded
-it. What an analysis's manifest states is its own row laid over the rows of no analysis the family
-holds (an upload's data, or a package's that named none, is every analysis's): for a module both
-name, the analysis's own fields win and the versions per modality are joined. An analysis's row an
-admin replaced is that analysis's whole manifest. A family that holds no analysis has one
-manifest, of those rows.
+it. What an analysis's manifest states is its own row laid over the row of no analysis
+(`unspecified`: an upload's data, or a package's that named none, is every analysis's): for a
+module both name, the analysis's own fields win and the versions per modality are joined. The row
+of an analysis the family does not hold (an import that was put back, whose data are gone) states
+nothing. An analysis's row an admin replaced is that analysis's whole manifest. A family that
+holds no analysis has one manifest, of the row of no analysis.
 
 The parser normalises module keys (`vep`, `deepvariant`, `gnomad`, `clinvar`, …), so versions
 from different input files of one analysis merge into its manifest. The variant caller is tagged with its input

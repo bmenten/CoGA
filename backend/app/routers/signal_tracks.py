@@ -160,8 +160,9 @@ def _track_paths(rows: list[tuple[str, dict[str, Any], Any]]) -> dict[str, dict[
 
 def _resolve_track_path(family_id: str, relative_path: str, package_folder: object = None) -> Path | None:
     """The file a recorded path names in the package folder the family's import read,
-    ``package_folder`` (the folder of the analysis whose import recorded it), else in its package
-    folder ``<data>/families/<family>``; ``None`` when it is gone or lies outside them.
+    ``package_folder`` (the folder of the analysis whose import recorded it), and only there; for a
+    record that names no folder, in the family's package folder ``<data>/families/<family>``;
+    ``None`` when it is gone or lies outside them.
 
     The import records the path relative to the package, but it comes back from
     ``samples.metadata`` as data: an edited row can hold ``..`` or an absolute path. It is
@@ -177,11 +178,15 @@ def _resolve_track_path(family_id: str, relative_path: str, package_folder: obje
 
     if not relative_path:
         return None
-    imported = local_family_package_folder(package_folder)
-    if imported is not None:
+    if package_folder is not None:
+        # Read in the folder of the analysis whose import recorded it alone: a file gone from
+        # there is missing, never taken from another folder, which may hold another analysis's
+        # file of the same name.
+        imported = local_family_package_folder(package_folder)
+        if imported is None:
+            return None
         path = path_in_family_folder(imported, [imported], relative_path)
-        if path is not None and os.path.isfile(path):
-            return Path(path)
+        return Path(path) if path is not None and os.path.isfile(path) else None
     folders = family_folders(DATA_DIR, family_id)
     package = folders.get(PACKAGES_FOLDER)
     if package is None:

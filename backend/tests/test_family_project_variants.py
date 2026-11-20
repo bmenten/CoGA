@@ -898,7 +898,11 @@ def _registration(monkeypatch, *, refuse: bool) -> list[str]:
     async def no_other_analysis(*_args, **_kwargs):
         return registration.OtherAnalyses()
 
+    async def samples_available(_session, sample_ids):
+        return None
+
     monkeypatch.setattr(registration, "other_analyses_of", no_other_analysis)
+    monkeypatch.setattr(registration.ped_service, "_ensure_sample_ids_are_available", samples_available)
     monkeypatch.setattr(registration.ped_service, "build_pedigree_text", stored_pedigree)
     monkeypatch.setattr(registration, "_package_family_id", lambda _validation, _bundle: "FAM001")
     monkeypatch.setattr(registration, "refuse_project_on_other_assembly", refuse_other_assembly)
@@ -1105,6 +1109,31 @@ async def test_a_pedigree_the_family_cannot_take_refuses_the_import(monkeypatch)
             conflict_mode="update",
             import_mark=object(),  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.asyncio
+async def test_a_member_whose_sample_another_family_holds_is_refused_before_the_family_is_marked(monkeypatch) -> None:
+    steps = _registration(monkeypatch, refuse=False)
+    asked: list[list[str]] = []
+
+    async def taken(_session, sample_ids):
+        asked.append(list(sample_ids))
+        raise HTTPException(status_code=409, detail="Sample id already exists: S3")
+
+    monkeypatch.setattr(registration.ped_service, "_ensure_sample_ids_are_available", taken)
+    with pytest.raises(ImportRefused, match="cannot be the family's: Sample id already exists: S3"):
+        await registration._ensure_family_from_ped(
+            _LinkSession(steps),  # type: ignore[arg-type]
+            bundle=_bundle("FAM001 S1 0 0 1 2\nFAM001 S2 0 0 2 1\nFAM001 S3 S1 S2 1 2\n"),  # type: ignore[arg-type]
+            project_id=B,
+            user=admin_user(),
+            validation=None,  # type: ignore[arg-type]
+            conflict_mode="update",
+            import_mark=object(),  # type: ignore[arg-type]
+        )
+    # Only the members it adds are looked up, and the family was not marked.
+    assert asked == [["S3"]]
+    assert "mark" not in steps
 
 
 class _Registered(Exception):

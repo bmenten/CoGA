@@ -566,14 +566,16 @@ async def test_a_signal_track_out_of_the_package_is_not_served(
 
 
 @pytest.mark.asyncio
-async def test_the_families_folder_still_serves_a_track_the_package_folder_lacks(
+async def test_a_track_gone_from_its_package_folder_is_not_taken_from_the_families_folder(
     data: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The record names the folder of the analysis whose import recorded it: a file gone from there
+    # is missing, never another folder's file of the same name (another analysis's).
     _write(data / "families" / "F1", {"cnv/S1.copied.bw": "copied depth of S1"})
     _members(monkeypatch, "F1", "S1")
     session = _Session({"S1": {"hificnv": {DEPTH: "cnv/S1.copied.bw"}}}, _package(data))
 
-    assert (await _track(session))[1:] == ("copied depth of S1", 200)
+    assert (await _track(session))[1:] == (404, 404)
 
 
 async def _report(session: Any) -> str | int:

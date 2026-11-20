@@ -1715,6 +1715,12 @@ or none:
   ahead of the import. With no project and no existing family to look it up in, they say it was
   not checked (`manifest_roi_not_checked`).
 - A manifest without `roi` leaves the family's region as it is.
+- A family that holds another analysis keeps the region it has, as it keeps a member's known
+  values: a package of one of its analyses gives a region only to a family without one, and one
+  that does not resolve clears nothing. A package whose `roi` resolves to another locus than the
+  family's is refused before anything is written (`package_roi_conflict`), in the delivery's
+  check too, and no choice approves it: correct the package's `roi`, or change the region on the
+  family page first.
 
 `reference` is the reference genome the pipeline aligned to, the package file's `reference`. The
 import records its FASTA's name (without a path before it) as the Reference assembly of the
@@ -1862,6 +1868,9 @@ own, and each stays apart from the others (the owner's decisions of 2026-11-20):
   analysis whose package holds the mtDNA calls; the monogenic NIPT page its own.
 - **A review is the analysis's** it was made in; a sign-out freezes and checks its own analysis's
   data, reviews and evidence ([clinical-traceability.md](clinical-traceability.md)).
+- **The family's region of interest is kept**: a package of another analysis gives one only to a
+  family without one, and is refused when it names another (`package_roi_conflict`). A member it
+  adds whose sample ID another family holds is refused before the family is marked.
 
 A package's `snv` dataset and an upload name their callset (`source_format`), and that name is used
 as given. With `auto`, the default, the loader reads it from the family VCF
@@ -3036,6 +3045,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `package_project_folder_differs` | The package lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
 | `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents). In a family that holds another analysis, only a member that only this analysis's package listed can be lacking. An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the pedigree of its analysis and keeps the other analyses' members. |
 | `package_member_values_conflict` | The family holds another analysis, and the package gives a member the family holds a known value (sex, a parent, clinical or carrier status, carrier type or evidence) other than the family's known one; the message names the member and both values. No choice approves it: the family keeps every value it knows. Correct the package (**Correct…**), or the member in the family's members editor, then check the delivery again. |
+| `package_roi_conflict` | The family holds another analysis and a region of interest, and the package's `roi` resolves to another locus. No choice approves it: the family keeps its region. Correct the package's `roi` ([Correcting a delivery](#correcting-a-delivery)), or change the region on the family page first. |
 | `package_same_individual_outside` | The package links a member to a sample as the same individual (`same_individual_as`), and that sample is neither in the package nor an active member of the family (its ID written as the family holds it, case included), or, for an overwrite, a member the overwrite makes inactive. Import the package that lists it first, or take the link out of the package ([Correcting a delivery](#correcting-a-delivery)) and link the samples in the family's members editor once both are in the family. |
 | `package_same_individual_not_made` (warning) | The package links two samples the family holds already as the same individual, and the family does not link them. An update does not make the link: link them in the family's members editor, or overwrite, which makes the package's links the family's. |
 | `package_adds_members` (warning) | The package adds members to a family that exists. Update and overwrite add them to the family's pedigree: check that they belong to it. |
