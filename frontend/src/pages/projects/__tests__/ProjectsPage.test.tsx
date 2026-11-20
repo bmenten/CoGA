@@ -401,9 +401,14 @@ describe('ProjectsPage', () => {
   it('says only superusers and administrators open a project without members', async () => {
     serveProjects((defaults) => defaults.map((project) => ({ ...project, user_ids: [], reader_user_ids: [] })));
     renderPage();
+    // The edit form takes the selected project in an effect after the render that shows it: a
+    // member added before that effect ran would be replaced by the project's (empty) members.
+    await waitFor(() =>
+      expect(within(section('Project settings')).getByRole('textbox', { name: /^Title/ })).toHaveValue('Project One'),
+    );
 
     expect(
-      await screen.findByText('No members yet: only superusers and administrators can open the project.'),
+      screen.getByText('No members yet: only superusers and administrators can open the project.'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: /^Access level/ })).not.toBeInTheDocument();
     fireEvent.click(within(section('User access')).getByRole('button', { name: /^Add View Er/ }));
