@@ -114,6 +114,34 @@ describe('IgvViewer', () => {
     ]);
   });
 
+  it('names the analysis of each track of a family that holds several analyses', async () => {
+    localStorage.setItem('token', 'token-123');
+    // Only the long-read alignment of S1 can be shown: its track still says whose reads it holds.
+    apiGetMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.startsWith('/signal-tracks/')
+          ? []
+          : [
+              {
+                sample_id: 'S1',
+                analysis_type: 'long_read_wgs',
+                format: 'cram',
+                url: '/cram/F1/S1.cram?analysis=long_read_wgs',
+                index_url: '/cram/F1/S1.cram.crai?analysis=long_read_wgs',
+              },
+            ],
+      }),
+    );
+    createBrowserMock.mockResolvedValue({ destroy: vi.fn(), search: searchMock });
+    loadIgvMock.mockResolvedValue({ createBrowser: createBrowserMock });
+
+    render(<IgvViewer familyId="F1" sampleIds={['S1']} genome="hg38" severalAnalyses />);
+
+    await waitFor(() => expect(createBrowserMock).toHaveBeenCalled());
+    const [, options] = createBrowserMock.mock.calls[0];
+    expect(options.tracks.map((track: { name: string }) => track.name)).toEqual(['S1 (long-read WGS)']);
+  });
+
   // An ID may hold `/`, `?`, `#`, `%` and `..`. Put in raw, this family ID let the
   // browser resolve `../` to another path, cut the path at `?`, and `%41` reached the server
   // as `A`.

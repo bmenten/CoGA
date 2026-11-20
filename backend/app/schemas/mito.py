@@ -162,3 +162,7 @@ class FamilyMitoDNAAnalysisOut(BaseModel):
     qc_notes: List[str] = Field(default_factory=list)
     heteroplasmy_threshold: float = 0.02
     homoplasmy_threshold: float = 0.95
+    # The analysis whose import holds the mtDNA calls (its package record's key), whose QC
+    # profile judges the samples' mtDNA QC; None when no package record, or more than one,
+    # lists the mitochondrial callsets (mitochondrial_analysis._mtdna_analysis).
+    analysis_type: Optional[str] = None

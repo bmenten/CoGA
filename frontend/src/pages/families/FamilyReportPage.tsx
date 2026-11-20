@@ -1222,7 +1222,7 @@ const LiveFamilyReport: React.FC = () => {
         </section>
       ) : null}
 
-      <PipelineRunsPanels familyId={familyId} metadata={family?.metadata} variant="report" />
+      <PipelineRunsPanels familyId={familyId} metadata={family?.metadata} variant="report" analysis={signOutAnalysis} />
 
       <footer className="surface-card report-footer">
         <p className="report-footer-timestamp">

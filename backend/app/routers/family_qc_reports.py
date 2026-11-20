@@ -8,11 +8,11 @@ origin without isolation. Two things enforce that:
 * the response carries ``Content-Security-Policy: sandbox``, which loads the document
   into an opaque origin — it cannot read the application origin's storage (where the
   session token lives) or call the API as the user;
-* the served path is never client-supplied. It comes from the path recorded on the
-  sample at import time and is re-checked for containment inside the package folder the
-  family's import read or the family's own folders, below the authorized import roots, so
-  this endpoint cannot be turned into an arbitrary file read, nor into a read of another
-  family's report.
+* the served path is never client-supplied. It comes from the path the import of the
+  analysis recorded on the sample and is re-checked for containment inside the package
+  folder that analysis's import read, below the authorized import roots, so this endpoint
+  cannot be turned into an arbitrary file read, nor into a read of another family's report
+  or of another analysis's.
 
 Access is a two-step flow because the SPA authenticates with a bearer token, which a
 plain ``<a href>`` navigation cannot carry: the client asks for a link, gets a
@@ -35,13 +35,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import LOCAL_TOKEN_ALGORITHM, settings
-from ..core.family_folders import PACKAGES_FOLDER, family_folders, path_in_family_folder
+from ..core.family_folders import path_in_family_folder
 from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import FamilyQcReportLinkOut
 from ..services.family_package_common import _metadata_dict
-from ..services.family_package_source import _ensure_authorized_package_path, local_family_package_folder
+from ..services.family_package_source import local_family_package_folder
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
 
@@ -53,8 +53,6 @@ router = APIRouter(prefix="/families", tags=["families"])
 QC_REPORT_LINK_TTL = timedelta(minutes=5)
 
 _QC_REPORT_TOKEN_PURPOSE = "qc_report"
-
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 
 
 def _qc_report_token(family_id: str, sample_id: str, analysis: str) -> str:
@@ -137,8 +135,8 @@ async def _recorded_report_path(
     analysis: str,
     user: CurrentUser,
 ) -> _RecordedReport:
-    """The package-relative report path recorded on the sample at import, stripped, with the
-    family's package folder.
+    """The package-relative report path the import of ``analysis`` recorded on the sample,
+    stripped, with that analysis's package folder.
 
     Reading the family through ``get_family_record`` applies the project-scoped RBAC
     and confirms the sample belongs to this family.
@@ -150,40 +148,28 @@ async def _recorded_report_path(
     return _RecordedReport(report.path.strip(), report.package_folder)
 
 
-def _resolve_report_file(family_id: str, relative_path: str, package_folder: object = None) -> Path:
-    """The file the recorded relative path names in the package folder the family's import
-    read, ``package_folder``, when that lies below an import root
+def _resolve_report_file(relative_path: str, package_folder: object) -> Path:
+    """The file the recorded relative path names in the package folder of the analysis whose
+    import recorded it, ``package_folder``, when that lies below an import root
     (``local_family_package_folder``: a package on a mounted share or bucket is read where it
-    lies), else in the family's package folder ``<data>/families/<family>``, else
-    in its flat folder ``<data>/<family>``; 404 when none holds it.
+    lies); 404 otherwise.
+
+    Nowhere else is looked: a report that is gone from its analysis's package is missing,
+    never looked for in the family's folders, which could hold another analysis's report of
+    the same name (the long-read package's ``qc/multiqc_report.html`` opened as the
+    short-read analysis's).
 
     The path comes back from ``samples.metadata`` as data: an edited row can hold ``..``
     or an absolute path. It is joined to the folder and normalised as a string, and one
     that leaves the folder is dropped before anything is looked up by it. One that stays
-    is kept only when its real path lies inside that folder too, so a symlink (the package
-    folder itself, or a folder or file in it) leads neither into another family's folder
-    nor anywhere else, and a family ID that is no single folder name has no folder
-    (``core/family_folders.py``). The folder must lie under the configured import roots
-    (``_ensure_authorized_package_path``).
+    is kept only when its real path lies inside that folder too, so a symlink (a folder or
+    file in it) leads neither into another package nor anywhere else
+    (``core/family_folders.py``).
     """
     imported = local_family_package_folder(package_folder)
     if imported is not None:
         path = path_in_family_folder(imported, [imported], relative_path)
         if path is not None and os.path.isfile(path):
-            return Path(path)
-    folders = family_folders(DATA_DIR, family_id)
-    for parent in (PACKAGES_FOLDER, ""):
-        folder = folders.get(parent)
-        if folder is None:
-            continue
-        path = path_in_family_folder(folder, [folder], relative_path)
-        if path is None:
-            continue
-        try:
-            _ensure_authorized_package_path(Path(folder))
-        except HTTPException:
-            continue
-        if os.path.isfile(path):
             return Path(path)
     raise HTTPException(status_code=404, detail="QC report file is no longer available")
 
@@ -210,7 +196,7 @@ async def get_family_qc_report_link(
     expires_at = datetime.now(timezone.utc) + QC_REPORT_LINK_TTL
     # Confirm the file is there before handing out a link that would 404 on click; the file
     # system is read in a worker thread.
-    await asyncio.to_thread(_resolve_report_file, family_id, relative_path, report.package_folder)
+    await asyncio.to_thread(_resolve_report_file, relative_path, report.package_folder)
     token = _qc_report_token(family_id, sample_id, analysis)
     # Each ID one encoded segment: an ID may hold `?`, `#`, `%` or `..`.
     path = url_path("families", family_id, "qc-report", sample_id)
@@ -238,7 +224,7 @@ async def get_family_qc_report(
     _verify_qc_report_token(token, family_id, sample_id, analysis)
     report = await _recorded_report(session, family_id=family_id, sample_id=sample_id, analysis=analysis)
     relative_path = report.path.strip()
-    path = await asyncio.to_thread(_resolve_report_file, family_id, relative_path, report.package_folder)
+    path = await asyncio.to_thread(_resolve_report_file, relative_path, report.package_folder)
     return FileResponse(
         path,
         media_type="text/html",

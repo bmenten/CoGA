@@ -79,6 +79,44 @@ describe('PipelineRunsPanels', () => {
       'Analysis pipeline settings',
     ]);
   });
+
+  it('names the one run record of a family that holds several analyses', async () => {
+    // The short-read package carried no run record: the long-read one is not the family's whole.
+    render(
+      <PipelineRunsPanels
+        metadata={{ analysis_types: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
+        variant="workspace"
+      />,
+    );
+    expect((await screen.findAllByRole('heading')).map((heading) => heading.textContent)).toEqual([
+      'Analysis pipeline settings — long-read WGS',
+    ]);
+  });
+
+  it('shows on the report the run record of the analysis it signs out alone', async () => {
+    const metadata = {
+      analysis_types: ['long_read_wgs', 'short_read_wgs'],
+      pipeline: { short_read_wgs: { genome: 'GRCh38' }, long_read_wgs: PACBIO_SETTINGS },
+    };
+    const { unmount } = render(<PipelineRunsPanels metadata={metadata} variant="report" analysis="short_read_wgs" />);
+    expect((await screen.findAllByRole('heading')).map((heading) => heading.textContent)).toEqual([
+      'Analysis pipeline settings — short-read WGS',
+    ]);
+    expect(screen.queryByText('sniffles')).not.toBeInTheDocument();
+    unmount();
+
+    // An analysis whose package carried none: its panel is named, and shows no other analysis's
+    // run record.
+    render(
+      <PipelineRunsPanels
+        metadata={{ analysis_types: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
+        variant="report"
+        analysis="short_read_wgs"
+      />,
+    );
+    expect(screen.queryByText('sniffles')).not.toBeInTheDocument();
+    expect(screen.queryByText('Analysis pipeline settings — long-read WGS')).not.toBeInTheDocument();
+  });
 });
 
 describe('PipelineSettingsPanel', () => {

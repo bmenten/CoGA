@@ -58,9 +58,11 @@ export interface ApiSampleSequencingQcMetric {
   /** `skip` = no cut-off configured, i.e. not checked — distinct from `pass`. Shares
    *  the QcStatus vocabulary used by sample-integrity QC. */
   verdict: QcStatus;
-  /** The profile whose cut-off judged it: the analysis's own, else the family's named one,
-   *  else the default; null when none sets one. */
-  profile_key?: string | null;
+  /** The profile each bound came from: each falls back on its own, from the analysis's own
+   *  profile, else the family's named one, else the default, so the two may differ; null for a
+   *  bound no profile sets. */
+  warn_profile_key?: string | null;
+  error_profile_key?: string | null;
 }
 
 export interface ApiSampleSequencingQcEvaluation {
@@ -861,6 +863,9 @@ export interface ApiFamilyMitoDNAAnalysis {
   qc_notes: string[];
   heteroplasmy_threshold: number;
   homoplasmy_threshold: number;
+  /** The analysis whose import holds the mtDNA calls, whose QC profile judges the mtDNA QC; null
+   *  when no package record, or more than one, lists the mitochondrial callsets. */
+  analysis_type?: string | null;
 }
 
 export interface ApiRepeatExpansionTrackItem {

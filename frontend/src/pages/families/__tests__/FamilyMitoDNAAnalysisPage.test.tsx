@@ -684,6 +684,51 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     expect(screen.queryByRole('article', { name: /m\.3460G>A/i })).not.toBeInTheDocument();
     expect(screen.getByRole('article', { name: /m\.4216T>C/i })).toBeInTheDocument();
   });
+
+  it('names the analysis whose import holds the calls of a family that holds several', async () => {
+    const respond = (analysisTypes: string[]) =>
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === '/families/F1') {
+          return Promise.resolve({
+            data: {
+              family_id: 'F1',
+              pedigree: '',
+              members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
+              projects: [],
+              metadata: { analysis_types: analysisTypes },
+            },
+          });
+        }
+        if (url === '/families/F1/mitochondrial-dna') {
+          return Promise.resolve({
+            data: {
+              heteroplasmy_threshold: 0.02,
+              homoplasmy_threshold: 0.95,
+              qc_notes: [],
+              samples: [],
+              variants: [],
+              structural_variants: [],
+              analysis_type: 'long_read_wgs',
+            },
+          });
+        }
+        if (url.endsWith('/small-variant-tags')) return Promise.resolve({ data: [] });
+        return Promise.resolve({ data: {} });
+      });
+
+    respond(['long_read_wgs', 'short_read_wgs']);
+    const { unmount } = renderPage();
+    expect(await screen.findByTestId('mtdna-analysis')).toHaveTextContent(
+      "The mtDNA calls are the long-read WGS analysis's: its import holds them, and its QC cut-offs judge the mtDNA QC.",
+    );
+    unmount();
+
+    // A family of one analysis: the calls are its own, nothing to tell apart.
+    respond(['long_read_wgs']);
+    renderPage();
+    await screen.findByText('Family mitochondrial summary');
+    expect(screen.queryByTestId('mtdna-analysis')).not.toBeInTheDocument();
+  });
 });
 
 // A failure is said as such: a server error never reads "Family not found".

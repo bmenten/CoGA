@@ -1699,7 +1699,9 @@ async def _resolve_by_analysis(session, *, family_uuid, analysis):
     own = {"long_read_wgs": "Long-read WGS", "short_read_wgs": "Short-read WGS"}[analysis]
     return {
         "profiles": [{"key": analysis, "label": own}, {"key": "default", "label": "Default"}],
-        "thresholds": {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0, "profile_key": analysis}},
+        "thresholds": {
+            "depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0, "warn_profile_key": analysis, "error_profile_key": "default"}
+        },
     }
 
 
@@ -1717,7 +1719,9 @@ def test_snapshot_freezes_the_cut_offs_the_qc_verdict_was_judged_against(monkeyp
     long_read = frozen["analyses"]["long_read_wgs"]
     assert [profile["key"] for profile in long_read["profiles"]] == ["long_read_wgs", "default"]
     assert long_read["thresholds"] == {
-        "depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0, "profile_key": "long_read_wgs"}
+        "depth.mean_depth": {
+            "warn_value": 20.0, "error_value": 10.0, "warn_profile_key": "long_read_wgs", "error_profile_key": "default"
+        }
     }
     assert "HG002" in long_read["samples"], "the sample's QC verdict must be frozen too"
     assert long_read["samples"]["HG002"]["verdict"] == "warn"

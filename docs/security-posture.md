@@ -237,11 +237,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   import recorded on the sample, in the package folder of the analysis whose import recorded it
   (a family holds one package record per analysis it was imported for; a sample's alignments and
   sequencing QC, with its QC report, are kept under that analysis's key, and a signal track names
-  it in `package`; a file is never looked up in another analysis's folder), then in the family's
-  own folders, `data/<family>/` and `data/families/<family>/` (`core/family_folders.py`): a
-  sample's reads by
-  the layouts, its signal files and QC report at the recorded path. Nothing outside the recorded
-  path and the layouts is tried.
+  it in `package`; a file is never looked up in another analysis's folder). A recorded alignment
+  or QC report is read there alone: one whose file is gone is missing, never looked for in the
+  family's folders, which could hold another analysis's file of that name. The family's own
+  folders, `data/<family>/` and `data/families/<family>/` (`core/family_folders.py`), serve a
+  sample's reads by the layouts only when no import recorded an alignment of the sample, and its
+  signal files at the recorded path. Nothing outside the recorded path and the layouts is tried.
   - The package folder (`families.metadata.package_imports[<analysis>].folder_path`) is used
     only when it lies, symlinks resolved, below a `FAMILY_IMPORT_ROOTS` entry, and is not the
     root itself (`local_family_package_folder` in `services/family_package_source.py`). With no

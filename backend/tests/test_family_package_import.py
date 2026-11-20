@@ -1482,6 +1482,10 @@ async def test_each_dataset_is_timed_and_a_running_one_tells_its_time_left(
     assert repeats.fraction_read is None
 
 
+async def _no_clearing(*_args, **_kwargs) -> None:
+    return None
+
+
 class _CommitRollbackSession:
     async def rollback(self) -> None:  # pragma: no cover - trivial
         ...
@@ -1509,6 +1513,9 @@ def _wire_total_failure(monkeypatch: pytest.MonkeyPatch, *, created: bool, delet
     monkeypatch.setattr(package_import, "_enabled_dataset_summaries", fake_enabled_dataset_summaries)
     monkeypatch.setattr(package_import, "_import_dataset", fake_import_dataset)
     monkeypatch.setattr(package_import, "_delete_family_shell", fake_delete_family_shell)
+    # The analysis's earlier records are cleared through SQL this session does not model
+    # (integration/test_analysis_import_records_cleared.py).
+    monkeypatch.setattr(package_import, "clear_analysis_import_records", _no_clearing)
 
 
 @pytest.mark.asyncio
@@ -1694,6 +1701,7 @@ async def test_the_import_names_who_runs_it_its_package_and_its_job_to_the_pheno
     monkeypatch.setattr(package_import, "discard_family_clickhouse_snapshot", nothing)
     monkeypatch.setattr(package_import, "_mark_family_import_restoring", nothing)
     monkeypatch.setattr(package_import, "_delete_family_shell", delete_shell)
+    monkeypatch.setattr(package_import, "clear_analysis_import_records", _no_clearing)
 
     result = await package_import.execute_family_package_import(
         _CommitRollbackSession(),  # type: ignore[arg-type]
@@ -1722,6 +1730,77 @@ async def test_the_import_names_who_runs_it_its_package_and_its_job_to_the_pheno
         # A failed overwrite of an existing family: the restore puts its phenotypes back.
         assert seen["restore"] == {"family_identifier": "FAM001", "phenotype_import": origin}
         assert "delete_shell" not in seen
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("created", [False, True])
+async def test_an_import_clears_its_analysis_records_after_the_snapshot_before_its_first_dataset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, created: bool
+) -> None:
+    """What an earlier import of the analysis recorded under its key (its run parameters, each
+    sample's sequencing QC and alignment) goes before the first dataset, so a re-import leaves
+    none of it shown as current: after the snapshot, so an import that is undone puts it back
+    (the SQL: integration/test_analysis_import_records_cleared.py). A family the import created
+    has none."""
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    steps: list[tuple[str, ...]] = []
+
+    async def fake_ensure_family_from_ped(session, **_kwargs):
+        return _single_sample_context(), created
+
+    def fake_enabled_dataset_summaries(_validation):
+        return [FamilyImportDatasetSummary(dataset_type="snv", status="valid")]
+
+    async def fake_import_dataset(session, *, summary, **_kwargs):
+        steps.append(("dataset", summary.dataset_type))
+        raise RuntimeError("injected failure after the dataset was written")
+
+    async def snapshot(*_args, **_kwargs) -> str:
+        steps.append(("snapshot",))
+        return "snapshot"
+
+    async def clear(_session, *, family_uuid: str, analysis: str) -> None:
+        steps.append(("clear", family_uuid, analysis))
+
+    async def restore(*_args, **_kwargs) -> None:
+        steps.append(("restore",))
+
+    monkeypatch.setattr(package_import, "_ensure_family_from_ped", fake_ensure_family_from_ped)
+    monkeypatch.setattr(package_import, "_enabled_dataset_summaries", fake_enabled_dataset_summaries)
+    monkeypatch.setattr(package_import, "_import_dataset", fake_import_dataset)
+    monkeypatch.setattr(package_import, "snapshot_family_postgres_state", snapshot)
+    monkeypatch.setattr(package_import, "snapshot_family_clickhouse_state", snapshot)
+    monkeypatch.setattr(package_import, "restore_family_clickhouse_state", restore)
+    monkeypatch.setattr(package_import, "restore_family_postgres_state", restore)
+    monkeypatch.setattr(package_import, "discard_family_clickhouse_snapshot", _no_clearing)
+    monkeypatch.setattr(package_import, "_mark_family_import_restoring", _no_clearing)
+    monkeypatch.setattr(package_import, "_delete_family_shell", _no_clearing)
+    monkeypatch.setattr(package_import, "clear_analysis_import_records", clear)
+
+    await package_import.execute_family_package_import(
+        _CommitRollbackSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        manifest_text=kept_manifest(package_root),
+        project_id="project-uuid",
+        dry_run=False,
+        user=admin_user(),
+        conflict_mode="overwrite",
+        job_id="job-7",
+    )
+
+    if created:
+        assert steps == [("dataset", "snv")]
+    else:
+        # The package names no analysis: its record's key, `unspecified`.
+        assert steps == [
+            ("snapshot",),
+            ("snapshot",),
+            ("clear", "family-uuid", "unspecified"),
+            ("dataset", "snv"),
+            ("restore",),
+            ("restore",),
+        ]
 
 
 @pytest.mark.asyncio

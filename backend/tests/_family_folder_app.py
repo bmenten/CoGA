@@ -1,7 +1,7 @@
 """The app as the family-folder lookup tests ask it: a viewer who may read every family.
 
 The alignment, signal-track and QC-report lookups (``test_alignment_lookup_family_folders.py``,
-``test_signal_track_lookup_family_folders.py``, ``test_qc_report_lookup_family_folders.py``)
+``test_signal_track_lookup_family_folders.py``, ``test_qc_report_lookup_package_folder.py``)
 and the URLs they hand out (``test_encoded_id_urls.py``) are asked through the app, ``httpx``
 on the ASGI app, which decodes a path once as uvicorn does. What they check is which file a
 request reaches, so the family check lets the viewer read every family the test lists, the

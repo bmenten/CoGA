@@ -1397,7 +1397,7 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
               <p className="report-paragraph">
                 {sequencingQc.analyses.length > 1 ? `${analysisLabel(entry.analysis) ?? entry.analysis}: ` : ''}
                 {entry.profileLabels.length
-                  ? `judged against the cut-offs of ${entry.profileLabels.join(', else ')}, metric by metric.`
+                  ? `judged against the cut-offs of ${entry.profileLabels.join(', else ')}, each warning and error cut-off on its own.`
                   : 'no QC profile applied.'}
               </p>
               <ul className="report-signed-list">

@@ -174,17 +174,16 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
 
     # The mtDNA cut-offs are admin configuration, not constants in this module. Stand in
     # for the profile a lab would have configured.
-    async def fake_thresholds(_session, *, family_uuid):
+    async def fake_thresholds(_session, *, family_uuid, analysis):
         return {
-            "profile_key": "default",
-            "profile_label": "Default",
+            "profiles": [{"key": "default", "label": "Default"}],
             "thresholds": {
                 "mtdna.contamination": {"warn_value": 0.01, "error_value": 0.03},
                 "mtdna.mean_depth": {"warn_value": 50.0, "error_value": 10.0},
             },
         }
 
-    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
+    monkeypatch.setattr(mitochondrial_analysis, "resolve_analysis_qc_thresholds", fake_thresholds)
 
     response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
         None,  # type: ignore[arg-type]
@@ -409,12 +408,12 @@ async def _response(monkeypatch: pytest.MonkeyPatch, context: FamilyMetadataCont
     async def fake_coverage_by_sample(_session, _context):
         return {}, []
 
-    async def fake_thresholds(_session, *, family_uuid):
-        return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
+    async def fake_thresholds(_session, *, family_uuid, analysis):
+        return {"profiles": [{"key": "default", "label": "Default"}], "thresholds": {}}
 
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
     monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
-    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
+    monkeypatch.setattr(mitochondrial_analysis, "resolve_analysis_qc_thresholds", fake_thresholds)
     return await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
         None,  # type: ignore[arg-type]
         context=context,
@@ -809,3 +808,105 @@ def test_helixmtdb_frequencies_from_a_mutserve_table_are_served_apart() -> None:
     assert (annotation.helix_af_hom, annotation.helix_af_het) == (0.0003, 0.00001)
     # The locus is the annotation's own gene's, where the position lies in two.
     assert annotation.region == "MT-ATP6"
+
+
+# --- The mtDNA QC is judged by the profile of the analysis that holds the calls ---------------
+
+
+def _sources(*, mito: bool) -> dict:
+    """A package record's sources, as an import writes them (family_package_records.package_sources)."""
+    return {
+        "small_variants": ["clair3", *(["mito"] if mito else [])],
+        "structural_variants": ["mito_sv"] if mito else [],
+        "tracks": [],
+        "repeats": [],
+        "paraphase": [],
+    }
+
+
+class _PackageRecordsSession:
+    """Answers the read of the family's package records."""
+
+    def __init__(self, records: dict | None) -> None:
+        self.records = records
+        self.params: list[dict] = []
+
+    async def execute(self, statement, params=None):
+        from types import SimpleNamespace
+
+        assert "package_imports" in str(statement)
+        self.params.append(dict(params or {}))
+        return SimpleNamespace(scalar_one_or_none=lambda: self.records)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("records", "expected"),
+    [
+        # Short-read WGS without the mitochondrial dataset, long-read WGS with it.
+        (
+            {"short_read_wgs": {"sources": _sources(mito=False)}, "long_read_wgs": {"sources": _sources(mito=True)}},
+            "long_read_wgs",
+        ),
+        ({"pgt": {"sources": _sources(mito=True)}}, "pgt"),
+        # No package record lists the mitochondrial callsets, or none is recorded.
+        ({"short_read_wgs": {"sources": _sources(mito=False)}}, None),
+        (None, None),
+        # More than one does: whose the stored calls are is not known.
+        (
+            {"short_read_wgs": {"sources": _sources(mito=True)}, "long_read_wgs": {"sources": _sources(mito=True)}},
+            None,
+        ),
+    ],
+    ids=["one of two", "the only one", "none lists them", "no record", "two list them"],
+)
+async def test_the_mtdna_calls_are_the_analysis_whose_package_record_lists_the_mito_callsets(records, expected) -> None:
+    session = _PackageRecordsSession(records)
+
+    assert await mitochondrial_analysis._mtdna_analysis(session, "family-uuid") == expected  # type: ignore[arg-type]
+    assert session.params == [{"family_uuid": "family-uuid"}]
+    # Without a session nothing is read.
+    assert await mitochondrial_analysis._mtdna_analysis(None, "family-uuid") is None
+
+
+@pytest.mark.asyncio
+async def test_the_mtdna_qc_is_judged_by_the_analysis_profile_and_the_page_names_it(monkeypatch) -> None:
+    asked: list[str | None] = []
+
+    async def no_records(_context):
+        return []
+
+    async def fake_coverage_by_sample(_session, _context):
+        return {"PROBAND": MitoDNACoverageOut(mean_depth=30.0, source="coverage")}, []
+
+    async def thresholds(_session, *, family_uuid, analysis):
+        asked.append(analysis)
+        # The long-read profile warns below 50x; the default's error bound, below 10x, stands.
+        return {
+            "profiles": [{"key": "long_read_wgs", "label": "Long-read WGS"}, {"key": "default", "label": "Default"}],
+            "thresholds": {
+                "mtdna.mean_depth": {
+                    "warn_value": 50.0,
+                    "error_value": 10.0,
+                    "warn_profile_key": "long_read_wgs",
+                    "error_profile_key": "default",
+                }
+            },
+        }
+
+    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", no_records)
+    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+    monkeypatch.setattr(mitochondrial_analysis, "resolve_analysis_qc_thresholds", thresholds)
+    session = _PackageRecordsSession(
+        {"short_read_wgs": {"sources": _sources(mito=False)}, "long_read_wgs": {"sources": _sources(mito=True)}}
+    )
+
+    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
+        session,  # type: ignore[arg-type]
+        context=_family_context(),
+    )
+
+    assert asked == ["long_read_wgs"]
+    assert response.analysis_type == "long_read_wgs"
+    proband = next(sample for sample in response.samples if sample.sample_id == "PROBAND")
+    assert proband.qc.status == "warn"

@@ -3,8 +3,8 @@
 With local storage a family's files lie in two folders of the data directory: the flat
 ``<data>/<family>`` and its imported package, ``<data>/families/<family>``. The endpoints that
 serve a family's files from there look a file up only inside those folders: the aligned reads
-(``routers/cram.py``), the CNV caller's signal files (``routers/signal_tracks.py``) and the
-sequencing-QC report (``routers/family_qc_reports.py``). What names the file is data: the
+of a sample no import recorded an alignment of (``routers/cram.py``) and the CNV caller's signal
+files (``routers/signal_tracks.py``). What names the file is data: the
 family and sample IDs come from the request, and may hold ``/`` and ``..`` (the ID rule refuses
 both in a stored ID, but a request is not held to it); a
 recorded path comes back from ``samples.metadata``, where an edited row can hold ``..`` or an

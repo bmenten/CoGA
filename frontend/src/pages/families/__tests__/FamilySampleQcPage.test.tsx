@@ -389,7 +389,7 @@ describe('FamilySampleQcPage', () => {
     expect(within(memberRow('EMB2')).getByText('32.1% · Warning')).toBeInTheDocument();
     expect(sequencing('EMB2').at(-1)).toBe('Warning');
     // What the values were judged against, and which were shown without a cut-off.
-    expect(section).toHaveTextContent('Judged against the cut-offs of PGT, metric by metric.');
+    expect(section).toHaveTextContent('Judged against the cut-offs of PGT, each warning and error cut-off on its own.');
     expect(section).toHaveTextContent(
       'No cut-off is set for Mean depth, ADI, Concordance before imputation, Concordance after imputation: those values are shown, not judged.',
     );

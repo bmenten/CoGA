@@ -629,6 +629,44 @@ async def record_family_pipeline_metadata(
     await session.commit()
 
 
+async def clear_analysis_import_records(session: AsyncSession, *, family_uuid: str, analysis: str) -> None:
+    """Take away what an earlier import of ``analysis`` recorded under that analysis's key: its
+    run parameters (``families.metadata["pipeline"][analysis]``) and each of the family's
+    samples' sequencing QC and alignment (``samples.metadata["sequencing_qc"][analysis]``,
+    ``samples.metadata["alignments"][analysis]``). The other analyses' entries are kept.
+
+    An import of the analysis runs it before its first dataset, after the snapshot a restore
+    puts the family back from (family_package_import), so what these hold afterwards is its
+    own package's: run parameters, a sample's QC or alignment that the new package does not
+    carry are gone rather than shown as current, or read in the folder the new package record
+    names, which is not the one they were recorded in."""
+    params = {"family_uuid": family_uuid, "analysis": analysis}
+    await session.execute(
+        text(
+            """
+            UPDATE families
+            SET metadata = metadata #- ARRAY['pipeline', CAST(:analysis AS text)]
+            WHERE id = CAST(:family_uuid AS uuid)
+              AND jsonb_typeof(metadata -> 'pipeline') = 'object'
+            """
+        ),
+        params,
+    )
+    await session.execute(
+        text(
+            """
+            UPDATE samples
+            SET metadata = metadata
+                #- ARRAY['sequencing_qc', CAST(:analysis AS text)]
+                #- ARRAY['alignments', CAST(:analysis AS text)]
+            WHERE family_id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        params,
+    )
+    await session.commit()
+
+
 async def record_family_pipeline_qc(
     session: AsyncSession,
     *,

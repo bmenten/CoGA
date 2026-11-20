@@ -30,9 +30,9 @@ const boundText = (value: number | null | undefined): string =>
  *
  * Profiles exist because one cut-off cannot serve two assays — ~18x mean depth is normal
  * for PacBio HiFi WGS and a hard failure on a 100x panel. Each analysis's sequencing QC is
- * judged metric by metric: by the cut-off in the analysis's own profile (short-read WGS,
- * long-read WGS…), else in the profile the family names (`qc_profile`), else in the default
- * profile (backend `resolve_analysis_qc_thresholds`).
+ * judged with each warning and error cut-off on its own: from the analysis's own profile
+ * (short-read WGS, long-read WGS…), else from the profile the family names (`qc_profile`), else
+ * from the default profile (backend `resolve_analysis_qc_thresholds`).
  *
  * Which metrics exist and whether a low or a high value is the failing side come from
  * the backend catalogue, not from this form: they follow what the QC parsers emit, and
@@ -241,10 +241,11 @@ const AdminQcThresholdsPage: React.FC = () => {
             </button>
           )}
           <p className="dashboard-link-note">
-            Each analysis’s sequencing QC is judged metric by metric: by the cut-off in the analysis’s
-            own profile, else in the profile the family names in its <code>qc_profile</code> metadata,
-            else in the default profile. A new profile starts with no cut-offs, so it gates nothing
-            until values are entered.
+            Each analysis’s sequencing QC is judged with each warning and error cut-off on its own:
+            from the analysis’s own profile, else from the profile the family names in its{' '}
+            <code>qc_profile</code> metadata, else from the default profile. A warning set alone in an
+            analysis’s profile keeps the error cut-off of the family’s or the default profile. A new
+            profile starts with no cut-offs, so it gates nothing until values are entered.
           </p>
         </aside>
 

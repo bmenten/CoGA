@@ -729,8 +729,12 @@ Paraphase results are replaced.
 - **Analysis pipeline settings**: the pipeline's configuration (genome build, which caller produced
   what, VEP cache, repeat catalogue, stages run) is recorded at import, per analysis. It shows in a panel
   on the family page and in the same section of the family report: a family sequenced short-read and
-  then long-read has a panel of each run, named with its analysis. Tool versions are in the report's
-  provenance footer.
+  then long-read has a panel of each run, named with its analysis. In a family of several analyses
+  each panel names its analysis, and the report shows the run of the analysis it signs out. Tool
+  versions are in the report's provenance footer.
+- **Imported again**: an import of an analysis replaces what an earlier import of it recorded, its run
+  settings and each sample's sequencing QC and alignment. One the new package does not carry is gone,
+  not shown as current.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete*, and its report can be signed out only with an acknowledgement
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). The warning stays until an

@@ -54,7 +54,7 @@ from backend.app.services.family_package_common import (
     ParsedPed,
 )
 from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
-from backend.tests._family_import_fakes import admin_user, no_variant_copy, two_sample_context
+from backend.tests._family_import_fakes import admin_user, no_records_to_clear, no_variant_copy, two_sample_context
 from backend.tests._kept_manifest import kept_manifest
 
 FAMILY = "FAM001"
@@ -772,6 +772,7 @@ def package(stores: _Stores, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setattr(package_import, "_ensure_family_from_ped", register)
     monkeypatch.setattr(package_import, "hold_family_variant_writes", hold)
     monkeypatch.setattr(package_import, "copy_variants_to_linked_projects", no_variant_copy)
+    monkeypatch.setattr(package_import, "clear_analysis_import_records", no_records_to_clear)
     monkeypatch.setattr(package_import, "_existing_package_entity_warnings", no_warnings)
     monkeypatch.setattr(variant_ranking_cache, "clear_family_ranking_cache", nothing)
     monkeypatch.setattr(sv_gene_index_service, "clear_family_sv_gene_index", nothing)

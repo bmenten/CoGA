@@ -10,6 +10,8 @@
 * ``no_variant_copy``: in place of the import's copy of an existing family's callsets to
   the projects that hold none of them (``copy_variants_to_linked_projects``, which reads
   Postgres and ClickHouse): nothing to copy.
+* ``no_records_to_clear``: in place of the import's clear of what an earlier import of its
+  analysis recorded (``clear_analysis_import_records``): nothing to clear.
 """
 
 from __future__ import annotations
@@ -45,6 +47,13 @@ async def no_variant_copy(*_args: Any, **_kwargs: Any) -> bool:
     """Nothing copied: every project of the family holds each of its callsets
     (``family_project_variants.copy_variants_to_linked_projects``)."""
     return False
+
+
+async def no_records_to_clear(*_args: Any, **_kwargs: Any) -> None:
+    """Nothing an earlier import of the analysis recorded to clear
+    (``family_package_qc.clear_analysis_import_records``, whose SQL these tests' sessions do not
+    model; integration/test_analysis_import_records_cleared.py runs it)."""
+    return None
 
 
 def _default_sample_uuid(sample_id: str) -> str:

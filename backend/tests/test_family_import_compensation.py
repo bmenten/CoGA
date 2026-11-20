@@ -2521,6 +2521,9 @@ async def test_an_import_clears_what_it_registered_carrying_nothing_or_imported_
     monkeypatch.setattr(fpi, "copy_variants_to_linked_projects", no_variant_copy)
     monkeypatch.setattr(fpi, "_existing_package_entity_warnings", no_warnings)
     monkeypatch.setattr(fpi, "_import_dataset", import_dataset)
+    # The analysis's earlier records are cleared through SQL this row does not model
+    # (integration/test_analysis_import_records_cleared.py).
+    monkeypatch.setattr(fpi, "clear_analysis_import_records", nothing)
     monkeypatch.setattr(variant_ranking_cache, "clear_family_ranking_cache", nothing)
     monkeypatch.setattr(sv_gene_index_service, "clear_family_sv_gene_index", nothing)
 

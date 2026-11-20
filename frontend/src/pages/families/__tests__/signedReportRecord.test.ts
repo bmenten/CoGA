@@ -165,8 +165,8 @@ const SNAPSHOT = {
           P1: {
             verdict: 'warn',
             metrics: [
-              { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', direction: 'lower_is_worse', profile_key: 'default' },
-              { metric_key: 'q30', label: 'Q30', unit: '%', value: 93, warn_value: 85, error_value: 80, verdict: 'pass', profile_key: 'long_read_wgs' },
+              { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', direction: 'lower_is_worse', warn_profile_key: 'default', error_profile_key: 'default' },
+              { metric_key: 'q30', label: 'Q30', unit: '%', value: 93, warn_value: 85, error_value: 80, verdict: 'pass', warn_profile_key: 'long_read_wgs', error_profile_key: 'default' },
             ],
           },
         },
@@ -274,14 +274,14 @@ describe('parseSignedReport', () => {
     expect(longRead.analysis).toBe('long_read_wgs');
     expect(longRead.profileLabels).toEqual(['Long-read WGS', 'WGS default']);
     // Every metric the record holds, and apart the ones outside their cut-offs.
-    const coverage = { label: 'Mean coverage', value: 18, unit: '×', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse', profileKey: 'default' };
+    const coverage = { label: 'Mean coverage', value: 18, unit: '×', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse', warnProfileKey: 'default', errorProfileKey: 'default' };
     expect(longRead.samples).toEqual([
       {
         sampleId: 'P1',
         verdict: 'warn',
         metrics: [
           coverage,
-          { label: 'Q30', value: 93, unit: '%', verdict: 'pass', warnValue: 85, errorValue: 80, direction: null, profileKey: 'long_read_wgs' },
+          { label: 'Q30', value: 93, unit: '%', verdict: 'pass', warnValue: 85, errorValue: 80, direction: null, warnProfileKey: 'long_read_wgs', errorProfileKey: 'default' },
         ],
         breached: [coverage],
       },
@@ -293,7 +293,7 @@ describe('parseSignedReport', () => {
     ]);
     // One the record holds no value for is named, never written as a value.
     expect(
-      describeSignedQcMetric({ label: 'Allele drop-out (ADO)', value: null, unit: '%', verdict: 'pass', warnValue: null, errorValue: null, direction: null, profileKey: null }),
+      describeSignedQcMetric({ label: 'Allele drop-out (ADO)', value: null, unit: '%', verdict: 'pass', warnValue: null, errorValue: null, direction: null, warnProfileKey: null, errorProfileKey: null }),
     ).toBe('Allele drop-out (ADO)');
     expect(record.importIncomplete).toBeNull();
     expect(record.importUnfinished).toEqual([]);
@@ -1136,7 +1136,8 @@ describe('the signed report’s wording', () => {
         warnValue: 20,
         errorValue: 10,
         direction: 'lower_is_worse',
-        profileKey: 'default',
+        warnProfileKey: 'default',
+        errorProfileKey: 'default',
       }),
     ).toBe('Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)');
   });
@@ -1144,7 +1145,7 @@ describe('the signed report’s wording', () => {
   // The signed version writes the value as the members table's QC chip does ("18.6x"), not
   // as measured ("18.57 x").
   it('writes the value and its limits as the QC chip writes them', () => {
-    const metric = { label: 'Mean depth', unit: 'x', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse', profileKey: 'default' };
+    const metric = { label: 'Mean depth', unit: 'x', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse', warnProfileKey: 'default', errorProfileKey: 'default' };
     expect(describeBreachedMetric({ ...metric, value: 18.57 })).toBe('Mean depth 18.6x (Warning; warning 20x, fail 10x)');
     // Rounded onto its limit it would not read as the breach it is: 19.96 is not "20.0x".
     expect(describeBreachedMetric({ ...metric, value: 19.96 })).toBe('Mean depth 19.96x (Warning; warning 20x, fail 10x)');
@@ -1161,7 +1162,8 @@ describe('the signed report’s wording', () => {
         warnValue: 20,
         errorValue: 30,
         direction: 'higher_is_worse',
-        profileKey: 'pgt',
+        warnProfileKey: 'pgt',
+        errorProfileKey: 'pgt',
       }),
     ).toBe('Allele drop-out (ADO) 32.1% (Fail; warning 20%, fail 30%)');
   });
