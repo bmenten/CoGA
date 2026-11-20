@@ -120,7 +120,7 @@ def family(monkeypatch) -> _Family:
     async def _ctx(session, *, family_identifier, user, project_id=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", sample_rows=[])
 
-    async def _manifest(session, *, family_id, user, project_id=None):
+    async def _manifest(session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
     async def _drift(session, *, family_id, user, project_id=None, left_out=None):
@@ -162,7 +162,9 @@ def family(monkeypatch) -> _Family:
     async def _writes_shared(session, family_uuid):
         return True
 
-    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None, scope=None):
+    async def _sections(
+        session, *, context, reported, reported_structural, shared_nipt=None, scope=None, finding_kinds=None
+    ):
         return copy.deepcopy(_SECTIONS)
 
     async def _code_free(session, code):
@@ -172,7 +174,7 @@ def family(monkeypatch) -> _Family:
         state.audited.append(kwargs)
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
-    monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
+    monkeypatch.setattr(rss, "analysis_annotation_manifest", _manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "_reported_reviews", _nothing_reported)

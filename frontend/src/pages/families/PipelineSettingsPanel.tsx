@@ -1,13 +1,13 @@
 import React from 'react';
 
 import type { ApiAnnotationModule } from '../../lib/apiTypes';
-import { useAnnotationManifest } from './AnnotationProvenanceSummary';
-import { analysisLabel } from '../../lib/familyAnalyses';
+import { analysisManifest, useAnnotationManifest } from './AnnotationProvenanceSummary';
+import { analysisLabel, separatelySignedAnalyses } from '../../lib/familyAnalyses';
 
 /**
- * Settings of the upstream analysis pipeline, recorded per family at package import
+ * Settings of the upstream analysis pipeline, recorded per analysis at package import
  * (`families.metadata.pipeline`, from the run's `params_*.json`) together with the tool
- * versions from the family's annotation manifest.
+ * versions from that analysis's annotation manifest.
  *
  * The two belong together and are shown together, grouped by the *job* they describe:
  * which reference, which caller at which version produced which variant class, which
@@ -182,36 +182,46 @@ interface PipelineSettingsPanelProps {
    * workspace has to say where versions live instead.
    */
   variant?: 'workspace' | 'report';
-  /** The analysis whose run record this is, named in the heading; unset for a family of one. */
+  /**
+   * The analysis whose run record this is: its own annotation manifest gives the tool versions;
+   * unset, the family's only manifest (a family of one analysis or none).
+   */
   analysis?: string;
-  /** Lists the tools and utilities no run parameter names (default): one panel of several does. */
-  listOtherTools?: boolean;
+  /** Names the analysis in the heading: one panel of several does. */
+  named?: boolean;
 }
 
 /**
- * The family's pipeline settings: one panel per analysis whose package carried a run record,
- * each named with its analysis when there are several, the tool versions no parameter names
- * listed once (in the last); one unnamed panel otherwise.
+ * The family's pipeline settings: one panel per analysis whose package carried a run record, each
+ * with the tool versions of that analysis's own annotation manifest and named with its analysis
+ * when there are several; one unnamed panel otherwise. Of a family that holds several analyses,
+ * an analysis whose package carried no run record has a panel of its tool versions too.
  */
 export const PipelineRunsPanels: React.FC<{
   familyId?: string;
   metadata: Record<string, unknown> | undefined;
   variant?: 'workspace' | 'report';
 }> = ({ familyId, metadata, variant }) => {
-  const runs = pipelineRunsFromMetadata(metadata);
-  if (runs.length <= 1) {
-    return <PipelineSettingsPanel familyId={familyId} settings={runs[0]?.[1]} variant={variant} />;
+  const runs = new Map<string, PipelineSettings | undefined>(pipelineRunsFromMetadata(metadata));
+  separatelySignedAnalyses(metadata).forEach((analysis) => {
+    if (!runs.has(analysis)) runs.set(analysis, undefined);
+  });
+  const panels = [...runs.entries()].sort(([left], [right]) => left.localeCompare(right));
+  if (panels.length <= 1) {
+    return (
+      <PipelineSettingsPanel familyId={familyId} settings={panels[0]?.[1]} variant={variant} analysis={panels[0]?.[0]} />
+    );
   }
   return (
     <>
-      {runs.map(([analysis, settings], index) => (
+      {panels.map(([analysis, settings]) => (
         <PipelineSettingsPanel
           key={analysis}
           familyId={familyId}
           settings={settings}
           variant={variant}
           analysis={analysis}
-          listOtherTools={index === runs.length - 1}
+          named
         />
       ))}
     </>
@@ -223,14 +233,15 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
   settings,
   variant = 'workspace',
   analysis,
-  listOtherTools = true,
+  named = false,
 }) => {
-  // Tool versions live in the family's annotation manifest, separately from the run
-  // parameters — a run is only traceable with both, so show them together.
+  // Tool versions live in the analysis's annotation manifest, separately from the run
+  // parameters — a run is only traceable with both, so show them together. Each analysis has
+  // its own: a short-read run's panel never lists the long-read run's tools.
   const { data: manifest, isError: manifestFailed, refetch: refetchManifest } =
     useAnnotationManifest(familyId);
 
-  const versioned = (manifest?.modules ?? []).filter((module) => module.version);
+  const versioned = (analysisManifest(manifest, analysis)?.modules ?? []).filter((module) => module.version);
   // A failed manifest is not a run without tool versions: the panel says so rather than
   // vanishing, and it is printed on the report.
   if (!settings && !versioned.length && !manifestFailed) return null;
@@ -304,10 +315,8 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
   const stages = STAGE_LABELS.filter(([key]) => resolved[key] === true).map(([, label]) => label);
   const stageKeys = new Set(STAGE_LABELS.map(([key]) => key));
 
-  // The family's tool versions are one record (its annotation manifest): of several analyses'
-  // panels, only one lists the utilities and the tools no run parameter names.
+  // The utilities and the tools no run parameter names, of this analysis's own manifest.
   const utilities = versioned
-    .filter(() => listOtherTools)
     .filter((module) => UTILITY_TOOLS.has(normalizeToolKey(module.key)))
     .sort((left, right) => left.label.localeCompare(right.label));
   utilities.forEach((module) => claimedTools.add(normalizeToolKey(module.key)));
@@ -315,7 +324,6 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
   // Anything the pipeline reported that this file does not know about, shown rather than
   // dropped: a tool or parameter added upstream still belongs on the record.
   const otherTools = versioned
-    .filter(() => listOtherTools)
     .filter((module) => !claimedTools.has(normalizeToolKey(module.key)))
     .sort((left, right) => left.label.localeCompare(right.label))
     .map((module) => ({ label: module.label, value: module.version as string }));
@@ -373,9 +381,10 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
   );
 
   // Named with its analysis when the family holds the run record of more than one.
-  const heading = analysis
-    ? `Analysis pipeline settings — ${analysisLabel(analysis) ?? analysis}`
-    : 'Analysis pipeline settings';
+  const heading =
+    named && analysis
+      ? `Analysis pipeline settings — ${analysisLabel(analysis) ?? analysis}`
+      : 'Analysis pipeline settings';
 
   // On the report the section is printed, and a closed <details> prints nothing — so
   // only the workspace collapses it. There it is reference material a reader consults

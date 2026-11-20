@@ -55,6 +55,7 @@ from .clickhouse_interval_tracks import (
 from .data_scope import normalize_chromosome
 from .family_identifiers import visible
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from .family_package_records import UNSPECIFIED_ANALYSIS
 from .family_package_common import (
     DatasetLeftMissing,
     VcfSampleColumnError,
@@ -742,6 +743,7 @@ async def upload_family_small_variant_file(
     record_upload: bool = False,
     check_before_replacing: bool = True,
     write_state: SmallVariantWriteState | None = None,
+    analysis: str = UNSPECIFIED_ANALYSIS,
 ) -> dict[str, Any]:
     """Load a family's small-variant VCF into ClickHouse.
 
@@ -820,6 +822,10 @@ async def upload_family_small_variant_file(
     ``write_state`` is told when the load begins writing ClickHouse (``began``), at the same
     point: a package import's clean-up after a failed load deletes its callset only then,
     never after a file the load refused before it replaced anything.
+
+    ``analysis`` is the analysis whose annotation manifest the file's versions go into: a
+    package import's (its package record's key); a single-file upload belongs to none
+    (``UNSPECIFIED_ANALYSIS``).
     """
     if not context.assembly_name:
         raise HTTPException(
@@ -1304,6 +1310,7 @@ async def upload_family_small_variant_file(
             family_uuid=context.family_uuid,
             assembly_id=getattr(context, "assembly_id", None),
             modules=annotation_provenance,
+            analysis=analysis,
             modality="snv",
         )
         await session.commit()
@@ -1864,6 +1871,7 @@ async def upload_structural_variant_file(
         family_uuid=family_context.family_uuid,
         assembly_id=family_context.assembly_id,
         modules=annotation_provenance,
+        analysis=UNSPECIFIED_ANALYSIS,
         modality="sv",
     )
     await session.commit()

@@ -19,20 +19,33 @@ class AnnotationModuleOut(BaseModel):
     by_modality: Optional[Dict[str, str]] = None
 
 
-class AnnotationManifestOut(BaseModel):
-    """The annotation/reference version manifest for a family (report provenance)."""
+class AnalysisAnnotationManifestOut(BaseModel):
+    """The annotation/reference version manifest of one of a family's analyses: the versions a
+    sign-out of that analysis freezes (report provenance)."""
 
-    family_id: str
-    assembly: Optional[str] = None
+    # The analysis (its package record's key); None for a family that holds no analysis.
+    analysis_type: Optional[str] = None
     source: Optional[str] = None  # "manifest" | "vcf_header" | "manual"
     recorded_at: Optional[datetime] = None
     recorded_by: Optional[str] = None
     modules: List[AnnotationModuleOut] = Field(default_factory=list)
 
 
-class AnnotationManifestUpdate(BaseModel):
-    """Record/override a family's upstream annotation module versions."""
+class AnnotationManifestOut(BaseModel):
+    """A family's annotation manifests: one per analysis it holds, sorted by analysis, or one of
+    no analysis for a family that holds none."""
 
+    family_id: str
+    assembly: Optional[str] = None
+    analyses: List[AnalysisAnnotationManifestOut] = Field(default_factory=list)
+
+
+class AnnotationManifestUpdate(BaseModel):
+    """Record/override the upstream annotation module versions of one of a family's analyses."""
+
+    # The analysis whose manifest it replaces: required for a family that holds several, the
+    # family's only one otherwise (none for a family that holds none).
+    analysis_type: Optional[str] = Field(default=None, max_length=64)
     # A replacement is always recorded as 'manual'.
     modules: Dict[str, Any] = Field(default_factory=dict)
 

@@ -460,10 +460,12 @@ The error handling is built so that a half-imported family is never left behind 
 
 ## Provenance: the annotation manifest
 
-Besides the hash per file, CoGA keeps one **annotation manifest** per family (`family_annotation_manifest`): per tool or database the version, with a detail and, where needed, the version per modality. That way every result can later be traced back to the versions that made it. The rules:
+Besides the hash per file, CoGA keeps an **annotation manifest** per analysis of a family (`family_annotation_manifest`): per tool or database the version, with a detail and, where needed, the version per modality. That way every result can later be traced back to the versions that made it. The rules:
+
+- **Per analysis:** a family sequenced short-read and then long-read keeps a row per analysis (`analysis_type`, the key of its package record). An import writes the row of its own analysis and leaves another's; a single-file upload writes the row of no analysis (`unspecified`), which is every analysis's. An analysis's manifest is its own row over those of no analysis; a sign-out of the analysis freezes that, never another analysis's versions.
 
 - **Refreshed on a new import:** new versions overwrite the old ones per tool; what the new input does not name stays (a new SV import therefore does not wipe the SNV versions).
-- **Manual work wins:** a manifest that was replaced by hand is always recorded as `manual` and is never overwritten by an import. There is no screen for it: only an administrator can replace it, through the API (`PUT /api/families/{family_id}/annotation-manifest`). The manifest itself is not an append-only table, but every replacement goes into the clinical audit trail, with the manifest before and after (chapter 11).
+- **Manual work wins:** an analysis's manifest that was replaced by hand is always recorded as `manual` and is never overwritten by an import. There is no screen for it: only an administrator can replace it, through the API (`PUT /api/families/{family_id}/annotation-manifest`, with the analysis in `analysis_type`). The manifest itself is not an append-only table, but every replacement goes into the clinical audit trail, with the analysis and the manifest before and after (chapter 11).
 - **Taking turns:** an import and a replacement of the same family take the same lock before they read the manifest, and an import holds it until it is committed. A replacement therefore cannot fall between an import's read and write; it waits until a running import of that family is done.
 - **Together with the data:** the write belongs to the same transaction as the import. The provenance is therefore stored if, and only if, the data it describes are stored as well; an error in the provenance does not break the import.
 - **Per modality:** SNV, SV and repeats are annotated by different pipelines and can name different releases of the same database (e.g. two GENCODE versions). That is why the version per modality is stored as well.
@@ -483,7 +485,7 @@ The storage path is read back as given, and a changed database row can name any 
 
 Whoever deletes a sample or family wipes only CoGA's own copies of uploads in the upload folder. A row that names another path is skipped and logged, and nothing is wiped for it. The copies go only once the deletion is committed: a deletion that fails leaves every file its rows name in place. A copy that cannot be wiped after the commit stays and is logged with its row, its path and the kind of error: a file without a row, never a row without a file. A package folder need not be named after its family, nor an upload folder after the family's current ID.
 
-An auditor can thus trace per family: which files were read in, with which hash or which storage record (to be checked again), in which dataset; with which tool and database versions (`family_annotation_manifest`); and how the job went, with status, timestamps, log lines and validation findings (`family_import_jobs`). That closes the chain *annotated VCF → stored data → provenance → report*.
+An auditor can thus trace per family: which files were read in, with which hash or which storage record (to be checked again), in which dataset; with which tool and database versions per analysis (`family_annotation_manifest`); and how the job went, with status, timestamps, log lines and validation findings (`family_import_jobs`). That closes the chain *annotated VCF → stored data → provenance → report*.
 
 **Where in the code:** `backend/app/services/raw_import_files_pg.py` and `family_package_registration.py`.
 

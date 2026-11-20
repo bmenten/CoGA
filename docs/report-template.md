@@ -33,7 +33,7 @@ the live report (`?view=live`), where the case is signed out. It loads:
   equivalent);
 - the gene profile of each reported gene (`GET /genes/profile`);
 - the family's HPO terms (`GET /families/{family_id}/hpo`);
-- the family's annotation manifest.
+- the family's annotation manifests, one per analysis it holds.
 
 A family that holds several analyses signs each out on its own: the live report shows the family's
 data whole, and a sign-out freezes the chosen analysis's part of it
@@ -64,8 +64,8 @@ tests, so the wording can change safely.
 
 The report page also shows:
 
-- the case's provenance in the footer: the CoGA build, the annotation manifest's module versions
-  and the device label;
+- the case's provenance in the footer: the CoGA build, the module versions of each analysis's
+  annotation manifest and the device label;
 - an amber banner for classifications whose evidence changed;
 - the clinical audit trail;
 - the **Sign out report** action with its gates.

@@ -41,7 +41,7 @@ import {
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import {
-  latestSignoutOfRecord,
+  latestSignoutOf,
   useReportSignoutCheck,
   useReportSignouts,
   useSignedVersionDownload,
@@ -811,19 +811,14 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
 };
 
 /**
- * A section of a kind of data the analysis a record closes does not hold, beside another analysis
- * of the family that does (signout_scope.py): said so, so that no section drops out of the signed
- * view without a trace.
+ * Whose calls a record's repeat and Paraphase sections hold: those of the analysis it closes (a
+ * family's analysis holds the calls stored under its own sources, signout_scope.py), or the
+ * family's samples' for a record of a family that holds no analysis.
  */
-const NotOfThisAnalysis: React.FC<{ title: string; what: string }> = ({ title, what }) => (
-  <section className="surface-card report-signed-checks">
-    <h2 className="report-audit-heading">{title}</h2>
-    <p className="report-paragraph">
-      Not part of this record: the analysis it closes holds no {what}. Another analysis of the family
-      holds them, and its own record freezes them.
-    </p>
-  </section>
-);
+const callsOfTheRecord = (record: SignedReport): string => {
+  const label = analysisLabel(record.analysisType);
+  return label ? `The ${label}` : 'The family’s samples';
+};
 
 /**
  * A monogenic NIPT family's NIPT results, as its record froze them. Any other family's record
@@ -1129,9 +1124,6 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
       }
     </RecordSectionBlock>
 
-    {record.repeatExpansions.state === 'absent' ? (
-      <NotOfThisAnalysis title="Repeat expansions" what="repeat-expansion calls" />
-    ) : (
     <RecordSectionBlock
       title="Repeat expansions"
       what="the repeat-expansion calls"
@@ -1166,16 +1158,12 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
               ))}
             </ul>
           ) : (
-            <p className="report-paragraph">The family’s samples had no repeat-expansion calls.</p>
+            <p className="report-paragraph">{callsOfTheRecord(record)} had no repeat-expansion calls.</p>
           )}
         </>
       )}
     </RecordSectionBlock>
-    )}
 
-    {record.paraphase.state === 'absent' ? (
-      <NotOfThisAnalysis title="Paraphase" what="Paraphase results" />
-    ) : (
     <RecordSectionBlock
       title="Paraphase"
       what="the Paraphase results"
@@ -1211,12 +1199,11 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
               ))}
             </ul>
           ) : (
-            <p className="report-paragraph">The family’s samples had no Paraphase results.</p>
+            <p className="report-paragraph">{callsOfTheRecord(record)} had no Paraphase results.</p>
           )}
         </>
       )}
     </RecordSectionBlock>
-    )}
 
     <CoverageTracksSection record={record} version={version} />
 
@@ -1508,7 +1495,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
   // data (the owner's decision of 2026-11-19).
   const analysisType = detailQuery.data?.analysis_type ?? null;
   const analysisWords = analysisLabel(analysisType) ? ` of the ${analysisLabel(analysisType)}` : '';
-  const latest = detailQuery.data ? latestSignoutOfRecord(signouts.data, analysisType) : null;
+  const latest = detailQuery.data ? latestSignoutOf(signouts.data, analysisType) : null;
   const isLatest = latest ? latest.version === version : null;
   // Only the latest version can be compared with the family's current data.
   const check = useReportSignoutCheck(familyId, isLatest ? version : null, analysisType);

@@ -51,7 +51,7 @@ from ..core.config import settings
 from .review_pg_utils import review_class_label
 from .annotation_manifest_service import (
     UNAVAILABLE_MODULE_VERSION,
-    get_family_annotation_manifest,
+    analysis_annotation_manifest,
 )
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
@@ -82,7 +82,7 @@ from .package_changed_after_import import (
     gates_a_sign_out,
     sign_out_source_changes,
 )
-from .family_package_records import analysis_data_words
+from .family_package_records import ANALYSIS_LABELS, analysis_data_words
 from .report_code import (
     ReportCodeError,
     content_hash_prefix,
@@ -96,6 +96,7 @@ from .signed_record_sections import (
     NIPT_RESULTS,
     RECORD_SECTIONS,
     build_record_sections,
+    finding_kinds_held,
     record_section_gaps,
 )
 from .sample_integrity_qc import (
@@ -1330,9 +1331,9 @@ async def build_report_snapshot(
     scope = await family_signout_scope(session, context.family_uuid, analysis_type)
     analysis = scope.analysis
     left_out = await reviews_left_out(session, context, scope)
-    manifest = await get_family_annotation_manifest(
-        session, family_id=family_id, user=user, project_id=project_id
-    )
+    # The analysis's own annotation and pipeline versions, never another analysis's: a family
+    # sequenced short-read and then long-read keeps each analysis's manifest apart.
+    manifest = await analysis_annotation_manifest(session, context, analysis=analysis)
     drift = await evaluate_classification_drift(
         session, family_id=family_id, user=user, project_id=project_id, left_out=left_out
     )
@@ -1407,6 +1408,10 @@ async def build_report_snapshot(
         [*structural["drifted"], *structural_unsnapshotted],
         key=lambda item: item.get("variant_id") or "",
     )
+    # The kinds of finding whose calls are the analysis's (the repeat calls, the Paraphase
+    # results), by the sources they are stored under: the record of an analysis that holds none
+    # of them holds those sections, and their reviews, empty.
+    finding_kinds = await finding_kinds_held(session, context, scope)
     # What the analysis looked at: each reported variant's description, the gene-panel
     # versions its searches applied, the reference-data releases, the family's repeat
     # expansions and Paraphase results, what each coverage track holds, a PGT family's embryo
@@ -1418,13 +1423,14 @@ async def build_report_snapshot(
         reported_structural=reported_structural,
         shared_nipt=shared_nipt,
         scope=scope,
+        finding_kinds=finding_kinds,
     )
     # The reviews of the repeat loci and Paraphase regions that carry a classification or the
     # Report tag, with whether the calls each froze are still the family's; those whose calls
     # changed, which the drift gate counts; and each locus or region with an abnormal call and
     # no review, which the gate of unreviewed findings lists (finding_review_pg, from the
     # repeat and Paraphase sections just built).
-    finding_reviews = await finding_reviews_for_record(session, context, sections)
+    finding_reviews = await finding_reviews_for_record(session, context, sections, kinds=finding_kinds)
     return {
         # What the record is: the analytical sign-off, to which the EPD's report refers.
         "record_statement": ANALYTICAL_SIGN_OFF_STATEMENT,
@@ -1949,6 +1955,12 @@ async def sign_out_report(
         },
     )
     gaps = snapshot_gaps(snapshot_body)
+    # The analysis the record closes, named on the trail as the record names it (none: a family
+    # that holds no analysis, signed out whole).
+    signed_analysis = snapshot_body["analysis_type"]
+    analysis_words = (
+        f" of the {ANALYSIS_LABELS.get(signed_analysis, signed_analysis)}" if signed_analysis else ""
+    )
     await record_clinical_event(
         session,
         family_uuid=context.family_uuid,
@@ -1958,7 +1970,7 @@ async def sign_out_report(
         actor_id=getattr(user, "id", None),
         action="sign_out",
         summary=(
-            f"Report signed out (v{version}, report code {code}) — "
+            f"Report{analysis_words} signed out (v{version}, report code {code}) — "
             f"{len(snapshot_body['reported_variants'])} "
             f"reported variant(s), "
             f"{len(snapshot_body['reported_structural_variants'])} reported structural "
@@ -1972,6 +1984,8 @@ async def sign_out_report(
         ),
         after={
             "version": version,
+            # The analysis the record closes (snapshot.analysis_type).
+            "analysis_type": signed_analysis,
             "content_hash": content_hash,
             # The code the EPD report quotes for this record (report_code.py).
             "report_code": code,
@@ -2348,9 +2362,9 @@ async def compare_report_with_latest_signout(
     with the frozen one: a section that differs, or that only one of the two holds, is
     changed. A section of one application that neither holds (``pgt_analysis`` of a family
     without an embryo, or of a monogenic NIPT family whose embryo, its fetus, has no haplotype
-    blocks; ``nipt`` of a family that is no monogenic NIPT family), or of a kind of data the
-    analysis does not hold (``signout_scope``), is not compared. Both snapshots are of the
-    analysis's own data, so a change to another analysis's leaves its check matching.
+    blocks; ``nipt`` of a family that is no monogenic NIPT family) is not compared. Both
+    snapshots are of the analysis's own data (``signout_scope``), its annotation manifest
+    included, so a change to another analysis's leaves its check matching.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -2396,8 +2410,7 @@ async def compare_report_with_latest_signout(
         if section not in signed and section not in current:
             # Another application's section (the PGT embryo calls of a family without an
             # embryo or of a NIPT family's fetus, the NIPT results of a family that is no
-            # NIPT family), or a kind of data the analysis does not hold (the repeat calls of a
-            # short-read analysis beside a long-read one, signout_scope): nothing to compare.
+            # NIPT family): nothing to compare.
             continue
         if (
             section not in signed

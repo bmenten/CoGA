@@ -28,7 +28,7 @@ import copy
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any, Collection, Mapping, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -58,7 +58,15 @@ from .review_pg_utils import (
     _normalize_tags,
     _raise_on_stale_review,
 )
-from .signed_record_sections import PARAPHASE, REPEAT_EXPANSIONS, paraphase_results, repeat_expansion_calls
+from .signed_record_sections import (
+    FINDING_KINDS,
+    PARAPHASE,
+    PARAPHASE_FINDINGS,
+    REPEAT_EXPANSIONS,
+    REPEAT_FINDINGS,
+    paraphase_results,
+    repeat_expansion_calls,
+)
 from .small_variant_review_tags import list_small_variant_tag_definitions
 
 # The tag that puts a finding on the report, as for the variants.
@@ -670,7 +678,10 @@ def _paraphase_unreviewed(section: Mapping[str, Any], reviewed: set[str]) -> lis
 
 
 async def finding_reviews_for_record(
-    session: AsyncSession, context: FamilyMetadataContext, sections: Mapping[str, Any]
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    sections: Mapping[str, Any],
+    kinds: Collection[str] = FINDING_KINDS,
 ) -> dict[str, Any]:
     """The four keys the sign-out adds to the record, from the record's own repeat and
     Paraphase sections (``sections``, as ``build_record_sections`` made them):
@@ -684,8 +695,9 @@ async def finding_reviews_for_record(
       and no review, which the gate of calls without a review lists (REQ-TRACE-016). A section
       that could not be read is listed as such, as its calls cannot be checked.
 
-    A kind whose section the record does not hold (a sign-out of an analysis that holds no such
-    data, ``signout_scope``) has no review list and adds nothing to the other two.
+    A kind whose calls are not the analysis's a sign-out is of (not in ``kinds``,
+    ``signed_record_sections.finding_kinds_held``: those of another analysis the family holds)
+    has an empty review list and adds nothing to the other two, as its section holds no call.
 
     Every list is sorted, so identical content hashes identically.
     """
@@ -693,11 +705,12 @@ async def finding_reviews_for_record(
     drifted: list[dict[str, Any]] = []
     checked = 0
     unreviewed: list[dict[str, Any]] = []
-    for kind, section_key, record_key in (
-        (REPEAT, REPEAT_EXPANSIONS.key, REPEAT_REVIEWS_SECTION),
-        (PARAPHASE_REGION, PARAPHASE.key, PARAPHASE_REVIEWS_SECTION),
+    for kind, held_as, section_key, record_key in (
+        (REPEAT, REPEAT_FINDINGS, REPEAT_EXPANSIONS.key, REPEAT_REVIEWS_SECTION),
+        (PARAPHASE_REGION, PARAPHASE_FINDINGS, PARAPHASE.key, PARAPHASE_REVIEWS_SECTION),
     ):
-        if section_key not in sections:
+        if held_as not in kinds:
+            record[record_key] = []
             continue
         section = sections.get(section_key)
         readable = _readable(section)

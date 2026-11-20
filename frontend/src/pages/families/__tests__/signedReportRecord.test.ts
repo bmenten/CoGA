@@ -1299,13 +1299,17 @@ describe('what the analysis looked at', () => {
   it('reads a record without these sections as unreadable, never as empty', () => {
     const record = parseSignedReport(SNAPSHOT)!;
     expect(record.statement).toBeNull();
-    for (const section of [record.variantDescriptions, record.genePanels, record.referenceData]) {
+    // Every record holds the repeat and Paraphase sections too (those of an analysis whose calls
+    // are another analysis's, without a call): one without them is unreadable.
+    for (const section of [
+      record.variantDescriptions,
+      record.genePanels,
+      record.referenceData,
+      record.repeatExpansions,
+      record.paraphase,
+    ]) {
       expect(section).toEqual({ state: 'unavailable', reason: 'it cannot be read here; the downloaded record holds it as stored' });
     }
-    // The record of an analysis that holds no repeat calls or Paraphase results, beside another
-    // analysis of the family that does, holds neither section.
-    expect(record.repeatExpansions).toEqual({ state: 'absent' });
-    expect(record.paraphase).toEqual({ state: 'absent' });
     expect(record.analysisType).toBeNull();
     expect(parseSignedReport({ ...SNAPSHOT, analysis_type: 'conventional_nipt' })!.analysisType).toBe('conventional_nipt');
   });

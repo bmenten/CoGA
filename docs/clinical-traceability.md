@@ -22,7 +22,7 @@ Phase 2 clinical audit trail, Phase 3 sign-out.
 
 | Record | Where | What it holds |
 | --- | --- | --- |
-| Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
+| Annotation manifest | `family_annotation_manifest` | per analysis of a family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
 | Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot`, `structural_variant_reviews.cnv_evidence_snapshot`, `repeat_expansion_reviews.evidence_snapshot`, `paraphase_reviews.evidence_snapshot` | what the classifier saw, per ACMG classification of a small variant and per CNV (ClinGen) classification of a structural variant or CNV; the calls a repeat-locus or Paraphase-region review rests on, when it carries a classification or the Report tag |
 | Clinical audit trail | `clinical_audit_events` | who changed what and when, with before and after: reviews and compound-het pairs, the pedigree, members and phenotypes, the manifest, the NIPT artifact list, a gene-panel version's first use, the family's deletion, sign-out (below) |
 | Pedigree history | `family_structure_versions` | the pedigree after each change (members with sex, role, affected and carrier status, and the relationships), one version per change, hash-chained per family |
@@ -39,13 +39,27 @@ Three sources, each named in `source` (how each is captured:
 - `manual`: an admin's replacement through `PUT /families/{family_id}/annotation-manifest`, always
   recorded as manual. Later imports leave a manual manifest alone.
 
+The manifest is kept **per analysis**: one row per family and analysis (`analysis_type`, the key of
+the analysis's package record; `unspecified` for a package that named no analysis and for a
+single-file upload). A family sequenced short-read and then long-read WGS keeps both: each import
+writes its own analysis's row and leaves the other's, so the long-read import never replaces the
+short-read analysis's VEP, ClinVar, reference FASTA or caller.
+
+An analysis's manifest is its own row laid over the rows of no analysis the family holds (an
+upload's, a package's that named none: their data is every analysis's, *One sign-out per analysis*,
+below). For a module both name, the analysis's own fields win and the versions per modality are
+joined. A row an admin replaced is that analysis's whole manifest. A family that holds no analysis
+has one manifest, of those rows.
+
 An import and a replacement of one family take turns on one lock, so neither overwrites the other
-halfway. `GET /families/{family_id}/annotation-manifest` merges the manifest with what CoGA itself
-loaded: the reference assembly, the gene-loci source (`gene_loci`: GENCODE, or the UCSC table used
-when GENCODE could not be fetched), the Monarch release, and the HPO release with the SHA-256 of
-the ontology file its terms came from
-([how each is read](annotation-provenance.md#the-reference-modules)). The report footer shows the
-merged list; sign-out freezes it.
+halfway. A replacement names the analysis whose manifest it replaces (`analysis_type`; required
+for a family that holds several, 422 otherwise), and its audit event names it too.
+`GET /families/{family_id}/annotation-manifest` returns one manifest per analysis the family holds
+(`analyses`), each merged with what CoGA itself loaded: the reference assembly, the gene-loci source
+(`gene_loci`: GENCODE, or the UCSC table used when GENCODE could not be fetched), the Monarch
+release, and the HPO release with the SHA-256 of the ontology file its terms came from
+([how each is read](annotation-provenance.md#the-reference-modules)). The pages show each
+analysis's list; a sign-out of an analysis freezes that analysis's.
 
 ### Evidence snapshot of a small variant
 
@@ -383,8 +397,8 @@ item below (*One sign-out per analysis*).
 - **What the record is** (`record_statement`): *This record is the analytical sign-off in CoGA,
   which closes and freezes the analysis; the medical sign-off of the patient report happens in
   the EPD, which refers to this record by its report code.*
-- **Provenance:** the merged manifest and the reference assembly; the software version and git
-  commit that produced the snapshot.
+- **Provenance:** the analysis's merged manifest (its own versions, never another analysis's) and
+  the reference assembly; the software version and git commit that produced the snapshot.
 - **Reported variants:** the small variants tagged `report`, each with its classification, ACMG
   criteria and evidence snapshot; the reported SVs and CNVs with their classification, CNV criteria
   and evidence snapshot.
@@ -721,13 +735,14 @@ A sign-out of analysis X freezes and checks:
 | --- | --- |
 | `reported_variants`, `reported_structural_variants`, their evidence drift (`drift`, `structural_drift`) and their descriptions (`variant_descriptions`) | the variants with a stored row (the ClickHouse `entries`) under a source of X's or of no other analysis's; a variant whose rows are gone counts in |
 | `coverage_tracks` | the tracks of X's sources or of no other analysis's |
-| `repeat_expansions` and `paraphase`, with their reviews, `finding_review_drift` and `unreviewed_findings` (gate 7) | each section whole, only when X's record lists such sources or no other analysis's record does; otherwise the record holds neither the section nor its reviews |
+| `repeat_expansions` and `paraphase`, with their reviews, `finding_review_drift` and `unreviewed_findings` (gate 7) | each section whole when the calls are X's by the sources they are stored under (`repeat_expansions.source`; Paraphase's one source), or when the family holds none; otherwise the section and its reviews hold no call, as in the record of a family without such calls |
 | `pgt_analysis`, `nipt`, `cnipt` | the PGT embryo calls for `pgt` or `monogenic_nipt`, the NIPT results for `monogenic_nipt`, the cNIPT results for `conventional_nipt`; a section of an application none of whose analyses the family holds goes to every analysis |
 | `sample_qc` | the QC of X's own application (the conventional NIPT runs no check), on genotypes from a callset of X's own |
 | `sequencing_qc` | the sequencing QC X's own import recorded, and that of a package that named no analysis, each judged against its analysis's cut-offs |
 | `package_intake`, `package_source_changes` (gate 6) | X's own package record, and that of a package that named no analysis |
 | `import_incomplete`, `import_unfinished` (gate 5) | the datasets of X's record, or of no other analysis's record; a failed overwrite whose restore did not finish (`whole_family`) stays whole |
-| `gene_panels`, `reference_data`, `modules` | whole (`reference_data` for the genes the record describes) |
+| `modules` | X's annotation manifest (*Annotation manifest*, above) |
+| `gene_panels`, `reference_data` | whole (`reference_data` for the genes the record describes) |
 
 The gates read this snapshot, so each gate is the analysis's own: a drifted classification, a QC
 concern or a failed dataset of another analysis does not stop it. The sign-out check of X compares
@@ -742,8 +757,9 @@ report*, *The NIPT report*, below).
 
 - **Hash and version.** The snapshot is hashed with SHA-256 over a canonical encoding and stored as
   the next version. An amendment is a new sign-out; no version is ever changed. The sign-out is also
-  written to the clinical audit trail. A stored hash is always checked against the snapshot as
-  stored.
+  written to the clinical audit trail, naming the analysis it closes (*Report of the short-read WGS
+  signed out (v3, report code …)*, with its `analysis_type`). A stored hash is always checked
+  against the snapshot as stored.
 - **Numbering.** Versions are numbered per family ID: a family made again under a deleted family's
   ID numbers on from the deleted family's last version (its first sign-out is version 3 after two),
   on the same chain. So a family ID and a version name one signed record for good, and the database
@@ -754,12 +770,15 @@ report*, *The NIPT report*, below).
   (`analysis_type`, named as for a sign-out): it compares that analysis's latest record with the
   snapshot a sign-out of it would freeze now. It reads the one snapshot format CoGA writes: every
   record holds every section and field (a section of one application, that application's families'
-  records only; the repeat and Paraphase sections, the records of analyses that hold such data).
-  Each section is compared whole, so a section that differs, or that only one of the record and the
-  family's current data holds, is changed. A section that neither holds (the NIPT results of a
-  family that is not a NIPT family, the repeat calls of an analysis beside another that holds them)
-  is not compared. The live report, the signed version and the NIPT pages say whether the family's
-  data still matches the analysis's latest version, and name the sections that changed.
+  records only). Each section is compared whole, so a section that differs, or that only one of the
+  record and the family's current data holds, is changed. A section that neither holds (the NIPT
+  results of a family that is not a NIPT family) is not compared. An analysis signed out whole, as
+  the family's only one, and checked once the family holds another compares the same sections: its
+  own manifest, and repeat and Paraphase sections without the other analysis's calls. The live
+  report, the signed version and the NIPT pages say whether the family's data still matches the
+  analysis's latest version, and name the sections that changed. A page that signs out a family of
+  one analysis reads that analysis's latest version, as the check does, never the latest version of
+  another analysis or of none.
 
 Because each section is compared whole, these read as a change since signing:
 
@@ -1159,10 +1178,10 @@ missense Z.*). A group the snapshot did not freeze is left out.
   read, names both causes.
 - A record without `pgt_analysis`, `nipt` or `cnipt` is another application's family's: it shows no
   PGT, NIPT or conventional NIPT section.
-- A record without `repeat_expansions` or `paraphase` closes an analysis that holds no such data,
-  beside another analysis that does (*One sign-out per analysis*). The section says so: *Not part
-  of this record: the analysis it closes holds no repeat-expansion calls. Another analysis of the
-  family holds them, and its own record freezes them.* (or *Paraphase results*).
+- A repeat or Paraphase section without a call names whose calls it holds: those of the analysis
+  the record closes (*The short-read WGS had no repeat-expansion calls.*), or, for a family that
+  holds no analysis, its samples'. Another analysis's calls are in that analysis's record (*One
+  sign-out per analysis*).
 - What no snapshot holds is said on the page: the population frequencies and in silico predictions
   the live report shows, the segregation, the gene and phenotype context, the audit trail and the
   pipeline settings.
@@ -1188,7 +1207,14 @@ signed record.
   code.
 - It checks itself against the latest sign-out (`sign-out-check`): the content matches the signed
   version (it says so, and is still not the signed report); the content changed after sign-out (the
-  changed sections are named); or the check could not be made (treat the page as unsigned).
+  changed sections are named); or the check could not be made (treat the page as unsigned). Of a
+  family that holds several analyses the page shows every analysis's data, and the record holds
+  one analysis's: a match is worded of that analysis's data (*The conventional NIPT data on this
+  page still match signed version 2, which holds the conventional NIPT data only: the other
+  analyses' data this page shows are not part of it.*).
+- Its footer names the modules and versions of each analysis the family holds, each analysis's
+  own (*Modules & versions (short-read WGS): …*); the pipeline settings show each analysis's run
+  parameters with that analysis's tool versions.
 - Every printout starts with a notice ("Draft …", "Not the signed report …", "Not verified …", or
   that the sign-out record is loading or could not be loaded). When the clinical audit trail shows
   only its newest events, the notice says that too ("Incomplete — the audit trail lists the 200 most

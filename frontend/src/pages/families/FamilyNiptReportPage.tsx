@@ -35,7 +35,7 @@ import { memberLabel } from '../../lib/familyMembers';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import { latestSignoutOf, useReportSignoutCheck, useReportSignouts } from './reportSignoutQueries';
-import { niptReportAnalysis } from '../../lib/familyAnalyses';
+import { niptReportAnalysis, soleAnalysis } from '../../lib/familyAnalyses';
 import {
   describeReportSections,
   formatReportTime,
@@ -298,7 +298,11 @@ const FamilyNiptReportPage: React.FC = () => {
   // (the owner's decision of 2026-11-19): this report signs out the monogenic NIPT, and reads its
   // latest signed version and check; a family of the monogenic NIPT alone is signed out whole.
   const signOutAnalysis = niptReportAnalysis(family?.metadata);
-  const latestSignout = latestSignoutOf(signouts, signOutAnalysis);
+  // Read once the family is: until then it is not known which analysis's record is the latest,
+  // and a check naming none would be refused for a family of several. A family of the monogenic
+  // NIPT alone reads that analysis's record, as the check does.
+  const recordAnalysis = signOutAnalysis ?? soleAnalysis(family?.metadata);
+  const latestSignout = family ? latestSignoutOf(signouts, recordAnalysis) : null;
   const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
     familyId,
     latestSignout?.version ?? null,

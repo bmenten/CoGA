@@ -39,6 +39,18 @@ export interface AlignmentManifestEntryOut {
   index_url: string;
 }
 
+/**
+ * The annotation/reference version manifest of one of a family's analyses: the versions a
+ * sign-out of that analysis freezes (report provenance).
+ */
+export interface AnalysisAnnotationManifestOut {
+  analysis_type: string | null;
+  source: string | null;
+  recorded_at: string | null;
+  recorded_by: string | null;
+  modules: AnnotationModuleOut[];
+}
+
 export interface AncestryAnalysisOut {
   run_id: string;
   reference_sha256: string;
@@ -148,18 +160,19 @@ export interface AncestrySampleOut {
   choice: AncestrySampleChoiceOut | null;
 }
 
-/** The annotation/reference version manifest for a family (report provenance). */
+/**
+ * A family's annotation manifests: one per analysis it holds, sorted by analysis, or one of
+ * no analysis for a family that holds none.
+ */
 export interface AnnotationManifestOut {
   family_id: string;
   assembly: string | null;
-  source: string | null;
-  recorded_at: string | null;
-  recorded_by: string | null;
-  modules: AnnotationModuleOut[];
+  analyses: AnalysisAnnotationManifestOut[];
 }
 
-/** Record/override a family's upstream annotation module versions. */
+/** Record/override the upstream annotation module versions of one of a family's analyses. */
 export interface AnnotationManifestUpdate {
+  analysis_type?: string | null;
   modules?: Record<string, unknown>;
 }
 

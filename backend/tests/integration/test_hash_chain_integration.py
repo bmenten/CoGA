@@ -632,6 +632,8 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
         # integral float to exercise the JSONB normalisation through the real writer.
         # The drift lists too: the drift gate's refusal lists them.
         return {
+            # The family holds no analysis: its record closes it whole.
+            "analysis_type": None,
             "drift": {"drifted_count": 0, "drifted": []},
             "structural_drift": {"drifted_count": 0, "drifted": []},
             # No repeat or Paraphase review and no finding without one (finding_review_pg).

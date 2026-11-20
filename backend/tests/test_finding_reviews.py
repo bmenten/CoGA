@@ -290,10 +290,11 @@ def test_the_record_holds_the_reviews_that_bear_a_judgement_with_their_drift(mon
     assert record["unreviewed_findings"] == []
 
 
-def test_a_record_without_a_kind_s_section_holds_none_of_its_reviews(monkeypatch) -> None:
-    # A sign-out of an analysis that holds no repeat calls (a short-read analysis beside a
-    # long-read one): its record holds no repeat section, so neither the repeat reviews, nor
-    # their drift, nor the abnormal repeat calls without a review.
+def test_a_record_of_an_analysis_without_a_kind_s_calls_holds_none_of_its_reviews(monkeypatch) -> None:
+    # A sign-out of an analysis whose calls are not the repeat calls (a short-read analysis
+    # beside a long-read one): its record's repeat section holds no call, and its repeat review
+    # list is empty, with no drift and no abnormal repeat call without a review. The list is
+    # there, as in the record of a family that holds no repeat call at all.
     frozen = _locus("HTT", "HTT", "intermediate", [_call("PROBAND", "intermediate", [18, 34])])
     _rows(
         monkeypatch,
@@ -306,15 +307,20 @@ def test_a_record_without_a_kind_s_section_holds_none_of_its_reviews(monkeypatch
         },
         {"smn1": _row("smn1", classification="carrier", evidence_snapshot=None)},
     )
-    sections = {"paraphase": _paraphase_section(_region("smn1", {"PROBAND": "carrier"}))}
-    record = asyncio.run(frp.finding_reviews_for_record(None, _context(), sections))  # type: ignore[arg-type]
-    assert "repeat_expansion_reviews" not in record
+    sections = {
+        "repeat_expansions": _repeat_section(),
+        "paraphase": _paraphase_section(_region("smn1", {"PROBAND": "carrier"})),
+    }
+    record = asyncio.run(frp.finding_reviews_for_record(None, _context(), sections, kinds={"paraphase"}))  # type: ignore[arg-type]
+    assert record["repeat_expansion_reviews"] == []
     assert [entry["key"] for entry in record["paraphase_reviews"]] == ["smn1"]
     assert record["finding_review_drift"]["checked"] == 1
     assert [item["kind"] for item in record["finding_review_drift"]["drifted"]] == ["paraphase"]
-    # Neither section: nothing to review.
-    none = asyncio.run(frp.finding_reviews_for_record(None, _context(), {}))  # type: ignore[arg-type]
+    # Neither kind: nothing to review.
+    none = asyncio.run(frp.finding_reviews_for_record(None, _context(), sections, kinds=set()))  # type: ignore[arg-type]
     assert none == {
+        "repeat_expansion_reviews": [],
+        "paraphase_reviews": [],
         "finding_review_drift": {"checked": 0, "drifted_count": 0, "drifted": []},
         "unreviewed_findings": [],
     }

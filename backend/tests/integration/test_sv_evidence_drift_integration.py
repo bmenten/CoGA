@@ -275,8 +275,8 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                 ).scalar_one()
                 await s.execute(
                     text(
-                        "INSERT INTO family_annotation_manifest (family_id, modules, source, recorded_by) "
-                        "VALUES (CAST(:f AS uuid), CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
+                        "INSERT INTO family_annotation_manifest (family_id, analysis_type, modules, source, recorded_by) "
+                        "VALUES (CAST(:f AS uuid), 'unspecified', CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
                     ),
                     {
                         "f": holder["uuid"],
@@ -471,8 +471,8 @@ async def _two_caller_family(sessionmaker, family_uuid: str, label: str, project
         )
         await s.execute(
             text(
-                "INSERT INTO family_annotation_manifest (family_id, modules, source, recorded_by) "
-                "VALUES (CAST(:f AS uuid), CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
+                "INSERT INTO family_annotation_manifest (family_id, analysis_type, modules, source, recorded_by) "
+                "VALUES (CAST(:f AS uuid), 'unspecified', CAST(:m AS jsonb), 'vcf_header', 'import (vcf_header)')"
             ),
             {"f": family_uuid, "m": json.dumps({"needlr": {"version": "0.4.2", "by_modality": {"sv": "0.4.2"}}})},
         )

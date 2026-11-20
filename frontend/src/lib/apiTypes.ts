@@ -352,13 +352,24 @@ export interface ApiAnnotationModule {
   by_modality: Record<string, string> | null;
 }
 
-export interface ApiAnnotationManifest {
-  family_id: string;
-  assembly: string | null;
+/**
+ * The annotation manifest of one of a family's analyses: the versions a sign-out of that analysis
+ * freezes (backend `annotation_manifest_service.analysis_manifest`). `analysis_type` is null for a
+ * family that holds no analysis.
+ */
+export interface ApiAnalysisAnnotationManifest {
+  analysis_type: string | null;
   source: string | null;
   recorded_at: string | null;
   recorded_by: string | null;
   modules: ApiAnnotationModule[];
+}
+
+/** A family's annotation manifests: one per analysis it holds, by analysis; one for a family of none. */
+export interface ApiAnnotationManifest {
+  family_id: string;
+  assembly: string | null;
+  analyses: ApiAnalysisAnnotationManifest[];
 }
 
 // The primary transcript, its consequence, the population frequencies and in-silico scores, and

@@ -25,6 +25,7 @@ from backend.app.services.signout_scope import (
     PackageRecordShapeError,
     ReviewsLeftOut,
     SignoutScope,
+    analysis_listing_source,
     reviews_left_out,
     signout_scope,
 )
@@ -59,7 +60,7 @@ def test_a_family_of_one_analysis_or_none_is_signed_out_whole() -> None:
         scope = signout_scope(metadata, analysis)
         assert scope.whole and scope.analysis == analysis
         assert scope.holds("small_variants", ["anything"])
-        assert scope.holds_kind("repeats") and scope.holds_dataset("snv") and scope.holds_record("x")
+        assert scope.holds("repeats", ["trgt"]) and scope.holds_dataset("snv") and scope.holds_record("x")
         assert scope.holds_application(CNIPT_SECTION_ANALYSES)
     assert WHOLE_FAMILY.whole and WHOLE_FAMILY.analysis is None
 
@@ -94,21 +95,45 @@ def test_data_no_other_analysis_claims_belong_to_every_analysis() -> None:
     assert signout_scope(metadata, "conventional_nipt").holds_dataset("sv_needlr")
 
 
-def test_a_kind_read_whole_is_the_analysis_s_when_it_or_no_other_holds_it() -> None:
-    metadata = {
+def _short_and_long_read() -> dict[str, Any]:
+    return {
         "analysis_types": ["long_read_wgs", "short_read_wgs"],
         "package_imports": {
             "long_read_wgs": _record(["snv", "repeats_trgt", "paraphase"], "clair3"),
             "short_read_wgs": _record(["snv"], "gatk"),
         },
     }
-    short_read = signout_scope(metadata, "short_read_wgs")
-    long_read = signout_scope(metadata, "long_read_wgs")
-    assert not short_read.holds_kind("repeats") and not short_read.holds_kind("paraphase")
-    assert long_read.holds_kind("repeats") and long_read.holds_kind("paraphase")
-    # A kind no analysis holds is every analysis's.
-    assert short_read.holds_kind("tracks") and long_read.holds_kind("tracks")
+
+
+def test_the_repeat_and_paraphase_calls_are_the_analysis_s_by_their_sources() -> None:
+    short_read = signout_scope(_short_and_long_read(), "short_read_wgs")
+    long_read = signout_scope(_short_and_long_read(), "long_read_wgs")
+    assert not short_read.holds("repeats", ["trgt"]) and not short_read.holds("paraphase", ["paraphase"])
+    assert long_read.holds("repeats", ["trgt"]) and long_read.holds("paraphase", ["paraphase"])
+    # A family holding no such call: nothing can be told, so the kind is every analysis's.
+    assert short_read.holds("repeats", []) and long_read.holds("repeats", [])
     assert short_read.holds("small_variants", ["gatk"]) and not short_read.holds("small_variants", ["clair3"])
+
+
+def test_the_analysis_listing_a_source_is_the_one_whose_record_lists_it() -> None:
+    metadata = _short_and_long_read()
+    assert analysis_listing_source(metadata, "small_variants", "gatk") == "short_read_wgs"
+    assert analysis_listing_source(metadata, "small_variants", "clair3") == "long_read_wgs"
+    assert analysis_listing_source(metadata, "repeats", "trgt") == "long_read_wgs"
+    # A source no record lists (an upload's), or none: no analysis.
+    assert analysis_listing_source(metadata, "structural_variants", "web") is None
+    assert analysis_listing_source(metadata, "small_variants", None) is None
+    assert analysis_listing_source(metadata, "small_variants", "") is None
+    # A source two analyses list cannot be told apart.
+    both = _short_and_long_read()
+    both["package_imports"]["short_read_wgs"] = _record(["snv"], "clair3")
+    assert analysis_listing_source(both, "small_variants", "clair3") is None
+    # A record of no analysis the family holds (a package that named none) is no analysis's own.
+    unnamed = {**metadata, "package_imports": {**metadata["package_imports"], "unspecified": _record(["sv_needlr"])}}
+    assert analysis_listing_source(unnamed, "structural_variants", "needlr") is None
+    # A family of one analysis: its record's sources are its own.
+    single = {"analysis_types": ["short_read_wgs"], "package_imports": {"short_read_wgs": _record(["snv"], "gatk")}}
+    assert analysis_listing_source(single, "small_variants", "gatk") == "short_read_wgs"
 
 
 def test_an_analysis_with_no_package_record_holds_what_no_other_claims() -> None:

@@ -460,10 +460,12 @@ De foutafhandeling is zo gebouwd dat er nooit ongemerkt een half-geïmporteerde 
 
 ## Herkomst: het annotatiemanifest
 
-Naast de hash per bestand houdt CoGA per familie één **annotatiemanifest** bij (`family_annotation_manifest`): per tool of databank de versie, met een detail en, waar nodig, de versie per modaliteit. Zo is elk resultaat later terug te voeren op de versies die het maakten. De regels:
+Naast de hash per bestand houdt CoGA per analyse van een familie een **annotatiemanifest** bij (`family_annotation_manifest`): per tool of databank de versie, met een detail en, waar nodig, de versie per modaliteit. Zo is elk resultaat later terug te voeren op de versies die het maakten. De regels:
+
+- **Per analyse:** een familie die eerst short-read en dan long-read gesequenced werd, houdt een rij per analyse (`analysis_type`, de sleutel van haar pakketrecord). Een import schrijft de rij van haar eigen analyse en laat die van een andere staan; een losse upload schrijft de rij van geen analyse (`unspecified`), die van elke analyse is. Het manifest van een analyse is haar eigen rij over die van geen analyse; een ondertekening van de analyse bevriest dat, nooit de versies van een andere analyse.
 
 - **Verversen bij een nieuwe import:** nieuwe versies overschrijven de oude per tool; wat de nieuwe invoer niet noemt, blijft staan (een nieuwe SV-import wist de SNV-versies dus niet).
-- **Handwerk wint:** een manifest dat met de hand vervangen werd, staat altijd als `manual` en wordt door een import nooit overschreven. Er is geen scherm voor: alleen een beheerder kan het vervangen, via de API (`PUT /api/families/{family_id}/annotation-manifest`). Het manifest zelf is geen append-only tabel, maar elke vervanging komt in het klinische auditspoor, met het manifest ervoor en erna (hoofdstuk 11).
+- **Handwerk wint:** het manifest van een analyse dat met de hand vervangen werd, staat altijd als `manual` en wordt door een import nooit overschreven. Er is geen scherm voor: alleen een beheerder kan het vervangen, via de API (`PUT /api/families/{family_id}/annotation-manifest`, met de analyse in `analysis_type`). Het manifest zelf is geen append-only tabel, maar elke vervanging komt in het klinische auditspoor, met de analyse en het manifest ervoor en erna (hoofdstuk 11).
 - **Om beurten:** een import en een vervanging van dezelfde familie nemen hetzelfde slot voor ze het manifest lezen, en een import houdt het vast tot ze is vastgelegd. Een vervanging kan dus niet tussen het lezen en het schrijven van een import vallen; ze wacht tot een lopende import van die familie klaar is.
 - **Samen met de data:** de schrijfactie hoort bij dezelfde transactie als de import. De herkomst wordt dus bewaard als, en alleen als, de data die ze beschrijft ook bewaard wordt; een fout in de herkomst breekt de import niet.
 - **Per modaliteit:** SNV, SV en repeats worden door verschillende pipelines geannoteerd en kunnen verschillende releases van dezelfde databank noemen (bv. twee GENCODE-versies). Daarom wordt ook de versie per modaliteit bewaard.
@@ -483,7 +485,7 @@ Het opslagpad wordt als gegeven teruggelezen, en een gewijzigde databankrij kan 
 
 Wie een sample of familie verwijdert, wist alleen de eigen kopieën van uploads in de uploadmap. Een rij die een ander pad noemt, wordt overgeslagen en gelogd, en er wordt niets voor gewist. De kopieën gaan pas weg als de verwijdering vastgelegd is: een verwijdering die mislukt, laat elk bestand staan dat haar rijen noemen. Een kopie die na de commit niet gewist kan worden, blijft staan en wordt gelogd met haar rij, haar pad en de soort fout: een bestand zonder rij, nooit een rij zonder bestand. Een pakketmap hoeft niet naar haar familie genoemd te zijn, en een uploadmap niet naar de huidige ID van de familie.
 
-Een auditor kan zo per familie nagaan: welke bestanden zijn ingelezen, met welke hash of welk opslagrecord (opnieuw te controleren), in welke dataset; met welke tool- en databankversies (`family_annotation_manifest`); en hoe de job verliep, met status, tijdstippen, logregels en validatiebevindingen (`family_import_jobs`). Dat sluit de keten *geannoteerde VCF → opgeslagen data → herkomst → rapport*.
+Een auditor kan zo per familie nagaan: welke bestanden zijn ingelezen, met welke hash of welk opslagrecord (opnieuw te controleren), in welke dataset; met welke tool- en databankversies per analyse (`family_annotation_manifest`); en hoe de job verliep, met status, tijdstippen, logregels en validatiebevindingen (`family_import_jobs`). Dat sluit de keten *geannoteerde VCF → opgeslagen data → herkomst → rapport*.
 
 **Waar in de code:** `backend/app/services/raw_import_files_pg.py` en `family_package_registration.py`.
 

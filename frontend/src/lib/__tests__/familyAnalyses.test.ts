@@ -7,6 +7,7 @@ import {
   niptReportAnalysis,
   reportPageAnalyses,
   separatelySignedAnalyses,
+  soleAnalysis,
 } from '../familyAnalyses';
 
 // A family may hold several analyses (backend family_analysis_types.py): the monogenic and the
@@ -48,6 +49,15 @@ describe('the analysis each report signs out', () => {
       expect(niptReportAnalysis(metadata)).toBeNull();
       expect(reportPageAnalyses(metadata)).toEqual([]);
     }
+  });
+
+  // The analysis whose record a page reads when it names none, as the sign-out check resolves it.
+  it('reads the record of a family of one analysis as that analysis’s', () => {
+    expect(soleAnalysis({ analysis_types: ['short_read_wgs'] })).toBe('short_read_wgs');
+    expect(soleAnalysis({ analysis_types: [] })).toBeNull();
+    expect(soleAnalysis(undefined)).toBeNull();
+    // Of several, the page must name one.
+    expect(soleAnalysis({ analysis_types: ['long_read_wgs', 'short_read_wgs'] })).toBeNull();
   });
 
   it('names each analysis in a sentence', () => {

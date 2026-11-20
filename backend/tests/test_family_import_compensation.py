@@ -1647,7 +1647,7 @@ def _snv_job(tmp_path, vcf, *, scope=None, **snv):
     fields = {"scope": scope} if scope is not None else {}
     return family_package_datasets.DatasetImportJob(
         session=SimpleNamespace(),
-        bundle=SimpleNamespace(root=tmp_path),
+        bundle=SimpleNamespace(root=tmp_path, manifest=SimpleNamespace(analysis_type=None)),
         dataset=ManifestDataset(family_vcf="family.vcf", **snv),
         summary=FamilyImportDatasetSummary(dataset_type="snv", status="valid"),
         family_context=SimpleNamespace(

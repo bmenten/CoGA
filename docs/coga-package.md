@@ -95,7 +95,7 @@ member's status unset without a word. Information of your own goes under `extra`
 | `files` | complete | every file of the package: `path` (in the folder, with `/`), `size` in bytes, and optionally `sha256` or `md5` | pipeline |
 | `qc` | no | the pipeline's QC: `status` (`pass`, `warn`, `fail`) and its `report`, a file of the package | pipeline |
 | `request_id` | no | the laboratory's request | samplesheet |
-| `reference` | no | the reference genome the run used (its FASTA's name); the family's annotation manifest records it as its Reference assembly | pipeline |
+| `reference` | no | the reference genome the run used (its FASTA's name); the annotation manifest of the package's analysis records it as its Reference assembly | pipeline |
 | `notes` | no | free text, shown with the delivery | pipeline |
 | `extra` | no | anything else, kept with the package and never read | pipeline |
 

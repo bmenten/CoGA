@@ -90,6 +90,8 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
         # The keys sign_out_report reads, the drift lists its drift gate's refusal lists
         # among them.
         return {
+            # The family holds no analysis: its record closes it whole.
+            "analysis_type": None,
             "drift": {"drifted_count": 0, "drifted": []},
             "structural_drift": {"drifted_count": 0, "drifted": []},
             # No repeat or Paraphase review and no finding without one (finding_review_pg).

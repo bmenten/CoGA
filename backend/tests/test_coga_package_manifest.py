@@ -291,6 +291,8 @@ def test_the_packages_reference_is_the_reference_assembly_of_the_familys_annotat
             "family_uuid": FAMILY_UUID,
             "assembly_id": ASSEMBLY_ID,
             "modules": {"assembly": {"version": recorded, "detail": f"from {PACKAGE_FILE_NAME}"}},
+            # Into the manifest of the package's own analysis.
+            "analysis": "long_read_wgs",
             "modality": "package",
             "recorded_by": f"import ({PACKAGE_FILE_NAME})",
             "source": "manifest",

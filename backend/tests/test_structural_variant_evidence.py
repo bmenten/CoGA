@@ -150,11 +150,11 @@ def test_a_manifest_module_that_is_not_described_or_has_no_key_gives_no_version(
     assert sve.structural_evidence_versions(modules) == {"sniffles": "2.2"}
 
 
-def test_the_versions_a_save_freezes_are_read_from_the_familys_manifest_now(monkeypatch) -> None:
+def test_the_versions_a_save_freezes_are_read_from_the_manifest_of_the_calls_analysis_now(monkeypatch) -> None:
     asked: list = []
 
-    async def manifest(session, *, family_id, user):
-        asked.append((family_id, user))
+    async def manifest(session, context, *, kind, stored_under):
+        asked.append((context.family_id, kind, stored_under))
         return {
             "modules": [
                 {"key": "assembly", "version": "GRCh38", "layer": "reference"},
@@ -162,12 +162,13 @@ def test_the_versions_a_save_freezes_are_read_from_the_familys_manifest_now(monk
             ]
         }
 
-    monkeypatch.setattr(sve, "get_family_annotation_manifest", manifest)
+    monkeypatch.setattr(sve, "call_annotation_manifest", manifest)
     context = types.SimpleNamespace(family_id="FAM1")
-    versions = asyncio.run(sve.read_structural_evidence_versions(None, context=context, user="reviewer"))  # type: ignore[arg-type]
+    versions = asyncio.run(sve.read_structural_evidence_versions(None, context=context, record=_record()))  # type: ignore[arg-type]
 
     assert versions == {"assembly": "GRCh38", "gencode": "45"}
-    assert asked == [("FAM1", "reviewer")]
+    # The manifest of the analysis whose package stored the caller's call (needlr).
+    assert asked == [("FAM1", "structural_variants", "needlr")]
 
 
 # --- the SV as the family's data holds it now ------------------------------------------------------
@@ -568,7 +569,7 @@ def _patch_evidence(monkeypatch, table: _ReviewTable, *rows: StructuralVariantRe
         reads.append((variant_id, source))
         return [row for row in rows if source is None or row.source == source]
 
-    async def _versions(session, *, context, user):
+    async def _versions(session, *, context, record):
         return dict(_VERSIONS)
 
     monkeypatch.setattr(svr, "fetch_structural_variant_records", _fetch)

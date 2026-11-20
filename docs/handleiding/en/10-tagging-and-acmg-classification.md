@@ -246,7 +246,7 @@ Every change to a review, of a small variant, an SV or a CNV, writes a before-an
 - the values the CNV evaluator reads: the type, the overlapping genes and their number, the pLI and the annotated inheritance;
 - the event itself: the caller, the chromosome, the start, the end, the length and the breakpoint partner;
 - a hash of the SV's full annotation, and the time;
-- the versions the evidence comes from: that of the SV callset in the family's annotation manifest, the reference assembly and the gene loci.
+- the versions the evidence comes from: that of the SV callset in the annotation manifest of the analysis whose call it is, the reference assembly and the gene loci.
 
 The evaluator does not read clinical CNVs, dosage scores or DGV; the analyst scores those criteria themselves. The genotypes are not in the snapshot. The drift key is `evidence_hash`, a SHA-256 over the evidence; the versions are recorded, not compared. The server refuses a CNV classification of an SV that is not in the family's data (`404`). If the family has no assembly, there is no SV store to read, and the classification is stored without a snapshot.
 

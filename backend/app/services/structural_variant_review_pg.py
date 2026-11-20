@@ -378,7 +378,7 @@ async def upsert_structural_variant_review(
         )
         evidence_source = (
             sv_record,
-            await read_structural_evidence_versions(session, context=context, user=user),
+            await read_structural_evidence_versions(session, context=context, record=sv_record),
         )
     # One save of this variant's review at a time, checked against the version the
     # client loaded.
