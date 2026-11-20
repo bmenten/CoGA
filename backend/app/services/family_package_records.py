@@ -19,7 +19,7 @@ SQL that reads every record of a family joins ``PACKAGE_RECORDS_OF_A_FAMILY``: o
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 # Family.metadata["package_imports"]: the family's package records, keyed by analysis.
@@ -98,6 +98,83 @@ def package_sources(dataset_types: Iterable[str], snv_callset: str | None) -> di
         for kind, names in _DATASET_SOURCES.get(dataset_type, {}).items():
             sources[kind].update(names)
     return {kind: sorted(names) for kind, names in sources.items()}
+
+
+class PackageRecordShapeError(ValueError):
+    """A package record whose sources or datasets are not in the shape the import writes them:
+    what reads them stops rather than guess which data are the analysis's."""
+
+
+def record_sources(record: Mapping[str, Any]) -> dict[str, frozenset[str]]:
+    """The storage sources a package record lists, per kind (``SOURCE_KINDS``), as the import
+    writes them (``package_sources``). Raises ``PackageRecordShapeError`` for any other shape."""
+    sources = record.get(SOURCES_KEY)
+    if (
+        not isinstance(sources, Mapping)
+        or set(sources) != set(SOURCE_KINDS)
+        or not all(
+            isinstance(names, list) and all(isinstance(name, str) for name in names) for names in sources.values()
+        )
+    ):
+        raise PackageRecordShapeError("A package record's sources are not in the shape the import writes.")
+    return {kind: frozenset(names) for kind, names in sources.items()}
+
+
+def record_datasets(record: Mapping[str, Any]) -> frozenset[str]:
+    """The dataset types a package record lists. Raises ``PackageRecordShapeError`` when they
+    are not in the shape the import writes."""
+    datasets = record.get("datasets")
+    if not isinstance(datasets, Mapping):
+        raise PackageRecordShapeError("A package record's datasets are not in the shape the import writes.")
+    return frozenset(str(name) for name in datasets)
+
+
+# How a message names the data of each kind.
+_KIND_WORDS: dict[str, str] = {
+    "small_variants": "small variants",
+    "structural_variants": "structural variants",
+    "tracks": "tracks",
+    "repeats": "repeat calls",
+    "paraphase": "Paraphase results",
+}
+
+
+def source_collisions(
+    records: Mapping[str, Mapping[str, Any]], key: str, sources: Mapping[str, Iterable[str]]
+) -> list[tuple[str, str, str]]:
+    """The storage sources an import of the package record ``key`` would write (``sources``,
+    per kind) that another of the family's package records (``records``, by key) lists: each
+    as ``(kind, source, other key)``, sorted. Two analyses of one family never share a source:
+    each kind's rows are written, replaced and scoped by source, so a shared one would make one
+    analysis's import replace or skip the other's data, and each analysis's sign-out claim the
+    other's (the owner's decision of 2026-11-20)."""
+    collisions: set[tuple[str, str, str]] = set()
+    for other_key, record in records.items():
+        if other_key == key:
+            continue
+        held = record_sources(record)
+        for kind, names in sources.items():
+            for name in names:
+                if name in held.get(kind, frozenset()):
+                    collisions.add((kind, name, other_key))
+    return sorted(collisions)
+
+
+def source_collision_message(analysis: str, collisions: Sequence[tuple[str, str, str]]) -> str:
+    """Why the import of a package of ``analysis`` (its record key) is refused: the sources it
+    would store data under that another analysis of the family holds (``source_collisions``)."""
+    label = ANALYSIS_LABELS.get(analysis)
+    package = f"The {label} package" if label else "This package"
+    shared = "; ".join(
+        f"its {_KIND_WORDS.get(kind, kind)} as '{name}', which {analysis_data_words(other)} already holds"
+        for kind, name, other in collisions
+    )
+    return (
+        f"{package} would store {shared}. Two analyses of one family cannot store data under one "
+        "source, as one import would replace or claim the other's. Leave that dataset out of this "
+        "package, or, for small variants, name its caller differently (the snv dataset's "
+        "source_format)."
+    )
 
 
 def package_record_key(analysis_type: str | None) -> str:

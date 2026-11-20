@@ -16,13 +16,12 @@ from typing import Any
 import pytest
 
 from backend.app.services import signout_scope as scope_module
-from backend.app.services.family_package_records import package_sources
+from backend.app.services.family_package_records import PackageRecordShapeError, package_sources
 from backend.app.services.signout_scope import (
     CNIPT_SECTION_ANALYSES,
     NIPT_SECTION_ANALYSES,
     PGT_SECTION_ANALYSES,
     WHOLE_FAMILY,
-    PackageRecordShapeError,
     ReviewsLeftOut,
     SignoutScope,
     reviews_left_out,

@@ -8,10 +8,13 @@ ClickHouse, a new family each run:
 1. a short-read WGS package (``analysis_type: short_read_wgs``): the trio's joint GATK
    HaplotypeCaller callset, whose header names its caller, and the proband's CRAM;
 2. a long-read WGS package (``analysis_type: long_read_wgs``) of the same three samples, a joint
-   DeepVariant callset and the proband's CRAM, imported with update.
+   DeepVariant callset and the proband's CRAM, imported with update;
+3. a long-read adaptive-sampling package of the same samples whose callset is DeepVariant's too:
+   two analyses of one family never share a storage source (the owner's decision of 2026-11-20).
 
 Then:
 
+* the third import is refused before anything is written, naming the shared callset;
 * each callset is stored under its caller's name (``haplotypecaller``, ``deepvariant``), a
   variant both called once per callset: the update does not skip the long-read callset because
   the family holds the short-read one;
@@ -61,8 +64,12 @@ SIGN_OUT = {
 }
 
 
-def _package(root: Path, family_id: str, analysis: str, trio: tuple[str, str, str]) -> Path:
+def _package(
+    root: Path, family_id: str, analysis: str, trio: tuple[str, str, str], *, calls_of: str | None = None
+) -> Path:
+    """The package of ``analysis``, its callset that of ``calls_of`` (default: its own)."""
     proband, mother, father = trio
+    caller = calls_of or analysis
     root.mkdir(parents=True)
     (root / "family.ped").write_text(
         f"{family_id}\t{proband}\t{father}\t{mother}\t1\t2\n"
@@ -70,12 +77,12 @@ def _package(root: Path, family_id: str, analysis: str, trio: tuple[str, str, st
         f"{family_id}\t{father}\t0\t0\t1\t1\n",
         encoding="utf-8",
     )
-    lines = ["##fileformat=VCFv4.2\n", "##contig=<ID=chr1>\n", _HEADERS[analysis], _COLUMNS.format(proband, mother, father)]
-    lines += [f"chr1\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\t.\tGT:DP\t0/1:30\t0/1:30\t0/0:30\n" for pos, ref, alt in _RECORDS[analysis]]
+    lines = ["##fileformat=VCFv4.2\n", "##contig=<ID=chr1>\n", _HEADERS[caller], _COLUMNS.format(proband, mother, father)]
+    lines += [f"chr1\t{pos}\t.\t{ref}\t{alt}\t50\tPASS\t.\tGT:DP\t0/1:30\t0/1:30\t0/0:30\n" for pos, ref, alt in _RECORDS[caller]]
     (root / "family.vcf").write_text("".join(lines), encoding="utf-8")
     # The run's parameters (params_*.json), as Nextflow writes them.
     (root / "params.json").write_text(
-        '{"genome": "GRCh38", "snv_caller": "%s"}' % ("haplotypecaller" if analysis == "short_read_wgs" else "deepvariant"),
+        '{"genome": "GRCh38", "snv_caller": "%s"}' % ("haplotypecaller" if caller == "short_read_wgs" else "deepvariant"),
         encoding="utf-8",
     )
     (root / "bams").mkdir()
@@ -105,6 +112,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_variant_ids import _small_table_name
+    from backend.app.services.family_package_common import ImportRefused
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
     from backend.tests.e2e._harness import ensure_postgres_schema
@@ -138,6 +146,25 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         }
     if not all(item["completed"] for item in out["imports"].values()):
         return out
+    shared = _package(
+        base / family_id / "long_read_adaptive_sampling", family_id, "long_read_adaptive_sampling", trio,  # type: ignore[arg-type]
+        calls_of="long_read_wgs",
+    )
+    # Refused before it writes anything: the import raises ImportRefused, which its job reports.
+    async with sessionmaker() as session:
+        try:
+            refused = await package_import.execute_family_package_import(
+                session,
+                folder_path=str(shared),
+                manifest_text=kept_manifest(shared),
+                project_id=project_id,
+                dry_run=False,
+                user=admin,
+                conflict_mode="overwrite",
+            )
+            out["shared"] = {"completed": refused.completed, "error": refused.error}
+        except ImportRefused as refusal:
+            out["shared"] = {"completed": False, "error": str(refusal)}
 
     async with sessionmaker() as session:
         family = (
@@ -193,6 +220,16 @@ def test_both_packages_are_imported_into_the_one_family(run) -> None:
     for analysis, item in run["imports"].items():
         assert item["completed"] is True, (analysis, item)
         assert item["datasets"]["snv"][0] == "imported", (analysis, item)
+
+
+def test_a_third_analysis_sharing_a_callers_name_is_refused_before_any_write(run) -> None:
+    assert run["shared"]["completed"] is False
+    assert (
+        "The long-read adaptive sampling package would store its small variants as 'deepvariant', which "
+        "this family's long-read WGS data already holds." in str(run["shared"]["error"])
+    )
+    # Nothing of it was written: no record, and the stored rows are the two analyses' own.
+    assert sorted(run["records"]) == ["long_read_wgs", "short_read_wgs"]
 
 
 def test_each_callset_is_stored_under_its_callers_name(run) -> None:

@@ -29,7 +29,12 @@ from ..core.clickhouse import execute_clickhouse
 from .clickhouse_variant_ids import _small_table_name, _structural_table_name
 from .family_analysis_types import family_analysis_types
 from .family_metadata_context import FamilyMetadataContext
-from .family_package_records import SOURCE_KINDS, SOURCES_KEY, family_package_records
+from .family_package_records import (
+    SOURCE_KINDS,
+    family_package_records,
+    record_datasets,
+    record_sources,
+)
 
 # The analyses whose sign-out freezes each application's section of the record: the PGT embryo
 # calls (of a PGT family, and of a monogenic NIPT family's fetus), the NIPT results and the
@@ -40,11 +45,6 @@ CNIPT_SECTION_ANALYSES = ("conventional_nipt",)
 
 # The variants whose stored sources one ClickHouse read looks up.
 _CHUNK = 500
-
-
-class PackageRecordShapeError(ValueError):
-    """A package record whose sources or datasets are not in the shape the import writes them:
-    the sign-out stops rather than guess which data are the analysis's."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,26 +115,6 @@ class SignoutScope:
 WHOLE_FAMILY = SignoutScope()
 
 
-def _record_sources(record: Mapping[str, Any]) -> dict[str, frozenset[str]]:
-    sources = record.get(SOURCES_KEY)
-    if (
-        not isinstance(sources, Mapping)
-        or set(sources) != set(SOURCE_KINDS)
-        or not all(
-            isinstance(names, list) and all(isinstance(name, str) for name in names) for names in sources.values()
-        )
-    ):
-        raise PackageRecordShapeError("A package record's sources are not in the shape the import writes.")
-    return {kind: frozenset(names) for kind, names in sources.items()}
-
-
-def _record_datasets(record: Mapping[str, Any]) -> frozenset[str]:
-    datasets = record.get("datasets")
-    if not isinstance(datasets, Mapping):
-        raise PackageRecordShapeError("A package record's datasets are not in the shape the import writes.")
-    return frozenset(str(name) for name in datasets)
-
-
 def signout_scope(metadata: Mapping[str, Any] | None, analysis: str | None) -> SignoutScope:
     """The scope of a sign-out of ``analysis`` (``report_signout_service.resolve_signout_analysis``)
     of the family whose ``families.metadata`` is ``metadata``: the whole family when it holds one
@@ -148,12 +128,12 @@ def signout_scope(metadata: Mapping[str, Any] | None, analysis: str | None) -> S
     other_datasets: set[str] = set()
     for key, record in family_package_records(metadata).items():
         if key == analysis:
-            own = _record_sources(record)
-            own_datasets = _record_datasets(record)
+            own = record_sources(record)
+            own_datasets = record_datasets(record)
         elif key in held:
-            for kind, names in _record_sources(record).items():
+            for kind, names in record_sources(record).items():
                 others[kind].update(names)
-            other_datasets.update(_record_datasets(record))
+            other_datasets.update(record_datasets(record))
     return SignoutScope(
         analysis=analysis,
         own=own,

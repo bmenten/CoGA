@@ -52,9 +52,12 @@ from .family_analysis_types import SAMPLE_ASSAYS_KEY, added_to, sample_assays
 from .family_package_records import (
     PACKAGE_IMPORTS_KEY,
     SOURCES_KEY,
+    PackageRecordShapeError,
     family_package_records,
     package_record_key,
     package_sources,
+    source_collision_message,
+    source_collisions,
 )
 from .family_metadata_context import (
     FamilyMetadataContext,
@@ -127,6 +130,23 @@ def _package_record_sources(bundle: FamilyPackageBundle) -> dict[str, list[str]]
     enabled = [name for name, dataset in bundle.manifest.datasets.items() if dataset.enabled]
     snv_callset = dataset_scopes(bundle, ["snv"])["snv"]["source"] if "snv" in enabled else None
     return package_sources(enabled, None if snv_callset == UNRESOLVED_SNV_SOURCE else snv_callset)
+
+
+def _shared_source_message(family_metadata: Any, bundle: FamilyPackageBundle) -> str | None:
+    """Why the package cannot be imported into the family whose metadata is
+    ``family_metadata``: a storage source its import would write that another analysis's
+    package record of the family lists (``family_package_records.source_collisions``). None
+    when it shares none. Checked before the family is marked or written."""
+    key = package_record_key(bundle.manifest.analysis_type)
+    records = family_package_records(family_metadata if isinstance(family_metadata, Mapping) else None)
+    try:
+        collisions = source_collisions(records, key, _package_record_sources(bundle))
+    except PackageRecordShapeError:
+        return (
+            "The family's package records are not in the shape the import writes, so CoGA cannot "
+            "tell which data are each analysis's."
+        )
+    return source_collision_message(key, collisions) if collisions else None
 
 
 def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]:
@@ -2119,6 +2139,9 @@ async def _ensure_family_from_ped(
         outside = await same_individual_outside_message(session, family_id=family_id, bundle=bundle)
         if outside is not None:
             raise ImportRefused(outside)
+        shared = _shared_source_message(existing.get("metadata"), bundle)
+        if shared is not None:
+            raise ImportRefused(shared)
         if resolved_project_id is not None:
             # The family is linked to the import's project below: one on another assembly
             # than its stored variants is refused, as for a change of its projects, before

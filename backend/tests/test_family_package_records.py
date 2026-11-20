@@ -16,12 +16,15 @@ from backend.app.services import family_package_registration as registration
 from backend.app.services import family_structure_service as structure
 from backend.app.services.family_package_records import (
     SOURCE_KINDS,
+    PackageRecordShapeError,
     analysis_data_words,
     family_package_folders,
     family_package_records,
     package_folder_of,
     package_record_key,
     package_sources,
+    source_collision_message,
+    source_collisions,
 )
 
 _RECORDS = {
@@ -84,6 +87,59 @@ def test_a_message_names_the_analysiss_data() -> None:
     assert analysis_data_words("conventional_nipt") == "this family's conventional NIPT data"
     assert analysis_data_words("unspecified") == "this family's data"
     assert analysis_data_words(None) == "this family's data"
+
+
+def _sourced(datasets: list[str], snv_callset: str | None = None) -> dict[str, Any]:
+    return {"datasets": {name: {} for name in datasets}, "sources": package_sources(datasets, snv_callset)}
+
+
+def test_two_analyses_never_share_a_storage_source() -> None:
+    # Short-read WGS with DeepVariant, then long-read WGS with DeepVariant and mtDNA calls.
+    records = {"short_read_wgs": _sourced(["snv", "mito"], "deepvariant"), "monogenic_nipt": _sourced(["snv"], "nipt")}
+    long_read = package_sources(["snv", "mito", "repeats_trgt"], "deepvariant")
+    assert source_collisions(records, "long_read_wgs", long_read) == [
+        ("small_variants", "deepvariant", "short_read_wgs"),
+        ("small_variants", "mito", "short_read_wgs"),
+        ("structural_variants", "mito_sv", "short_read_wgs"),
+    ]
+    # Another caller shares nothing, and an import of the same analysis replaces its own record.
+    assert source_collisions(records, "long_read_wgs", package_sources(["snv"], "clair3")) == []
+    assert source_collisions(records, "short_read_wgs", package_sources(["snv", "mito"], "deepvariant")) == []
+    # A record not in the shape the import writes is never read as sharing nothing.
+    with pytest.raises(PackageRecordShapeError):
+        source_collisions({"short_read_wgs": {"datasets": {}}}, "long_read_wgs", long_read)
+
+
+def test_a_shared_source_is_refused_with_what_to_change() -> None:
+    message = source_collision_message("long_read_wgs", [("small_variants", "deepvariant", "short_read_wgs")])
+    assert message.startswith(
+        "The long-read WGS package would store its small variants as 'deepvariant', which this family's "
+        "short-read WGS data already holds."
+    )
+    assert "name its caller differently (the snv dataset's source_format)" in message
+    assert source_collision_message("unspecified", [("repeats", "trgt", "pgt")]).startswith(
+        "This package would store its repeat calls as 'trgt', which this family's PGT data already holds."
+    )
+
+
+def test_an_import_into_a_family_is_refused_when_it_shares_a_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    def bundle(analysis: str, callset: str) -> Any:
+        manifest = SimpleNamespace(
+            analysis_type=analysis, datasets={"snv": SimpleNamespace(enabled=True), "mito": SimpleNamespace(enabled=True)}
+        )
+        return SimpleNamespace(manifest=manifest, callset=callset)
+
+    monkeypatch.setattr(
+        registration, "dataset_scopes", lambda bundle, types: {"snv": {"source": bundle.callset, "samples": None}}
+    )
+    family = {"package_imports": {"short_read_wgs": _sourced(["snv"], "haplotypecaller")}}
+    assert registration._shared_source_message(family, bundle("long_read_wgs", "deepvariant")) is None
+    assert registration._shared_source_message(family, bundle("short_read_wgs", "haplotypecaller")) is None
+    refused = registration._shared_source_message(family, bundle("long_read_wgs", "haplotypecaller"))
+    assert refused is not None and "as 'haplotypecaller'" in refused
+    assert "shape the import writes" in str(
+        registration._shared_source_message({"package_imports": {"pgt": {}}}, bundle("long_read_wgs", "x1"))
+    )
 
 
 class _Records:
