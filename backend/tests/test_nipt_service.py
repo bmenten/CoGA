@@ -1164,6 +1164,7 @@ async def test_the_nipt_list_selects_by_review_tag_as_the_small_variant_list_doe
     # The same names, the same rule: a variant's own tags or its compound-het pair's, any of
     # the given ones; a blank tag still selects (nothing).
     from backend.app.services import clickhouse_family_variants as family_variants
+    from backend.app.services.analysis_scope import AnalysisScope
     from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
     reviews = {
@@ -1177,7 +1178,7 @@ async def test_the_nipt_list_selects_by_review_tag_as_the_small_variant_list_doe
     await _nipt_list(_ReviewSession(reviews), review_tags=review_tags, exclude_review_tags=exclude_review_tags)
     scope = await family_variants._resolve_small_variant_scope(
         _ReviewSession(reviews),  # type: ignore[arg-type]
-        SimpleNamespace(family_uuid="family-uuid", assembly_id="assembly-uuid"),  # type: ignore[arg-type]
+        SimpleNamespace(family_uuid="family-uuid", assembly_id="assembly-uuid", scope=AnalysisScope()),  # type: ignore[arg-type]
         SmallVariantQueryFilters(page=1, page_size=100),
         review_classifications=None,
         review_tags=review_tags,

@@ -127,6 +127,7 @@ and what changed (before → after). It lists:
 - clearing a review;
 - a compound-heterozygous pair review: listed under the variant whose review holds it, naming its
   partner, each time the pair is recorded, changed or broken up;
+- in a family of several analyses, each review change names the analysis whose review it changed;
 - a change to the pedigree or its members (below);
 - each sign-out;
 - each replacement of the pipeline versions;
@@ -263,7 +264,11 @@ A family can hold several analyses, each imported from a package of its own: the
 conventional NIPT of one pregnancy, or short-read and then long-read WGS of the same DNA. Each analysis
 is signed out on its own, and its signed version freezes and checks that analysis's data only:
 
-- its reported variants, with their evidence drift and their descriptions;
+- its reported variants, with their evidence drift and their descriptions: the variants its own
+  reviews tag for the report. A review is one analysis's: a variant reviewed in the short-read analysis
+  is not in the long-read analysis's signed version unless it is reviewed there too, and a variant
+  reviewed in both holds its own review in each. A review made while the family held no analysis
+  counts in each analysis that has no review of its own of the variant;
 - its coverage tracks;
 - the repeat expansions and the Paraphase results, with their reviews and the *Findings without a
   review* check, when the calls are the analysis's or no other analysis's. Otherwise the signed version

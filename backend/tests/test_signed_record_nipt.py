@@ -24,6 +24,7 @@ import pytest
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services import nipt_service
 from backend.app.services import report_signout_service as rss
 from backend.app.services import sample_integrity_service
@@ -133,6 +134,7 @@ def _context(rows: list[dict[str, Any]] | None = None) -> SimpleNamespace:
         assembly_name="GRCh38",
         sample_name_to_uuid={FATHER: "father-uuid", PLASMA: "cfdna-uuid"},
         sample_rows=rows if rows is not None else _sample_rows(),
+        scope=AnalysisScope(),
     )
 
 
@@ -883,14 +885,14 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     async def manifest(_session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": []}
 
-    async def no_drift(_session, *, family_id, user, project_id=None, left_out=None, analysis=None):
+    async def no_drift(_session, *, family_id, user, project_id=None, analysis=None):
         nothing = {"checked": 0, "drifted_count": 0, "drifted": []}
         return {**nothing, "structural": dict(nothing)}
 
-    async def reported(_session, _family_uuid):
+    async def reported(_session, _family_uuid, _scope=None):
         return [{"variant_id": "7-100-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
 
-    async def nothing_reported(_session, _family_uuid):
+    async def nothing_reported(_session, _family_uuid, _scope=None):
         return []
 
     async def sequencing_qc(_session, _context, _scope=None):
@@ -1066,7 +1068,7 @@ async def test_a_database_error_in_the_sample_qc_nipt_step_leaves_the_sign_out_r
     monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", nipt_artifact_pg.load_nipt_artifact_ids)
     reads_after_the_qc: list[str] = []
 
-    async def reported(session, _family_uuid):
+    async def reported(session, _family_uuid, _scope=None):
         # The sign-out's next statement, in the same transaction.
         await session.execute("SELECT variant_id FROM small_variant_reviews")
         reads_after_the_qc.append("reviews")

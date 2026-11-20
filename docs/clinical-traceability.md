@@ -176,6 +176,10 @@ For an SV or CNV: the reviewer's classification and the CNV (ClinGen) scoring (c
 total, the accepted criteria with their points, every stored criterion in the same detail). SV and
 CNV events carry `metadata.modality = "sv"`, so an SV id is never read as a small variant's.
 
+Every `classification`, `tags`, `note` and `compound_het_pair` event names the family's analysis
+whose review it changed (`metadata.analysis`; '' for a review made while the family held none,
+*Reviews per analysis*, below). The trail serves it as the event's `analysis`.
+
 Any change to the record writes an event, even when the class stays, and the summary names the
 change (*ACMG criteria updated (…): PM2 moderate → supporting*). Points are recorded as the
 database reads them back, so a total of -0.0 is stored as 0 and the chain still verifies.
@@ -293,6 +297,38 @@ most 500 (`limit`). A viewer, and a reader in the family's project, are refused 
 
 The report shows the trail as the clinical audit trail. When it shows only the newest events it
 says so, on screen and atop every printed page, and **Show older events** reads the next page.
+
+### Reviews per analysis
+
+A review (classification, tags, note, compound-het pair, ACMG record, CNV scoring) is the review
+of one of the family's analyses (the owner's decision of 2026-11-20;
+`services/analysis_reviews.py`). A family may hold several analyses on the same DNA, short-read and
+then long-read WGS, each signed out on its own, and the report in the EPD refers 1:1 to one
+analysis's signed record. So a variant reviewed in the short-read analysis is not in the long-read
+analysis's record unless it is reviewed there too, and a variant reviewed in both holds its own
+review in each.
+
+- **Stored per analysis.** Each review row names the analysis it was made in
+  (`small_variant_reviews.analysis`, `structural_variant_reviews.analysis`): one review per family,
+  analysis and variant. A review made while the family held no analysis is stored under none ('').
+- **Named on each save.** A review save names the analysis (`analysis`) when the family holds
+  several analyses with small variants of their own (for an SV review: with structural variants of
+  their own): 422 without it, and 422 for an analysis the family does not hold. A family of one
+  such analysis, or of none, need name none.
+- **What an analysis reads.** A reading for analysis X (the variant list and its review filters,
+  the review summary, the drift check, the sign-out) reads, per variant, X's own review, else the
+  review stored under no analysis the family holds (the shared one). Another analysis's review is
+  never X's.
+- **What a save writes.** A save in X always writes X's own review: when X has none, it is made
+  from the review X read (the shared one, its ACMG record and compound-het pair included) and the
+  save's values. The shared review stays as it is, for the other analyses. A save that clears X's
+  review keeps it empty while a shared review of the variant holds something, so X reads the
+  variant as not reviewed; an empty review is no review to every reader. A compound-het pair is
+  made and broken up within one analysis.
+- **Read across analyses.** The Variant Explorer shows, for each family, the tags and classes of
+  every review in effect in one of its analyses (each analysis's own, and a shared one an analysis
+  still reads). A tag-catalogue change, a family's tag list, a structure change (a member renamed or
+  removed) and the family's data clear act on the reviews of every analysis.
 
 ### Concurrent review saves
 
@@ -739,12 +775,14 @@ checks that analysis's data only (the owner's decisions of 2026-11-19;
 - **A record not in the import's shape.** A package record whose `sources` are not in the shape the
   import writes them stops the sign-out (`PackageRecordShapeError`): it does not guess which data
   are the analysis's.
+- **Its reviews.** A review is one analysis's (*Reviews per analysis*): a sign-out of X reads X's
+  own review of each variant, else the shared one, and never another analysis's.
 
 A sign-out of analysis X freezes and checks:
 
 | Part of the record | X's part |
 | --- | --- |
-| `reported_variants`, `reported_structural_variants`, their evidence drift (`drift`, `structural_drift`) and their descriptions (`variant_descriptions`) | the variants with a stored row (the ClickHouse `entries`) under a source of X's or of no other analysis's; a variant whose rows are gone counts in. Each small variant's description, genotypes and evidence now are read from X's own callsets (`analysis_scope.py`): a variant another analysis's callset holds too is described from X's |
+| `reported_variants`, `reported_structural_variants`, their evidence drift (`drift`, `structural_drift`) and their descriptions (`variant_descriptions`) | the variants X's reviews report: X's own review of each variant, else the shared one (*Reviews per analysis*); the drift checks the classifications of those reviews. Each small variant's description, genotypes and evidence now are read from X's own callsets (`analysis_scope.py`): a variant another analysis's callset holds too is described from X's |
 | `coverage_tracks` | the tracks of X's sources or of no other analysis's |
 | `repeat_expansions` and `paraphase`, with their reviews, `finding_review_drift` and `unreviewed_findings` (gate 7) | each section whole when the calls are X's by the sources they are stored under (`repeat_expansions.source`; Paraphase's one source), or when the family holds none; otherwise the section and its reviews hold no call, as in the record of a family without such calls |
 | `pgt_analysis`, `nipt`, `cnipt` | the PGT embryo calls for `pgt` or `monogenic_nipt`, the NIPT results for `monogenic_nipt`, the cNIPT results for `conventional_nipt`; a section of an application none of whose analyses the family holds goes to every analysis |

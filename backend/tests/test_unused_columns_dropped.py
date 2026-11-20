@@ -25,6 +25,7 @@ import pytest
 from backend.app.core.clickhouse import _parse_insert_query
 from backend.app.core.postgres import _split_sql_script
 from backend.app.services import clickhouse_variant_storage as cvs
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services import family_package_registration as registration
 from backend.app.services import report_signout_service as rss
 from backend.app.services import structural_variant_review_pg as svr
@@ -145,7 +146,9 @@ _SV_REVIEW = {
 
 def test_the_sign_out_freezes_each_reported_sv_without_reading_its_key() -> None:
     session = _Session([dict(_SV_REVIEW)])
-    frozen = asyncio.run(rss._reported_structural_reviews(session, "00000000-0000-0000-0000-00000000f001"))
+    frozen = asyncio.run(
+        rss._reported_structural_reviews(session, "00000000-0000-0000-0000-00000000f001", AnalysisScope())
+    )
 
     [sql] = session.sql
     assert "FROM structural_variant_reviews" in sql and "variant_key" not in sql
@@ -165,10 +168,15 @@ def test_the_sign_out_freezes_each_reported_sv_without_reading_its_key() -> None
 
 
 def test_an_sv_review_is_read_without_the_key() -> None:
-    session = _Session([{"id": "r-1", **_SV_REVIEW}])
+    session = _Session([{"id": "r-1", "analysis": "", **_SV_REVIEW}])
     row = asyncio.run(
-        svr._fetch_review_row(session, family_uuid="00000000-0000-0000-0000-00000000f001", variant_id="1-30000-31000-DEL---")
-    )
+        svr._fetch_scoped_review(
+            session,
+            family_uuid="00000000-0000-0000-0000-00000000f001",
+            variant_id="1-30000-31000-DEL---",
+            scope=AnalysisScope(),
+        )
+    ).own
 
     assert row is not None and row["variant_id"] == "1-30000-31000-DEL---"
     assert "FROM structural_variant_reviews" in session.sql[0] and "variant_key" not in session.sql[0]

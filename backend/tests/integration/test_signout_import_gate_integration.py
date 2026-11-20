@@ -71,7 +71,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
     async def _manifest(session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None, analysis=None):
+    async def _drift(session, *, family_id, user, project_id=None, analysis=None):
         return {
             "checked": 0,
             "drifted_count": 0,

@@ -4,9 +4,8 @@ import asyncio
 import types
 from datetime import datetime, timezone
 
-from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
 from backend.app.services import classification_drift_service as cds
-from backend.app.services.signout_scope import ReviewsLeftOut
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services.small_variant_review_acmg import build_evidence_snapshot
 
 _WHEN = datetime(2026, 6, 25, tzinfo=timezone.utc)
@@ -84,7 +83,7 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
     async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(
             family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID,
-            scope=WHOLE_FAMILY_SCOPE,
+            scope=AnalysisScope(),
         )
 
     class _Result:
@@ -147,7 +146,9 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
     # each reads as missing, never as current (it gates the sign-out, which refuses such a
     # family anyway), and no variant is looked up.
     async def _no_assembly(session, *, family_identifier, user, project_id=None, analysis=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name=None, assembly_id=None)
+        return types.SimpleNamespace(
+            family_uuid="u1", family_id="FAM1", assembly_name=None, assembly_id=None, scope=AnalysisScope()
+        )
 
     async def _never(**_kwargs):
         raise AssertionError("no variant can be read without an assembly")
@@ -158,20 +159,79 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
     assert (out["checked"], out["drifted_count"]) == (2, 2)
     assert {entry["status"] for entry in out["drifted"]} == {"variant_missing"}
 
-    # A sign-out of one of the family's analyses checks the classifications of its own
-    # variants only: one stored under another analysis's sources alone is neither read nor
-    # counted (signout_scope), the small variant's and the SV's alike.
-    seen_structural: list = []
 
-    async def _structural(session, context, *, left_out=()):
-        seen_structural.append(left_out)
+
+def test_the_drift_of_an_analysis_checks_the_classifications_it_reads(monkeypatch) -> None:
+    """A review is one analysis's (analysis_reviews): the drift of the long-read analysis checks
+    its own classification of a variant, and the shared one of a variant it has none of, never the
+    short-read analysis's classification; the structural drift reads the same scope."""
+    scope = AnalysisScope(analysis="long_read_wgs", held=frozenset({"long_read_wgs", "short_read_wgs"}))
+    seen: dict = {}
+
+    async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
+        seen["analysis"] = analysis
+        return types.SimpleNamespace(
+            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID, scope=scope
+        )
+
+    def _review(variant_id: str, analysis: str, by: str) -> dict:
+        return {
+            "variant_id": variant_id,
+            "analysis": analysis,
+            "acmg_class": "acmg_class_4",
+            "acmg_evidence_snapshot": {"annotation_set_hash": f"{analysis}-hash", "annotation_version": "v1"},
+            "updated_by": by,
+            "updated_at": _WHEN,
+        }
+
+    rows = [
+        # Both analyses classified 1-100-A-G; the long-read classification is the one checked.
+        _review("1-100-A-G", "short_read_wgs", "short"),
+        _review("1-100-A-G", "long_read_wgs", "long"),
+        # Only the short-read analysis classified 2-200-C-T: not the long-read analysis's.
+        _review("2-200-C-T", "short_read_wgs", "short"),
+        # A shared classification (made while the family held no analysis) of 3-300-G-A.
+        _review("3-300-G-A", "", "shared"),
+    ]
+
+    class _Result:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return rows
+
+    class _Session:
+        def __init__(self) -> None:
+            self.params: list = []
+
+        async def execute(self, statement, params=None):
+            self.params.append(params)
+            return _Result()
+
+    async def _current(*, assembly_name, family_guid, variant_id):
+        return _record("NOW")
+
+    async def _structural(session, context):
+        seen["structural_scope"] = context.scope
         return {"checked": 0, "drifted_count": 0, "drifted": []}
 
+    monkeypatch.setattr(cds, "build_family_metadata_context", _context)
+    monkeypatch.setattr(cds, "get_small_variant_family_record", _current)
     monkeypatch.setattr(cds, "evaluate_structural_classification_drift", _structural)
-    left_out = ReviewsLeftOut(small=frozenset({"1-100-A-G"}), structural=frozenset({"1-5-9-DEL"}))
-    out = asyncio.run(cds.evaluate_classification_drift(_Session(), family_id="FAM1", user=None, left_out=left_out))
-    assert (out["checked"], [entry["variant_id"] for entry in out["drifted"]]) == (1, ["2-200-C-T"])
-    assert seen_structural == [frozenset({"1-5-9-DEL"})]
+    session = _Session()
+    out = asyncio.run(
+        cds.evaluate_classification_drift(session, family_id="FAM1", user=None, analysis="long_read_wgs")
+    )
+    assert seen["analysis"] == "long_read_wgs" and seen["structural_scope"] is scope
+    assert out["checked"] == 2
+    assert sorted((entry["variant_id"], entry["classified_by"]) for entry in out["drifted"]) == [
+        ("1-100-A-G", "long"),
+        ("3-300-G-A", "shared"),
+    ]
+    # The read asks for the analysis's own reviews and the shared ones only.
+    assert session.params[0]["review_scope_analysis"] == "long_read_wgs"
+    assert session.params[0]["review_scope_held"] == ["long_read_wgs", "short_read_wgs"]
 
 
 # --- The frequencies and in-silico scores a classification rests on -------------
@@ -452,7 +512,7 @@ def test_evaluate_classification_drift_names_the_moved_value(monkeypatch) -> Non
     async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(
             family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID,
-            scope=WHOLE_FAMILY_SCOPE,
+            scope=AnalysisScope(),
         )
 
     rows = [
@@ -824,7 +884,7 @@ def test_evaluate_classification_drift_reads_the_genes_missense_z_in_one_query(m
     async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(
             family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID,
-            scope=WHOLE_FAMILY_SCOPE,
+            scope=AnalysisScope(),
         )
 
     other_gene = _csq(transcript="ENST00000000009", mane=True, gene="GENE2", gene_id="ENSG00000000002")
@@ -909,7 +969,7 @@ def test_a_snapshot_that_is_not_a_json_object_reads_as_unknown_not_skipped(monke
     async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
         return types.SimpleNamespace(
             family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID,
-            scope=WHOLE_FAMILY_SCOPE,
+            scope=AnalysisScope(),
         )
 
     def _review(variant_id: str, snapshot) -> dict:

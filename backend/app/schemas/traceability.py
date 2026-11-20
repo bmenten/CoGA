@@ -130,6 +130,9 @@ class ClinicalAuditEventOut(BaseModel):
     summary: Optional[str] = None
     before: Optional[Dict[str, Any]] = None
     after: Optional[Dict[str, Any]] = None
+    # The family's analysis whose review the event changed (analysis_reviews.py); None for an
+    # event that changed no review, or a review made while the family held no analysis.
+    analysis: Optional[str] = None
 
 
 class ClinicalAuditOut(BaseModel):

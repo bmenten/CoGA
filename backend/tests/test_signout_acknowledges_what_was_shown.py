@@ -124,7 +124,7 @@ def family(monkeypatch) -> _Family:
     async def _manifest(session, context, *, analysis):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None, analysis=None):
+    async def _drift(session, *, family_id, user, project_id=None, analysis=None):
         return {
             "checked": len(state.drifted),
             "drifted_count": len(state.drifted),
@@ -142,7 +142,7 @@ def family(monkeypatch) -> _Family:
     ):
         return copy.deepcopy(state.qc)
 
-    async def _nothing_reported(session, family_uuid):
+    async def _nothing_reported(session, family_uuid, _scope=None):
         return []
 
     async def _sequencing_qc(session, context, scope=None):

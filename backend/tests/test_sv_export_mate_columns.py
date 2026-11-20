@@ -217,7 +217,7 @@ def export(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[list[str]]]:
     async def summary(_context, _filters) -> tuple[int, dict]:
         return len(records), {}
 
-    async def family_context(_session, *, family_identifier, user, project_id=None, analysis=None):
+    async def family_context(_session, *, family_identifier, user, project_id=None, analysis=None, variant_kind=None):
         assert family_identifier == "FAM001"
         return _family()
 

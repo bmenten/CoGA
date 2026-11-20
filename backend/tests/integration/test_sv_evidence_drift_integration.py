@@ -225,7 +225,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
     def _ctx_now():
         return _context(holder["uuid"], label, project)
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _ctx_now()
 
     async def _qc(
@@ -511,7 +511,7 @@ def test_a_classification_freezes_the_row_of_the_caller_it_was_made_on(monkeypat
     label = f"sv-own-caller-save-{uuid4()}"
     ctx = _context(family_uuid, label, project)
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return ctx
 
     monkeypatch.setattr(ams, "build_family_metadata_context", _ctx)
@@ -600,7 +600,7 @@ def test_the_drift_check_compares_the_evidence_with_the_row_it_was_frozen_from(m
     label = f"sv-own-caller-drift-{uuid4()}"
     ctx = _context(family_uuid, label, project)
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return ctx
 
     monkeypatch.setattr(cds, "build_family_metadata_context", _ctx)
@@ -618,8 +618,8 @@ def test_the_drift_check_compares_the_evidence_with_the_row_it_was_frozen_from(m
                 await s.execute(
                     text(
                         "INSERT INTO structural_variant_reviews "
-                        "(family_id, variant_id, cnv_class, cnv_evidence_snapshot, updated_by) "
-                        "VALUES (CAST(:f AS uuid), :v, 'cnv_class_5', CAST(:snapshot AS jsonb), 'reviewer')"
+                        "(family_id, analysis, variant_id, cnv_class, cnv_evidence_snapshot, updated_by) "
+                        "VALUES (CAST(:f AS uuid), '', :v, 'cnv_class_5', CAST(:snapshot AS jsonb), 'reviewer')"
                     ),
                     {"f": family_uuid, "v": _SV_ID, "snapshot": json.dumps(frozen)},
                 )

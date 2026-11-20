@@ -23,6 +23,7 @@ from backend.app.services import classification_drift_service as cds
 from backend.app.services import structural_variant_evidence as sve
 from backend.app.services import structural_variant_review_pg as svr
 from backend.app.services.access_control import CurrentUser
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services.clickhouse_variant_queries import _structural_variant_out, _structural_variant_where_clauses
 from backend.app.services.clickhouse_variant_records import StructuralVariantRecord
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
@@ -387,8 +388,14 @@ class _Session:
         return _Rows(self.sv_rows if "FROM structural_variant_reviews" in sql else [])
 
 
+# A family that holds no analysis: its reviews are stored, and read, under none.
 _CONTEXT = types.SimpleNamespace(
-    family_uuid="u1", family_id="FAM1", project_ids=["p1"], assembly_name="GRCh38", assembly_id="assembly-uuid"
+    family_uuid="u1",
+    family_id="FAM1",
+    project_ids=["p1"],
+    assembly_name="GRCh38",
+    assembly_id="assembly-uuid",
+    scope=AnalysisScope(),
 )
 
 
@@ -474,7 +481,7 @@ def test_the_family_drift_carries_the_sv_classifications_beside_the_small_varian
 
 _FAMILY = "00000000-0000-0000-0000-00000000f001"
 _SAVE_CONTEXT = types.SimpleNamespace(
-    family_uuid=_FAMILY, family_id="FAM1", project_ids=["p1"], assembly_name="GRCh38"
+    family_uuid=_FAMILY, family_id="FAM1", project_ids=["p1"], assembly_name="GRCh38", scope=AnalysisScope()
 )
 _USER = CurrentUser(
     id="u1",
@@ -494,6 +501,9 @@ class _Result:
 
     def first(self):
         return self._row
+
+    def all(self):
+        return [self._row] if self._row is not None else []
 
 
 class _ReviewTable:
@@ -530,6 +540,8 @@ class _ReviewTable:
     def _row(params: dict, *, review_id: str) -> dict:
         return {
             "id": review_id,
+            # The family holds no analysis: every review is stored under none.
+            "analysis": "",
             "variant_key": None,
             "variant_id": params["variant_id"],
             "classification": params["classification"],
@@ -651,7 +663,9 @@ def test_without_sv_storage_the_scoring_is_saved_without_evidence(monkeypatch) -
     # snapshot, so a sign-out counts it as unverified evidence.
     table = _ReviewTable()
     reads = _patch_evidence(monkeypatch, table, _record())
-    no_assembly = types.SimpleNamespace(family_uuid=_FAMILY, family_id="FAM1", project_ids=["p1"], assembly_name=None)
+    no_assembly = types.SimpleNamespace(
+        family_uuid=_FAMILY, family_id="FAM1", project_ids=["p1"], assembly_name=None, scope=AnalysisScope()
+    )
     _save(table, StructuralVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))), context=no_assembly)
 
     assert table.rows["sv1"]["cnv_class"] == "cnv_class_5"
@@ -778,12 +792,17 @@ def test_the_drift_check_compares_each_classification_with_its_own_callers_row(m
     assert (out["checked"], out["drifted_count"], out["drifted"]) == (2, 0, [])
     assert sorted(looked_up) == [("u1", "sv-needlr", "needlr"), ("u1", "sv-upload", "sniffles")]
 
-    # A sign-out of one of the family's analyses leaves out a review of an SV stored under
-    # another analysis's sources alone: neither read nor counted.
+    # The drift of one of the family's analyses checks its own classifications and the shared
+    # ones, never another analysis's: neither read nor counted (analysis_reviews).
     looked_up.clear()
-    out = asyncio.run(
-        cds.evaluate_structural_classification_drift(_Session(reviews), _CONTEXT, left_out=frozenset({"sv-upload"}))
+    reviews = [
+        {**_review("sv-needlr", _frozen(_needlr_row())), "analysis": "long_read_wgs"},
+        {**_review("sv-upload", _frozen(_upload_row())), "analysis": "short_read_wgs"},
+    ]
+    long_read = types.SimpleNamespace(
+        **{**vars(_CONTEXT), "scope": AnalysisScope(analysis="long_read_wgs", held=frozenset({"long_read_wgs", "short_read_wgs"}))}
     )
+    out = asyncio.run(cds.evaluate_structural_classification_drift(_Session(reviews), long_read))
     assert (out["checked"], out["drifted_count"]) == (1, 0)
     assert looked_up == [("u1", "sv-needlr", "needlr")]
 

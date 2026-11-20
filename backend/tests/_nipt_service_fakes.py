@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services import nipt_service
 from backend.app.services.nipt_artifact_pg import recurrence_rules
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
@@ -68,6 +69,8 @@ def wire_nipt_reads(
             assembly_name="GRCh38",
             family_uuid="family-uuid",
             sample_name_to_uuid=dict(sample_name_to_uuid or {}),
+            # A family that holds no analysis: its reviews are stored under none.
+            scope=AnalysisScope(),
         )
 
     async def fetch(_context: Any, filters: Any, *, limit: int | None = None, **_kwargs: Any) -> list[SmallVariantRecord]:

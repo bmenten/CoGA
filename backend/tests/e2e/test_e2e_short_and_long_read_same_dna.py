@@ -24,7 +24,16 @@ Then:
   each naming its analysis, and each is served from its own package folder;
 * a variant only the long-read callset holds, tagged for the report, is in the long-read
   analysis's signed record and not in the short-read one's, and each record's Sample QC reads its
-  own callset.
+  own callset;
+* the small-variant list and its inheritance filter read one analysis at a time: a reading that
+  names neither analysis is refused (422), and the variant both called is listed in each with its
+  own callset's calls;
+* a review is one analysis's (the owner's decision of 2026-11-20): a review save that names no
+  analysis is refused (422); a variant both callsets hold, reviewed (tagged for the report) in the
+  long-read analysis only, is in the long-read record and not in the short-read one, and its list
+  row carries the review in the long-read analysis only; then reviewed in both with another
+  classification in each, each record holds its own; each review change's audit event names its
+  analysis.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -59,6 +68,7 @@ _RECORDS = {
     "long_read_wgs": [(1000, "A", "G"), (3000, "G", "A")],
 }
 LONG_READ_ONLY = "1-3000-G-A"
+BOTH = "1-1000-A-G"
 SIGN_OUT = {
     "acknowledge_drift": True,
     "drift_acknowledgement_reason": "e2e: the reported variant holds no ACMG classification",
@@ -198,8 +208,8 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         ]
         # Each analysis's small variants are read on their own: a reading that names none of the
         # family's two analyses with small variants is refused.
-        unnamed = await ac.get(f"{api}/small-variants", params={"page_size": 50})
-        out["unnamed"] = (unnamed.status_code, unnamed.json().get("detail"))
+        unnamed_list = await ac.get(f"{api}/small-variants", params={"page_size": 50})
+        out["unnamed_list"] = (unnamed_list.status_code, unnamed_list.json().get("detail"))
         out["lists"] = {}
         for analysis in ("short_read_wgs", "long_read_wgs"):
             listed = await ac.get(f"{api}/small-variants", params={"page_size": 50, "analysis": analysis})
@@ -215,18 +225,56 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
                 ),
                 "de_novo_dominant": sorted(row["_id"] for row in dominant.json().get("variants", [])),
             }
+        review = f"{api}/small-variants/{{variant}}/review"
+        # A review is one analysis's: a save that names none, of a family of two, is refused.
+        unnamed = await ac.put(review.format(variant=BOTH), json={"tags": ["report"]})
+        out["unnamed"] = {"status": unnamed.status_code, "json": unnamed.json()}
         tagged = await ac.put(
-            f"{api}/small-variants/{LONG_READ_ONLY}/review", json={"tags": ["report"]}, params={"analysis": "long_read_wgs"}
+            review.format(variant=LONG_READ_ONLY), params={"analysis": "long_read_wgs"}, json={"tags": ["report"]}
         )
         out["tagged"] = tagged.status_code
+        # The variant both callsets hold, reviewed in the long-read analysis only.
+        both = await ac.put(
+            review.format(variant=BOTH),
+            params={"analysis": "long_read_wgs"},
+            json={"tags": ["report"], "classification": "Likely pathogenic - class 4", "expected_updated_at": None},
+        )
+        out["both_long_read"] = {"status": both.status_code, "json": both.json()}
+        out["list_rows"] = {}
         for analysis in ("short_read_wgs", "long_read_wgs"):
-            signed = await _harness.sign_out(ac, f"{api}/report/sign-out", {**SIGN_OUT, "analysis_type": analysis})
-            out[analysis] = {"status": signed.status_code, "json": signed.json()}
-            version = (out[analysis]["json"] or {}).get("version")
-            if version is not None:
-                record = await ac.get(f"{api}/report/sign-outs/{version}")
-                out[analysis]["snapshot"] = record.json().get("snapshot")
+            listed = await ac.get(f"{api}/small-variants", params={"analysis": analysis, "page_size": 50})
+            out["list_rows"][analysis] = {
+                str(row["_id"]): (row.get("review") or {}).get("tags") for row in listed.json().get("variants", [])
+            }
+        out["first"] = await _sign_out_both(ac, api)
+        # Then reviewed in the short-read analysis too, with another classification.
+        short = await ac.put(
+            review.format(variant=BOTH),
+            params={"analysis": "short_read_wgs"},
+            json={"tags": ["report"], "classification": "VUS - class 3", "expected_updated_at": None},
+        )
+        out["both_short_read"] = {"status": short.status_code, "json": short.json()}
+        out["second"] = await _sign_out_both(ac, api)
+        trail = await ac.get(f"{api}/clinical-audit", params={"limit": 200})
+        out["trail"] = [
+            (event["variant_id"], event["action"], event.get("analysis")) for event in trail.json().get("events", [])
+        ]
     return out
+
+
+async def _sign_out_both(ac: Any, api: str) -> dict[str, Any]:
+    """Sign out each analysis; each record as served."""
+    from backend.tests.e2e import _harness
+
+    signed_out: dict[str, Any] = {}
+    for analysis in ("short_read_wgs", "long_read_wgs"):
+        signed = await _harness.sign_out(ac, f"{api}/report/sign-out", {**SIGN_OUT, "analysis_type": analysis})
+        signed_out[analysis] = {"status": signed.status_code, "json": signed.json()}
+        version = (signed_out[analysis]["json"] or {}).get("version")
+        if version is not None:
+            record = await ac.get(f"{api}/report/sign-outs/{version}")
+            signed_out[analysis]["snapshot"] = record.json().get("snapshot")
+    return signed_out
 
 
 @pytest.fixture(scope="module")
@@ -269,7 +317,7 @@ def test_each_callset_is_stored_under_its_callers_name(run) -> None:
 
 
 def test_the_list_of_a_family_with_two_callsets_is_read_one_analysis_at_a_time(run) -> None:
-    status, detail = run["unnamed"]
+    status, detail = run["unnamed_list"]
     assert status == 422 and "name the analysis" in detail
     short_read, long_read = run["lists"]["short_read_wgs"], run["lists"]["long_read_wgs"]
     assert short_read["status"] == long_read["status"] == 200
@@ -293,13 +341,53 @@ def test_each_package_record_lists_its_own_callset(run) -> None:
 
 def test_each_analysiss_record_holds_its_own_variants_and_qc(run) -> None:
     assert run["tagged"] == 200
-    short_read, long_read = run["short_read_wgs"], run["long_read_wgs"]
+    short_read, long_read = run["first"]["short_read_wgs"], run["first"]["long_read_wgs"]
     assert short_read["status"] == 200 and long_read["status"] == 200, (short_read, long_read)
     assert short_read["snapshot"]["analysis_type"] == "short_read_wgs"
     assert short_read["snapshot"]["reported_variants"] == []
-    assert [entry["variant_id"] for entry in long_read["snapshot"]["reported_variants"]] == [LONG_READ_ONLY]
+    assert [entry["variant_id"] for entry in long_read["snapshot"]["reported_variants"]] == [BOTH, LONG_READ_ONLY]
     assert short_read["snapshot"]["sample_qc"]["genotype_source"] == "haplotypecaller"
     assert long_read["snapshot"]["sample_qc"]["genotype_source"] == "deepvariant"
+
+
+def test_a_review_save_that_names_no_analysis_of_the_family_is_refused(run) -> None:
+    assert run["unnamed"]["status"] == 422, run["unnamed"]
+    assert "name the analysis" in str(run["unnamed"]["json"]["detail"])
+
+
+def test_a_variant_reviewed_in_one_analysis_is_in_that_analysiss_record_only(run) -> None:
+    # Both callsets hold the variant; only the long-read analysis reviewed it.
+    assert run["both_long_read"]["status"] == 200, run["both_long_read"]
+    assert run["list_rows"]["long_read_wgs"][BOTH] == ["report"]
+    assert run["list_rows"]["short_read_wgs"][BOTH] is None
+    short_read, long_read = run["first"]["short_read_wgs"], run["first"]["long_read_wgs"]
+    assert BOTH not in [entry["variant_id"] for entry in short_read["snapshot"]["reported_variants"]]
+    [entry] = [entry for entry in long_read["snapshot"]["reported_variants"] if entry["variant_id"] == BOTH]
+    assert entry["classification"] == "Likely pathogenic - class 4"
+
+
+def test_a_variant_reviewed_in_both_analyses_is_in_each_record_with_its_own_review(run) -> None:
+    assert run["both_short_read"]["status"] == 200, run["both_short_read"]
+    short_read, long_read = run["second"]["short_read_wgs"], run["second"]["long_read_wgs"]
+    assert short_read["status"] == 200 and long_read["status"] == 200, (short_read, long_read)
+    classified = {
+        analysis: {entry["variant_id"]: entry["classification"] for entry in record["snapshot"]["reported_variants"]}
+        for analysis, record in (("short_read_wgs", short_read), ("long_read_wgs", long_read))
+    }
+    assert classified["short_read_wgs"] == {BOTH: "VUS - class 3"}
+    assert classified["long_read_wgs"] == {BOTH: "Likely pathogenic - class 4", LONG_READ_ONLY: None}
+
+
+def test_each_review_change_is_audited_under_its_analysis(run) -> None:
+    events = [event for event in run["trail"] if event[0] == BOTH and event[1] in ("tags", "classification")]
+    assert sorted(events) == sorted(
+        [
+            (BOTH, "classification", "long_read_wgs"),
+            (BOTH, "tags", "long_read_wgs"),
+            (BOTH, "classification", "short_read_wgs"),
+            (BOTH, "tags", "short_read_wgs"),
+        ]
+    )
 
 
 def test_the_proband_keeps_an_alignment_of_each_analysis(run) -> None:

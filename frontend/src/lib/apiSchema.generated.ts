@@ -547,6 +547,7 @@ export interface ClinicalAuditEventOut {
   summary: string | null;
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
+  analysis: string | null;
 }
 
 /**

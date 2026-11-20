@@ -1040,6 +1040,7 @@ async def _attach_reviews(
         session,
         family_uuid=context.family_uuid,
         variant_ids=[variant.variant_id for variant in variants],
+        scope=context.scope,
     )
     if not review_map:
         return

@@ -26,10 +26,13 @@ from backend.app.schemas import CnvAcmgClassificationPayload, CnvAcmgCriterion, 
 from backend.app.services import clinical_audit_service as cas
 from backend.app.services import structural_variant_review_pg as svr
 from backend.app.services.access_control import CurrentUser
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services.hash_chain import verify_chain
 
 FAMILY = "00000000-0000-0000-0000-00000000f001"
-CONTEXT = types.SimpleNamespace(family_uuid=FAMILY, family_id="FAM1", project_ids=["p1"])
+# A family that holds no analysis: its reviews are stored, and read, under none.
+WHOLE = AnalysisScope()
+CONTEXT = types.SimpleNamespace(family_uuid=FAMILY, family_id="FAM1", project_ids=["p1"], scope=WHOLE)
 USER = CurrentUser(
     id="u1",
     username="reviewer",
@@ -160,7 +163,9 @@ _REVIEWED = [
 
 
 def _matching(session: _ReviewRows, **selection) -> set[str]:
-    return asyncio.run(svr.list_matching_structural_variant_review_ids(session, family_uuid=FAMILY, **selection))
+    return asyncio.run(
+        svr.list_matching_structural_variant_review_ids(session, family_uuid=FAMILY, scope=WHOLE, **selection)
+    )
 
 
 @pytest.mark.parametrize(
@@ -255,7 +260,7 @@ def test_a_classification_filter_keeps_an_sv_by_the_class_its_review_shows(wante
     session = _ReviewRows(_SHOWN_CLASS_SV_REVIEWS)
     assert _matching(session, classifications=[wanted]) == kept
     [(sql, params)] = session.executed
-    assert "SELECT variant_id, classification, tags, note FROM structural_variant_reviews" in sql
+    assert "FROM structural_variant_reviews WHERE family_id = CAST(:family_id AS uuid)" in sql
     assert params == {"family_id": FAMILY}
 
 
@@ -273,7 +278,7 @@ def test_an_sv_classification_filter_with_several_classes_or_a_tag_filter() -> N
 def test_the_review_summary_counts_the_reviewed_svs_their_notes_and_tags() -> None:
     session = _ReviewRows(_REVIEWED)
 
-    summary = asyncio.run(svr.get_structural_variant_review_summary(session, family_uuid=FAMILY))
+    summary = asyncio.run(svr.get_structural_variant_review_summary(session, family_uuid=FAMILY, scope=WHOLE))
 
     # sv-d holds nothing but blanks: not reviewed. The row without an id is not counted.
     assert (summary.reviewed_variant_count, summary.note_count) == (3, 1)
@@ -290,7 +295,9 @@ def test_the_reviews_of_the_listed_svs_are_read_with_their_ids_bound_as_one_arra
     )
 
     reviews = asyncio.run(
-        svr.get_structural_variant_review_map(session, family_uuid=FAMILY, variant_ids=[" sv-a ", "sv-b", " "])
+        svr.get_structural_variant_review_map(
+            session, family_uuid=FAMILY, variant_ids=[" sv-a ", "sv-b", " "], scope=WHOLE
+        )
     )
 
     assert list(reviews) == ["sv-a"]
@@ -303,7 +310,10 @@ def test_the_reviews_of_the_listed_svs_are_read_with_their_ids_bound_as_one_arra
 
 def test_no_listed_sv_reads_no_review() -> None:
     session = _ReviewRows(_REVIEWED)
-    assert asyncio.run(svr.get_structural_variant_review_map(session, family_uuid=FAMILY, variant_ids=["", " "])) == {}
+    assert (
+        asyncio.run(svr.get_structural_variant_review_map(session, family_uuid=FAMILY, variant_ids=["", " "], scope=WHOLE))
+        == {}
+    )
     assert session.executed == []
 
 
@@ -319,6 +329,9 @@ class _Result:
 
     def first(self):
         return self._row
+
+    def all(self):
+        return [self._row] if self._row is not None else []
 
 
 class _ReviewTable:
@@ -353,6 +366,8 @@ class _ReviewTable:
     def _row(params: dict, *, review_id: str) -> dict:
         return {
             "id": review_id,
+            # The family holds no analysis: every review is stored under none.
+            "analysis": "",
             "variant_id": params["variant_id"],
             "classification": params["classification"],
             "tags": json.loads(params["tags_json"]),
@@ -648,7 +663,8 @@ def test_a_cnv_classification_is_recorded_in_the_audit_trail() -> None:
     }
     assert event["before"]["cnv_class"] is None and event["before"]["cnv_criteria"] == []
     # Marked as a structural variant, so its id is never read as a small variant's.
-    assert event["metadata"] == {"modality": "sv"}
+    # Marked as an SV event, naming the analysis whose review it is (none: the family holds none).
+    assert event["metadata"] == {"modality": "sv", "analysis": ""}
 
 
 def test_tag_and_note_changes_are_recorded_as_separate_events() -> None:

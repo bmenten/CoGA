@@ -484,9 +484,14 @@ CREATE INDEX IF NOT EXISTS idx_sample_interval_track_sources_sample_type ON samp
 -- ---------------------------------------------------------------------------
 -- small_variant_reviews
 -- ---------------------------------------------------------------------------
+-- A review is one analysis's (services/analysis_reviews.py): analysis is the family's
+-- analysis it was made in (families.metadata analysis_types), '' for one made while the family
+-- held none. A variant has a review per analysis that reviewed it; a review stored under no
+-- analysis the family holds is read by each analysis that has none of its own.
 CREATE TABLE IF NOT EXISTS small_variant_reviews (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     family_id uuid NOT NULL,
+    analysis text NOT NULL,
     variant_key bigint,
     variant_id text,
     classification text,
@@ -516,8 +521,8 @@ CREATE TABLE IF NOT EXISTS small_variant_reviews (
 );
 
 CREATE INDEX IF NOT EXISTS idx_small_variant_reviews_family ON small_variant_reviews USING btree (family_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_reviews_family_variant_id ON small_variant_reviews USING btree (family_id, variant_id) WHERE (variant_id IS NOT NULL);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_reviews_family_variant_key ON small_variant_reviews USING btree (family_id, variant_key) WHERE (variant_key IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_reviews_family_variant_id ON small_variant_reviews USING btree (family_id, analysis, variant_id) WHERE (variant_id IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_reviews_family_variant_key ON small_variant_reviews USING btree (family_id, analysis, variant_key) WHERE (variant_key IS NOT NULL);
 
 -- ---------------------------------------------------------------------------
 -- small_variant_filter_presets
@@ -588,9 +593,11 @@ CREATE TABLE IF NOT EXISTS small_variant_tag_definition_project_links (
 -- ---------------------------------------------------------------------------
 -- structural_variant_reviews
 -- ---------------------------------------------------------------------------
+-- One analysis's review of a structural variant, as small_variant_reviews.analysis.
 CREATE TABLE IF NOT EXISTS structural_variant_reviews (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     family_id uuid NOT NULL,
+    analysis text NOT NULL,
     variant_id text,
     classification text,
     tags jsonb DEFAULT '[]'::jsonb NOT NULL,
@@ -611,7 +618,7 @@ CREATE TABLE IF NOT EXISTS structural_variant_reviews (
 );
 
 CREATE INDEX IF NOT EXISTS idx_structural_variant_reviews_family ON structural_variant_reviews USING btree (family_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_reviews_family_variant_id ON structural_variant_reviews USING btree (family_id, variant_id) WHERE (variant_id IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_reviews_family_variant_id ON structural_variant_reviews USING btree (family_id, analysis, variant_id) WHERE (variant_id IS NOT NULL);
 
 -- ---------------------------------------------------------------------------
 -- repeat_expansion_reviews / paraphase_reviews

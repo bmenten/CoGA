@@ -2643,7 +2643,7 @@ async def test_a_reported_sv_beyond_the_candidate_cap_is_still_found(
     callset = [_reported_sv(f"sv-{index}", start=index * 1000) for index in range(1, 6)]
     seen: list[dict] = []
 
-    async def _reported(_session, *, family_uuid, classifications=None, tags=None, has_notes=False):
+    async def _reported(_session, *, family_uuid, scope, classifications=None, tags=None, has_notes=False):
         return {"sv-5"} if tags == ["report"] else set()
 
     async def _empty(*_a, **_k):

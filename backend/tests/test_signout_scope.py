@@ -22,10 +22,7 @@ from backend.app.services.signout_scope import (
     NIPT_SECTION_ANALYSES,
     PGT_SECTION_ANALYSES,
     WHOLE_FAMILY,
-    ReviewsLeftOut,
-    SignoutScope,
     analysis_listing_source,
-    reviews_left_out,
     signout_scope,
 )
 
@@ -200,55 +197,10 @@ def test_a_record_not_in_the_shape_the_import_writes_stops_the_sign_out(record: 
             signout_scope(metadata, "conventional_nipt")
 
 
-# --- The reviews a scoped sign-out leaves out -------------------------------------------------
-
-
-class _Result:
-    def __init__(self, values: list[Any]) -> None:
-        self._values = values
-
-    def scalars(self) -> list[Any]:
-        return self._values
-
-
-class _Session:
-    def __init__(self, small: list[str], structural: list[str]) -> None:
-        self._small, self._structural = small, structural
-        self.statements: list[str] = []
-
-    async def execute(self, statement: Any, params: dict[str, Any]) -> _Result:
-        sql = str(statement)
-        self.statements.append(sql)
-        assert params == {"family_uuid": "u1"}
-        return _Result(self._small if "small_variant_reviews" in sql else self._structural)
+# --- The sources the family's stored rows of its variants are stored under --------------------
 
 
 _CONTEXT = types.SimpleNamespace(family_uuid="u1", assembly_name="GRCh38")
-
-
-def test_reviews_of_variants_stored_only_under_other_analyses_sources_are_left_out(monkeypatch) -> None:
-    async def _sources(context, *, small_ids, structural_ids):
-        assert sorted(small_ids) == ["1-10-A-G", "1-20-C-T", "1-30-G-A"]
-        assert sorted(structural_ids) == ["1-100-900-DEL", "1-500-800-DUP"]
-        return (
-            # A monogenic NIPT call; a variant also in an upload; one stored no more (absent).
-            {"1-10-A-G": frozenset({"nipt"}), "1-20-C-T": frozenset({"nipt", "upload"})},
-            {"1-100-900-DEL": frozenset({"ccnv"}), "1-500-800-DUP": frozenset({"needlr"})},
-        )
-
-    monkeypatch.setattr(scope_module, "stored_variant_sources", _sources)
-    session = _Session(["1-10-A-G", "1-20-C-T", "1-30-G-A"], ["1-100-900-DEL", "1-500-800-DUP"])
-    cnipt = asyncio.run(reviews_left_out(session, _CONTEXT, signout_scope(_two_nipts(), "conventional_nipt")))
-    assert cnipt == ReviewsLeftOut(small=frozenset({"1-10-A-G"}), structural=frozenset())
-    mnipt = asyncio.run(reviews_left_out(session, _CONTEXT, signout_scope(_two_nipts(), "monogenic_nipt")))
-    assert mnipt == ReviewsLeftOut(small=frozenset(), structural=frozenset({"1-100-900-DEL"}))
-
-
-def test_a_sign_out_of_the_whole_family_leaves_no_review_out() -> None:
-    session = _Session(["1-10-A-G"], [])
-    assert asyncio.run(reviews_left_out(session, _CONTEXT, SignoutScope(analysis="pgt"))) == ReviewsLeftOut()
-    # Nothing is read for it.
-    assert session.statements == []
 
 
 def test_the_stored_sources_are_read_from_the_current_rows_of_the_family(monkeypatch) -> None:

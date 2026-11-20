@@ -151,7 +151,7 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
     def _ctx_now():
         return _context(holder["uuid"], label, project)
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _ctx_now()
 
     async def _qc(
@@ -441,7 +441,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
         # The gene's profile is in the assembly made below: the family's.
         return _context(holder["uuid"], label, project, holder.get("assembly"))
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _ctx_now()
 
     async def _qc(
@@ -764,7 +764,7 @@ def test_a_classification_freezes_the_vcfs_missense_z_when_the_genes_profile_hol
     def _ctx_now():
         return _context(holder["uuid"], label, project, holder["assembly"])
 
-    async def _ctx(session, *, family_identifier, user, project_id=None):
+    async def _ctx(session, *, family_identifier, user, project_id=None, analysis=None):
         return _ctx_now()
 
     async def _no_hydration(session, *, context, variants):
