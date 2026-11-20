@@ -7,6 +7,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import rows_matched
+from .analysis_reviews import ScopedReview, effective_reviews, keeps_own_review, scope_review_clause, scoped_review
+from .analysis_scope import AnalysisScope
 from .review_pg_utils import _json_payload, _normalize_tags
 from .small_variant_review_acmg import _acmg_json_or_none, _json_or_none
 
@@ -45,14 +47,6 @@ def _compound_het_clear_payload() -> dict[str, Any]:
     }
 
 
-def _compound_het_field_names() -> list[str]:
-    return list(_compound_het_clear_payload().keys())
-
-
-def _preserve_existing_compound_het(document: dict[str, Any]) -> dict[str, Any]:
-    return {key: document.get(key) for key in _compound_het_field_names()}
-
-
 def _document_has_individual_review(document: dict[str, Any]) -> bool:
     return bool(
         str(document.get("classification") or "").strip()
@@ -82,6 +76,7 @@ _SMALL_VARIANT_REVIEW_SELECT = """
             SELECT
                 id::text AS id,
                 family_id::text AS family_id,
+                analysis,
                 variant_key,
                 variant_id,
                 classification,
@@ -128,8 +123,11 @@ async def _fetch_review_rows_for_variants(
     *,
     family_uuid: str,
     variant_ids: Sequence[str],
+    scope: AnalysisScope,
 ) -> list[dict[str, Any]]:
-    """The review rows of these variants, with the same columns as a single-review fetch.
+    """The reviews of these variants the scope may read (each analysis's own, and the shared
+    ones: ``analysis_reviews.scope_review_clause``), with the same columns as a single-review
+    fetch; the caller picks each variant's effective review.
 
     Every list of variants carries its reviews through this, so a list serves each review
     as a read of that one review would, its ACMG record included.
@@ -138,27 +136,35 @@ async def _fetch_review_rows_for_variants(
     export reads up to 50,001 rows, and asyncpg refuses a statement with more than 32,767
     parameters.
     """
+    params: dict[str, Any] = {"family_id": family_uuid, "variant_ids": list(variant_ids)}
+    belongs = scope_review_clause(scope, params)
     return await _fetch_review_rows(
         session,
         where_clause=(
-            "family_id = CAST(:family_id AS uuid) AND variant_id = ANY(CAST(:variant_ids AS text[]))"
+            "family_id = CAST(:family_id AS uuid) AND variant_id = ANY(CAST(:variant_ids AS text[])) "
+            f"AND {belongs}"
         ),
-        params={"family_id": family_uuid, "variant_ids": list(variant_ids)},
+        params=params,
     )
 
 
-async def _fetch_review_row(
+async def _fetch_scoped_review(
     session: AsyncSession,
     *,
     family_uuid: str,
     variant_id: str,
-) -> dict[str, Any] | None:
+    scope: AnalysisScope,
+) -> ScopedReview:
+    """The scope's own review of the variant (the one a save in it writes) and the shared one
+    it reads when it has none (``analysis_reviews.scoped_review``)."""
+    params: dict[str, Any] = {"family_id": family_uuid, "variant_id": variant_id}
+    belongs = scope_review_clause(scope, params)
     rows = await _fetch_review_rows(
         session,
-        where_clause="family_id = CAST(:family_id AS uuid) AND variant_id = :variant_id",
-        params={"family_id": family_uuid, "variant_id": variant_id},
+        where_clause=f"family_id = CAST(:family_id AS uuid) AND variant_id = :variant_id AND {belongs}",
+        params=params,
     )
-    return rows[0] if rows else None
+    return scoped_review(rows, scope)
 
 
 async def _fetch_compound_het_group_rows(
@@ -166,12 +172,28 @@ async def _fetch_compound_het_group_rows(
     *,
     family_uuid: str,
     group_id: str,
+    scope: AnalysisScope,
 ) -> list[dict[str, Any]]:
-    return await _fetch_review_rows(
+    """The reviews of a compound-het pair in the scope: of each variant whose effective review
+    in it holds the pair (``compound_het_group_id``), that review. A pair is one analysis's, or
+    a shared one each analysis without reviews of its own of the variants reads."""
+    params: dict[str, Any] = {"family_id": family_uuid, "group_id": group_id}
+    belongs = scope_review_clause(scope, params)
+    rows = await _fetch_review_rows(
         session,
-        where_clause="family_id = CAST(:family_id AS uuid) AND compound_het_group_id = :group_id",
-        params={"family_id": family_uuid, "group_id": group_id},
+        where_clause=(
+            f"family_id = CAST(:family_id AS uuid) AND {belongs} AND variant_id IN ("
+            "SELECT member.variant_id FROM small_variant_reviews member "
+            "WHERE member.family_id = CAST(:family_id AS uuid) AND member.compound_het_group_id = :group_id "
+            f"AND {scope_review_clause(scope, params, column='member.analysis')})"
+        ),
+        params=params,
     )
+    return [
+        review
+        for review in effective_reviews(rows, scope).values()
+        if review.get("compound_het_group_id") == group_id
+    ]
 
 
 async def _delete_review_row(session: AsyncSession, review_id: str) -> None:
@@ -256,14 +278,18 @@ async def _insert_review_row(
     session: AsyncSession,
     *,
     family_uuid: str,
+    analysis: str,
     fields: dict[str, Any],
     created_at: datetime,
 ) -> None:
+    """Store a new review of the family's analysis ``analysis`` (``NO_ANALYSIS`` for a family
+    that holds none)."""
     await session.execute(
         text(
             """
             INSERT INTO small_variant_reviews (
                 family_id,
+                analysis,
                 variant_key,
                 variant_id,
                 classification,
@@ -291,6 +317,7 @@ async def _insert_review_row(
             )
             VALUES (
                 CAST(:family_id AS uuid),
+                :analysis,
                 :variant_key,
                 :variant_id,
                 :classification,
@@ -318,8 +345,42 @@ async def _insert_review_row(
             )
             """
         ),
-        {**_review_row_params(fields), "family_id": family_uuid, "created_at": created_at},
+        {
+            **_review_row_params(fields),
+            "family_id": family_uuid,
+            "analysis": analysis,
+            "created_at": created_at,
+        },
     )
+
+
+async def _write_own_review(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    scope: AnalysisScope,
+    reviews: ScopedReview,
+    fields: dict[str, Any],
+    created_at: datetime,
+) -> None:
+    """Write ``fields`` as the scope's own review of a variant (``reviews``: its own and the
+    shared one): its own is updated, or stored when it has none; the shared review stays as it
+    is. A review that holds nothing is deleted, or kept empty when it hides a shared review that
+    holds something (``analysis_reviews.keeps_own_review``)."""
+    keep = keeps_own_review(reviews, _review_document_has_any_content, fields)
+    if reviews.own is not None:
+        if keep:
+            await _update_review_row(session, review_id=reviews.own["id"], fields=fields)
+        else:
+            await _delete_review_row(session, reviews.own["id"])
+    elif keep:
+        await _insert_review_row(
+            session,
+            family_uuid=family_uuid,
+            analysis=scope.review_analysis,
+            fields={**_compound_het_clear_payload(), **fields},
+            created_at=created_at,
+        )
 
 
 async def _clear_compound_het_group(
@@ -327,10 +388,13 @@ async def _clear_compound_het_group(
     *,
     family_uuid: str,
     group_id: str,
+    scope: AnalysisScope,
+    now: datetime,
     written_by_save: Collection[str] = (),
 ) -> None:
-    """Break up a compound-het pair: each review of it loses the pair, and one that held
-    nothing else is deleted.
+    """Break up a compound-het pair in the scope: each review of it loses the pair, and one that
+    held nothing else is deleted. A shared review of it stays as it is: the scope gets its own
+    review of the variant, without the pair, stored at ``now`` (``_write_own_review``).
 
     The reviews of ``written_by_save`` are left as they are: the save that breaks the pair up
     writes each of them next, its compound-het fields included. Deleted here, the review that
@@ -343,17 +407,20 @@ async def _clear_compound_het_group(
         session,
         family_uuid=family_uuid,
         group_id=group_id,
+        scope=scope,
     )
     clear_payload = _compound_het_clear_payload()
     for document in documents:
-        if document.get("variant_id") in written_by_save:
+        variant_id = str(document.get("variant_id"))
+        if variant_id in written_by_save:
             continue
-        updated_document = {**document, **clear_payload}
-        if _review_document_has_any_content(updated_document):
-            await _update_review_row(
-                session,
-                review_id=document["id"],
-                fields={**document, **clear_payload},
-            )
-        else:
-            await _delete_review_row(session, document["id"])
+        await _write_own_review(
+            session,
+            family_uuid=family_uuid,
+            scope=scope,
+            reviews=await _fetch_scoped_review(
+                session, family_uuid=family_uuid, variant_id=variant_id, scope=scope
+            ),
+            fields={**document, **clear_payload},
+            created_at=now,
+        )

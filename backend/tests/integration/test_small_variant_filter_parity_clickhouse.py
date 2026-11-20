@@ -798,7 +798,7 @@ def _stub_lookups(monkeypatch: pytest.MonkeyPatch, case: _Case) -> None:
 
         return [region for term in _split_gene_terms(gene_query) for region in loci.get(term.upper(), [])]
 
-    async def _review_ids(_session, *, family_uuid, classifications=None, tags=None, has_notes=False):
+    async def _review_ids(_session, *, family_uuid, scope, classifications=None, tags=None, has_notes=False):
         if tags == ["left out"]:
             return set(case.excluded_review_variant_ids)
         return set(case.review_variant_ids or ())

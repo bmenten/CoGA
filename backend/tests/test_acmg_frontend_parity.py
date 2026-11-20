@@ -435,6 +435,7 @@ def test_the_sv_classification_filter_keeps_each_review_by_the_class_the_sv_page
     import asyncio
     import types
 
+    from backend.app.services.analysis_scope import AnalysisScope
     from backend.app.services.structural_variant_review_pg import list_matching_structural_variant_review_ids
 
     # Both views read it through the family page's one helper, reviewClassChips,
@@ -468,7 +469,9 @@ def test_the_sv_classification_filter_keeps_each_review_by_the_class_the_sv_page
 
     def _kept(wanted: str) -> set[str]:
         return asyncio.run(
-            list_matching_structural_variant_review_ids(_Rows(), family_uuid="f1", classifications=[wanted])
+            list_matching_structural_variant_review_ids(
+                _Rows(), family_uuid="f1", scope=AnalysisScope(), classifications=[wanted]
+            )
         )
 
     for label in acmg_points.CLASS_LABELS.values():

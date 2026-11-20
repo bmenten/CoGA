@@ -206,6 +206,7 @@ def test_record_review_changes_writes_one_insert_per_change() -> None:
             user=user,
             existing=existing,
             new_state=new,
+            analysis="long_read_wgs",
         )
     )
     inserts = session.inserts()
@@ -215,8 +216,9 @@ def test_record_review_changes_writes_one_insert_per_change() -> None:
     assert all(c["family_identifier"] == "FAM1" for c in inserts)
     # The chain stamped a row_hash on every event.
     assert all(c.get("row_hash") for c in inserts)
-    # Small-variant events carry no modality marker (only SV events do).
-    assert all(json.loads(c["metadata"]) == {} for c in inserts)
+    # Small-variant events carry no modality marker (only SV events do), and name the analysis
+    # whose review changed (analysis_reviews).
+    assert all(json.loads(c["metadata"]) == {"analysis": "long_read_wgs"} for c in inserts)
 
 
 # --- structural-variant (SV / CNV) reviews ----------------------------------------------------
@@ -400,11 +402,13 @@ def test_record_structural_review_changes_marks_the_events_as_sv() -> None:
             user=user,
             existing=None,
             new_state=_sv_review(classification="Pathogenic", note="n"),
+            analysis="",
         )
     )
     inserts = session.inserts()
     assert [c["action"] for c in inserts] == ["classification", "note"]
-    assert all(json.loads(c["metadata"]) == {"modality": "sv"} for c in inserts)
+    # A review of a family that holds no analysis is stored, and audited, under none.
+    assert all(json.loads(c["metadata"]) == {"modality": "sv", "analysis": ""} for c in inserts)
     assert all(c["actor"] == "bob" and c["variant_id"] == "1-1000-2000-DEL---" for c in inserts)
     assert all(c["row_hash"] for c in inserts)
 
@@ -714,6 +718,8 @@ def _event_row(n: int, *, total: int) -> dict:
         "summary": f"event {n}",
         "before": None,
         "after": {"n": n},
+        # The analysis whose review the event changed (none here).
+        "analysis": None,
     }
 
 
@@ -762,7 +768,7 @@ def test_a_trail_longer_than_a_page_says_so_with_its_total(monkeypatch) -> None:
     assert page["events"][-1]["summary"] == "event 251"
     # The events are served as events: the count is not one of their fields.
     assert set(page["events"][0]) == {
-        "id", "created_at", "variant_id", "actor", "action", "summary", "before", "after",
+        "id", "created_at", "variant_id", "actor", "action", "summary", "before", "after", "analysis",
     }
     # The first page: the newest events of this family, 200 and one more.
     assert len(session.calls) == 1
@@ -791,6 +797,8 @@ def test_the_trail_is_read_in_one_order_newest_first_with_its_count(monkeypatch)
     assert (
         "(created_at, id) < (CAST(:before_created_at AS timestamptz), CAST(:before_id AS uuid))"
     ) in flat
+    # A review event names the analysis whose review it changed; '' (no analysis) is served as none.
+    assert "NULLIF(page.metadata ->> 'analysis', '') AS analysis" in flat
 
 
 def test_the_last_page_says_no_older_events_remain(monkeypatch) -> None:

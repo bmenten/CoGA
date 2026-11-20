@@ -71,8 +71,8 @@ These also refer to a member:
 - `sample_interval_track_sources`, `repeat_expansions` and `sample_paraphase_results`;
 - the ClickHouse small-variant and structural-variant rows, which name the sample in
   `calls.sampleId`;
-- family-level: `small_variant_reviews`, `structural_variant_reviews` and the derived
-  browser tracks.
+- family-level: `small_variant_reviews`, `structural_variant_reviews` (the reviews of every
+  analysis of the family) and the derived browser tracks.
 
 ## The editor
 

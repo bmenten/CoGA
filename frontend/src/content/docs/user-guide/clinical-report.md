@@ -124,7 +124,9 @@ code names.
 **A family of several analyses.** A family that holds more than one analysis (the monogenic and the
 conventional NIPT of one pregnancy, or short-read and then long-read WGS) signs each out on its own.
 Its signed version freezes that analysis's data only, and the checks read that analysis's data only.
-Data no analysis claims as its own, such as an upload, count for every analysis. Sign out the
+Data no analysis claims as its own, such as an upload, count for every analysis. Its reported variants
+are those its own reviews tag *Report*: a variant reported in one analysis is not in another's signed
+version unless you review it there too. Sign out the
 monogenic NIPT on its NIPT report and every other analysis here. When several remain, pick one under
 *Analysis to sign out*; the button names it (**Sign out the conventional NIPT**). *Sign-out of each
 analysis* lists each analysis with its latest signed version, report code, signer and date, and

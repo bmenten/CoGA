@@ -12,8 +12,11 @@ What is an analysis's data is read from the family's package records (``family_p
 each lists the storage sources its import wrote, per kind of data (``SOURCES_KEY``), and its
 datasets. An item belongs to the analysis when one of its sources is the analysis's own or is
 claimed by no other analysis the family holds. So data an upload or an analyst added, or a package
-that named no analysis, belongs to every analysis, and each sign-out freezes and checks it; and so
-does a reported variant whose sources cannot be told (its stored rows are gone).
+that named no analysis, belongs to every analysis, and each sign-out freezes and checks it.
+
+The small and structural variants a sign-out reports are those the analysis's own reviews tag for
+the report, or the shared reviews made while the family held no analysis: a review is one
+analysis's (``analysis_reviews``, the owner's decision of 2026-11-20).
 """
 
 from __future__ import annotations
@@ -22,8 +25,6 @@ from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import execute_clickhouse
 from .clickhouse_variant_ids import _small_table_name, _structural_table_name
@@ -187,51 +188,4 @@ async def stored_variant_sources(
     return (
         {key: frozenset(names) for key, names in small.items()},
         {key: frozenset(names) for key, names in structural.items()},
-    )
-
-
-_REVIEWED_SMALL_VARIANTS = text(
-    "SELECT DISTINCT variant_id FROM small_variant_reviews WHERE family_id = CAST(:family_uuid AS uuid)"
-)
-_REVIEWED_STRUCTURAL_VARIANTS = text(
-    "SELECT DISTINCT variant_id FROM structural_variant_reviews "
-    "WHERE family_id = CAST(:family_uuid AS uuid) AND variant_id IS NOT NULL"
-)
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewsLeftOut:
-    """The variant IDs of the family's reviews a scoped sign-out leaves out: the small and the
-    structural variants stored only under other analyses' sources. Empty for the whole family."""
-
-    small: frozenset[str] = frozenset()
-    structural: frozenset[str] = frozenset()
-
-
-async def reviews_left_out(
-    session: AsyncSession, context: FamilyMetadataContext, scope: SignoutScope
-) -> ReviewsLeftOut:
-    """The reviews of the family whose variants are not the analysis's (``SignoutScope.holds``),
-    by the sources their stored rows are stored under; none for a sign-out of the whole family."""
-    if scope.whole:
-        return ReviewsLeftOut()
-    params = {"family_uuid": context.family_uuid}
-    small_ids = [str(value) for value in (await session.execute(_REVIEWED_SMALL_VARIANTS, params)).scalars()]
-    structural_ids = [
-        str(value) for value in (await session.execute(_REVIEWED_STRUCTURAL_VARIANTS, params)).scalars()
-    ]
-    small_sources, structural_sources = await stored_variant_sources(
-        context, small_ids=small_ids, structural_ids=structural_ids
-    )
-    return ReviewsLeftOut(
-        small=frozenset(
-            variant_id
-            for variant_id in small_ids
-            if not scope.holds("small_variants", small_sources.get(variant_id, ()))
-        ),
-        structural=frozenset(
-            variant_id
-            for variant_id in structural_ids
-            if not scope.holds("structural_variants", structural_sources.get(variant_id, ()))
-        ),
     )

@@ -1,5 +1,5 @@
 from dataclasses import replace
-from typing import List
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
@@ -40,6 +40,16 @@ from .query_params import FiniteThreshold
 
 router = APIRouter()
 
+# The analysis of the family whose structural variants a request reads or reviews
+# (analysis_scope.py): named when the family holds several analyses with structural variants of
+# their own. A review is that analysis's (analysis_reviews.py).
+AnalysisParam = Annotated[
+    str | None,
+    Query(max_length=64, description="The family's analysis to read or review (analysis_type)."),
+]
+# The kind of variants the family's analysis is told by when none is named.
+_SV_KIND = "structural_variants"
+
 
 @router.get(
     "/{family_id}/structural-variant-review-summary",
@@ -47,6 +57,7 @@ router = APIRouter()
 )
 async def get_family_structural_variant_review_summary(
     family_id: str,
+    analysis: AnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> SmallVariantReviewSummaryOut:
@@ -54,10 +65,13 @@ async def get_family_structural_variant_review_summary(
         session,
         family_identifier=family_id,
         user=user,
+        analysis=analysis,
+        variant_kind=_SV_KIND,
     )
     return await get_structural_variant_review_summary(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope.require_named(),
     )
 
 
@@ -141,6 +155,7 @@ async def get_family_structural_variants(
     rank_by: RankBy = RANK_BY_COMBINED_SCORE,
     track_mode: bool = False,
     count_only: bool = False,
+    analysis: AnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
     # After the user: the caller is signed in, and the request's values are held to the
@@ -152,6 +167,8 @@ async def get_family_structural_variants(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
+        variant_kind=_SV_KIND,
     )
     # A panel the search applies goes on the family's clinical audit trail first (REQ-CARR-003).
     await record_family_panel_use(
@@ -232,6 +249,7 @@ async def export_family_structural_variants_csv(
     project_id: str | None = None,
     prioritize: bool = False,
     rank_by: RankBy = RANK_BY_COMBINED_SCORE,
+    analysis: AnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
     # The list's filters, read by the same dependency, after the user as there.
@@ -250,6 +268,8 @@ async def export_family_structural_variants_csv(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
+        variant_kind=_SV_KIND,
     )
     await record_family_panel_use(
         session,
@@ -361,6 +381,7 @@ async def upsert_structural_variant_review(
     variant_id: str,
     payload: StructuralVariantReviewUpdate,
     project_id: str | None = None,
+    analysis: AnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> SmallVariantReviewOut:
@@ -369,6 +390,8 @@ async def upsert_structural_variant_review(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
+        variant_kind=_SV_KIND,
     )
     return await upsert_structural_variant_review_record(
         session,

@@ -92,8 +92,8 @@ async def _seed_postgres(session_factory) -> dict[str, str]:
             for variant_id in variant_ids:
                 await session.execute(
                     text(
-                        f"INSERT INTO {table} (family_id, variant_id, classification, tags, tag_metadata, "
-                        "updated_by) VALUES (CAST(:f AS uuid), :v, 'VUS - class 3', CAST(:t AS jsonb), "
+                        f"INSERT INTO {table} (family_id, analysis, variant_id, classification, tags, tag_metadata, "
+                        "updated_by) VALUES (CAST(:f AS uuid), '', :v, 'VUS - class 3', CAST(:t AS jsonb), "
                         "CAST(:m AS jsonb), 'reviewer')"
                     ),
                     {
@@ -126,6 +126,7 @@ def test_the_lookups_take_more_ids_than_a_statement_has_parameters() -> None:
 
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services.clickhouse_family_variants import _fetch_gene_constraint_metric_map
+    from backend.app.services.analysis_scope import AnalysisScope
     from backend.app.services.small_variant_review_pg import get_small_variant_review_map
     from backend.app.services.structural_variant_review_pg import get_structural_variant_review_map
     from backend.app.services.sv_gene_index_service import get_sv_second_hits
@@ -156,8 +157,13 @@ def test_the_lookups_take_more_ids_than_a_statement_has_parameters() -> None:
             await session.commit()
 
         async with session_factory() as session:
-            reviews = await get_small_variant_review_map(session, family_uuid=family, variant_ids=small_ids)
-            sv_reviews = await get_structural_variant_review_map(session, family_uuid=family, variant_ids=sv_ids)
+            # A family that holds no analysis: its reviews are read under none.
+            reviews = await get_small_variant_review_map(
+                session, family_uuid=family, variant_ids=small_ids, scope=AnalysisScope()
+            )
+            sv_reviews = await get_structural_variant_review_map(
+                session, family_uuid=family, variant_ids=sv_ids, scope=AnalysisScope()
+            )
             metrics = await _fetch_gene_constraint_metric_map(session, variants, assembly_id=seeded["assembly"])
             second_hits = await get_sv_second_hits(session, family_uuid=family, gene_symbols=set(genes))
 
@@ -184,6 +190,7 @@ def test_no_ids_read_no_rows() -> None:
     # Postgres refuses on the text column (text = integer). The review map never sends an
     # empty list (it answers {} first); the lookup under it takes one as well.
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services.analysis_scope import AnalysisScope
     from backend.app.services.small_variant_review_repository import _fetch_review_rows_for_variants
 
     async def _scenario() -> None:
@@ -191,8 +198,12 @@ def test_no_ids_read_no_rows() -> None:
         session_factory = get_postgres_sessionmaker()
         seeded = await _seed_postgres(session_factory)
         async with session_factory() as session:
+            # Read for an analysis, so the scope's text[] of the family's analyses is bound too.
             rows = await _fetch_review_rows_for_variants(
-                session, family_uuid=seeded["family"], variant_ids=[]
+                session,
+                family_uuid=seeded["family"],
+                variant_ids=[],
+                scope=AnalysisScope(analysis="long_read_wgs", held=frozenset({"long_read_wgs"})),
             )
         assert rows == []
 

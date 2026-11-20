@@ -79,9 +79,12 @@ async def get_family_small_variant_review_summary(
         user=user,
         analysis=analysis,
     )
+    # The reviews of the analysis read (analysis_reviews): named when the family holds several
+    # analyses with small variants of their own.
     return await get_small_variant_review_summary(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope.require_named(),
     )
 
 

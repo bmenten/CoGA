@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -81,8 +82,20 @@ async def get_small_variant_family_record(
     assembly_name: str,
     family_guid: str,
     variant_id: str,
+    left_out_sources: Collection[str] = (),
 ) -> SmallVariantFamilyRecord | None:
+    """The family's row of the variant (``left_out_sources``: the callsets of the family's other
+    analyses, whose rows are not read: ``AnalysisScope.left_out_sources``)."""
     entries_table = _table_name(assembly_name, "entries")
+    params: dict[str, Any] = {
+        "family_guid": family_guid,
+        "variant_id": variant_id,
+        "imputed_sources": tuple(IMPUTED_SMALL_VARIANT_SOURCES),
+    }
+    left_out_clause = ""
+    if left_out_sources:
+        params["left_out_sources"] = tuple(sorted(left_out_sources))
+        left_out_clause = 'AND e.source NOT IN %(left_out_sources)s'
     details_table = _table_name(assembly_name, "variants/details")
     # A variant has a row per callset (the clair3 call and the GLIMPSE2 imputation of it).
     # Reviews and the drift check read one: the direct call, as the diagnostic list shows,
@@ -118,17 +131,11 @@ async def get_small_variant_family_record(
         WHERE e.family_guid = %(family_guid)s
           AND e.variantId = %(variant_id)s
           AND e.sign = 1
+          {left_out_clause}
         ORDER BY lowerUTF8(e.source) IN %(imputed_sources)s, e.source
         LIMIT 1
     """
-    rows = await execute_clickhouse(
-        query,
-        {
-            "family_guid": family_guid,
-            "variant_id": variant_id,
-            "imputed_sources": tuple(IMPUTED_SMALL_VARIANT_SOURCES),
-        },
-    )
+    rows = await execute_clickhouse(query, params)
     return _rows_to_variant_record(rows)
 
 

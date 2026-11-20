@@ -30,16 +30,16 @@ the specifics.
 from __future__ import annotations
 
 import json
-from typing import Any, Collection, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .analysis_reviews import effective_reviews, scope_review_clause
 from .clickhouse_small_variants import get_small_variant_family_record
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .access_control import CurrentUser
 from .hash_chain import canonical_json
-from .signout_scope import ReviewsLeftOut
 from .small_variant_review_acmg import (
     EVIDENCE_ALLELE_FIELD,
     EVIDENCE_CONSEQUENCE_FIELDS,
@@ -200,35 +200,47 @@ async def evaluate_classification_drift(
     family_id: str,
     user: CurrentUser,
     project_id: str | None = None,
-    left_out: ReviewsLeftOut | None = None,
+    analysis: str | None = None,
 ) -> dict[str, Any]:
-    """The evidence drift of the family's classifications: the small variants', and the SV and
-    CNV ones' (``structural``). ``left_out``: the reviews a sign-out of one of the family's
-    analyses leaves out, which are neither checked nor counted (``signout_scope``)."""
-    left_out = left_out or ReviewsLeftOut()
+    """The evidence drift of the family's classifications in its analysis ``analysis``: the
+    small variants', and the SV and CNV ones' (``structural``). Each variant's classification is
+    the one the analysis reads (``analysis_reviews``): its own review, else the shared one; a
+    review of another analysis is neither checked nor counted. Without an analysis, the one a
+    reading of the family's variants is about (``analysis_scope``)."""
     context = await build_family_metadata_context(
-        session, family_identifier=family_id, user=user, project_id=project_id
+        session, family_identifier=family_id, user=user, project_id=project_id, analysis=analysis
     )
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT variant_id, acmg_class, acmg_evidence_snapshot,
-                       updated_by, updated_at
-                FROM small_variant_reviews
-                WHERE family_id = CAST(:family_uuid AS uuid)
-                  AND acmg_evidence_snapshot IS NOT NULL
-                ORDER BY updated_at DESC
-                """
-            ),
-            {"family_uuid": context.family_uuid},
-        )
-    ).mappings().all()
+    params: dict[str, Any] = {"family_uuid": context.family_uuid}
+    belongs = scope_review_clause(context.scope, params)
+    reviews = effective_reviews(
+        (
+            dict(row)
+            for row in (
+                await session.execute(
+                    text(
+                        f"""
+                        SELECT variant_id, analysis, acmg_class, acmg_evidence_snapshot,
+                               updated_by, updated_at
+                        FROM small_variant_reviews
+                        WHERE family_id = CAST(:family_uuid AS uuid)
+                          AND {belongs}
+                        """
+                    ),
+                    params,
+                )
+            ).mappings().all()
+        ),
+        context.scope,
+    )
+    # Most recently classified first: the live drift page's order.
+    rows = sorted(
+        (review for review in reviews.values() if review["acmg_evidence_snapshot"] is not None),
+        key=lambda review: review["updated_at"],
+        reverse=True,
+    )
 
     compared: list[tuple[Any, dict[str, Any], Any]] = []
     for row in rows:
-        if str(row["variant_id"]) in left_out.small:
-            continue
         stored = row["acmg_evidence_snapshot"]
         # A snapshot that is not a JSON object, which the writer never stores, froze nothing
         # that can be read: it is compared as one that froze nothing, so it reads as unknown
@@ -277,9 +289,7 @@ async def evaluate_classification_drift(
         "checked": len(compared),
         "drifted_count": len(drifted),
         "drifted": drifted,
-        "structural": await evaluate_structural_classification_drift(
-            session, context, left_out=left_out.structural
-        ),
+        "structural": await evaluate_structural_classification_drift(session, context),
     }
 
 
@@ -296,39 +306,47 @@ def _structural_drift_entry(row: dict[str, Any], diff: dict[str, Any]) -> dict[s
 
 
 async def evaluate_structural_classification_drift(
-    session: AsyncSession, context: FamilyMetadataContext, *, left_out: Collection[str] = ()
+    session: AsyncSession, context: FamilyMetadataContext
 ) -> dict[str, Any]:
-    """Evidence drift of the family's SV/CNV classifications: every review whose CNV
+    """Evidence drift of the family's SV/CNV classifications in the analysis ``context`` is
+    read for (``context.scope``: its own reviews, else the shared ones): every review whose CNV
     scoring froze an evidence snapshot, compared with the SV as it is now, in the row of
     the caller the snapshot was frozen from.
 
     A snapshot that cannot be read counts as ``unknown`` rather than being skipped, so it
     can never clear the sign-out gate unexamined. Entries are sorted by variant id, which
-    the signed record needs for a stable content hash. ``left_out``: the variant IDs of the
-    reviews a sign-out of one of the family's analyses leaves out (``signout_scope``).
+    the signed record needs for a stable content hash.
     """
-    rows: Sequence[Any] = (
-        await session.execute(
-            text(
-                """
-                SELECT variant_id, classification, cnv_class, cnv_evidence_snapshot,
-                       updated_by, updated_at
-                FROM structural_variant_reviews
-                WHERE family_id = CAST(:family_uuid AS uuid)
-                  AND variant_id IS NOT NULL
-                  AND cnv_evidence_snapshot IS NOT NULL
-                ORDER BY variant_id
-                """
-            ),
-            {"family_uuid": context.family_uuid},
-        )
-    ).mappings().all()
+    params: dict[str, Any] = {"family_uuid": context.family_uuid}
+    belongs = scope_review_clause(context.scope, params)
+    reviews = effective_reviews(
+        (
+            dict(row)
+            for row in (
+                await session.execute(
+                    text(
+                        f"""
+                        SELECT variant_id, analysis, classification, cnv_class, cnv_evidence_snapshot,
+                               updated_by, updated_at
+                        FROM structural_variant_reviews
+                        WHERE family_id = CAST(:family_uuid AS uuid)
+                          AND variant_id IS NOT NULL
+                          AND {belongs}
+                        """
+                    ),
+                    params,
+                )
+            ).mappings().all()
+        ),
+        context.scope,
+    )
+    rows: Sequence[Any] = [reviews[variant_id] for variant_id in sorted(reviews)]
 
     drifted: list[dict[str, Any]] = []
     checked = 0
     for row in rows:
         snapshot = row.get("cnv_evidence_snapshot")
-        if snapshot is None or str(row["variant_id"]) in left_out:
+        if snapshot is None:
             continue
         checked += 1
         # The row of the caller the evidence was frozen from: another caller's call of the

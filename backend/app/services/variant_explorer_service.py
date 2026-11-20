@@ -22,9 +22,12 @@ Design notes
   ``family_guid`` equals the family UUID string. A summary row names the projects of its
   family, and a page keeps the rows of families linked to a project in scope.
 * **Tags / classification** live in Postgres (``small_variant_reviews``,
-  per-family). We bridge to ClickHouse on ``variant_id`` (TEXT, e.g.
-  ``1-1000-A-T``) — the same bridge the family page uses — because
-  ``variant_key`` is only stored when it fits a signed BIGINT.
+  per-family, one per analysis that reviewed the variant). We bridge to ClickHouse on
+  ``variant_id`` (TEXT, e.g. ``1-1000-A-T``) — the same bridge the family page uses —
+  because ``variant_key`` is only stored when it fits a signed BIGINT. A family's row reads
+  the reviews of every analysis of the family (``analysis_reviews.review_in_effect_sql``):
+  each analysis's own review of the variant, and a shared review an analysis without one of
+  its own reads; a shared review every analysis replaced with its own is not read.
 * **Filters.** Each filter the explorer shares with the family search is the family
   search's own SQL (``clickhouse_variant_queries``), read on each summary row as its
   family page reads the rows of that class, so a row counts the carriers of the family
@@ -96,6 +99,7 @@ from .family_variant_filters import (
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, has_superuser_rights, user_metadata_project_ids
+from .analysis_reviews import review_in_effect_sql
 from .review_pg_utils import _as_utc, review_class_filter, review_class_label, review_class_label_sql
 from .variant_carrier_summary import CARRIERS_SUFFIX, pending_variant_carrier_families
 from .variant_ranking_cache import panel_members_digest
@@ -586,8 +590,9 @@ async def _variant_ids_matching_reviews(
     tags: Sequence[str],
     limit: int,
 ) -> tuple[list[str], bool]:
-    """variant_id strings tagged/classified in any accessible family, and whether more
-    matched than ``limit``.
+    """variant_id strings tagged/classified in any accessible family, in a review of any of its
+    analyses (``analysis_reviews.review_in_effect_sql``), and whether more matched than
+    ``limit``.
 
     At most ``limit`` ids, the first in variant_id order, so a capped list is the same
     list on every request; the query reads one row more to know whether more matched.
@@ -608,6 +613,8 @@ async def _variant_ids_matching_reviews(
         "r.variant_id IS NOT NULL",
         "r.variant_id <> ''",
         "fp.project_id IN :project_ids",
+        # Each analysis's review of the variant, and the shared one an analysis reads.
+        review_in_effect_sql("r", "small_variant_reviews"),
     ]
     params: dict[str, Any] = {
         "project_ids": uuid_values(list(project_ids)),
@@ -683,7 +690,9 @@ async def _review_display_map(
 ) -> dict[str, dict[str, Any]]:
     """Per variant_id: the union of its reviews' tags, the class each review shows with that
     review's classification text as stored (``classification_texts``, in the same order), and
-    the latest review time, across the families of ``project_ids``.
+    the latest review time, across the families of ``project_ids`` and each family's analyses
+    (``analysis_reviews.review_in_effect_sql``: every analysis's own review, and a shared review
+    an analysis reads).
 
     Each review shows its class as the family page reads it (``review_class_label``): a
     review classified by its class tag alone shows that class. Its own class comes
@@ -704,6 +713,7 @@ async def _review_display_map(
         SELECT
             r.variant_id,
             r.family_id::text AS family_id,
+            r.analysis,
             r.classification,
             r.tags,
             r.compound_het_classification,
@@ -713,8 +723,9 @@ async def _review_display_map(
         JOIN family_projects fp ON fp.family_id = r.family_id
         WHERE fp.project_id IN :project_ids
           AND r.variant_id = ANY(CAST(:variant_ids AS text[]))
-        ORDER BY r.variant_id, r.updated_at DESC, r.family_id
-        """
+          AND {in_effect}
+        ORDER BY r.variant_id, r.updated_at DESC, r.family_id, r.analysis
+        """.format(in_effect=review_in_effect_sql("r", "small_variant_reviews"))
     ).bindparams(uuid_list_bindparam("project_ids"))
     result = await session.execute(
         query,
@@ -755,10 +766,10 @@ async def _review_display_map(
 
 
 def _in_review_order(rows: Sequence[Any]) -> list[Any]:
-    """``rows`` saved last first (a review without a time last), then by family id: the order
-    the review lookup reads them in, applied here too so the result holds whatever order a
-    driver hands them over in."""
-    by_family = sorted(rows, key=lambda row: str(row.get("family_id") or ""))
+    """``rows`` saved last first (a review without a time last), then by family id and analysis:
+    the order the review lookup reads them in, applied here too so the result holds whatever
+    order a driver hands them over in."""
+    by_family = sorted(rows, key=lambda row: (str(row.get("family_id") or ""), str(row.get("analysis") or "")))
     # A stable sort: reviews saved at the same time keep their family order.
     return sorted(
         by_family,

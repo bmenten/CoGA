@@ -428,6 +428,7 @@ def test_compound_het_pair_events_round_trip_on_an_intact_chain() -> None:
                     family_uuid=family_uuid,
                     family_identifier=label,
                     user=user,
+                    analysis="",
                     changes=[
                         CompoundHetPairChange("1-100-A-G", None, pair("1-200-C-T"), "group-1"),
                         CompoundHetPairChange(
@@ -457,7 +458,8 @@ def test_compound_het_pair_events_round_trip_on_an_intact_chain() -> None:
             ]
             assert {row["variant_id"] for row in rows} == {"1-100-A-G"}
             assert rows[0]["after"]["partner_variant_ids"] == ["1-200-C-T"]
-            assert rows[2]["after"] is None and rows[2]["metadata"] == {"compound_het_group_id": "group-1"}
+            assert rows[2]["after"] is None
+            assert rows[2]["metadata"] == {"compound_het_group_id": "group-1", "analysis": ""}
             assert (chain.verified, chain.rows_checked) == (True, 3), chain
         finally:
             await close_postgres_engine()

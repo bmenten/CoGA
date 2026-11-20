@@ -19,7 +19,10 @@ from fastapi import HTTPException
 from backend.app.schemas import SmallVariantReviewUpdate, StructuralVariantReviewUpdate
 from backend.app.services import small_variant_review_pg as svr
 from backend.app.services import structural_variant_review_pg as strv
+from backend.app.services.analysis_reviews import ScopedReview
+from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services.review_pg_utils import _raise_on_stale_review
+from backend.app.services.small_variant_review_repository import _review_document_has_any_content
 
 T1 = datetime(2026, 9, 28, 10, 0, 0, 123456, tzinfo=timezone.utc)
 T2 = T1 + timedelta(minutes=3)
@@ -106,6 +109,8 @@ def _context():
         assembly_name="GRCh38",
         project_ids=["p1"],
         affected_sample_names=[],
+        # A family that holds no analysis: each review is its own (analysis_reviews).
+        scope=AnalysisScope(),
     )
 
 
@@ -120,9 +125,9 @@ def _patch_small_variant_review(monkeypatch, existing):
     async def _variant(**kwargs):
         return types.SimpleNamespace(variant_key=1, gene_symbols=[])
 
-    async def _fetch(session, *, family_uuid, variant_id):
+    async def _fetch(session, *, family_uuid, variant_id, scope):
         order.append("fetch")
-        return existing
+        return ScopedReview(own=existing)
 
     async def _write(session, **kwargs):
         writes.append("write")
@@ -131,9 +136,8 @@ def _patch_small_variant_review(monkeypatch, existing):
         return None
 
     monkeypatch.setattr(svr, "get_small_variant_family_record", _variant)
-    monkeypatch.setattr(svr, "_fetch_review_row", _fetch)
-    monkeypatch.setattr(svr, "_update_review_row", _write)
-    monkeypatch.setattr(svr, "_insert_review_row", _write)
+    monkeypatch.setattr(svr, "_fetch_scoped_review", _fetch)
+    monkeypatch.setattr(svr, "_write_own_review", _write)
     monkeypatch.setattr(svr, "record_review_changes", _audit)
     return writes, order
 
@@ -173,10 +177,10 @@ def test_a_current_small_variant_save_is_written(monkeypatch) -> None:
 
 
 def test_a_stale_structural_variant_save_writes_nothing(monkeypatch) -> None:
-    async def _fetch(session, *, family_uuid, variant_id):
-        return _existing(updated_at=T2, updated_by="bob")
+    async def _fetch(session, *, family_uuid, variant_id, scope):
+        return ScopedReview(own=_existing(updated_at=T2, updated_by="bob"))
 
-    monkeypatch.setattr(strv, "_fetch_review_row", _fetch)
+    monkeypatch.setattr(strv, "_fetch_scoped_review", _fetch)
     session = _Session()
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(
@@ -285,30 +289,28 @@ def _patch_pair_store(monkeypatch, store: _PairStore) -> None:
     async def _variant(*, variant_id, **kwargs):
         return types.SimpleNamespace(variant_key=int(variant_id.split("-")[1]), gene_symbols=["GENE1"])
 
-    async def _fetch(session, *, family_uuid, variant_id):
+    async def _fetch(session, *, family_uuid, variant_id, scope):
+        # A family that holds no analysis: each review is its own.
         row = store.rows.get(variant_id)
-        return dict(row) if row is not None else None
+        return ScopedReview(own=dict(row) if row is not None else None)
 
-    async def _group(session, *, family_uuid, group_id):
+    async def _group(session, *, family_uuid, group_id, scope):
         return [dict(row) for row in store.rows.values() if row.get("compound_het_group_id") == group_id]
 
-    async def _clear(session, *, family_uuid, group_id, written_by_save=()):
-        for row in await _group(session, family_uuid=family_uuid, group_id=group_id):
+    async def _clear(session, *, family_uuid, group_id, scope, now, written_by_save=()):
+        for row in await _group(session, family_uuid=family_uuid, group_id=group_id, scope=scope):
             if row["variant_id"] in written_by_save:
                 continue  # the save writes it itself
             store.writes.append(row["variant_id"])
             store.rows[row["variant_id"]] = {**row, "compound_het_group_id": None, "compound_het_partner_variant_ids": []}
 
-    async def _update(session, *, review_id, fields):
-        store.writes.append(fields["variant_id"])
-        store.rows[fields["variant_id"]] = {**fields, "id": review_id}
-
-    async def _insert(session, *, family_uuid, fields, created_at):
-        store.writes.append(fields["variant_id"])
-        store.rows[fields["variant_id"]] = {"id": f"review-{fields['variant_id']}", **fields}
-
-    async def _delete(session, review_id):
-        store.writes.append(review_id)
+    async def _write_own(session, *, family_uuid, scope, reviews, fields, created_at):
+        if _review_document_has_any_content(fields):
+            store.writes.append(fields["variant_id"])
+            review_id = reviews.own["id"] if reviews.own is not None else f"review-{fields['variant_id']}"
+            store.rows[fields["variant_id"]] = {**fields, "id": review_id}
+        elif reviews.own is not None:
+            store.writes.append(reviews.own["id"])
 
     async def _audit(session, **kwargs):
         store.audited.append(kwargs.get("variant_id") or "pair")
@@ -316,12 +318,10 @@ def _patch_pair_store(monkeypatch, store: _PairStore) -> None:
     monkeypatch.setattr(svr, "get_small_variant_family_record", _variant)
     monkeypatch.setattr(svr, "variants_share_gene", lambda *args: True)
     monkeypatch.setattr(svr, "has_affected_het_call", lambda *args: True)
-    monkeypatch.setattr(svr, "_fetch_review_row", _fetch)
+    monkeypatch.setattr(svr, "_fetch_scoped_review", _fetch)
     monkeypatch.setattr(svr, "_fetch_compound_het_group_rows", _group)
     monkeypatch.setattr(svr, "_clear_compound_het_group", _clear)
-    monkeypatch.setattr(svr, "_update_review_row", _update)
-    monkeypatch.setattr(svr, "_insert_review_row", _insert)
-    monkeypatch.setattr(svr, "_delete_review_row", _delete)
+    monkeypatch.setattr(svr, "_write_own_review", _write_own)
     monkeypatch.setattr(svr, "record_review_changes", _audit)
     monkeypatch.setattr(svr, "record_compound_het_pair_changes", _audit)
 

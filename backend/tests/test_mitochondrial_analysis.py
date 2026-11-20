@@ -46,7 +46,7 @@ def _stub_review_map(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
 
     reviews: dict[str, object] = {}
 
-    async def fake_review_map(_session, *, family_uuid, variant_ids):
+    async def fake_review_map(_session, *, family_uuid, variant_ids, scope):
         return {vid: reviews[vid] for vid in variant_ids if vid in reviews}
 
     monkeypatch.setattr(mitochondrial_analysis, "get_small_variant_review_map", fake_review_map)

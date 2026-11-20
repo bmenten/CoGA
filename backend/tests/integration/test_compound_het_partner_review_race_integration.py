@@ -35,7 +35,7 @@ _NOTE = "Segregates with the phenotype in the family"
 
 
 def _stub_variant_records(monkeypatch, svr) -> None:
-    async def _variant_record(*, assembly_name, family_guid, variant_id):
+    async def _variant_record(*, assembly_name, family_guid, variant_id, left_out_sources=()):
         return SimpleNamespace(
             variant_key=int(variant_id.split("-")[1]),
             gene_symbols=["GENE1"],
@@ -50,6 +50,8 @@ def _stub_variant_records(monkeypatch, svr) -> None:
 
 
 async def _new_family(sm, label: str) -> SimpleNamespace:
+    from backend.app.services.analysis_scope import AnalysisScope
+
     async with sm() as s:
         family_uuid = (
             await s.execute(
@@ -65,6 +67,8 @@ async def _new_family(sm, label: str) -> SimpleNamespace:
         assembly_name="GRCh38",
         assembly_id=None,
         affected_sample_names=["PROBAND"],
+        # A family that holds no analysis: its reviews are stored under none.
+        scope=AnalysisScope(),
     )
 
 
@@ -93,7 +97,11 @@ async def _stored(sm, context, variant_id: str) -> dict[str, Any] | None:
     from backend.app.services import small_variant_review_pg as svr
 
     async with sm() as s:
-        return await svr._fetch_review_row(s, family_uuid=context.family_uuid, variant_id=variant_id)
+        return (
+            await svr._fetch_scoped_review(
+                s, family_uuid=context.family_uuid, variant_id=variant_id, scope=context.scope
+            )
+        ).own
 
 
 async def _audit_events(sm, context) -> list[tuple[str | None, str]]:

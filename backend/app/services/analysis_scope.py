@@ -48,8 +48,11 @@ class AnalysisScope:
     analysis: str | None = None
     left_out: Mapping[str, frozenset[str]] = field(default_factory=dict)
     # The analyses among which a reading must name one: set only when none was named and the
-    # family holds several analyses with small variants of their own.
+    # family holds several analyses with variants of the kind read of their own.
     unnamed_among: tuple[str, ...] = ()
+    # The analyses the family holds: a review stored under none of them is each one's that has
+    # no review of its own (analysis_reviews.py).
+    held: frozenset[str] = frozenset()
 
     @property
     def review_analysis(self) -> str:
@@ -81,44 +84,59 @@ def _record_order(record: Mapping[str, Any]) -> str:
     return str(registered) if registered is not None else ""
 
 
-def analyses_with_small_variants(metadata: Mapping[str, Any] | None) -> list[str]:
-    """The family's analyses whose package record lists a small-variant callset, in the order
-    they were imported (the earliest first)."""
+def analyses_with(metadata: Mapping[str, Any] | None, kind: str) -> list[str]:
+    """The family's analyses whose package record lists a source of ``kind`` (``SOURCE_KINDS``:
+    a small-variant callset, a structural-variant caller), in the order they were imported (the
+    earliest first)."""
     held = family_analysis_types(metadata)
     records = family_package_records(metadata)
     return [
         key
         for key, record in sorted(records.items(), key=lambda item: (_record_order(item[1]), item[0]))
-        if key in held and record_sources(record)["small_variants"]
+        if key in held and record_sources(record)[kind]
     ]
 
 
-def analysis_scope(metadata: Mapping[str, Any] | None, analysis: str | None = None) -> AnalysisScope:
+def analyses_with_small_variants(metadata: Mapping[str, Any] | None) -> list[str]:
+    """The family's analyses whose package record lists a small-variant callset, in the order
+    they were imported (the earliest first)."""
+    return analyses_with(metadata, "small_variants")
+
+
+def analysis_scope(
+    metadata: Mapping[str, Any] | None, analysis: str | None = None, *, kind: str = "small_variants"
+) -> AnalysisScope:
     """The scope of a reading of the family (whose ``families.metadata`` is ``metadata``) for
-    ``analysis``, which must be one it holds. Without one: the family's one analysis with small
-    variants, else its one analysis, else the whole family; a family with several analyses with
-    small variants gives a scope that must still name one (``AnalysisScope.require_named``)."""
+    ``analysis``, which must be one it holds. Without one: the family's one analysis with
+    variants of ``kind`` (small variants, or for the structural-variant list and its reviews
+    structural variants), else its one analysis, else the whole family; a family with several
+    analyses with variants of that kind gives a scope that must still name one
+    (``AnalysisScope.require_named``)."""
     held = family_analysis_types(metadata)
     if analysis is not None:
         analysis = analysis.strip()
         if analysis not in held:
             raise AnalysisNotNamed("This family holds no such analysis.")
     else:
-        with_small = analyses_with_small_variants(metadata)
-        if len(with_small) > 1:
-            return AnalysisScope(unnamed_among=tuple(with_small))
-        if with_small:
-            analysis = with_small[0]
+        with_kind = analyses_with(metadata, kind)
+        if len(with_kind) > 1:
+            return AnalysisScope(unnamed_among=tuple(with_kind), held=held)
+        if with_kind:
+            analysis = with_kind[0]
         elif len(held) == 1:
             (analysis,) = held
         else:
-            return WHOLE_FAMILY_SCOPE
-    left_out: dict[str, set[str]] = {kind: set() for kind in SOURCE_KINDS}
+            return AnalysisScope(held=held)
+    left_out: dict[str, set[str]] = {source_kind: set() for source_kind in SOURCE_KINDS}
     for key, record in family_package_records(metadata).items():
         if key != analysis and key in held:
-            for kind, names in record_sources(record).items():
-                left_out[kind].update(names)
-    return AnalysisScope(analysis=analysis, left_out={kind: frozenset(names) for kind, names in left_out.items()})
+            for source_kind, names in record_sources(record).items():
+                left_out[source_kind].update(names)
+    return AnalysisScope(
+        analysis=analysis,
+        left_out={source_kind: frozenset(names) for source_kind, names in left_out.items()},
+        held=held,
+    )
 
 
 def review_belongs(scope_analysis: str | None, held: frozenset[str], review_analysis: object) -> bool:

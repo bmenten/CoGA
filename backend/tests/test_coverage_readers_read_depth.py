@@ -235,7 +235,7 @@ async def _mito_response(
     async def no_structural_variants(_context):
         return []
 
-    async def no_reviews(_session, *, family_uuid, variant_ids):
+    async def no_reviews(_session, *, family_uuid, variant_ids, scope):
         return {}
 
     async def thresholds(_session, *, family_uuid):

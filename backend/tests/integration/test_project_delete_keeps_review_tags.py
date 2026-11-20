@@ -234,8 +234,8 @@ async def _run() -> dict[str, Any]:
             )
             await session.execute(
                 text(
-                    "INSERT INTO small_variant_reviews (family_id, variant_id, tags, compound_het_tags, updated_by) "
-                    "VALUES (CAST(:f AS uuid), '1-1000-A-G', CAST(:t AS jsonb), CAST(:c AS jsonb), 'analyst')"
+                    "INSERT INTO small_variant_reviews (family_id, analysis, variant_id, tags, compound_het_tags, updated_by) "
+                    "VALUES (CAST(:f AS uuid), '', '1-1000-A-G', CAST(:t AS jsonb), CAST(:c AS jsonb), 'analyst')"
                 ),
                 {
                     "f": family_uuids["DEL"],
@@ -259,8 +259,8 @@ async def _run() -> dict[str, Any]:
             )
             await session.execute(
                 text(
-                    "INSERT INTO structural_variant_reviews (family_id, variant_id, tags, updated_by) "
-                    "VALUES (CAST(:f AS uuid), 'sv-1', CAST(:t AS jsonb), 'analyst')"
+                    "INSERT INTO structural_variant_reviews (family_id, analysis, variant_id, tags, updated_by) "
+                    "VALUES (CAST(:f AS uuid), '', 'sv-1', CAST(:t AS jsonb), 'analyst')"
                 ),
                 {"f": family_uuids["LEFT"], "t": f'["{keys["b_shared"]}"]'},
             )

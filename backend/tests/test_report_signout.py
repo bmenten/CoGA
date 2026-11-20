@@ -36,7 +36,8 @@ from backend.app.services.nipt_quality_checks import PLASMA_PROFILE_VERDICTS
 from backend.app.services.report_code import parse_report_code, report_code
 from backend.app.services.signed_record_sections import RECORD_SECTIONS
 from backend.app.services.family_package_records import package_sources
-from backend.app.services.signout_scope import WHOLE_FAMILY, ReviewsLeftOut, SignoutScope
+from backend.app.services.analysis_scope import AnalysisScope, review_belongs
+from backend.app.services.signout_scope import WHOLE_FAMILY, SignoutScope
 from backend.app.services.sample_integrity_qc import (
     MendelianCheck,
     NiptCategoryQc,
@@ -152,7 +153,7 @@ def _patch_common(
     async def _manifest(session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+    async def _drift(session, *, family_id, user, project_id=None, analysis=None):
         return {
             "checked": drifted_count,
             "drifted_count": drifted_count,
@@ -160,7 +161,7 @@ def _patch_common(
             "structural": _NO_STRUCTURAL_DRIFT,
         }
 
-    async def _reviews(session, family_uuid):
+    async def _reviews(session, family_uuid, _scope=None):
         return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
 
     async def _audit(*args, **kwargs):
@@ -197,7 +198,7 @@ def _patch_common(
     monkeypatch.setattr(rss, "try_share_family_variant_writes", _variant_writes_shared, raising=False)
 
 
-async def _no_structural_reviews(session, family_uuid):
+async def _no_structural_reviews(session, family_uuid, _scope=None):
     return []
 
 
@@ -752,7 +753,7 @@ def test_reported_variant_without_snapshot_gates_sign_out(monkeypatch) -> None:
     # A reported variant with no frozen evidence snapshot (reported without an ACMG
     # classification) can't be drift-verified, so it must trip the drift gate rather than
     # sign out unchallenged.
-    async def _reviews_no_snapshot(session, family_uuid):
+    async def _reviews_no_snapshot(session, family_uuid, _scope=None):
         return [{"variant_id": "9-9-A-G", "acmg_class": None}]  # no snapshot
 
     _patch_common(monkeypatch, drifted_count=0)
@@ -858,7 +859,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
                 "modules": [{"key": "clinvar", "version": "2026-05"}],
             }
 
-        async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+        async def _drift(session, *, family_id, user, project_id=None, analysis=None):
             return {
                 "checked": len(drift_rows),
                 "drifted_count": len(drift_rows),
@@ -866,7 +867,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
                 "structural": _NO_STRUCTURAL_DRIFT,
             }
 
-        async def _reviews(session, family_uuid):
+        async def _reviews(session, family_uuid, _scope=None):
             return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
 
         async def _qc(
@@ -1865,7 +1866,7 @@ def test_reported_structural_variants_are_frozen_and_hashed(monkeypatch) -> None
     # The report page renders structural variants tagged for reporting, so the signed
     # snapshot must hold them: a reported CNV is signed as it is printed.
     def _body(structural):
-        async def _sv_reviews(session, family_uuid):
+        async def _sv_reviews(session, family_uuid, _scope=None):
             return structural
 
         _patch_common(monkeypatch, drifted_count=0)
@@ -1922,7 +1923,7 @@ def _signed_row(snapshot: dict) -> dict:
 def _patch_check(monkeypatch, *, reviews):
     _patch_common(monkeypatch, drifted_count=0)
 
-    async def _reviews(session, family_uuid):
+    async def _reviews(session, family_uuid, _scope=None):
         return reviews
 
     async def _sequencing_qc(session, context, scope=None):
@@ -3376,7 +3377,7 @@ def _patch_sv(monkeypatch, *, reported: list, structural_drifted: list, small_dr
     """A family whose reported SVs and SV/CNV drift are given; nothing else drifted."""
     _patch_common(monkeypatch, drifted_count=small_drifted)
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
+    async def _drift(session, *, family_id, user, project_id=None, analysis=None):
         return {
             "checked": small_drifted,
             "drifted_count": small_drifted,
@@ -3388,7 +3389,7 @@ def _patch_sv(monkeypatch, *, reported: list, structural_drifted: list, small_dr
             },
         }
 
-    async def _sv_reviews(session, family_uuid):
+    async def _sv_reviews(session, family_uuid, _scope=None):
         return [dict(item) for item in reported]
 
     monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
@@ -3511,7 +3512,7 @@ def _as_now(monkeypatch, *, reported: list, structural_drifted: list) -> None:
     """The family as it would be signed now: one reported CNV, no small variant."""
     _patch_sv(monkeypatch, reported=reported, structural_drifted=structural_drifted)
 
-    async def _no_small_reviews(session, family_uuid):
+    async def _no_small_reviews(session, family_uuid, _scope=None):
         return []
 
     async def _sequencing_qc(session, context, scope=None):
@@ -3570,20 +3571,15 @@ def _with_sections(monkeypatch, **overrides) -> None:
 # --- One sign-out per analysis (the owner's decision of 2026-11-19) ------------------------
 
 
-def _holds(monkeypatch, *analyses: str, package_imports: dict | None = None, left_out=None) -> None:
+def _holds(monkeypatch, *analyses: str, package_imports: dict | None = None) -> None:
     """The family holds ``analyses``, imported from ``package_imports`` (none by default: every
-    datum is then claimed by no analysis, and each sign-out holds it); ``left_out``: the reviews
-    whose variants are stored under other analyses' sources only."""
+    datum is then claimed by no analysis, and each sign-out holds it)."""
 
     async def _held(_session, family_uuid):
         assert family_uuid == "u1"
         return {"analysis_types": sorted(analyses), "package_imports": package_imports or {}}
 
-    async def _left_out(_session, _context, _scope):
-        return left_out or ReviewsLeftOut()
-
     monkeypatch.setattr(rss, "_family_metadata", _held)
-    monkeypatch.setattr(rss, "reviews_left_out", _left_out)
 
 
 def test_a_sign_out_names_the_analysis_it_closes() -> None:
@@ -4638,12 +4634,23 @@ _NIPTS_UNFINISHED = {
 }
 
 
-def _scoped_patches(monkeypatch, seen: dict, *, left_out: ReviewsLeftOut) -> None:
-    _patch_common(monkeypatch, drifted_count=0, import_incomplete=_NIPTS_INCOMPLETE, import_unfinished=_NIPTS_UNFINISHED)
-    _holds(monkeypatch, "conventional_nipt", "monogenic_nipt", package_imports=_two_nipt_records(), left_out=left_out)
+def _monogenic_nipt_reviews(seen: dict, reviews: list[dict]):
+    """The reported-review reader of a family whose ``reviews`` are the monogenic NIPT's own
+    (analysis_reviews): read in the scope the sign-out passes, which ``seen`` records."""
 
-    async def _drift(session, *, family_id, user, project_id=None, left_out=None):
-        seen["drift_left_out"] = left_out
+    async def _reviews(session, family_uuid, scope):
+        seen["review_scope"] = scope
+        return [dict(review) for review in reviews] if review_belongs(scope.analysis, scope.held, "monogenic_nipt") else []
+
+    return _reviews
+
+
+def _scoped_patches(monkeypatch, seen: dict) -> None:
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=_NIPTS_INCOMPLETE, import_unfinished=_NIPTS_UNFINISHED)
+    _holds(monkeypatch, "conventional_nipt", "monogenic_nipt", package_imports=_two_nipt_records())
+
+    async def _drift(session, *, family_id, user, project_id=None, analysis=None):
+        seen["drift_analysis"] = analysis
         return {"checked": 0, "drifted_count": 0, "drifted": [], "structural": _NO_STRUCTURAL_DRIFT}
 
     async def _qc(
@@ -4666,21 +4673,25 @@ def _scoped_patches(monkeypatch, seen: dict, *, left_out: ReviewsLeftOut) -> Non
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "build_record_sections", _sections)
     monkeypatch.setattr(rss, "_package_source_changes_state", _changes)
+    monkeypatch.setattr(rss, "_reported_reviews", _monogenic_nipt_reviews(seen, [_REVIEW]))
 
 
 def test_a_sign_out_of_one_analysis_freezes_and_checks_that_analysis_s_data_only(monkeypatch) -> None:
-    # The conventional NIPT of a family holding both NIPTs: the monogenic NIPT's reported variant
-    # (stored under its callset only) is neither frozen nor checked for drift, and the record
-    # holds the conventional NIPT's import states, folder change and Sample QC.
+    # The conventional NIPT of a family holding both NIPTs: the monogenic NIPT's review of its
+    # variant is not the conventional NIPT's (analysis_reviews), so the variant is neither frozen
+    # nor checked for drift, and the record holds the conventional NIPT's import states, folder
+    # change and Sample QC.
     seen: dict = {}
-    left_out = ReviewsLeftOut(small=frozenset({"1-1-A-G"}))
-    _scoped_patches(monkeypatch, seen, left_out=left_out)
+    _scoped_patches(monkeypatch, seen)
     snapshot = asyncio.run(
         rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user(), analysis_type="conventional_nipt")
     )
     assert snapshot["analysis_type"] == "conventional_nipt"
     assert snapshot[rss.REPORTED_VARIANTS_SECTION] == []
-    assert seen["drift_left_out"] is left_out
+    # The reviews and the drift read are the conventional NIPT's.
+    assert seen["drift_analysis"] == "conventional_nipt"
+    assert seen["review_scope"].analysis == "conventional_nipt"
+    assert seen["review_scope"].held == frozenset({"conventional_nipt", "monogenic_nipt"})
     reported, scope = seen["sections"]
     assert reported == [] and scope.analysis == "conventional_nipt" and not scope.whole
     analysis_types, genotype_source_held = seen["qc"]
@@ -4698,11 +4709,12 @@ def test_a_sign_out_of_one_analysis_freezes_and_checks_that_analysis_s_data_only
 
 def test_the_other_analysis_s_sign_out_holds_its_own_part_of_the_same_family(monkeypatch) -> None:
     seen: dict = {}
-    _scoped_patches(monkeypatch, seen, left_out=ReviewsLeftOut())
+    _scoped_patches(monkeypatch, seen)
     snapshot = asyncio.run(
         rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user(), analysis_type="monogenic_nipt")
     )
     assert [entry["variant_id"] for entry in snapshot[rss.REPORTED_VARIANTS_SECTION]] == ["1-1-A-G"]
+    assert seen["drift_analysis"] == "monogenic_nipt" and seen["review_scope"].analysis == "monogenic_nipt"
     assert seen["qc"][0] == ["monogenic_nipt"]
     assert snapshot["import_incomplete"]["failed_datasets"] == ["snv"]
     assert snapshot["import_incomplete"]["imported_datasets"] == ["coverage"]
@@ -4712,7 +4724,7 @@ def test_the_other_analysis_s_sign_out_holds_its_own_part_of_the_same_family(mon
 
 def test_an_import_that_failed_only_another_analysis_s_datasets_leaves_this_one_complete(monkeypatch) -> None:
     seen: dict = {}
-    _scoped_patches(monkeypatch, seen, left_out=ReviewsLeftOut())
+    _scoped_patches(monkeypatch, seen)
     _patch_common(
         monkeypatch,
         drifted_count=0,
@@ -4728,11 +4740,18 @@ def test_an_import_that_failed_only_another_analysis_s_datasets_leaves_this_one_
 
 def test_a_family_of_one_analysis_is_checked_whole(monkeypatch) -> None:
     seen: dict = {}
-    _scoped_patches(monkeypatch, seen, left_out=ReviewsLeftOut(small=frozenset({"1-1-A-G"})))
+    _scoped_patches(monkeypatch, seen)
     _holds(monkeypatch, "monogenic_nipt", package_imports={"monogenic_nipt": _two_nipt_records()["monogenic_nipt"]})
     snapshot = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
     assert seen["qc"] == (None, None)
     assert seen["sections"][1].whole
+    # Its reviews are the analysis's: its own, and the shared ones.
+    assert seen["review_scope"] == AnalysisScope(
+        analysis="monogenic_nipt",
+        left_out=seen["review_scope"].left_out,
+        held=frozenset({"monogenic_nipt"}),
+    )
+    assert [entry["variant_id"] for entry in snapshot[rss.REPORTED_VARIANTS_SECTION]] == ["1-1-A-G"]
     assert snapshot["import_incomplete"] == _NIPTS_INCOMPLETE
     assert len(snapshot["package_source_changes"]) == 2
 
@@ -4741,23 +4760,18 @@ def test_a_change_to_one_analysis_leaves_the_other_s_check_matching(monkeypatch)
     # The conventional NIPT is signed out; then the analyst tags another monogenic NIPT variant
     # for the report and reclassifies the first. The conventional NIPT's record still matches.
     seen: dict = {}
-    _scoped_patches(monkeypatch, seen, left_out=ReviewsLeftOut(small=frozenset({"1-1-A-G"})))
+    _scoped_patches(monkeypatch, seen)
     _no_finding_reviews(monkeypatch)
     signed = asyncio.run(
         rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user(), analysis_type="conventional_nipt")
     )
 
-    async def _more_reviews(session, family_uuid):
-        return [{**_REVIEW, "acmg_class": "acmg_class_5"}, {**_REVIEW, "variant_id": "2-2-C-T"}]
-
-    monkeypatch.setattr(rss, "_reported_reviews", _more_reviews)
-    _holds(
-        monkeypatch,
-        "conventional_nipt",
-        "monogenic_nipt",
-        package_imports=_two_nipt_records(),
-        left_out=ReviewsLeftOut(small=frozenset({"1-1-A-G", "2-2-C-T"})),
+    monkeypatch.setattr(
+        rss,
+        "_reported_reviews",
+        _monogenic_nipt_reviews(seen, [{**_REVIEW, "acmg_class": "acmg_class_5"}, {**_REVIEW, "variant_id": "2-2-C-T"}]),
     )
+    _holds(monkeypatch, "conventional_nipt", "monogenic_nipt", package_imports=_two_nipt_records())
     asked: list = []
 
     async def _analyses(session, family_uuid):
@@ -4860,18 +4874,74 @@ def _review_row(variant_id: str, *, tags=(), pair_tags=None, partner: str | None
     return row
 
 
-def test_the_reported_variants_are_read_by_the_review_tag_filters_rule() -> None:
-    # The live report and the NIPT page's "Show reported" list a variant whose own review or
-    # whose compound-het pair review holds the report tag (list_matching_small_variant_review_ids);
-    # the sign-out read the variant's own tag only, so a tag on the pair was listed and never
-    # frozen. Both conditions are bound, never spliced in.
-    session = _ReviewRowsSession([])
-    assert asyncio.run(rss._reported_reviews(session, "u1")) == []
+def test_the_reported_variants_are_the_analysis_s_own_reviews_and_the_shared_ones() -> None:
+    # A review is one analysis's (the owner's decision of 2026-11-20): a sign-out of the
+    # long-read analysis reads its own reviews and the shared ones (made while the family held no
+    # analysis), and a variant's own review in it replaces the shared one, also when it no longer
+    # holds the report tag. The scope is bound, never spliced in.
+    scope = AnalysisScope(analysis="long_read_wgs", held=frozenset({"long_read_wgs", "short_read_wgs"}))
+    rows = [
+        # Reported in the short-read analysis only: not the long-read analysis's.
+        {**_review_row("1-100-A-G", tags=["report"]), "analysis": "short_read_wgs"},
+        # Reported in the long-read analysis.
+        {**_review_row("1-200-A-G", tags=["report"]), "analysis": "long_read_wgs"},
+        # Reported in a shared review the long-read analysis has none of its own of.
+        {**_review_row("1-300-A-G", tags=["report"]), "analysis": ""},
+        # Reported in a shared review the long-read analysis's own review, untagged, replaces.
+        {**_review_row("1-400-A-G", tags=["report"]), "analysis": ""},
+        {**_review_row("1-400-A-G", tags=["review"]), "analysis": "long_read_wgs"},
+        # Reported in both, with its own classification in each: the long-read one is frozen.
+        {**_review_row("1-500-A-G", tags=["report"]), "analysis": "short_read_wgs", "classification": "VUS"},
+        {**_review_row("1-500-A-G", tags=["report"]), "analysis": "long_read_wgs", "classification": "Pathogenic"},
+    ]
+    session = _ReviewRowsSession(rows)
+    reported = asyncio.run(rss._reported_reviews(session, "u1", scope))
+    assert [(entry["variant_id"], entry["classification"]) for entry in reported] == [
+        ("1-200-A-G", None),
+        ("1-300-A-G", None),
+        ("1-500-A-G", "Pathogenic"),
+    ]
     [(sql, params)] = session.executed
     where = " ".join(sql.split()).split("WHERE", 1)[1]
-    assert "compound_het_tags @> :report_tag" in where
-    assert "tags @> :report_tag" in where.replace("compound_het_tags @> :report_tag", "")
-    assert params == {"family_uuid": "u1", "report_tag": json.dumps(["report"])}
+    assert "analysis = CAST(:review_scope_analysis AS text)" in where
+    assert params == {
+        "family_uuid": "u1",
+        "review_scope_analysis": "long_read_wgs",
+        "review_scope_held": ["long_read_wgs", "short_read_wgs"],
+    }
+    # A sign-out of a family that holds no analysis reads every review, with no scope bound.
+    session = _ReviewRowsSession([{**_review_row("1-100-A-G", tags=["report"]), "analysis": ""}])
+    assert [entry["variant_id"] for entry in asyncio.run(rss._reported_reviews(session, "u1", AnalysisScope()))] == [
+        "1-100-A-G"
+    ]
+    assert session.executed[0][1] == {"family_uuid": "u1"}
+
+
+def test_the_reported_svs_are_the_analysis_s_own_reviews_and_the_shared_ones() -> None:
+    scope = AnalysisScope(analysis="long_read_wgs", held=frozenset({"long_read_wgs", "short_read_wgs"}))
+
+    def _sv(variant_id: str, analysis: str, tags: list[str]) -> dict:
+        return {
+            "variant_id": variant_id,
+            "analysis": analysis,
+            "classification": None,
+            "cnv_class": None,
+            "cnv_point_total": None,
+            "cnv_acmg": None,
+            "tags": tags,
+            "note": None,
+            "cnv_evidence_snapshot": None,
+        }
+
+    rows = [
+        _sv("1-100-900-DEL", "short_read_wgs", ["report"]),
+        _sv("1-200-900-DUP", "long_read_wgs", ["report"]),
+        _sv("1-300-900-DEL", "", ["report"]),
+        _sv("1-400-900-DEL", "", ["report"]),
+        _sv("1-400-900-DEL", "long_read_wgs", []),
+    ]
+    reported = asyncio.run(rss._reported_structural_reviews(_ReviewRowsSession(rows), "u1", scope))
+    assert [entry["variant_id"] for entry in reported] == ["1-200-900-DUP", "1-300-900-DEL"]
 
 
 def test_a_variant_reported_through_its_pair_is_frozen_with_the_pair_review() -> None:
@@ -4885,10 +4955,11 @@ def test_a_variant_reported_through_its_pair_is_frozen_with_the_pair_review() ->
         # Tagged on its own review, in a pair that is not reported: no pair key.
         _review_row("1-200-A-G", tags=["report"], pair_tags=["review"], partner="1-201-A-G"),
     ]
-    reported = asyncio.run(rss._reported_reviews(_ReviewRowsSession(rows), "u1"))
+    reported = asyncio.run(rss._reported_reviews(_ReviewRowsSession(rows), "u1", AnalysisScope()))
 
     by_id = {entry["variant_id"]: entry for entry in reported}
-    assert list(by_id) == ["1-100-A-G", "1-3001-A-G", "1-10000-A-G", "1-200-A-G"]
+    # In variant ID order: the record's order, the same on every read.
+    assert list(by_id) == ["1-100-A-G", "1-10000-A-G", "1-200-A-G", "1-3001-A-G"]
     # A variant reported by its own tag keeps exactly the keys it was frozen with: the record of
     # a family without a reported pair holds no pair key. Its classification text is frozen as
     # stored.
@@ -4920,7 +4991,7 @@ def test_a_variant_its_pair_reports_without_frozen_evidence_gates_like_any_other
     # drift gate asks for an acknowledgement: a variant its pair reports as well.
     _patch_common(monkeypatch, drifted_count=0)
 
-    async def _pair_reported(session, family_uuid):
+    async def _pair_reported(session, family_uuid, _scope=None):
         return [
             {
                 "variant_id": "1-3001-A-G",
@@ -5032,10 +5103,12 @@ def _patch_reported(monkeypatch, *, rows: list[dict], structural: list[dict] | N
     the reported SVs as given; every other section held constant (``_patch_check``)."""
     _patch_check(monkeypatch, reviews=[])
 
-    async def _reviews(session, family_uuid):
-        return await _READ_REPORTED_REVIEWS(_ReviewRowsSession(copy.deepcopy(rows)), family_uuid)
+    async def _reviews(session, family_uuid, _scope=None):
+        return await _READ_REPORTED_REVIEWS(
+            _ReviewRowsSession(copy.deepcopy(rows)), family_uuid, _scope or AnalysisScope()
+        )
 
-    async def _structural(session, family_uuid):
+    async def _structural(session, family_uuid, _scope=None):
         return copy.deepcopy(structural or [])
 
     monkeypatch.setattr(rss, "_reported_reviews", _reviews)
@@ -5087,7 +5160,8 @@ def test_the_class_frozen_is_the_one_rule_of_the_family_page_worked_out_at_sign_
     assert "class_shown" not in ReportSignoutRequest.model_fields
     _patch_reported(
         monkeypatch,
-        rows=[_classified_row("1-100-A-G", case["classification"], case["tags"])],
+        # Tagged for the report besides, which shows no class.
+        rows=[_classified_row("1-100-A-G", case["classification"], [*case["tags"], "report"])],
         structural=[
             {"variant_id": "1-1000-5000-DEL---", "classification": case["classification"], "tags": case["tags"]}
         ],

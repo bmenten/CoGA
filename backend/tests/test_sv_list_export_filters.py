@@ -94,8 +94,10 @@ _FILTERS = {
 # both, and the list's page and genome-track options (``overlap`` is the track's region rule:
 # the SV page never sends it, and the export never took it).
 _OWN = {
-    _LIST_ROUTE: {"project_id", "prioritize", "rank_by", "page", "page_size", "overlap", "track_mode", "count_only"},
-    _EXPORT_ROUTE: {"project_id", "prioritize", "rank_by"},
+    _LIST_ROUTE: {
+        "project_id", "prioritize", "rank_by", "page", "page_size", "overlap", "track_mode", "count_only", "analysis"
+    },
+    _EXPORT_ROUTE: {"project_id", "prioritize", "rank_by", "analysis"},
 }
 
 
@@ -126,7 +128,15 @@ def routes(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """The app with ``_USER`` signed in and the synthetic family; no Postgres session and no
     audit rows."""
 
-    async def family_context(_session: Any, *, family_identifier: str, user: Any, project_id: Any = None):
+    async def family_context(
+        _session: Any,
+        *,
+        family_identifier: str,
+        user: Any,
+        project_id: Any = None,
+        analysis: Any = None,
+        variant_kind: str = "small_variants",
+    ):
         assert family_identifier == "FAM001"
         return _family()
 
@@ -192,7 +202,9 @@ def test_both_routes_take_the_same_filters_under_their_names_types_and_defaults(
 
     assert set(listed) == set(_FILTERS) | _OWN[_LIST_ROUTE]
     assert set(exported) == set(_FILTERS) | _OWN[_EXPORT_ROUTE]
-    for name, kind in {**_FILTERS, "project_id": "string", "prioritize": "boolean", "rank_by": "string"}.items():
+    for name, kind in {
+        **_FILTERS, "project_id": "string", "prioritize": "boolean", "rank_by": "string", "analysis": "string"
+    }.items():
         # One declaration: the same name, type, default and title on both routes.
         assert listed[name] == exported[name], name
         assert _json_type(listed[name]["schema"]) == kind, name
@@ -488,6 +500,7 @@ def search(routes: TestClient, monkeypatch: pytest.MonkeyPatch) -> Callable[[lis
         _session: Any,
         *,
         family_uuid: str,
+        scope: Any,
         classifications: list[str] | None = None,
         tags: list[str] | None = None,
         has_notes: bool = False,
@@ -505,6 +518,7 @@ def search(routes: TestClient, monkeypatch: pytest.MonkeyPatch) -> Callable[[lis
         return await list_matching_structural_variant_review_ids(
             _ReviewRows(),
             family_uuid=family_uuid,
+            scope=scope,
             classifications=classifications,
             tags=tags,
             has_notes=has_notes,

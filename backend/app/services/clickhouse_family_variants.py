@@ -35,6 +35,7 @@ from ..schemas import (
 from .cytoband_labels import fetch_cytoband_labels
 from .data_scope import normalize_chromosome
 from .ensembl_gene_ids import ensembl_gene_id
+from .analysis_scope import AnalysisScope
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import (
     SmallVariantQueryFilters,
@@ -1116,6 +1117,7 @@ async def _hydrate_small_variant_outs(
     review_map = await get_small_variant_review_map(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope,
         variant_ids=[str(variant.id) for variant in variants],
     )
     for variant in variants:
@@ -3372,6 +3374,7 @@ async def resolve_review_selection(
     session: AsyncSession,
     family_uuid: str,
     *,
+    scope: AnalysisScope,
     classifications: list[str] | None = None,
     tags: list[str] | None = None,
     exclude_tags: list[str] | None = None,
@@ -3380,7 +3383,8 @@ async def resolve_review_selection(
     """The review filters of a family's variant list, read from its reviews
     (``list_matching_small_variant_review_ids``): the classifications (by the class a review
     shows), the review tags (a variant's own or its compound-het pair's) and the saved
-    notes it keeps, and the review tags it leaves out. A filter sent with blank values only
+    notes it keeps, and the review tags it leaves out, each variant's review being the one the
+    analysis ``scope`` reads (``analysis_reviews``). A filter sent with blank values only
     still counts as set, and matches nothing. The small-variant list and the NIPT variant list
     select by it alike."""
     include: set[str] | None = None
@@ -3388,6 +3392,7 @@ async def resolve_review_selection(
         include = await list_matching_small_variant_review_ids(
             session,
             family_uuid=family_uuid,
+            scope=scope,
             classifications=classifications,
             tags=tags,
             has_notes=has_notes,
@@ -3398,6 +3403,7 @@ async def resolve_review_selection(
         await list_matching_small_variant_review_ids(
             session,
             family_uuid=family_uuid,
+            scope=scope,
             tags=exclude_tags,
         )
         if exclude_tags
@@ -3432,6 +3438,7 @@ async def _resolve_small_variant_scope(
     review = await resolve_review_selection(
         session,
         context.family_uuid,
+        scope=context.scope,
         classifications=review_classifications,
         tags=review_tags,
         exclude_tags=exclude_review_tags,
@@ -4093,6 +4100,7 @@ async def _prioritized_structural_variants_page(
     review_variant_ids = await list_matching_structural_variant_review_ids(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope,
         classifications=filters.review_classifications,
         tags=filters.review_tags,
         has_notes=filters.has_notes,
@@ -4106,6 +4114,7 @@ async def _prioritized_structural_variants_page(
         await list_matching_structural_variant_review_ids(
             session,
             family_uuid=context.family_uuid,
+            scope=context.scope,
             tags=filters.exclude_review_tags,
         )
         if filters.exclude_review_tags
@@ -4265,6 +4274,7 @@ async def _prioritized_structural_variants_page(
     review_map = await get_structural_variant_review_map(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope,
         variant_ids=[record.variant_id for record in page_records],
     )
     cytoband_map = await _fetch_structural_cytoband_map(
@@ -4356,6 +4366,7 @@ async def get_family_structural_variants_page(
         review_map = await get_structural_variant_review_map(
             session,
             family_uuid=context.family_uuid,
+            scope=context.scope,
             variant_ids=[record.variant_id for record in page_records],
         )
         cytoband_map = await _fetch_structural_cytoband_map(
@@ -4392,6 +4403,7 @@ async def get_family_structural_variants_page(
     review_variant_ids = await list_matching_structural_variant_review_ids(
         session,
         family_uuid=context.family_uuid,
+        scope=context.scope,
         classifications=filters.review_classifications,
         tags=filters.review_tags,
         has_notes=filters.has_notes,
@@ -4405,6 +4417,7 @@ async def get_family_structural_variants_page(
         await list_matching_structural_variant_review_ids(
             session,
             family_uuid=context.family_uuid,
+            scope=context.scope,
             tags=filters.exclude_review_tags,
         )
         if filters.exclude_review_tags
@@ -4451,6 +4464,7 @@ async def get_family_structural_variants_page(
         else await get_structural_variant_review_map(
             session,
             family_uuid=context.family_uuid,
+            scope=context.scope,
             variant_ids=[record.variant_id for record in page_records],
         )
     )

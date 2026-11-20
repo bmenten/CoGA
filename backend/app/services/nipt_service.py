@@ -1297,7 +1297,7 @@ async def get_family_nipt_variants(
     # The review tags, as the family search selects by them: the ids go into the variant
     # load itself, so a tagged variant is never one the classification limit cut off.
     review = await resolve_review_selection(
-        session, context.family_uuid, tags=review_tags, exclude_tags=exclude_review_tags
+        session, context.family_uuid, scope=context.scope, tags=review_tags, exclude_tags=exclude_review_tags
     )
 
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are

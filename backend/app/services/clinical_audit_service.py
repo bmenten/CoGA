@@ -575,6 +575,12 @@ async def verify_clinical_audit_chain(
     return verify_chain([dict(row) for row in rows], _clinical_chain_payload)
 
 
+# The key of a review event's metadata that names the family's analysis whose review it is
+# (analysis_reviews.py): '' for a review of a family that holds none. A page of the trail
+# serves it as the event's ``analysis``.
+REVIEW_ANALYSIS_KEY = "analysis"
+
+
 async def record_review_changes(
     session: AsyncSession,
     *,
@@ -584,8 +590,11 @@ async def record_review_changes(
     user: CurrentUser,
     existing: dict[str, Any] | None,
     new_state: dict[str, Any],
+    analysis: str,
 ) -> None:
-    """Record the clinical audit events for a small-variant review save."""
+    """Record the clinical audit events for a small-variant review save, each naming the
+    family's analysis whose review it is (``metadata.analysis``; '' for a family that holds
+    none: analysis_reviews.py)."""
     await _record_review_events(
         session,
         diff_review_changes(existing, new_state),
@@ -593,6 +602,7 @@ async def record_review_changes(
         family_identifier=family_identifier,
         variant_id=variant_id,
         user=user,
+        metadata={REVIEW_ANALYSIS_KEY: analysis},
     )
 
 
@@ -605,12 +615,14 @@ async def record_structural_review_changes(
     user: CurrentUser,
     existing: dict[str, Any] | None,
     new_state: dict[str, Any] | None,
+    analysis: str,
 ) -> None:
     """Record the clinical audit events for a structural-variant (SV / CNV) review save.
 
     On the family's one chain, like the small-variant events; each is marked
-    ``metadata.modality = "sv"`` so an SV id is never read as a small-variant id.
-    ``new_state`` None records the deletion of the review.
+    ``metadata.modality = "sv"`` so an SV id is never read as a small-variant id, and names the
+    analysis whose review it is (``metadata.analysis``). ``new_state`` None records the
+    deletion of the review.
     """
     await _record_review_events(
         session,
@@ -619,7 +631,7 @@ async def record_structural_review_changes(
         family_identifier=family_identifier,
         variant_id=variant_id,
         user=user,
-        metadata={"modality": "sv"},
+        metadata={"modality": "sv", REVIEW_ANALYSIS_KEY: analysis},
     )
 
 
@@ -828,12 +840,14 @@ async def record_compound_het_pair_changes(
     family_identifier: str | None,
     user: CurrentUser,
     changes: Sequence[CompoundHetPairChange],
+    analysis: str,
 ) -> None:
     """Record the compound-het pair reviews a small-variant review save changed: one
     ``compound_het_pair`` event per pair that changed, on the family's one chain, in the
     save's transaction. The event is filed under the variant whose review row held the
     pair (the saved variant, or for a pair the save broke up, the variant that held it)
-    and names the partner; ``metadata.compound_het_group_id`` names the pair's group."""
+    and names the partner; ``metadata.compound_het_group_id`` names the pair's group and
+    ``metadata.analysis`` the analysis whose pair it is."""
     for change in changes:
         event = diff_compound_het_pair(change.before, change.after)
         if event is None:
@@ -849,7 +863,10 @@ async def record_compound_het_pair_changes(
             summary=event["summary"],
             before=event["before"],
             after=event["after"],
-            metadata={"compound_het_group_id": change.group_id} if change.group_id else None,
+            metadata={
+                REVIEW_ANALYSIS_KEY: analysis,
+                **({"compound_het_group_id": change.group_id} if change.group_id else {}),
+            },
         )
 
 
@@ -860,7 +877,7 @@ CLINICAL_AUDIT_MAX_PAGE_SIZE = 500
 
 _AUDIT_EVENT_NOT_FOUND = "Audit event not found"
 _AUDIT_EVENT_FIELDS = (
-    "id", "created_at", "variant_id", "actor", "action", "summary", "before", "after",
+    "id", "created_at", "variant_id", "actor", "action", "summary", "before", "after", "analysis",
 )
 
 # The event a page starts after: an event of this family's trail, or none.
@@ -882,14 +899,15 @@ _AUDIT_PAGE = text(
     """
     SELECT counted.total,
            page.id::text AS id, page.created_at, page.variant_id, page.actor,
-           page.action, page.summary, page.before, page.after
+           page.action, page.summary, page.before, page.after,
+           NULLIF(page.metadata ->> 'analysis', '') AS analysis
     FROM (
         SELECT COUNT(*) AS total
         FROM clinical_audit_events
         WHERE family_id = CAST(:family_uuid AS uuid)
     ) AS counted
     LEFT JOIN (
-        SELECT id, created_at, variant_id, actor, action, summary, before, after
+        SELECT id, created_at, variant_id, actor, action, summary, before, after, metadata
         FROM clinical_audit_events
         WHERE family_id = CAST(:family_uuid AS uuid)
           AND (

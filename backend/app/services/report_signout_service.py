@@ -48,6 +48,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from .analysis_reviews import effective_reviews, scope_review_clause
+from .analysis_scope import AnalysisScope, analysis_scope
 from .review_pg_utils import review_class_label
 from .annotation_manifest_service import (
     UNAVAILABLE_MODULE_VERSION,
@@ -107,7 +109,7 @@ from .sample_integrity_qc import (
     SampleIntegrityReport,
 )
 from .sample_integrity_service import get_family_sample_integrity_qc
-from .signout_scope import SignoutScope, reviews_left_out, signout_scope
+from .signout_scope import SignoutScope, signout_scope
 
 logger = logging.getLogger(__name__)
 
@@ -1074,8 +1076,42 @@ def _dataset_list(value: Any) -> list[str] | None:
     return [str(item) for item in value]
 
 
-async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
-    """The small variants tagged for the report, each with its review as frozen.
+async def _scoped_reviews(
+    session: AsyncSession, *, table: str, columns: str, family_uuid: str, scope: AnalysisScope
+) -> list[dict[str, Any]]:
+    """The family's reviews of ``table`` the analysis ``scope`` reads, one per variant: its own,
+    else the shared one (``analysis_reviews``), in variant order. ``table`` and ``columns`` are
+    this module's own identifiers."""
+    params: dict[str, Any] = {"family_uuid": family_uuid}
+    belongs = scope_review_clause(scope, params)
+    rows = (
+        await session.execute(
+            text(
+                f"""
+                SELECT analysis, updated_at, {columns}
+                FROM {table}
+                WHERE family_id = CAST(:family_uuid AS uuid)
+                  AND variant_id IS NOT NULL
+                  AND {belongs}
+                """
+            ),
+            params,
+        )
+    ).mappings().all()
+    reviews = effective_reviews((dict(row) for row in rows), scope)
+    return [reviews[variant_id] for variant_id in sorted(reviews)]
+
+
+async def _reported_reviews(
+    session: AsyncSession, family_uuid: str, scope: AnalysisScope
+) -> list[dict[str, Any]]:
+    """The small variants tagged for the report in the analysis signed out (``scope``), each
+    with its review as frozen.
+
+    Each variant's review is the analysis's (``analysis_reviews``): its own review, else the
+    shared one, made while the family held no analysis. A review of another analysis is not
+    its, whether or not that analysis's callset holds the variant (the owner's decision of
+    2026-11-20): the report in the EPD refers 1:1 to one analysis's signed record.
 
     A variant is reported when its review or its compound-het pair review holds the report
     tag: the rule of the review-tag filter (``list_matching_small_variant_review_ids``), by
@@ -1089,25 +1125,20 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     alone holds none. Each holds its classification text as stored; the class its review
     shows is added by :func:`build_report_snapshot` (``class_shown``).
     """
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT variant_id, classification, acmg_class, acmg, tags, note,
-                       acmg_evidence_snapshot, compound_het_group_id, compound_het_partner_variant_ids,
-                       compound_het_gene, compound_het_classification, compound_het_tags,
-                       compound_het_note, compound_het_phase_status
-                FROM small_variant_reviews
-                WHERE family_id = CAST(:family_uuid AS uuid)
-                  AND (tags @> :report_tag OR compound_het_tags @> :report_tag)
-                ORDER BY variant_id
-                """
-            ),
-            {"family_uuid": family_uuid, "report_tag": json.dumps([_REPORT_TAG])},
-        )
-    ).mappings().all()
     reported: list[dict[str, Any]] = []
-    for row in rows:
+    for row in await _scoped_reviews(
+        session,
+        table="small_variant_reviews",
+        columns=(
+            "variant_id, classification, acmg_class, acmg, tags, note, acmg_evidence_snapshot, "
+            "compound_het_group_id, compound_het_partner_variant_ids, compound_het_gene, "
+            "compound_het_classification, compound_het_tags, compound_het_note, compound_het_phase_status"
+        ),
+        family_uuid=family_uuid,
+        scope=scope,
+    ):
+        if _REPORT_TAG not in (row["tags"] or []) and _REPORT_TAG not in (row["compound_het_tags"] or []):
+            continue
         entry: dict[str, Any] = {
             "variant_id": row["variant_id"],
             # The classification text as stored, which the class shown is read from.
@@ -1118,7 +1149,7 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
             "note": row["note"],
             "evidence_snapshot": row["acmg_evidence_snapshot"],
         }
-        pair = compound_het_pair_state(dict(row))
+        pair = compound_het_pair_state(row)
         if pair is not None and _REPORT_TAG in pair["tags"]:
             entry["compound_het"] = pair
         reported.append(entry)
@@ -1126,30 +1157,16 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
 
 
 async def _reported_structural_reviews(
-    session: AsyncSession, family_uuid: str
+    session: AsyncSession, family_uuid: str, scope: AnalysisScope
 ) -> list[dict[str, Any]]:
-    """Structural variants / CNVs tagged for the report, with their classification and the
-    evidence its CNV scoring froze.
+    """Structural variants / CNVs tagged for the report in the analysis signed out
+    (``scope``: its own reviews, else the shared ones, as for small variants), with their
+    classification and the evidence its CNV scoring froze.
 
     The report page renders these beside the small variants, so the signed record freezes
     them too. The class the review shows is added by :func:`build_report_snapshot`
     (``class_shown``).
     """
-    rows = (
-        await session.execute(
-            text(
-                """
-                SELECT variant_id, classification, cnv_class, cnv_point_total,
-                       cnv_acmg, tags, note, cnv_evidence_snapshot
-                FROM structural_variant_reviews
-                WHERE family_id = CAST(:family_uuid AS uuid)
-                  AND tags @> :report_tag
-                ORDER BY variant_id NULLS LAST
-                """
-            ),
-            {"family_uuid": family_uuid, "report_tag": json.dumps([_REPORT_TAG])},
-        )
-    ).mappings().all()
     return [
         {
             "variant_id": row["variant_id"],
@@ -1161,7 +1178,17 @@ async def _reported_structural_reviews(
             "note": row["note"],
             "evidence_snapshot": row["cnv_evidence_snapshot"],
         }
-        for row in rows
+        for row in await _scoped_reviews(
+            session,
+            table="structural_variant_reviews",
+            columns=(
+                "variant_id, classification, cnv_class, cnv_point_total, cnv_acmg, tags, note, "
+                "cnv_evidence_snapshot"
+            ),
+            family_uuid=family_uuid,
+            scope=scope,
+        )
+        if _REPORT_TAG in (row["tags"] or [])
     ]
 
 
@@ -1329,12 +1356,15 @@ async def build_report_snapshot(
     # whole family, for a family of one analysis or none.
     scope = await family_signout_scope(session, context.family_uuid, analysis_type)
     analysis = scope.analysis
-    left_out = await reviews_left_out(session, context, scope)
+    # Its variants are read, and its reviews frozen and checked, as the analysis's: its own
+    # reviews, else the shared ones (analysis_reviews); every review of a family that holds no
+    # analysis.
+    context.scope = analysis_scope(await _family_metadata(session, context.family_uuid), analysis)
     manifest = await get_family_annotation_manifest(
         session, family_id=family_id, user=user, project_id=project_id
     )
     drift = await evaluate_classification_drift(
-        session, family_id=family_id, user=user, project_id=project_id, left_out=left_out
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
     # A monogenic NIPT family's analysis, over its whole callset, is computed once: the
     # Sample QC's NIPT checks and the record's NIPT section below read the same values.
@@ -1352,13 +1382,11 @@ async def build_report_snapshot(
     # Each with the class its review shows, by the family page's rule.
     reported = [
         _with_class_shown(entry)
-        for entry in await _reported_reviews(session, context.family_uuid)
-        if str(entry["variant_id"]) not in left_out.small
+        for entry in await _reported_reviews(session, context.family_uuid, context.scope)
     ]
     reported_structural = [
         _with_class_shown(entry)
-        for entry in await _reported_structural_reviews(session, context.family_uuid)
-        if str(entry["variant_id"]) not in left_out.structural
+        for entry in await _reported_structural_reviews(session, context.family_uuid, context.scope)
     ]
     sequencing_qc = await _canonical_sequencing_qc(session, context, scope)
     import_incomplete = _scoped_import_incomplete(
