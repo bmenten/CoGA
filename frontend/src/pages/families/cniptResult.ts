@@ -46,6 +46,17 @@ export const cniptTargetLabel = (target: string): string => {
   return `Chromosome ${target}`;
 };
 
+/**
+ * What the intended purpose claims (TF-01 §3.7): the trisomies 21, 18 and 13 and the
+ * sex-chromosome aneuploidies. The result says it of each target (`claimed`); the other autosomes
+ * and the segmental CNVs are shown outside the validated claim.
+ */
+export const CNIPT_CLAIM_NOTE =
+  'The validated claim covers trisomies 21, 18 and 13 and the sex-chromosome aneuploidies. The other autosomes and the segmental CNVs are shown outside it: screen them as findings outside the claim.';
+
+/** What a target outside the claim adds to its label. */
+export const OUTSIDE_CLAIM = 'outside the validated claim';
+
 /** The headline targets in their order, then every other autosome in its own. */
 export const orderCniptTargets = (
   targets: readonly CniptTargetOut[],

@@ -2845,6 +2845,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>Een segment met een |z-score| vanaf de foutgrens van <code>cnipt.call_zscore</code> is <strong>hoog risico</strong> als het concordant is met de foetale fractie: de impliciete foetale fractie binnen de band, ccnv noemt het niet discordant, en de oorsprong is niet maternaal of mozaïek. Anders, of in de grijze zone onder de foutgrens, is het <strong>onbeslist</strong>.</li>
 <li>De geslachtschromosomen volgen de geslachtschromosoomcall van ccnv en haar betrouwbaarheid (<code>cnipt.sca_confidence</code>).</li>
 </ul>
+<p><strong>De claim.</strong> Elk doel zegt of het beoogde doeleinde het claimt (<code>claimed</code>, uit <code>CLAIMED_TARGETS</code>): de trisomieën 21, 18 en 13 en de geslachtschromosomen, voor de geslachtschromosomale aneuploïdieën (TF-01 §3.7). De andere autosomen en de segmentale CNV's houden hun uitslag, maar de cNIPT-pagina, het familierapport en de ondertekende versie markeren ze <em>outside the validated claim</em> en vermelden de claim. De gevalideerde populatie zijn zwangerschappen van meer dan 12 weken, eenling of tweeling; een drieling of meer, een verdwenen tweeling (<em>vanishing twin</em>), een orgaan- of beenmergtransplantatie of een bloedtransfusie bij de moeder in de maanden voor de afname, en een gekende maligniteit bij de moeder vallen erbuiten.</p>
 <p><strong>De grenzen.</strong> QA zet ze in het profiel <em>Conventional NIPT</em> van de QC-grenzen (hoofdstuk 15), elke wijziging met een reden. Zolang QA een grens niet zette, past de regel een voorlopige waarde toe (<code>PROVISIONAL_BOUNDS</code>), en de uitslag markeert die als voorlopig.</p>
 <p>De klinische uitleg staat in de app (<em>Docs → Conventional NIPT (cell-free DNA)</em>, <code>frontend/src/content/docs/conventional-nipt.md</code>), het ontwerp in <code>docs/conventional-nipt.md</code>.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/cnipt_result.py</code> (de regel), <code>cnipt_service.py</code> (koppeling met de data), <code>ccnv_output.py</code> (de uitvoer van ccnv), <code>routers/families_cnipt.py</code>; de pagina <code>FamilyCniptPage.tsx</code> met <code>cniptResult.ts</code>.</p>
@@ -3694,7 +3695,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <p>Een familie met ccnv-output (conventionele NIPT) gebruikt dezelfde ondertekening:</p>
 <ul>
 <li>Ze wordt ondertekend vanaf het familierapport, dat boven de gerapporteerde bevindingen het live cNIPT-resultaat toont (<em>Conventional NIPT result</em>).</li>
-<li>Haar record bevat ook de sectie <code>cnipt</code> (<code>signed_record_cnipt.py</code>): het resultaat per maternaal plasma zoals de cNIPT-pagina het toont, met de grenzen die het toepaste en de invoer die het las.</li>
+<li>Haar record bevat ook de sectie <code>cnipt</code> (<code>signed_record_cnipt.py</code>): het resultaat per maternaal plasma zoals de cNIPT-pagina het toont (bij elk doel of de gevalideerde claim het dekt, <code>claimed</code>), met de grenzen die het toepaste en de invoer die het las.</li>
 </ul>
 <p>Wat elke variantsectie bevat, beschrijft <code>docs/report-template.md</code>. Exporteren gebeurt via de printfunctie van de browser.</p>
 <p><strong>Beide pagina's dragen een disclaimer:</strong> het rapport is beslissingsondersteuning die een gekwalificeerd klinisch wetenschapper moet bevestigen. Het NIPT-rapport vraagt ook bevestiging met een invasieve diagnostische test.</p>
@@ -4019,7 +4020,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </tr>
 <tr>
 <td><code>cnipt</code></td>
-<td>Alleen bij een familie met ccnv-output (<code>signed_record_cnipt.py</code>): per maternaal plasma het resultaat zoals de cNIPT-pagina het toont. Het bevat de status (zonder resultaat met de redenen), het oordeel per doel met de redenen, de bevindingen met de waarden van ccnv, de foetale fracties, het foetale geslacht, de call van de geslachtschromosomen, de detectiegrenzen en de waarschuwingen. Daarnaast de grenzen die de regel toepaste, elk van QA of voorlopig, en de invoer: een digest van het QC-object zoals de import het bewaarde, het aantal gelezen segmenten met hun digest, en de segmentbestanden met hun rijen en laadtijd</td>
+<td>Alleen bij een familie met ccnv-output (<code>signed_record_cnipt.py</code>): per maternaal plasma het resultaat zoals de cNIPT-pagina het toont. Het bevat de status (zonder resultaat met de redenen), het oordeel per doel met de redenen en of de claim het doel dekt (<code>claimed</code>), de bevindingen met de waarden van ccnv, de foetale fracties, het foetale geslacht, de call van de geslachtschromosomen, de detectiegrenzen en de waarschuwingen. Daarnaast de grenzen die de regel toepaste, elk van QA of voorlopig, en de invoer: een digest van het QC-object zoals de import het bewaarde, het aantal gelezen segmenten met hun digest, en de segmentbestanden met hun rijen en laadtijd</td>
 </tr>
 <tr>
 <td><code>coverage_tracks</code></td>
@@ -7773,6 +7774,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>A segment with a |z-score| from the error bound of <code>cnipt.call_zscore</code> is <strong>high risk</strong> when it is concordant with the fetal fraction: the implied fetal fraction within the band, ccnv does not call it discordant, and the origin is not maternal or mosaic. Otherwise, or in the grey zone below the error bound, it is <strong>inconclusive</strong>.</li>
 <li>The sex chromosomes follow ccnv's sex-chromosome call and its confidence (<code>cnipt.sca_confidence</code>).</li>
 </ul>
+<p><strong>The claim.</strong> Each target says whether the intended purpose claims it (<code>claimed</code>, from <code>CLAIMED_TARGETS</code>): the trisomies 21, 18 and 13 and the sex chromosomes, for the sex-chromosome aneuploidies (TF-01 §3.7). The other autosomes and the segmental CNVs keep their result, but the cNIPT page, the family report and the signed version mark them <em>outside the validated claim</em> and state the claim. The validated population is pregnancies of more than 12 weeks, singleton or twin; triplets or more, a vanishing twin, a maternal organ or bone-marrow transplant or a blood transfusion in the months before sampling, and a known maternal malignancy fall outside it.</p>
 <p><strong>The bounds.</strong> QA sets them in the profile <em>Conventional NIPT</em> of the QC thresholds (chapter 15), each change with a reason. As long as QA has not set a bound, the rule applies a provisional value (<code>PROVISIONAL_BOUNDS</code>), and the result marks it as provisional.</p>
 <p>The clinical explanation is in the app (<em>Docs → Conventional NIPT (cell-free DNA)</em>, <code>frontend/src/content/docs/conventional-nipt.md</code>), the design in <code>docs/conventional-nipt.md</code>.</p>
 <p class="waar"><strong>Where in the code:</strong> <code>backend/app/services/cnipt_result.py</code> (the rule), <code>cnipt_service.py</code> (link with the data), <code>ccnv_output.py</code> (ccnv's output), <code>routers/families_cnipt.py</code>; the page <code>FamilyCniptPage.tsx</code> with <code>cniptResult.ts</code>.</p>
@@ -8622,7 +8624,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <p>A family with ccnv output (conventional NIPT) uses the same sign-out:</p>
 <ul>
 <li>It is signed out from the family report, which shows the live cNIPT result above the reported findings (<em>Conventional NIPT result</em>).</li>
-<li>Its record also contains the section <code>cnipt</code> (<code>signed_record_cnipt.py</code>): the result per maternal plasma as the cNIPT page shows it, with the bounds it applied and the inputs it read.</li>
+<li>Its record also contains the section <code>cnipt</code> (<code>signed_record_cnipt.py</code>): the result per maternal plasma as the cNIPT page shows it (for each target whether the validated claim covers it, <code>claimed</code>), with the bounds it applied and the inputs it read.</li>
 </ul>
 <p>What each variant section contains is described in <code>docs/report-template.md</code>. Exporting is done with the browser's print function.</p>
 <p><strong>Both pages carry a disclaimer:</strong> the report is decision support that a qualified clinical scientist must confirm. The NIPT report also asks for confirmation with an invasive diagnostic test.</p>
@@ -8947,7 +8949,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </tr>
 <tr>
 <td><code>cnipt</code></td>
-<td>Only for a family with ccnv output (<code>signed_record_cnipt.py</code>): per maternal plasma the result as the cNIPT page shows it. It contains the status (without a result, with the reasons), the verdict per target with the reasons, the findings with ccnv's values, the fetal fractions, the fetal sex, the call of the sex chromosomes, the limits of detection and the warnings. Besides these, the bounds the rule applied, each QA's or provisional, and the inputs: a digest of the QC object as the import kept it, the number of segments read with their digest, and the segment files with their rows and load time</td>
+<td>Only for a family with ccnv output (<code>signed_record_cnipt.py</code>): per maternal plasma the result as the cNIPT page shows it. It contains the status (without a result, with the reasons), the verdict per target with the reasons and whether the claim covers the target (<code>claimed</code>), the findings with ccnv's values, the fetal fractions, the fetal sex, the call of the sex chromosomes, the limits of detection and the warnings. Besides these, the bounds the rule applied, each QA's or provisional, and the inputs: a digest of the QC object as the import kept it, the number of segments read with their digest, and the segment files with their rows and load time</td>
 </tr>
 <tr>
 <td><code>coverage_tracks</code></td>

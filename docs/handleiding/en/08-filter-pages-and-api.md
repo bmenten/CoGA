@@ -390,6 +390,8 @@ Conventional NIPT screens a pregnancy for aneuploidies and copy-number changes t
 - A segment with a |z-score| from the error bound of `cnipt.call_zscore` is **high risk** when it is concordant with the fetal fraction: the implied fetal fraction within the band, ccnv does not call it discordant, and the origin is not maternal or mosaic. Otherwise, or in the grey zone below the error bound, it is **inconclusive**.
 - The sex chromosomes follow ccnv's sex-chromosome call and its confidence (`cnipt.sca_confidence`).
 
+**The claim.** Each target says whether the intended purpose claims it (`claimed`, from `CLAIMED_TARGETS`): the trisomies 21, 18 and 13 and the sex chromosomes, for the sex-chromosome aneuploidies (TF-01 §3.7). The other autosomes and the segmental CNVs keep their result, but the cNIPT page, the family report and the signed version mark them *outside the validated claim* and state the claim. The validated population is pregnancies of more than 12 weeks, singleton or twin; triplets or more, a vanishing twin, a maternal organ or bone-marrow transplant or a blood transfusion in the months before sampling, and a known maternal malignancy fall outside it.
+
 **The bounds.** QA sets them in the profile *Conventional NIPT* of the QC thresholds (chapter 15), each change with a reason. As long as QA has not set a bound, the rule applies a provisional value (`PROVISIONAL_BOUNDS`), and the result marks it as provisional.
 
 The clinical explanation is in the app (*Docs → Conventional NIPT (cell-free DNA)*, `frontend/src/content/docs/conventional-nipt.md`), the design in `docs/conventional-nipt.md`.

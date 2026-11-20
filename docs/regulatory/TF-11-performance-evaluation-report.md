@@ -74,6 +74,33 @@ Discordance adjudication: ‹table — case, CoGA call, comparator, root cause, 
 | Maternal-inheritance concordance | ‹…› | ‹…› | |
 | Sample-swap detection (Sample QC + haplogroup comparison) | ‹…› | correct on controls | |
 
+### 3.6 Rare-disorder diagnostics — short-read WGS (N ‹…›)
+| Metric | Result | Acceptance | Pass? |
+| --- | --- | --- | --- |
+| Known causal SNV/indel among CoGA candidates | ‹…› | ‹…› | |
+| ACMG-class concordance | ‹…› | ‹…› | |
+| Inheritance / de-novo concordance | ‹…› | ‹…› | |
+
+### 3.7 Conventional NIPT (N ‹…›)
+Per claimed target (trisomy 21, trisomy 18, trisomy 13, sex-chromosome aneuploidies), on bounds
+QA has set; twins reported as a stratum of their own. Bounds in force: ‹from the threshold
+history›; ccnv version: ‹…›.
+
+| Metric | Result | 95% CI | Acceptance | Pass? |
+| --- | --- | --- | --- | --- |
+| Sensitivity vs confirmed diagnosis | ‹…› | ‹…› | ‹…› | |
+| Specificity | ‹…› | ‹…› | ‹…› | |
+| PPV / NPV | ‹…› | ‹…› | ‹…› | |
+| PPA / NPA / OPA vs the routine NIPT method | ‹…› | ‹…› | ‹…› | |
+| No-result rate (fetal fraction below its bound) | ‹…› | | ‹…› | |
+| Inconclusive rate | ‹…› | | ‹…› | |
+| Fetal-fraction agreement (Bland–Altman), where the comparator gives one | ‹…› | | ‹…› | |
+| False low risk on a claimed target | ‹…› | | ‹…› | |
+
+Targets outside the claim (the other autosomes, the segmental CNVs): recorded, not evaluated as
+claims. Discordance adjudication: ‹table — case, CoGA result, comparator, confirmed diagnosis,
+root cause, action›.
+
 ## 4. Reproducibility & robustness
 ‹Content-hash reproducibility result; inter-operator subset; degraded-input behavior; GIAB analytical baseline (TF-10 §2).›
 

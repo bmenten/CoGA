@@ -1005,6 +1005,8 @@ export interface SignedCniptTarget {
   target: string;
   verdict: string | null;
   reasons: string[];
+  /** Whether the intended purpose claimed the target when it was signed. */
+  claimed: boolean;
 }
 
 /** A segment the conventional NIPT's rule looked at, with ccnv's values and its own verdict. */
@@ -2154,6 +2156,7 @@ const parseCniptSample = (sample: Json): SignedCniptSample => {
       target: text(target.target) ?? 'a target',
       verdict: text(target.verdict),
       reasons: strings(target.reasons),
+      claimed: target.claimed === true,
     })),
     findings: objects(sample.findings).map((finding) => ({
       chrom: text(finding.chrom),

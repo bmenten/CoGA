@@ -6,7 +6,15 @@ import api from '../../lib/api';
 import { apiPath, raw } from '../../lib/apiPath';
 import type { CniptSampleResultOut, FamilyCniptOut } from '../../lib/apiSchema.generated';
 import { routePath } from '../../lib/routePath';
-import { CNIPT_VERDICT_CHIP, CNIPT_VERDICT_LABEL, cniptTargetLabel, orderCniptTargets, percent } from './cniptResult';
+import {
+  CNIPT_CLAIM_NOTE,
+  CNIPT_VERDICT_CHIP,
+  CNIPT_VERDICT_LABEL,
+  cniptTargetLabel,
+  orderCniptTargets,
+  OUTSIDE_CLAIM,
+  percent,
+} from './cniptResult';
 
 const PlasmaSummary: React.FC<{ sample: CniptSampleResultOut }> = ({ sample }) => {
   const { headline, others } = orderCniptTargets(sample.targets);
@@ -25,18 +33,20 @@ const PlasmaSummary: React.FC<{ sample: CniptSampleResultOut }> = ({ sample }) =
       <ul className="report-signed-list" aria-label={`Result of ${sample.sample_id}`}>
         {[...headline, ...flagged].map((target) => (
           <li key={target.target}>
-            {cniptTargetLabel(target.target)}:{' '}
+            {cniptTargetLabel(target.target)}
+            {target.claimed ? '' : ` (${OUTSIDE_CLAIM})`}:{' '}
             <span className={CNIPT_VERDICT_CHIP[target.verdict]}>{CNIPT_VERDICT_LABEL[target.verdict]}</span>
             {target.reasons.length ? ` — ${target.reasons.join('; ')}` : ''}
           </li>
         ))}
         {lowRisk ? (
           <li>
-            {lowRisk === 1 ? 'The other autosome' : `The ${lowRisk} other autosomes`}:{' '}
+            {lowRisk === 1 ? 'The other autosome' : `The ${lowRisk} other autosomes`} ({OUTSIDE_CLAIM}):{' '}
             <span className={CNIPT_VERDICT_CHIP.low_risk}>{CNIPT_VERDICT_LABEL.low_risk}</span>
           </li>
         ) : null}
       </ul>
+      <p className="report-paragraph">{CNIPT_CLAIM_NOTE}</p>
       {provisional.length ? (
         <p className="status-note status-note--warning">
           The result rests on provisional bounds, which QA has not set:{' '}

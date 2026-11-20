@@ -24,6 +24,7 @@ import pytest
 
 from backend.app.services.ccnv_output import read_ccnv_qc
 from backend.app.services.cnipt_result import (
+    CLAIMED_TARGETS,
     CcnvSegment,
     evaluate_cnipt,
     resolve_cnipt_bounds,
@@ -188,6 +189,19 @@ def test_the_sex_chromosomes_follow_ccnvs_call_and_its_confidence(sca: dict, ver
     result = evaluate_cnipt(_qc(sca=sca, fetal_sex=sex), _genome(), resolve_cnipt_bounds({}))
 
     assert _targets(result)["sex_chromosomes"] == (verdict, [reason])
+
+
+def test_each_target_says_whether_the_intended_purpose_claims_it() -> None:
+    # TF-01 §3.7: the trisomies 21, 18 and 13 and the sex-chromosome aneuploidies. The other
+    # autosomes and the segmental CNVs are shown outside the claim, with or without a result.
+    assert CLAIMED_TARGETS == {"21", "18", "13", "sex_chromosomes"}
+    for result in (
+        evaluate_cnipt(_qc(), _genome(_segment("21", 0, CHROM_MB, **TRISOMY)), resolve_cnipt_bounds({})),
+        evaluate_cnipt(_qc(effective_ff=0.03), _genome(), resolve_cnipt_bounds({})),
+    ):
+        claimed = {target["target"] for target in result["targets"] if target["claimed"]}
+        assert claimed == {"21", "18", "13", "sex_chromosomes"}
+        assert len(result["targets"]) == 24
 
 
 def test_below_the_fetal_fraction_bound_there_is_no_result() -> None:

@@ -390,6 +390,8 @@ Conventionele NIPT onderzoekt een zwangerschap op aneuploïdieën en kopieaantal
 - Een segment met een |z-score| vanaf de foutgrens van `cnipt.call_zscore` is **hoog risico** als het concordant is met de foetale fractie: de impliciete foetale fractie binnen de band, ccnv noemt het niet discordant, en de oorsprong is niet maternaal of mozaïek. Anders, of in de grijze zone onder de foutgrens, is het **onbeslist**.
 - De geslachtschromosomen volgen de geslachtschromosoomcall van ccnv en haar betrouwbaarheid (`cnipt.sca_confidence`).
 
+**De claim.** Elk doel zegt of het beoogde doeleinde het claimt (`claimed`, uit `CLAIMED_TARGETS`): de trisomieën 21, 18 en 13 en de geslachtschromosomen, voor de geslachtschromosomale aneuploïdieën (TF-01 §3.7). De andere autosomen en de segmentale CNV's houden hun uitslag, maar de cNIPT-pagina, het familierapport en de ondertekende versie markeren ze *outside the validated claim* en vermelden de claim. De gevalideerde populatie zijn zwangerschappen van meer dan 12 weken, eenling of tweeling; een drieling of meer, een verdwenen tweeling (*vanishing twin*), een orgaan- of beenmergtransplantatie of een bloedtransfusie bij de moeder in de maanden voor de afname, en een gekende maligniteit bij de moeder vallen erbuiten.
+
 **De grenzen.** QA zet ze in het profiel *Conventional NIPT* van de QC-grenzen (hoofdstuk 15), elke wijziging met een reden. Zolang QA een grens niet zette, past de regel een voorlopige waarde toe (`PROVISIONAL_BOUNDS`), en de uitslag markeert die als voorlopig.
 
 De klinische uitleg staat in de app (*Docs → Conventional NIPT (cell-free DNA)*, `frontend/src/content/docs/conventional-nipt.md`), het ontwerp in `docs/conventional-nipt.md`.

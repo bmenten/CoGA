@@ -2246,8 +2246,8 @@ describe('a conventional NIPT family’s results', () => {
         read_metrics: { usable_bins: 6 },
         warnings: [],
         targets: [
-          { target: '1', verdict: 'low_risk', reasons: [] },
-          { target: '21', verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'] },
+          { target: '1', verdict: 'low_risk', reasons: [], claimed: false },
+          { target: '21', verdict: 'high_risk', reasons: ['|z| 9.0 at or above 3'], claimed: true },
         ],
         findings: [
           {
@@ -2289,7 +2289,10 @@ describe('a conventional NIPT family’s results', () => {
     expect(sample.fetalFraction).toEqual({
       effective: 0.1, active: 0.08, activeSe: 0.005, activeSource: 'FUSED', ffy: 0, ffx: 0.09, ffa: null, ffSize: 0.07,
     });
-    expect(sample.targets.map((target) => [target.target, target.verdict])).toEqual([['1', 'low_risk'], ['21', 'high_risk']]);
+    expect(sample.targets.map((target) => [target.target, target.verdict, target.claimed])).toEqual([
+      ['1', 'low_risk', false],
+      ['21', 'high_risk', true],
+    ]);
     expect(sample.findings).toHaveLength(1);
     expect(sample.findings[0]).toMatchObject({ chrom: '21', sizeMb: 46, zscore: 9, impliedFfRatio: 1, kind: 'chromosome', discordant: false });
     expect(sample.bounds).toEqual([

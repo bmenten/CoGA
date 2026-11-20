@@ -10,10 +10,10 @@ it. The clinical report is drafted and medically signed in the hospital's electr
 record (EPD), not in CoGA, and refers to that frozen analysis. CoGA starts from variant files
 that an upstream pipeline has already called and annotated; it does not call variants itself.
 
-It serves six clinical applications: rare-disorder diagnostics from long-read and from short-read
+It serves seven clinical applications: rare-disorder diagnostics from long-read and from short-read
 whole-genome sequencing, expanded carrier screening, preimplantation genetic testing (PGT),
-monogenic non-invasive prenatal testing (NIPT), and combined mitochondrial and nuclear testing for
-mitochondrial disease.
+monogenic and conventional non-invasive prenatal testing (NIPT), and combined mitochondrial and
+nuclear testing for mitochondrial disease.
 
 ## Regulatory status
 
