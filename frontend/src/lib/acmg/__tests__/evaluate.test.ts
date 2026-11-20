@@ -404,6 +404,25 @@ describe('evaluateAcmg — trio / segregation', () => {
     expect(find(suggestions, 'PP1')?.disposition).toBe('consider');
   });
 
+  it('counts two samples of one person once in cosegregation', () => {
+    const members = [
+      probandHet,
+      { sampleId: 'P2', role: 'relative', affected: true, gt: '0/1' },
+      { sampleId: 'P3', role: 'relative', affected: true, gt: '0/0' },
+    ];
+    const personOf = { P: 'P', P2: 'P', P3: 'P' };
+    const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, { members, personOf });
+
+    // One affected person: no cosegregation, and the sample without the variant is not another
+    // affected member lacking it.
+    expect(find(suggestions, 'PP1')?.disposition).toBe('not_applicable');
+    expect(find(suggestions, 'BS4')?.disposition).toBe('not_applicable');
+    // Unlinked, the same calls are three people.
+    const unlinked = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, { members });
+    expect(find(unlinked, 'PP1')?.disposition).toBe('consider');
+    expect(find(unlinked, 'BS4')?.disposition).toBe('consider');
+  });
+
   it('suggests BS4 when an affected relative lacks the variant', () => {
     const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, {
       members: [probandHet, { sampleId: 'S', role: 'sibling', affected: true, gt: '0/0' }],

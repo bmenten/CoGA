@@ -23,6 +23,8 @@ import {
   partnerOf,
   parentOf,
   relativesOf,
+  sameIndividualCandidates,
+  sameIndividualOf,
   type ParentRole,
 } from './familyMembersDraft';
 import { sampleKey } from './familyDetailHelpers';
@@ -218,6 +220,52 @@ export const RelatedToSelect: React.FC<
     </select>
   );
 };
+
+/**
+ * Same individual: another sample of the member's person (the plasma of the other NIPT of the
+ * same pregnancy, under its own sample ID). The pedigree draws the two as one person.
+ */
+export const SameIndividualSelect: React.FC<
+  SelectProps & {
+    draft: FamilyMembersDraft;
+    memberId: string;
+    value?: string;
+    onChange: (otherId: string) => void;
+  }
+> = ({ draft, memberId, value, onChange, ...props }) => {
+  const current = value ?? sameIndividualOf(draft, memberId);
+  const several = current.includes(',');
+  return (
+    <select {...props} value={current} onChange={(event) => onChange(event.target.value)}>
+      {several ? (
+        <>
+          <option value="">—</option>
+          <option value={current}>
+            {current
+              .split(',')
+              .map((id) => labelFor(draft, id))
+              .join(' and ')}
+          </option>
+          {sameIndividualCandidates(draft, memberId).map((member) => (
+            <option key={member.sample_id} value={member.sample_id}>
+              {memberLabel(member)}
+            </option>
+          ))}
+        </>
+      ) : (
+        <MemberOptions draft={draft} candidates={sameIndividualCandidates(draft, memberId)} value={current} />
+      )}
+    </select>
+  );
+};
+
+/** The draft's same-individual value as read: the other samples' IDs. */
+export const sameIndividualText = (draft: FamilyMembersDraft, memberId: string): string =>
+  sameIndividualOf(draft, memberId)
+    .split(',')
+    .filter(Boolean)
+    .map((id) => labelFor(draft, id))
+    .join(', ');
 
 /** The draft's related-to value as read: "both parents", or the members' IDs. */
 export const relatedToText = (draft: FamilyMembersDraft, memberId: string): string => {

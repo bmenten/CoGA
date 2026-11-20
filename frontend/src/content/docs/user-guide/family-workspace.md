@@ -46,8 +46,9 @@ family, **Review ROI markers →** opens the marker review.
 
 ### Family members
 
-One row per person: role, parents, partner, **Related to**, status, HPO terms and a **Seq. QC** chip.
-The chip shows the sequencing QC verdict and mean depth; hover or focus it for the metrics.
+One row per sample: role, parents, partner, **Related to**, status, HPO terms and a **Seq. QC** chip,
+and **Same individual** when the family links two samples of one person (below). The chip shows the
+sequencing QC verdict and mean depth; hover or focus it for the metrics.
 
 - A passing chip shows the number alone. Any other state is a word on the chip.
 - *Warning* or *Fail*: a metric crossed its limit, which the tooltip names.
@@ -70,12 +71,19 @@ arc with a **?**. The haplotype track colours such a person:
 - around the ROI only, when they are a more distant relative: there the markers on both sides show the
   haplotype they share. Elsewhere such a relative stays grey.
 
+**Same individual** names another sample of the same person: for example the plasma of a conventional
+NIPT under another sample ID than the monogenic NIPT's plasma of the same pregnancy. The pedigree draws
+the person as one symbol labelled with all its IDs (*PLASMA1 / PLASMA2*), and Sample QC expects the
+samples' genotypes identical. The table keeps a row per sample. The samples of one person must agree on
+sex, affected and carrier status and parents: a link or an edit that makes them differ is refused.
+
 Only an administrator edits the members, here and in **Admin → Family & sample data**, which shows
 this same table:
 
 1. Press **Edit members**. Each row turns into its fields: role, sex, father, mother, partner,
-   **Related to**, affected status, carrier status and, for a carrier, its type. A last row adds a
-   member.
+   **Related to**, **Same individual**, affected status, carrier status and, for a carrier, its type.
+   A last row adds a member. **Same individual** offers the members of the same sex or of unknown sex;
+   a choice replaces the member's link, so link a person with three samples one pair at a time.
 2. Or click a sample name to open **Family member details**: the same fields, the sample ID and
    the HPO terms. A change there shows in the table at once.
 3. Press **Save changes**. Everything goes in one change of the family's structure, with one

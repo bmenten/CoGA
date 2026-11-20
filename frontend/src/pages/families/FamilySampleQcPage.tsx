@@ -132,7 +132,7 @@ const buildQcStatusBySample = (
 
 // Each inferred relationship gets a distinct hue so the matrix reads at a glance.
 const RELATIONSHIP_COLORS: Record<string, string> = {
-  duplicate: '#7c3aed', // self / monozygotic twin / sample duplicate
+  duplicate: '#7c3aed', // self (a same-individual pair) / monozygotic twin / sample duplicate
   'parent-child': '#2563eb',
   sibling: '#0d9488',
   'second-degree': '#d97706',
@@ -145,7 +145,7 @@ const relationshipColor = (relationship: string): string =>
   RELATIONSHIP_COLORS[relationship] ?? '#64748b';
 
 const RELATIONSHIP_LEGEND: Array<{ key: string; label: string }> = [
-  { key: 'duplicate', label: 'Duplicate / MZ twin' },
+  { key: 'duplicate', label: 'Duplicate / same individual / MZ twin' },
   { key: 'parent-child', label: 'Parent–child' },
   { key: 'sibling', label: 'Sibling' },
   { key: 'second-degree', label: '2nd degree' },

@@ -43,6 +43,34 @@ export function parentLinksFromRelationships(
 }
 
 /**
+ * The person each linked sample is a sample of, by the family's same-individual links: the
+ * first sample ID (in sort order) of the samples the links join, directly or through another
+ * sample. A sample without such a link is absent: it is a person of its own.
+ */
+export function personOfSamples(
+  relationships?: readonly PedigreeRelationshipLike[] | null,
+): Record<string, string> {
+  const parent = new Map<string, string>();
+  const root = (id: string): string => {
+    let current = id;
+    while (parent.get(current) !== undefined && parent.get(current) !== current) current = parent.get(current)!;
+    return current;
+  };
+  for (const relationship of relationships ?? []) {
+    if (relationship.relationship_type !== 'same_individual') continue;
+    const { sample_id_a: sampleA, sample_id_b: sampleB } = relationship;
+    if (!sampleA || !sampleB || sampleA === sampleB) continue;
+    if (!parent.has(sampleA)) parent.set(sampleA, sampleA);
+    if (!parent.has(sampleB)) parent.set(sampleB, sampleB);
+    const [low, high] = [root(sampleA), root(sampleB)].sort();
+    parent.set(high, low);
+  }
+  const personOf: Record<string, string> = {};
+  for (const sampleId of parent.keys()) personOf[sampleId] = root(sampleId);
+  return personOf;
+}
+
+/**
  * The sample ids of a child's father and mother. A role that two different members hold for
  * the child names no one: which of them is the parent is unknown.
  */

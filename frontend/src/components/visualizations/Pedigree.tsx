@@ -16,8 +16,11 @@ interface PedigreeMember {
 }
 
 interface PedigreeRelationship {
-  /** `relative`: `sample_id_b` is related through `sample_id_a`, by an unknown degree. */
-  relationship_type: 'parent_child' | 'couple' | 'relative';
+  /**
+   * `relative`: `sample_id_b` is related through `sample_id_a`, by an unknown degree.
+   * `same_individual`: two samples of one person, drawn as one symbol labelled with both IDs.
+   */
+  relationship_type: 'parent_child' | 'couple' | 'relative' | 'same_individual';
   sample_id_a: string;
   sample_id_b: string;
   role_a?: string | null;
@@ -115,6 +118,8 @@ type NormalizedPedigree = {
 type LayoutResult = {
   rows: PedRow[];
   memberMap: Map<string, PedigreeMember>;
+  /** A symbol's samples, for one that draws several (same-individual links), by its own ID. */
+  samplesOf: Map<string, string[]>;
   familyUnits: FamilyUnit[];
   coupleEdges: CoupleEdge[];
   relativeEdges: RelativeEdge[];
@@ -248,6 +253,99 @@ const normalizedSexFor = (row: PedRow, member?: PedigreeMember): string => {
 
 const sampleOrder = (sampleId: string, rowOrder: Map<string, number>): number =>
   rowOrder.get(sampleId) ?? Number.MAX_SAFE_INTEGER;
+
+type MergedPedigreeInput = {
+  rows: PedRow[];
+  members: PedigreeMember[];
+  relationships: PedigreeRelationship[];
+  samplesOf: Map<string, string[]>;
+};
+
+/**
+ * One person, one symbol (the owner's decision of 2026-11-20): the samples the same-individual
+ * links join are drawn as one, under the sample with the most links in the pedigree (then the
+ * first member), its label naming them all. Every other link and PED row that names one of them
+ * names that sample instead.
+ */
+const mergeSameIndividuals = (
+  rows: PedRow[],
+  members: PedigreeMember[],
+  relationships: PedigreeRelationship[],
+): MergedPedigreeInput => {
+  const links = relationships.filter((relationship) => relationship.relationship_type === 'same_individual');
+  if (!links.length) return { rows, members, relationships, samplesOf: new Map() };
+  const parent = new Map<string, string>();
+  const root = (id: string): string => {
+    let current = id;
+    while (parent.has(current) && parent.get(current) !== current) current = parent.get(current)!;
+    return current;
+  };
+  links.forEach((link) => {
+    const a = trimId(link.sample_id_a);
+    const b = trimId(link.sample_id_b);
+    if (!a || !b || a === b) return;
+    if (!parent.has(a)) parent.set(a, a);
+    if (!parent.has(b)) parent.set(b, b);
+    parent.set(root(a), root(b));
+  });
+  const weight = new Map<string, number>();
+  const bump = (id?: string | null) => {
+    const cleaned = trimId(id);
+    if (cleaned && cleaned !== '0') weight.set(cleaned, (weight.get(cleaned) ?? 0) + 1);
+  };
+  relationships.forEach((relationship) => {
+    if (relationship.relationship_type === 'same_individual') return;
+    bump(relationship.sample_id_a);
+    bump(relationship.sample_id_b);
+  });
+  rows.forEach((row) => {
+    [row.pid, row.mid].forEach((parentId) => {
+      if (trimId(parentId) && trimId(parentId) !== '0') {
+        bump(row.iid);
+        bump(parentId);
+      }
+    });
+  });
+  const memberOrder = new Map(members.map((member, index) => [trimId(member.sample_id), index]));
+  const groups = new Map<string, string[]>();
+  parent.forEach((_value, id) => {
+    const key = root(id);
+    groups.set(key, [...(groups.get(key) ?? []), id]);
+  });
+  const shownAs = new Map<string, string>();
+  const samplesOf = new Map<string, string[]>();
+  groups.forEach((ids) => {
+    const [shown, ...others] = [...ids].sort(
+      (left, right) =>
+        (weight.get(right) ?? 0) - (weight.get(left) ?? 0) ||
+        (memberOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (memberOrder.get(right) ?? Number.MAX_SAFE_INTEGER) ||
+        left.localeCompare(right),
+    );
+    ids.forEach((id) => shownAs.set(id, shown));
+    samplesOf.set(shown, [shown, ...others.sort((left, right) => left.localeCompare(right))]);
+  });
+  const mapped = (id: string): string => shownAs.get(trimId(id)) ?? id;
+  const drawn = (id: string): boolean => (shownAs.get(trimId(id)) ?? trimId(id)) === trimId(id);
+  return {
+    rows: rows
+      .filter((row) => drawn(row.iid))
+      .map((row) => ({ ...row, pid: mapped(row.pid), mid: mapped(row.mid) })),
+    members: members.filter((member) => drawn(member.sample_id)),
+    relationships: relationships
+      .filter((relationship) => relationship.relationship_type !== 'same_individual')
+      .map((relationship) => ({
+        ...relationship,
+        sample_id_a: mapped(relationship.sample_id_a),
+        sample_id_b: mapped(relationship.sample_id_b),
+      }))
+      .filter((relationship) => trimId(relationship.sample_id_a) !== trimId(relationship.sample_id_b)),
+    samplesOf,
+  };
+};
+
+/** The label of a symbol: its sample, or the samples of the person it draws, joined. */
+const symbolLabel = (samplesOf: Map<string, string[]>, sampleId: string): string =>
+  (samplesOf.get(sampleId) ?? [sampleId]).join(' / ');
 
 const normalizePedigree = (
   rows: PedRow[],
@@ -917,11 +1015,14 @@ const layoutPedigree = (
   members: PedigreeMember[],
   relationships: PedigreeRelationship[]
 ): LayoutResult => {
-  const normalized = normalizePedigree(rows, members, relationships);
+  const merged = mergeSameIndividuals(rows, members, relationships);
+  const { samplesOf } = merged;
+  const normalized = normalizePedigree(merged.rows, merged.members, merged.relationships);
   if (!normalized.rows.length) {
     return {
       rows: [],
       memberMap: normalized.memberMap,
+      samplesOf,
       familyUnits: [],
       coupleEdges: [],
       relativeEdges: [],
@@ -942,7 +1043,7 @@ const layoutPedigree = (
   const labelHalves: LabelHalves = new Map(
     normalized.rows.map((row) => [
       row.iid,
-      estimateLabelWidth(row.iid, labelFontSize(normalized.memberMap.get(row.iid))) / 2,
+      estimateLabelWidth(symbolLabel(samplesOf, row.iid), labelFontSize(normalized.memberMap.get(row.iid))) / 2,
     ])
   );
   const blocksByGeneration = buildBlocksByGeneration(normalized, generations, labelHalves);
@@ -1130,6 +1231,7 @@ const layoutPedigree = (
   return {
     rows: normalized.rows,
     memberMap: normalized.memberMap,
+    samplesOf,
     familyUnits: normalized.familyUnits,
     coupleEdges: normalized.coupleEdges,
     relativeEdges: normalized.relativeEdges,
@@ -1155,6 +1257,26 @@ const isConsanguineous = (
 const isAffectedRow = (row: PedRow, member?: PedigreeMember): boolean =>
   isAffectedPhenotype(row.phen) || (member !== undefined && isAffectedMember(member));
 
+/** The samples a symbol draws: its own, or those of the person it stands for. */
+const symbolSamples = (layout: LayoutResult, sampleId: string): string[] =>
+  layout.samplesOf.get(sampleId) ?? [sampleId];
+
+const QC_RANK: Record<PedigreeQcStatus['status'], number> = { pass: 0, warn: 1, fail: 2 };
+
+/** A symbol's QC: the worst of its samples' (the first sample's reason told first). */
+const symbolQc = (
+  layout: LayoutResult,
+  sampleId: string,
+  qcStatusBySample: Record<string, PedigreeQcStatus>,
+): PedigreeQcStatus | undefined =>
+  symbolSamples(layout, sampleId)
+    .map((id) => qcStatusBySample[id])
+    .filter((qc): qc is PedigreeQcStatus => qc !== undefined)
+    .reduce<PedigreeQcStatus | undefined>(
+      (worst, qc) => (worst === undefined || QC_RANK[qc.status] > QC_RANK[worst.status] ? qc : worst),
+      undefined,
+    );
+
 /**
  * The pedigree's accessible name. `role="img"` hides the per-symbol tooltips from
  * assistive technology, so the name carries what the symbols draw: who is affected, the
@@ -1177,8 +1299,8 @@ const describePedigree = (
     const isAffected = isAffectedRow(row, member);
     if (isAffected) affected += 1;
     else if (isCarrierStatus(member?.carrier_status)) carriers += 1;
-    if (phenotypeSampleSet.has(row.iid)) withPhenotypes += 1;
-    const qc = qcStatusBySample[row.iid];
+    if (symbolSamples(layout, row.iid).some((sampleId) => phenotypeSampleSet.has(sampleId))) withPhenotypes += 1;
+    const qc = symbolQc(layout, row.iid, qcStatusBySample);
     if (qc) qcCounts[qc.status] += 1;
   });
   const consanguineousCouples = layout.coupleEdges.filter((edge) => {
@@ -1192,6 +1314,9 @@ const describePedigree = (
   const relatedMembers = new Set(layout.relativeEdges.map((edge) => edge.member)).size;
   const facts = [
     `${countOf(layout.rows.length, 'member')} in ${countOf(layout.generationCount, 'generation')}`,
+    layout.samplesOf.size
+      ? `${countOf(layout.samplesOf.size, 'member')} drawn with several samples`
+      : null,
     `${affected.toLocaleString()} affected`,
     carriers ? countOf(carriers, 'carrier') : null,
     consanguineousCouples ? countOf(consanguineousCouples, 'consanguineous couple') : null,
@@ -1426,11 +1551,12 @@ const Pedigree: React.FC<Props> = ({
       const rowSex = normalizedSexFor(row, member);
       const affected = isAffectedRow(row, member);
       const carrier = isCarrierStatus(member?.carrier_status);
-      const hasPhenotypeAnnotation = phenotypeSampleSet.has(row.iid);
-      const highlighted = highlightedSampleSet.has(row.iid);
+      const samples = symbolSamples(layout, row.iid);
+      const hasPhenotypeAnnotation = samples.some((sampleId) => phenotypeSampleSet.has(sampleId));
+      const highlighted = samples.some((sampleId) => highlightedSampleSet.has(sampleId));
       const xLinkedRecessiveFemaleCarrier =
         carrier && normalizedInheritance === 'XLR' && rowSex === '2';
-      const qc = qcStatusBySample[row.iid];
+      const qc = symbolQc(layout, row.iid, qcStatusBySample);
       const qcMark = qc ? QC_MARKS[qc.status] : undefined;
       const fill = affected ? 'black' : 'white';
       const stroke = highlighted ? '#b91c1c' : 'black';
@@ -1608,7 +1734,7 @@ const Pedigree: React.FC<Props> = ({
         .attr('y', NODE_SIZE)
         .attr('text-anchor', 'middle')
         .attr('font-size', labelFontSize(member))
-        .text(row.iid);
+        .text(symbolLabel(layout.samplesOf, row.iid));
     });
   }, [layout, inheritanceModel, phenotypeSampleIds, highlightedSampleIds, qcStatusBySample]);
 

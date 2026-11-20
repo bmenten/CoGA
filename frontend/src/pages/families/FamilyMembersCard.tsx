@@ -45,6 +45,7 @@ import {
   withParent,
   withPartner,
   withRelatives,
+  withSameIndividual,
   type NewMemberRelations,
 } from './familyMembersDraft';
 import {
@@ -56,6 +57,8 @@ import {
   relatedToText,
   RelatedToSelect,
   RoleSelect,
+  SameIndividualSelect,
+  sameIndividualText,
   SexSelect,
 } from './FamilyMemberFields';
 
@@ -195,6 +198,8 @@ const FamilyMembersCard: React.FC<FamilyMembersCardProps> = ({
 
   const editing = draft !== null;
   const view = draft ?? saved;
+  // Read, the Same individual column is shown only for a family with such a link.
+  const showSameIndividual = editing || view.sameIndividual.length > 0;
   const changed = draft ? draftChanged(draft, saved) : false;
   const changedCount = draft ? changedMemberCount(draft, saved) : 0;
   const problems = draft ? draftProblems(draft) : [];
@@ -382,17 +387,18 @@ const FamilyMembersCard: React.FC<FamilyMembersCardProps> = ({
               a compact pill, a narrow one. */}
           {editing ? (
             <colgroup>
-              <col style={{ width: '11%' }} />
+              <col style={{ width: '10%' }} />
               <col style={{ width: '7%' }} />
-              <col style={{ width: '7%' }} />
+              <col style={{ width: '6%' }} />
               <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '19%' }} />
               <col style={{ width: '8%' }} />
               <col style={{ width: '7%' }} />
               <col style={{ width: '8%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '7%' }} />
             </colgroup>
           ) : null}
           <thead>
@@ -404,6 +410,7 @@ const FamilyMembersCard: React.FC<FamilyMembersCardProps> = ({
               <th>Mother</th>
               <th>Partner</th>
               <th title="Related to the family through this member, by an unknown degree">Related to</th>
+              {showSameIndividual && <th title="Another sample of the same person">Same individual</th>}
               <th>Status</th>
               <th>HPO terms</th>
               <th>Seq. QC</th>
@@ -521,6 +528,22 @@ const FamilyMembersCard: React.FC<FamilyMembersCardProps> = ({
                       relatedToText(view, id) || '-'
                     )}
                   </td>
+                  {showSameIndividual && (
+                    <td>
+                      {editing ? (
+                        <SameIndividualSelect
+                          aria-label={`Same individual as ${id}`}
+                          title="Another sample of the same person"
+                          draft={view}
+                          memberId={id}
+                          onChange={(otherId) => change((current) => withSameIndividual(current, id, otherId))}
+                          disabled={disabled}
+                        />
+                      ) : (
+                        sameIndividualText(view, id) || '-'
+                      )}
+                    </td>
+                  )}
                   <td>
                     {editing ? (
                       <div className="family-member-status-controls">
@@ -689,6 +712,16 @@ const FamilyMembersCard: React.FC<FamilyMembersCardProps> = ({
                     memberId=""
                     value={newRelations.related}
                     onChange={(related) => setNewRelations((relations) => ({ ...relations, related }))}
+                    disabled={busy}
+                  />
+                </td>
+                <td>
+                  <SameIndividualSelect
+                    aria-label="New member same individual as"
+                    draft={view}
+                    memberId=""
+                    value={newRelations.sameIndividual}
+                    onChange={(sameIndividual) => setNewRelations((relations) => ({ ...relations, sameIndividual }))}
                     disabled={busy}
                   />
                 </td>

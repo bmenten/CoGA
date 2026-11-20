@@ -824,23 +824,33 @@ function evaluateFamily(
   }
 
   // ---- Segregation (PP1 / BS4) ----
-  const affectedCarriers = members.filter((m) => m.affected && (altAlleleCount(m.gt) ?? 0) > 0);
-  const affectedNonCarriers = members.filter((m) => m.affected && altAlleleCount(m.gt) === 0);
-  if (affectedCarriers.length >= 2) {
+  // Counted by person: two samples of one person (a same-individual link) are one member. A
+  // person one of whose samples carries the variant is a carrier.
+  const personOf = (sampleId: string): string => family?.personOf?.[sampleId] ?? sampleId;
+  const affectedCarriers = new Set(
+    members.filter((m) => m.affected && (altAlleleCount(m.gt) ?? 0) > 0).map((m) => personOf(m.sampleId)),
+  );
+  const affectedNonCarriers = new Set(
+    members
+      .filter((m) => m.affected && altAlleleCount(m.gt) === 0)
+      .map((m) => personOf(m.sampleId))
+      .filter((person) => !affectedCarriers.has(person)),
+  );
+  if (affectedCarriers.size >= 2) {
     add(
       'PP1',
       'supporting',
-      `Variant carried by ${affectedCarriers.length} affected family members (cosegregation).`,
+      `Variant carried by ${affectedCarriers.size} affected family members (cosegregation).`,
       'consider',
     );
   } else {
     notApplicable('PP1', 'No additional affected carriers — cosegregation cannot be shown.');
   }
-  if (affectedNonCarriers.length >= 1) {
+  if (affectedNonCarriers.size >= 1) {
     add(
       'BS4',
       'strong',
-      `${affectedNonCarriers.length} affected family member(s) do not carry the variant (lack of segregation).`,
+      `${affectedNonCarriers.size} affected family member(s) do not carry the variant (lack of segregation).`,
       'consider',
     );
   } else {

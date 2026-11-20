@@ -820,6 +820,12 @@ def _structure_update_under_new_ids(
                 )
                 for relative in relationships.relatives
             ],
+            same_individual=None
+            if relationships.same_individual is None
+            else [
+                link.model_copy(update={"samples": [new_id(sample_id) for sample_id in link.samples]})
+                for link in relationships.same_individual
+            ],
         )
     return update.model_copy(
         update={

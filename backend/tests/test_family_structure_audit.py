@@ -245,6 +245,32 @@ def test_couples_and_relatives_added_removed_or_changed_are_named() -> None:
     assert (was["relatives"], now["relatives"]) == ([], [{"member": "R1", "related_to": "M1", "metadata": {}}])
 
 
+def test_same_individual_links_are_in_the_audited_pedigree_and_named_when_they_change() -> None:
+    members, relationships = _trio()
+    members.append(_member("M2", "mother", "female"))
+    before = audit.pedigree_state(members, relationships)
+    link = {
+        "relationship_type": "same_individual",
+        "sample_id_a": "M2",
+        "sample_id_b": "M1",
+        "role_a": None,
+        "role_b": None,
+        "metadata": {},
+    }
+    after = audit.pedigree_state(members, [*relationships, link])
+
+    phrases, was, now = audit.diff_pedigree(before, after)
+
+    assert before["same_individuals"] == []
+    assert after["same_individuals"] == [{"samples": ["M1", "M2"], "metadata": {}}]
+    assert phrases == ["same individual M1 = M2 added"]
+    assert (was["same_individuals"], now["same_individuals"]) == ([], after["same_individuals"])
+    # Named under its old ID before a rename of the change.
+    assert audit.pedigree_before_renames(after, {"M2": "OLD2"})["same_individuals"] == [
+        {"samples": ["M1", "OLD2"], "metadata": {}}
+    ]
+
+
 def test_stored_json_text_and_links_to_no_member_are_read_as_the_pedigree_holds_them() -> None:
     # A link's metadata a driver hands back as JSON text reads as the object it is (and text
     # that is no JSON as none); a parent link to a child that is no member is no part of it.

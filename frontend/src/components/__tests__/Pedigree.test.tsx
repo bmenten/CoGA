@@ -436,6 +436,35 @@ test('puts a relative of the father on his side, and one of both parents on the 
 });
 
 // Each sample's label as drawn: its text and size, centred under its symbol.
+test('draws two samples of one person as one symbol labelled with both', async () => {
+  const rows = [
+    ...baseRows,
+    { fid: 'F1', iid: 'FETUS', pid: 'DAD', mid: 'MOM', sex: '0', phen: '0' },
+    { fid: 'F1', iid: 'MOM2', pid: '0', mid: '0', sex: '2', phen: '1' },
+  ];
+  const { container } = render(
+    <Pedigree
+      rows={rows}
+      relationships={[
+        { relationship_type: 'same_individual', sample_id_a: 'MOM2', sample_id_b: 'MOM' },
+      ]}
+      qcStatusBySample={{ MOM: { status: 'pass' }, MOM2: { status: 'fail', label: 'Second plasma failed' } }}
+    />
+  );
+
+  await waitFor(() => expect(container.querySelector('[data-pedigree-node="MOM"]')).not.toBeNull());
+  // The mother, who has the fetus, carries the symbol; her second sample is named on it.
+  expect(container.querySelector('[data-pedigree-node="MOM2"]')).toBeNull();
+  expect(container.querySelector('[data-pedigree-label="MOM"]')?.textContent).toBe('MOM / MOM2');
+  // The worst QC of the person's samples.
+  expect(container.querySelector('[data-pedigree-node="MOM"]')?.getAttribute('data-qc-status')).toBe('fail');
+  expect(
+    screen.getByRole('img', {
+      name: 'Pedigree: 3 members in 2 generations, 1 member drawn with several samples, 0 affected; QC: 1 fail',
+    })
+  ).toBeInTheDocument();
+});
+
 const labelExtents = (container: HTMLElement) => {
   const positions = pedigreePositions(container);
   return [...container.querySelectorAll('[data-pedigree-label]')].map((label) => {

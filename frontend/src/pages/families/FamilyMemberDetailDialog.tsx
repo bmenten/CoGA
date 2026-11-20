@@ -17,6 +17,7 @@ import {
   withParent,
   withPartner,
   withRelatives,
+  withSameIndividual,
 } from './familyMembersDraft';
 import {
   CarrierStatusSelect,
@@ -25,6 +26,7 @@ import {
   ParentSelect,
   PartnerSelect,
   RelatedToSelect,
+  SameIndividualSelect,
   RoleSelect,
   SexSelect,
 } from './FamilyMemberFields';
@@ -369,6 +371,16 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
                       draft={draft}
                       memberId={memberId}
                       onChange={(value) => changeMember((current) => withRelatives(current, memberId, value))}
+                      disabled={fieldsDisabled}
+                    />
+                  </label>
+                  <label className="field-label" htmlFor={`${fieldId}-same-individual`} title="Another sample of the same person">
+                    Same individual as
+                    <SameIndividualSelect
+                      id={`${fieldId}-same-individual`}
+                      draft={draft}
+                      memberId={memberId}
+                      onChange={(otherId) => changeMember((current) => withSameIndividual(current, memberId, otherId))}
                       disabled={fieldsDisabled}
                     />
                   </label>

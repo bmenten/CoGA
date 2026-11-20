@@ -128,6 +128,10 @@ Some pre-evaluation rules repeat a backend rule. Change both sides together:
   it, as confirmed, and a failing pair as refuted. The strength follows ClinGen's de novo points
   (`DE_NOVO_POINTS`, `deNovoStrength`), the phenotype tier read from the gene–phenotype match on
   PP4's cut-offs (`deNovoPhenotypeTier`).
+- **Cosegregation counts people.** PP1 and BS4 in `evaluate.ts` count each person once:
+  `personOfSamples` in `pedigree.ts` reads the family's same-individual links, and two samples of
+  one person are one family member, a carrier when one of them carries the variant. The mtDNA
+  evaluator counts its calls by sample.
 - **mtDNA maternal transmission.** `_maternal_transmission` in `mitochondrial_analysis.py` reads the
   proband's mother and father from the same links. The mtDNA PP1 needs `maternal_shared`.
 - **The missense Z PP2 reads.** `pp2MissenseZ` in `evaluate.ts` reads the served `gene_missense_z`

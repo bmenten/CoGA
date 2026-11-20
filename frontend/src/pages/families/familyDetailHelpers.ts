@@ -15,6 +15,7 @@ import type {
   CoupleDraft,
   ParentChildDraft,
   RelativeDraft,
+  SameIndividualDraft,
   StructureMemberDraft,
 } from './familyDetailTypes';
 import { ROLE_OPTIONS } from './familyDetailConstants';
@@ -100,6 +101,18 @@ export const relativeDraftsFromRelationships = (family: ApiFamilyRecord | undefi
       id: relationship.id || `relative-${index}`,
       member: relationship.sample_id_b,
       relatedTo: relationship.sample_id_a,
+    }));
+
+/** The same-individual links: two samples of one person. */
+export const sameIndividualDraftsFromRelationships = (
+  family: ApiFamilyRecord | undefined,
+): SameIndividualDraft[] =>
+  (family?.relationships || [])
+    .filter((relationship) => relationship.relationship_type === 'same_individual')
+    .map((relationship, index) => ({
+      id: relationship.id || `same-individual-${index}`,
+      sampleA: relationship.sample_id_a,
+      sampleB: relationship.sample_id_b,
     }));
 
 export interface SampleSequencingQc {

@@ -41,6 +41,13 @@ export interface RelativeDraft {
   relatedTo: string;
 }
 
+/** Two samples of one person: the plasmas of one pregnancy's two NIPTs, say. */
+export interface SameIndividualDraft {
+  id: string;
+  sampleA: string;
+  sampleB: string;
+}
+
 /**
  * The family's members and relationships as the editor changes them, saved together in one
  * structure update. The table and the member dialog edit the same draft.
@@ -50,6 +57,7 @@ export interface FamilyMembersDraft {
   parentChild: ParentChildDraft[];
   couples: CoupleDraft[];
   relatives: RelativeDraft[];
+  sameIndividual: SameIndividualDraft[];
   /** The structure version the draft started from: a save is refused once the family moved on. */
   baseVersion: number | null;
 }

@@ -103,6 +103,7 @@ from .sample_integrity_qc import (
     MIN_MENDEL_SITES,
     paternity_unverifiable,
     MIN_RELATEDNESS_SITES,
+    SAME_INDIVIDUAL,
     SampleIntegrityReport,
 )
 from .sample_integrity_service import get_family_sample_integrity_qc
@@ -122,9 +123,10 @@ _REPORT_TAG = "report"
 # reason (never a hard lockout); the reason is frozen into the content hash + audit.
 _QC_BLOCKING_STATUSES = {"fail"}
 
-# Pedigree-declared first-degree relationships whose swap check, when it cannot run,
-# indicates missing data for an asserted edge (vs a non-asserted/"unrelated" pair).
-_ASSERTED_RELATIONSHIPS = frozenset({"parent-child", "sibling"})
+# Pedigree-declared relationships (first-degree, and two samples of one person) whose swap
+# check, when it cannot run, indicates missing data for an asserted edge (vs a
+# non-asserted/"unrelated" pair).
+_ASSERTED_RELATIONSHIPS = frozenset({"parent-child", "sibling", SAME_INDIVIDUAL})
 
 # The snapshot section holding the SV/CNV evidence drift.
 STRUCTURAL_DRIFT_SECTION = "structural_drift"

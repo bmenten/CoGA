@@ -100,6 +100,7 @@ from .family_package_nipt import NIPT_VCF_COLUMN_WARNING
 from .family_package_registration import (
     _existing_package_entity_warnings,
     family_member_differences,
+    same_individual_outside_message,
     members_added_message,
     manifest_roi_issue,
     members_differ_message,
@@ -558,6 +559,10 @@ async def assess_content(
                 warnings.append(
                     _issue("package_adds_members", members_added_message(validation.family_id, differences))
                 )
+        if bundle is not None:
+            outside = await same_individual_outside_message(session, family_id=validation.family_id, bundle=bundle)
+            if outside is not None:
+                issues.append(_issue("package_same_individual_outside", outside))
         if project_id is not None:
             roi = await manifest_roi_issue(
                 session, roi_query=validation.metadata.get("roi"), project_id=project_id, family_id=validation.family_id

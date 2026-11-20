@@ -166,6 +166,9 @@ member with the proband role, otherwise the first affected member.
 | **PP1** | Consider (Supporting) | Carried by 2 or more affected family members. |
 | **BS4** | Consider (Strong) | An affected family member is genotyped and does not carry the variant. |
 
+PP1 and BS4 count people, not samples: two samples linked as the same individual are one family
+member, a carrier when one of them carries the variant.
+
 A ClinVar record with *Conflicting classifications of pathogenicity* is neither pathogenic nor benign,
 so it pre-applies neither PP5 nor BP6. The variant marks and the ranking read ClinVar the same way.
 

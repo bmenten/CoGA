@@ -181,7 +181,14 @@ def test_the_package_reads_as_the_watcher_checked_it(ran) -> None:
     body = package["json"]
     assert (body["revision"], body["revisions"], body["proposed"]) == (0, [], [])
     assert body["package"]["members"] == [
-        {"sample_id": ran["sample"], "sex": "male", "role": "proband", "clinical_status": "affected", "related_to": []}
+        {
+            "sample_id": ran["sample"],
+            "sex": "male",
+            "role": "proband",
+            "clinical_status": "affected",
+            "related_to": [],
+            "same_individual_as": [],
+        }
     ]
     assert body["package"]["pipeline_used_pedigree"] == ["snv"]
     assert body["original"]["family"] == {"family_id": ran["family"]}

@@ -206,8 +206,8 @@ def test_what_discover_proposes_is_written_into_the_package() -> None:
         "pgt": {"inheritance_model": "AR", "affected_parents": ["MOTHER"], "indexes": ["INDEX1"]},
     }
     assert document["members"] == [
-        {"sample_id": "FATHER1", "sex": "male", "role": "father", "carrier_status": "carrier", "carrier_type": "obligate", "related_to": []},
-        {"sample_id": "MOTHER", "sex": "female", "role": "mother", "clinical_status": "unaffected", "assay": "nipt_cfdna", "assay_panel": "PANEL1", "related_to": []},
+        {"sample_id": "FATHER1", "sex": "male", "role": "father", "carrier_status": "carrier", "carrier_type": "obligate", "related_to": [], "same_individual_as": []},
+        {"sample_id": "MOTHER", "sex": "female", "role": "mother", "clinical_status": "unaffected", "assay": "nipt_cfdna", "assay_panel": "PANEL1", "related_to": [], "same_individual_as": []},
         {
             "sample_id": "PROBAND",
             "sex": "unknown",
@@ -217,8 +217,9 @@ def test_what_discover_proposes_is_written_into_the_package() -> None:
             "clinical_status": "affected",
             "hpo": {"present": ["HP:0001250"], "absent": []},
             "related_to": [],
+            "same_individual_as": [],
         },
-        {"sample_id": "INDEX1", "sex": "female", "role": "relative", "related_to": ["MOTHER"]},
+        {"sample_id": "INDEX1", "sex": "female", "role": "relative", "related_to": ["MOTHER"], "same_individual_as": []},
     ]
     assert document["couples"] == [{"partners": ["FATHER1", "MOTHER"], "context": "reproductive"}]
     assert document["datasets"] == {"snv": {"family_vcf": "a.vcf.gz"}}

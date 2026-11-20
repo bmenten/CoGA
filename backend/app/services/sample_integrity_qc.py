@@ -31,6 +31,10 @@ from .nipt_analysis import MIN_FETAL_SEX_SITES
 
 Genotype = tuple[int, int]
 Status = Literal["pass", "warn", "fail", "skip"]
+
+# The relationship expected of two samples of one person (a same-individual link): their
+# genotypes look a duplicate.
+SAME_INDIVIDUAL = "same-individual"
 # The status of a check that always reaches a verdict: never "skip".
 Verdict = Literal["pass", "warn", "fail"]
 
@@ -262,6 +266,8 @@ class PedigreeSpec:
     parents_of: dict[str, dict[str, str]]
     # sample_id -> its member role, lower-cased ("father", "embryo", ...)
     roles: dict[str, str] = field(default_factory=dict)
+    # Pairs of samples of one person (the family's same-individual links).
+    same_individual: list[tuple[str, str]] = field(default_factory=list)
 
 
 _STATUS_RANK: dict[Status, int] = {"skip": 0, "pass": 1, "warn": 2, "fail": 3}
@@ -636,6 +642,13 @@ def _relationship_status(
         if inferred in _FIRST_DEGREE:
             return "pass", f"Consistent with full siblings ({metrics})."
         return "fail", f"Recorded siblings but genotypes look {inferred} ({metrics})."
+    if expected == SAME_INDIVIDUAL:
+        if inferred == "duplicate":
+            return "pass", f"Confirmed the same individual ({metrics})."
+        return "fail", (
+            f"Recorded as the same individual but genotypes look {inferred} ({metrics}) — "
+            "possible sample swap."
+        )
     # Expected unrelated. Co-parents get a consanguinity-oriented reading.
     if inferred == "unrelated":
         if coparents:
@@ -691,6 +704,59 @@ def _mendelian_check(
 def _pair_key(a: str, b: str) -> tuple[str, str]:
     """A sample pair in sorted order, the key for expected relationships."""
     return (a, b) if a <= b else (b, a)
+
+
+def _same_individual_groups(pairs: Iterable[tuple[str, str]]) -> list[set[str]]:
+    """The people the same-individual links make: the samples the links join, directly or
+    through another sample."""
+    groups: list[set[str]] = []
+    for a, b in pairs:
+        joined = [group for group in groups if a in group or b in group]
+        merged = {a, b}.union(*joined)
+        groups = [group for group in groups if group not in joined] + [merged]
+    return groups
+
+
+# Of two relationships a person's samples carry to another sample, the one kept: the closer.
+_CARRIED_RANK = {"parent-child": 0, "sibling": 1}
+
+
+def _with_same_individuals(
+    expected: dict[tuple[str, str], str], pairs: Iterable[tuple[str, str]]
+) -> dict[tuple[str, str], str]:
+    """The expected relationships with the family's same-individual links (the owner's decision
+    of 2026-11-20): two samples of one person are expected identical, and what the pedigree
+    records of one (its parent, its child, its sibling) is expected of the other."""
+    out = dict(expected)
+    for group in _same_individual_groups(pairs):
+        members = sorted(group)
+        for i, a in enumerate(members):
+            for b in members[i + 1:]:
+                out[_pair_key(a, b)] = SAME_INDIVIDUAL
+        carried: dict[str, str] = {}
+        for (a, b), relation in expected.items():
+            for inside, outside in ((a, b), (b, a)):
+                if inside in group and outside not in group:
+                    held = carried.get(outside)
+                    if held is None or _CARRIED_RANK.get(relation, 9) < _CARRIED_RANK.get(held, 9):
+                        carried[outside] = relation
+        for sample in members:
+            for outside, relation in carried.items():
+                out.setdefault(_pair_key(sample, outside), relation)
+    return out
+
+
+def _with_same_individual_pairs(
+    pairs: set[tuple[str, str]], links: Iterable[tuple[str, str]]
+) -> set[tuple[str, str]]:
+    """``pairs`` (co-parents) with each sample's place taken by the other samples of its person."""
+    out = set(pairs)
+    for group in _same_individual_groups(links):
+        for a, b in pairs:
+            for inside, outside in ((a, b), (b, a)):
+                if inside in group and outside not in group:
+                    out.update(_pair_key(sample, outside) for sample in group)
+    return out
 
 
 def _sibling_pairs(parents_of: dict[str, dict[str, str]]) -> set[tuple[str, str]]:
@@ -1016,24 +1082,33 @@ def evaluate_sample_integrity(
     if extra_sex_checks:
         sex_checks = sex_checks + list(extra_sex_checks)
 
-    # Build expected relationships from the pedigree, then assess every pair.
-    expected: dict[tuple[str, str], str] = {}
+    # Build expected relationships from the pedigree, with the samples of one person each
+    # expected identical and in the other's place, then assess every pair with genotypes.
+    recorded: dict[tuple[str, str], str] = {}
     for child, parents in spec.parents_of.items():
         for parent in parents.values():
-            if parent in autosomal and child in autosomal:
-                expected[_pair_key(parent, child)] = "parent-child"
+            recorded[_pair_key(parent, child)] = "parent-child"
     for a, b in _sibling_pairs(spec.parents_of):
-        if a in autosomal and b in autosomal:
-            expected.setdefault(_pair_key(a, b), "sibling")
+        recorded.setdefault(_pair_key(a, b), "sibling")
+    expected = {
+        pair: relation
+        for pair, relation in _with_same_individuals(recorded, spec.same_individual).items()
+        if pair[0] in autosomal and pair[1] in autosomal
+    }
 
     # Pairs who are both parents of the same child are expected unrelated; keep
     # them so the matrix confirms "no consanguinity" (or flags it).
-    coparent_pairs: set[tuple[str, str]] = set()
+    recorded_coparents: set[tuple[str, str]] = set()
     for parents in spec.parents_of.values():
-        pids = sorted({p for p in parents.values() if p in autosomal})
+        pids = sorted(set(parents.values()))
         for i in range(len(pids)):
             for j in range(i + 1, len(pids)):
-                coparent_pairs.add((pids[i], pids[j]))
+                recorded_coparents.add((pids[i], pids[j]))
+    coparent_pairs = {
+        pair
+        for pair in _with_same_individual_pairs(recorded_coparents, spec.same_individual)
+        if pair[0] in autosomal and pair[1] in autosomal
+    }
 
     relatedness_checks: list[RelatednessCheck] = []
     if profile.run_relatedness:

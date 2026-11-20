@@ -2072,9 +2072,19 @@ async def _ensure_family_from_ped(
     existing = await _fetch_existing_family(session, family_id=family_id)
     created = existing is None
     if existing is None:
+        outside = await same_individual_outside_message(session, family_id=family_id, bundle=bundle)
+        if outside is not None:
+            raise ImportRefused(outside)
         await ped_service._ensure_sample_ids_are_available(session, bundle.ped.sample_ids)
         members = _package_members(bundle)
         relationships = _package_relationships(bundle, members)
+        # Imported here: family_structure_service imports this module.
+        from .family_structure_service import refuse_package_same_individual_conflicts
+
+        try:
+            refuse_package_same_individual_conflicts(members, relationships)
+        except HTTPException as refused:
+            raise ImportRefused(f"The package's members cannot be the family's pedigree: {refused.detail}") from None
         await ped_service._create_family(
             session,
             family_id=family_id,
@@ -2106,6 +2116,9 @@ async def _ensure_family_from_ped(
         )
         if conflict_mode != "overwrite" and not differences.kept_by_an_update:
             raise ImportRefused(members_differ_message(family_id, differences))
+        outside = await same_individual_outside_message(session, family_id=family_id, bundle=bundle)
+        if outside is not None:
+            raise ImportRefused(outside)
         if resolved_project_id is not None:
             # The family is linked to the import's project below: one on another assembly
             # than its stored variants is refused, as for a change of its projects, before
@@ -3395,6 +3408,51 @@ async def members_of_other_analyses(session: AsyncSession, *, family_id: str, an
         if analysis != key and isinstance(record.get("members"), list)
         for member in record["members"]
         if isinstance(member, str)
+    )
+
+
+async def same_individual_outside_message(
+    session: AsyncSession, *, family_id: str | None, bundle: FamilyPackageBundle
+) -> str | None:
+    """Why a package's same-individual links cannot be made: a sample one names is neither a
+    member of the package nor an active member of the family ``family_id`` (the plasma of the
+    monogenic NIPT, whose package was not imported yet). None when every sample is held."""
+    package_ids = {sample_id.strip().lower() for sample_id in bundle.ped.sample_ids}
+    named = sorted(
+        {
+            str(sample_id)
+            for link in _manifest_relationships(bundle.manifest)
+            if link["relationship_type"] == "same_individual"
+            for sample_id in (link["sample_id_a"], link["sample_id_b"])
+            if str(sample_id).strip().lower() not in package_ids
+        }
+    )
+    if not named:
+        return None
+    held: set[str] = set()
+    if family_id and identifier_problem(family_id) is None:
+        rows = await session.execute(
+            text(
+                """
+                SELECT s.sample_id
+                FROM family_members fm
+                JOIN families f ON f.id = fm.family_id
+                JOIN samples s ON s.id = fm.sample_id
+                WHERE f.family_id = :family_id AND fm.active
+                """
+            ),
+            {"family_id": family_id},
+        )
+        held = {str(row[0]).strip().lower() for row in rows}
+    missing = [sample_id for sample_id in named if sample_id.strip().lower() not in held]
+    if not missing:
+        return None
+    return (
+        f"The package links {', '.join(map(visible, missing))} to one of its members as the same individual, "
+        f"but family '{visible(family_id or '')}' does not hold "
+        f"{'that sample' if len(missing) == 1 else 'those samples'}: import the package that lists "
+        f"{'it' if len(missing) == 1 else 'them'} first, or link the samples in the family's members editor "
+        "once both are in the family."
     )
 
 

@@ -200,6 +200,10 @@ class PackageMember(_Strict):
     hpo: PackageHpo | None = None
     # Members this one is related to by an unknown degree (a PGT index on the mother's side).
     related_to: list[Identifier] = Field(default_factory=list)
+    # Other samples of the same person: the plasma of the monogenic NIPT of the same pregnancy
+    # under another sample ID, say. It may name a member of another analysis's package, which the
+    # family must then hold when this package is imported.
+    same_individual_as: list[Identifier] = Field(default_factory=list)
 
 
 class PackageCouple(_Strict):
@@ -478,6 +482,33 @@ def package_issues(package: CogaPackage) -> list[PackageIssue]:
     return issues
 
 
+def _same_individual_issues(member: PackageMember, here: str, known: dict[str, PackageMember]) -> list[PackageIssue]:
+    """A member's ``same_individual_as``: not itself, each once, and, for one this package lists,
+    not its parent or relative and of no other known sex. One the package does not list is checked
+    against the family when the package is imported."""
+    location = f"{here}.same_individual_as"
+    issues = [
+        PackageIssue("package_same_individual_twice", f"{location}: {sample_id} is named twice", location)
+        for sample_id in _duplicates(member.same_individual_as)
+    ]
+    for other_id in dict.fromkeys(member.same_individual_as):
+        other = known.get(other_id)
+        if other_id == member.sample_id:
+            message = "a sample is not linked to itself"
+        elif other is None:
+            continue
+        elif other_id in (member.father, member.mother) or member.sample_id in (other.father, other.mother):
+            message = f"{other_id} is also recorded as a parent or child of {member.sample_id}"
+        elif other_id in member.related_to or member.sample_id in other.related_to:
+            message = f"{other_id} is also recorded as a relative of {member.sample_id}"
+        elif "unknown" not in (member.sex, other.sex) and member.sex != other.sex:
+            message = f"{other_id} is {other.sex}, {member.sample_id} {member.sex}"
+        else:
+            continue
+        issues.append(PackageIssue("package_same_individual_invalid", f"{location}: {message}", location))
+    return issues
+
+
 def _member_issues(package: CogaPackage, members: list[PackageMember]) -> list[PackageIssue]:
     issues: list[PackageIssue] = []
     sample_ids = [member.sample_id for member in members]
@@ -517,6 +548,7 @@ def _member_issues(package: CogaPackage, members: list[PackageMember]) -> list[P
                 )
             elif related not in known:
                 unknown(f"{here}.related_to", related)
+        issues.extend(_same_individual_issues(member, here, known))
 
     for position, couple in enumerate(package.couples):
         here = f"couples[{position}]"

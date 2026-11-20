@@ -3,8 +3,12 @@ from fastapi import HTTPException
 
 from backend.app.schemas import FamilyStructureUpdate
 from backend.app.services.family_structure_service import (
+    _link_payload,
+    _relationship_key,
     _relationship_rows_from_payload,
     _validate_relationship_graph,
+    refuse_package_same_individual_conflicts,
+    same_individual_groups,
 )
 
 
@@ -167,3 +171,128 @@ def test_a_structure_update_without_relatives_keeps_them_and_with_them_replaces_
         ("relative", "FATHER", "INDEX"),
     ]
     assert rows({"parent_child": parent_child, "relatives": []}) == [("parent_child", "MOTHER", "EMBRYO")]
+
+
+# --- two samples of one person ---------------------------------------------------------------
+
+
+def _same(first: str, second: str) -> dict[str, object]:
+    return {
+        "relationship_type": "same_individual",
+        "sample_id_a": first,
+        "sample_id_b": second,
+        "role_a": None,
+        "role_b": None,
+        "source": "manual",
+        "metadata": {},
+    }
+
+
+def _pregnancy(**second_plasma: object) -> dict[str, dict[str, object]]:
+    """A monogenic NIPT's father, plasma and fetus, the conventional NIPT's plasma under another
+    sample ID, and two grandfathers."""
+    plasma = {"clinical_status": "unaffected", "carrier_status": "carrier"}
+    return {
+        "father": _member("FATHER", "male"),
+        "plasma1": {**_member("PLASMA1", "female"), **plasma},
+        "fetus": _member("FETUS", "und"),
+        "plasma2": {**_member("PLASMA2", "female"), **second_plasma},
+        "plasma3": _member("PLASMA3", "und"),
+        "grandfather1": _member("GRANDFATHER1", "male"),
+        "grandfather2": _member("GRANDFATHER2", "male"),
+    }
+
+
+_FETUS_PARENTS = [_parent_child("FATHER", "FETUS", "father"), _parent_child("PLASMA1", "FETUS", "mother")]
+
+
+def test_two_samples_of_one_person_may_be_linked_when_nothing_they_record_differs() -> None:
+    # Unknown agrees with any value: the second plasma records no status of its own.
+    _validate_relationship_graph(
+        [*_FETUS_PARENTS, _same("PLASMA1", "PLASMA2"), _parent_child("GRANDFATHER1", "PLASMA1", "father")],
+        target_members=_pregnancy(clinical_status="unknown", carrier_status="unknown"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("second_plasma", "relationships", "detail"),
+    [
+        ({}, [_same("PLASMA2", "plasma2")], "not linked to itself as the same individual"),
+        ({}, [_same("PLASMA1", "PLASMA2"), _same("PLASMA2", "PLASMA1")], "linked as the same individual twice"),
+        ({}, [_parent_child("PLASMA1", "PLASMA2", "mother"), _same("PLASMA1", "PLASMA2")], "also as relatives"),
+        ({}, [_relative("PLASMA1", "PLASMA2"), _same("PLASMA1", "PLASMA2")], "also as relatives"),
+        (
+            {"sex": "male"},
+            [_same("PLASMA1", "PLASMA2")],
+            "PLASMA1 and PLASMA2 are linked as the same individual but their sex differs (female, male)",
+        ),
+        ({"clinical_status": "affected"}, [_same("PLASMA1", "PLASMA2")], "clinical status differs (affected, unaffected)"),
+        ({"carrier_status": "not_carrier"}, [_same("PLASMA1", "PLASMA2")], "carrier status differs (carrier, not_carrier)"),
+        (
+            {},
+            [
+                _same("PLASMA1", "PLASMA2"),
+                _parent_child("GRANDFATHER1", "PLASMA1", "father"),
+                _parent_child("GRANDFATHER2", "PLASMA2", "father"),
+            ],
+            "another father is recorded for each",
+        ),
+        (
+            # Through another sample: PLASMA3 links both, so the three are one person.
+            {"sex": "male"},
+            [_same("PLASMA1", "PLASMA3"), _same("PLASMA3", "PLASMA2")],
+            "PLASMA1, PLASMA2 and PLASMA3 are linked as the same individual but their sex differs",
+        ),
+    ],
+)
+def test_a_same_individual_link_is_refused_where_the_samples_disagree_on_the_person(
+    second_plasma: dict[str, object], relationships: list[dict[str, object]], detail: str
+) -> None:
+    with pytest.raises(HTTPException) as exc:
+        _validate_relationship_graph(relationships, target_members=_pregnancy(**second_plasma))
+
+    assert exc.value.status_code == 400
+    assert detail in str(exc.value.detail)
+
+
+def test_a_structure_update_without_same_individual_links_keeps_them_and_with_them_replaces_them() -> None:
+    members = _pregnancy()
+    current = [*_FETUS_PARENTS, _same("PLASMA1", "PLASMA2")]
+
+    def rows(relationships: dict[str, object]) -> list[tuple[object, ...]]:
+        update = FamilyStructureUpdate.model_validate({"relationships": relationships})
+        return sorted(
+            (row["relationship_type"], row["sample_id_a"], row["sample_id_b"])
+            for row in _relationship_rows_from_payload(update, target_members=members, current_relationships=current)
+            if row["relationship_type"] == "same_individual"
+        )
+
+    assert rows({}) == [("same_individual", "PLASMA1", "PLASMA2")]
+    assert rows({"same_individual": [{"samples": ["PLASMA3", "PLASMA2"]}]}) == [("same_individual", "PLASMA3", "PLASMA2")]
+    assert rows({"same_individual": []}) == []
+
+
+def test_a_same_individual_link_is_one_link_whichever_sample_it_names_first() -> None:
+    assert _relationship_key(_same("PLASMA1", "PLASMA2")) == _relationship_key(_same("plasma2", "PLASMA1"))
+    payload = _link_payload([*_FETUS_PARENTS, _same("PLASMA1", "PLASMA2"), _same("PLASMA2", "PLASMA1")])
+
+    assert [link.samples for link in payload.same_individual or []] == [["PLASMA1", "PLASMA2"]]
+    assert payload.relatives == []
+
+
+def test_the_samples_of_one_person_are_the_samples_the_links_join() -> None:
+    assert same_individual_groups([("a", "b"), ("c", "d"), ("b", "e")]) == [["a", "b", "e"], ["c", "d"]]
+    assert same_individual_groups([]) == []
+
+
+def test_a_new_family_from_a_package_is_refused_a_link_between_samples_that_disagree() -> None:
+    members = [
+        {"sample_id": "PLASMA1", "sex": "female", "clinical_status": "unknown", "carrier_status": "unknown"},
+        {"sample_id": "PLASMA2", "sex": "male", "clinical_status": "unknown", "carrier_status": "unknown"},
+    ]
+    refuse_package_same_individual_conflicts(members[:1], [_same("PLASMA1", "ELSEWHERE")])
+
+    with pytest.raises(HTTPException) as exc:
+        refuse_package_same_individual_conflicts(members, [_same("PLASMA1", "PLASMA2")])
+
+    assert "their sex differs (female, male)" in str(exc.value.detail)

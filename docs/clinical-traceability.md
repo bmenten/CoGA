@@ -182,8 +182,8 @@ partner (*Compound-het pair with 1-200-C-T: classification Likely pathogenic →
 - a package import that changes a member's affected or carrier status;
 - an admin's deletion of a sample with its data.
 
-It holds each changed member and, when they changed, the couples and links of unknown degree,
-before and after. Its metadata names the structure version the change stored, with its hash and the
+It holds each changed member and, when they changed, the couples, links of unknown degree and
+same-individual links (two samples of one person), before and after. Its metadata names the structure version the change stored, with its hash and the
 change's reason. An edit that leaves the pedigree as it was writes none
 ([family-member-management.md](family-member-management.md#what-is-recorded-of-a-change)).
 
@@ -847,8 +847,9 @@ changed, without the review's time), and the message says how many.
 
 - a QC fail (a detected sample or pedigree swap);
 - a check that could not run for lack of data where it is what confirms the pedigree or a sample's
-  identity: a relationship or Mendelian check the pedigree asserts, NIPT paternity or maternal
-  lineage, or the sex of a sample no relatedness check covers, such as a NIPT parent;
+  identity: a relationship or Mendelian check the pedigree asserts (two samples it records as the
+  same individual included), NIPT paternity or maternal lineage, or the sex of a sample no
+  relatedness check covers, such as a NIPT parent;
 - in a conventional NIPT family, from the record's `cnipt` section under the same acknowledgement: a
   maternal plasma without a result, with its reasons ("Sample X (cNIPT maternal plasma): no result
   — the fetal fraction (3.1%) is below 4.0%."), and a result that rests on bounds QA has not set,

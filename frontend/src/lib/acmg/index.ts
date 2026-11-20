@@ -21,6 +21,7 @@ export {
   parentageFromSampleQc,
   parentLinksFromRelationships,
   parentsOf,
+  personOfSamples,
   type MendelianCheckLike,
   type PedigreeRelationshipLike,
   type RelatednessCheckLike,

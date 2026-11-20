@@ -16,6 +16,7 @@ from ..schemas import (
     FamilyStructureParentChildUpdate,
     FamilyStructureRelationshipsUpdate,
     FamilyStructureRelativeUpdate,
+    FamilyStructureSameIndividualUpdate,
     FamilyStructureUpdate,
     FamilyStructureUpdateOut,
 )
@@ -60,6 +61,8 @@ from .ped_service import (
 CLINICAL_STATUS_VALUES = {"unknown", "unaffected", "affected"}
 CARRIER_STATUS_VALUES = {"unknown", "not_carrier", "carrier"}
 MEMBER_ROLES = {"proband", "father", "mother", "sibling", "embryo", "relative"}
+# Two samples of one person (``FamilyStructureSameIndividualUpdate``).
+SAME_INDIVIDUAL = "same_individual"
 SEX_VALUES = {"male", "female", "und"}
 
 
@@ -493,6 +496,18 @@ def _relationship_rows_from_payload(
     else:
         for relative in relationships.relationships.relatives:
             rows.append(_relative_relationship_row(relative, target_members=target_members))
+    if relationships.relationships.same_individual is None:
+        # As for the links of unknown degree: a payload without them keeps them.
+        rows.extend(
+            relationship
+            for relationship in current_relationships
+            if relationship.get("relationship_type") == SAME_INDIVIDUAL
+            and target_members.get(_sample_key(str(relationship["sample_id_a"])), {}).get("active")
+            and target_members.get(_sample_key(str(relationship["sample_id_b"])), {}).get("active")
+        )
+    else:
+        for link in relationships.relationships.same_individual:
+            rows.append(_same_individual_relationship_row(link, target_members=target_members))
     return rows
 
 
@@ -512,6 +527,23 @@ def _relative_relationship_row(
         "role_b": "relative",
         "source": "manual",
         "metadata": dict(relationship.metadata or {}),
+    }
+
+
+def _same_individual_relationship_row(
+    link: FamilyStructureSameIndividualUpdate,
+    *,
+    target_members: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    first, second = (_ensure_relationship_member(sample_id, target_members=target_members) for sample_id in link.samples)
+    return {
+        "relationship_type": SAME_INDIVIDUAL,
+        "sample_id_a": first,
+        "sample_id_b": second,
+        "role_a": None,
+        "role_b": None,
+        "source": "manual",
+        "metadata": dict(link.metadata or {}),
     }
 
 
@@ -583,6 +615,7 @@ def _validate_relationship_graph(
     parent_edges: set[tuple[str, str]] = set()
     couple_edges: set[tuple[str, str]] = set()
     relative_edges: set[tuple[str, str]] = set()
+    same_individual_edges: set[tuple[str, str]] = set()
     parents_by_child: dict[str, list[dict[str, Any]]] = defaultdict(list)
     children_by_parent: dict[str, list[str]] = defaultdict(list)
 
@@ -624,6 +657,15 @@ def _validate_relationship_graph(
             if edge_key in relative_edges:
                 raise HTTPException(status_code=400, detail=f"Duplicate relative link for {sample_a} and {sample_b}")
             relative_edges.add(edge_key)
+        elif relationship_type == SAME_INDIVIDUAL:
+            if key_a == key_b:
+                raise HTTPException(status_code=400, detail="A sample is not linked to itself as the same individual")
+            edge_key = (min(key_a, key_b), max(key_a, key_b))
+            if edge_key in same_individual_edges:
+                raise HTTPException(
+                    status_code=400, detail=f"{sample_a} and {sample_b} are linked as the same individual twice"
+                )
+            same_individual_edges.add(edge_key)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported relationship type '{relationship_type}'")
 
@@ -636,6 +678,17 @@ def _validate_relationship_graph(
             status_code=400,
             detail=f"{sample_a} and {sample_b} are already linked as parent and child or as a couple",
         )
+    # Two samples of one person are not also related to each other.
+    for edge_key in sorted(same_individual_edges & (known_pairs | relative_edges)):
+        sample_a, sample_b = (target_members[key]["sample_id"] for key in edge_key)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{sample_a} and {sample_b} are linked as the same individual and also as relatives "
+                "(parent and child, a couple, or of an unknown degree)"
+            ),
+        )
+    _refuse_same_individual_conflicts(same_individual_edges, target_members=target_members, parents_by_child=parents_by_child)
 
     for child_key, parents in parents_by_child.items():
         if len(parents) > 2:
@@ -665,6 +718,81 @@ def _validate_relationship_graph(
     for member_key in target_members:
         if target_members[member_key].get("active"):
             visit(member_key)
+
+
+# What a same-individual link says the two samples share: one person has one sex, one phenotype and
+# one carrier status. A value that is not known agrees with any.
+_PERSON_FIELDS = (("sex", "sex", "und"), ("clinical status", "clinical_status", "unknown"), ("carrier status", "carrier_status", "unknown"))
+
+
+def same_individual_groups(pairs: Collection[tuple[str, str]]) -> list[list[str]]:
+    """The people the same-individual links make: each group of samples the links join, directly
+    or through another sample (A with B and B with C: A, B and C), in sorted order."""
+    parent: dict[str, str] = {}
+
+    def root(item: str) -> str:
+        while parent.setdefault(item, item) != item:
+            parent[item] = parent[parent[item]]
+            item = parent[item]
+        return item
+
+    for first, second in pairs:
+        parent[root(first)] = root(second)
+    groups: dict[str, list[str]] = defaultdict(list)
+    for item in list(parent):
+        groups[root(item)].append(item)
+    return sorted(sorted(group) for group in groups.values())
+
+
+def _refuse_same_individual_conflicts(
+    edges: Collection[tuple[str, str]],
+    *,
+    target_members: Mapping[str, Mapping[str, Any]],
+    parents_by_child: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> None:
+    """Refuse a same-individual link between samples that differ on what the person is (the
+    owner's decision of 2026-11-20): another known sex, clinical status or carrier status, or
+    another recorded father or mother. Checked over each group the links join."""
+    for group in same_individual_groups(edges):
+        samples = [str(target_members[key]["sample_id"]) for key in group]
+        named = f"{', '.join(samples[:-1])} and {samples[-1]}"
+        for label, field, unknown in _PERSON_FIELDS:
+            known = {str(target_members[key].get(field) or unknown) for key in group} - {unknown}
+            if len(known) > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{named} are linked as the same individual but their {label} differs ({', '.join(sorted(known))})",
+                )
+        for role in ("father", "mother"):
+            parents = {
+                _sample_key(str(parent["sample_id"]))
+                for key in group
+                for parent in parents_by_child.get(key, ())
+                if parent.get("role") == role
+            }
+            if len(parents) > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{named} are linked as the same individual but another {role} is recorded for each",
+                )
+
+
+def refuse_package_same_individual_conflicts(
+    members: Sequence[Mapping[str, Any]], relationships: Sequence[Mapping[str, Any]]
+) -> None:
+    """The same-individual links of a package that makes a new family (``members`` and
+    ``relationships`` as ``family_package_registration`` makes them), checked as an edit checks
+    them (``_refuse_same_individual_conflicts``). Raises 400."""
+    target_members = {_sample_key(str(member["sample_id"])): {**member, "active": True} for member in members}
+    edges: set[tuple[str, str]] = set()
+    parents_by_child: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for link in relationships:
+        key_a, key_b = _sample_key(str(link["sample_id_a"])), _sample_key(str(link["sample_id_b"]))
+        if link.get("relationship_type") == SAME_INDIVIDUAL and {key_a, key_b} <= target_members.keys():
+            edges.add((min(key_a, key_b), max(key_a, key_b)))
+        elif link.get("relationship_type") == "parent_child":
+            parents_by_child[key_b].append({"sample_id": link["sample_id_a"], "role": link.get("role_a") or "parent"})
+    _refuse_same_individual_conflicts(edges, target_members=target_members, parents_by_child=parents_by_child)
 
 
 def _pedigree_text_from_target(
@@ -724,6 +852,12 @@ def _pedigree_text_from_target(
 
 def _relationship_key(relationship: dict[str, Any]) -> tuple[Any, ...]:
     metadata_key = json.dumps(relationship.get("metadata") or {}, sort_keys=True, default=str)
+    if relationship.get("relationship_type") == SAME_INDIVIDUAL:
+        sample_keys = sorted([
+            _sample_key(str(relationship.get("sample_id_a"))),
+            _sample_key(str(relationship.get("sample_id_b"))),
+        ])
+        return (SAME_INDIVIDUAL, *sample_keys, relationship.get("source") or "manual", metadata_key)
     if relationship.get("relationship_type") == "relative":
         return (
             "relative",
@@ -1314,12 +1448,13 @@ async def _update_family_structure(
 
 def _link_payload(
     links: Sequence[Mapping[str, Any]],
-) -> tuple[list[FamilyStructureParentChildUpdate], list[FamilyStructureCoupleUpdate], list[FamilyStructureRelativeUpdate]]:
+) -> FamilyStructureRelationshipsUpdate:
     """Relationship rows (``relationship_type``, ``sample_id_a``/``_b``, ``role_a``, ``metadata``)
     as a structure update names them, each link once."""
     parent_child: list[FamilyStructureParentChildUpdate] = []
     couples: list[FamilyStructureCoupleUpdate] = []
     relatives: list[FamilyStructureRelativeUpdate] = []
+    same_individual: list[FamilyStructureSameIndividualUpdate] = []
     seen: set[tuple[Any, ...]] = set()
     for link in links:
         key = _relationship_key(dict(link))
@@ -1353,7 +1488,15 @@ def _link_payload(
                     related_to=str(link["sample_id_a"]), member=str(link["sample_id_b"]), metadata=metadata
                 )
             )
-    return parent_child, couples, relatives
+        elif kind == SAME_INDIVIDUAL:
+            same_individual.append(
+                FamilyStructureSameIndividualUpdate(
+                    samples=[str(link["sample_id_a"]), str(link["sample_id_b"])], metadata=metadata
+                )
+            )
+    return FamilyStructureRelationshipsUpdate(
+        parent_child=parent_child, couples=couples, relatives=relatives, same_individual=same_individual
+    )
 
 
 def _json_metadata(value: Any) -> Mapping[str, Any]:
@@ -1412,7 +1555,12 @@ async def take_package_pedigree(
 
     ``kept``: the members the packages of the family's other analyses listed (a monogenic and a
     conventional NIPT of one pregnancy, each with its own package). An overwrite leaves them active
-    though the package lacks them, and keeps the family's links between two of them.
+    though the package lacks them, and keeps the family's links between two of them, and its
+    same-individual links between one of them and a member the package lists (the plasmas of the
+    two NIPTs, linked by the analyst or by the other package).
+
+    The same-individual links are always given (``same_individual``): an update adds the package's
+    that name a member it adds to the family's.
 
     The change is made against the structure version read here: a change made since refuses it
     (409), as for an edit. A member's sample ID held by another family refuses it (409)."""
@@ -1437,13 +1585,19 @@ async def take_package_pedigree(
         links = list(relationships)
         if kept_keys:
             # The family's links between two of the kept members stay (``_link_payload`` names
-            # a link the package gives too once).
+            # a link the package gives too once), and a same-individual link that joins a kept
+            # member to one the package lists: it is no more the package's than the other's.
             current = await _fetch_current_relationship_rows(session, family_uuid=family_uuid)
+            staying = kept_keys | set(package)
+
+            def ends(link: Mapping[str, Any]) -> set[str]:
+                return {_sample_key(str(link["sample_id_a"])), _sample_key(str(link["sample_id_b"]))}
+
             links.extend(
                 link
                 for link in current
-                if _sample_key(str(link["sample_id_a"])) in kept_keys
-                and _sample_key(str(link["sample_id_b"])) in kept_keys
+                if ends(link) <= kept_keys
+                or (link.get("relationship_type") == SAME_INDIVIDUAL and ends(link) <= staying and ends(link) & kept_keys)
             )
     else:
         current = await _fetch_current_relationship_rows(session, family_uuid=family_uuid)
@@ -1461,7 +1615,7 @@ async def take_package_pedigree(
         ]
     if not added and not removed and not replace:
         return None
-    parent_child, couples, relatives = _link_payload(links)
+    payload = _link_payload(links)
     update = FamilyStructureUpdate(
         expected_structure_version=version,
         change_reason=(
@@ -1472,12 +1626,8 @@ async def take_package_pedigree(
         add_members=[FamilyStructureMemberCreate(**fields) for fields in added],
         members=updates,
         remove_members=removed,
-        relationships=FamilyStructureRelationshipsUpdate(
-            parent_child=parent_child,
-            couples=couples,
-            # An update keeps the family's links of unknown degree; an overwrite takes the package's.
-            relatives=relatives if replace else None,
-        ),
+        # An update keeps the family's links of unknown degree; an overwrite takes the package's.
+        relationships=payload if replace else payload.model_copy(update={"relatives": None}),
     )
     return await update_family_structure_for_admin(
         session, family_id=family_id, update=update, user=user, source=PACKAGE_IMPORT

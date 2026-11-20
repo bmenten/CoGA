@@ -1730,4 +1730,46 @@ describe('FamilyDetailPage', () => {
       }),
     ));
   });
+
+  it('shows two samples of one person in a Same individual column and saves the link taken away', async () => {
+    localStorage.setItem('role', 'admin');
+    mockApiState.members = [
+      { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
+      { sample_id: 'PLASMA1', role: 'mother', affected: false, sex: 'female' },
+      { sample_id: 'PLASMA2', role: 'mother', affected: false, sex: 'female' },
+    ];
+    mockApiState.relationships = [
+      {
+        id: 'same-1',
+        relationship_type: 'same_individual',
+        sample_id_a: 'PLASMA1',
+        sample_id_b: 'PLASMA2',
+        role_a: null,
+        role_b: null,
+        metadata: {},
+      },
+    ];
+    vi.mocked(api.put).mockResolvedValueOnce({
+      data: { family: { _id: 'fam1', family_id: 'F1', members: mockApiState.members, projects: ['p1'], metadata: {} } },
+    });
+    renderPage();
+
+    // Read, the column is there for a family with such a link.
+    expect(await screen.findByRole('columnheader', { name: 'Same individual' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit members' }));
+    const second = (await screen.findByLabelText('Same individual as PLASMA2')) as HTMLSelectElement;
+    expect(second.value).toBe('PLASMA1');
+    // The father is no choice: another known sex.
+    expect([...second.options].map((option) => option.value)).toEqual(['', 'PLASMA1']);
+    fireEvent.change(second, { target: { value: '' } });
+    expect((screen.getByLabelText('Same individual as PLASMA1') as HTMLSelectElement).value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+      '/families/F1/structure',
+      expect.objectContaining({
+        relationships: expect.objectContaining({ same_individual: [] }),
+      }),
+    ));
+  });
 });
