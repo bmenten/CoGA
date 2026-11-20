@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
 from ..schemas import FamilyOut
-from .family_analysis_types import family_analysis_types, sample_assays
+from .family_analysis_types import family_analysis_types, sample_assay_panel, sample_assays
 
 # A family whose analysis types (``family_analysis_types``) hold this is a monogenic NIPT family:
 # the UI shows its NIPT pages.
@@ -38,9 +38,10 @@ NIPT_CFDNA_ASSAY = "nipt_cfdna"
 # samples whose assays hold ``nipt_cfdna``; one plasma may hold both.
 CNIPT_CFDNA_ASSAY = "cnipt_cfdna"
 
-# Sample.metadata["assay_panel"] (optional) names the capture panel/chemistry,
-# which scopes the recurrent-artifact list. Absent -> the default scope.
-SAMPLE_ASSAY_PANEL_KEY = "assay_panel"
+# The capture panel/chemistry the monogenic NIPT's package names for its cfDNA sample (its
+# ``assay_panel``, kept as the monogenic NIPT's in Sample.metadata["assay_panels"],
+# family_analysis_types.SAMPLE_ASSAY_PANELS_KEY) scopes the recurrent-artifact list. None named ->
+# the default scope. A conventional NIPT of the same plasma names its own, which the list never reads.
 DEFAULT_NIPT_ASSAY_KEY = NIPT_CFDNA_ASSAY
 
 
@@ -128,20 +129,25 @@ def resolve_nipt_trio_from_members(
     )
 
 
-def assay_key_for_sample_metadata(metadata: dict | None) -> str:
-    """The artifact-list scope of a cfDNA sample: its ``assay_panel``, else the default."""
-    panel = (metadata or {}).get(SAMPLE_ASSAY_PANEL_KEY)
+def assay_key_for_panel(panel: Any) -> str:
+    """The artifact-list scope of a capture panel: the panel, else (none) the default."""
     if isinstance(panel, str) and panel.strip():
         return panel.strip()
     return DEFAULT_NIPT_ASSAY_KEY
 
 
+def assay_key_for_sample_metadata(metadata: Mapping[str, Any] | None) -> str:
+    """The artifact-list scope of a cfDNA sample: the capture panel the monogenic NIPT's package
+    named for it, else the default."""
+    return assay_key_for_panel(sample_assay_panel(metadata, MONOGENIC_NIPT_ANALYSIS_TYPE))
+
+
 def nipt_assay_key(family: FamilyOut, trio: NiptTrio) -> str:
     """The artifact-list scope key for the family's cfDNA assay/panel.
 
-    Read from the cfDNA sample's ``assay_panel`` metadata so labs can keep a
-    panel-specific artifact list; absent, all NIPT families on the assembly
-    share the default scope.
+    Read from the capture panel the monogenic NIPT's package named for the cfDNA sample
+    (``assay_key_for_sample_metadata``) so labs can keep a panel-specific artifact list; without
+    one, all NIPT families on the assembly share the default scope.
     """
     for member in family.members:
         if member.sample_id == trio.cfdna_sample_id:

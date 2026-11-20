@@ -466,9 +466,11 @@ async def _merge_sample_metadata(
     sample_uuid: str,
     patch: dict[str, Any],
 ) -> None:
-    """Shallow-merge ``patch`` into ``samples.metadata`` (top-level keys replaced)."""
+    """Shallow-merge ``patch`` into ``samples.metadata`` (top-level keys replaced), read and
+    written under the sample row's lock, so a write of the sample's other keys in between is not
+    put back."""
     result = await session.execute(
-        text("SELECT metadata FROM samples WHERE id = CAST(:sample_id AS uuid)"),
+        text("SELECT metadata FROM samples WHERE id = CAST(:sample_id AS uuid) FOR UPDATE"),
         {"sample_id": sample_uuid},
     )
     metadata = _metadata_dict(result.scalar_one_or_none())
@@ -500,7 +502,7 @@ async def record_sample_qc_metadata(
     (qc_threshold_service.resolve_analysis_qc_thresholds), and its report read in that
     analysis's package folder."""
     result = await session.execute(
-        text("SELECT metadata -> 'sequencing_qc' FROM samples WHERE id = CAST(:sample_id AS uuid)"),
+        text("SELECT metadata -> 'sequencing_qc' FROM samples WHERE id = CAST(:sample_id AS uuid) FOR UPDATE"),
         {"sample_id": sample_context.sample_uuid},
     )
     sequencing_qc = _metadata_dict(result.scalar_one_or_none())
@@ -543,7 +545,7 @@ async def record_sample_alignment_metadata(
     sequenced short-read and then long-read has one of each. The CRAM endpoint serves each
     only after checking it (routers/cram.py): paths in that analysis's package folder."""
     result = await session.execute(
-        text("SELECT metadata -> 'alignments' FROM samples WHERE id = CAST(:sample_id AS uuid)"),
+        text("SELECT metadata -> 'alignments' FROM samples WHERE id = CAST(:sample_id AS uuid) FOR UPDATE"),
         {"sample_id": sample_context.sample_uuid},
     )
     alignments = _metadata_dict(result.scalar_one_or_none())

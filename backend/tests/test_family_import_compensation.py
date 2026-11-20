@@ -38,6 +38,7 @@ import pytest
 from app.services import family_package_import as fpi
 from app.services.hpo_service import PhenotypeImport
 from app.services import family_package_registration as registration
+from backend.tests._family_import_fakes import no_family_import_hold
 
 
 # The members of the two-sample packages below, as the manifest CoGA keeps for an import names
@@ -150,11 +151,13 @@ class _FamilyRow(_FakeSession):
     only when it struck something off a whole-family entry, and ``flag`` only when it
     brought again a dataset the flag names."""
 
-    def __init__(self, flag=None, unfinished=None, imported=None) -> None:
+    def __init__(self, flag=None, unfinished=None, imported=None, family_samples=("S1", "S2")) -> None:
         super().__init__()
         self.flag = flag
         self.unfinished = unfinished
         self.imported = imported
+        # The sample IDs of the family's active members, read with its import state.
+        self.family_samples = list(family_samples)
 
     async def execute(self, statement, params=None):
         await super().execute(statement, params)
@@ -166,6 +169,7 @@ class _FamilyRow(_FakeSession):
                 "flag": copy.deepcopy(self.flag),
                 "unfinished": copy.deepcopy(self.unfinished),
                 "imported_scopes": copy.deepcopy(self.imported),
+                "family_samples": list(self.family_samples),
             }
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
         assert sql.startswith("UPDATE families"), sql
@@ -583,7 +587,6 @@ async def test_a_restore_that_failed_part_way_keeps_its_entry_naming_every_datas
         job_id="job-2",
         mark=mark,
         scopes=mark.scopes,
-        family_samples=["S1", "S2"],
     )
 
     # The flag: every dataset of the import failed, none imported.
@@ -608,12 +611,42 @@ async def test_a_restore_that_failed_part_way_keeps_its_entry_naming_every_datas
 
 
 @pytest.mark.asyncio
+async def test_a_restore_that_failed_part_way_keeps_the_other_analysiss_samples_in_its_entry() -> None:
+    # The family holds a monogenic NIPT (FATHER1, CFDNA1, its coverage of each) and a conventional
+    # NIPT of a plasma of its own, CNIPT1, whose overwrite failed, and so did its restore, which
+    # rewrites every table of the family. Its package lists CNIPT1 alone; the entry lists every
+    # active member's data, the monogenic NIPT's too.
+    mark = registration.ImportMark.begin(
+        job_id="job-2", datasets=["ccnv"], scopes={"ccnv": {"source": "ccnv", "samples": ["CNIPT1"]}}
+    )
+    row = _FamilyRow(
+        unfinished={mark.key: mark.entry()},
+        imported={"coverage": [_one("FATHER1"), _one("CFDNA1")], "snv": [_one(None, "nipt")]},
+        family_samples=["CFDNA1", "CNIPT1", "FATHER1", "FETUS1"],
+    )
+
+    listed = await fpi._flag_family_restore_failed(
+        row, _ctx(), failed_datasets=["ccnv"], job_id="job-2", mark=mark, scopes=mark.scopes
+    )
+
+    assert listed == ["ccnv", "coverage", "snv"]
+    assert row.unfinished[mark.key]["whole_family"] == [
+        {"dataset": "ccnv", "scope": {"source": "ccnv", "samples": ["CNIPT1"]}},
+        {"dataset": "coverage", "scope": _one("CFDNA1")},
+        {"dataset": "coverage", "scope": _one("FATHER1")},
+        {"dataset": "snv", "scope": _one(None, "nipt")},
+    ]
+    # The members are read with the import state, under the row's lock.
+    assert "fm.active" in row.executed[0][0] and "FOR UPDATE" in row.executed[0][0]
+
+
+@pytest.mark.asyncio
 async def test_before_its_restore_an_import_marks_every_dataset_of_the_family_pending() -> None:
     # So a process that stops in the restore leaves the family marked as a whole too.
     mark = _mark()
     row = _FamilyRow(unfinished={mark.key: mark.entry(["snv"])}, imported={"sv_needlr": [_one()]})
 
-    await fpi._mark_family_import_restoring(row, _ctx(), mark, family_samples=["S1", "S2"])
+    await fpi._mark_family_import_restoring(row, _ctx(), mark)
 
     entry = row.unfinished[mark.key]
     assert entry["datasets"] == ["coverage", "snv", "sv_needlr"]
@@ -1202,7 +1235,6 @@ async def test_a_restore_that_fails_part_way_names_what_an_upload_brought(upload
         job_id="job-2",
         mark=mark,
         scopes=mark.scopes,
-        family_samples=["S1", "S2"],
     )
 
     # The entry names the uploaded data beside the import's coverage, so an import of that
@@ -1745,6 +1777,7 @@ async def test_an_import_records_the_callset_its_auto_snv_dataset_stores(monkeyp
 
     monkeypatch.setattr(fpi, "_ensure_family_from_ped", register)
     monkeypatch.setattr(fpi, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(fpi, "hold_family_import", no_family_import_hold)
     monkeypatch.setattr(fpi, "copy_variants_to_linked_projects", no_variant_copy)
     monkeypatch.setattr(fpi, "_existing_package_entity_warnings", no_warnings)
     monkeypatch.setattr(fpi, "_import_dataset", import_dataset)
@@ -2518,6 +2551,7 @@ async def test_an_import_clears_what_it_registered_carrying_nothing_or_imported_
 
     monkeypatch.setattr(fpi, "_ensure_family_from_ped", register)
     monkeypatch.setattr(fpi, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(fpi, "hold_family_import", no_family_import_hold)
     monkeypatch.setattr(fpi, "copy_variants_to_linked_projects", no_variant_copy)
     monkeypatch.setattr(fpi, "_existing_package_entity_warnings", no_warnings)
     monkeypatch.setattr(fpi, "_import_dataset", import_dataset)

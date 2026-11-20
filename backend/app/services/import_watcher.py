@@ -102,13 +102,16 @@ from .family_package_registration import (
     SAME_INDIVIDUAL_OUTSIDE,
     FamilySamplesHeld,
     _existing_package_entity_warnings,
+    _package_members,
     family_member_differences,
     family_samples_held,
+    member_values_conflict_message,
     package_same_individual_links,
     same_individual_not_made,
     same_individual_not_made_message,
     same_individual_outside,
     members_added_message,
+    members_filled_message,
     manifest_roi_issue,
     members_differ_message,
 )
@@ -553,11 +556,27 @@ async def assess_content(
         )
         # The package's members are the pedigree the import reads: an update adds the members the
         # family in CoGA lacks (a warning), and one that changes or lacks a member the family holds
-        # is corrected first, or overwrites the family's pedigree (an administrator's choice).
+        # is corrected first, or overwrites the family's pedigree (an administrator's choice). A
+        # family that holds another analysis keeps every value it knows of a member: a package that
+        # states one otherwise is corrected first, or the member in the members editor (no choice
+        # imports it); the values it fills are a warning.
         if bundle is not None and validation.family_id:
             differences = await family_member_differences(
-                session, family_id=validation.family_id, ped=bundle.ped, analysis_type=bundle.manifest.analysis_type
+                session,
+                family_id=validation.family_id,
+                ped=bundle.ped,
+                analysis_type=bundle.manifest.analysis_type,
+                members=_package_members(bundle),
             )
+            if differences.conflicting:
+                issues.append(
+                    _issue(
+                        "package_member_values_conflict",
+                        member_values_conflict_message(
+                            validation.family_id, differences.others, differences.conflicting
+                        ),
+                    )
+                )
             if not differences.kept_by_an_update:
                 issues.append(
                     _issue("package_members_differ_from_family", members_differ_message(validation.family_id, differences))
@@ -565,6 +584,10 @@ async def assess_content(
             elif differences.added:
                 warnings.append(
                     _issue("package_adds_members", members_added_message(validation.family_id, differences))
+                )
+            if differences.filled and not differences.conflicting:
+                warnings.append(
+                    _issue("package_fills_member_values", members_filled_message(validation.family_id, differences))
                 )
         links = package_same_individual_links(bundle) if bundle is not None else []
         if bundle is not None and links:

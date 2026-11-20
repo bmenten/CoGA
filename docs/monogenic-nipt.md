@@ -21,9 +21,10 @@ A NIPT case is a trio backed by two samples (`backend/app/services/nipt.py`, `re
   to the list, beside any other (a conventional NIPT of the same pregnancy).
 - The cfDNA sample's assays (`sample.metadata.assays`) hold `"nipt_cfdna"`, and it has the `mother`
   role. Without the tag, the active `mother` member's sample is used.
-- `sample.metadata.assay_panel` (optional, on the cfDNA sample; a package member's is promoted) names
-  the capture panel and scopes the artifact list. Without it, every NIPT family on the assembly
-  shares the `nipt_cfdna` list.
+- The capture panel the monogenic NIPT's package names for the cfDNA sample (its `assay_panel`,
+  optional; kept as the analysis's in `sample.metadata.assay_panels.monogenic_nipt`) scopes the
+  artifact list. Without it, every NIPT family on the assembly shares the `nipt_cfdna` list. A
+  conventional NIPT of the same plasma keeps its own panel beside it, which no artifact list reads.
 - The father is the active `father` member. The fetus (`embryo`, else `proband`) is an optional
   placeholder without data. A NIPT pedigree usually gives the fetus an unknown sex and status; the
   import reads such a child, with both parents and no role given, as an `embryo`. It has no
@@ -251,7 +252,7 @@ The admin page *NIPT artefact list* (`AdminNiptArtifactsPage.tsx`, `/admin/varia
 an admin's alone) manages it through admin-only endpoints in `routers/admin.py`:
 
 - `GET /admin/nipt/artifacts/scopes?assembly_id=` (`list_nipt_artifact_scopes`): the scopes to choose
-  from, the default `nipt_cfdna`, each scope a cfDNA sample's `assay_panel` resolves to and each scope
+  from, the default `nipt_cfdna`, each scope a cfDNA sample's monogenic NIPT panel resolves to and each scope
   the assembly's list holds entries for, each with its cfDNA samples (in every project) and entries;
 - `GET` / `POST /admin/nipt/artifacts` and `DELETE /admin/nipt/artifacts/{id}`: the entries, an entry
   added or updated, an entry removed (no reason: the audit event holds the entry as it was);
@@ -269,7 +270,7 @@ event, with the actor and the variants, on a chain of its own
 `GET /admin/integrity/verify?table=clinical_audit_events&family_id=system:nipt-artifacts` checks it.
 
 Auto-seed (`auto_seed_nipt_artifacts` → `fetch_recurrent_artifact_candidates`) reads the calls of
-the samples tagged `assay: nipt_cfdna` whose `assay_panel` resolves to the scope
+the samples tagged `assay: nipt_cfdna` whose monogenic NIPT panel resolves to the scope
 (`assay_cfdna_carrier_samples`), in every family and project.
 
 - It counts the mark of a recurrent artefact, not the carriers: an allele is listed when it is an

@@ -126,7 +126,8 @@ class ImportedPackageFamily(BaseModel):
     """A family whose package record names a scanned folder as the one it was imported from."""
 
     family_id: str
-    # When its last import registered it (families.metadata.package_import.registered_at).
+    # When the import of the package record that names the folder registered it
+    # (families.metadata.package_imports.<analysis>.registered_at).
     registered_at: Optional[datetime] = None
     # Its last import did not complete, or is still running: the family is flagged
     # import-incomplete, or carries an import's unfinished mark.

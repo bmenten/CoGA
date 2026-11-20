@@ -42,7 +42,7 @@ from backend.app.services import family_package_registration as registration
 from backend.app.services import family_project_variants, family_structure_service, metadata_service
 from backend.app.services.family_package_common import ImportRefused, PackageExecutionResult, PackageManifest
 from backend.app.services.family_package_manifest import _parse_ped_text_strict
-from backend.tests._family_import_fakes import admin_user, two_sample_context
+from backend.tests._family_import_fakes import admin_user, no_family_import_hold, two_sample_context
 from backend.tests._kept_manifest import kept_manifest
 
 ASSEMBLY = "GRCh38"
@@ -789,6 +789,7 @@ def _import_steps(monkeypatch, tmp_path: Path, *, created: bool, copy_fails: boo
     for name, value in {
         "_ensure_family_from_ped": register,
         "hold_family_variant_writes": hold,
+        "hold_family_import": no_family_import_hold,
         "_mark_family_import_unfinished": mark,
         "copy_variants_to_linked_projects": copy,
         "_import_family_datasets": datasets,
@@ -893,11 +894,11 @@ def _registration(monkeypatch, *, refuse: bool) -> list[str]:
 
     monkeypatch.setattr(registration.ped_service, "_resolve_accessible_project_id", resolve)
     monkeypatch.setattr(registration, "_fetch_existing_family", existing)
-    # The family holds no other analysis whose members its packages listed.
+    # The family holds no other analysis: the package is the source of its pedigree.
     async def no_other_analysis(*_args, **_kwargs):
-        return frozenset()
+        return registration.OtherAnalyses()
 
-    monkeypatch.setattr(registration, "members_of_other_analyses", no_other_analysis)
+    monkeypatch.setattr(registration, "other_analyses_of", no_other_analysis)
     monkeypatch.setattr(registration.ped_service, "build_pedigree_text", stored_pedigree)
     monkeypatch.setattr(registration, "_package_family_id", lambda _validation, _bundle: "FAM001")
     monkeypatch.setattr(registration, "refuse_project_on_other_assembly", refuse_other_assembly)
@@ -969,6 +970,43 @@ async def test_an_import_whose_members_differ_from_the_familys_is_refused_before
     assert "S2 is male, father none, mother none in the package" in str(refused.value)
     assert "S3 is a member of the package, not of the family" in str(refused.value)
     # Nothing of the family was written, and its project was not checked.
+    assert steps == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflict_mode", ["update", "overwrite"])
+async def test_an_import_of_another_analysis_that_changes_a_members_known_value_is_refused_before_the_family_is_marked(
+    monkeypatch, conflict_mode: str
+) -> None:
+    # The family holds a monogenic NIPT, whose S1 is affected; the package of its other analysis
+    # says unaffected. Whatever the mode, the import is refused and nothing of the family written.
+    steps = _registration(monkeypatch, refuse=False)
+
+    async def another_analysis(*_args, **_kwargs):
+        return registration.OtherAnalyses(analyses=("monogenic_nipt",), kept=frozenset({"S1", "S2"}))
+
+    async def statuses(*_args, **_kwargs):
+        return {
+            sample_id: {"clinical_status": status, "carrier_status": "unknown", "carrier_type": None, "carrier_evidence": {}}
+            for sample_id, status in (("S1", "affected"), ("S2", "unaffected"))
+        }
+
+    monkeypatch.setattr(registration, "other_analyses_of", another_analysis)
+    monkeypatch.setattr(registration, "_held_member_values", statuses)
+
+    with pytest.raises(ImportRefused) as refused:
+        await registration._ensure_family_from_ped(
+            _LinkSession(steps),  # type: ignore[arg-type]
+            bundle=_bundle("FAM001 S1 0 0 1 1\n"),  # type: ignore[arg-type]
+            project_id=B,
+            user=admin_user(),
+            validation=None,  # type: ignore[arg-type]
+            conflict_mode=conflict_mode,
+            import_mark=object(),  # type: ignore[arg-type]
+        )
+
+    assert "S1's clinical status is unaffected in the package, affected in CoGA" in str(refused.value)
+    assert "(monogenic_nipt)" in str(refused.value)
     assert steps == []
 
 

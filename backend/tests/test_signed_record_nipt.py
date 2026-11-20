@@ -117,7 +117,7 @@ def _targets(*, y_mean: float = 108.0, x_mean: float = 1300.0) -> list[TargetCov
 def _sample_rows(*, assay_panel: str | None = "panel-v2") -> list[dict[str, Any]]:
     plasma_metadata: dict[str, Any] = {"assays": ["nipt_cfdna"]}
     if assay_panel:
-        plasma_metadata["assay_panel"] = assay_panel
+        plasma_metadata["assay_panels"] = {"monogenic_nipt": assay_panel}
     return [
         {"sample_id": FATHER, "role": "father", "sample_metadata": {}},
         {"sample_id": PLASMA, "role": "mother", "sample_metadata": plasma_metadata},
@@ -150,7 +150,7 @@ def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
             FamilyMemberOut(sample_id=FATHER, role="father", affected=False),
             FamilyMemberOut(
                 sample_id=PLASMA, role="mother", affected=False,
-                sample_metadata={"assays": ["nipt_cfdna"], "assay_panel": "panel-v2"},
+                sample_metadata={"assays": ["nipt_cfdna"], "assay_panels": {"monogenic_nipt": "panel-v2"}},
             ),
         ],
         metadata={"analysis_types": ["monogenic_nipt"]},

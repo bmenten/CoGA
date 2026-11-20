@@ -1614,6 +1614,7 @@ async def take_package_pedigree(
     user: CurrentUser,
     replace: bool,
     kept: Collection[str] = (),
+    merge: bool = False,
 ) -> FamilyStructureUpdateOut | None:
     """Give the existing family ``family_id`` the pedigree of a package an import reads: its
     ``members`` and ``relationships`` (as ``family_package_registration`` makes them for a new
@@ -1624,16 +1625,23 @@ async def take_package_pedigree(
     - ``replace=False`` (an update): the members the family lacks are added, with the package's
       links that name one of them; the family's members and links stay as they are. The members
       the family holds agree with the package's (``family_member_differences``).
-    - ``replace=True`` (an overwrite): the package's members and links become the family's: a
-      member the family lacks is added (one it holds inactive is made active again), one it holds
-      takes the package's sex, role and statuses, one the package lacks is made inactive (its data
-      stays, as a structure edit leaves it), and the links are the package's.
+    - ``replace=True`` (an overwrite) of a family that holds only this analysis: the package's
+      members and links become the family's: a member the family lacks is added (one it holds
+      inactive is made active again), one it holds takes the package's sex, role and statuses, one
+      the package lacks is made inactive (its data stays, as a structure edit leaves it), and the
+      links are the package's.
 
-    ``kept``: the members the packages of the family's other analyses listed (a monogenic and a
-    conventional NIPT of one pregnancy, each with its own package). An overwrite leaves them active
-    though the package lacks them, and keeps the family's links between two of them, and its
-    same-individual links between one of them and a member the package lists (the plasmas of the
-    two NIPTs, linked by the analyst or by the other package).
+    ``merge``: the family holds another analysis (a monogenic and a conventional NIPT of one
+    pregnancy, each with its own package; ``family_package_registration.other_analyses_of``), whose
+    members keep every value the family knows (the owner's decision of 2026-11-20). Then, in either
+    mode, a member the family holds keeps its sex, role, statuses and links: the package fills a sex
+    the family does not know and adds the links the family lacks, but none that gives a child a
+    second father or mother (``family_member_differences`` refused a package that names another one
+    before the import marked the family); the statuses are the registration's to fill
+    (``_register_package_samples``). ``kept``: the members the import keeps though the package does
+    not list them (every active member but those only this analysis's record lists). An overwrite
+    leaves them active with their links, and makes inactive only a member the package lacks that
+    the import does not keep, with its links.
 
     The same-individual links are always given (``same_individual``): an update adds the package's
     that name a member it adds to the family's.
@@ -1648,33 +1656,26 @@ async def take_package_pedigree(
     package = {_sample_key(str(member["sample_id"])): _package_member_fields(member) for member in members}
     added = [fields for key, fields in package.items() if key not in active]
     added_keys = {_sample_key(fields["sample_id"]) for fields in added}
+    if merge:
+        return await _merge_package_pedigree(
+            session,
+            family_id=family_id,
+            family_uuid=family_uuid,
+            version=version,
+            held=held,
+            package=package,
+            added=added,
+            relationships=relationships,
+            user=user,
+            replace=replace,
+            kept=kept,
+        )
     updates: list[FamilyStructureMemberUpdate] = []
     removed: list[str] = []
     if replace:
-        kept_keys = {_sample_key(sample_id) for sample_id in kept}
         updates = [FamilyStructureMemberUpdate(**fields) for key, fields in package.items() if key in active]
-        removed = [
-            str(row["sample_id"])
-            for key, row in held.items()
-            if key in active and key not in package and key not in kept_keys
-        ]
+        removed = [str(row["sample_id"]) for key, row in held.items() if key in active and key not in package]
         links = list(relationships)
-        if kept_keys:
-            # The family's links between two of the kept members stay (``_link_payload`` names
-            # a link the package gives too once), and a same-individual link that joins a kept
-            # member to one the package lists: it is no more the package's than the other's.
-            current = await _fetch_current_relationship_rows(session, family_uuid=family_uuid)
-            staying = kept_keys | set(package)
-
-            def ends(link: Mapping[str, Any]) -> set[str]:
-                return {_sample_key(str(link["sample_id_a"])), _sample_key(str(link["sample_id_b"]))}
-
-            links.extend(
-                link
-                for link in current
-                if ends(link) <= kept_keys
-                or (link.get("relationship_type") == SAME_INDIVIDUAL and ends(link) <= staying and ends(link) & kept_keys)
-            )
     else:
         current = await _fetch_current_relationship_rows(session, family_uuid=family_uuid)
         links = [
@@ -1704,6 +1705,98 @@ async def take_package_pedigree(
         remove_members=removed,
         # An update keeps the family's links of unknown degree; an overwrite takes the package's.
         relationships=payload if replace else payload.model_copy(update={"relatives": None}),
+    )
+    return await update_family_structure_for_admin(
+        session, family_id=family_id, update=update, user=user, source=PACKAGE_IMPORT
+    )
+
+
+def _link_identity(link: Mapping[str, Any]) -> tuple[Any, ...]:
+    """A link as two pedigrees name it, whatever its source or metadata: its kind and its ends (a
+    parent and a child, with the parent's role; two partners, relatives or samples of one person,
+    in either order)."""
+    kind = link.get("relationship_type")
+    ends = (_sample_key(str(link["sample_id_a"])), _sample_key(str(link["sample_id_b"])))
+    if kind == "parent_child":
+        role = link.get("role_a")
+        return (kind, *ends, role if role in ("father", "mother") else "parent")
+    return (kind, *sorted(ends))
+
+
+async def _merge_package_pedigree(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    family_uuid: str,
+    version: int,
+    held: Mapping[str, Mapping[str, Any]],
+    package: Mapping[str, Mapping[str, Any]],
+    added: Sequence[Mapping[str, Any]],
+    relationships: Sequence[Mapping[str, Any]],
+    user: CurrentUser,
+    replace: bool,
+    kept: Collection[str],
+) -> FamilyStructureUpdateOut | None:
+    """``take_package_pedigree`` for a family that holds another analysis (``merge``): the members
+    the family lacks added, the sexes it does not know filled, the package's links it lacks added
+    (never a second father or mother of a child), its own members and links kept; an overwrite
+    makes inactive the members the package lacks that the import does not keep (``kept``), with
+    their links. None when nothing changes."""
+    active = {key for key, row in held.items() if row.get("active")}
+    kept_keys = {_sample_key(sample_id) for sample_id in kept}
+    removed = (
+        [str(row["sample_id"]) for key, row in held.items() if key in active and key not in package and key not in kept_keys]
+        if replace
+        else []
+    )
+    removed_keys = {_sample_key(sample_id) for sample_id in removed}
+    updates = [
+        FamilyStructureMemberUpdate(sample_id=str(fields["sample_id"]), sex=fields["sex"])
+        for key, fields in package.items()
+        if key in active and held[key].get("sex") not in ("male", "female") and fields.get("sex") in ("male", "female")
+    ]
+
+    def ends(link: Mapping[str, Any]) -> set[str]:
+        return {_sample_key(str(link["sample_id_a"])), _sample_key(str(link["sample_id_b"]))}
+
+    current = [
+        link for link in await _fetch_current_relationship_rows(session, family_uuid=family_uuid) if not ends(link) & removed_keys
+    ]
+    known = {_link_identity(link) for link in current}
+    parents = {
+        (_sample_key(str(link["sample_id_b"])), link.get("role_a"))
+        for link in current
+        if link.get("relationship_type") == "parent_child" and link.get("role_a") in ("father", "mother")
+    }
+    new_links: list[Mapping[str, Any]] = []
+    for link in relationships:
+        identity = _link_identity(link)
+        if identity in known or ends(link) & removed_keys:
+            continue
+        if link.get("relationship_type") == "parent_child" and link.get("role_a") in ("father", "mother"):
+            parent_of = (_sample_key(str(link["sample_id_b"])), link.get("role_a"))
+            if parent_of in parents:
+                continue
+            parents.add(parent_of)
+        known.add(identity)
+        new_links.append(link)
+    if not added and not removed and not updates and not new_links:
+        return None
+    update = FamilyStructureUpdate(
+        expected_structure_version=version,
+        change_reason=(
+            "A package import of one of the family's analyses added the package's members and links the family "
+            "lacked and filled the values it did not know, keeping its other analyses' members and values"
+            + (
+                "; the members only this analysis listed that the package lacks were made inactive (overwrite)."
+                if replace
+                else " (update)."
+            )
+        ),
+        add_members=[FamilyStructureMemberCreate(**fields) for fields in added],
+        members=updates,
+        remove_members=removed,
+        relationships=_link_payload([*current, *new_links]),
     )
     return await update_family_structure_for_admin(
         session, family_id=family_id, update=update, user=user, source=PACKAGE_IMPORT
