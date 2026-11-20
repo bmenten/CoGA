@@ -174,9 +174,10 @@ class ManifestPhenotypes(BaseModel):
 class PackageManifest(BaseModel):
     schema_version: int = 1
     family_id: str | None = None
-    # Optional analysis type for the family, e.g. "monogenic_nipt". Promoted to
-    # families.metadata["analysis_type"] so the workspace surfaces the NIPT tab
-    # and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
+    # Optional analysis type of the package, e.g. "monogenic_nipt": the key of the family's
+    # package record of it, added to families.metadata["analysis_types"] so the workspace
+    # surfaces the NIPT tab and resolve_nipt_trio can find the cfDNA sample (see
+    # docs/monogenic-nipt.md). A family may hold several, each from a package of its own.
     analysis_type: str | None = None
     roi: str | dict[str, Any] | None = None
     # The reference genome the pipeline aligned to (its FASTA's name), as the package file gives

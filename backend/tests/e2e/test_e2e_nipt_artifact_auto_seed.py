@@ -142,7 +142,7 @@ async def _seed_postgres() -> str:
                 )
             ).scalar_one()
             for sample, sex, metadata in (
-                (_sample("CFDNA", index), "female", {"assays": ["nipt_cfdna"], "assay_panel": _PANEL}),
+                (_sample("CFDNA", index), "female", {"assays": ["nipt_cfdna"], "assay_panels": {"monogenic_nipt": _PANEL}}),
                 (_sample("FATHER", index), "male", {}),
             ):
                 await session.execute(

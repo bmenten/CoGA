@@ -16,7 +16,8 @@ drives the real statements against the real schema:
 - after a failed overwrite whose restore failed part-way, the import's entry stays, naming
   every dataset the family's imports recorded (``imported_scopes``) besides its own, and
   goes only once each has been imported again with overwrite; a refused restore swaps the
-  entry for the flag;
+  entry for the flag; the entry lists the data of every active member of the family, those of
+  its other analyses too, and none of an inactive member;
 - a single-file upload's record is written in the upload's transaction and takes turns
   with an import's bookkeeping on the family row, so neither loses the other's; the entry
   of a restore that failed part-way names what uploads brought, and only an upload with
@@ -342,7 +343,7 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
         own = mark("snv", "coverage")
         async with sm() as s:
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own, finished=["snv"])
-            await _mark_family_import_restoring(s, context, own, family_samples=["S1"])
+            await _mark_family_import_restoring(s, context, own)
             entry = (await _metadata(s, family_uuid))["import_unfinished"][own.key]
         assert (entry["datasets"], entry["finished_datasets"]) == (["coverage", "snv", "sv_needlr"], [])
         assert entry["whole_family"] == [
@@ -361,7 +362,6 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
                 job_id=own.job_id,
                 mark=own,
                 scopes=own.scopes,
-                family_samples=["S1"],
             )
             metadata = await _metadata(s, family_uuid)
             flag = await rss._import_incomplete_state(s, family_uuid)
@@ -420,7 +420,7 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
         refused = mark("snv")
         async with sm() as s:
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=refused)
-            await _mark_family_import_restoring(s, context, refused, family_samples=["S1"])
+            await _mark_family_import_restoring(s, context, refused)
             await _flag_family_import_incomplete(
                 s,
                 context,
@@ -433,6 +433,75 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
             metadata = await _metadata(s, family_uuid)
         assert "import_unfinished" not in metadata
         assert metadata["import_incomplete"]["failed_datasets"] == ["snv"]
+
+        async with sm() as s:
+            await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})
+            await s.commit()
+
+    run_closing_stores(scenario, init_schema=True)
+
+
+def test_a_restore_that_did_not_finish_lists_the_data_of_every_active_member() -> None:
+    # The family holds two analyses: the other's members (FATHER1, PLASMA1) and this package's
+    # (CNIPT1), and a member made inactive (OLD1). The entry a restore that failed part-way leaves
+    # lists every active member's data, read from the family's members, not the package's alone.
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.services.family_package_registration import (
+        ImportMark,
+        _clear_family_import_incomplete,
+        _flag_family_restore_failed,
+        _mark_family_import_unfinished,
+    )
+
+    label = f"import-restore-members-{uuid4()}"
+    suffix = uuid4().hex[:8].upper()
+    members = {f"FATHER1-{suffix}": True, f"PLASMA1-{suffix}": True, f"CNIPT1-{suffix}": True, f"OLD1-{suffix}": False}
+    father, plasma, cnipt, old = members
+
+    async def scenario() -> None:
+        sm = get_postgres_sessionmaker()
+        async with sm() as s:
+            family_uuid = (
+                await s.execute(
+                    text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
+                )
+            ).scalar_one()
+            for sample_id, active in members.items():
+                sample_uuid = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO samples (sample_id, family_id, sex) "
+                            "VALUES (:s, CAST(:f AS uuid), 'und') RETURNING id::text"
+                        ),
+                        {"s": sample_id, "f": family_uuid},
+                    )
+                ).scalar_one()
+                await s.execute(
+                    text(
+                        "INSERT INTO family_members (family_id, sample_id, role, active) "
+                        "VALUES (CAST(:f AS uuid), CAST(:s AS uuid), 'relative', :active)"
+                    ),
+                    {"f": family_uuid, "s": sample_uuid, "active": active},
+                )
+            await s.commit()
+        context = SimpleNamespace(family_uuid=family_uuid, family_id=label)
+        coverage = [{"source": None, "samples": [sample]} for sample in (father, plasma, old)]
+        async with sm() as s:
+            await _clear_family_import_incomplete(s, context, imported={"coverage": {"source": None, "samples": [father, plasma, old]}})
+        own = ImportMark.begin(
+            job_id=str(uuid4()), datasets=["ccnv"], scopes={"ccnv": {"source": "ccnv", "samples": [cnipt]}}
+        )
+        async with sm() as s:
+            await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own)
+            listed = await _flag_family_restore_failed(
+                s, context, failed_datasets=["ccnv"], job_id=own.job_id, mark=own, scopes=own.scopes
+            )
+            metadata = await _metadata(s, family_uuid)
+        assert listed == ["ccnv", "coverage"]
+        assert metadata["import_unfinished"][own.key]["whole_family"] == [
+            {"dataset": "ccnv", "scope": {"source": "ccnv", "samples": [cnipt]}},
+            *({"dataset": "coverage", "scope": scope} for scope in sorted(coverage[:2], key=json.dumps)),
+        ]
 
         async with sm() as s:
             await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})
@@ -554,7 +623,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
         own = ImportMark.begin(job_id=str(uuid4()), datasets=["snv"], scopes={"snv": snv})
         async with sm() as s:
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own)
-            await _mark_family_import_restoring(s, context, own, family_samples=["S1"])
+            await _mark_family_import_restoring(s, context, own)
             listed = await _flag_family_restore_failed(
                 s,
                 context,
@@ -562,7 +631,6 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
                 job_id=own.job_id,
                 mark=own,
                 scopes=own.scopes,
-                family_samples=["S1"],
             )
         assert listed == ["bed_wisecondorx", "coverage", "snv", "sv_sniffles"]
 

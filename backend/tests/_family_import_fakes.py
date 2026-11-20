@@ -10,12 +10,15 @@
 * ``no_variant_copy``: in place of the import's copy of an existing family's callsets to
   the projects that hold none of them (``copy_variants_to_linked_projects``, which reads
   Postgres and ClickHouse): nothing to copy.
+* ``no_family_import_hold``: in place of the import's hold of its family's import lock
+  (``hold_family_import``, on a Postgres connection of its own): held at once, by nothing;
+  test_family_variant_writes_serialized has the lock.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,6 +48,13 @@ async def no_variant_copy(*_args: Any, **_kwargs: Any) -> bool:
     """Nothing copied: every project of the family holds each of its callsets
     (``family_project_variants.copy_variants_to_linked_projects``)."""
     return False
+
+
+@asynccontextmanager
+async def no_family_import_hold(_family_identifier: str, **_kwargs: Any) -> AsyncIterator[None]:
+    """The family's import lock held at once (``family_variant_write_lock.hold_family_import``):
+    no other import of the family runs."""
+    yield
 
 
 def _default_sample_uuid(sample_id: str) -> str:

@@ -336,6 +336,21 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
     assert seen["carrier_samples"] == ["CF2"]
 
 
+def test_a_cfdna_samples_scope_is_read_from_the_monogenic_nipts_panel() -> None:
+    # The SQL reads the panel the monogenic NIPT's package named, kept under that analysis: a
+    # conventional NIPT of the same plasma names its own, which no artifact list reads.
+    import inspect
+
+    from backend.app.services.family_analysis_types import SAMPLE_ASSAY_PANELS_KEY
+    from backend.app.services.nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
+
+    assert nipt_artifact_pg.CFDNA_PANEL_PATH == (SAMPLE_ASSAY_PANELS_KEY, MONOGENIC_NIPT_ANALYSIS_TYPE)
+    source = inspect.getsource(nipt_artifact_pg._cfdna_sample_scopes)
+    panels, analysis = nipt_artifact_pg.CFDNA_PANEL_PATH
+    assert f"metadata -> '{panels}' ->> '{analysis}'" in source
+    assert f"metadata -> '{panels}' -> '{analysis}'" in source
+
+
 @pytest.mark.asyncio
 async def test_auto_seed_without_cfdna_samples_for_the_assay_seeds_nothing(
     monkeypatch: pytest.MonkeyPatch, audit_events: list[dict]

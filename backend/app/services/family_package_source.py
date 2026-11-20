@@ -39,7 +39,8 @@ def _authorized_local_roots() -> list[Path]:
 
 
 def local_family_package_folder(package_folder: object) -> str | None:
-    """The folder a family's import read (``families.metadata.package_import.folder_path``),
+    """The folder an import of one of a family's analyses read (the ``folder_path`` of that
+    analysis's record, ``families.metadata.package_imports.<analysis>.folder_path``),
     as its real path, when it lies below a FAMILY_IMPORT_ROOTS entry; ``None`` otherwise.
 
     A file the import recorded on a sample, relative to the package (its aligned reads, its

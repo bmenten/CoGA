@@ -29,7 +29,7 @@ from backend.app.schemas import FamilyImportValidationIssue
 from backend.app.services import family_package_import as package_import
 from backend.app.services import family_package_registration as registration
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-from backend.tests._family_import_fakes import admin_user
+from backend.tests._family_import_fakes import admin_user, no_family_import_hold
 from backend.tests._kept_manifest import kept_manifest
 
 FAMILY_UUID = "00000000-0000-0000-0000-00000000f001"
@@ -332,6 +332,7 @@ def package(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
     monkeypatch.setattr(package_import, "_existing_package_entity_warnings", no_warnings)
     monkeypatch.setattr(package_import, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(package_import, "hold_family_import", no_family_import_hold)
     for name in (
         "_mark_family_import_unfinished",
         "_end_import_failed_before_datasets",

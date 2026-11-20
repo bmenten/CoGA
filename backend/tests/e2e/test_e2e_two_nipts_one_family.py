@@ -15,6 +15,12 @@ Then:
   its package listed;
 * the conventional NIPT's import, which lists the plasma alone, leaves the father and the fetus
   active: they are the monogenic NIPT's members;
+* it keeps every value the family knows of the plasma (the owner's decision of 2026-11-20): its
+  package gives no phenotype, and the plasma stays unaffected; the family's PED text stays the
+  monogenic NIPT's; the capture panel it names is kept as the conventional NIPT's, beside the
+  monogenic NIPT's none;
+* a third package, of the conventional NIPT again, that says the plasma is affected is refused,
+  with overwrite too, before anything of the family is written, naming the plasma and both values;
 * each analysis's data is kept: the plasma's coverage BED (monogenic) and its ccnv tracks
   (conventional);
 * the family's raw files are read in both folders;
@@ -100,16 +106,20 @@ def _mnipt_package(root: Path, family_id: str, father: str, plasma: str, fetus: 
     return root
 
 
-def _cnipt_package(root: Path, family_id: str, plasma: str) -> Path:
+def _cnipt_package(root: Path, family_id: str, plasma: str, phenotype: str = "-9") -> Path:
     root.mkdir(parents=True)
     entry = write_ccnv_output(root, plasma)
-    (root / "family.ped").write_text(f"{family_id}\t{plasma}\t0\t0\t2\t-9\trole=mother\n", encoding="utf-8")
+    (root / "family.ped").write_text(
+        f"{family_id}\t{plasma}\t0\t0\t2\t{phenotype}\trole=mother\n", encoding="utf-8"
+    )
     manifest = {
         "schema_version": 1,
         "family_id": family_id,
         "ped": "family.ped",
         "analysis_type": "conventional_nipt",
-        "samples": {plasma: {"assay": "cnipt_cfdna"}},
+        # The panel the conventional NIPT names: its own, which the monogenic NIPT's artefact list
+        # never reads.
+        "samples": {plasma: {"assay": "cnipt_cfdna", "assay_panel": "LOWPASS"}},
         "datasets": {"ccnv": {"per_sample": {plasma: entry}}},
     }
     (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
@@ -163,6 +173,32 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
     if not all(item["completed"] for item in out["imports"].values()):
         return out  # the first test names the import that failed
 
+    # The conventional NIPT again, from a package that says the plasma is affected: the monogenic
+    # NIPT's plasma is unaffected in CoGA, so the import is refused before it writes anything.
+    conflict_root = _cnipt_package(base / family_id / "cnipt_affected", family_id, plasma, phenotype="2")
+    async with sessionmaker() as session:
+        before = (
+            await session.execute(text("SELECT metadata FROM families WHERE family_id = :f"), {"f": family_id})
+        ).scalar_one()
+        try:
+            refused = await package_import.execute_family_package_import(
+                session,
+                folder_path=str(conflict_root),
+                manifest_text=kept_manifest(conflict_root),
+                project_id=project_id,
+                dry_run=False,
+                user=admin,
+                conflict_mode="overwrite",
+            )
+            out["conflict"] = {"refused": None, "completed": refused.completed, "error": refused.error}
+        except Exception as exc:  # noqa: BLE001 - the refusal is what the test reads
+            await session.rollback()
+            out["conflict"] = {"refused": type(exc).__name__, "message": str(exc)}
+    async with sessionmaker() as session:
+        out["conflict"]["metadata_unchanged"] = (
+            await session.execute(text("SELECT metadata FROM families WHERE family_id = :f"), {"f": family_id})
+        ).scalar_one() == before
+
     async with sessionmaker() as session:
         family = (
             await session.execute(
@@ -171,17 +207,21 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         ).mappings().one()
         out["family_metadata"] = family["metadata"]
         out["members_state"] = {
-            str(row["sample_id"]): (bool(row["active"]), row["role"], row["metadata"])
+            str(row["sample_id"]): (bool(row["active"]), row["role"], row["metadata"], row["clinical_status"])
             for row in (
                 await session.execute(
                     text(
-                        "SELECT s.sample_id, fm.active, fm.role, s.metadata FROM family_members fm "
-                        "JOIN samples s ON s.id = fm.sample_id WHERE fm.family_id = CAST(:f AS uuid)"
+                        "SELECT s.sample_id, fm.active, fm.role, s.metadata, fm.clinical_status "
+                        "FROM family_members fm JOIN samples s ON s.id = fm.sample_id "
+                        "WHERE fm.family_id = CAST(:f AS uuid)"
                     ),
                     {"f": family["id"]},
                 )
             ).mappings()
         }
+        out["pedigree_text"] = (
+            await session.execute(text("SELECT pedigree FROM families WHERE id = CAST(:f AS uuid)"), {"f": family["id"]})
+        ).scalar_one()
         out["track_sources"] = sorted(
             (str(row["track_type"]), str(row["source"]))
             for row in (
@@ -283,6 +323,31 @@ def test_the_conventional_nipt_leaves_the_monogenic_nipts_members_active(run) ->
         fetus: True,
     }
     assert run["members_state"][plasma][1] == "mother"
+
+
+def test_the_conventional_nipt_keeps_what_the_family_knows_of_the_plasma(run) -> None:
+    father, plasma, fetus = run["members"]
+    # Its package gives no phenotype for the plasma: the monogenic NIPT's "unaffected" stays.
+    assert {sample: state[3] for sample, state in run["members_state"].items()} == {
+        father: "unaffected",
+        plasma: "unaffected",
+        fetus: "affected",
+    }
+    # The family's PED text is not replaced by the package's, which lists the plasma alone.
+    rows = {line.split()[1] for line in run["pedigree_text"].splitlines() if line.strip()}
+    assert rows == {father, plasma, fetus}, run["pedigree_text"]
+    # Each analysis's capture panel is its own: the monogenic NIPT names none.
+    assert run["members_state"][plasma][2]["assay_panels"] == {"conventional_nipt": "LOWPASS"}
+
+
+def test_a_package_that_says_otherwise_of_the_plasma_is_refused_before_anything_is_written(run) -> None:
+    _father, plasma, _fetus = run["members"]
+    conflict = run["conflict"]
+    assert conflict["refused"] == "ImportRefused", conflict
+    assert f"{plasma}'s clinical status is affected in the package, unaffected in CoGA" in conflict["message"]
+    assert "(monogenic_nipt)" in conflict["message"]
+    # Nothing of the family was written: no mark, no flag, no record of the refused package.
+    assert conflict["metadata_unchanged"] is True
 
 
 def test_each_analysiss_data_is_kept(run) -> None:

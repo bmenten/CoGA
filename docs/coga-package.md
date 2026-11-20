@@ -119,7 +119,7 @@ member, also one without data of their own (a fetus).
 | `role` | no | `proband`, `father`, `mother`, `sibling`, `embryo` or `relative` |
 | `clinical_status` | no | `affected`, `unaffected` or `unknown` (left out: unknown) |
 | `carrier_status`, `carrier_type` | no | `carrier`, `not_carrier` or `unknown`; `obligate`, `proven`, `reported` or `inferred` |
-| `assay`, `assay_panel` | no | the sample's assay where it is not the family's (`nipt_cfdna` for a monogenic NIPT's maternal plasma, `cnipt_cfdna` for a conventional NIPT's) and its capture panel |
+| `assay`, `assay_panel` | no | the sample's assay where it is not the family's (`nipt_cfdna` for a monogenic NIPT's maternal plasma, `cnipt_cfdna` for a conventional NIPT's) and its capture panel, which CoGA keeps as the package's analysis's: a conventional NIPT's panel of the same plasma leaves the monogenic NIPT's artefact list as it was |
 | `hpo` | no | `present` and `absent`: HPO terms (`HP:0001250`) |
 | `related_to` | no | members this one is related to by an unknown degree (a PGT index on the mother's side) |
 | `same_individual_as` | no | other samples of the same person: a member of this package, or of another analysis's package the family already holds (a conventional NIPT's plasma names the monogenic NIPT's plasma of the same pregnancy) |

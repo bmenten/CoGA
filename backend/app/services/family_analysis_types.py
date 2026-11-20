@@ -19,6 +19,11 @@ FAMILY_ANALYSIS_TYPES_KEY = "analysis_types"
 # Sample.metadata["assays"]: the assays the sample was taken for, sorted (``nipt.NIPT_CFDNA_ASSAY``,
 # ``nipt.CNIPT_CFDNA_ASSAY``).
 SAMPLE_ASSAYS_KEY = "assays"
+# Sample.metadata["assay_panels"]: the capture panel each analysis's package named for the sample,
+# keyed by the analysis (the key of its package record, ``family_package_records.
+# package_record_key``): one plasma may be the sample of a monogenic NIPT on a capture panel and of
+# a conventional NIPT without one, and neither import changes the other's.
+SAMPLE_ASSAY_PANELS_KEY = "assay_panels"
 
 
 def _values(metadata: Mapping[str, Any] | None, key: str) -> frozenset[str]:
@@ -45,3 +50,10 @@ def added_to(values: Iterable[str], value: str | None) -> list[str]:
     if isinstance(value, str) and value.strip():
         kept.add(value.strip())
     return sorted(kept)
+
+
+def sample_assay_panel(metadata: Mapping[str, Any] | None, analysis: str) -> str | None:
+    """The capture panel the package of ``analysis`` named for a sample; None when it named none."""
+    panels = (metadata or {}).get(SAMPLE_ASSAY_PANELS_KEY)
+    panel = panels.get(analysis) if isinstance(panels, Mapping) else None
+    return panel.strip() if isinstance(panel, str) and panel.strip() else None

@@ -556,6 +556,26 @@ it with **Correct…** to the family's members, or have an administrator approve
 inactive). Either change is a new version of the family's structure, on its audit trail, and
 marks its analyses to be redone.
 
+**A family with another analysis.** A family can hold several analyses, each from a package of its
+own: the monogenic and the conventional NIPT of one pregnancy, or short-read and then long-read
+WGS. The package of one of them changes nothing the family already knows of the other's members:
+
+- The members its package does not list stay, the other analyses' and those added in **Edit
+  members**. *Overwrite* makes inactive only a member that only this analysis's earlier package
+  listed.
+- A member the family holds keeps its sex, parents, role, statuses and links. The package fills
+  in only what the family does not know yet (the delivery warns of it), and adds the members and
+  links the family lacks.
+- A package that says otherwise of a member (*affected* where the family says *unaffected*,
+  another father) needs attention and its import is refused, with *Update* and *Overwrite* alike,
+  before anything is written. The message names the member and both values: correct the package
+  with **Correct…**, or the member in **Edit members** first.
+- The capture panel a package names for a sample is kept per analysis: the conventional NIPT's
+  panel leaves the monogenic NIPT's artefact list as it was.
+
+Two imports of one family run one after the other: the second waits until the first has ended,
+and its log says so.
+
 **Two samples of one person.** A package may link a member to another sample of the same person with
 `same_individual_as`: a conventional NIPT's plasma names the monogenic NIPT's plasma of the same
 pregnancy when the two carry different sample IDs. The pedigree then draws them as one person, and
@@ -563,8 +583,8 @@ Sample QC expects their genotypes identical. A sample the package does not list 
 active member of the family; otherwise the delivery needs attention and its import is refused before
 anything is written. Import the monogenic NIPT's package first, or leave the link out and link the two
 samples afterwards in the family's **Family members** table (**Edit members**, column **Same
-individual**). *Update* adds the package's links of the members it adds, and *Overwrite* keeps such a
-link to another analysis's member.
+individual**). *Update* adds the package's links of the members it adds, and both *Update* and
+*Overwrite* keep such a link to another analysis's member.
 
 **An existing family imported into another project.** The family is linked to that **Project**
 too, and before its datasets the import gives the project the family's small and structural

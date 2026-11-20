@@ -561,12 +561,15 @@ out, and an empty folder adds nothing.
   - A family it created is removed with everything of it, the managed copy of a kept manifest
     included.
   - An existing family's datasets are put back from the snapshot taken before the datasets (for an
-    update as for an overwrite, whenever the package has a fingerprint), and so are the package
-    record of the package's analysis (the record it replaced, or none) and the family's analysis
-    types; the records of the family's other analyses stay as they are. The pedigree and
-    descriptive metadata the registration refreshed from the validated package stay, as for any
-    failed overwrite, each change on the family's clinical audit trail. Where the family cannot be
-    put back, it is flagged import-incomplete.
+    update as for an overwrite, whenever the package has a fingerprint), and so is what the
+    registration wrote (`put_back_family_package_record`): the package record of the package's
+    analysis (the record it replaced, or none), the family's analysis types, the keys it wrote of
+    each sample (its assays, its capture panels, its manifest entry and its package records, as
+    the record keeps them in `previous_samples`), and the raw-file rows of the package folder when
+    no record names that folder any more, with the copy of the manifest CoGA kept for the job. The
+    records of the family's other analyses stay as they are. The pedigree the registration changed
+    stays, as for any failed overwrite, each change on the family's clinical audit trail. Where
+    the family cannot be put back, it is flagged import-incomplete.
   - The job ends `failed` with `package_changed_during_import`, and the package list flags the
     folder (above): import it again once it is complete, dry run first.
 - **The family's package record** of the package's analysis keeps the fingerprint it was imported
@@ -598,11 +601,10 @@ out, and an empty folder adds nothing.
 #### The existing family's members
 
 The package's members are the pedigree an import reads. It is compared with the family as CoGA
-holds it (each member, its sex and its parents). A family may hold several analyses, each from a
-package of its own (the monogenic and the conventional NIPT of one pregnancy), and each package
-record keeps the members its package listed (`members`). So a member the package lacks that the
-package of another of the family's analyses listed is not missing: a conventional NIPT package
-that lists only the maternal plasma updates a family that holds the monogenic NIPT's trio.
+holds it (each member, its sex and its parents).
+
+A family that holds only the package's analysis, or no package's yet, takes the package as its
+pedigree:
 
 - `update` adds the members the family lacks, with the links the package gives them, and changes
   no member the family holds. A package that does (another sex, other parents), or that lacks one
@@ -612,8 +614,40 @@ that lists only the maternal plasma updates a family that holds the monogenic NI
 - `overwrite` makes the package's members the family's pedigree: a member the family lacks is
   added (one it held before is made active again), each member it holds takes the package's sex,
   role and statuses, one the package lacks is made inactive (its stored data stays, as for a
-  structure edit), and the family's links are the package's. The members the packages of the
-  family's other analyses listed stay active, with the family's links between them.
+  structure edit), and the family's links are the package's. The family's PED text is the
+  package's.
+
+A family may hold several analyses, each from a package of its own (the monogenic and the
+conventional NIPT of one pregnancy; short-read and then long-read WGS of the same DNA), each with
+its package record (`families.metadata.package_imports`, keyed by the package's `analysis_type`).
+An import of one of them must not change another's members behind its back (the owner's decision
+of 2026-11-20). So when the family holds a package record of another analysis:
+
+- **Members.** The import keeps every active member of the family but those only its own
+  analysis's record lists (its `members`): the other packages' members, and those added or
+  renamed in the members editor, whom no record lists. None of them is missing: a conventional
+  NIPT package that lists only the maternal plasma updates a family that holds the monogenic
+  NIPT's trio. An overwrite makes inactive only a member the package lacks that only its own
+  analysis's record listed.
+- **Values.** A member the family holds keeps every value it knows: its sex, its parents, its
+  role, its clinical and carrier status, carrier type and evidence, and its links. The package
+  fills a value the family does not know (a sex, a parent, a status), and the delivery's check
+  warns of it (`package_fills_member_values`). It adds the members the family lacks, with their
+  links, and the links the family lacks, but never a second father or mother of a child.
+- **A value stated otherwise.** A package that gives a member the family holds a known value
+  other than the family's known one is refused, with `update` and with `overwrite`, before
+  anything of the family is written. The message names the member and both values, such as
+  *The package gives members of family 'F' values other than those CoGA holds: PLASMA1's clinical
+  status is affected in the package, unaffected in CoGA.* The delivery's check says so
+  (`package_member_values_conflict`), and no choice approves it: correct the package
+  (**Correct…**), or the member in the family's members editor, whose change is a structure
+  version on the family's clinical audit trail.
+- **The PED text.** The family's PED text stays its own: the package lists its own analysis's
+  members only.
+
+A package that leaves a value unknown (a PED phenotype `0` or `-9`, no carrier column, a parent
+`0`) changes nothing of the member: the long-read package that gives no phenotypes keeps the
+short-read analysis's affected proband affected.
 
 Either change is made through the family-structure service once the import has marked the
 family, before its datasets: the next structure version, a pedigree change on the family's
@@ -634,9 +668,10 @@ or link the samples in the family's members editor once both are in the family.*
   checks them: the samples of one person agree on sex, clinical and carrier status and parents
   ([family-member-management.md](family-member-management.md#rules-checked-on-every-change)).
 - `update` adds the package's links that name a member it adds, and keeps the family's.
-- `overwrite` keeps a same-individual link of the family that joins a member of another
-  analysis's package to one this package lists, also when the package does not name it: the
-  link is no more this package's than the other's.
+- With another analysis held, `update` and `overwrite` keep each link of the family between the
+  members that stay, a same-individual link that joins a member of another analysis's package to
+  one this package lists too, also when the package does not name it: the link is no more this
+  package's than the other's.
 
 **Projects.** An import into an existing family also links it to the job's `project_id`. Every
 project the family is linked to gets the small and structural variant callsets it holds none of,
@@ -700,13 +735,21 @@ naming the job. An import whose heartbeat has not reached the database for five 
 window) stops itself the same way, before any worker can take its job over; the job is ended as
 interrupted once a worker finds its heartbeat stale.
 
-**The variant-write locks.** The family's variant-write locks are held on their own database
-connection, and Postgres releases them with it. A running import checks that connection every ten
-seconds (`SELECT 1` in the locks' transaction; no answer within thirty seconds counts as lost).
-Once it is lost, another write of the family may have started, so the import stops where it is
-and restores nothing: the job ends `failed`, saying why, its backups of the family are dropped,
-and the family keeps the import's `import_unfinished` entry until it is imported again with
-overwrite.
+**One import of a family at a time.** An import holds its family's import lock, keyed by the
+family ID, from before it registers the family until it ends, whichever worker or process runs it
+([database.md](database.md#one-write-at-a-time-per-family)). The imports of two analyses of one
+family (each from a package of its own) so run one after the other: the second waits for the
+first to end, and its log says *Another import of the family is running: this import waits for it
+to end.* Without it, one could register the family (its pedigree, its samples' metadata, its
+package record) while the other wrote, restored or removed it.
+
+**The variant-write locks.** The family's import lock and variant-write locks are each held on a
+database connection of their own, and Postgres releases them with it. A running import checks
+those connections every ten seconds (`SELECT 1` in the locks' transaction; no answer within thirty
+seconds counts as lost). Once one is lost, another import or write of the family may have started,
+so the import stops where it is and restores nothing: the job ends `failed`, saying why, its
+backups of the family are dropped, and the family keeps the import's `import_unfinished` entry
+until it is imported again with overwrite.
 
 **A failed dataset.** The job ends `failed`, and CoGA leaves no half-loaded family that looks
 complete:
@@ -761,7 +804,10 @@ which may be partly written or missing.
   that. An `update` cannot: it skips a dataset that has data, partly written data too.
 - An import that fails after marking the family but before its first dataset (while registering
   it, say) wrote none of its datasets: its entry becomes the import-incomplete flag, naming them
-  all as failed.
+  all as failed. One that fails once it has registered an existing family (its locks or the copy
+  of the family's variants to its projects failed) puts back what the registration wrote first
+  (`put_back_family_package_record`), so the family's record names no delivery whose data it never
+  imported.
 
 **An overwrite's backups.** An `overwrite` of an existing family first copies the family's
 variant and track rows into backup tables in ClickHouse, to put the family back if a dataset
@@ -790,7 +836,8 @@ wrote them, since table by table it deletes the family's rows before putting the
   dataset of the import and every dataset the family holds in ClickHouse (as its imports and
   single-file uploads recorded them in `families.metadata.imported_scopes`;
   [What an upload records](#what-an-upload-records)), each with its samples and (for small
-  variants) its callset. Datasets held in Postgres alone (repeat calls, Paraphase results, QC,
+  variants) its callset: those of every active member of the family, the members of its other
+  analyses too, whose packages this one does not list. Datasets held in Postgres alone (repeat calls, Paraphase results, QC,
   phenotypes) are not named: the restore puts Postgres back in one transaction, which a failure
   rolls back whole, so none is left partly written.
 - A sign-out refused for such an entry, its dialog and the signed record call it a restore that
@@ -1715,8 +1762,11 @@ parent and child, as a couple or by an unknown degree; the same pair linked twic
 `analysis_type: monogenic_nipt` marks a monogenic NIPT family (see
 [monogenic-nipt.md](monogenic-nipt.md)). Its `samples` entry for the maternal plasma says
 `assay: nipt_cfdna` (without one, CoGA takes the mother's sample), and may name the capture panel
-as `assay_panel`, which scopes the NIPT artifact list; both are copied into the sample's
-metadata. A dataset can be switched off with `enabled: false`.
+as `assay_panel`, which scopes the NIPT artifact list. The assay is added to the sample's
+`assays`; the panel is kept as the package's analysis's (`samples.metadata.assay_panels`, keyed as
+the family's package records are), so a conventional NIPT of the same plasma that names a panel of
+its own leaves the monogenic NIPT's artefact list as it was: that list reads the monogenic NIPT's
+panel only. A dataset can be switched off with `enabled: false`.
 
 The `snv` dataset takes three optional settings:
 
@@ -2917,9 +2967,11 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `members_missing` | The manifest names no members under `family.add_members`. |
 | `package_not_in_project_folder` | The package folder lies directly in the watched folder. Move it into the folder of its project (`<watched folder>/<project>/`), or refuse the delivery. |
 | `package_project_folder_differs` | The package lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
-| `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents); a member the package of another of the family's analyses listed is not lacking. An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the family's pedigree and keeps the other analyses' members. |
+| `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents). In a family that holds another analysis, only a member that only this analysis's package listed can be lacking. An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the pedigree of its analysis and keeps the other analyses' members. |
+| `package_member_values_conflict` | The family holds another analysis, and the package gives a member the family holds a known value (sex, a parent, clinical or carrier status, carrier type or evidence) other than the family's known one; the message names the member and both values. No choice approves it: the family keeps every value it knows. Correct the package (**Correct…**), or the member in the family's members editor, then check the delivery again. |
 | `package_same_individual_outside` | The package links a member to a sample as the same individual (`same_individual_as`), and that sample is neither in the package nor an active member of the family. Import the package that lists it first, or take the link out of the package ([Correcting a delivery](#correcting-a-delivery)) and link the samples in the family's members editor once both are in the family. |
 | `package_adds_members` (warning) | The package adds members to a family that exists. Update and overwrite add them to the family's pedigree: check that they belong to it. |
+| `package_fills_member_values` (warning) | The family holds another analysis, and the package gives a member the family holds a value the family does not know yet (a sex, a parent, a status). The import fills it in and keeps every value the family knows: check that it is right. |
 | `package_files_without_checksum` (warning) | `coga-package.json` lists files without a `sha256` or `md5`. CoGA computed their SHA-256 (the import records it), but cannot check that the copy on the share is what the pipeline made. Acknowledge it to approve, or have the pipeline or its copy step write the checksums. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
