@@ -214,7 +214,7 @@ def test_vcf_index_checks_accept_manifest_index(tmp_path: Path) -> None:
     _write_minimal_package(package_root)
     snv_root = package_root / "snv"
     snv_root.mkdir()
-    (snv_root / "family.annotated.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    (snv_root / "family.annotated.vcf.gz").write_bytes(gzip.compress(b"##fileformat=VCFv4.2\n"))
     (snv_root / "family.annotated.vcf.gz.tbi").write_text("index\n", encoding="utf-8")
     (package_root / "manifest.yaml").write_text(
         "schema_version: 1\n"
@@ -242,7 +242,7 @@ def test_snv_dataset_accepts_optional_vep_annotation_tsv(tmp_path: Path) -> None
     snv_root = package_root / "snv"
     annotation_root = snv_root / "annotation"
     annotation_root.mkdir(parents=True)
-    (snv_root / "family.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    (snv_root / "family.vcf.gz").write_bytes(gzip.compress(b"##fileformat=VCFv4.2\n"))
     (snv_root / "family.vcf.gz.tbi").write_text("index\n", encoding="utf-8")
     (annotation_root / "FAM001_annot.tsv.gz").write_text(
         "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence\tIMPACT\tSYMBOL\n",
@@ -704,7 +704,7 @@ def test_discover_manifest_generates_yaml_from_ped_and_available_files(tmp_path:
     _write_minimal_package(package_root)
     (package_root / "snv").mkdir()
     (package_root / "snv" / "annotation").mkdir()
-    (package_root / "snv" / "FAM001.annotated.vcf.gz").write_text("vcf\n", encoding="utf-8")
+    (package_root / "snv" / "FAM001.annotated.vcf.gz").write_bytes(gzip.compress(b"##fileformat=VCFv4.2\n"))
     (package_root / "snv" / "FAM001.annotated.vcf.gz.tbi").write_text("index\n", encoding="utf-8")
     (package_root / "snv" / "annotation" / "FAM001_annot.tsv.gz").write_text("tsv\n", encoding="utf-8")
     wise_root = package_root / "wisecondorx" / "S1"
