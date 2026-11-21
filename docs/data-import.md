@@ -2454,8 +2454,12 @@ Discover, dry run and import check:
 
   The readers stream the SNV, phased and APCAD VCFs, a line at a time; the NeedlR, TRGT, HiFiCNV,
   chrM and chrM SV VCFs are held whole, as the import holds them. A whole-genome SNV callset takes
-  a minute or more (about half a gigabyte of unpacked text a second), at each check of its
-  delivery, each correction and the import's own validation. A phased family VCF with no `#CHROM`
+  a minute or more (about half a gigabyte of unpacked text a second). A file read whole is
+  remembered per reader, with its size and its modification and change times
+  ([package_file_reads.py](../backend/app/services/package_file_reads.py), the owner's decision of
+  2026-11-21): a later check of its delivery, a correction among them, and the import's own
+  validation do not read it again while those three are unchanged, and read a changed file again.
+  Only a read that succeeded is remembered, so a refused file is read at each check. A phased family VCF with no `#CHROM`
   line naming its samples is refused too (`dataset_vcf_no_sample_columns`): the import reads each
   member's genotypes from the member's own column. An APCAD VCF without sample columns is read
   from its records' INFO, and an APCAD file without a VCF record as a BED.

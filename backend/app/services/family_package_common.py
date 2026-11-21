@@ -28,6 +28,7 @@ from ..schemas import (
 )
 from .bounded_download import require_bgzf_path_end
 from .family_identifiers import CONTROL_CHARACTERS, IDENTIFIER_RULE, identifier_problem, visible
+from .package_file_reads import remember_read, remembered_read
 from .upload_safety import read_path_text_bounded
 
 
@@ -731,10 +732,16 @@ def read_package_vcf_whole(
     record; a gzip file cut short is refused by its reader already.
 
     The file is read once by each reader: a ``loader`` or ``track`` read streams it, holding a
-    line at a time; a ``text`` read holds it whole, as the import does."""
+    line at a time; a ``text`` read holds it whole, as the import does. A file a reader read
+    whole before, unchanged since, is not read again (``package_file_reads``)."""
     read = PackageVcfRead(columns=[], holds_a_line=False)
     for reader in dict.fromkeys(readers):
+        remembered, version = remembered_read(path, reader)
+        if remembered is not None:
+            read = PackageVcfRead(columns=list(remembered.columns), holds_a_line=remembered.holds_a_line)
+            continue
         read = _read_package_vcf_with(path, label=label, reader=reader)
+        remember_read(path, reader, version, columns=read.columns, holds_a_line=read.holds_a_line)
     return read
 
 

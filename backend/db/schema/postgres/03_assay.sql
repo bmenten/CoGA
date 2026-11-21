@@ -240,6 +240,27 @@ CREATE INDEX IF NOT EXISTS idx_family_import_jobs_requested ON family_import_job
 CREATE INDEX IF NOT EXISTS idx_family_import_jobs_status ON family_import_jobs USING btree (status, requested_at);
 
 -- ---------------------------------------------------------------------------
+-- package_file_reads
+-- ---------------------------------------------------------------------------
+-- The package files a validation read whole (package_file_reads.py): per file and reader, the
+-- file's size and modification and change times, and what the read found (its sample columns,
+-- whether it holds a record). A validation of the file with those three unchanged takes what was
+-- found and reads nothing. Only a whole read that succeeded is kept. A cache: a row is replaced
+-- when its file is read again, and no record or report reads it.
+CREATE TABLE IF NOT EXISTS package_file_reads (
+    path text NOT NULL,
+    reader text NOT NULL,
+    size bigint NOT NULL,
+    mtime_ns bigint NOT NULL,
+    ctime_ns bigint NOT NULL,
+    columns text[] NOT NULL,
+    holds_a_line boolean NOT NULL,
+    read_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT package_file_reads_pkey PRIMARY KEY (path, reader),
+    CONSTRAINT package_file_reads_reader_check CHECK ((reader = ANY (ARRAY['loader'::text, 'text'::text, 'track'::text])))
+);
+
+-- ---------------------------------------------------------------------------
 -- import_deliveries
 -- ---------------------------------------------------------------------------
 -- A package a pipeline delivered into a watched import folder (FAMILY_IMPORT_WATCH_ROOTS): one row

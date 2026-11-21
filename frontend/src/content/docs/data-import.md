@@ -705,7 +705,8 @@ Paraphase results are replaced.
   block (cut short anywhere), a plain-text VCF named `.gz` (`dataset_vcf_unreadable`); a VCF whose last
   record is cut short (`dataset_vcf_record_cut`); one larger than the import reads
   (`dataset_vcf_too_large`). Copy the file again from where the pipeline wrote it. For a whole genome's
-  calls this read takes a minute or more. CoGA refuses so too, when it proposes members, an SNV file or
+  calls this read takes a minute or more, once: CoGA remembers a file it read whole, and does not read
+  it again while the file is unchanged (a correction under Deliveries, say). CoGA refuses so too, when it proposes members, an SNV file or
   a NIPT pair's parent file whose header it cannot read.
 - An embryo's APCAD table and segregation table, gzipped or not, are read to their end too: one that
   cannot be read is an error naming the embryo and the file (`dataset_table_unreadable`). A phased
