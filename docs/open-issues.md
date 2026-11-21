@@ -41,7 +41,6 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | OPS-22 | P3 | Keep PRs that pass alone from failing together: a merge queue needs an organisation-owned repository | owner | |
 | SEC-19 | P3 | Accept in TF-13: best-effort ClickHouse shutdown, bucket-wide grants, VM restart after a certificate reissue | QA | |
 | SEC-23 | P3 | Close the HSTS gaps | QA, owner, developer | |
-| SEC-40 | P3 | Keep an error's text out of the last stored job errors, HTTP answers and log lines | developer | |
 | UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
 | DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
 | CLIN-79 | P2 | Warn when an embryo's sex chromosomes look abnormal (X0, XXY, another anomaly): choose the source of X dosage and its cut-offs | owner, lab director | validation |
@@ -251,14 +250,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - After the first apply, QA checks the load balancer's and Cloud Armor's own answers (refusal, rate limit, 502).
 - The frontend's `/api` fallback reaches the backend only through VPC egress (owner).
 - Express's default 500 and Node's own 400 carry no headers.
-
-### SEC-40 · Error text still stored, answered or logged
-
-- An import's and a gene source's stored failure name an error by its kind unless CoGA defines its class (`own_error_message`). An error's text is still stored, answered or logged in:
-    - stored job errors: `dgv_load_jobs.py` (~678, ~681), `clinical_cnv_kb_jobs.py` (~677), `hpo_service.py` (~1646);
-    - CoGA error classes that wrap another error's text, which `own_error_message` would keep: `monarch_ingest.py` (~113), `monarch_semsim.py` (~113), `hpo_release_download.py` (~151, ~177), `hpo_service.py` (~682), `reference_source_service.py` (~696), `core/postgres_migrations.py` (~215, ~263);
-    - HTTP answers that quote an exception's text: `routers/admin.py` (~939, ~941, ~1010, ~1016), `routers/families.py` (~329), `routers/auth.py` (~640), and `family_package_validation.py` (~1746, a YAML error quoting the manifest);
-    - log lines with an exception's text: `dependencies.py` (~128), `routers/auth.py` (~371, ~639), `account_notifications.py` (~135), `account_activation_mail.py` (~94), `family_assignment_mail.py` (~92), `monarch_ingest.py` (~123), `monarch_semsim.py` (~112), `hpo_service.py` (~759, ~825, ~847), `reference_metadata_service.py` (~635).
 
 ### UI-8 · Held tags and detached tags
 
