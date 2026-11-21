@@ -138,10 +138,23 @@ async def test_the_family_id_given_is_used_and_a_project_without_assembly_names_
 
 
 @pytest.mark.asyncio
+async def test_a_nipt_folder_added_by_hand_names_the_pregnancy_given(folder: Path, checked: list[dict[str, Any]]) -> None:
+    # A NIPT's package names its pregnancy: the one given, trimmed. None given names none.
+    await _add(_Session(project=_GRCH38), folder, analysis_type="monogenic_nipt", pregnancy_id=" ZW1 ")
+    await _add(_Session(project=_GRCH38), folder, analysis_type="monogenic_nipt", pregnancy_id="  ")
+
+    first, second = (call["proposal"] for call in checked if "proposal" in call)
+    assert (first.analysis_type, first.pregnancy_id) == ("monogenic_nipt", "ZW1")
+    assert second.pregnancy_id is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("change", "status", "detail"),
     [
         ({"family_id": "FAM 001"}, 400, "The family ID contains a space."),
+        ({"analysis_type": "monogenic_nipt", "pregnancy_id": "ZW 1"}, 400, "The pregnancy ID contains a space."),
+        ({"analysis_type": "monogenic_nipt", "pregnancy_id": "Z" * 65}, 400, "The pregnancy ID is longer than 64 characters."),
         ({"project": None}, 404, "Project not found"),
         ({"project_id": "nope"}, 404, "Project not found"),
         ({"open_id": "00000000-0000-4000-8000-0000000000ee"}, 409, "The folder is a delivery waiting for a decision already"),
