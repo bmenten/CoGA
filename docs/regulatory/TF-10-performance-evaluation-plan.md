@@ -287,7 +287,8 @@ pull request updates this list only when it adds clinical behaviour that no area
   - Conventional NIPT: a result per target by z-score and fetal-fraction concordance over ccnv's
     segments and QC, with ccnv's effective fetal fraction; no result below the fetal-fraction
     bound; a finding not concordant with the fetal fraction, or of maternal or mosaic origin,
-    inconclusive, never high risk; segmental CNVs assessed within ccnv's limits of detection; the
+    inconclusive, never high risk; segmental CNVs assessed within ccnv's limits of detection, and a
+    claimed target inconclusive rather than low risk below ccnv's arm-level limit of detection; the
     sex chromosomes from ccnv's sex-chromosome call; QA's bounds in the profile
     `nipt_conventional`, a provisional bound named on the result; the warnings of a low fetal
     fraction, ccnv's own and a twin pregnancy; each target marked whether the intended purpose

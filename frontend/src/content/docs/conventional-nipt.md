@@ -68,7 +68,7 @@ Each target gets one result:
 | Result | Means |
 | --- | --- |
 | **High risk** | a finding concordant with the fetal fraction (below), or ccnv's sex-chromosome call of an aneuploidy at the required confidence |
-| **Inconclusive** | a finding that is not concordant, a finding in the grey zone, or a sex-chromosome call below the required confidence or of mixed signals |
+| **Inconclusive** | a finding that is not concordant, a finding in the grey zone, a sex-chromosome call below the required confidence or of mixed signals, or a claimed target the fetal fraction cannot show, below ccnv's limit of detection of arm-level events |
 | **Low risk** | none of these |
 | **No result** | the fetal fraction is below its bound, a bound the rule needs is not set, or ccnv gives no segment of the chromosome |
 | **Not assessed** | segmental CNVs the fetal fraction cannot show, by ccnv's limits of detection |
@@ -97,6 +97,11 @@ grey zone.
 euploid call (XX, XY) is low risk, and any other call (XO, XXX, XXY, XYY…), or one ccnv marks
 aneuploid, is high risk. A call below that confidence, or of mixed signals, is inconclusive. An
 aneuploidy finding on X or Y raises the verdict.
+
+**Below ccnv's limit of detection.** When the fetal fraction is below ccnv's limit of detection of
+arm-level events, chromosomes 21, 18 and 13 and the sex chromosomes are never low risk: a target
+that would be is **inconclusive**, because the plasma cannot show its aneuploidy. A finding the
+plasma does show keeps its verdict.
 
 **Twins.** In a twin pregnancy an aneuploidy of one fetus lies at about half the fetal fraction, at
 the edge of the concordant band. The page says when ccnv reads a twin pregnancy.
