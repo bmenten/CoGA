@@ -828,6 +828,76 @@ def test_the_application_counts_people_not_samples() -> None:
     ) == "couple"
 
 
+def _one_person_sampled_twice(second):
+    """A family whose only person is sampled twice (PROBAND and PROBAND2, linked as the same
+    individual), with PROBAND2's genotypes ``second(PROBAND's)``: a single."""
+    proband = _founder(random.Random(50))
+    spec = PedigreeSpec(
+        recorded_sex={"PROBAND": "female", "PROBAND2": "female"},
+        parents_of={},
+        same_individual=[("PROBAND2", "PROBAND")],
+    )
+    autosomal = {"PROBAND": proband, "PROBAND2": second(proband)}
+    application = resolve_application(analysis_types=(), roles={"PROBAND": "proband"}, parents_of={}, person_count=1)
+    return evaluate_sample_integrity(autosomal, {}, spec, profile=profile_for(application))
+
+
+def test_one_person_sampled_twice_is_a_single_whose_two_samples_are_compared() -> None:
+    report = _one_person_sampled_twice(list)
+
+    assert report.application == "single" and not profile_for("single").run_relatedness
+    same = _pair(report, "PROBAND", "PROBAND2")
+    assert (same.expected_relationship, same.status) == ("same-individual", "pass")
+    assert same.message.startswith("Confirmed the same individual")
+    assert report.mendelian_checks == []
+
+
+def test_a_single_whose_second_sample_is_another_person_fails_as_a_possible_swap() -> None:
+    report = _one_person_sampled_twice(lambda _proband: _founder(random.Random(51)))
+
+    same = _pair(report, "PROBAND", "PROBAND2")
+    assert (same.expected_relationship, same.status) == ("same-individual", "fail")
+    assert "Recorded as the same individual but genotypes look unrelated" in same.message
+    assert report.overall_status == "fail"
+
+
+def test_a_single_whose_two_samples_share_too_few_sites_gates_the_sign_out() -> None:
+    # The second sample has no call at the sites read (absent from the callset, say): the pair
+    # cannot be compared, which is no pass.
+    report = _one_person_sampled_twice(lambda proband: [None] * len(proband))
+
+    same = _pair(report, "PROBAND", "PROBAND2")
+    assert (same.expected_relationship, same.status, same.informative_sites) == ("same-individual", "warn", 0)
+    assert report_signout_service._unverifiable_swap_checks(report_signout_service._canonical_sample_qc(report)) == [
+        "Samples PROBAND and PROBAND2: too few shared sites to assess relatedness "
+        "(kinship 0.000, IBS0 0.00%, 0 sites)."
+    ]
+
+
+def test_a_profile_without_relatedness_compares_only_the_samples_of_one_person() -> None:
+    # A monogenic NIPT (no genotype relatedness) whose father is sampled twice: his two samples
+    # are compared, no other pair, and never a plasma, linked to the mother's second plasma.
+    rng = random.Random(52)
+    father, plasma = _founder(rng), _founder(rng)
+    spec = PedigreeSpec(
+        recorded_sex={"FATHER1": "male", "FATHER2": "male", "PLASMA": "female", "PLASMA2": "female"},
+        parents_of={},
+        same_individual=[("FATHER1", "FATHER2"), ("PLASMA", "PLASMA2")],
+        mixtures=frozenset({"PLASMA", "PLASMA2"}),
+    )
+    autosomal = {"FATHER1": father, "FATHER2": list(father), "PLASMA": plasma, "PLASMA2": list(plasma)}
+
+    report = evaluate_sample_integrity(autosomal, {}, spec, profile=profile_for("nipt"))
+
+    assert [(c.sample_a, c.sample_b, c.expected_relationship, c.status) for c in report.relatedness_checks] == [
+        ("FATHER1", "FATHER2", "same-individual", "pass")
+    ]
+    assert report.mendelian_checks == []
+    # Without a same-individual link the profile compares nothing.
+    unlinked = PedigreeSpec(recorded_sex=spec.recorded_sex, parents_of={}, mixtures=spec.mixtures)
+    assert evaluate_sample_integrity(autosomal, {}, unlinked, profile=profile_for("nipt")).relatedness_checks == []
+
+
 def test_a_same_individual_pair_with_too_few_sites_gates_the_sign_out() -> None:
     qc = {
         "relatedness_checks": [

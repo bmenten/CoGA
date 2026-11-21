@@ -848,22 +848,6 @@ def _sources(*, mito: bool) -> dict:
     }
 
 
-class _PackageRecordsSession:
-    """Answers the read of the family's package records."""
-
-    def __init__(self, records: dict | None) -> None:
-        self.records = records
-        self.params: list[dict] = []
-
-    async def execute(self, statement, params=None):
-        from types import SimpleNamespace
-
-        assert "package_imports" in str(statement)
-        self.params.append(dict(params or {}))
-        return SimpleNamespace(scalar_one_or_none=lambda: self.records)
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("records", "expected"),
     [
@@ -884,13 +868,10 @@ class _PackageRecordsSession:
     ],
     ids=["one of two", "the only one", "none lists them", "no record", "two list them"],
 )
-async def test_the_mtdna_calls_are_the_analysis_whose_package_record_lists_the_mito_callsets(records, expected) -> None:
-    session = _PackageRecordsSession(records)
+def test_the_mtdna_calls_are_the_analysis_whose_package_record_lists_the_mito_callsets(records, expected) -> None:
+    family_metadata = {} if records is None else {"package_imports": records}
 
-    assert await mitochondrial_analysis._mtdna_analysis(session, "family-uuid") == expected  # type: ignore[arg-type]
-    assert session.params == [{"family_uuid": "family-uuid"}]
-    # Without a session nothing is read.
-    assert await mitochondrial_analysis._mtdna_analysis(None, "family-uuid") is None
+    assert mitochondrial_analysis._mtdna_analysis(family_metadata) == expected
 
 
 @pytest.mark.asyncio
@@ -921,13 +902,18 @@ async def test_the_mtdna_qc_is_judged_by_the_analysis_profile_and_the_page_names
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", no_records)
     monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
     monkeypatch.setattr(mitochondrial_analysis, "resolve_analysis_qc_thresholds", thresholds)
-    session = _PackageRecordsSession(
-        {"short_read_wgs": {"sources": _sources(mito=False)}, "long_read_wgs": {"sources": _sources(mito=True)}}
-    )
+    context = _family_context()
+    # The family's package records, read with the family (FamilyMetadataContext.family_metadata).
+    context.family_metadata = {
+        "package_imports": {
+            "short_read_wgs": {"sources": _sources(mito=False)},
+            "long_read_wgs": {"sources": _sources(mito=True)},
+        }
+    }
 
     response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
-        session,  # type: ignore[arg-type]
-        context=_family_context(),
+        object(),  # type: ignore[arg-type]
+        context=context,
     )
 
     assert asked == ["long_read_wgs"]

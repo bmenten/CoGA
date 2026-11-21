@@ -54,7 +54,9 @@ from .sample_integrity_qc import (
     evaluate_nipt_category_qc,
     evaluate_paternity,
     evaluate_sample_integrity,
+    identity_pairs,
     profile_for,
+    reads_relatedness,
     resolve_application,
 )
 
@@ -506,7 +508,10 @@ async def get_family_sample_integrity_qc(
     autosomal: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
     x_genotypes: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
     genotype_source: str | None = None
-    needs_genotypes = profile.run_sex or profile.run_relatedness or profile.run_mendelian
+    # Relatedness is read from the genotypes when the profile reads it, or when two samples of one
+    # person are compared, as for every application (``identity_pairs``).
+    relatedness_read = reads_relatedness(profile, spec, samples)
+    needs_genotypes = profile.run_sex or relatedness_read
     if needs_genotypes and context.assembly_name and samples:
         try:
             available = await fetch_family_variant_sources(context)
@@ -525,16 +530,14 @@ async def get_family_sample_integrity_qc(
                     read_as_reference=read_as_reference,
                     chromosomes=autosomes,
                 )
-                if autosomes and len(autosomes) < QC_MIN_AUTOSOMES and (
-                    profile.run_relatedness or profile.run_mendelian
-                ):
+                if autosomes and len(autosomes) < QC_MIN_AUTOSOMES and relatedness_read:
                     service_notes.append(_partial_genome_note(len(autosomes)))
                 x_genotypes = await _load_genotype_sample(
                     context, "chrX", QC_X_SITES, samples, genotype_source
                 )
                 sites = max((len(values) for values in autosomal.values()), default=0)
                 note = _per_sample_callset_note(read_as_reference, sites)
-                if note is not None and profile.run_relatedness:
+                if note is not None and (profile.run_relatedness or identity_pairs(spec, samples)):
                     service_notes.append(note)
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
             logger.warning(

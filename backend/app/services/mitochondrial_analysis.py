@@ -6,7 +6,6 @@ import re
 from typing import Any, Iterable, Literal, Protocol, Sequence
 from urllib.parse import quote
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
@@ -41,9 +40,9 @@ from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype
 from .family_package_common import MITO_SOURCE, MITO_SV_SOURCE
-from .family_package_records import PACKAGE_IMPORTS_KEY, analyses_writing
+from .family_package_records import analyses_writing
 from .qc_threshold_service import evaluate_metric, resolve_analysis_qc_thresholds
-from .same_individual import same_individual_groups, same_individual_pairs
+from .same_individual import links_per_person, same_individual_pairs
 from .small_variant_review_pg import get_small_variant_review_map
 from .stored_values import int_or_none as _int
 
@@ -580,24 +579,6 @@ def _maternal_transmission(
     return "family_private"
 
 
-def _parent_links_per_person(
-    parent_links: Sequence[tuple[str, str, str]], links: Sequence[tuple[str, str]]
-) -> list[tuple[str, str, str]]:
-    """``parent_links`` (child, parent, role) read per person, with the family's same-individual
-    ``links``: a link one sample of a child records to one sample of a parent holds for every
-    sample of each. The mother sampled twice is looked at in both samples, and the proband's
-    second sample is her child too."""
-    samples_of = {sample: group for group in same_individual_groups(links) for sample in group}
-    return list(
-        dict.fromkeys(
-            (child_sample, parent_sample, role)
-            for child, parent, role in parent_links
-            for child_sample in samples_of.get(child, [child])
-            for parent_sample in samples_of.get(parent, [parent])
-        )
-    )
-
-
 def _variant_out(
     record: SmallVariantRecord,
     *,
@@ -1048,25 +1029,18 @@ async def _attach_reviews(
         variant.review = review_map.get(variant.variant_id)
 
 
-_PACKAGE_RECORDS = text("SELECT metadata -> 'package_imports' FROM families WHERE id = CAST(:family_uuid AS uuid)")
-
-
-async def _mtdna_analysis(session: AsyncSession | None, family_uuid: str) -> str | None:
-    """The analysis whose import holds the family's mtDNA calls: the one whose package record
-    lists the mitochondrial callsets among the sources it wrote (``mito`` small variants,
-    ``mito_sv`` structural variants). Its QC profile judges the ``mtdna.*`` metrics, bound by
-    bound with the family's and the default profile (``resolve_analysis_qc_thresholds``), and
-    the page names it. None when no package record lists them (no package import, or none with
-    the mitochondrial dataset) or more than one does, which leaves the family's profile and the
-    default; and without a session (presence probes), when nothing is read."""
-    if session is None:
-        return None
-    records = (await session.execute(_PACKAGE_RECORDS, {"family_uuid": family_uuid})).scalar_one_or_none()
-    metadata = {PACKAGE_IMPORTS_KEY: _metadata_dict(records)}
+def _mtdna_analysis(family_metadata: dict[str, Any]) -> str | None:
+    """The analysis whose import holds the family's mtDNA calls: the one whose package record, in
+    the family's metadata (``FamilyMetadataContext.family_metadata``), lists the mitochondrial
+    callsets among the sources it wrote (``mito`` small variants, ``mito_sv`` structural variants).
+    Its QC profile judges the ``mtdna.*`` metrics, bound by bound with the family's and the default
+    profile (``resolve_analysis_qc_thresholds``), and the page names it. None when no package
+    record lists them (no package import, or none with the mitochondrial dataset) or more than one
+    does, which leaves the family's profile and the default."""
     analyses = sorted(
         {
-            *analyses_writing(metadata, "small_variants", MITO_SOURCE),
-            *analyses_writing(metadata, "structural_variants", MITO_SV_SOURCE),
+            *analyses_writing(family_metadata, "small_variants", MITO_SOURCE),
+            *analyses_writing(family_metadata, "structural_variants", MITO_SV_SOURCE),
         }
     )
     return analyses[0] if len(analyses) == 1 else None
@@ -1099,7 +1073,7 @@ async def get_family_mitochondrial_analysis_response(
     # judged by that analysis's cut-offs, as its sequencing QC is.
     # The analysis read (named, or the one holding the mtDNA calls), else the one whose package
     # record lists the mtDNA calls.
-    analysis = context.scope.analysis or await _mtdna_analysis(session, context.family_uuid)
+    analysis = context.scope.analysis or _mtdna_analysis(context.family_metadata)
     resolved_thresholds = await resolve_analysis_qc_thresholds(
         session, family_uuid=context.family_uuid, analysis=analysis
     )
@@ -1115,7 +1089,7 @@ async def get_family_mitochondrial_analysis_response(
         sample.coverage.source is not None or sample.coverage.mean_depth is not None
         for sample in samples
     )
-    parent_links = _parent_links_per_person(_parent_child_links(context), same_individual_pairs(context.relationship_rows))
+    parent_links = links_per_person(_parent_child_links(context), same_individual_pairs(context.relationship_rows))
     # Members with any mtDNA data: a coverage track of read depth or call depth on some MT
     # record. A track of log2 ratios alone does not count (_mt_depth_sources).
     mtdna_samples = {
