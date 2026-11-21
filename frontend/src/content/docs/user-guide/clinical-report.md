@@ -85,10 +85,12 @@ stops for seven things:
    repeat or Paraphase review with a classification or the **Report** tag whose calls changed since.
    Re-review, or acknowledge with a reason. The dialog lists each classification and what moved.
 4. **Sample QC** that failed or could not confirm the pedigree or a sample's identity, and, for a NIPT
-   family, a failed NIPT quality check: acknowledge with a reason. Before you write it, the dialog lists
-   every concern under its own heading: failed checks, checks that could not run, failed NIPT quality
-   checks, and warnings (which do not stop sign-out on their own). Each concern names the sample, pair
-   or child it is about; your reason covers all of them.
+   family, a failed NIPT quality check or, for a conventional NIPT, a plasma without a result, a result
+   on provisional bounds or a record that holds no result: acknowledge with a reason. Before you write
+   it, the dialog lists every concern under its own heading: failed checks, checks that could not run,
+   failed NIPT quality checks, the conventional NIPT's concerns (no result, or provisional bounds), and
+   warnings (which do not stop sign-out on their own). Each concern names the sample, pair or child it
+   is about; your reason covers all of them.
 5. **An incomplete import** (*Import incomplete*): import what failed again, or acknowledge with a
    reason. Only what the analysis you sign out failed to import or did not finish, and what names no
    analysis, holds its sign-out.

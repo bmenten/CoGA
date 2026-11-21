@@ -718,7 +718,7 @@ What the application relies on there:
 - **Mail.** CoGA sends mail only through the mail server `SMTP_HOST` names
   (`services/outgoing_mail.py`), encrypted with `SMTP_STARTTLS` and signed in to with
   `SMTP_USERNAME` only after STARTTLS outside development. Terraform sets no `SMTP_*`, so the
-  Google Cloud deployment sends none. Three mails go out, none with patient data beyond a
+  Google Cloud deployment sends none. Four mails go out, none with patient data beyond a
   family's ID:
   - to every active administrator, about an account that waits for approval: the account's
     name, address and affiliation;
@@ -727,7 +727,10 @@ What the application relies on there:
     link to the sign-in page;
   - to the user a family is newly assigned to: the family's ID, the lab's pseudonymous ID (the
     owner's choice), who assigned it and when, with a link to the family; its subject names no
-    family. No mail goes out when someone assigns a family to themselves.
+    family. No mail goes out when someone assigns a family to themselves;
+  - to every active administrator, the test an administrator sends from the Users page
+    (`POST /api/auth/account-request-mail/test`): a fixed text saying the account-request mail
+    reaches that address, with no account's or family's data.
 
   A link is given only when CoGA knows its own address, from `CAS_SERVICE_URL`. The log names
   neither an address, nor the family, nor the mail server's text.

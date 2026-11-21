@@ -68,6 +68,17 @@ export const analysisLabel = (key: string | null | undefined): string | null => 
 };
 
 /**
+ * The data of an analysis in a sentence, by its key (backend `family_package_records.
+ * analysis_data_words`): "this family’s short-read WGS data", or for a pregnancy's analysis "the
+ * data of this family’s monogenic NIPT of pregnancy ZW1"; null for one without a label.
+ */
+export const analysisDataWords = (key: string | null | undefined): string | null => {
+  const label = analysisLabel(key);
+  if (!label) return null;
+  return pregnancyOf(key) !== null ? `the data of this family\u2019s ${label}` : `this family\u2019s ${label} data`;
+};
+
+/**
  * The analyses of a family that are each signed out on their own, sorted: every analysis of a
  * family that holds several, whose sign-out of one freezes and checks that analysis's data only
  * (the owner's decision of 2026-11-19). None for a family of one analysis or none, which is

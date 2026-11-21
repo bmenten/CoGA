@@ -146,7 +146,7 @@ inheritance; the drift check compares it with that caller's row.
 ### Clinical audit trail
 
 Written in the same transaction as the change it records, so it cannot drift from the data. Each
-family has its own chain; two system chains hold what belongs to no family.
+family has its own chain; three system chains hold what belongs to no family.
 
 | Action | Written by |
 | --- | --- |
@@ -160,6 +160,7 @@ family has its own chain; two system chains hold what belongs to no family.
 | `sign_out` | a sign-out (*Sign-out*) |
 | `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded`, `nipt_artifacts_imported` | every NIPT artifact-list change, on its own chain (`system:nipt-artifacts`); an import of the NIPT-M pipeline's recurrent table names the file and every allele it listed |
 | `repeat_count_correction_recorded` | every record of a repeat locus's count correction, on another (`system:repeat-loci`): the locus, and the record before and after (its count correction, `count_offset`, and its reason) |
+| `import_delivery_incomplete`, `import_delivery_ready`, `import_delivery_needs_attention`, `import_delivery_checked_again`, `import_delivery_superseded`, `import_delivery_gone`, `import_delivery_added`, `import_delivery_revised`, `import_delivery_dry_run`, `import_delivery_queued`, `import_delivery_refused`, `import_delivery_imported`, `import_delivery_failed`, `import_delivery_overwrite_failed`, `import_delivery_changed_after_import`, `import_delivery_archived`, `import_delivery_change_resolved` | every change of a delivery's state and every correction of its package, on the third (`system:import-inbox`): the watcher's by `system:import-watcher`, an addition by hand, a correction and a decision by the person who made it ([data-import.md](data-import.md#watched-import-folders)) |
 
 An unchanged re-save writes no event; a save that clears or deletes a review is recorded like any
 other change.
@@ -177,9 +178,13 @@ For an SV or CNV: the reviewer's classification and the CNV (ClinGen) scoring (c
 total, the accepted criteria with their points, every stored criterion in the same detail). SV and
 CNV events carry `metadata.modality = "sv"`, so an SV id is never read as a small variant's.
 
-Every `classification`, `tags`, `note` and `compound_het_pair` event names the family's analysis
-whose review it changed (`metadata.analysis`; '' for a review made while the family held none,
-*Reviews per analysis*, below). The trail serves it as the event's `analysis`.
+Every `classification`, `tags`, `note` and `compound_het_pair` event of a small variant, SV or CNV
+review names the family's analysis whose review it changed (`metadata.analysis`; '' for a review
+made while the family held none, *Reviews per analysis*, below). The trail serves it as the
+event's `analysis`, '' as null. A repeat-locus or Paraphase-region review is the family's for one
+assembly, not one analysis's, so its events name no analysis (`metadata` holds the `modality`,
+the `assembly_id` and the `evidence_digest` of the calls it rests on) and the trail serves their
+`analysis` as null.
 
 Any change to the record writes an event, even when the class stays, and the summary names the
 change (*ACMG criteria updated (…): PM2 moderate → supporting*). Points are recorded as the
@@ -479,7 +484,8 @@ item below (*One sign-out per analysis*).
     dataset of the family still to import again, none finished; for a single-file upload or a
     deletion that did not finish, no job and no analysis, under its `upload-…` or `deletion-…` key.
   - A record of one of a family's analyses holds only that analysis's marks and those of no
-    analysis (*One sign-out per analysis*, below).
+    analysis, and the entry of a failed overwrite whose restore did not finish, whichever
+    analysis's import it was (*One sign-out per analysis*, below).
 - **Package folders** (`package_source_changes`, gate 6): a family holds one package record per
   analysis it was imported for (the monogenic and the conventional NIPT of each pregnancy each have
   their own), and CoGA serves each analysis's source files from the folder its record names. The
@@ -769,7 +775,12 @@ fetus or in more than one.
   `paraphase`; `family_package_records.package_sources`), and its `datasets`. An item belongs to
   analysis X when one of its sources is X's own or is claimed by no other analysis the family holds.
   So the data of an upload, of an analyst's addition or of a package that named no analysis belong
-  to every analysis, and each sign-out freezes and checks them.
+  to every analysis, and each sign-out freezes and checks them, unless an analysis's record lists
+  the upload's source. A package's `coverage` dataset outside a pregnancy stores its coverage BED
+  under the upload's source `web`, and its record lists `web` and `coverage_table` among its
+  tracks whatever files it held (`family_package_records._DATASET_SOURCES`). So once such a
+  package's analysis is imported, a track uploaded under `web` (a coverage, APCAD or APCAD PCF
+  BED) is that analysis's alone, and the other analyses' sign-outs neither freeze nor check it.
 - **Whose import mark.** The analyses of a family share dataset types (both a short-read and a
   long-read package carry `snv`, `qc`, `alignments`), so the dataset an import mark names cannot
   say whose it is. Each mark records the analysis it is of (`analysis_type`): an import's entry in
@@ -934,13 +945,15 @@ changed, without the review's time), and the message says how many.
   relatedness check covers, such as a NIPT parent;
 - in a conventional NIPT family, from the record's `cnipt` section under the same acknowledgement: a
   maternal plasma without a result, with its reasons ("Sample X (cNIPT maternal plasma): no result
-  — the fetal fraction (3.1%) is below 4.0%."), and a result that rests on bounds QA has not set,
-  naming them. The 409 lists each in `cnipt_concerns` and in `qc_summary.messages`; the audit event
-  records them (`cnipt_concerns`). The Sample QC of a conventional NIPT runs no check
-  (application `cnipt`, verdict `skip`; owner decision of 2026-11-19): ccnv's output holds no
-  genotypes, and as for a PGT embryo the fetal sex is known only from the analysis, ccnv's call in
-  `cnipt`. cNIPT results that could not be read are not captured (named in `not_captured`), not a
-  QC concern;
+  — the fetal fraction (3.1%) is below 4.0%."), a result that rests on bounds QA has not set,
+  naming them, and a conventional NIPT's record that froze no result (its results could not be
+  read, or no plasma of the analysis holds a ccnv result), since its result is what the sign-out
+  closes. The 409 lists each in
+  `cnipt_concerns` and in `qc_summary.messages`; the audit event records them (`cnipt_concerns`).
+  The Sample QC of a conventional NIPT runs no check (application `cnipt`, verdict `skip`; owner
+  decision of 2026-11-19): ccnv's output holds no genotypes, and as for a PGT embryo the fetal sex
+  is known only from the analysis, ccnv's call in `cnipt`. In the record of another analysis, cNIPT
+  results that could not be read are not captured (named in `not_captured`), not a QC concern;
 - in a monogenic NIPT family, a NIPT quality check that failed in the record's `nipt` section, under
   the same acknowledgement: no fetal-fraction estimate, a fetal sex whose paternal-X and chrY
   signals disagree, or male DNA given as the maternal plasma (REQ-NIPT-015; TF-06 H4). The 409
@@ -1044,7 +1057,8 @@ analysis's reference, never another's. For each, the sign-out:
 
 Either finding refuses the sign-out, with `package_source_changes` (one entry per analysis whose
 folder changed, each naming its `analysis_type`) and a message saying, for each analysis by name
-(*the package folder this family's monogenic NIPT data was imported from*), what changed, or that
+(*the package folder the data of this family's monogenic NIPT of pregnancy ZW1 was imported
+from*, *the package folder this family's short-read WGS data was imported from*), what changed, or that
 the source files are no longer available. It is a warning: the sign-out stays possible. Every family
 page shows one *Package folder changed after import* (or *gone*) banner per changed folder, naming
 the analysis, while the watcher's finding holds. It ends only when the folder is as the reference
@@ -1076,7 +1090,7 @@ acknowledgement.
 | Gate | Concerns | Sent back as |
 | --- | --- | --- |
 | Evidence drift | `drifted`, `structural_drifted`, `finding_drifted` | `drift_concerns_fingerprint` |
-| Sample QC | its four groups (gate 4) | `qc_concerns_fingerprint` |
+| Sample QC | its five groups (gate 4) | `qc_concerns_fingerprint` |
 | Incomplete import | `import_incomplete` and `import_unfinished`, each without its `at` (the message names the time; the jobs and datasets say which failure it is) | `import_incomplete_concerns_fingerprint` |
 | Package folder | `package_source_changes`: each change that gates (one per analysis), without `detected_at` (a change found again, as it was, is the same concern; a change the sign-out's own check found has none) | `package_source_change_concerns_fingerprint` |
 | Findings without a review | `unreviewed_findings` | `unreviewed_findings_concerns_fingerprint` |

@@ -69,6 +69,7 @@ an ISO 15189-accredited laboratory.
     - The cfDNA is mostly placental: a result may reflect the placenta rather than the fetus (confined placental mosaicism), and a maternal copy-number change or mosaicism can underlie a finding.
     - A high risk requires confirmatory diagnostic testing; a low risk does not exclude an aneuploidy.
     - The rule's bounds are QA's. A result that rests on a provisional bound says so: provisional bounds are not validated.
+12. **Monogenic NIPT: multiple pregnancies** (TF-01 §3.1) — the validated population is **singleton pregnancies of more than 12 weeks**; multiple pregnancies are **outside the validated scope**. A twin or higher multiple pregnancy can still be analysed: every result of a pregnancy whose package names two or more fetuses carries the note that a fetal result may be present in one fetus or in more than one, and that the analysis cannot tell which. The note says it does not apply to a monozygotic twin, whose fetuses share one genotype; CoGA is not told the zygosity. The parents' carrier status is read as in a singleton pregnancy (REQ-NIPT-018).
 
 ## 4. Instructions for safe use (per application)
 

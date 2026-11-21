@@ -350,8 +350,12 @@ pull request updates this list only when it adds clinical behaviour that no area
     and what each coverage track held (read depth, a log2 ratio or unknown) and where it was
     loaded from.
   - A family that holds several analyses (the monogenic and the conventional NIPT of one
-    pregnancy; short-read and then long-read WGS of the same DNA) signs each out on its own,
-    its record freezing and checking that analysis's data.
+    pregnancy; the NIPTs of several pregnancies of one woman, one NIPT analysis per pregnancy,
+    keyed by the pregnancy its package names; short-read and then long-read WGS of the same DNA)
+    signs each out on its own, its record freezing and checking that analysis's data. Each
+    pregnancy keeps its own data, the father's calls among them, so an import of one pregnancy
+    replaces nothing of another's, and a package of one pregnancy that lists another's maternal
+    plasma or fetus is refused.
   - The report code the EPD report quotes, its check symbol and its lookup.
   - The device label and the build identity.
   - Every review, classification and phenotype change on the clinical audit trail, a

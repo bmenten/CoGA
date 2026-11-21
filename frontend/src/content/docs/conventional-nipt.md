@@ -32,8 +32,9 @@ or another pregnancy's plasma, the plasmas are one person: link them as the same
 package (`same_individual_as`) or with **Edit members** → **Same individual** on the family page. The
 pedigree then draws the mother once, labelled with every ID. One person is never one pregnancy: each
 pregnancy's results stay its own, and the Sample QC never compares a plasma for identity.
-For it, CoGA reads ccnv's four files: the bins, the segments, the gain and loss calls, and the QC
-file. They must be one run's result: the calls state the QC file's fetal sex, fetal fraction and
+
+For each plasma, CoGA reads ccnv's four files: the bins, the segments, the gain and loss calls, and
+the QC file. They must be one run's result: the calls state the QC file's fetal sex, fetal fraction and
 sex-chromosome call, and name the same sample, or the import refuses them.
 
 | CoGA shows | From ccnv |

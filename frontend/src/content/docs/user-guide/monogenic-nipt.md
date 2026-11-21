@@ -79,6 +79,10 @@ its data, reviews and sign-out are its own.
   is common in the population, stays listed, marked *kept by the recurrence filter*. The filter narrows
   the list only; the fetal fraction and the classifications do not change. The count grows with every
   pregnancy imported, so it is also how you find candidates for the assay's artifact list.
+- **Download CSV**, above the variants, saves the list as a CSV file: every variant the list
+  classifies, in its order, with its category, reads, probabilities, de novo triage and recurrence,
+  and on every row the fetal fraction and, for a multiple pregnancy, the multiple-pregnancy note. A
+  list cut at its limit says so in the file name (*TRUNCATED*).
 - **On-target coverage**, under the variants, gives the median depth over the capture targets of the
   panel and genes you selected (every target without a selection) and how many genes have a weak
   target: a mean below 300× or a base without coverage, where a fetal variant can be missed.

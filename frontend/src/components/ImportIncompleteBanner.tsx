@@ -1,5 +1,5 @@
 import React from 'react';
-import { analysisLabel, separatelySignedAnalyses } from '../lib/familyAnalyses';
+import { analysisLabel, pregnancyOf, separatelySignedAnalyses } from '../lib/familyAnalyses';
 import { joinWithAnd } from '../lib/format';
 
 /** What a partly failed family-package import left out, as the family's metadata records it. */
@@ -100,7 +100,8 @@ export const failedDatasetWords = (flag: FamilyImportIncomplete, name: string): 
  */
 export const importedAnalysisWords = (analysis: string | null): string => {
   const label = analysisLabel(analysis);
-  return label ? ` of the ${label} data` : '';
+  if (!label) return '';
+  return pregnancyOf(analysis) !== null ? ` of the data of the ${label}` : ` of the ${label} data`;
 };
 
 const sameNames = (a: string[], b: string[]): boolean => {

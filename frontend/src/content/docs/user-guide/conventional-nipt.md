@@ -27,20 +27,21 @@ analysis cannot tell which (not so for a monozygotic twin).
 
 ### The cNIPT page
 
-- **The result** lists chromosomes 21, 18 and 13, the sex chromosomes and the segmental CNVs first, each
-  **High risk**, **Inconclusive**, **Low risk**, **No result** or **Not assessed**, with why. Another
-  autosome is listed with them when it is not low risk; every autosome is under *Every other autosome*.
-  The segmental CNVs and every autosome other than 21, 18 and 13 are marked **outside the validated
-  claim**, here, on the report page and in the signed version: screen them as findings outside the
-  claim.
-- **The maternal plasma** gives the fetal fraction the result uses (ccnv's effective one) and every other
+- **Result**, headed with the plasma's sample ID, lists chromosomes 21, 18 and 13, the sex chromosomes
+  and the segmental CNVs first, each **High risk**, **Inconclusive**, **Low risk**, **No result** or
+  **Not assessed**, with why. Another autosome is listed with them when it is not low risk; every
+  autosome is under *Every other autosome*. The segmental CNVs and every autosome other than 21, 18
+  and 13 are marked **outside the validated claim**, here, on the report page and in the signed
+  version: screen them as findings outside the claim.
+- **Maternal plasma** gives the fetal fraction the result uses (ccnv's effective one) and every other
   estimate, the fetal sex and the sex-chromosome call, the resolution (from which size segmental CNVs are
   assessed at this fetal fraction), and ccnv's warnings.
-- **The findings** list every segment ccnv called and every segment in the grey zone, each with its size,
-  log2 ratio, z-score, implied fetal fraction, origin and result. Click a region to open it in the
+- **Findings**, with their count, list every segment ccnv called and every segment in the grey zone,
+  each with its size, log2 ratio, z-score, implied fetal fraction, origin and result. Click a region to open it in the
   chromosome view.
-- **The bounds of the rule** show the values the result applied. A bound QA has not set yet is marked
-  **provisional**: provisional values are not validated.
+- **Bounds of the rule** show the values the result applied. A bound QA has not set yet is marked
+  **provisional**: provisional values are not validated. QA sets each bound in **Admin → Sequencing QC
+  thresholds**, profile *Conventional NIPT*, each change with its reason.
 
 In the genome and chromosome views the plasma's track has an axis of its own. Each segment takes the
 colour of ccnv's call (purple where ccnv calls it discordant with the fetal fraction), and dashed lines

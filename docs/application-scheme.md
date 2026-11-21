@@ -59,7 +59,8 @@ Postgres is authoritative for metadata and state, ClickHouse for variant payload
 - **ClickHouse** holds, for each assembly, the small variants (details, annotations and their
   indexes, the per-sample calls in `entries`, and per-family summaries), the structural
   variants and CNVs, and the interval tracks: coverage, a capture panel's per-target
-  coverage, copy-number segments, APCAD, PCF APCAD segments and haplotypes. The SQL file in
+  coverage, copy-number segments, APCAD, PCF APCAD segments, an embryo's APCAD segregation
+  (from the PGT pipeline's table) and haplotypes. The SQL file in
   `backend/db/schema/clickhouse/` only creates the database. `clickhouse_variant_storage.py`
   and `clickhouse_interval_tracks.py` create an assembly's tables at its first use.
 
@@ -112,8 +113,9 @@ caller. The sort keys and how storage keys are built are in
    append-only, hash-chained record ([clinical-traceability.md](clinical-traceability.md)).
 7. Mail goes out only through the mail server `SMTP_HOST` names (`services/outgoing_mail.py`):
    to the administrators about an account that waits for approval, to a user whose account an
-   administrator activates, and to the user a family is assigned to. Without `SMTP_HOST` no mail
-   goes out.
+   administrator activates, to the user a family is assigned to, and the test of the
+   account-request mail an administrator sends to the administrators
+   (`POST /api/auth/account-request-mail/test`). Without `SMTP_HOST` no mail goes out.
 
 ## Startup and background work
 

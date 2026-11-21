@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { analysisLabel } from '../lib/familyAnalyses';
+import { analysisDataWords } from '../lib/familyAnalyses';
 import { formatTimestamp } from '../lib/format';
 
 interface IntakeChange {
@@ -118,7 +118,7 @@ const CorrectedDeliveryNotice: React.FC<{ delivery: CorrectedDelivery }> = ({
   delivery,
 }) => {
   const { corrections } = delivery;
-  const label = analysisLabel(delivery.analysisType);
+  const words = analysisDataWords(delivery.analysisType) ?? 'this family';
   const pedigree = corrections.some((correction) =>
     correction.changes.some(
       (change) =>
@@ -128,9 +128,8 @@ const CorrectedDeliveryNotice: React.FC<{ delivery: CorrectedDelivery }> = ({
   return (
     <details className="status-note">
       <summary>
-        <strong>Corrected at intake.</strong> The delivered package this family
-        {label ? `\u2019s ${label} data` : ''} was imported from was corrected
-        in CoGA before its import (
+        <strong>Corrected at intake.</strong> The delivered package {words} was
+        imported from was corrected in CoGA before its import (
         {corrections.length} correction{corrections.length === 1 ? '' : 's'}
         {pedigree ? ', the pedigree, a member or a sex among them' : ''}).
       </summary>

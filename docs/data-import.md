@@ -504,7 +504,7 @@ The API behind the page:
 | --- | --- |
 | `GET /family-imports/packages` | lists the folders under `FAMILY_IMPORT_ROOTS` that can be added by hand, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) and whether its latest import was undone because the package changed (`changed_during_import`) |
 | `GET /family-imports/deliveries` | lists the packages pipelines delivered into the watched import folders, with their state ([below](#watched-import-folders)) |
-| `POST /family-imports/deliveries` | adds a package folder to the deliveries by hand: CoGA makes its package from the folder (`folder_path`, `project_id`, `analysis_type`, `family_id`; [below](#adding-a-folder-by-hand)) |
+| `POST /family-imports/deliveries` | adds a package folder to the deliveries by hand: CoGA makes its package from the folder (`folder_path`, `project_id`, `analysis_type`, `pregnancy_id`, `family_id`; [below](#adding-a-folder-by-hand)) |
 | `GET /family-imports/deliveries/{id}/package` | a delivery's package as its import would read it now, the pipeline's file, what CoGA proposed, and every correction ([below](#correcting-a-delivery)) |
 | `POST /family-imports/deliveries/{id}/revisions` | corrects a delivery's package before it is approved (`revision`, `reason`, `changes`) |
 | `POST /family-imports/deliveries/{id}/approve` | queues the import, or a dry run, of a delivery that is ready or whose family exists (`revision`, `dry_run`, `conflict_mode`, `acknowledge_warnings`) |
@@ -680,8 +680,10 @@ family changes, so the import of the package that lists the sample clears it.
   that joins a member of another analysis's package to one this package lists, also when the
   package does not name it: the link is no more this package's than the other's. The package's
   link and the family's of one pair are one link, whatever made each. A link to a member the
-  overwrite makes inactive (one neither this package nor another analysis's lists, added by
-  hand) is refused before anything is written (`package_same_individual_outside`).
+  overwrite makes inactive is refused before anything is written
+  (`package_same_individual_outside`): with another analysis held, a member the package lacks
+  that only its own analysis's record listed (a member added by hand, whom no record lists,
+  stays and may be linked); without one, any member the package lacks.
 - With another analysis held, `update` and `overwrite` keep each link of the family between the
   members that stay.
 
@@ -1078,10 +1080,10 @@ after, and its kind), the reason, who made it and when, and the whole package af
 SHA-256. The import reads the latest.
 
 - **On the page.** **Correct…** on a delivery that is ready or needs attention opens the package
-  as a form, with a reason: the project, the analysis, the region of interest, the PGT details,
-  each member's sex, parents, the member it is related to (`related_to`), role, clinical status,
-  carrier fields and HPO terms, the members added or removed, and which datasets are in the
-  import. The corrections so far are listed with it, and the package as `coga-package.json`
+  as a form, with a reason: the project, the analysis, the pregnancy of a NIPT, the region of
+  interest, the PGT details, each member's sex, parents, the member it is related to
+  (`related_to`), role, clinical status, carrier fields and HPO terms, the members added or
+  removed, and which datasets are in the import. The corrections so far are listed with it, and the package as `coga-package.json`
   (**Download coga-package.json** saves it). The other fields (assays, couples,
   `same_individual_as` and a dataset's options) change through the API, and for a folder added by
   hand also with **Edit as JSON**.
@@ -1096,15 +1098,16 @@ SHA-256. The import reads the latest.
   person saw), `reason` (plain text, at most 2,000 characters) and either `changes`, each a `path`
   and a `value` (null removes a field; a list is emptied), or `package`, the whole package as
   edited, whose changes CoGA works out field by field under the same rules. A path is
-  `["project"]`, `["analysis_type"]`, `["family", "roi"]`, `["family", "pgt"]` or one of its
-  fields, `["members", <sample ID>]` (a member added, its fields as the value, or removed with
-  null), `["members", <sample ID>, <field>]`, `["couples"]` or `["datasets", <dataset>]`.
+  `["project"]`, `["analysis_type"]`, `["pregnancy_id"]`, `["family", "roi"]`, `["family", "pgt"]`
+  or one of its fields, `["members", <sample ID>]` (a member added, its fields as the value, or
+  removed with null), `["members", <sample ID>, <field>]`, `["couples"]` or
+  `["datasets", <dataset>]`.
 
 **Which fields change:**
 
 | Fields | Rule |
 | --- | --- |
-| The laboratory's: the project, the analysis type, a member's role, clinical status, carrier fields, HPO terms, `related_to`, `same_individual_as`, assay and panel, the family's region of interest and PGT details, each dataset's entry (in or out of the import, its options, another file the package lists) | changed freely |
+| The laboratory's: the project, the analysis type, the pregnancy (`pregnancy_id`), a member's role, clinical status, carrier fields, HPO terms, `related_to`, `same_individual_as`, assay and panel, the family's region of interest and PGT details, each dataset's entry (in or out of the import, its options, another file the package lists) | changed freely |
 | Those the pipeline used: a member's sex and parents, and the couples | changed, but while a dataset the pipeline computed with them (`pipeline_used_pedigree`) is in the import, the delivery needs attention (`package_pedigree_changed`) and is not approved: leave those datasets out, or put the value back |
 | Every other field: the format, status and run, the assembly, the family ID, every sample ID, the files, the QC, the request, the reference, the notes and `extra` | the pipeline's: refused (400) |
 
@@ -1153,8 +1156,10 @@ superuser) takes:
 - a folder under the import roots;
 - the project it belongs to;
 - its analysis, the package's `analysis_type` ([coga-package.md](coga-package.md)): LR-WGS,
-  LR-AS (long-read adaptive sampling), SR-WGS (short-read WGS), PGT, Expanded Carrier Screening
-  or mNIPT;
+  LR-AS (long-read adaptive sampling), SR-WGS (short-read WGS), PGT, Expanded Carrier Screening,
+  mNIPT or cNIPT (conventional NIPT);
+- for an mNIPT or a cNIPT, the pregnancy it is of (**Pregnancy ID**, the package's
+  `pregnancy_id`), by the rule of a family ID;
 - its family ID, where it is not the folder's name. Left empty, the family ID is the folder's
   name; it is fixed once the folder is added, as a pipeline's is.
 
@@ -1723,7 +1728,8 @@ or none:
 - A manifest without `roi` leaves the family's region as it is.
 - A family that holds another analysis keeps the region it has, as it keeps a member's known
   values: a package of one of its analyses gives a region only to a family without one, and one
-  that does not resolve clears nothing. A package whose `roi` resolves to another locus than the
+  that does not resolve clears nothing (the dry run's and the delivery's warning
+  `manifest_roi_unresolved` then says the family keeps its region). A package whose `roi` resolves to another locus than the
   family's is refused before anything is written (`package_roi_conflict`), in the delivery's
   check too, and no choice approves it: correct the package's `roi`, or change the region on the
   family page first.
@@ -2052,7 +2058,8 @@ allele fraction and an uploaded APCAD. A dataset replaces the track of each samp
 a value for, and leaves the track of a sample it holds none for (a family VCF without that
 sample's column). An embryo's VCF in which its reader finds no record is read as a BED, into the
 dataset's own track. A package's coverage BED and a BED upload share the source `web`, and each
-replaces the other ([below](#6-single-file-uploads)).
+replaces the other ([below](#6-single-file-uploads)); a NIPT package's coverage BED is stored as
+its pregnancy's own (`web_p…`, [above](#several-analyses-in-one-family)) and shares none.
 
 **A file without a record.** A dataset that replaces stored data reads its file before it deletes
 anything, and fails, with the stored data as it was, when the file holds no record its loader can
@@ -2228,7 +2235,8 @@ datasets:
       FATHER1: {target_table: coverage_FATHER1.txt}
 ```
 
-The VCFs under `snv.per_sample` become one small-variant callset, source `nipt`
+The VCFs under `snv.per_sample` become one small-variant callset, the source `nipt` as the
+pregnancy's own (`nipt_p…`, [above](#several-analyses-in-one-family))
 ([family_package_nipt.py](../backend/app/services/family_package_nipt.py)):
 
 - **Order and merge.** The plasma's file goes first, whatever the manifest's order: the sample
@@ -2248,9 +2256,10 @@ The VCFs under `snv.per_sample` become one small-variant callset, source `nipt`
   They are kept with the call ([database.md](database.md), `calls.filters` and `calls.metrics`)
   for the NIPT quality filter and the de novo triage.
 - **Settings that do not apply.** `source_format`, `exclude_filters` and `annotation_tsv`: the
-  callset is always `nipt`, and each file's annotation is read from its own records. Nor does
-  `vcf_sample` choose a column: each file's one column is bound to its entry's sample (below).
-  With `update`, the dataset is skipped when the family already holds `nipt` calls.
+  callset is always the pregnancy's `nipt_p…`, and each file's annotation is read from its own
+  records. Nor does `vcf_sample` choose a column: each file's one column is bound to its entry's
+  sample (below). With `update`, the dataset is skipped when the family already holds calls of
+  that pregnancy's callset; another pregnancy's calls do not count.
 - **The column is the entry's sample.** Each file's one column is read as its entry's sample
   whatever it is named, on purpose: the laboratory maps its genetically verified tubes to the
   files they are in, and a file and its column can be named after another tube. A column named
@@ -2342,8 +2351,10 @@ verified, which silences the warning.
 
 **Replacing.** Every sample's files are read and checked first, so a later sample's refused file
 fails the dataset with every sample's data as it was. An overwrite replaces each sample's ccnv
-tracks and the family's ccnv calls. An update leaves the dataset as it is when the family holds ccnv
-bins of one of its samples or ccnv calls, since the calls of every sample are replaced together.
+tracks and the family's ccnv calls, both stored under the pregnancy's own source (`ccnv_p…`,
+[above](#several-analyses-in-one-family)). An update leaves the dataset as it is when the family
+holds that pregnancy's ccnv bins of one of its samples or its ccnv calls, since the calls of every
+sample are replaced together; another pregnancy's ccnv output does not count.
 
 ### Per-sample callsets of a long-read couple
 

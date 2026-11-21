@@ -619,6 +619,7 @@ describe('the analysis each mark is of', () => {
     expect(failedDatasetWords(mixed, 'snv')).toBe('snv (long-read WGS, an upload)');
     expect(importUnfinishedFromMetadata(SEVERAL)[0].analysisType).toBe('short_read_wgs');
     expect(importedAnalysisWords('long_read_wgs')).toBe(' of the long-read WGS data');
+    expect(importedAnalysisWords('monogenic_nipt:ZW1')).toBe(' of the data of the monogenic NIPT of pregnancy ZW1');
     expect(importedAnalysisWords('unspecified')).toBe('');
     expect(importedAnalysisWords(null)).toBe('');
   });
