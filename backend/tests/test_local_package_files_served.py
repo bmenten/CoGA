@@ -71,8 +71,7 @@ def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (root / "families").mkdir(parents=True)
     _write(root / "share" / "PKG1", PACKAGE_FILES)
     _write(root / "share" / "PKG2", OTHER_PACKAGE_FILES)
-    for module in (cram, signal_tracks):
-        monkeypatch.setattr(module, "DATA_DIR", root)
+    monkeypatch.setattr(cram, "DATA_DIR", root)
     monkeypatch.setattr(settings, "family_import_roots", [str(root / "families"), str(root / "share")])
     monkeypatch.setattr(settings, "secret_key", "k" * 64)
     return root
@@ -576,6 +575,19 @@ async def test_a_track_gone_from_its_package_folder_is_not_taken_from_the_famili
     session = _Session({"S1": {"hificnv": {DEPTH: "cnv/S1.copied.bw"}}}, _package(data))
 
     assert (await _track(session))[1:] == (404, 404)
+
+
+@pytest.mark.asyncio
+async def test_a_track_whose_analysis_has_no_package_folder_is_not_taken_from_the_families_folder(
+    data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The family's record of the analysis the track names holds no folder: the track is missing,
+    # never the family's folder's file of the same name, which may be another analysis's.
+    _write(data / "families" / "F1", {"cnv/S1.depth.bw": "another analysis's depth of S1"})
+    _members(monkeypatch, "F1", "S1")
+    session = _Session({"S1": {"hificnv": {DEPTH: "cnv/S1.depth.bw"}}}, None)
+
+    assert await _track(session) == ([], 404, 404)
 
 
 async def _report(session: Any) -> str | int:

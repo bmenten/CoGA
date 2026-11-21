@@ -1,12 +1,13 @@
 """The app as the family-folder lookup tests ask it: a viewer who may read every family.
 
 The alignment, signal-track and QC-report lookups (``test_alignment_lookup_family_folders.py``,
-``test_signal_track_lookup_family_folders.py``, ``test_qc_report_lookup_package_folder.py``)
+``test_signal_track_lookup_package_folder.py``, ``test_qc_report_lookup_package_folder.py``)
 and the URLs they hand out (``test_encoded_id_urls.py``) are asked through the app, ``httpx``
 on the ASGI app, which decodes a path once as uvicorn does. What they check is which file a
 request reaches, so the family check lets the viewer read every family the test lists, the
-database holds no rows (no sample records where its import put a file, so the lookups read the
-family's folders), and nothing is written to the audit table.
+database holds no rows (no sample records where its import put a file, so the alignment lookup
+reads the family's folders; a test gives the recorded signal tracks and QC reports itself), and
+nothing is written to the audit table.
 """
 
 from __future__ import annotations
